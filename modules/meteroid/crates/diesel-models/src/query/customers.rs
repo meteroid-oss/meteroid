@@ -350,7 +350,7 @@ impl CustomerRow {
     /// server-side lifecycle/country filtering and sort-by-MRR. The lifecycle
     /// `CASE` mirrors `common_domain::lifecycle::derive_lifecycle_state`; the signal
     /// `EXISTS` predicates mirror `CustomerLifecycleSignalRow::fetch_for_customer`.
-    /// MRR sums `subscription.mrr_cents` over active (`ACTIVE`/`PENDING_CHARGE`) subs.
+    /// MRR sums `subscription.mrr_cents` over active subs.
     pub async fn list_with_metrics(
         conn: &mut PgConn,
         param_tenant_id: TenantId,

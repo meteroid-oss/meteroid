@@ -96,11 +96,6 @@ impl SubscriptionFeeInterface for SubscriptionAddOn {
     fn effective_to(&self) -> Option<NaiveDate> {
         self.effective_to
     }
-
-    #[inline]
-    fn added_by_amendment(&self) -> bool {
-        self.added_by_amendment
-    }
 }
 
 impl TryInto<SubscriptionAddOn> for SubscriptionAddOnRow {

@@ -55,7 +55,6 @@ use meteroid_store::repositories::subscriptions::{
 use meteroid_store::repositories::{CreditNoteInterface, InvoiceInterface, PlansInterface};
 use meteroid_store::services::sandbox_replay::SandboxReplayInterface;
 use meteroid_store::services::{InvoiceDelivery, IssueAt};
-use meteroid_store::services::{facts_shadow, timeline_shadow};
 use rust_decimal::Decimal;
 
 use super::reference::{
@@ -1288,15 +1287,6 @@ impl Engine {
     /// reference owes: exactly, or within what voids forgave (R-079, R-080, R-096).
     pub async fn compare(&self, model: &Model) -> Vec<Diff> {
         let mut diffs = self.pending.clone();
-        // The shadows' differences are the case's, reported and shrunk like the others.
-        for (kind, found) in [
-            ("timeline shadow", timeline_shadow::take_mismatches()),
-            ("facts shadow", facts_shadow::take_mismatches()),
-        ] {
-            if !found.is_empty() {
-                diffs.push((kind.to_owned(), found.join("; ")));
-            }
-        }
         let Some(sub) = self.sub else {
             return diffs;
         };

@@ -1,4 +1,4 @@
-//! The store's fees as `evaluate` prices them: `compute_component`'s pricing without its reads.
+//! The store's fees as `evaluate` prices them, without reading anything.
 //! Prices, units, conversions and pins arrive resolved in [`StoreFee`], metering in the reads.
 
 use std::collections::{BTreeMap, HashMap};
@@ -162,7 +162,7 @@ pub struct Resolved<'a> {
     pub pinned: BTreeMap<BTreeMap<String, String>, Decimal>,
 }
 
-/// The fee `row` bills, refused where `compute_component` would fail on it whatever the period:
+/// The fee `row` bills, refused where it cannot be priced whatever the period:
 /// a price out of range, a pack granting a fraction of a minor unit, a metric not loaded.
 pub fn fee_of<T: SubscriptionFeeInterface>(
     row: &T,
@@ -202,7 +202,7 @@ pub fn fee_of<T: SubscriptionFeeInterface>(
 }
 
 /// The unit prices pinned on `draft`'s usage lines of `row`, by group of dimensions, as
-/// `compute_component` reads them: a pin never crosses from money to credits or between units.
+/// the draft shows them: a pin never crosses from money to credits or between units.
 pub fn pinned_prices<T: SubscriptionFeeInterface>(
     row: &T,
     draft: &[LineItem],
@@ -248,7 +248,7 @@ fn fixed(fee: &StoreFee, lineage: &Fee, seats: Option<u64>) -> Result<Option<Rat
     let instances = |quantity: u32| Decimal::from(quantity) * fee.instances;
     let (kind, (quantity, total, unit_price), prorated) = match &fee.fee {
         SubscriptionFee::Rate { rate } => (ChargeKind::Fee, whole(rate, fee.instances)?, true),
-        // Billed whole once, never prorated (`process_fee_records`).
+        // Billed whole once, never prorated.
         SubscriptionFee::OneTime { rate, quantity } => {
             (ChargeKind::Fee, whole(rate, instances(*quantity))?, false)
         }
@@ -452,11 +452,11 @@ impl Pricer<StoreFee> for StorePricer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::UsagePeriod;
     use crate::domain::credit_units::FeeCreditUnit;
     use crate::domain::enums::BillingMetricAggregateEnum;
     use crate::domain::price_components::{CreditExpiry, MatrixDimension, MatrixRow};
     use crate::domain::{LineItemKind, TierRow, UsagePricingModel};
-    use crate::domain::{Period, UsagePeriod};
     use crate::services::clients::usage::{GroupedUsageData, UsageData};
     use crate::services::invoice_lines::component::{
         capacity_overage_lines, convert_usage_units, usage_lines as store_usage_lines,
@@ -568,7 +568,7 @@ mod tests {
         StorePricer.usage(&segment, &window(), reads).unwrap()
     }
 
-    /// The grouped usage `compute_component` prices, from the same reads.
+    /// Grouped usage, as metering serves it.
     fn grouped(usage: &[(&[(&str, &str)], Decimal)]) -> Vec<GroupedUsageData> {
         usage
             .iter()
@@ -580,13 +580,6 @@ mod tests {
                     .collect(),
             })
             .collect()
-    }
-
-    fn january() -> Period {
-        Period {
-            start: d(2026, 1, 1),
-            end: d(2026, 2, 1),
-        }
     }
 
     /// The share of January from the 11th, as `evaluate` takes it of a prorated rate.
@@ -725,15 +718,7 @@ mod tests {
 
         let usage: &[(&[(&str, &str)], Decimal)] = &[(&[("region", "eu")], dec!(1_500))];
         let overage = only(usage_of(&fee, &reads_of(metric, usage)));
-        let today = capacity_overage_lines(
-            metric,
-            dec!(1_000),
-            &dec!(0.5),
-            &grouped(usage),
-            &january(),
-            2,
-        )
-        .unwrap();
+        let today = capacity_overage_lines(dec!(1_000), &dec!(0.5), &grouped(usage), 2).unwrap();
         assert_eq!(overage.amount, today[0].total as i64);
         assert_eq!(overage.amount, 25_000);
         assert_eq!(
@@ -907,9 +892,7 @@ mod tests {
         let rates = usage_of(fee, &reads_of(*metric_id, usage));
         let today = store_usage_lines(
             model,
-            *metric_id,
             &grouped(usage),
-            &january(),
             fee.usage_denomination().1,
             |dimensions| fee.pinned.get(&sorted(dimensions)).copied(),
         )
@@ -918,10 +901,7 @@ mod tests {
             .iter()
             .map(|line| {
                 (
-                    line.group_by_dimensions
-                        .as_ref()
-                        .map(sorted)
-                        .unwrap_or_default(),
+                    line.dimensions.as_ref().map(sorted).unwrap_or_default(),
                     line.total as i64,
                     line.quantity,
                 )
@@ -1171,12 +1151,11 @@ mod tests {
                     },
                 },
             );
-            let today: i64 =
-                store_usage_lines(&model, metric.id, &converted.data, &january(), 2, |_| None)
-                    .unwrap()
-                    .iter()
-                    .map(|line| line.total as i64)
-                    .sum();
+            let today: i64 = store_usage_lines(&model, &converted.data, 2, |_| None)
+                .unwrap()
+                .iter()
+                .map(|line| line.total as i64)
+                .sum();
             assert_eq!(priced, expected);
             assert_eq!(priced, today);
         }
@@ -1191,7 +1170,7 @@ mod tests {
     }
 
     #[test]
-    fn fee_of_refuses_what_compute_component_fails_on() {
+    fn fee_of_refuses_what_cannot_be_priced() {
         let add_on = |fee: SubscriptionFee| crate::domain::SubscriptionAddOn {
             id: SubscriptionAddOnId::new(),
             subscription_id: common_domain::ids::SubscriptionId::new(),

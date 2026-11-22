@@ -67,7 +67,6 @@ fn build_store(conn_str: &str, admin_organization_id: Option<OrganizationId>) ->
         invite_ttl_days: 7,
         mfa_issuer: "Meteroid".to_string(),
         portal_legacy_tokens_until: None,
-        billing_release: Default::default(),
     })
     .expect("store")
 }

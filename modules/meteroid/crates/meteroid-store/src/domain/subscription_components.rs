@@ -34,11 +34,6 @@ pub trait SubscriptionFeeInterface {
     fn instance_quantity(&self) -> rust_decimal::Decimal {
         rust_decimal::Decimal::ONE
     }
-    /// True when added by a manual amendment. Drives one-time-fee billing on the
-    /// effective period (see `process_fee_records`). Defaults to false.
-    fn added_by_amendment(&self) -> bool {
-        false
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -119,11 +114,6 @@ impl SubscriptionFeeInterface for SubscriptionComponent {
     #[inline]
     fn effective_to(&self) -> Option<chrono::NaiveDate> {
         self.effective_to
-    }
-
-    #[inline]
-    fn added_by_amendment(&self) -> bool {
-        self.added_by_amendment
     }
 }
 
@@ -271,7 +261,7 @@ pub enum SubscriptionFee {
         /// Only on included credit (zero price).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         rollover: Option<crate::domain::price_components::CreditRollover>,
-        /// Billed on one invoice only; see `process_fee_records`.
+        /// Granted once per subscription (R16).
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         once: bool,
     },

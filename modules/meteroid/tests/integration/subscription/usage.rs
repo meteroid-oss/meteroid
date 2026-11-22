@@ -130,10 +130,8 @@ async fn test_usage_invoice_includes_arrear_charges() {
 /// Cancelling a subscription with arrear usage must produce a final invoice
 /// containing the usage charges for the last period.
 ///
-/// Bug: `compute_component` (component.rs) returns early when `advance = None`
-/// (terminated subscriptions have `current_period_end = None` → `is_completed = true`
-/// → `advance = None`), skipping arrear lines entirely. The final invoice is never
-/// created, so usage for the last period is lost.
+/// A terminated subscription has no advance period left: its arrear lines still bill, or the
+/// final invoice is never created and the last period's usage is lost.
 ///
 /// Timeline:
 ///   2024-01-01  subscription start, invoice #1 (rate only)

@@ -348,7 +348,7 @@ async fn resolve_plan_change(
     }
 
     let mut facts = ctx.facts();
-    // The rows `process_apply_plan_change` writes, ids aside.
+    // The rows the plan change writes when applied, ids aside.
     for mapping in mappings {
         let internal = match mapping {
             ComponentMapping::Matched {
@@ -599,7 +599,7 @@ async fn resolve_amendment(
     }
 
     let mut facts = ctx.facts();
-    // The rows `process_apply_amendment` writes, ids aside.
+    // The rows the amendment writes when applied, ids aside.
     facts.closes_components = component_close.to_vec();
     facts.closes_add_ons = addon_close.to_vec();
     for c in component_insert {

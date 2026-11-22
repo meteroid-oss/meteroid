@@ -87,10 +87,6 @@ workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
 rstest = { workspace = true }
 
 [features]
-# Checks the timeline's windows against the invoices, in tests only.
-timeline-shadow = []
-# Checks the charges evaluate puts on each invoice, and the state it derives, in tests only.
-facts-shadow = []
 # Panics injected into a subscription's steps, in debug test builds only.
 test-faults = []
 

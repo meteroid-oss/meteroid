@@ -38,7 +38,7 @@ meteroid-mailer = { workspace = true }
 meteroid-middleware = { workspace = true, features = ["server"] }
 meteroid-oauth = { workspace = true }
 meteroid-seeder = { workspace = true }
-meteroid-store = { workspace = true, features = ["timeline-shadow", "facts-shadow", "test-faults"] }
+meteroid-store = { workspace = true, features = ["test-faults"] }
 metering = { workspace = true, features = ["clickhouse", "kafka"] }
 metering-grpc = { workspace = true }
 metering-server = { workspace = true }

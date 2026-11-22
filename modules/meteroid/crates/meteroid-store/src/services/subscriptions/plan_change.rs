@@ -676,7 +676,7 @@ impl Services {
             let actor = &actor;
             let component_params = &component_params;
             async move {
-                let mut prepared = services
+                let prepared = services
                     .prepare_plan_change_tx(
                         conn,
                         subscription_id,
@@ -686,7 +686,6 @@ impl Services {
                         change_date,
                     )
                     .await?;
-                prepared.hold_documents = services.is_held(conn, tenant_id).await?;
                 refuse_while_a_paid_change_is_pending(conn, tenant_id, subscription_id, None)
                     .await?;
                 refuse_after_a_cancellation(conn, tenant_id, subscription_id, change_date).await?;
@@ -706,7 +705,7 @@ impl Services {
                 let adjustment_invoice_id = adjustment.map(|invoice| invoice.id);
 
                 // Free trial: create first invoice at new plan rate (optimistic)
-                let first_invoice_id = if is_free_trial && !prepared.hold_documents {
+                let first_invoice_id = if is_free_trial {
                     use crate::services::InvoiceBillingMode;
 
                     let invoice = services
@@ -774,17 +773,6 @@ impl Services {
             )
             .await?;
         if prepared.is_free_trial() {
-            return Ok((None, notes));
-        }
-        if prepared.hold_documents {
-            crate::services::lifecycle::release::leave_to_controller(
-                conn,
-                subscription.tenant_id,
-                subscription.id,
-                change_date,
-                diesel_models::enums::SubscriptionChangeKindEnum::PlanChange,
-            )
-            .await?;
             return Ok((None, notes));
         }
         let bills = self
@@ -991,7 +979,6 @@ impl Services {
             new_component_ids,
             carried,
             settle_outgoing: true,
-            hold_documents: false,
             preview,
             period,
             change_date,
@@ -1195,8 +1182,7 @@ impl Services {
         .await?;
 
         // The old plan's give-backs read the facts just written.
-        // Held, the give-back is the controller's, on release: the Switch below still marks it.
-        let credit_note_ids = if settles_outgoing && !prepared.hold_documents {
+        let credit_note_ids = if settles_outgoing {
             self.settle_outgoing_components_tx(conn, actor, prepared, change_date)
                 .await?
         } else {
@@ -1290,13 +1276,12 @@ impl Services {
 
         // The plan, its cadence and the period it cuts, the MRR and the outbox: the writer's,
         // from the facts just written, read at the change's instant.
-        self.derive_state_unless_held_tx(
+        self.derive_state_tx(
             conn,
             actor,
             tenant_id,
             subscription_id,
             crate::services::evaluate::bill::midnight(change_date),
-            prepared.hold_documents,
         )
         .await?;
 
@@ -1320,9 +1305,6 @@ pub struct PreparedPlanChange {
     pub(crate) carried: HashMap<PriceComponentId, SubscriptionPriceComponentId>,
     /// False when an earlier release already netted the old plan's credits on the adjustment.
     settle_outgoing: bool,
-    /// The tenant's billing is held (R-123): the change writes its facts and state, its notes and
-    /// adjustment invoice left to the controller.
-    hold_documents: bool,
     preview: PlanChangePreview,
     /// The period the change lands in and the share of it left from its day.
     period: (NaiveDate, NaiveDate, DayFraction),

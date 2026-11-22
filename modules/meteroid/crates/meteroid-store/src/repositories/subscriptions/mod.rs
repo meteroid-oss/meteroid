@@ -1092,33 +1092,6 @@ impl Store {
     }
 }
 
-// fn get_event_priority(event_type:  ScheduledEventTypeEnum) -> i32 {
-//     match event_type {
-//         // Highest priority - must happen before other events
-//         ScheduledEventTypeEnum::CancelSubscription => 100,
-//         ScheduledEventTypeEnum::SuspendForNonPayment => 90,
-//
-//         // Payment events - high priority
-//         ScheduledEventTypeEnum::AttemptPayment => 80,
-//         ScheduledEventTypeEnum::RetryPayment => 75,
-//         ScheduledEventTypeEnum::FinalizeInvoice => 70,
-//
-//         // Plan changes - medium priority
-//         ScheduledEventTypeEnum::ApplyUpgrade => 60, // equal priority => arbitration
-//         ScheduledEventTypeEnum::ApplyDowngrade => 60,
-//
-//         // Subscription management - medium priority
-//         ScheduledEventTypeEnum::PauseSubscription => 50,
-//         ScheduledEventTypeEnum::ResumeSubscription => 50,
-//
-//         // Notifications and other low-impact events
-//         ScheduledEventTypeEnum::SendPaymentReminder => 20,
-//         ScheduledEventTypeEnum::ApplyLatePaymentFee => 30,
-//         ScheduledEventTypeEnum::MoveToDelinquent => 40,
-//
-//     }
-// }
-
 /// The prices `price_ids` name, each as its lineage prices today (R-097), and the products.
 pub(crate) async fn fetch_prices_and_products(
     conn: &mut PgConn,

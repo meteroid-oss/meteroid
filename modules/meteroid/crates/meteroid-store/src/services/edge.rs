@@ -92,25 +92,6 @@ impl ServicesEdge {
         self.services.store.get_conn().await
     }
 
-    pub async fn compute_invoice(
-        &self,
-        invoice_date: &NaiveDate,
-        subscription_details: &SubscriptionDetails,
-        prepaid_amount: Option<u64>,
-        invoice_type: crate::domain::enums::InvoiceType,
-    ) -> StoreResult<ComputedInvoiceContent> {
-        self.services
-            .compute_invoice(
-                &mut self.get_conn().await?,
-                invoice_date,
-                subscription_details,
-                prepaid_amount,
-                None,
-                invoice_type,
-            )
-            .await
-    }
-
     /// The invoice of the stored subscription's period starting `invoice_date`, from its facts.
     pub async fn compute_period_invoice(
         &self,

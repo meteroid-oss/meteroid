@@ -11,7 +11,7 @@ use crate::domain::{
 use crate::errors::StoreError;
 use crate::hooks::CreditControlHooks;
 use crate::services::subscriptions::insert::context::ResolvedCustomComponents;
-use crate::store::{PgConn, Store};
+use crate::store::PgConn;
 use chrono::NaiveDate;
 use common_domain::ids::{ConnectorId, ProductFamilyId};
 use common_utils::decimals::ToSubunit;
@@ -23,7 +23,6 @@ use std::collections::HashMap;
 use crate::domain::add_ons::AddOn;
 use crate::domain::coupons::{Coupon, CouponCreditRedemption, CouponDiscount};
 use crate::domain::outbox_event::{OutboxEvent, SubscriptionEvent, SubscriptionUpdateType};
-use crate::repositories::historical_rates::HistoricalRatesInterface;
 use diesel_models::DbResult;
 use diesel_models::applied_coupons::{AppliedCouponRow, AppliedCouponRowNew};
 use diesel_models::coupon_plans::CouponPlanRow;
@@ -963,60 +962,6 @@ async fn validate_coupons_at(
     }
 
     Ok(())
-}
-
-// TODO check with the other calculate_coupons_discount
-#[allow(dead_code)]
-pub async fn calculate_coupons_discount(
-    store: &Store,
-    coupons: &[Coupon],
-    subscription_currency: &String,
-    amount: Decimal,
-) -> StoreResult<Decimal> {
-    if (amount == Decimal::ZERO) || coupons.is_empty() {
-        return Ok(amount);
-    }
-
-    let mut total = amount;
-
-    for coupon in coupons {
-        if !coupon.is_infinite() {
-            continue;
-        }
-
-        match &coupon.discount {
-            CouponDiscount::Percentage(percentage) => {
-                total = total * percentage / Decimal::new(100, 0);
-            }
-            CouponDiscount::Fixed {
-                currency,
-                amount: fixed_amount,
-            } => {
-                let discount_amount = if currency == subscription_currency {
-                    *fixed_amount
-                } else {
-                    let rate = store
-                        .get_historical_rate(
-                            currency,
-                            subscription_currency,
-                            common_clock::now().date_naive(),
-                        )
-                        .await?
-                        .ok_or(StoreError::ValueNotFound(format!(
-                            "historical rate from {currency} to {subscription_currency}"
-                        )))?
-                        .rate;
-
-                    fixed_amount * Decimal::from_f64(rate).unwrap_or(Decimal::ZERO)
-                };
-
-                total = (total - discount_amount).max(Decimal::ZERO);
-            }
-            CouponDiscount::Credit { .. } => {}
-        }
-    }
-
-    Ok(total)
 }
 
 pub fn extract_billing_period(

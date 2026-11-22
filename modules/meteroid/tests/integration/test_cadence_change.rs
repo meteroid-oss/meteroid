@@ -4801,7 +4801,6 @@ async fn a_cancelled_year_amended_once_is_billed_by_its_own_documents() {
     )
     .await;
     env.process_cycles().await;
-    let _ = meteroid_store::services::facts_shadow::take_mismatches();
 
     env.set_now(chrono::Utc.with_ymd_and_hms(2025, 1, 13, 15, 0, 0).unwrap());
     env.services()
@@ -4826,11 +4825,6 @@ async fn a_cancelled_year_amended_once_is_billed_by_its_own_documents() {
             "note on Adjustment 2025-01-11: Platform Fee (adjustment) 2025-01-11..2026-01-08 -11191",
         ]
     );
-    let unbilled: Vec<String> = meteroid_store::services::facts_shadow::take_mismatches()
-        .into_iter()
-        .filter(|found| found.contains("unbilled"))
-        .collect();
-    assert_eq!(unbilled, Vec::<String>::new(), "no charge left unbilled");
 }
 
 /// Yearly 29.00 in arrears from Jan 26 2025, renewed Jan 26 2026, changed at 15:00 on Jan 27 to
@@ -4866,7 +4860,6 @@ async fn a_monthly_stub_after_a_yearly_renewal_prices_over_its_grid_period() {
     env.set_now(chrono::Utc.with_ymd_and_hms(2026, 1, 27, 15, 0, 0).unwrap());
     change_now(&env, sub_id, monthly, day(2026, 1, 27)).await;
     env.process_cycles().await;
-    let _ = meteroid_store::services::facts_shadow::take_mismatches();
 
     env.set_now(chrono::Utc.with_ymd_and_hms(2026, 1, 30, 15, 0, 0).unwrap());
     env.services()
@@ -4889,11 +4882,6 @@ async fn a_monthly_stub_after_a_yearly_renewal_prices_over_its_grid_period() {
             "Recurring 2026-01-30: Arrears Fee 2026-01-27..2026-01-30 97",
             "Recurring 2026-01-30: Arrears Fee 2026-01-26..2026-01-27 8",
         ]
-    );
-    assert_eq!(
-        meteroid_store::services::facts_shadow::take_mismatches(),
-        Vec::<String>::new(),
-        "the facts and the legacy path agree, or differ as a rule says"
     );
 }
 
@@ -4921,7 +4909,6 @@ async fn a_cadence_change_on_the_start_day_renews_on_its_grid() {
     env.set_now(chrono::Utc.with_ymd_and_hms(2025, 1, 21, 15, 0, 0).unwrap());
     change_now(&env, sub_id, monthly, day(2025, 1, 21)).await;
     env.process_cycles().await;
-    let _ = meteroid_store::services::timeline_shadow::take_mismatches();
     env.set_now(chrono::Utc.with_ymd_and_hms(2025, 2, 21, 0, 30, 0).unwrap());
     env.process_cycles().await;
     assert_eq!(
@@ -4930,11 +4917,6 @@ async fn a_cadence_change_on_the_start_day_renews_on_its_grid() {
             "Adjustment 2025-01-21: Platform Fee 2025-01-21..2025-02-21 50000",
             "Recurring 2025-02-21: Platform Fee 2025-02-21..2025-03-21 50000",
         ]
-    );
-    assert_eq!(
-        meteroid_store::services::timeline_shadow::take_mismatches(),
-        Vec::<String>::new(),
-        "every period on its grid"
     );
 }
 
@@ -4974,7 +4956,6 @@ async fn a_cancellation_after_a_cadence_change_bills_on_the_changes_grid() {
     env.process_cycles().await;
     env.set_now(chrono::Utc.with_ymd_and_hms(2025, 2, 25, 0, 30, 0).unwrap());
     env.process_cycles().await;
-    let _ = meteroid_store::services::timeline_shadow::take_mismatches();
     set_usage(&usage, day(2025, 2, 25), day(2025, 3, 3), 4);
 
     env.set_now(chrono::Utc.with_ymd_and_hms(2025, 3, 3, 15, 0, 0).unwrap());
@@ -5000,11 +4981,6 @@ async fn a_cancellation_after_a_cadence_change_bills_on_the_changes_grid() {
             "note on Recurring 2025-02-25: Platform Fee 2025-02-25..2026-02-25 -12142",
             "Recurring 2025-03-03: Bandwidth 2025-02-25..2025-03-03 40",
         ]
-    );
-    assert_eq!(
-        meteroid_store::services::timeline_shadow::take_mismatches(),
-        Vec::<String>::new(),
-        "every period on its grid"
     );
 }
 
@@ -5197,7 +5173,6 @@ async fn a_yearly_fee_after_a_stub_bills_its_first_full_year() {
     env.process_cycles().await;
     env.set_now(at(2026, 4, 11));
     env.process_cycles().await;
-    let _ = meteroid_store::services::facts_shadow::take_mismatches();
     env.set_now(at(2027, 4, 11));
     env.process_cycles().await;
     assert_eq!(
@@ -5210,11 +5185,6 @@ async fn a_yearly_fee_after_a_stub_bills_its_first_full_year() {
             "Recurring 2026-04-11: Arrears Fee 2026-03-11..2026-03-16 8065",
             "Recurring 2027-04-11: Arrears Fee 2026-04-11..2027-04-11 4999",
         ]
-    );
-    assert_eq!(
-        meteroid_store::services::facts_shadow::take_mismatches(),
-        Vec::<String>::new(),
-        "the facts and the legacy path agree, or differ as a rule says"
     );
 }
 

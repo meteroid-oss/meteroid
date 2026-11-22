@@ -304,46 +304,6 @@ async fn bills_new_cadence_on(
     Ok(false)
 }
 
-/// A plan switch that changed the cadence, in months, with the origin recorded for it.
-#[cfg(feature = "timeline-shadow")]
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct CadenceSwitch {
-    pub on: NaiveDate,
-    pub before: u32,
-    pub after: u32,
-    pub recorded: Option<NaiveDate>,
-}
-
-/// The plan switches up to `up_to` that changed the cadence, earliest first.
-#[cfg(feature = "timeline-shadow")]
-pub(crate) async fn cadence_switches(
-    conn: &mut PgConn,
-    subscription_id: SubscriptionId,
-    up_to: NaiveDate,
-) -> StoreResult<Vec<CadenceSwitch>> {
-    let mut switches = Vec::new();
-    for on in SubscriptionEventRow::list_plan_switch_dates(conn, subscription_id, up_to)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?
-        .into_iter()
-        .rev()
-    {
-        let Some((before, after)) = cadences_around(conn, subscription_id, on).await? else {
-            continue;
-        };
-        let recorded = SubscriptionEventRow::cadence_origin(conn, subscription_id, on)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-        switches.push(CadenceSwitch {
-            on,
-            before,
-            after,
-            recorded,
-        });
-    }
-    Ok(switches)
-}
-
 /// The shortest cadence of the components the switch on `on` opened, in months, when it differs
 /// from the shortest of those it closed.
 async fn new_cadence(

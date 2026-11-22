@@ -15,10 +15,13 @@ use common_utils::decimals::ToSubunit;
 use error_stack::Report;
 use rust_decimal::Decimal;
 
-use super::bill::{Order, OrderKey, lineages_of, midnight, render, row_of};
+use super::bill::{
+    Order, OrderKey, as_written, evaluated_at, lineages_of, midnight, nominals, render, row_of,
+};
 use super::change::{Change, GiveBack, change_documents, credit_context_of};
-use super::load::{LoadedFacts, Overlay, facts_of_details, load_facts_with};
+use super::load::{LoadedFacts, Overlay, facts_of_details, load_facts_on_rows, load_facts_with};
 use super::pricer::StorePricer;
+use super::usage::read_usage;
 use crate::StoreResult;
 use crate::constants::Currencies;
 use crate::domain::enums::InvoiceType;
@@ -597,6 +600,87 @@ impl Services {
                 prepaid_amount: None,
                 invoice_id: None,
                 true_up: None,
+                reopened: Box::default(),
+                span: BilledSpan::of(&InvoiceType::Recurring),
+            };
+            let cover = CreditUnitCover::Estimate { invoice_id: None };
+            self.cover_credit_unit_lines_on(conn, cover, &mut [priced.cover_target(details)], None)
+                .await?;
+            self.finish_invoice_content(conn, details, priced, common_clock::now(), None)
+                .await
+        })
+        .await
+    }
+
+    /// The stored subscription's recurring invoice of `period_start` billed on the rows of
+    /// `details` instead of its own (`load_facts_on_rows`): every charge of the period with its
+    /// usage, reconciled against no issued invoice, the minimum trued up as on `details`.
+    pub(in crate::services) async fn preview_period_invoice_on_rows(
+        &self,
+        conn: &mut PgConn,
+        details: &SubscriptionDetails,
+        period_start: NaiveDate,
+    ) -> StoreResult<ComputedInvoiceContent> {
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
+            let sub = &details.subscription;
+            let currency = Currencies::resolve_currency(&sub.currency).ok_or_else(|| {
+                Report::new(StoreError::ValueNotFound(format!(
+                    "Currency {} not found",
+                    sub.currency
+                )))
+            })?;
+            let mut loaded = load_facts_on_rows(conn, details, period_start).await?;
+            let now = evaluated_at(&loaded.facts, period_start);
+            as_written(&mut loaded.facts, now);
+            let slot = DocumentSlot::Recurring { period_start };
+            let planned =
+                evaluate(&loaded.facts, now, None, &StorePricer).map_err(pricing_error)?;
+            let needs: Vec<_> = planned
+                .usage_needed
+                .iter()
+                .filter(|need| need.document == slot && need.read.window.until <= now)
+                .cloned()
+                .collect();
+            let reads = read_usage(self.usage_client.as_ref(), &loaded, &needs).await?;
+            let evaluation =
+                evaluate(&loaded.facts, now, Some(&reads), &StorePricer).map_err(pricing_error)?;
+            let charges: Vec<&Charge> = evaluation
+                .charges
+                .iter()
+                .filter(|charge| charge.document == slot && !charge.is_commitment())
+                .collect();
+            let to_bill: Vec<(ChargeKey, i64)> = keys_in(&charges)
+                .into_iter()
+                .map(|key| {
+                    let amount = charges
+                        .iter()
+                        .filter(|charge| charge.key == key)
+                        .map(|charge| charge.amount)
+                        .sum();
+                    (key, amount)
+                })
+                .collect();
+            let lines = rendered_lines(&loaded, details, &charges, &to_bill, currency.precision)?;
+            let nominals = nominals(details, &loaded.facts, &planned, currency.precision);
+            let true_up = crate::services::invoice_lines::minimum::load_period_true_up_priced(
+                conn,
+                details,
+                period_start,
+                sub.cycle_index.unwrap_or(0),
+                None,
+                &nominals,
+            )
+            .await?;
+            let mut priced = PricedLines {
+                lines,
+                invoice_date: period_start,
+                currency_precision: currency.precision,
+                tax_inclusive: sub.tax_inclusive,
+                invoice_type: InvoiceType::Recurring,
+                prepaid_amount: None,
+                invoice_id: None,
+                true_up,
                 reopened: Box::default(),
                 span: BilledSpan::of(&InvoiceType::Recurring),
             };

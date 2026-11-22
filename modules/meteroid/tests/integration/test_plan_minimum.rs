@@ -24,13 +24,12 @@ use std::sync::Arc;
 
 // Extra imports used by the tax / proration / trial regression tests below.
 use common_domain::country::CountryCode;
-use common_domain::ids::{BaseId, CustomerId};
+use common_domain::ids::{BaseId, CustomerId, PlanVersionId, PriceComponentId, SubscriptionId};
 use meteroid_store::domain::enums::TaxResolverEnum;
 use meteroid_store::domain::plan_minimums::MinimumScope;
-use meteroid_store::domain::{
-    Address, InvoicingEntityPatch, LineItemKind, SubscriptionMinimum, SubscriptionStatusEnum,
-};
+use meteroid_store::domain::{Address, InvoicingEntityPatch, LineItemKind, SubscriptionDetails};
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
+use meteroid_store::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
 use serde_json::json;
 use std::str::FromStr;
 
@@ -38,22 +37,10 @@ use std::str::FromStr;
 /// $15.00 short of the $50.00 floor, billed as a line dated over January.
 #[tokio::test]
 async fn test_minimum_shortfall_full_period() {
-    helpers::init::logging();
-    let postgres_connection_string =
-        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
-
-    let mock_mailer = Arc::new(MockMailerService::new());
-    let setup = meteroid_it::container::start_meteroid_with_clients(
-        postgres_connection_string,
-        SeedLevel::PLANS,
-        Arc::new(MockUsageClient::noop()),
-        mock_mailer.clone(),
-    )
-    .await;
-
-    let services = setup.services.clone();
-    let store = setup.store.clone();
-    let mut conn = store.pool.get().await.unwrap();
+    let env =
+        test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(MockUsageClient::noop())).await;
+    let services = env.services();
+    let mut conn = env.conn().await;
 
     diesel::insert_into(diesel_models::schema::plan_version_adjustment::table)
         .values(&PlanVersionAdjustmentRowNew {
@@ -105,12 +92,8 @@ async fn test_minimum_shortfall_full_period() {
         .unwrap()
         .id;
 
-    let mut sub_details = store
-        .get_subscription_details_with_conn(&mut conn, TENANT_ID, subscription_id)
-        .await
-        .unwrap();
     // The renewal closing January, as the lifecycle bills it.
-    sub_details.subscription.cycle_index = Some(1);
+    let sub_details = renewal_details(&env, subscription_id, 1).await;
     let minimum = sub_details
         .minimum
         .as_ref()
@@ -120,7 +103,7 @@ async fn test_minimum_shortfall_full_period() {
 
     let invoice_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
     let result = services
-        .compute_invoice(&invoice_date, &sub_details, None, InvoiceType::Recurring)
+        .compute_period_invoice(&invoice_date, &sub_details)
         .await
         .unwrap();
 
@@ -154,114 +137,13 @@ async fn test_minimum_shortfall_full_period() {
     );
 }
 
-/// Floor skipped on OneOff invoices — they're not tied to a billing period.
-#[tokio::test]
-async fn test_minimum_skipped_on_oneoff_invoice() {
-    helpers::init::logging();
-    let postgres_connection_string =
-        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
-
-    let mock_mailer = Arc::new(MockMailerService::new());
-    let setup = meteroid_it::container::start_meteroid_with_clients(
-        postgres_connection_string,
-        SeedLevel::PLANS,
-        Arc::new(MockUsageClient::noop()),
-        mock_mailer.clone(),
-    )
-    .await;
-
-    let services = setup.services.clone();
-    let store = setup.store.clone();
-    let mut conn = store.pool.get().await.unwrap();
-
-    diesel::insert_into(diesel_models::schema::plan_version_adjustment::table)
-        .values(&PlanVersionAdjustmentRowNew {
-            kind: diesel_models::enums::AdjustmentKindEnum::Minimum,
-            plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
-            amount_subunit: 5_000,
-            includes_all_components: true,
-        })
-        .execute(&mut conn)
-        .await
-        .unwrap();
-
-    let subscription_id = services
-        .insert_subscription(
-            common_domain::actor::Actor::System,
-            CreateSubscription {
-                subscription: SubscriptionNew {
-                    customer_id: CUST_UBER_ID,
-                    plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
-                    net_terms: None,
-                    invoice_memo: None,
-                    invoice_threshold: None,
-                    start_date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
-                    end_date: None,
-                    billing_start_date: Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()),
-                    activation_condition: SubscriptionActivationCondition::OnStart,
-                    trial_duration: None,
-                    billing_day_anchor: None,
-                    payment_methods_config: None,
-                    auto_advance_invoices: true,
-                    charge_automatically: false,
-                    purchase_order: None,
-                    backdate_invoices: false,
-                    skip_checkout_session: false,
-                    skip_past_invoices: false,
-                    usage_filter: None,
-                    custom_properties: serde_json::Value::Null,
-                },
-                price_components: None,
-                add_ons: None,
-                coupons: None,
-                entitlements: vec![],
-                minimum_override: None,
-                drop_minimum: false,
-            },
-            TENANT_ID,
-        )
-        .await
-        .unwrap()
-        .id;
-
-    let sub_details = store
-        .get_subscription_details_with_conn(&mut conn, TENANT_ID, subscription_id)
-        .await
-        .unwrap();
-
-    let invoice_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
-    let result = services
-        .compute_invoice(&invoice_date, &sub_details, None, InvoiceType::OneOff)
-        .await
-        .unwrap();
-
-    let shortfall: Vec<_> = result
-        .invoice_lines
-        .iter()
-        .filter(|l| l.kind == meteroid_store::domain::LineItemKind::MinimumShortfall)
-        .collect();
-    assert!(shortfall.is_empty(), "no shortfall on OneOff invoices");
-}
-
 /// No true-up when January's spend ($35 fee) meets the $10 floor.
 #[tokio::test]
 async fn test_minimum_not_applied_when_usage_meets_floor() {
-    helpers::init::logging();
-    let postgres_connection_string =
-        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
-
-    let mock_mailer = Arc::new(MockMailerService::new());
-    let setup = meteroid_it::container::start_meteroid_with_clients(
-        postgres_connection_string,
-        SeedLevel::PLANS,
-        Arc::new(MockUsageClient::noop()),
-        mock_mailer.clone(),
-    )
-    .await;
-
-    let services = setup.services.clone();
-    let store = setup.store.clone();
-    let mut conn = store.pool.get().await.unwrap();
+    let env =
+        test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(MockUsageClient::noop())).await;
+    let services = env.services();
+    let mut conn = env.conn().await;
 
     diesel::insert_into(diesel_models::schema::plan_version_adjustment::table)
         .values(&PlanVersionAdjustmentRowNew {
@@ -313,16 +195,12 @@ async fn test_minimum_not_applied_when_usage_meets_floor() {
         .unwrap()
         .id;
 
-    let mut sub_details = store
-        .get_subscription_details_with_conn(&mut conn, TENANT_ID, subscription_id)
-        .await
-        .unwrap();
     // The renewal closing January, as the lifecycle bills it.
-    sub_details.subscription.cycle_index = Some(1);
+    let sub_details = renewal_details(&env, subscription_id, 1).await;
 
     let invoice_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
     let result = services
-        .compute_invoice(&invoice_date, &sub_details, None, InvoiceType::Recurring)
+        .compute_period_invoice(&invoice_date, &sub_details)
         .await
         .unwrap();
 
@@ -730,22 +608,11 @@ async fn test_copy_plan_version_to_draft_carries_minimum() {
 /// Rules: R-022, R-023
 #[tokio::test]
 async fn test_minimum_floor_measured_on_spend_net_of_coupons() {
-    helpers::init::logging();
-    let postgres_connection_string =
-        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
-
-    let mock_mailer = Arc::new(MockMailerService::new());
-    let setup = meteroid_it::container::start_meteroid_with_clients(
-        postgres_connection_string,
-        SeedLevel::PLANS,
-        Arc::new(MockUsageClient::noop()),
-        mock_mailer.clone(),
-    )
-    .await;
-
-    let services = setup.services.clone();
-    let store = setup.store.clone();
-    let mut conn = store.pool.get().await.unwrap();
+    let env =
+        test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(MockUsageClient::noop())).await;
+    let services = env.services();
+    let store = env.store();
+    let mut conn = env.conn().await;
 
     diesel::insert_into(diesel_models::schema::plan_version_adjustment::table)
         .values(&PlanVersionAdjustmentRowNew {
@@ -819,16 +686,12 @@ async fn test_minimum_floor_measured_on_spend_net_of_coupons() {
         .unwrap()
         .id;
 
-    let mut sub_details = store
-        .get_subscription_details_with_conn(&mut conn, TENANT_ID, subscription_id)
-        .await
-        .unwrap();
     // The renewal closing January, as the lifecycle bills it.
-    sub_details.subscription.cycle_index = Some(1);
+    let sub_details = renewal_details(&env, subscription_id, 1).await;
 
     let invoice_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
     let result = services
-        .compute_invoice(&invoice_date, &sub_details, None, InvoiceType::Recurring)
+        .compute_period_invoice(&invoice_date, &sub_details)
         .await
         .unwrap();
 
@@ -956,11 +819,9 @@ async fn test_refresh_recomputes_floor_on_zero_usage_invoice() {
     );
 }
 
-/// P0 — the synthesized shortfall line must be TAXED like any other line when a tax resolver
-/// is configured. The line is appended before `process_invoice_lines_taxes`, carries a positive
-/// `taxable_amount` and no `product_id`, so it picks up the default rate. Without this, the
-/// whole suite passes even if the shortfall were silently zero-rated (every other minimum test
-/// runs under `TaxResolverEnum::None`, which short-circuits taxation).
+/// P0 — the shortfall line must be TAXED like any other line when a tax resolver is configured:
+/// it carries a positive `taxable_amount` and no `product_id`, so it takes the default rate.
+/// Most other minimum tests run under `TaxResolverEnum::None`, which short-circuits taxation.
 ///
 /// FR→FR domestic VAT = 20%. The Feb 1 renewal bills February's $35 plus January's $15 true-up:
 /// $50 subtotal; tax = $10 ($7 on the recurring line + $3 on the shortfall).
@@ -1006,17 +867,12 @@ async fn test_minimum_shortfall_line_is_taxed() {
         .create(env.services())
         .await;
 
-    let mut sub_details = env
-        .store()
-        .get_subscription_details_with_conn(&mut conn, TENANT_ID, subscription_id)
-        .await
-        .unwrap();
-    sub_details.subscription.cycle_index = Some(1);
+    let sub_details = renewal_details(&env, subscription_id, 1).await;
 
     let invoice_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
     let result = env
         .services()
-        .compute_invoice(&invoice_date, &sub_details, None, InvoiceType::Recurring)
+        .compute_period_invoice(&invoice_date, &sub_details)
         .await
         .unwrap();
 
@@ -1051,7 +907,7 @@ async fn test_minimum_shortfall_line_is_taxed() {
 
 /// P1 — the prorated floor rounds half-up, not truncates. Plain integer division would floor
 /// every partial period (a small but systematic under-charge). A subscription ending on Jan 3 is
-/// trued up on its final invoice over 2 of January's 31 days:
+/// trued up on its last invoice over 2 of January's 31 days:
 ///   floor = 5000·2/31 = 322.58… → round-half-up 323   (truncation would give 322)
 /// A pure-usage plan with no usage keeps the counted spend at 0, isolating the rounding rule.
 #[tokio::test]
@@ -1063,46 +919,35 @@ async fn test_minimum_floor_prorated_rounds_half_up() {
     let mut conn = env.conn().await;
     strip_usage_beta_rate(&mut conn).await;
 
+    let end = NaiveDate::from_ymd_opt(2024, 1, 3).unwrap();
     let subscription_id = subscription()
         .plan_version(PLAN_VERSION_USAGE_BETA_ID)
         .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .end_date(end)
         .on_start()
         .no_trial()
         .create(env.services())
         .await;
-
-    let mut sub_details = env
-        .store()
-        .get_subscription_details_with_conn(&mut conn, TENANT_ID, subscription_id)
-        .await
-        .unwrap();
-    sub_details.minimum = Some(SubscriptionMinimum {
-        subscription_id,
-        amount_subunit: 5_000,
-        scope: MinimumScope::AllComponents,
-        is_override: true,
-    });
-
-    // Ended on Jan 3, as termination leaves it: the period settles early at that date.
-    let end = NaiveDate::from_ymd_opt(2024, 1, 3).unwrap();
-    let sub = &mut sub_details.subscription;
-    sub.period = meteroid_store::domain::BillingPeriodEnum::Monthly;
-    sub.billing_day_anchor = 1;
-    sub.billing_start_date = Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
-    sub.current_period_start = end;
-    sub.current_period_end = None;
-    sub.pending_checkout = false;
-    sub.cycle_index = Some(0);
-    sub.end_date = Some(end);
-
-    let result = env
-        .services()
-        .compute_invoice(&end, &sub_details, None, InvoiceType::Recurring)
+    env.services()
+        .set_subscription_minimum(
+            TENANT_ID,
+            subscription_id,
+            5_000,
+            MinimumScope::AllComponents,
+        )
         .await
         .unwrap();
 
-    let shortfall: Vec<_> = result
-        .invoice_lines
+    // The subscription ends on Jan 3: its last invoice settles the period early at that date.
+    env.process_cycles().await;
+    let invoices = env.get_invoices(subscription_id).await;
+    let last = invoices
+        .iter()
+        .find(|i| i.billing_period_start == end)
+        .expect("the invoice dated at the end");
+
+    let shortfall: Vec<_> = last
+        .line_items
         .iter()
         .filter(|l| l.kind == LineItemKind::MinimumShortfall)
         .collect();
@@ -1124,46 +969,38 @@ async fn test_minimum_floor_prorated_rounds_half_up() {
 async fn test_minimum_skipped_during_active_trial() {
     let env =
         test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(MockUsageClient::noop())).await;
-    let mut conn = env.conn().await;
-
-    let subscription_id = subscription()
-        .plan_version(PLAN_VERSION_1_LEETCODE_ID)
-        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
-        .on_start()
-        .no_trial()
-        .create(env.services())
-        .await;
-
-    let mut sub_details = env
-        .store()
-        .get_subscription_details_with_conn(&mut conn, TENANT_ID, subscription_id)
+    // A trial set on a LeetCode subscription is a paid one.
+    diesel::sql_query("UPDATE plan_version SET trial_is_free = false WHERE id = $1")
+        .bind::<diesel::sql_types::Uuid, _>(*PLAN_VERSION_1_LEETCODE_ID)
+        .execute(&mut env.conn().await)
         .await
         .unwrap();
 
-    sub_details.minimum = Some(SubscriptionMinimum {
-        subscription_id,
-        amount_subunit: 10_000,
-        scope: MinimumScope::AllComponents,
-        is_override: true,
-    });
-    sub_details.trial_config = Some(meteroid_store::domain::TrialConfig {
-        duration_days: 31,
-        is_free: false,
-        ends_on: None,
-        trialing_plan_id: None,
-        trialing_plan_name: None,
-    });
-    sub_details.subscription.status = SubscriptionStatusEnum::Active;
-    sub_details.subscription.cycle_index = Some(1);
-
     let invoice_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
     let shortfall = |trial_days: u32| {
-        let mut details = sub_details.clone();
-        details.subscription.trial_duration = Some(trial_days);
         let env = &env;
         async move {
+            let subscription_id = subscription()
+                .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+                .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+                .on_start()
+                .trial_days(trial_days)
+                .create(env.services())
+                .await;
             env.services()
-                .compute_invoice(&invoice_date, &details, None, InvoiceType::Recurring)
+                .set_subscription_minimum(
+                    TENANT_ID,
+                    subscription_id,
+                    10_000,
+                    MinimumScope::AllComponents,
+                )
+                .await
+                .unwrap();
+            let details = renewal_details(env, subscription_id, 1).await;
+            let trial = details.trial_config.as_ref().expect("a trial");
+            assert!(!trial.is_free, "a paid trial");
+            env.services()
+                .compute_period_invoice(&invoice_date, &details)
                 .await
                 .unwrap()
                 .invoice_lines
@@ -1188,51 +1025,59 @@ async fn test_minimum_skipped_during_active_trial() {
 }
 
 /// P1 — the FIRST post-trial period is trued up against the FULL floor, not a prorated one. A
-/// trial-started subscription keeps `billing_start_date` at the original (pre-trial) date; the
-/// renewal closing [Feb 1, Mar 1) must still measure a whole period. Components cleared and no
-/// invoice dated in February, so the shortfall equals the floor exactly.
+/// subscription in a free trial through January bills from Feb 1; the renewal closing
+/// [Feb 1, Mar 1) must still measure a whole period. A pure-usage plan with no usage counts
+/// nothing, so the shortfall equals the floor exactly.
 #[tokio::test]
 async fn test_minimum_full_floor_on_first_post_trial_period() {
+    use crate::data::ids::PLAN_VERSION_USAGE_BETA_ID;
+
     let env =
         test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(MockUsageClient::noop())).await;
-    let mut conn = env.conn().await;
+    strip_usage_beta_rate(&mut env.conn().await).await;
 
     let subscription_id = subscription()
-        .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+        .plan_version(PLAN_VERSION_USAGE_BETA_ID)
         .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
         .on_start()
-        .no_trial()
+        .trial_days(31)
         .create(env.services())
         .await;
-
-    let mut sub_details = env
-        .store()
-        .get_subscription_details_with_conn(&mut conn, TENANT_ID, subscription_id)
+    env.services()
+        .set_subscription_minimum(
+            TENANT_ID,
+            subscription_id,
+            5_000,
+            MinimumScope::AllComponents,
+        )
         .await
         .unwrap();
 
-    sub_details.price_components.clear();
-    sub_details.add_ons.clear();
-    sub_details.minimum = Some(SubscriptionMinimum {
-        subscription_id,
-        amount_subunit: 5_000,
-        scope: MinimumScope::AllComponents,
-        is_override: true,
-    });
-
-    // First real period after a January trial: billing_start_date stays at the pre-trial date.
-    let sub = &mut sub_details.subscription;
-    sub.status = SubscriptionStatusEnum::Active;
-    sub.billing_start_date = Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
-    sub.current_period_start = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
-    sub.current_period_end = Some(NaiveDate::from_ymd_opt(2024, 3, 1).unwrap());
-    sub.cycle_index = Some(1);
-    sub.end_date = None;
-
+    // The free trial ends on Feb 1, opening the first billed period; Mar 1 closes it.
+    env.process_cycles().await;
+    let feb1 = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
     let invoice_date = NaiveDate::from_ymd_opt(2024, 3, 1).unwrap();
+    assert_eq!(
+        env.get_subscription(subscription_id)
+            .await
+            .current_period_start,
+        feb1,
+        "billing starts when the trial ends"
+    );
+    env.set_subscription_period(
+        subscription_id,
+        invoice_date,
+        NaiveDate::from_ymd_opt(2024, 4, 1).unwrap(),
+    )
+    .await;
+    let sub_details = env
+        .store()
+        .get_subscription_details_with_conn(&mut env.conn().await, TENANT_ID, subscription_id)
+        .await
+        .unwrap();
     let result = env
         .services()
-        .compute_invoice(&invoice_date, &sub_details, None, InvoiceType::Recurring)
+        .compute_period_invoice(&invoice_date, &sub_details)
         .await
         .unwrap();
 
@@ -1246,6 +1091,10 @@ async fn test_minimum_full_floor_on_first_post_trial_period() {
         shortfall[0].amount_subtotal, 5_000,
         "full floor on the first post-trial period (pre-trial billing_start must not prorate it)"
     );
+    assert_eq!(
+        (shortfall[0].start_date, shortfall[0].end_date),
+        (feb1, invoice_date)
+    );
 }
 
 /// OnCheckout / self-serve subscriptions are previewed (`GetCheckout`) and billed while still
@@ -1256,50 +1105,12 @@ async fn test_minimum_full_floor_on_first_post_trial_period() {
 async fn test_minimum_not_billed_on_checkout_pending_period() {
     let env =
         test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(MockUsageClient::noop())).await;
-    let mut conn = env.conn().await;
 
-    let subscription_id = subscription()
-        .plan_version(PLAN_VERSION_1_LEETCODE_ID)
-        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
-        .on_start()
-        .no_trial()
-        .create(env.services())
-        .await;
-
-    let mut sub_details = env
-        .store()
-        .get_subscription_details_with_conn(&mut conn, TENANT_ID, subscription_id)
-        .await
-        .unwrap();
-
-    // Isolate the floor math: no component lines means counted = 0, so shortfall == prorated floor.
-    sub_details.price_components.clear();
-    sub_details.add_ons.clear();
-    sub_details.minimum = Some(SubscriptionMinimum {
-        subscription_id,
-        amount_subunit: 5_000,
-        scope: MinimumScope::AllComponents,
-        is_override: true,
-    });
-
-    // Reproduce the OnCheckout state seen at preview/billing time: not yet activated, so the
-    // period end is still open and `pending_checkout` is set.
-    let sub = &mut sub_details.subscription;
-    sub.status = SubscriptionStatusEnum::PendingActivation;
-    sub.pending_checkout = true;
-    sub.period = meteroid_store::domain::BillingPeriodEnum::Monthly;
-    sub.billing_day_anchor = 1;
-    sub.billing_start_date = Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
-    sub.current_period_start = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
-    sub.current_period_end = None;
-    sub.end_date = None;
-
-    let invoice_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
-    let result = env
-        .services()
-        .compute_invoice(&invoice_date, &sub_details, None, InvoiceType::Recurring)
-        .await
-        .unwrap();
+    // LeetCode's $35 falls short of the $50 floor: any true-up here would show.
+    let result = checkout_invoice(&env, PLAN_VERSION_1_LEETCODE_ID, |_| {
+        MinimumScope::AllComponents
+    })
+    .await;
 
     let shortfall: Vec<_> = result
         .invoice_lines
@@ -1310,6 +1121,7 @@ async fn test_minimum_not_billed_on_checkout_pending_period() {
         shortfall.is_empty(),
         "nothing has completed at checkout, so no minimum is billed there"
     );
+    assert_eq!(result.subtotal, 3_500, "the first period's fee alone");
 }
 
 /// The displayed subscription MRR honors the minimum-commitment floor: a plan rate below the
@@ -1524,18 +1336,13 @@ async fn test_minimum_counts_nothing_a_full_coupon_took_off() {
         .create(env.services())
         .await;
 
-    let mut sub_details = env
-        .store()
-        .get_subscription_details_with_conn(&mut conn, TENANT_ID, subscription_id)
-        .await
-        .unwrap();
     // The renewal closing January, whose $35 fee is the period's spend.
-    sub_details.subscription.cycle_index = Some(1);
+    let sub_details = renewal_details(&env, subscription_id, 1).await;
 
     let invoice_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
     let result = env
         .services()
-        .compute_invoice(&invoice_date, &sub_details, None, InvoiceType::Recurring)
+        .compute_period_invoice(&invoice_date, &sub_details)
         .await
         .unwrap();
 
@@ -1798,8 +1605,8 @@ async fn test_pure_usage_plan_real_pipeline_below_minimum_keeps_consumption_line
     );
 }
 
-/// Pure-usage plan (no advance component) with a plan-level minimum, driving `compute_invoice`
-/// directly on the renewal closing January: with usage below the floor, both per-component
+/// Pure-usage plan (no advance component) with a subscription minimum, computing the invoice of
+/// the renewal closing January: with usage below the floor, both per-component
 /// consumption lines must remain beside the floor top-up.
 #[tokio::test]
 async fn test_pure_usage_components_below_minimum_keeps_consumption_lines() {
@@ -1847,43 +1654,32 @@ async fn test_pure_usage_components_below_minimum_keeps_consumption_lines() {
         .create(env.services())
         .await;
 
-    let mut sub_details = env
-        .store()
-        .get_subscription_details_with_conn(&mut conn, TENANT_ID, subscription_id)
+    // €50 floor across all (usage) components.
+    env.services()
+        .set_subscription_minimum(
+            TENANT_ID,
+            subscription_id,
+            5_000,
+            MinimumScope::AllComponents,
+        )
         .await
         .unwrap();
 
-    // Drop the advance Rate component → a pure usage/arrears plan. Keep both usage components.
-    sub_details
-        .price_components
-        .retain(|c| c.fee.metric_id().is_some());
-    sub_details.add_ons.clear();
+    // The renewal opening [Feb 1, Mar 1) bills the just-completed [Jan 1, Feb 1) in arrears.
+    let sub_details = renewal_details(&env, subscription_id, 1).await;
     assert_eq!(
         sub_details.price_components.len(),
         2,
-        "two usage components remain (API Calls + DB Storage)"
+        "two usage components (API Calls + DB Storage)"
     );
-
-    // €50 plan-level floor across all (usage) components.
-    sub_details.minimum = Some(SubscriptionMinimum {
-        subscription_id,
-        amount_subunit: 5_000,
-        scope: MinimumScope::AllComponents,
-        is_override: true,
-    });
-
-    // Arrears (cycle-1) state: the just-completed period [Jan1, Feb1] is billed in arrears, the
-    // active period is now [Feb1, Mar1].
-    let sub = &mut sub_details.subscription;
-    sub.billing_start_date = Some(period0_start);
-    sub.current_period_start = period0_end;
-    sub.current_period_end = Some(period1_end);
-    sub.cycle_index = Some(1);
-    sub.end_date = None;
+    assert_eq!(
+        sub_details.subscription.current_period_end,
+        Some(period1_end)
+    );
 
     let result = env
         .services()
-        .compute_invoice(&period0_end, &sub_details, None, InvoiceType::Recurring)
+        .compute_period_invoice(&period0_end, &sub_details)
         .await
         .unwrap();
 
@@ -1958,36 +1754,26 @@ async fn test_coupon_discounts_minimum_shortfall_with_zero_usage(#[case] percent
         .create(env.services())
         .await;
 
-    let mut sub_details = env
-        .store()
-        .get_subscription_details_with_conn(&mut conn, TENANT_ID, subscription_id)
+    env.services()
+        .set_subscription_minimum(
+            TENANT_ID,
+            subscription_id,
+            5_000,
+            MinimumScope::AllComponents,
+        )
         .await
         .unwrap();
 
-    // Drop the advance Rate component → a pure usage/arrears plan.
-    sub_details
-        .price_components
-        .retain(|c| c.fee.metric_id().is_some());
-    sub_details.add_ons.clear();
-
-    sub_details.minimum = Some(SubscriptionMinimum {
-        subscription_id,
-        amount_subunit: 5_000,
-        scope: MinimumScope::AllComponents,
-        is_override: true,
-    });
-
-    // Arrears (cycle-1) state: [Jan1, Feb1] is billed in arrears, the active period is [Feb1, Mar1].
-    let sub = &mut sub_details.subscription;
-    sub.billing_start_date = Some(period0_start);
-    sub.current_period_start = period0_end;
-    sub.current_period_end = Some(period1_end);
-    sub.cycle_index = Some(1);
-    sub.end_date = None;
+    // The renewal opening [Feb 1, Mar 1) bills [Jan 1, Feb 1) in arrears.
+    let sub_details = renewal_details(&env, subscription_id, 1).await;
+    assert_eq!(
+        sub_details.subscription.current_period_end,
+        Some(period1_end)
+    );
 
     let result = env
         .services()
-        .compute_invoice(&period0_end, &sub_details, None, InvoiceType::Recurring)
+        .compute_period_invoice(&period0_end, &sub_details)
         .await
         .unwrap();
 
@@ -2084,31 +1870,24 @@ async fn test_coupon_and_credit_on_minimum_shortfall_with_zero_usage(
         fund(env.store(), TENANT_ID, customer_id, None, 1_000).await;
     }
 
-    let mut sub_details = env
-        .store()
-        .get_subscription_details_with_conn(&mut conn, TENANT_ID, subscription_id)
+    env.services()
+        .set_subscription_minimum(
+            TENANT_ID,
+            subscription_id,
+            5_000,
+            MinimumScope::AllComponents,
+        )
         .await
         .unwrap();
-    sub_details
-        .price_components
-        .retain(|c| c.fee.metric_id().is_some());
-    sub_details.add_ons.clear();
-    sub_details.minimum = Some(SubscriptionMinimum {
-        subscription_id,
-        amount_subunit: 5_000,
-        scope: MinimumScope::AllComponents,
-        is_override: true,
-    });
-    let sub = &mut sub_details.subscription;
-    sub.billing_start_date = Some(period0_start);
-    sub.current_period_start = period0_end;
-    sub.current_period_end = Some(period1_end);
-    sub.cycle_index = Some(1);
-    sub.end_date = None;
+    let sub_details = renewal_details(&env, subscription_id, 1).await;
+    assert_eq!(
+        sub_details.subscription.current_period_end,
+        Some(period1_end)
+    );
 
     let result = env
         .services()
-        .compute_invoice(&period0_end, &sub_details, None, InvoiceType::Recurring)
+        .compute_period_invoice(&period0_end, &sub_details)
         .await
         .unwrap();
 
@@ -2455,6 +2234,20 @@ async fn test_immediate_cancellation_holds_prorated_minimum(#[future] test_env: 
     );
 }
 
+/// The stored subscription as the renewal opening its cycle `cycle` leaves it, before that
+/// renewal's invoice is drafted.
+async fn renewal_details(
+    env: &TestEnv,
+    subscription_id: SubscriptionId,
+    cycle: i32,
+) -> SubscriptionDetails {
+    env.advance_subscription_cycle(subscription_id, cycle).await;
+    env.store()
+        .get_subscription_details_with_conn(&mut env.conn().await, TENANT_ID, subscription_id)
+        .await
+        .unwrap()
+}
+
 /// Local FR B2B customer (domestic 20% VAT) for the tax regression test.
 async fn create_french_b2b_customer(conn: &mut meteroid_store::store::PgConn) -> CustomerId {
     use diesel_models::customers::CustomerRowNew;
@@ -2508,10 +2301,14 @@ async fn create_french_b2b_customer(conn: &mut meteroid_store::store::PgConn) ->
 /// Drops Usage Beta's advance rate, so the plan bills usage only and a subscription's first
 /// invoice bills nothing toward the floor.
 async fn strip_usage_beta_rate(conn: &mut meteroid_store::store::PgConn) {
-    use crate::data::ids::COMP_USAGE_BETA_RATE_ID;
+    strip_component(conn, crate::data::ids::COMP_USAGE_BETA_RATE_ID).await;
+}
+
+/// Drops the plan component `id`, so subscriptions created after bill without it.
+async fn strip_component(conn: &mut meteroid_store::store::PgConn, id: PriceComponentId) {
     use diesel::{ExpressionMethods, QueryDsl};
     use diesel_models::schema::price_component::dsl as pc;
-    diesel::delete(pc::price_component.filter(pc::id.eq(COMP_USAGE_BETA_RATE_ID)))
+    diesel::delete(pc::price_component.filter(pc::id.eq(id)))
         .execute(conn)
         .await
         .unwrap();
@@ -2523,24 +2320,49 @@ async fn strip_usage_beta_rate(conn: &mut meteroid_store::store::PgConn) {
 // The minimum trues up a completed period on the invoice that closes it; the first invoice opens
 // the first period, so nothing has completed there yet.
 //
-// These build a real usage subscription (Rate advance + Bandwidth usage arrears) so the components
-// carry real fee types/metrics, then drive the in-memory `SubscriptionDetails` into the checkout
-// (pending, open-period, cycle 0) state to exercise `append_minimum_shortfall_if_any`.
+// These create a subscription awaiting its checkout and compute the invoice its checkout shows,
+// as the portal does.
 // ---------------------------------------------------------------------------------------------
 
-/// Put `sub_details` into the first/advance checkout state: pending checkout, open period end,
-/// cycle 0, billing from Jan 1.
-fn drive_to_checkout_state(sub_details: &mut meteroid_store::domain::SubscriptionDetails) {
-    let sub = &mut sub_details.subscription;
-    sub.status = SubscriptionStatusEnum::PendingActivation;
-    sub.pending_checkout = true;
-    sub.period = meteroid_store::domain::BillingPeriodEnum::Monthly;
-    sub.billing_day_anchor = 1;
-    sub.billing_start_date = Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
-    sub.current_period_start = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
-    sub.current_period_end = None;
-    sub.cycle_index = Some(0);
-    sub.end_date = None;
+/// A subscription of `plan_version` from Jan 1 awaiting its checkout (pending, its first period
+/// open, nothing invoiced), under a €50 floor of the scope `scope` reads off it; the first
+/// period's invoice its checkout computes.
+async fn checkout_invoice(
+    env: &TestEnv,
+    plan_version: PlanVersionId,
+    scope: impl FnOnce(&SubscriptionDetails) -> MinimumScope,
+) -> ComputedInvoiceContent {
+    env.seed_payments().await;
+    let subscription_id = subscription()
+        .plan_version(plan_version)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_checkout()
+        .no_trial()
+        .create(env.services())
+        .await;
+    let details = env
+        .store()
+        .get_subscription_details_with_conn(&mut env.conn().await, TENANT_ID, subscription_id)
+        .await
+        .unwrap();
+    env.services()
+        .set_subscription_minimum(TENANT_ID, subscription_id, 5_000, scope(&details))
+        .await
+        .unwrap();
+    let details = env
+        .store()
+        .get_subscription_details_with_conn(&mut env.conn().await, TENANT_ID, subscription_id)
+        .await
+        .unwrap();
+    assert!(
+        details.subscription.pending_checkout,
+        "awaiting its checkout"
+    );
+    assert!(env.get_invoices(subscription_id).await.is_empty());
+    env.services()
+        .compute_period_invoice(&details.subscription.current_period_start, &details)
+        .await
+        .unwrap()
 }
 
 /// Product id of the usage (metric-backed) component in the usage plan.
@@ -2561,37 +2383,12 @@ fn usage_product_id(
 async fn test_minimum_on_arrears_skipped_on_advance_checkout_invoice() {
     let env =
         test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(MockUsageClient::noop())).await;
-    let mut conn = env.conn().await;
-
-    let subscription_id = subscription()
-        .plan_version(PLAN_VERSION_USAGE_ID)
-        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
-        .on_start()
-        .no_trial()
-        .create(env.services())
-        .await;
-
-    let mut sub_details = env
-        .store()
-        .get_subscription_details_with_conn(&mut conn, TENANT_ID, subscription_id)
-        .await
-        .unwrap();
 
     // Floor scoped to the usage product only.
-    sub_details.minimum = Some(SubscriptionMinimum {
-        subscription_id,
-        amount_subunit: 5_000,
-        scope: MinimumScope::Products(vec![usage_product_id(&sub_details)]),
-        is_override: true,
-    });
-    drive_to_checkout_state(&mut sub_details);
-
-    let invoice_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
-    let result = env
-        .services()
-        .compute_invoice(&invoice_date, &sub_details, None, InvoiceType::Recurring)
-        .await
-        .unwrap();
+    let result = checkout_invoice(&env, PLAN_VERSION_USAGE_ID, |details| {
+        MinimumScope::Products(vec![usage_product_id(details)])
+    })
+    .await;
 
     let shortfall = result
         .invoice_lines
@@ -2717,43 +2514,24 @@ async fn test_minimum_progress_counts_the_period_spend_of_every_invoice() {
 /// produces no minimum on the checkout invoice (and thus no checkout invoice made solely of it).
 #[tokio::test]
 async fn test_minimum_skipped_when_only_arrears_components_at_checkout() {
+    use crate::data::ids::COMP_USAGE_RATE_ID;
+
     let env =
         test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(MockUsageClient::noop())).await;
-    let mut conn = env.conn().await;
+    // A pure-usage plan: only the arrears/usage component is left.
+    strip_component(&mut env.conn().await, COMP_USAGE_RATE_ID).await;
 
-    let subscription_id = subscription()
-        .plan_version(PLAN_VERSION_USAGE_ID)
-        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
-        .on_start()
-        .no_trial()
-        .create(env.services())
-        .await;
-
-    let mut sub_details = env
-        .store()
-        .get_subscription_details_with_conn(&mut conn, TENANT_ID, subscription_id)
-        .await
-        .unwrap();
-
-    // Simulate a pure-usage plan: keep only the arrears/usage component.
-    sub_details
-        .price_components
-        .retain(|c| c.fee.metric_id().is_some());
-    sub_details.add_ons.clear();
-    sub_details.minimum = Some(SubscriptionMinimum {
-        subscription_id,
-        amount_subunit: 5_000,
-        scope: MinimumScope::AllComponents,
-        is_override: true,
-    });
-    drive_to_checkout_state(&mut sub_details);
-
-    let invoice_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
-    let result = env
-        .services()
-        .compute_invoice(&invoice_date, &sub_details, None, InvoiceType::Recurring)
-        .await
-        .unwrap();
+    let result = checkout_invoice(&env, PLAN_VERSION_USAGE_ID, |details| {
+        assert!(
+            details
+                .price_components
+                .iter()
+                .all(|c| c.fee.metric_id().is_some()),
+            "usage components only"
+        );
+        MinimumScope::AllComponents
+    })
+    .await;
 
     let shortfall = result
         .invoice_lines
@@ -2772,36 +2550,9 @@ async fn test_minimum_skipped_when_only_arrears_components_at_checkout() {
 async fn test_minimum_not_billed_at_checkout_when_advance_component_in_scope() {
     let env =
         test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(MockUsageClient::noop())).await;
-    let mut conn = env.conn().await;
 
-    let subscription_id = subscription()
-        .plan_version(PLAN_VERSION_USAGE_ID)
-        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
-        .on_start()
-        .no_trial()
-        .create(env.services())
-        .await;
-
-    let mut sub_details = env
-        .store()
-        .get_subscription_details_with_conn(&mut conn, TENANT_ID, subscription_id)
-        .await
-        .unwrap();
-
-    sub_details.minimum = Some(SubscriptionMinimum {
-        subscription_id,
-        amount_subunit: 5_000,
-        scope: MinimumScope::AllComponents,
-        is_override: true,
-    });
-    drive_to_checkout_state(&mut sub_details);
-
-    let invoice_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
-    let result = env
-        .services()
-        .compute_invoice(&invoice_date, &sub_details, None, InvoiceType::Recurring)
-        .await
-        .unwrap();
+    let result =
+        checkout_invoice(&env, PLAN_VERSION_USAGE_ID, |_| MinimumScope::AllComponents).await;
 
     let shortfall = result
         .invoice_lines
@@ -2837,7 +2588,7 @@ async fn test_product_scoped_minimum_line_names_the_product() {
         .create(env.services())
         .await;
 
-    let mut sub_details = env
+    let sub_details = env
         .store()
         .get_subscription_details_with_conn(&mut conn, TENANT_ID, subscription_id)
         .await
@@ -2846,19 +2597,22 @@ async fn test_product_scoped_minimum_line_names_the_product() {
     // Scope the floor to the (single) plan component's product and set it high enough to fire.
     let component = sub_details.price_components[0].clone();
     let product_id = component.product_id.expect("component has a product");
-    sub_details.minimum = Some(SubscriptionMinimum {
-        subscription_id,
-        amount_subunit: 9_000,
-        scope: MinimumScope::Products(vec![product_id]),
-        is_override: true,
-    });
+    env.services()
+        .set_subscription_minimum(
+            TENANT_ID,
+            subscription_id,
+            9_000,
+            MinimumScope::Products(vec![product_id]),
+        )
+        .await
+        .unwrap();
 
     // The renewal closing January, whose $35 falls short of the $90 floor.
-    sub_details.subscription.cycle_index = Some(1);
+    let sub_details = renewal_details(&env, subscription_id, 1).await;
     let invoice_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
     let result = env
         .services()
-        .compute_invoice(&invoice_date, &sub_details, None, InvoiceType::Recurring)
+        .compute_period_invoice(&invoice_date, &sub_details)
         .await
         .unwrap();
 

@@ -45,7 +45,6 @@ pub struct Settings {
     pub invite_ttl_days: u32,
     pub mfa_issuer: String,
     pub portal_legacy_tokens_until: Option<chrono::NaiveDate>,
-    pub billing_release: crate::services::billing_release::BillingRelease,
 }
 
 impl Settings {
@@ -119,7 +118,6 @@ pub struct StoreConfig {
     pub invite_ttl_days: u32,
     pub mfa_issuer: String,
     pub portal_legacy_tokens_until: Option<chrono::NaiveDate>,
-    pub billing_release: crate::services::billing_release::BillingRelease,
 }
 
 /**
@@ -237,7 +235,6 @@ impl Store {
                 invite_ttl_days: config.invite_ttl_days,
                 mfa_issuer: config.mfa_issuer,
                 portal_legacy_tokens_until: config.portal_legacy_tokens_until,
-                billing_release: config.billing_release,
             },
             internal: StoreInternal::default(),
             mailer: config.mailer,

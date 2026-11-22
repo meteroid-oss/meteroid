@@ -438,32 +438,20 @@ pub fn price_window_groups(
         },
     );
     let lines = match &window.fee {
-        MeteredFee::Usage(model) => usage_lines(
-            model,
-            window.metric.id,
-            &usage.data,
-            &window.period,
-            window.precision,
-            |dimensions| {
+        MeteredFee::Usage(model) => {
+            usage_lines(model, &usage.data, window.precision, |dimensions| {
                 pinned.unit_price(
                     window.metric.id,
                     window.sub_component_id,
                     window.sub_add_on_id,
                     dimensions,
                 )
-            },
-        )?,
+            })?
+        }
         MeteredFee::CapacityOverage {
             included,
             overage_rate,
-        } => capacity_overage_lines(
-            window.metric.id,
-            *included,
-            overage_rate,
-            &usage.data,
-            &window.period,
-            window.precision,
-        )?,
+        } => capacity_overage_lines(*included, overage_rate, &usage.data, window.precision)?,
     };
     lines.iter().try_fold(0_i64, |total, line| {
         i64::try_from(line.total)

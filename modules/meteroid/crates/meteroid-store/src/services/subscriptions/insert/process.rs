@@ -762,17 +762,7 @@ impl Services {
                 subscription.tax_inclusive_rate,
             );
 
-        // TODO w need a single request for all possible currency conversions here (or just filter out), and reuse the conn
         let final_mrr = mrr_delta;
-        // let final_mrr = calculate_coupons_discount(
-        //     self,
-        //     coupons,
-        //     &subscription.currency,
-        //     Decimal::from_i64(mrr_delta).unwrap_or(Decimal::ZERO),
-        // )
-        // .await?
-        // .to_i64()
-        // .unwrap_or(0);
 
         Ok(SubscriptionEventRow {
             id: Uuid::now_v7(),

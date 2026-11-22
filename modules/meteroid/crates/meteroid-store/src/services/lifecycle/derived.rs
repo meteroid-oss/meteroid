@@ -186,30 +186,6 @@ impl Services {
         Ok(stepped.map(|stepped| stepped.step))
     }
 
-    /// As [`Self::derive_state_tx`], unless `held` (R-123): the state, its outbox and the documents
-    /// are then the controller's, on release, the subscription due at once.
-    pub(crate) async fn derive_state_unless_held_tx(
-        &self,
-        conn: &mut PgConn,
-        actor: &Actor,
-        tenant_id: TenantId,
-        subscription_id: SubscriptionId,
-        at: DateTime<Utc>,
-        held: bool,
-    ) -> StoreResult<()> {
-        if held {
-            return db(SubscriptionRow::set_next_wake_at(
-                conn,
-                subscription_id,
-                Some(at.min(common_clock::now())),
-            )
-            .await);
-        }
-        self.derive_state_tx(conn, actor, tenant_id, subscription_id, at)
-            .await
-            .map(|_| ())
-    }
-
     /// One step of the subscription at `now`, under the customer's lock: the transitions since
     /// the stored state with their logs and outbox, the state, the documents due (per `issue`)
     /// and the next wake. None for a subscription no longer live.

@@ -1,5 +1,4 @@
 use crate::StoreResult;
-use crate::constants::{Currencies, Currency};
 use crate::domain::enums::InvoiceType;
 use crate::domain::{
     ComponentPeriods, CouponLineItem, Customer, Invoice, InvoicingEntity, LineItem, Period,
@@ -15,7 +14,6 @@ use common_domain::ids::{
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
 use diesel_models::subscription_components::SubscriptionComponentRow;
-use itertools::Itertools;
 use rust_decimal::Decimal;
 use std::collections::{HashMap, HashSet};
 
@@ -25,7 +23,6 @@ use crate::services::Services;
 use crate::services::credit::forecast::CreditBooks;
 use crate::services::credit::promotional::{self, TaxedDocument};
 use crate::services::credit::value_application::{EstimateContext, billed_periods};
-use crate::services::invoice_lines::component::{ExistingLineKey, is_usage_based_line};
 use crate::services::invoice_lines::credit_units::{CoverTarget, CreditUnitCover};
 use crate::services::invoice_lines::tax_inputs::customer_for_tax;
 use crate::store::PgConn;
@@ -35,8 +32,6 @@ use billing_core::{LineAmounts, Totals};
 use diesel_models::billable_metrics::BillableMetricRow;
 use error_stack::{Report, ResultExt};
 use meteroid_tax::{ManualTaxEngine, MeteroidTaxEngine, TaxDetails, TaxEngine};
-
-impl Services {}
 
 /// Builds the tax engine for an invoicing entity — the single extension point for
 /// adding a tax provider.
@@ -331,181 +326,8 @@ impl TaxedInvoiceLines {
 }
 
 impl Services {
-    /// Whether settling this invoice's period could produce arrears lines — so an empty draft must
-    /// be recomputed (or anchored) rather than treated as nothing to bill. True when the
-    /// subscription accrues arrears from its currently-active components, or when a *closed*
-    /// pure-arrears component/add-on still bills a segment on this invoice (the mid-period plan
-    /// change away from usage).
-    pub(in crate::services) async fn can_accrue_arrears_in_period(
-        &self,
-        conn: &mut PgConn,
-        subscription_details: &SubscriptionDetails,
-        invoice_date: NaiveDate,
-    ) -> StoreResult<bool> {
-        if subscription_details.can_accrue_arrears() {
-            return Ok(true);
-        }
-        let Some(billing_start_date) = subscription_details.subscription.billing_start_date else {
-            return Ok(false);
-        };
-
-        let subscription_id = &subscription_details.subscription.id;
-
-        let active_component_ids: HashSet<SubscriptionPriceComponentId> = subscription_details
-            .price_components
-            .iter()
-            .map(|c| c.id)
-            .collect();
-        let mut closed_components: Vec<SubscriptionComponent> =
-            SubscriptionComponentRow::list_component_history_for_period(
-                conn,
-                subscription_id,
-                billing_start_date,
-                invoice_date,
-            )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-            .into_iter()
-            .filter(|row| row.effective_to.is_some() && !active_component_ids.contains(&row.id))
-            // Propagate rather than skip: this probe is the late-usage safety net, so a row that
-            // fails to convert must not silently answer "no arrears" and drop the period's usage.
-            .map(TryInto::<SubscriptionComponent>::try_into)
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .filter(|comp| bills_closed_arrears(&comp.fee))
-            .collect();
-        let active_addon_ids: HashSet<SubscriptionAddOnId> =
-            subscription_details.add_ons.iter().map(|a| a.id).collect();
-        let mut closed_add_ons: Vec<SubscriptionAddOn> =
-            SubscriptionAddOnRow::list_add_on_history_for_period(
-                conn,
-                subscription_id,
-                billing_start_date,
-                invoice_date,
-            )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-            .into_iter()
-            .filter(|row| row.effective_to.is_some() && !active_addon_ids.contains(&row.id))
-            .map(TryInto::<SubscriptionAddOn>::try_into)
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .filter(|ao| bills_closed_arrears(&ao.fee))
-            .collect();
-        retain_unsettled(
-            conn,
-            subscription_details,
-            &mut closed_components,
-            &mut closed_add_ons,
-            (None, Some(invoice_date)),
-            invoice_date,
-        )
-        .await?;
-
-        let runs =
-            super::cadence::load_cadence_runs(conn, subscription_details, invoice_date, true)
-                .await?;
-        Ok(bills_arrears_segment(
-            subscription_details,
-            &closed_components,
-            invoice_date,
-            &runs,
-        ) || bills_arrears_segment(subscription_details, &closed_add_ons, invoice_date, &runs))
-    }
-
-    pub async fn compute_invoice(
-        &self,
-        conn: &mut PgConn,
-        invoice_date: &NaiveDate,
-        subscription_details: &SubscriptionDetails,
-        prepaid_amount: Option<u64>,
-        invoice: Option<&Invoice>, // for refresh purposes
-        invoice_type: InvoiceType,
-    ) -> StoreResult<ComputedInvoiceContent> {
-        self.compute_invoice_covering(
-            conn,
-            invoice_date,
-            subscription_details,
-            prepaid_amount,
-            invoice,
-            invoice_type,
-            CreditUnitCover::Estimate {
-                invoice_id: invoice.map(|invoice| invoice.id),
-            },
-        )
-        .await
-    }
-
-    /// `compute_invoice`, with the credit-priced lines covered as `cover` says.
-    #[allow(clippy::too_many_arguments)]
-    pub(in crate::services) async fn compute_invoice_covering(
-        &self,
-        conn: &mut PgConn,
-        invoice_date: &NaiveDate,
-        subscription_details: &SubscriptionDetails,
-        prepaid_amount: Option<u64>,
-        invoice: Option<&Invoice>,
-        invoice_type: InvoiceType,
-        cover: CreditUnitCover,
-    ) -> StoreResult<ComputedInvoiceContent> {
-        self.compute_invoice_on(
-            conn,
-            invoice_date,
-            subscription_details,
-            prepaid_amount,
-            invoice,
-            invoice_type,
-            cover,
-            None,
-        )
-        .await
-    }
-
-    /// `compute_invoice_covering`, estimating credit on `book` when given (a forecast's).
-    #[allow(clippy::too_many_arguments)]
-    pub(in crate::services) async fn compute_invoice_on(
-        &self,
-        conn: &mut PgConn,
-        invoice_date: &NaiveDate,
-        subscription_details: &SubscriptionDetails,
-        prepaid_amount: Option<u64>,
-        invoice: Option<&Invoice>,
-        invoice_type: InvoiceType,
-        cover: CreditUnitCover,
-        book: Option<&CreditBooks>,
-    ) -> StoreResult<ComputedInvoiceContent> {
-        let mut priced = match self
-            .price_invoice_lines(
-                conn,
-                invoice_date,
-                subscription_details,
-                prepaid_amount,
-                invoice,
-                invoice_type,
-                book,
-            )
-            .await?
-        {
-            PricedInvoice::Stored(content) => return Ok(content),
-            PricedInvoice::Lines(priced) => priced,
-        };
-        self.cover_credit_unit_lines_on(
-            conn,
-            cover,
-            &mut [priced.cover_target(subscription_details)],
-            book,
-        )
-        .await?;
-        let credit_at = match cover {
-            CreditUnitCover::Estimate { .. } => common_clock::now(),
-            CreditUnitCover::Draw { at, .. } | CreditUnitCover::DrawAsShown { at, .. } => at.at,
-        };
-        self.finish_invoice_content(conn, subscription_details, priced, credit_at, book)
-            .await
-    }
-
-    /// `compute_invoice_on` for a stored subscription's period invoice, its lines from its facts
-    /// (`price_from_facts`).
+    /// A stored subscription's period invoice, its lines from its facts (`price_from_facts`),
+    /// the credit-priced lines covered as `cover` says, credit estimated on `book` when given.
     #[allow(clippy::too_many_arguments)]
     pub(in crate::services) async fn compute_invoice_from_facts(
         &self,
@@ -576,293 +398,6 @@ impl Services {
         };
         self.finish_invoice_content(conn, subscription_details, priced, credit_at, book)
             .await
-    }
-
-    /// The lines of a subscription period's invoice, priced but neither covered by credit units,
-    /// discounted nor taxed; or the stored content when the invoice keeps its lines.
-    #[allow(clippy::too_many_arguments)]
-    pub(in crate::services) async fn price_invoice_lines(
-        &self,
-        conn: &mut PgConn,
-        invoice_date: &NaiveDate,
-        subscription_details: &SubscriptionDetails,
-        prepaid_amount: Option<u64>,
-        invoice: Option<&Invoice>, // for refresh purposes
-        invoice_type: InvoiceType,
-        book: Option<&CreditBooks>,
-    ) -> StoreResult<PricedInvoice> {
-        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
-        Box::pin(self.price_invoice_lines_unboxed(
-            conn,
-            invoice_date,
-            subscription_details,
-            prepaid_amount,
-            invoice,
-            invoice_type,
-            book,
-        ))
-        .await
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn price_invoice_lines_unboxed(
-        &self,
-        conn: &mut PgConn,
-        invoice_date: &NaiveDate,
-        subscription_details: &SubscriptionDetails,
-        prepaid_amount: Option<u64>,
-        invoice: Option<&Invoice>,
-        invoice_type: InvoiceType,
-        book: Option<&CreditBooks>,
-    ) -> StoreResult<PricedInvoice> {
-        let span = BilledSpan::of(&invoice_type);
-        let reading = details_for_span(conn, subscription_details, span).await?;
-        let subscription_details: &SubscriptionDetails =
-            reading.as_deref().unwrap_or(subscription_details);
-
-        // Gate on the cycle the invoice belongs to, not the one the subscription has since reached:
-        // a draft outliving a renewal would otherwise bill another period's components (or lose its
-        // own). Falls back to the current cycle for invoices predating the column.
-        let cycle_index = invoice
-            .and_then(|i| i.cycle_index)
-            .or(subscription_details.subscription.cycle_index)
-            .unwrap_or(0);
-
-        // Reuse the stored lines instead of recomputing when either holds:
-        //
-        // - The invoice is neither `Recurring` nor `Final`. Only those bill a subscription's usage;
-        //   a OneOff, Adjustment or corrected draft carries bespoke lines (and a subscription_id),
-        //   so re-deriving the period over them would replace them with a period-to-date recompute
-        //   the next renewal bills again — a double charge.
-        // - It is recurring but static: no usage-based lines, and no arrears can accrue for this
-        //   period. Otherwise the amount still depends on usage that may have landed since the
-        //   draft was created, and freezing it would drop that usage — including the
-        //   empty/shortfall-only case, where there is no usage line to detect staleness from.
-        if let Some(invoice) = invoice
-            && (!invoice_type.bills_subscription_usage()
-                || (!invoice.line_items.iter().any(is_usage_based_line)
-                    && !self
-                        .can_accrue_arrears_in_period(conn, subscription_details, *invoice_date)
-                        .await?
-                    && super::discount::shows_owed_coupons(conn, subscription_details, invoice)
-                        .await?))
-        {
-            // Reused lines still estimate the customer credit they would draw.
-            let already_paid = prepaid_amount.unwrap_or(0) as i64;
-            let content = self
-                .estimate_stored_credit(conn, invoice, already_paid, common_clock::now(), book)
-                .await?;
-            return Ok(PricedInvoice::Stored(content));
-        }
-
-        let billing_start_date = subscription_details
-            .subscription
-            .billing_start_date
-            // TODO should we return empty ?
-            .ok_or(Report::new(StoreError::BillingError))
-            .attach("No billing_start_date is present")?;
-
-        let currency = Currencies::resolve_currency(&subscription_details.subscription.currency)
-            .ok_or(Report::new(StoreError::ValueNotFound(format!(
-                "Currency {} not found",
-                subscription_details.subscription.currency
-            ))))?;
-
-        let invoice_date = *invoice_date;
-
-        // An invoice keeps the basis it was first computed on; a new one takes the
-        // subscription's.
-        let tax_inclusive = invoice
-            .map_or(subscription_details.subscription.tax_inclusive, |invoice| {
-                invoice.tax_inclusive
-            });
-
-        // Stored lines are net, but everything below prices, discounts and taxes lines in
-        // the figures they were quoted in. Put the stored ones back into those figures so
-        // the ones carried over (and any unit price an operator pinned) re-enter the
-        // pipeline on the same footing as the ones computed fresh.
-        let repriced_invoice = invoice.filter(|_| tax_inclusive).map(|invoice| Invoice {
-            line_items: invoice
-                .line_items
-                .iter()
-                .cloned()
-                .map(LineItem::into_tax_inclusive_quote)
-                .collect(),
-            ..invoice.clone()
-        });
-        let invoice = repriced_invoice.as_ref().or(invoice);
-
-        // Build map of existing line items for refresh (only usage-based lines)
-        let existing_lines: HashMap<ExistingLineKey, &LineItem> = if let Some(invoice) = invoice {
-            invoice
-                .line_items
-                .iter()
-                .filter(|line| is_usage_based_line(line))
-                .filter_map(|line| ExistingLineKey::from_line_item(line).map(|key| (key, line)))
-                .collect()
-        } else {
-            HashMap::new()
-        };
-
-        let runs =
-            super::cadence::load_cadence_runs(conn, subscription_details, invoice_date, true)
-                .await?;
-        #[cfg(feature = "timeline-shadow")]
-        {
-            let started = std::time::Instant::now();
-            crate::services::timeline_shadow::check_origins(
-                conn,
-                subscription_details,
-                invoice_date,
-                &runs,
-            )
-            .await?;
-            crate::services::timeline_shadow::spend(started);
-        }
-        let price_components_lines = self
-            .process_fee_records(
-                conn,
-                subscription_details,
-                &subscription_details.price_components,
-                invoice_date,
-                billing_start_date,
-                cycle_index,
-                &currency,
-                &existing_lines,
-                invoice.map(|invoice| invoice.id),
-                &runs,
-                span,
-            )
-            .await?;
-
-        // Add-ons store their fee per-unit with an instance count in `quantity`.
-        // compute_component reads instance_count() from the trait and multiplies
-        // the fee's own quantity, so no pre-scaling is needed here.
-        let add_ons_lines = self
-            .process_fee_records(
-                conn,
-                subscription_details,
-                &subscription_details.add_ons,
-                invoice_date,
-                billing_start_date,
-                cycle_index,
-                &currency,
-                &existing_lines,
-                invoice.map(|invoice| invoice.id),
-                &runs,
-                span,
-            )
-            .await?;
-
-        // Closed pure-arrears components/add-ons still bill their temporal segment
-        // [effective_from, effective_to] after a mid-period plan change or amendment.
-        let closed = load_closed_arrears(
-            conn,
-            subscription_details,
-            invoice_date,
-            invoice.map(|invoice| invoice.id),
-        )
-        .await?;
-        let closed_details = closed.details_for(subscription_details);
-
-        let historical_lines = self
-            .process_fee_records(
-                conn,
-                &closed_details,
-                &closed.components,
-                invoice_date,
-                billing_start_date,
-                cycle_index,
-                &currency,
-                &existing_lines,
-                invoice.map(|invoice| invoice.id),
-                &runs,
-                span,
-            )
-            .await?;
-
-        let historical_addon_lines = self
-            .process_fee_records(
-                conn,
-                &closed_details,
-                &closed.add_ons,
-                invoice_date,
-                billing_start_date,
-                cycle_index,
-                &currency,
-                &existing_lines,
-                invoice.map(|invoice| invoice.id),
-                &runs,
-                span,
-            )
-            .await?;
-
-        // Merge non-usage-based lines from existing invoice (if refreshing)
-        let mut invoice_lines = if let Some(invoice) = invoice {
-            // TODO quick fix, do that part in process_component instead
-            let computed_lines = price_components_lines
-                .into_iter()
-                .chain(add_ons_lines)
-                .chain(historical_lines)
-                .chain(historical_addon_lines)
-                .filter(&is_usage_based_line)
-                .collect_vec();
-
-            // A true-up line is recomputed by `append_minimum_shortfall_if_any`, which also decides
-            // on a shortfall charged up front before the true-up.
-            let non_usage_lines = invoice
-                .line_items
-                .iter()
-                .filter(|line| !is_usage_based_line(line))
-                .filter(|line| !super::minimum::is_true_up(line, invoice_date, None))
-                .cloned();
-
-            computed_lines
-                .into_iter()
-                .chain(non_usage_lines)
-                .collect_vec()
-        } else {
-            price_components_lines
-                .into_iter()
-                .chain(add_ons_lines)
-                .chain(historical_lines)
-                .chain(historical_addon_lines)
-                .collect_vec()
-        };
-
-        // Append date range to line item names when a temporal split occurred
-        // (multiple sub_component_ids for the same price_component_id)
-        apply_temporal_date_range_to_names(&mut invoice_lines);
-        super::charges::disambiguate(
-            &mut invoice_lines,
-            &super::charges::Lineages::of(subscription_details),
-        );
-
-        let true_up = if invoice_type == InvoiceType::Recurring {
-            super::minimum::load_period_true_up(
-                conn,
-                subscription_details,
-                invoice_date,
-                cycle_index,
-                invoice,
-            )
-            .await?
-        } else {
-            None
-        };
-
-        Ok(PricedInvoice::Lines(PricedLines {
-            lines: invoice_lines,
-            invoice_date,
-            currency_precision: currency.precision,
-            tax_inclusive,
-            invoice_type,
-            prepaid_amount,
-            invoice_id: invoice.map(|invoice| invoice.id),
-            true_up,
-            reopened: Box::default(),
-            span,
-        }))
     }
 
     /// The content of an invoice whose taxed lines stand, with the credit it would draw at `at`:
@@ -1197,159 +732,6 @@ impl Services {
             engine_is_eu_vat: invoicing_entity.tax_resolver == TaxResolverEnum::MeteroidEuVat,
         }))
     }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn process_fee_records<T: SubscriptionFeeInterface>(
-        &self,
-        conn: &mut PgConn,
-        subscription_details: &SubscriptionDetails,
-        fee_records: &[T],
-        invoice_date: NaiveDate,
-        billing_start_or_resume_date: NaiveDate,
-        cycle_index: u32,
-        currency: &Currency,
-        existing_lines: &HashMap<ExistingLineKey, &LineItem>,
-        invoice_id: Option<InvoiceId>,
-        runs: &[crate::utils::periods::CadenceRun],
-        span: BilledSpan,
-    ) -> StoreResult<Vec<LineItem>> {
-        // One-time fees are billed exactly once and follow a different rule than the
-        // cadence-based components below: `applies_this_period` only admits one-time
-        // fees on cycle 0, which would silently drop a one-time fee added by a later
-        // amendment. Handle them separately so they bill on the invoice generated on
-        // the date they become effective.
-        let (one_time_records, recurring_records): (Vec<&T>, Vec<&T>) = fee_records
-            .iter()
-            .partition(|c| matches!(c.fee_ref(), SubscriptionFee::OneTime { .. }));
-
-        // TODO case when invoiced early via threshold (that's for usage-based only)
-        // can be quite easy => we need some last_invoice_threshold date in the subscription, to reduce the usage periods if that date is within the period
-
-        let component_period_components = fee_periods(
-            subscription_details,
-            recurring_records,
-            invoice_date,
-            billing_start_or_resume_date,
-            runs,
-            span,
-        );
-
-        // we can now compute all the components for each period
-        let mut invoice_lines = Vec::new();
-        for (period, components) in component_period_components {
-            for component in components {
-                if is_once_credit(component.fee_ref())
-                    && !self
-                        .once_credit_due(
-                            conn,
-                            subscription_details,
-                            component,
-                            period.arrear.as_ref().map(|arrear| arrear.start),
-                            cycle_index,
-                            invoice_id,
-                        )
-                        .await?
-                {
-                    continue;
-                }
-                // Apply temporal bounds to arrear period for usage-based billing split
-                let mut adjusted_period = restrict_arrear_period_by_temporal_bounds(
-                    period.clone(),
-                    component.effective_from(),
-                    component.effective_to(),
-                );
-                // Ended by then, it bills nothing in advance (a capacity's overage still trails).
-                if let Some(to) = component.effective_to()
-                    && adjusted_period
-                        .advance
-                        .as_ref()
-                        .is_some_and(|advance| advance.start >= to)
-                {
-                    adjusted_period.advance = None;
-                }
-                #[cfg(feature = "timeline-shadow")]
-                {
-                    let started = std::time::Instant::now();
-                    crate::services::timeline_shadow::check(
-                        subscription_details,
-                        component,
-                        &adjusted_period,
-                        invoice_date,
-                        billing_start_or_resume_date,
-                        runs,
-                    );
-                    crate::services::timeline_shadow::spend(started);
-                }
-
-                let lines = self
-                    .compute_component(
-                        conn,
-                        subscription_details,
-                        component,
-                        adjusted_period,
-                        currency.precision,
-                        existing_lines,
-                    )
-                    .await?;
-
-                invoice_lines.extend(lines);
-            }
-        }
-
-        // The period's own invoice billed them.
-        if span == BilledSpan::Final {
-            return Ok(invoice_lines);
-        }
-
-        // One-time fees: billed in full, never prorated, exactly once. Billing point:
-        //  - plan-level one-time fees bill on the subscription's first invoice
-        //    (`cycle_index == 0`, not the closing invoice of a subscription ending in
-        //    cycle 0); they are not re-billed on renewals or carried over
-        //    by a plan change (which is why `applies_this_period` excludes them);
-        //  - a one-time fee added by a manual amendment bills on the invoice for the
-        //    period it becomes effective (`effective_from == invoice_date`), which for
-        //    an immediate amendment is its adjustment invoice (handled elsewhere) and
-        //    for an end-of-period amendment is the upcoming renewal.
-        let sub = &subscription_details.subscription;
-        let closes_first_period = sub.current_period_end.is_none()
-            && !sub.pending_checkout
-            && invoice_date > billing_start_or_resume_date;
-        for component in one_time_records {
-            let bill_now = (cycle_index == 0 && !closes_first_period)
-                || (component.added_by_amendment()
-                    && component.effective_from() == Some(invoice_date));
-            if !bill_now {
-                continue;
-            }
-
-            let periods = ComponentPeriods {
-                proration_factor: None,
-                proration_days: None,
-                arrear_proration_factor: None,
-                arrear_share: None,
-                advance: Some(Period {
-                    start: invoice_date,
-                    end: invoice_date,
-                }),
-                arrear: None,
-            };
-
-            let lines = self
-                .compute_component(
-                    conn,
-                    subscription_details,
-                    component,
-                    periods,
-                    currency.precision,
-                    existing_lines,
-                )
-                .await?;
-
-            invoice_lines.extend(lines);
-        }
-
-        Ok(invoice_lines)
-    }
 }
 
 /// What the tax engine resolves a document's lines against, read once.
@@ -1670,59 +1052,6 @@ fn apply_resolved_taxes(
         breakdown,
         discount_tax,
     }
-}
-
-impl Services {
-    /// A `once` credit bills on the first invoice that carries its component, unless another
-    /// invoice of the subscription already billed a `once` credit of the same product, so a plan
-    /// change or amendment never grants a product's one-time credit twice.
-    async fn once_credit_due<T: SubscriptionFeeInterface>(
-        &self,
-        conn: &mut PgConn,
-        subscription_details: &SubscriptionDetails,
-        component: &T,
-        previous_billing_date: Option<NaiveDate>,
-        cycle_index: u32,
-        invoice_id: Option<InvoiceId>,
-    ) -> StoreResult<bool> {
-        // Refused on creation; a legacy product-less one keeps the first-invoice-only rule.
-        let Some(product_id) = component.product_id() else {
-            return Ok(cycle_index == 0);
-        };
-        let tenant_id = subscription_details.subscription.tenant_id;
-        let subscription_id = subscription_details.subscription.id;
-        // From cycle 2 on, a component the previous renewal already carried was settled there,
-        // unless an invoice that carried it was voided: the void may have taken it back whole.
-        if cycle_index >= 2
-            && let (Some(from), Some(previous)) =
-                (component.effective_from(), previous_billing_date)
-            && from <= previous
-            && !InvoiceRow::subscription_voided_once_credit(
-                conn,
-                tenant_id,
-                subscription_id,
-                product_id,
-            )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-        {
-            return Ok(false);
-        }
-        let billed = InvoiceRow::subscription_billed_once_credit(
-            conn,
-            tenant_id,
-            subscription_id,
-            product_id,
-            invoice_id,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-        Ok(!billed)
-    }
-}
-
-fn is_once_credit(fee: &SubscriptionFee) -> bool {
-    matches!(fee, SubscriptionFee::Credit { once: true, .. })
 }
 
 /// Closed pure-arrears components and add-ons of a subscription that can still bill a usage
@@ -2263,6 +1592,12 @@ pub(crate) fn metered_windows<T: SubscriptionFeeInterface>(
     .collect()
 }
 
+/// A closed fee still owes what trails it: its arrears, or a capacity's overage.
+fn bills_closed_arrears(fee: &SubscriptionFee) -> bool {
+    fee.is_pure_arrears()
+        || matches!(fee, SubscriptionFee::Capacity { overage_rate, .. } if *overage_rate > Decimal::ZERO)
+}
+
 /// Restrict the arrear period of a ComponentPeriods based on a component's temporal bounds.
 /// - If effective_from > arrear.start: restrict arrear start to effective_from
 /// - If effective_to < arrear.end: restrict arrear end to effective_to
@@ -2274,49 +1609,6 @@ pub(crate) fn metered_windows<T: SubscriptionFeeInterface>(
 /// would bill a full period's rate for a partial window. A proration factor is set
 /// for that case. Usage-based arrears ignore the factor (their amount derives from
 /// usage queried over the restricted window), so this is a no-op for them.
-/// Whether any of these closed pure-arrears records still bills an arrear segment on
-/// `invoice_date`. Existing in the subscription's history is not enough: `process_fee_records`
-/// clips every segment to this invoice's arrear window and drops it once elapsed, so asking
-/// "does a closed segment exist" rather than "would one bill" answers true for every period
-/// after the change — anchoring an empty draft forever. Runs the same period math the biller
-/// does, so the two agree by construction.
-fn bills_arrears_segment<T: SubscriptionFeeInterface>(
-    subscription_details: &SubscriptionDetails,
-    records: &[T],
-    invoice_date: NaiveDate,
-    runs: &[crate::utils::periods::CadenceRun],
-) -> bool {
-    let Some(billing_start_date) = subscription_details.subscription.billing_start_date else {
-        return false;
-    };
-    fee_periods(
-        subscription_details,
-        records.iter().collect(),
-        invoice_date,
-        billing_start_date,
-        runs,
-        BilledSpan::Period,
-    )
-    .into_iter()
-    .any(|(periods, records)| {
-        records.into_iter().any(|record| {
-            restrict_arrear_period_by_temporal_bounds(
-                periods.clone(),
-                record.effective_from(),
-                record.effective_to(),
-            )
-            .arrear
-            .is_some()
-        })
-    })
-}
-
-/// A closed fee still owes what trails it: its arrears, or a capacity's overage.
-fn bills_closed_arrears(fee: &SubscriptionFee) -> bool {
-    fee.is_pure_arrears()
-        || matches!(fee, SubscriptionFee::Capacity { overage_rate, .. } if *overage_rate > Decimal::ZERO)
-}
-
 pub(crate) fn restrict_arrear_period_by_temporal_bounds(
     mut periods: ComponentPeriods,
     effective_from: Option<NaiveDate>,
@@ -2338,8 +1630,8 @@ pub(crate) fn restrict_arrear_period_by_temporal_bounds(
         // Keep only an exactly-zero-width window that was zero-width on arrival — the terminal
         // same-day settlement window [billing_start, termination_date] on the cancellation day,
         // whose usage is billed against the exact termination instant downstream (see
-        // `arrear_usage_period`); a fixed-rate arrears fee on it bills nothing (compute_component
-        // skips a zero-width arrears line). Drop everything else invalid: a period restriction
+        // `arrear_usage_period`); a fixed-rate arrears fee on it bills nothing. Drop
+        // everything else invalid: a period restriction
         // collapsed (a component closed at/before the period start), a negative-width arrival (an
         // immediate cancel before a future-dated billing start), and a zero-width arrival that a
         // temporal bound then clamped into an inverted window — so `Some(arrear)` is always a valid
@@ -2555,7 +1847,7 @@ mod tests {
     fn zero_width_arrear_on_arrival_is_kept() {
         // The terminal same-day settlement window [today, today] arrives zero-width and must be
         // kept — its usage is billed against the exact termination instant downstream. It carries
-        // no proration factor (a fixed-rate arrears line on it is skipped by compute_component).
+        // no proration factor.
         let periods = restrict_arrear_period_by_temporal_bounds(
             arrear_periods(date(2025, 3, 10), date(2025, 3, 10)),
             None,

@@ -11,7 +11,6 @@ use common_config::instance_telemetry::InstanceTelemetryConfig;
 use common_domain::ids::OrganizationId;
 use meteroid_mailer::config::MailerConfig;
 use meteroid_oauth::config::OauthConfig;
-use meteroid_store::services::billing_release::BillingRelease;
 use meteroid_store::store::PgConfig;
 
 #[derive(Envconfig, Debug, Clone)]
@@ -101,11 +100,6 @@ pub struct Config {
     /// After this date, portal links still carried as non-expiring JWTs stop working.
     #[envconfig(from = "PORTAL_LEGACY_TOKENS_ACCEPTED_UNTIL")]
     pub portal_legacy_tokens_until: Option<chrono::NaiveDate>,
-
-    /// `all` bills every tenant; `allowlist` bills only the tenants a `billing_controller_release`
-    /// row names, every tenant once a row names none.
-    #[envconfig(from = "BILLING_CONTROLLER_RELEASE", default = "all")]
-    pub billing_controller_release: BillingRelease,
 
     #[envconfig(nested)]
     pub redis: RedisConfig,

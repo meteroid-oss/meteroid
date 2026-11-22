@@ -99,23 +99,18 @@ async fn test_compute_invoice_basic(
         .unwrap()
         .id;
 
-    let subscription_details = store
-        .get_subscription_details_with_conn(conn, TENANT_ID, subscription_id)
-        .await
-        .unwrap();
+    let subscription_details = renewal_details(store, conn, subscription_id).await;
 
-    let invoice_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let invoice_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
     let result = services
-        .compute_invoice(
-            &invoice_date,
-            &subscription_details,
-            None,
-            meteroid_store::domain::enums::InvoiceType::Recurring,
-        )
+        .compute_period_invoice(&invoice_date, &subscription_details)
         .await
         .unwrap();
 
-    assert!(result.subtotal > 0, "Subtotal should be positive");
+    assert_eq!(
+        result.subtotal, 3500,
+        "Subtotal should be the full price component price"
+    );
     assert_eq!(
         result.tax_amount, 0,
         "Tax amount should be zero for no tax scenario"
@@ -140,58 +135,9 @@ async fn test_compute_invoice_basic(
         result.subtotal + result.tax_amount - result.discount + result.applied_credits.abs(),
         "Total calculation should be consistent"
     );
-
-    // Test with a full month
-    let full_month = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
-    let result2 = services
-        .compute_invoice(
-            &full_month,
-            &subscription_details,
-            None,
-            meteroid_store::domain::enums::InvoiceType::Recurring,
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(
-        result2.subtotal, 3500,
-        "Subtotal should be the full price component price"
-    );
-    assert_eq!(
-        result2.total, result2.subtotal,
-        "Total should be equal to subtotal"
-    );
-
-    // Test with prepaid amount
-    let prepaid_amount = 1000u64; // 10.00 in cents
-    let result3 = services
-        .compute_invoice(
-            &invoice_date,
-            &subscription_details,
-            Some(prepaid_amount),
-            meteroid_store::domain::enums::InvoiceType::Recurring,
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(
-        result3.amount_due,
-        result.amount_due - prepaid_amount as i64,
-        "Amount due should be reduced by prepaid amount"
-    );
-
-    assert_eq!(
-        result3.subtotal, result.subtotal,
-        "Subtotal should remain the same after applying prepaid amount"
-    );
-
-    assert_eq!(
-        result3.total, result.total,
-        "Total should remain the same after applying prepaid amount"
-    );
 }
 
-/// Test compute_invoice with EU VAT tax resolver (France B2B scenario)
+/// The period invoice under the EU VAT tax resolver (France B2B scenario)
 async fn test_compute_invoice_with_eu_vat(
     services: &Services,
     store: &meteroid_store::Store,
@@ -251,19 +197,11 @@ async fn test_compute_invoice_with_eu_vat(
         .unwrap()
         .id;
 
-    let subscription_details = store
-        .get_subscription_details_with_conn(conn, TENANT_ID, subscription_id)
-        .await
-        .unwrap();
+    let subscription_details = renewal_details(store, conn, subscription_id).await;
 
     let invoice_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
     let result = services
-        .compute_invoice(
-            &invoice_date,
-            &subscription_details,
-            None,
-            meteroid_store::domain::enums::InvoiceType::Recurring,
-        )
+        .compute_period_invoice(&invoice_date, &subscription_details)
         .await
         .unwrap();
 
@@ -356,7 +294,7 @@ async fn create_french_b2b_customer(
     customer_id
 }
 
-/// Test compute_invoice with EU B2B cross-border VAT (FR to DE)
+/// The period invoice under EU B2B cross-border VAT (FR to DE)
 async fn test_compute_invoice_with_reverse_charge(
     services: &Services,
     store: &meteroid_store::Store,
@@ -416,19 +354,11 @@ async fn test_compute_invoice_with_reverse_charge(
         .unwrap()
         .id;
 
-    let subscription_details = store
-        .get_subscription_details_with_conn(conn, TENANT_ID, subscription_id)
-        .await
-        .unwrap();
+    let subscription_details = renewal_details(store, conn, subscription_id).await;
 
     let invoice_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
     let result = services
-        .compute_invoice(
-            &invoice_date,
-            &subscription_details,
-            None,
-            meteroid_store::domain::enums::InvoiceType::Recurring,
-        )
+        .compute_period_invoice(&invoice_date, &subscription_details)
         .await
         .unwrap();
 
@@ -483,7 +413,7 @@ async fn test_compute_invoice_with_manual_tax_and_coupon(
 
     let custom_tax_customer_id = create_customer_with_custom_tax_rate(services, conn).await;
 
-    let coupon_id = create_test_coupon(services, store).await;
+    let coupon_id = create_test_coupon(services, store, "TEST10").await;
 
     let subscription_id = services
         .insert_subscription(
@@ -526,19 +456,11 @@ async fn test_compute_invoice_with_manual_tax_and_coupon(
         .unwrap()
         .id;
 
-    let subscription_details = store
-        .get_subscription_details_with_conn(conn, TENANT_ID, subscription_id)
-        .await
-        .unwrap();
+    let subscription_details = renewal_details(store, conn, subscription_id).await;
 
     let invoice_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
     let result = services
-        .compute_invoice(
-            &invoice_date,
-            &subscription_details,
-            None,
-            meteroid_store::domain::enums::InvoiceType::Recurring,
-        )
+        .compute_period_invoice(&invoice_date, &subscription_details)
         .await
         .unwrap();
 
@@ -580,15 +502,55 @@ async fn test_compute_invoice_with_manual_tax_and_coupon(
     // The same subscription, sold tax-included: the customer pays the quoted 35.00 less
     // the coupon's 10% — 31.50 to the cent — and the 8.25% is carved out of that instead
     // of being added to it.
-    let mut inclusive_details = subscription_details.clone();
-    inclusive_details.subscription.tax_inclusive = true;
-    let inclusive = services
-        .compute_invoice(
-            &invoice_date,
-            &inclusive_details,
-            None,
-            meteroid_store::domain::enums::InvoiceType::Recurring,
+    set_leetcode_tax_inclusive(conn, true).await;
+    let inclusive_coupon_id = create_test_coupon(services, store, "TEST10INC").await;
+    let inclusive_subscription_id = services
+        .insert_subscription(
+            common_domain::actor::Actor::System,
+            CreateSubscription {
+                subscription: SubscriptionNew {
+                    customer_id: custom_tax_customer_id,
+                    plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
+                    net_terms: None,
+                    invoice_memo: None,
+                    invoice_threshold: None,
+                    start_date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                    end_date: None,
+                    billing_start_date: Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()),
+                    activation_condition: SubscriptionActivationCondition::OnStart,
+                    trial_duration: None,
+                    billing_day_anchor: None,
+                    payment_methods_config: None,
+                    auto_advance_invoices: true,
+                    charge_automatically: false,
+                    purchase_order: None,
+                    backdate_invoices: false,
+                    skip_checkout_session: false,
+                    skip_past_invoices: false,
+                    usage_filter: None,
+                    custom_properties: serde_json::Value::Null,
+                },
+                price_components: None,
+                add_ons: None,
+                coupons: Some(CreateSubscriptionCoupons {
+                    coupons: vec![CreateSubscriptionCoupon {
+                        coupon_id: inclusive_coupon_id,
+                    }],
+                }),
+                entitlements: vec![],
+                minimum_override: None,
+                drop_minimum: false,
+            },
+            TENANT_ID,
         )
+        .await
+        .unwrap()
+        .id;
+    set_leetcode_tax_inclusive(conn, false).await;
+    let inclusive_details = renewal_details(store, conn, inclusive_subscription_id).await;
+    assert!(inclusive_details.subscription.tax_inclusive);
+    let inclusive = services
+        .compute_period_invoice(&invoice_date, &inclusive_details)
         .await
         .unwrap();
 
@@ -716,19 +678,11 @@ async fn test_compute_invoice_rounds_vat_once_over_the_invoice(
         .unwrap()
         .id;
 
-    let subscription_details = store
-        .get_subscription_details_with_conn(conn, TENANT_ID, subscription_id)
-        .await
-        .unwrap();
+    let subscription_details = renewal_details(store, conn, subscription_id).await;
 
     let invoice_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
     let result = services
-        .compute_invoice(
-            &invoice_date,
-            &subscription_details,
-            None,
-            meteroid_store::domain::enums::InvoiceType::Recurring,
-        )
+        .compute_period_invoice(&invoice_date, &subscription_details)
         .await
         .unwrap();
 
@@ -770,6 +724,40 @@ async fn test_compute_invoice_rounds_vat_once_over_the_invoice(
         "the breakdown must match the invoice VAT"
     );
     assert_eq!(result.tax_breakdown[0].tax_rate, dec!(0.2));
+}
+
+/// The stored subscription as the renewal opening its second period leaves it, before that
+/// renewal's draft is written.
+async fn renewal_details(
+    store: &meteroid_store::Store,
+    conn: &mut PgConn,
+    subscription_id: common_domain::ids::SubscriptionId,
+) -> meteroid_store::domain::SubscriptionDetails {
+    use diesel_async::RunQueryDsl;
+    diesel::sql_query(
+        "UPDATE subscription SET current_period_start = $1, current_period_end = $2 WHERE id = $3",
+    )
+    .bind::<diesel::sql_types::Date, _>(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap())
+    .bind::<diesel::sql_types::Date, _>(NaiveDate::from_ymd_opt(2024, 3, 1).unwrap())
+    .bind::<diesel::sql_types::Uuid, _>(*subscription_id)
+    .execute(conn)
+    .await
+    .unwrap();
+    store
+        .get_subscription_details_with_conn(conn, TENANT_ID, subscription_id)
+        .await
+        .unwrap()
+}
+
+/// Whether the LeetCode plan quotes its prices tax-included, for the subscriptions created next.
+async fn set_leetcode_tax_inclusive(conn: &mut PgConn, tax_inclusive: bool) {
+    use diesel_async::RunQueryDsl;
+    diesel::sql_query("UPDATE plan_version SET tax_inclusive = $1 WHERE id = $2")
+        .bind::<diesel::sql_types::Bool, _>(tax_inclusive)
+        .bind::<diesel::sql_types::Uuid, _>(*PLAN_VERSION_1_LEETCODE_ID)
+        .execute(conn)
+        .await
+        .unwrap();
 }
 
 /// An ad-hoc monthly EUR rate component, so a test can pick the exact line amounts.
@@ -908,9 +896,10 @@ async fn create_customer_with_custom_tax_rate(
 async fn create_test_coupon(
     _services: &Services,
     store: &meteroid_store::Store,
+    code: &str,
 ) -> common_domain::ids::CouponId {
     let coupon_new = CouponNew {
-        code: "TEST10".to_string(),
+        code: code.to_string(),
         description: "Test 10% discount".to_string(),
         tenant_id: TENANT_ID,
         discount: CouponDiscount::Percentage(dec!(10)),
@@ -1055,19 +1044,11 @@ async fn test_compute_invoice_with_tax_category_custom_tax(
         .unwrap()
         .id;
 
-    let subscription_details = store
-        .get_subscription_details_with_conn(conn, TENANT_ID, subscription_id)
-        .await
-        .unwrap();
+    let subscription_details = renewal_details(store, conn, subscription_id).await;
 
     let invoice_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
     let result = services
-        .compute_invoice(
-            &invoice_date,
-            &subscription_details,
-            None,
-            meteroid_store::domain::enums::InvoiceType::Recurring,
-        )
+        .compute_period_invoice(&invoice_date, &subscription_details)
         .await
         .unwrap();
 

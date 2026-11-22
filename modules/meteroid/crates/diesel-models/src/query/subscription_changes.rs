@@ -250,31 +250,6 @@ impl SubscriptionChangeRow {
         .map(|_| ())
     }
 
-    /// Marks the change of `kind` dated `on`, its facts written, as left for the billing
-    /// controller to settle: a held tenant's request.
-    pub async fn mark_settlement_due(
-        conn: &mut PgConn,
-        tenant_id: TenantId,
-        subscription_id: SubscriptionId,
-        on: chrono::NaiveDate,
-        kind: SubscriptionChangeKindEnum,
-    ) -> DbResult<()> {
-        diesel::sql_query(
-            "INSERT INTO subscription_settlement_due (subscription_id, effective_on, tenant_id, kind)
-             VALUES ($1, $2, $3, $4)
-             ON CONFLICT (subscription_id, effective_on) DO NOTHING",
-        )
-        .bind::<diesel::sql_types::Uuid, _>(subscription_id)
-        .bind::<diesel::sql_types::Date, _>(on)
-        .bind::<diesel::sql_types::Uuid, _>(tenant_id)
-        .bind::<crate::schema::sql_types::SubscriptionChangeKindEnum, _>(kind)
-        .execute(conn)
-        .await
-        .attach("Error while marking a change's settlement due")
-        .into_db_result()
-        .map(|_| ())
-    }
-
     /// Drops the settlement left to the controller for a scheduled amendment dated `on`, which no
     /// longer takes effect that day; an immediate amendment's of that day stays.
     pub async fn drop_amendment_settlement_due(

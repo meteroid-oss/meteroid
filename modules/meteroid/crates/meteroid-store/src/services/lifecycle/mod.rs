@@ -1,6 +1,5 @@
 pub mod controller;
 pub(crate) mod derived;
-pub mod release;
 
 /// A read the metering service cannot serve yet (one predating usage filters, during a deploy) is
 /// no failure of the work: it is retried later without counting against its retries.

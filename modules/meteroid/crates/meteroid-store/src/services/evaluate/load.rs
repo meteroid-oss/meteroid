@@ -220,6 +220,63 @@ pub async fn load_facts_with(
     draft: Option<&[LineItem]>,
     overlay: Option<&Overlay>,
 ) -> StoreResult<LoadedFacts> {
+    // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+    Box::pin(load_facts_of(
+        conn,
+        tenant_id,
+        subscription_id,
+        as_of,
+        draft,
+        overlay,
+        None,
+    ))
+    .await
+}
+
+/// The stored facts of `details`' subscription with its fee rows replaced by `details`' own (the
+/// subscription moved to another plan version, say), every plan window on its plan version: what
+/// it would have billed on them. No watermark: every period is computed whole.
+pub(crate) async fn load_facts_on_rows(
+    conn: &mut PgConn,
+    details: &SubscriptionDetails,
+    as_of: NaiveDate,
+) -> StoreResult<LoadedFacts> {
+    let sub = &details.subscription;
+    let rows: Vec<Row> = details
+        .price_components
+        .iter()
+        .cloned()
+        .map(Row::Component)
+        .chain(details.add_ons.iter().cloned().map(Row::AddOn))
+        .collect();
+    let mut loaded = Box::pin(load_facts_of(
+        conn,
+        sub.tenant_id,
+        sub.id,
+        as_of,
+        None,
+        None,
+        Some(rows),
+    ))
+    .await?;
+    for window in &mut loaded.facts.plan_windows {
+        window.plan_version = sub.plan_version_id;
+    }
+    loaded.facts.reconcile_from = None;
+    loaded.facts.arrears_from = None;
+    Ok(loaded)
+}
+
+/// [`load_facts_with`], the fee rows `replaced` when given.
+async fn load_facts_of(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+    as_of: NaiveDate,
+    draft: Option<&[LineItem]>,
+    overlay: Option<&Overlay>,
+    replaced: Option<Vec<Row>>,
+) -> StoreResult<LoadedFacts> {
     let subscription: Subscription =
         db(SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id).await)?
             .try_into()?;
@@ -261,7 +318,10 @@ pub async fn load_facts_with(
         }
     }
 
-    let rows = fee_rows(conn, tenant_id, subscription_id, as_of, change).await?;
+    let rows = match replaced {
+        Some(rows) => rows,
+        None => fee_rows(conn, tenant_id, subscription_id, as_of, change).await?,
+    };
     let metrics = metrics_of(conn, &subscription, &rows).await?;
     let mut fees = Vec::with_capacity(rows.len());
     for row in &rows {

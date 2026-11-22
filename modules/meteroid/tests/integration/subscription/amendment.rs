@@ -1548,7 +1548,7 @@ async fn test_remove_arrears_addon_final_segment_billed() {
 /// when its usage is imported *after* the empty renewal draft exists. With the add-on removed the
 /// subscription is advance-only, so `can_accrue_arrears()` over its currently-active components is
 /// false — the refresh would short-circuit on the draft's advance-only lines and drop the late
-/// usage, unless it also consults the closed add-on (`can_accrue_arrears_in_period`).
+/// usage, unless it also reads the closed add-on's charges.
 #[tokio::test]
 async fn test_remove_arrears_addon_late_usage_still_billed() {
     let jan1 = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();

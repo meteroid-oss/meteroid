@@ -118,7 +118,7 @@ impl BreakdownRead {
     }
 }
 
-/// Breaks each usage line down by its metric's breakdown key, as the per-operation path does:
+/// Breaks each usage line down by its metric's breakdown key, the breakdown
 /// read apart from the usage it was priced on. A breakdown bills nothing, so a line it cannot
 /// be read for goes out without it.
 pub(super) async fn attach_breakdowns(

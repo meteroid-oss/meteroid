@@ -1,27 +1,21 @@
 use billing_core::pricing;
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::NaiveDateTime;
 use rust_decimal::Decimal;
 
 use crate::domain::credit_units::FeeCreditUnit;
-use crate::domain::enums::{BillingType, UnitConversionRoundingEnum};
-use crate::domain::invoice_lines::{LineCreditUnit, UsageBreakdown, UsageBreakdownItem};
+use crate::domain::enums::UnitConversionRoundingEnum;
+use crate::domain::invoice_lines::{UsageBreakdown, UsageBreakdownItem};
 use crate::domain::price_components::MatrixRow;
 use crate::domain::{
-    BillableMetric, ComponentPeriods, LineItem, Period, SubLineItem, SubscriptionDetails,
-    SubscriptionFee, SubscriptionFeeInterface, UsagePeriod, UsagePricingModel,
+    BillableMetric, LineItem, Period, SubscriptionDetails, UsagePeriod, UsagePricingModel,
 };
-use crate::services::subscriptions::proration::DayFraction;
 
 use super::fees::pricing_error;
 use crate::StoreResult;
-use crate::errors::StoreError;
-use crate::repositories::subscriptions::SubscriptionSlotsInterface;
-use crate::services::Services;
 use crate::services::clients::usage::{GroupedUsageData, UsageData};
-use crate::store::PgConn;
 use common_domain::ids::{BillableMetricId, SubscriptionAddOnId, SubscriptionPriceComponentId};
 use common_utils::decimals::{MAX_QUANTITY_SCALE, round_quantity};
-use error_stack::{Report, ResultExt};
+use error_stack::ResultExt;
 use std::collections::{HashMap, HashSet};
 
 /// Key to match existing line items during invoice refresh
@@ -133,548 +127,12 @@ impl PinnedPrices {
     }
 }
 
-impl Services {
-    pub(super) async fn compute_component<T: SubscriptionFeeInterface>(
-        &self,
-        conn: &mut PgConn,
-        subscription_details: &SubscriptionDetails,
-        component: &T,
-        periods: ComponentPeriods,
-        precision: u8,
-        existing_lines: &HashMap<ExistingLineKey, &LineItem>,
-    ) -> StoreResult<Vec<LineItem>> {
-        let is_first_period = periods.arrear.is_none();
-
-        let mut lines: Vec<InvoiceLineInner> = vec![];
-
-        let instances = component.instance_quantity();
-        // A pack tied to the billing period covers the part of a partial first period it is
-        // billed for, fee and credit alike; any other pack is bought whole.
-        let pack_share =
-            if crate::services::subscriptions::proration::is_period_tied(component.fee_ref()) {
-                periods.proration_days.map(|(partial, full)| {
-                    crate::services::subscriptions::proration::DayFraction::new(partial, full)
-                })
-            } else {
-                None
-            };
-        match component.fee_ref() {
-            SubscriptionFee::Rate { rate } => {
-                if let Some(advance_period) = periods.advance {
-                    lines.push(InvoiceLineInner::simple_prorated(
-                        rate,
-                        &instances,
-                        advance_period,
-                        periods.proration_factor,
-                        precision,
-                        None,
-                    )?);
-                }
-            }
-            SubscriptionFee::OneTime { rate, quantity } => {
-                // only for first period
-                if is_first_period && let Some(advance_period) = periods.advance {
-                    lines.push(InvoiceLineInner::simple_prorated(
-                        rate,
-                        &(Decimal::from(*quantity) * instances),
-                        advance_period,
-                        periods.proration_factor,
-                        precision,
-                        None,
-                    )?);
-                }
-            }
-            SubscriptionFee::Credit { rate, quantity, .. } => {
-                if let Some(advance_period) = periods.advance {
-                    let units = Decimal::from(*quantity) * instances;
-                    lines.push(InvoiceLineInner::from_priced(
-                        pricing::credit_pack(rate, units, pack_share, precision)
-                            .map_err(pricing_error)?,
-                        advance_period,
-                        None,
-                    ));
-                }
-            }
-            SubscriptionFee::Recurring {
-                rate,
-                quantity,
-                billing_type,
-            } => match billing_type {
-                BillingType::Advance => {
-                    if let Some(advance_period) = periods.advance {
-                        lines.push(InvoiceLineInner::simple_prorated(
-                            rate,
-                            &(Decimal::from(*quantity) * instances),
-                            advance_period,
-                            periods.proration_factor,
-                            precision,
-                            None,
-                        )?);
-                    }
-                }
-                BillingType::Arrears => {
-                    // Skip a zero-width settled period (same-day terminal): a fixed arrears fee has
-                    // no elapsed days to bill, and a EUR 0 line would flip an otherwise-empty
-                    // invoice into a numbered facture instead of Closing.
-                    if let Some(arrears) = periods.arrear
-                        && arrears.start < arrears.end
-                    {
-                        lines.push(InvoiceLineInner::simple_prorated(
-                            rate,
-                            &(Decimal::from(*quantity) * instances),
-                            arrears,
-                            periods.arrear_proration_factor,
-                            precision,
-                            None,
-                        )?);
-                    }
-                }
-            },
-            SubscriptionFee::Slot {
-                unit_rate,
-                min_slots,
-                max_slots,
-                unit,
-                ..
-            } => {
-                if let Some(advance_period) = periods.advance {
-                    // The seats held when the period starts: a renewal catching up past periods
-                    // bills each with its own.
-                    let held = self
-                        .fetch_slots(
-                            conn,
-                            &advance_period.start,
-                            unit.clone(),
-                            subscription_details,
-                        )
-                        .await?;
-                    let slots = pricing::billed_slots(held, *min_slots, *max_slots);
-
-                    lines.push(InvoiceLineInner::simple_prorated(
-                        unit_rate,
-                        &Decimal::from(slots),
-                        advance_period,
-                        periods.proration_factor,
-                        precision,
-                        None,
-                    )?);
-                }
-            }
-            SubscriptionFee::Capacity {
-                rate,
-                included,
-                overage_rate,
-                metric_id,
-                credit_unit,
-            } => {
-                if let Some(advance_period) = periods.advance {
-                    lines.push(InvoiceLineInner::simple_prorated(
-                        rate,
-                        &instances,
-                        advance_period,
-                        None, // no proration on capacity, as it provides a fixed amount
-                        precision,
-                        None,
-                    )?);
-                }
-
-                if let Some(arrear_period) = periods.arrear
-                    && overage_rate > &Decimal::ZERO
-                {
-                    let usage = self
-                        .fetch_usage(arrear_period.clone(), *metric_id, subscription_details)
-                        .await?;
-
-                    lines.extend(capacity_overage_lines(
-                        *metric_id,
-                        Decimal::from(*included),
-                        overage_rate,
-                        &usage.data,
-                        &arrear_period,
-                        credit_unit
-                            .as_ref()
-                            .map_or(precision, |unit| unit.precision),
-                    )?);
-                }
-            }
-            SubscriptionFee::Usage {
-                metric_id,
-                model,
-                credit_unit,
-            } => {
-                if let Some(arrear_period) = periods.arrear {
-                    let usage = self
-                        .fetch_usage(arrear_period.clone(), *metric_id, subscription_details)
-                        .await?;
-
-                    let mut metered = usage_lines(
-                        model,
-                        *metric_id,
-                        &usage.data,
-                        &arrear_period,
-                        credit_unit
-                            .as_ref()
-                            .map_or(precision, |unit| unit.precision),
-                        |dimensions| {
-                            let lookup_key = ExistingLineKey {
-                                metric_id: *metric_id,
-                                sub_component_id: component.sub_component_id(),
-                                sub_add_on_id: component.sub_add_on_id(),
-                                group_by_dimensions: Some(dimensions.clone()),
-                            };
-                            existing_lines.get(&lookup_key).and_then(|existing_line| {
-                                pinned_unit_price(existing_line, credit_unit.as_ref())
-                            })
-                        },
-                    )?;
-                    let matrix_rates = match model {
-                        UsagePricingModel::Matrix { rates } => Some(rates.as_slice()),
-                        _ => None,
-                    };
-                    self.breakdown_usage(
-                        &mut metered,
-                        arrear_period,
-                        *metric_id,
-                        matrix_rates,
-                        subscription_details,
-                    )
-                    .await?;
-                    lines.extend(metered);
-                }
-            }
-        }
-        // The fee variant in scope is the authoritative recurring/usage/one-time
-        // discriminator; product_id is not (recurring fees also carry one).
-        let charge_type = component.fee_ref().charge_type();
-        let fee_credit_unit = match component.fee_ref() {
-            SubscriptionFee::Usage { credit_unit, .. }
-            | SubscriptionFee::Capacity { credit_unit, .. } => credit_unit.as_ref(),
-            _ => None,
-        };
-        // A pack line carries the credit it sells, frozen apart from its charge so the grant is
-        // exactly what was sold whatever the catalog becomes. A pack granting a credit unit is
-        // counted in that unit and taxed when sold: its credit is never redeemed as money.
-        let credit_grant_unit = match component.fee_ref() {
-            SubscriptionFee::Credit { credit_unit, .. } => credit_unit.clone(),
-            _ => None,
-        };
-        let credit_precision = credit_grant_unit
-            .as_ref()
-            .map_or(precision, |unit| unit.precision);
-        let (kind, credit_grant_amount, credit_grant_expiry, credit_grant_included) =
-            match component.fee_ref() {
-                SubscriptionFee::Credit {
-                    rate,
-                    quantity,
-                    credit_amount,
-                    expiry,
-                    ..
-                } => (
-                    crate::domain::LineItemKind::Credit,
-                    Some({
-                        let full = pack_credit_minor(
-                            *credit_amount,
-                            Decimal::from(*quantity) * instances,
-                            credit_precision,
-                        )?;
-                        pack_share.map_or(full, |share| share.prorate(full))
-                    }),
-                    *expiry,
-                    rate.is_zero(),
-                ),
-                _ => (crate::domain::LineItemKind::Regular, None, None, false),
-            };
-        let credit_grant_rollover = match component.fee_ref() {
-            SubscriptionFee::Credit {
-                rate,
-                quantity,
-                rollover: Some(rollover),
-                ..
-            } if rate.is_zero() => Some(pack_rollover(
-                rollover,
-                Decimal::from(*quantity) * instances,
-                credit_precision,
-            )?),
-            _ => None,
-        };
-        let taxed_at_purchase = credit_grant_unit.is_some();
-        let product_id = crate::services::subscriptions::utils::fee_tax_product(
-            component.fee_ref(),
-            component.product_id(),
-        );
-
-        lines
-            .into_iter()
-            .filter(|line| !is_zero_quantity_line(line.quantity))
-            .map(|line| {
-                let base_name = line
-                    .custom_line_name
-                    .unwrap_or_else(|| component.name_ref().clone());
-
-                let name = if let Some(ref dimensions) = line.group_by_dimensions {
-                    if dimensions.is_empty() {
-                        base_name
-                    } else {
-                        // Sort dimensions by key for consistent ordering
-                        let mut sorted_dimensions: Vec<_> = dimensions.iter().collect();
-                        sorted_dimensions.sort_by_key(|(k, _)| *k);
-                        let dimension_values: Vec<String> = sorted_dimensions
-                            .into_iter()
-                            .map(|(_, v)| v.clone())
-                            .collect();
-                        format!("{} ({})", base_name, dimension_values.join(", "))
-                    }
-                } else {
-                    base_name
-                };
-
-                // Look up existing line to preserve user edits (name, description, tax_rate)
-                let lookup_key = line.metric_id.map(|metric_id| ExistingLineKey {
-                    metric_id,
-                    sub_component_id: component.sub_component_id(),
-                    sub_add_on_id: component.sub_add_on_id(),
-                    group_by_dimensions: line.group_by_dimensions.clone(),
-                });
-
-                let existing_line = lookup_key.as_ref().and_then(|key| existing_lines.get(key));
-
-                // Usage priced in a credit unit: its price lives in the credit block, and the
-                // money fields carry what the unit's wallet does not cover (all of it until
-                // `cover_credit_unit_lines` runs).
-                let credit_unit = match fee_credit_unit {
-                    Some(unit) if line.metric_id.is_some() => Some(LineCreditUnit {
-                        unit_id: unit.unit_id,
-                        code: unit.code.clone(),
-                        precision: unit.precision,
-                        rate: unit.rate,
-                        price_rate: Some(unit.rate),
-                        unit_price: line.unit_price,
-                        sub_lines: line.sublines.clone(),
-                        consumed: i64::try_from(line.total)
-                            .map_err(|_| Report::new(StoreError::InvalidDecimal))?,
-                        covered: 0,
-                    }),
-                    _ => None,
-                };
-                let (amount, unit_price, sub_lines) = match &credit_unit {
-                    Some(block) => (
-                        super::credit_units::overage_money(block, precision)?,
-                        None,
-                        Vec::new(),
-                    ),
-                    None => (line.total as i64, line.unit_price, line.sublines),
-                };
-
-                // Usage read past the end date's midnight (an immediate cancellation's last day)
-                // is dated by that instant.
-                let usage_ends_at = line
-                    .metric_id
-                    .map(|_| {
-                        usage_window(subscription_details, line.period.clone())
-                            .end
-                            .and_utc()
-                    })
-                    .filter(|end| *end != line.period.end.and_time(NaiveTime::MIN).and_utc());
-                Ok(LineItem {
-                    local_id: existing_line
-                        .map(|el| el.local_id.clone())
-                        .unwrap_or_default(),
-                    name: existing_line.map(|el| el.name.clone()).unwrap_or(name),
-                    charge_type: Some(charge_type),
-                    quantity: line.quantity,
-                    unit_price,
-                    start_date: line.period.start,
-                    end_date: line.period.end,
-                    sub_lines,
-                    is_prorated: line.is_prorated,
-                    price_component_id: component.price_component_id(),
-                    sub_component_id: component.sub_component_id(),
-                    sub_add_on_id: component.sub_add_on_id(),
-                    product_id,
-                    metric_id: line.metric_id,
-                    description: existing_line.and_then(|el| el.description.clone()),
-                    group_by_dimensions: line.group_by_dimensions,
-
-                    amount_subtotal: amount,
-
-                    // tax & discount are handled later
-                    tax_rate: existing_line.map(|el| el.tax_rate).unwrap_or(Decimal::ZERO),
-                    tax_amount: 0,
-                    tax_details: vec![],
-                    taxable_amount: amount,
-                    amount_total: amount,
-                    kind,
-                    credit_grant_amount,
-                    credit_grant_expiry,
-                    credit_grant_included,
-                    taxed_at_purchase,
-                    tax_inclusive_quote: None,
-                    credit_unit,
-                    credit_grant_unit: credit_grant_unit.clone(),
-                    credit_grant_rollover,
-                    promotional_credit: None,
-                    subscription_id: Some(subscription_details.subscription.id),
-                    usage_ends_at,
-                    usage_breakdown: line.usage_breakdown,
-                })
-            })
-            .collect::<StoreResult<Vec<LineItem>>>()
-            .map(|lines| {
-                let lineages = super::charges::Lineages::of(subscription_details);
-                lines
-                    .into_iter()
-                    .map(|line| super::charges::identified(line, &lineages))
-                    .collect()
-            })
-    }
-
-    async fn fetch_usage(
-        &self,
-        period: Period,
-        metric_id: BillableMetricId,
-        subscription_details: &SubscriptionDetails,
-    ) -> StoreResult<UsageData> {
-        let metric = subscription_metric(subscription_details, metric_id)?;
-        let usage = self
-            .read_usage(period, metric, None, subscription_details)
-            .await?;
-        Ok(convert_usage_units(metric, usage))
-    }
-
-    /// Breaks the metric's usage `lines` down by its breakdown key, read apart from the usage they
-    /// are priced on so that no aggregation is ever recombined across the key's values.
-    async fn breakdown_usage(
-        &self,
-        lines: &mut [InvoiceLineInner],
-        period: Period,
-        metric_id: BillableMetricId,
-        matrix_rates: Option<&[MatrixRow]>,
-        subscription_details: &SubscriptionDetails,
-    ) -> StoreResult<()> {
-        let metric = subscription_metric(subscription_details, metric_id)?;
-        let Some(breakdown_key) = metric.usage_breakdown_key.as_deref() else {
-            return Ok(());
-        };
-        if lines.is_empty() {
-            return Ok(());
-        }
-        // The breakdown bills nothing: an invoice it cannot be read for goes out without it.
-        match self
-            .read_usage(period, metric, Some(breakdown_key), subscription_details)
-            .await
-        {
-            Ok(usage) => breakdown_lines(lines, metric, breakdown_key, matrix_rates, &usage.data),
-            Err(error) => log::warn!(
-                "Billing metric {} without its usage breakdown: {error:?}",
-                metric.id
-            ),
-        }
-        Ok(())
-    }
-
-    /// The metric's usage over the window the period bills, before unit conversion.
-    async fn read_usage(
-        &self,
-        period: Period,
-        metric: &BillableMetric,
-        breakdown_by: Option<&str>,
-        subscription_details: &SubscriptionDetails,
-    ) -> StoreResult<UsageData> {
-        let usage_period = usage_window(subscription_details, period);
-
-        // A settled period with no usable window has nothing to query, and the metering client
-        // rejects an empty window (invalid period). This covers a date-effective same-day cancel or
-        // same-day pause (no instant cutoff, so the window stays midnight-to-midnight) and an
-        // immediate cancel landing exactly at midnight.
-        if usage_period.end <= usage_period.start {
-            return Ok(UsageData {
-                data: vec![],
-                period: usage_period,
-            });
-        }
-
-        let tenant_id = &subscription_details.subscription.tenant_id;
-        let customer_id = &subscription_details.subscription.customer_id;
-        match breakdown_by {
-            None => {
-                self.usage_client
-                    .fetch_usage(tenant_id, customer_id, metric, usage_period)
-                    .await
-            }
-            Some(key) => {
-                self.usage_client
-                    .fetch_usage_grouped_by(tenant_id, customer_id, metric, key, usage_period)
-                    .await
-            }
-        }
-    }
-
-    async fn fetch_slots(
-        &self,
-        conn: &mut PgConn,
-        invoice_date: &NaiveDate,
-        unit: String,
-        subscription_details: &SubscriptionDetails,
-    ) -> StoreResult<u64> {
-        let timestamp = invoice_date.clone().and_time(NaiveTime::MIN);
-
-        let quantity = self
-            .store
-            .get_active_slots_value_with_conn(
-                conn,
-                subscription_details.subscription.tenant_id,
-                subscription_details.subscription.id,
-                unit.clone(),
-                Some(timestamp),
-            )
-            .await?;
-
-        Ok(u64::from(quantity))
-    }
-}
-
-fn subscription_metric(
-    subscription_details: &SubscriptionDetails,
-    metric_id: BillableMetricId,
-) -> StoreResult<&BillableMetric> {
-    subscription_details
-        .metrics
-        .iter()
-        .find(|metric| metric.id == metric_id)
-        .ok_or_else(|| {
-            Report::new(StoreError::ValueNotFound(format!(
-                "metric with id {metric_id}"
-            )))
-        })
-}
-
 /// Values of a breakdown key an invoice line lists one by one; the rest are summed as others.
 const MAX_BREAKDOWN_ITEMS: usize = 100;
 
-/// Attaches to each line the usage of `usage`, read grouped by `breakdown_key` too, that the line
-/// priced. A matrix line weighs each item by its cells' prices; any other line by its quantity.
-pub(crate) fn breakdown_lines(
-    lines: &mut [InvoiceLineInner],
-    metric: &BillableMetric,
-    breakdown_key: &str,
-    matrix_rates: Option<&[MatrixRow]>,
-    usage: &[GroupedUsageData],
-) {
-    for line in lines.iter_mut() {
-        if let Some(breakdown) = line_breakdown(
-            line.group_by_dimensions.as_ref(),
-            metric,
-            breakdown_key,
-            matrix_rates,
-            usage,
-        ) {
-            line.usage_breakdown = Some(breakdown);
-        }
-    }
-}
-
-/// The breakdown of the one line of group `dimensions` (see [`breakdown_lines`]); none when no
-/// usage of its group was read.
+/// The usage of `usage`, read grouped by `breakdown_key` too, that the one line of group
+/// `dimensions` priced: a matrix line weighs each item by its cells' prices, any other line by
+/// its quantity; none when no usage of its group was read.
 pub(crate) fn line_breakdown(
     dimensions: Option<&HashMap<String, String>>,
     metric: &BillableMetric,
@@ -841,93 +299,25 @@ pub(crate) fn matrix_cell_matches(rate: &MatrixRow, dimensions: &HashMap<String,
 /// an operator pinned on a draft line.
 pub(crate) fn usage_lines(
     model: &UsagePricingModel,
-    metric_id: BillableMetricId,
     usage: &[GroupedUsageData],
-    arrear_period: &Period,
     precision: u8,
     unit_price_override: impl Fn(&HashMap<String, String>) -> Option<Decimal>,
-) -> StoreResult<Vec<InvoiceLineInner>> {
-    let lines = pricing::usage_lines(&model.into(), usage, precision, unit_price_override)
+) -> StoreResult<Vec<pricing::PricedLine>> {
+    pricing::usage_lines(&model.into(), usage, precision, unit_price_override)
         .map_err(pricing_error)
-        .attach("Failed to convert price_total to subunit")?;
-    Ok(lines
-        .into_iter()
-        .map(|line| InvoiceLineInner::from_priced(line, arrear_period.clone(), Some(metric_id)))
-        .collect())
+        .attach("Failed to convert price_total to subunit")
 }
 
 /// The overage lines of a capacity fee for the usage of one window.
 pub(crate) fn capacity_overage_lines(
-    metric_id: BillableMetricId,
     included: Decimal,
     overage_rate: &Decimal,
     usage: &[GroupedUsageData],
-    arrear_period: &Period,
     precision: u8,
-) -> StoreResult<Vec<InvoiceLineInner>> {
-    let lines = pricing::capacity_overage_lines(included, overage_rate, usage, precision)
+) -> StoreResult<Vec<pricing::PricedLine>> {
+    pricing::capacity_overage_lines(included, overage_rate, usage, precision)
         .map_err(pricing_error)
-        .attach("Capacity overage exceeds the supported range")?;
-    Ok(lines
-        .into_iter()
-        .map(|line| InvoiceLineInner::from_priced(line, arrear_period.clone(), Some(metric_id)))
-        .collect())
-}
-
-pub struct InvoiceLineInner {
-    pub total: u64,
-    pub quantity: Option<Decimal>,
-    pub unit_price: Option<Decimal>,
-    pub period: Period,
-    pub custom_line_name: Option<String>,
-    pub is_prorated: bool,
-    pub sublines: Vec<SubLineItem>,
-    pub metric_id: Option<BillableMetricId>,
-    pub group_by_dimensions: Option<HashMap<String, String>>,
-    pub usage_breakdown: Option<UsageBreakdown>,
-}
-
-impl InvoiceLineInner {
-    fn from_priced(
-        line: pricing::PricedLine,
-        period: Period,
-        metric_id: Option<BillableMetricId>,
-    ) -> InvoiceLineInner {
-        InvoiceLineInner {
-            total: line.total,
-            quantity: line.quantity,
-            unit_price: line.unit_price,
-            period,
-            custom_line_name: None,
-            is_prorated: line.is_prorated,
-            sublines: line.sublines.into_iter().map(Into::into).collect(),
-            metric_id,
-            group_by_dimensions: line.dimensions,
-            usage_breakdown: None,
-        }
-    }
-
-    pub fn simple_prorated(
-        rate: &Decimal,
-        quantity: &Decimal,
-        period: Period,
-        proration_factor: Option<DayFraction>,
-        precision: u8,
-        metric_id: Option<BillableMetricId>,
-    ) -> StoreResult<InvoiceLineInner> {
-        let line = pricing::simple_prorated(rate, quantity, proration_factor, precision)
-            .map_err(pricing_error)
-            .attach("Failed to convert price_total to subunit")?;
-        Ok(Self::from_priced(line, period, metric_id))
-    }
-}
-
-/// A fixed-fee line with an explicit quantity of zero bills nothing and only clutters
-/// the invoice (e.g. an add-on configured with 0 units), so drop it — mirroring the
-/// zero-usage skip already applied to metered lines. Lines without an explicit quantity
-/// (usage/matrix/package) carry `None` here and are kept; they guard against zero upstream.
-fn is_zero_quantity_line(quantity: Option<Decimal>) -> bool {
-    quantity.is_some_and(|q| q.is_zero())
+        .attach("Capacity overage exceeds the supported range")
 }
 
 /// The usage query window for an arrear `period`.
@@ -967,7 +357,7 @@ pub(crate) fn usage_window(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
+    use chrono::{NaiveDate, NaiveTime};
 
     fn at(y: i32, m: u32, d: u32, h: u32, min: u32) -> NaiveDateTime {
         NaiveDate::from_ymd_opt(y, m, d)
@@ -1051,15 +441,6 @@ mod tests {
         );
         assert_eq!(up.end, day(2025, 3, 31).and_time(NaiveTime::MIN));
     }
-
-    #[test]
-    fn zero_quantity_lines_are_dropped() {
-        assert!(is_zero_quantity_line(Some(Decimal::ZERO)));
-        assert!(is_zero_quantity_line(Some(dec!(0.00))));
-        assert!(!is_zero_quantity_line(Some(dec!(1))));
-        // Usage/matrix/package lines carry no explicit quantity and must be kept.
-        assert!(!is_zero_quantity_line(None));
-    }
 }
 
 /// Credit a pack sells, in whole minor units of the invoice currency. A fractional minor unit is
@@ -1122,6 +503,8 @@ mod pack_credit_tests {
 mod credit_unit_pin_tests {
     use super::*;
     use crate::domain::LineItemKind;
+    use crate::domain::invoice_lines::LineCreditUnit;
+    use chrono::NaiveDate;
     use common_domain::ids::{BaseId, CreditUnitId};
     use rust_decimal_macros::dec;
 
@@ -1240,8 +623,57 @@ mod unit_conversion_tests {
     use crate::domain::enums::BillingMetricAggregateEnum;
     use crate::services::credit::billing_windows::{PlannedWindow, price_window_groups};
     use crate::services::invoice_lines::invoice_lines::MeteredFee;
+    use chrono::{NaiveDate, NaiveTime};
     use common_domain::ids::{BaseId, ProductFamilyId, SubscriptionId, TenantId};
     use rust_decimal_macros::dec;
+
+    /// A usage line as the breakdown tests read it.
+    struct InvoiceLineInner {
+        total: u64,
+        group_by_dimensions: Option<HashMap<String, String>>,
+        usage_breakdown: Option<UsageBreakdown>,
+    }
+
+    fn usage_lines(
+        model: &UsagePricingModel,
+        _metric: BillableMetricId,
+        usage: &[GroupedUsageData],
+        _period: &Period,
+        precision: u8,
+        pin: impl Fn(&HashMap<String, String>) -> Option<Decimal>,
+    ) -> StoreResult<Vec<InvoiceLineInner>> {
+        let lines = super::usage_lines(model, usage, precision, pin)?;
+        Ok(lines
+            .into_iter()
+            .map(|line| InvoiceLineInner {
+                total: line.total,
+                group_by_dimensions: line.dimensions,
+                usage_breakdown: None,
+            })
+            .collect())
+    }
+
+    /// Attaches to each line the usage of `usage`, read grouped by `breakdown_key` too, that the line
+    /// priced. A matrix line weighs each item by its cells' prices; any other line by its quantity.
+    fn breakdown_lines(
+        lines: &mut [InvoiceLineInner],
+        metric: &BillableMetric,
+        breakdown_key: &str,
+        matrix_rates: Option<&[MatrixRow]>,
+        usage: &[GroupedUsageData],
+    ) {
+        for line in lines.iter_mut() {
+            if let Some(breakdown) = line_breakdown(
+                line.group_by_dimensions.as_ref(),
+                metric,
+                breakdown_key,
+                matrix_rates,
+                usage,
+            ) {
+                line.usage_breakdown = Some(breakdown);
+            }
+        }
+    }
 
     fn tokens(rounding: UnitConversionRoundingEnum) -> BillableMetric {
         BillableMetric {

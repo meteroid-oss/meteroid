@@ -126,6 +126,16 @@ async fn period_content(
     tax_inclusive: bool,
 ) -> TestResult<(ComputedInvoiceContent, CreditGrantId)> {
     let start = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    // The plan quotes its prices tax-included or not; the subscription keeps what it was sold on.
+    {
+        use diesel_async::RunQueryDsl;
+        diesel::sql_query("UPDATE plan_version SET tax_inclusive = $1 WHERE id = $2")
+            .bind::<diesel::sql_types::Bool, _>(tax_inclusive)
+            .bind::<diesel::sql_types::Uuid, _>(*PLAN_VERSION_1_LEETCODE_ID)
+            .execute(&mut setup.store.get_conn().await.map_err(test_error)?)
+            .await
+            .map_err(test_error)?;
+    }
     let subscription_id = setup
         .services
         .insert_subscription(
@@ -165,7 +175,20 @@ async fn period_content(
         .await
         .map_err(test_error)?
         .id;
-    let mut details = setup
+    // The renewal opening the second period, before its draft is written.
+    {
+        use diesel_async::RunQueryDsl;
+        diesel::sql_query(
+            "UPDATE subscription SET current_period_start = $1, current_period_end = $2 WHERE id = $3",
+        )
+        .bind::<diesel::sql_types::Date, _>(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap())
+        .bind::<diesel::sql_types::Date, _>(NaiveDate::from_ymd_opt(2024, 3, 1).unwrap())
+        .bind::<diesel::sql_types::Uuid, _>(*subscription_id)
+        .execute(&mut setup.store.get_conn().await.map_err(test_error)?)
+        .await
+        .map_err(test_error)?;
+    }
+    let details = setup
         .store
         .get_subscription_details_with_conn(
             &mut setup.store.get_conn().await.map_err(test_error)?,
@@ -174,7 +197,7 @@ async fn period_content(
         )
         .await
         .map_err(test_error)?;
-    details.subscription.tax_inclusive = tax_inclusive;
+    assert_eq!(details.subscription.tax_inclusive, tax_inclusive);
     let grant = fund_promotional_grant(
         &setup.store,
         TENANT_ID,
@@ -185,12 +208,7 @@ async fn period_content(
     .await;
     let content = setup
         .services
-        .compute_invoice(
-            &NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
-            &details,
-            None,
-            InvoiceType::Recurring,
-        )
+        .compute_period_invoice(&NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(), &details)
         .await
         .map_err(test_error)?;
     Ok((content, grant))

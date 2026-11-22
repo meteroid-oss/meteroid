@@ -25,14 +25,4 @@ spec:
               A subscription or customer whose billing step failed five times in a row is now
               retried once a day. Its error is on the subscription (billing_last_error) or the
               customer's billing_controller row (last_error).
-        - alert: BillingReleaseHeldTooLong
-          expr: max(billing_controller_held_customers) > 0
-          for: {{ .Values.alerts.heldFor }}
-          labels:
-            severity: warning
-          annotations:
-            summary: "{{ "{{" }} $value {{ "}}" }} customers due wait for their tenant's billing release"
-            description: >-
-              BILLING_CONTROLLER_RELEASE=allowlist holds every tenant no billing_controller_release
-              row names. Release the tenant, or every tenant with a row naming none.
 {{- end }}

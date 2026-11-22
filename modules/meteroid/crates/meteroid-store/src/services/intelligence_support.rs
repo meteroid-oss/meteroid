@@ -7,7 +7,6 @@ use std::sync::Arc;
 use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{BillableMetricId, PlanVersionId, SubscriptionId, TenantId};
 
-use crate::domain::enums::InvoiceType;
 use crate::domain::{BillableMetric, ComponentParameterization, Invoice, SubscriptionDetails};
 use crate::services::clients::usage::UsageClient;
 use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
@@ -92,24 +91,17 @@ impl SignalServices {
             .await
     }
 
-    pub async fn compute_invoice(
+    /// The stored subscription's recurring invoice of `period_start` billed on the rows of
+    /// `subscription_details` instead of its own, from its facts: the whole period with its
+    /// usage, reconciled against no issued invoice. Nothing is written.
+    pub async fn compute_period_invoice_on_rows(
         &self,
         conn: &mut PgConn,
-        invoice_date: &NaiveDate,
         subscription_details: &SubscriptionDetails,
-        prepaid_amount: Option<u64>,
-        invoice: Option<&Invoice>,
-        invoice_type: InvoiceType,
+        period_start: NaiveDate,
     ) -> StoreResult<ComputedInvoiceContent> {
         self.0
-            .compute_invoice(
-                conn,
-                invoice_date,
-                subscription_details,
-                prepaid_amount,
-                invoice,
-                invoice_type,
-            )
+            .preview_period_invoice_on_rows(conn, subscription_details, period_start)
             .await
     }
 

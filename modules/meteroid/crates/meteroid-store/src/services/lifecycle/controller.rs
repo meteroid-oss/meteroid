@@ -85,14 +85,6 @@ static FAILING: std::sync::LazyLock<opentelemetry::metrics::Gauge<u64>> = std::s
 
 const ALERT_AFTER: i32 = crate::domain::subscriptions::BILLING_FAILURES_SHOWN;
 
-static HELD: std::sync::LazyLock<opentelemetry::metrics::Gauge<u64>> =
-    std::sync::LazyLock::new(|| {
-        common_logging::GLOBAL_METER
-            .u64_gauge("billing_controller_held_customers")
-            .with_description("Customers due whose tenant a held release does not run yet")
-            .build()
-    });
-
 /// What one pass of the controller did.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ControllerRun {
@@ -143,11 +135,7 @@ impl Services {
         let now = common_clock::now();
         let claimed = {
             let mut conn = self.store.get_conn().await?;
-            let held = self.store.settings.billing_release.held_to_allowlist();
-            if held {
-                self.record_held(&mut conn, now).await;
-            }
-            BillingControllerRow::claim_due(&mut conn, now, now + LEASE, limit.max(1), held)
+            BillingControllerRow::claim_due(&mut conn, now, now + LEASE, limit.max(1))
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
         };
@@ -499,15 +487,6 @@ impl Services {
             self.record_failing().await;
         }
         Ok(())
-    }
-
-    /// Exports how many customers due a held release keeps waiting, for the alert on a tenant
-    /// left held past its window.
-    async fn record_held(&self, conn: &mut PgConn, now: DateTime<Utc>) {
-        match BillingControllerRow::count_held(conn, now).await {
-            Ok(held) => HELD.record(u64::try_from(held).unwrap_or(0), &[]),
-            Err(error) => log::warn!("held customers not counted: {error:?}"),
-        }
     }
 
     /// Exports what is failing past `ALERT_AFTER`, for the alert.
@@ -869,14 +848,9 @@ impl Services {
         loop {
             let customers = {
                 let mut conn = self.store.get_conn().await?;
-                BillingControllerRow::list_runnable_customers(
-                    &mut conn,
-                    after,
-                    500,
-                    self.store.settings.billing_release.held_to_allowlist(),
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
+                BillingControllerRow::list_runnable_customers(&mut conn, after, 500)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?
             };
             let Some(last) = customers.last().copied() else {
                 return Ok(took);

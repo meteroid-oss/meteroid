@@ -7,11 +7,9 @@ use common_domain::country::CountryCode;
 use common_domain::ids::{BaseId, CustomerId};
 use diesel_async::RunQueryDsl;
 use diesel_models::plan_version_adjustments::PlanVersionAdjustmentRowNew;
-use meteroid_store::domain::enums::{InvoiceType, TaxResolverEnum};
+use meteroid_store::domain::enums::TaxResolverEnum;
 use meteroid_store::domain::plan_minimums::MinimumScope;
-use meteroid_store::domain::{
-    Address, CustomerTaxRate, InvoicingEntityPatch, LineItemKind, SubscriptionMinimum,
-};
+use meteroid_store::domain::{Address, CustomerTaxRate, InvoicingEntityPatch, LineItemKind};
 use meteroid_store::repositories::SubscriptionInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use rust_decimal_macros::dec;
@@ -249,28 +247,25 @@ async fn a_product_scoped_shortfall_is_taxed_by_its_products(#[future] test_env:
         .create(env.services())
         .await;
 
-    let mut conn = env.conn().await;
-    let mut details = env
+    env.services()
+        .set_subscription_minimum(
+            TENANT_ID,
+            subscription_id,
+            10_000,
+            MinimumScope::Products(vec![PRODUCT_PLATFORM_FEE_ID, PRODUCT_SEATS_ID]),
+        )
+        .await
+        .expect("minimum");
+    // February's renewal: it closes January, billed by the invoice the subscription opened with.
+    env.advance_subscription_cycle(subscription_id, 1).await;
+    let details = env
         .store()
-        .get_subscription_details_with_conn(&mut conn, TENANT_ID, subscription_id)
+        .get_subscription_details_with_conn(&mut env.conn().await, TENANT_ID, subscription_id)
         .await
         .expect("details");
-    details.minimum = Some(SubscriptionMinimum {
-        subscription_id,
-        amount_subunit: 10_000,
-        scope: MinimumScope::Products(vec![PRODUCT_PLATFORM_FEE_ID, PRODUCT_SEATS_ID]),
-        is_override: true,
-    });
-    // February's renewal: it closes January, billed by the invoice the subscription opened with.
-    details.subscription.cycle_index = Some(1);
     let invoice = env
         .services()
-        .compute_invoice(
-            &NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
-            &details,
-            None,
-            InvoiceType::Recurring,
-        )
+        .compute_period_invoice(&NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(), &details)
         .await
         .expect("invoice");
 

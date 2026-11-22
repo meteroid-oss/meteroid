@@ -17,7 +17,6 @@ use error_stack::Report;
 use rust_decimal::Decimal;
 use std::sync::Arc;
 
-// mod billing_worker;
 pub mod payment_reminders;
 pub mod utils;
 
@@ -35,16 +34,11 @@ mod edge;
 pub(crate) mod entitlements;
 pub mod evaluate;
 pub mod facts;
-#[cfg(feature = "facts-shadow")]
-pub mod facts_shadow;
 pub mod fx;
 pub(crate) mod intelligence_support;
 pub mod invoice_lines;
 pub(crate) mod invoices;
 mod lifecycle;
-#[cfg(all(feature = "test-faults", debug_assertions))]
-pub mod step_faults;
-pub use lifecycle::release as billing_release;
 pub mod minimum_progress;
 pub(crate) mod orchestration;
 mod payment;
@@ -55,10 +49,10 @@ pub mod quote_totals;
 mod quotes;
 pub mod sandbox_replay;
 pub(crate) mod served_usage;
+#[cfg(all(feature = "test-faults", debug_assertions))]
+pub mod step_faults;
 pub mod subscription_receivables;
 mod subscriptions;
-#[cfg(feature = "timeline-shadow")]
-pub mod timeline_shadow;
 mod unattributed_usage;
 pub(crate) mod usage_controls_support;
 pub mod usage_costs;
@@ -394,8 +388,8 @@ impl ServicesEdge {
     /// Builds a virtual SubscriptionDetails from a checkout session for invoice preview.
     ///
     /// This is used in the self-serve checkout flow where there's no subscription yet.
-    /// The returned SubscriptionDetails can be used with compute_invoice() to preview
-    /// the invoice that would be generated when the checkout is completed.
+    /// The returned SubscriptionDetails can be used with compute_new_subscription_invoice() to
+    /// preview the invoice that would be generated when the checkout is completed.
     pub async fn build_preview_subscription_details(
         &self,
         session: &crate::domain::CheckoutSession,

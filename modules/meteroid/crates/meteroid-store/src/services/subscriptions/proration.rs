@@ -48,18 +48,6 @@ pub fn component_advance_amount_cents(
     }
 }
 
-/// Total (non-prorated) amount for a one-time fee. One-time charges are billed
-/// in full when added mid-period — they are never prorated.
-pub fn component_onetime_amount_cents(fee: &SubscriptionFee, precision: u8) -> i64 {
-    match fee {
-        SubscriptionFee::OneTime { rate, quantity } => (*rate
-            * rust_decimal::Decimal::from(*quantity))
-        .to_subunit_opt(precision)
-        .unwrap_or(0),
-        _ => 0,
-    }
-}
-
 /// Display instance count encoded in a fee: slot count, or recurring/one-time
 /// quantity. Flat fees (Rate, Capacity) and usage are a single unit. Used so a
 /// prorated adjustment-invoice line shows "N × effective_rate" instead of

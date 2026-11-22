@@ -10,13 +10,11 @@ use error_stack::ResultExt;
 impl BillingControllerRow {
     /// Leases up to `limit` customers whose wake is due or whose inputs changed, oldest first,
     /// skipping those another replica leased: tenants paused or seeding a sandbox wait.
-    /// Held to an allowlist (`held`), only the released tenants' customers.
     pub async fn claim_due(
         conn: &mut PgConn,
         now: DateTime<Utc>,
         lease_until: DateTime<Utc>,
         limit: i64,
-        held: bool,
     ) -> DbResult<Vec<BillingControllerRow>> {
         diesel::sql_query(
             "UPDATE billing_controller bc
@@ -27,8 +25,6 @@ impl BillingControllerRow {
                  JOIN tenant t ON t.id = c.tenant_id AND t.status = 'ACTIVE'
                  LEFT JOIN sandbox_seed sd ON sd.tenant_id = c.tenant_id AND sd.status = 'IN_PROGRESS'
                  WHERE sd.tenant_id IS NULL
-                   AND (NOT $4 OR EXISTS (SELECT 1 FROM billing_controller_release r
-                                          WHERE r.tenant_id IS NULL OR r.tenant_id = c.tenant_id))
                    -- A failed run waits for its retry, dirty or not.
                    AND (c.next_wake_at <= $1 OR (c.dirty_since IS NOT NULL AND c.attempts = 0))
                    AND (c.lease_until IS NULL OR c.lease_until < $1)
@@ -42,7 +38,6 @@ impl BillingControllerRow {
         .bind::<sql_types::Timestamptz, _>(now)
         .bind::<sql_types::Timestamptz, _>(lease_until)
         .bind::<sql_types::BigInt, _>(limit)
-        .bind::<sql_types::Bool, _>(held)
         .get_results(conn)
         .await
         .attach("Error while claiming due billing controllers")
@@ -192,66 +187,24 @@ impl BillingControllerRow {
         after: Option<(TenantId, CustomerId)>,
         limit: i64,
     ) -> DbResult<Vec<(TenantId, CustomerId)>> {
-        Self::list_keys(conn, after, limit, None).await
+        Self::list_keys(conn, after, limit, false).await
     }
 
-    /// As [`Self::list_customers`], those a run may take as `claim_due` does: tenants paused,
-    /// seeding a sandbox or, `held`, not released wait.
+    /// As [`Self::list_customers`], those a run may take as `claim_due` does: tenants paused or
+    /// seeding a sandbox wait.
     pub async fn list_runnable_customers(
         conn: &mut PgConn,
         after: Option<(TenantId, CustomerId)>,
         limit: i64,
-        held: bool,
     ) -> DbResult<Vec<(TenantId, CustomerId)>> {
-        Self::list_keys(conn, after, limit, Some(held)).await
-    }
-
-    /// Customers due by `now` that a held release keeps waiting: their tenant is not released.
-    pub async fn count_held(conn: &mut PgConn, now: DateTime<Utc>) -> DbResult<i64> {
-        #[derive(QueryableByName)]
-        struct Held {
-            #[diesel(sql_type = sql_types::BigInt)]
-            held: i64,
-        }
-        diesel::sql_query(
-            "SELECT count(*) AS held FROM billing_controller c
-             JOIN tenant t ON t.id = c.tenant_id AND t.status = 'ACTIVE'
-             WHERE (c.next_wake_at <= $1 OR c.dirty_since IS NOT NULL)
-               AND NOT EXISTS (SELECT 1 FROM billing_controller_release r
-                               WHERE r.tenant_id IS NULL OR r.tenant_id = c.tenant_id)",
-        )
-        .bind::<sql_types::Timestamptz, _>(now)
-        .get_result::<Held>(conn)
-        .await
-        .map(|count| count.held)
-        .attach("Error while counting the customers a held release waits")
-        .into_db_result()
-    }
-
-    /// Whether the tenant's billing waits for its release, the release held to an allowlist.
-    pub async fn is_held(conn: &mut PgConn, tenant_id: TenantId) -> DbResult<bool> {
-        #[derive(QueryableByName)]
-        struct Held {
-            #[diesel(sql_type = sql_types::Bool)]
-            held: bool,
-        }
-        diesel::sql_query(
-            "SELECT NOT EXISTS (SELECT 1 FROM billing_controller_release r
-                                WHERE r.tenant_id IS NULL OR r.tenant_id = $1) AS held",
-        )
-        .bind::<sql_types::Uuid, _>(tenant_id)
-        .get_result::<Held>(conn)
-        .await
-        .map(|held| held.held)
-        .attach("Error while reading whether a tenant's billing is released")
-        .into_db_result()
+        Self::list_keys(conn, after, limit, true).await
     }
 
     async fn list_keys(
         conn: &mut PgConn,
         after: Option<(TenantId, CustomerId)>,
         limit: i64,
-        runnable: Option<bool>,
+        runnable: bool,
     ) -> DbResult<Vec<(TenantId, CustomerId)>> {
         #[derive(QueryableByName)]
         struct Key {
@@ -263,22 +216,13 @@ impl BillingControllerRow {
         let (tenant, customer) = after
             .map(|(t, c)| (t.as_uuid(), c.as_uuid()))
             .unwrap_or((uuid::Uuid::nil(), uuid::Uuid::nil()));
-        let held = match runnable {
-            Some(false) => {
-                "JOIN tenant t ON t.id = k.tenant_id AND t.status = 'ACTIVE'
-                 LEFT JOIN sandbox_seed sd
-                   ON sd.tenant_id = k.tenant_id AND sd.status = 'IN_PROGRESS'
-                 WHERE sd.tenant_id IS NULL AND"
-            }
-            Some(true) => {
-                "JOIN tenant t ON t.id = k.tenant_id AND t.status = 'ACTIVE'
-                 LEFT JOIN sandbox_seed sd
-                   ON sd.tenant_id = k.tenant_id AND sd.status = 'IN_PROGRESS'
-                 WHERE sd.tenant_id IS NULL
-                   AND EXISTS (SELECT 1 FROM billing_controller_release r
-                               WHERE r.tenant_id IS NULL OR r.tenant_id = k.tenant_id) AND"
-            }
-            None => "WHERE",
+        let runnable = if runnable {
+            "JOIN tenant t ON t.id = k.tenant_id AND t.status = 'ACTIVE'
+             LEFT JOIN sandbox_seed sd
+               ON sd.tenant_id = k.tenant_id AND sd.status = 'IN_PROGRESS'
+             WHERE sd.tenant_id IS NULL AND"
+        } else {
+            "WHERE"
         };
         diesel::sql_query(format!(
             "SELECT k.tenant_id, k.customer_id FROM (
@@ -288,7 +232,7 @@ impl BillingControllerRow {
                  UNION
                  SELECT tenant_id, customer_id FROM billing_controller
              ) k
-             {held} (k.tenant_id, k.customer_id) > ($1, $2)
+             {runnable} (k.tenant_id, k.customer_id) > ($1, $2)
              ORDER BY k.tenant_id, k.customer_id
              LIMIT $3"
         ))

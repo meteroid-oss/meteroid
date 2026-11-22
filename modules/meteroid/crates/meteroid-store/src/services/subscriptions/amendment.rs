@@ -498,18 +498,7 @@ impl Services {
 
                 // What the rows just written owe goes on an adjustment invoice; what reconcile
                 // takes back of the lines billing them, latest first, on notes (R-078, R-080).
-                let held = services.is_held(conn, tenant_id).await?;
                 let (adjustment_invoice_id, credit_note_ids) = if is_free_trial {
-                    (None, vec![])
-                } else if held {
-                    crate::services::lifecycle::release::leave_to_controller(
-                        conn,
-                        tenant_id,
-                        subscription_id,
-                        change_date,
-                        diesel_models::enums::SubscriptionChangeKindEnum::Amendment,
-                    )
-                    .await?;
                     (None, vec![])
                 } else {
                     services
@@ -984,14 +973,12 @@ impl Services {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         // The period the cadence cuts and the MRR: the writer's, from the rows just written.
-        let held = self.is_held(conn, tenant_id).await?;
-        self.derive_state_unless_held_tx(
+        self.derive_state_tx(
             conn,
             &Actor::System,
             tenant_id,
             subscription_id,
             crate::services::evaluate::bill::midnight(change_date),
-            held,
         )
         .await?;
 

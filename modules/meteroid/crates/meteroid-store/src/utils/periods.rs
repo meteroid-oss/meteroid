@@ -340,105 +340,6 @@ impl CadenceRun {
         self.period_holding(date, months, billing_day)
             .is_some_and(|period| period.start == date)
     }
-
-    /// The windows an invoice dated `invoice_date` settles in arrears on a `months` grid, one per
-    /// grid period with the period it prorates against: what no renewal settled yet (from the
-    /// earlier of the previous renewal and the previous boundary), on a boundary or when the
-    /// subscription settles early. On the first renewal of the run, what ran since the previous
-    /// renewal, against the new cadence's period ending there.
-    pub fn arrear_windows(
-        &self,
-        invoice_date: NaiveDate,
-        months: u32,
-        billing_day: u32,
-        settles_early: bool,
-    ) -> Vec<(Period, Period)> {
-        if invoice_date <= self.origin.min(self.previous_renewal) || months == 0 {
-            return vec![];
-        }
-        if invoice_date == self.origin {
-            let Some(nominal_start) =
-                subtract_months_at_billing_day(self.origin, months, billing_day)
-            else {
-                return vec![];
-            };
-            let start = nominal_start.max(self.previous_renewal);
-            if start >= invoice_date {
-                return vec![];
-            }
-            return vec![(
-                Period {
-                    start,
-                    end: invoice_date,
-                },
-                Period {
-                    start: nominal_start,
-                    end: invoice_date,
-                },
-            )];
-        }
-        if !settles_early && !self.is_boundary(invoice_date, months, billing_day) {
-            return vec![];
-        }
-        let Some(last) = invoice_date
-            .pred_opt()
-            .and_then(|day| self.period_holding(day, months, billing_day))
-        else {
-            return vec![];
-        };
-        let start = self.previous_renewal.min(last.start).max(self.origin);
-        let mut windows = Vec::new();
-        let mut cursor = start;
-        while cursor < invoice_date {
-            let Some(grid) = self.period_holding(cursor, months, billing_day) else {
-                break;
-            };
-            let end = grid.end.min(invoice_date);
-            windows.push((Period { start: cursor, end }, grid.clone()));
-            cursor = end;
-        }
-        windows
-    }
-
-    /// The advance periods of a `months` grid an invoice dated `invoice_date` bills: the one
-    /// starting on it, and any started since the previous renewal that no renewal billed.
-    pub fn advance_periods(
-        &self,
-        invoice_date: NaiveDate,
-        months: u32,
-        billing_day: u32,
-        not_before: NaiveDate,
-    ) -> Vec<Period> {
-        let mut periods = Vec::new();
-        if months == 0 {
-            return periods;
-        }
-        let mut n = 0;
-        while let (Some(start), Some(end)) = (
-            self.boundary(n, months, billing_day),
-            self.boundary(n + 1, months, billing_day),
-        ) {
-            if start > invoice_date {
-                break;
-            }
-            if (start > self.previous_renewal || start == invoice_date) && start >= not_before {
-                periods.push(Period { start, end });
-            }
-            n += 1;
-        }
-        periods
-    }
-
-    /// The end of the grid period after `start` on a `months` grid: a renewal's period end.
-    pub fn period_end_after(
-        &self,
-        start: NaiveDate,
-        months: u32,
-        billing_day: u32,
-    ) -> Option<NaiveDate> {
-        self.period_holding(start, months, billing_day)
-            .map(|period| period.end)
-    }
 }
 
 /// The grid a subscription's fees and renewals run on before any change of cadence (R-084): from
@@ -1415,7 +1316,8 @@ mod test {
     /// grid. Quarterly to monthly at Apr 1, left ending Jul 1: Jul 1 catches up month by month.
     #[test]
     fn a_cadence_run_bills_each_period_once_from_the_first_renewal_on_it() {
-        use super::CadenceRun;
+        use super::{CadenceRun, FeeRun};
+        let fee = |run: CadenceRun, months| FeeRun::of_cadence_run(&run, months, 1).unwrap();
         let d = |m, day| NaiveDate::from_ymd_opt(2024, m, day).unwrap();
         let p = |a: NaiveDate, b: NaiveDate| Period { start: a, end: b };
         let run = |previous| CadenceRun {
@@ -1424,35 +1326,49 @@ mod test {
             previous_renewal: previous,
         };
         assert_eq!(
-            run(d(1, 1)).advance_periods(d(2, 1), 3, 1, d(2, 1)),
+            fee(run(d(1, 1)), 3).advance_periods(d(2, 1), d(2, 1)),
             vec![p(d(2, 1), d(5, 1))]
         );
         assert_eq!(
-            run(d(1, 1)).arrear_windows(d(2, 1), 3, 1, false),
+            fee(run(d(1, 1)), 3).arrear_windows(d(2, 1), false),
             vec![(
                 p(d(1, 1), d(2, 1)),
                 p(NaiveDate::from_ymd_opt(2023, 11, 1).unwrap(), d(2, 1))
             )]
         );
-        assert_eq!(run(d(2, 1)).period_end_after(d(2, 1), 3, 1), Some(d(5, 1)));
         assert_eq!(
-            run(d(2, 1)).advance_periods(d(5, 1), 3, 1, d(2, 1)),
+            fee(run(d(2, 1)), 3)
+                .period(d(2, 1))
+                .map(|period| period.end),
+            Some(d(5, 1))
+        );
+        assert_eq!(
+            fee(run(d(2, 1)), 3).advance_periods(d(5, 1), d(2, 1)),
             vec![p(d(5, 1), d(8, 1))]
         );
         assert_eq!(
-            run(d(2, 1)).arrear_windows(d(5, 1), 3, 1, false),
+            fee(run(d(2, 1)), 3).arrear_windows(d(5, 1), false),
             vec![(p(d(2, 1), d(5, 1)), p(d(2, 1), d(5, 1)))]
         );
 
         assert!(
-            run(d(2, 1))
-                .advance_periods(d(3, 1), 3, 1, d(2, 1))
+            fee(run(d(2, 1)), 3)
+                .advance_periods(d(3, 1), d(2, 1))
                 .is_empty()
         );
-        assert!(run(d(2, 1)).arrear_windows(d(3, 1), 3, 1, false).is_empty());
-        assert_eq!(run(d(2, 1)).period_end_after(d(3, 1), 3, 1), Some(d(5, 1)));
+        assert!(
+            fee(run(d(2, 1)), 3)
+                .arrear_windows(d(3, 1), false)
+                .is_empty()
+        );
         assert_eq!(
-            run(d(3, 1)).arrear_windows(d(5, 1), 3, 1, false),
+            fee(run(d(2, 1)), 3)
+                .period(d(3, 1))
+                .map(|period| period.end),
+            Some(d(5, 1))
+        );
+        assert_eq!(
+            fee(run(d(3, 1)), 3).arrear_windows(d(5, 1), false),
             vec![(p(d(2, 1), d(5, 1)), p(d(2, 1), d(5, 1)))]
         );
 
@@ -1462,7 +1378,7 @@ mod test {
             previous_renewal: d(4, 1),
         };
         assert_eq!(
-            monthly.advance_periods(d(7, 1), 1, 1, d(4, 1)),
+            fee(monthly, 1).advance_periods(d(7, 1), d(4, 1)),
             vec![
                 p(d(5, 1), d(6, 1)),
                 p(d(6, 1), d(7, 1)),
@@ -1470,14 +1386,17 @@ mod test {
             ]
         );
         assert_eq!(
-            monthly.arrear_windows(d(7, 1), 1, 1, false),
+            fee(monthly, 1).arrear_windows(d(7, 1), false),
             vec![
                 (p(d(4, 1), d(5, 1)), p(d(4, 1), d(5, 1))),
                 (p(d(5, 1), d(6, 1)), p(d(5, 1), d(6, 1))),
                 (p(d(6, 1), d(7, 1)), p(d(6, 1), d(7, 1))),
             ]
         );
-        assert_eq!(monthly.period_end_after(d(7, 1), 1, 1), Some(d(8, 1)));
+        assert_eq!(
+            fee(monthly, 1).period(d(7, 1)).map(|period| period.end),
+            Some(d(8, 1))
+        );
     }
 
     /// Monthly to quarterly at Feb 1, which an earlier release renewed on Mar 1 for [Mar 1, Jun 1):
@@ -1485,7 +1404,8 @@ mod test {
     /// end on Jul 15 settles from Jun 1; that release's Mar 1 draft settles February.
     #[test]
     fn a_grid_an_earlier_release_renewed_on_bills_each_period_once() {
-        use super::CadenceRun;
+        use super::{CadenceRun, FeeRun};
+        let fee = |run: CadenceRun, months| FeeRun::of_cadence_run(&run, months, 1).unwrap();
         let d = |m, day| NaiveDate::from_ymd_opt(2024, m, day).unwrap();
         let p = |a: NaiveDate, b: NaiveDate| Period { start: a, end: b };
         let run = |previous| CadenceRun {
@@ -1494,28 +1414,33 @@ mod test {
             previous_renewal: previous,
         };
         assert_eq!(
-            run(d(3, 1)).advance_periods(d(6, 1), 3, 1, d(2, 1)),
+            fee(run(d(3, 1)), 3).advance_periods(d(6, 1), d(2, 1)),
             vec![p(d(6, 1), d(9, 1))]
         );
         assert_eq!(
-            run(d(3, 1)).arrear_windows(d(6, 1), 3, 1, false),
+            fee(run(d(3, 1)), 3).arrear_windows(d(6, 1), false),
             vec![(p(d(3, 1), d(6, 1)), p(d(3, 1), d(6, 1)))]
         );
-        assert_eq!(run(d(3, 1)).period_end_after(d(6, 1), 3, 1), Some(d(9, 1)));
         assert_eq!(
-            run(d(6, 1)).arrear_windows(d(7, 15), 3, 1, true),
+            fee(run(d(3, 1)), 3)
+                .period(d(6, 1))
+                .map(|period| period.end),
+            Some(d(9, 1))
+        );
+        assert_eq!(
+            fee(run(d(6, 1)), 3).arrear_windows(d(7, 15), true),
             vec![(p(d(6, 1), d(7, 15)), p(d(6, 1), d(9, 1)))]
         );
         assert_eq!(
-            run(d(9, 1)).advance_periods(d(12, 1), 3, 1, d(2, 1)),
+            fee(run(d(9, 1)), 3).advance_periods(d(12, 1), d(2, 1)),
             vec![p(d(12, 1), NaiveDate::from_ymd_opt(2025, 3, 1).unwrap())]
         );
         assert_eq!(
-            run(d(9, 1)).arrear_windows(d(12, 1), 3, 1, false),
+            fee(run(d(9, 1)), 3).arrear_windows(d(12, 1), false),
             vec![(p(d(9, 1), d(12, 1)), p(d(9, 1), d(12, 1)))]
         );
         assert_eq!(
-            run(d(2, 1)).arrear_windows(d(3, 1), 3, 1, false),
+            fee(run(d(2, 1)), 3).arrear_windows(d(3, 1), false),
             vec![(
                 p(d(2, 1), d(3, 1)),
                 p(NaiveDate::from_ymd_opt(2023, 12, 1).unwrap(), d(3, 1))

@@ -117,14 +117,6 @@ fn print_profile() {
     if env("MODEL_PROFILE", 0) == 0 {
         return;
     }
-    add_time(
-        "store: facts shadow",
-        meteroid_store::services::facts_shadow::time_spent(),
-    );
-    add_time(
-        "store: timeline shadow",
-        meteroid_store::services::timeline_shadow::time_spent(),
-    );
     if let Ok(profile) = PROFILE.lock() {
         for (phase, (spent, count)) in profile.iter() {
             eprintln!("  profile {phase}: {spent:.2?} over {count}");

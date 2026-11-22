@@ -484,7 +484,6 @@ async fn a_failed_run_waits_for_its_retry(#[future] test_env: TestEnv) {
             now,
             now + chrono::Duration::minutes(5),
             100,
-            false,
         )
         .await
         .expect("a claim")
@@ -535,18 +534,13 @@ async fn an_input_during_a_run_keeps_the_customer_dirty(#[future] test_env: Test
         .await;
     let mut conn = env.conn().await;
     let now = common_clock::now();
-    let claimed = BillingControllerRow::claim_due(
-        &mut conn,
-        now,
-        now + chrono::Duration::minutes(5),
-        100,
-        false,
-    )
-    .await
-    .expect("a claim")
-    .into_iter()
-    .find(|row| row.customer_id == CUST_UBER_ID)
-    .expect("the customer");
+    let claimed =
+        BillingControllerRow::claim_due(&mut conn, now, now + chrono::Duration::minutes(5), 100)
+            .await
+            .expect("a claim")
+            .into_iter()
+            .find(|row| row.customer_id == CUST_UBER_ID)
+            .expect("the customer");
     // Written by a replica whose clock lags: earlier than the claim, but a new mark.
     let lagging = chrono::SubsecRound::trunc_subsecs(now - chrono::Duration::seconds(30), 6);
     diesel::update(bc::table.filter(bc::customer_id.eq(CUST_UBER_ID)))
@@ -595,7 +589,6 @@ async fn two_runs_with_an_expired_lease_write_one_wake(#[future] test_env: TestE
         first_at,
         first_at + chrono::Duration::minutes(5),
         100,
-        false,
     )
     .await
     .expect("a claim")
@@ -609,7 +602,6 @@ async fn two_runs_with_an_expired_lease_write_one_wake(#[future] test_env: TestE
         second_at,
         second_at + chrono::Duration::minutes(5),
         100,
-        false,
     )
     .await
     .expect("a claim")
@@ -715,18 +707,13 @@ async fn a_deadline_written_during_a_run_keeps_the_customer_dirty(#[future] test
         .await;
     let mut conn = env.conn().await;
     let now = common_clock::now();
-    let claimed = BillingControllerRow::claim_due(
-        &mut conn,
-        now,
-        now + chrono::Duration::minutes(5),
-        100,
-        false,
-    )
-    .await
-    .expect("a claim")
-    .into_iter()
-    .find(|row| row.customer_id == CUST_UBER_ID)
-    .expect("the customer");
+    let claimed =
+        BillingControllerRow::claim_due(&mut conn, now, now + chrono::Duration::minutes(5), 100)
+            .await
+            .expect("a claim")
+            .into_iter()
+            .find(|row| row.customer_id == CUST_UBER_ID)
+            .expect("the customer");
     env.advance(chrono::Duration::seconds(1));
     let deadline = Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap();
     BillingControllerRow::wake_by(&mut conn, TENANT_ID, CUST_UBER_ID, deadline)
@@ -894,7 +881,6 @@ async fn a_failed_run_records_its_first_and_latest_failure(#[future] test_env: T
             now,
             now + chrono::Duration::minutes(5),
             100,
-            false,
         )
         .await
         .expect("a claim")
@@ -1046,437 +1032,5 @@ async fn a_failing_origin_does_not_stop_the_sweep(#[future] test_env: TestEnv) {
             .next_wake_at
             .is_some_and(|at| at <= Utc.with_ymd_and_hms(2024, 2, 1, 12, 0, 0).unwrap()),
         "rewoken"
-    );
-}
-
-/// The env's services with `BILLING_CONTROLLER_RELEASE=allowlist` when `held`, else its own.
-fn release_services(env: &TestEnv, held: bool) -> meteroid_store::Services {
-    if !held {
-        return env.services().clone();
-    }
-    let mut store = env.store().clone();
-    store.settings.billing_release =
-        meteroid_store::services::billing_release::BillingRelease::Allowlist;
-    meteroid_store::Services::new(std::sync::Arc::new(store), env.services().usage_clients())
-}
-
-/// One run of the billing controller through `services`, as `TestEnv::run_billing_controller`.
-async fn run_controller(services: &meteroid_store::Services) {
-    services
-        .sweep_billing_controller()
-        .await
-        .expect("Failed to sweep the billing controller");
-    services
-        .run_billing_controller_one_step(10_000)
-        .await
-        .expect("Failed to run the billing controller");
-}
-
-/// Every message of `queue` waiting now, read without taking it.
-async fn queued(env: &TestEnv, queue: meteroid_store::domain::pgmq::PgmqQueue) -> usize {
-    use common_domain::pgmq::{MessageReadQty, MessageReadVtSec};
-    use meteroid_store::repositories::pgmq::PgmqInterface;
-    env.store()
-        .pgmq_read(queue, MessageReadQty(1000), MessageReadVtSec(0))
-        .await
-        .expect("the queue")
-        .len()
-}
-
-/// The release held to an allowlist: a tenant not released gets no document, no payment and no
-/// outbox event from the controller, its due renewal waiting; released, it is billed exactly what
-/// was due, February's 3500, once.
-/// Rules: R-123
-#[rstest]
-#[tokio::test]
-async fn a_held_tenant_is_billed_only_once_released(#[future] test_env: TestEnv) {
-    use meteroid_store::domain::pgmq::PgmqQueue;
-    let env = test_env.await;
-    env.set_now(Utc.with_ymd_and_hms(2024, 1, 15, 12, 0, 0).unwrap());
-    let sub_id = subscription()
-        .plan_version(PLAN_VERSION_1_LEETCODE_ID)
-        .start_date(day(2024, 1, 1))
-        .on_start()
-        .no_trial()
-        .create(env.services())
-        .await;
-    env.run_billing_controller().await;
-    env.run_billing_controller().await;
-    let before = (
-        env.get_invoices(sub_id).await.len(),
-        queued(&env, PgmqQueue::WebhookOut).await,
-        queued(&env, PgmqQueue::PaymentRequest).await,
-    );
-
-    let held = release_services(&env, true);
-    env.set_now(Utc.with_ymd_and_hms(2024, 2, 3, 12, 0, 0).unwrap());
-    run_controller(&held).await;
-    run_controller(&held).await;
-    assert_eq!(
-        (
-            env.get_invoices(sub_id).await.len(),
-            queued(&env, PgmqQueue::WebhookOut).await,
-            queued(&env, PgmqQueue::PaymentRequest).await,
-        ),
-        before,
-        "nothing written while held"
-    );
-
-    diesel::sql_query(format!(
-        "INSERT INTO billing_controller_release (tenant_id, released_by) VALUES ('{}', 'test')",
-        common_domain::ids::BaseId::as_uuid(&TENANT_ID)
-    ))
-    .execute(&mut env.conn().await)
-    .await
-    .expect("released");
-    for _ in 0..3 {
-        run_controller(&held).await;
-    }
-    let mut billed: Vec<(NaiveDate, i64)> = env
-        .get_invoices(sub_id)
-        .await
-        .iter()
-        .map(|invoice| (invoice.billing_period_start, invoice.total))
-        .collect();
-    billed.sort();
-    assert_eq!(
-        billed,
-        vec![(day(2024, 1, 1), 3500), (day(2024, 2, 1), 3500)]
-    );
-}
-
-async fn notes_of(
-    env: &TestEnv,
-    sub_id: common_domain::ids::SubscriptionId,
-) -> Vec<meteroid_store::domain::CreditNote> {
-    use meteroid_store::repositories::CreditNoteInterface;
-    let mut notes = Vec::new();
-    for invoice in env.get_invoices(sub_id).await {
-        notes.extend(
-            env.store()
-                .list_credit_notes_by_invoice_id(TENANT_ID, invoice.id)
-                .await
-                .expect("notes"),
-        );
-    }
-    notes
-}
-
-/// The outbox events waiting, by kind (`SubscriptionUpdated(UnitsChanged)`, `InvoiceCreated`).
-async fn outbox_kinds(env: &TestEnv) -> Vec<String> {
-    use common_domain::pgmq::{MessageReadQty, MessageReadVtSec};
-    use meteroid_store::domain::outbox_event::OutboxEvent;
-    use meteroid_store::domain::pgmq::PgmqQueue;
-    use meteroid_store::repositories::pgmq::PgmqInterface;
-    let mut kinds: Vec<String> = env
-        .store()
-        .pgmq_read(
-            PgmqQueue::WebhookOut,
-            MessageReadQty(1000),
-            MessageReadVtSec(0),
-        )
-        .await
-        .expect("the queue")
-        .into_iter()
-        .filter_map(|message| message.message)
-        .filter_map(|message| serde_json::from_value::<OutboxEvent>(message.0).ok())
-        .map(|event| match event {
-            OutboxEvent::SubscriptionUpdated(updated) => {
-                format!("SubscriptionUpdated({:?})", updated.change_type)
-            }
-            other => format!("{other:?}")
-                .split(['(', ' ', '{'])
-                .next()
-                .unwrap_or_default()
-                .to_owned(),
-        })
-        .collect();
-    kinds.sort();
-    kinds
-}
-
-/// Documents, notes, outbox events and payment requests written so far.
-async fn written(
-    env: &TestEnv,
-    sub_id: common_domain::ids::SubscriptionId,
-) -> (usize, usize, usize, usize) {
-    use meteroid_store::domain::pgmq::PgmqQueue;
-    (
-        env.get_invoices(sub_id).await.len(),
-        notes_of(env, sub_id).await.len(),
-        queued(env, PgmqQueue::WebhookOut).await,
-        queued(env, PgmqQueue::PaymentRequest).await,
-    )
-}
-
-/// Starter (29.00 and one 10.00 seat) from Jan 1; two seats bought at once on Jan 20; cancelled
-/// at once on Jan 25. `held`, the tenant's release is held from the purchase: neither request
-/// writes a document, a payment or an outbox event, then the tenant is released. Returns what
-/// its invoices bill and its notes give back.
-async fn seats_then_cancellation(env: &TestEnv, held: bool) -> (i64, i64) {
-    use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
-    env.set_now(Utc.with_ymd_and_hms(2024, 1, 1, 12, 0, 0).unwrap());
-    let sub_id = subscription()
-        .plan_version(PLAN_VERSION_STARTER_ID)
-        .start_date(day(2024, 1, 1))
-        .on_start()
-        .no_trial()
-        .create(env.services())
-        .await;
-    env.run_billing_controller().await;
-    env.run_billing_controller().await;
-    let before = written(env, sub_id).await;
-    let events_before = outbox_kinds(env).await;
-    let services = release_services(env, held);
-
-    env.set_now(Utc.with_ymd_and_hms(2024, 1, 20, 12, 0, 0).unwrap());
-    services
-        .update_subscription_slots(
-            TENANT_ID,
-            sub_id,
-            COMP_STARTER_SEATS_ID,
-            2,
-            meteroid_store::domain::SlotUpgradeBillingMode::Optimistic,
-            common_domain::actor::Actor::System,
-        )
-        .await
-        .expect("two seats");
-    run_controller(&services).await;
-    env.set_now(Utc.with_ymd_and_hms(2024, 1, 25, 12, 0, 0).unwrap());
-    services
-        .cancel_subscription(
-            common_domain::actor::Actor::System,
-            sub_id,
-            TENANT_ID,
-            None,
-            CancellationEffectiveAt::Immediate,
-        )
-        .await
-        .expect("cancelled at once");
-    run_controller(&services).await;
-    if held {
-        let (invoices, notes, _, payments) = written(env, sub_id).await;
-        assert_eq!(
-            (invoices, notes, payments),
-            (before.0, before.1, before.3),
-            "no document, note or payment while held"
-        );
-        // The requests' own acknowledgements only: nothing of their billing.
-        let mut events = events_before.clone();
-        events.extend([
-            "SubscriptionUpdated(Some(CancellationScheduled))".to_owned(),
-            "SubscriptionUpdated(Some(UnitsChanged))".to_owned(),
-        ]);
-        events.sort();
-        assert_eq!(outbox_kinds(env).await, events);
-        diesel::sql_query("INSERT INTO billing_controller_release (tenant_id) VALUES (NULL)")
-            .execute(&mut env.conn().await)
-            .await
-            .expect("every tenant released");
-    }
-    for day in [25, 26, 28] {
-        env.set_now(Utc.with_ymd_and_hms(2024, 1, day, 13, 0, 0).unwrap());
-        for _ in 0..4 {
-            run_controller(&services).await;
-        }
-    }
-    let billed = env
-        .get_invoices(sub_id)
-        .await
-        .iter()
-        .filter(|invoice| invoice.status != meteroid_store::domain::enums::InvoiceStatusEnum::Void)
-        .map(|invoice| invoice.total)
-        .sum();
-    let credited = notes_of(env, sub_id)
-        .await
-        .iter()
-        .map(|note| note.total)
-        .sum();
-    (billed, credited)
-}
-
-/// A held tenant's requests write no document; released, it is billed and credited what the
-/// same requests bill and credit at once: the two seats' stub, and the unused days given back.
-/// Rules: R-123, R-120, R-079
-#[rstest]
-#[tokio::test]
-async fn a_held_tenants_requests_bill_what_was_due_once_released(#[future] test_env: TestEnv) {
-    let at_once = {
-        let env =
-            crate::harness::test_env_with_seed(crate::meteroid_it::container::SeedLevel::PLANS)
-                .await;
-        seats_then_cancellation(&env, false).await
-    };
-    let env = test_env.await;
-    assert_eq!(seats_then_cancellation(&env, true).await, at_once);
-}
-
-/// An immediate request a held tenant may make, as the canary tests drive it.
-#[derive(Clone, Copy)]
-enum HeldRequest {
-    /// Starter to Pro at once.
-    PlanChange,
-    /// The Platform Fee repriced from 29.00 to 49.00 at once.
-    Amendment,
-}
-
-/// Starter (29.00 and one 10.00 seat) from Jan 1; `request` at once on Jan 20. `held`, the
-/// tenant's release is held from the request: it writes no document, note or payment, and the
-/// outbox gets only the request's own acknowledgements; then the tenant is released. Returns the
-/// lines its invoices and notes hold after the Feb 1 renewal.
-async fn request_then_release(env: &TestEnv, held: bool, request: HeldRequest) -> Vec<String> {
-    use meteroid_store::domain::enums::BillingPeriodEnum;
-    use meteroid_store::domain::price_components::{PriceEntry, PriceInput};
-    use meteroid_store::domain::prices::Pricing;
-    use meteroid_store::domain::subscription_amendment::{
-        AddOnChanges, ComponentChanges, EditComponent, SubscriptionAmendment,
-    };
-    use meteroid_store::domain::subscription_changes::PlanChangeMode;
-
-    env.set_now(Utc.with_ymd_and_hms(2024, 1, 1, 12, 0, 0).unwrap());
-    let sub_id = subscription()
-        .plan_version(PLAN_VERSION_STARTER_ID)
-        .start_date(day(2024, 1, 1))
-        .on_start()
-        .no_trial()
-        .create(env.services())
-        .await;
-    env.run_billing_controller().await;
-    env.run_billing_controller().await;
-    let before = written(env, sub_id).await;
-    let events_before = outbox_kinds(env).await;
-    let services = release_services(env, held);
-
-    env.set_now(Utc.with_ymd_and_hms(2024, 1, 20, 12, 0, 0).unwrap());
-    match request {
-        HeldRequest::PlanChange => {
-            services
-                .apply_plan_change_immediate(
-                    common_domain::actor::Actor::System,
-                    sub_id,
-                    TENANT_ID,
-                    PLAN_VERSION_PRO_ID,
-                    vec![],
-                )
-                .await
-                .expect("Pro at once");
-        }
-        HeldRequest::Amendment => {
-            let platform = env
-                .get_subscription_components(sub_id)
-                .await
-                .into_iter()
-                .find(|row| row.name == "Platform Fee")
-                .expect("the Platform Fee")
-                .id;
-            services
-                .apply_amendment_immediate(
-                    common_domain::actor::Actor::System,
-                    sub_id,
-                    TENANT_ID,
-                    SubscriptionAmendment {
-                        apply_mode: PlanChangeMode::Immediate,
-                        component_changes: ComponentChanges {
-                            edited: vec![EditComponent {
-                                subscription_component_id: platform,
-                                name: None,
-                                price_entry: PriceEntry::New(PriceInput {
-                                    cadence: BillingPeriodEnum::Monthly,
-                                    currency: "EUR".to_string(),
-                                    pricing: Pricing::Rate {
-                                        rate: rust_decimal::Decimal::new(4900, 2),
-                                    },
-                                    credit_unit: None,
-                                }),
-                            }],
-                            added: vec![],
-                            removed: vec![],
-                        },
-                        add_on_changes: AddOnChanges::default(),
-                    },
-                )
-                .await
-                .expect("49.00 at once");
-        }
-    }
-    run_controller(&services).await;
-    if held {
-        let (invoices, notes, _, payments) = written(env, sub_id).await;
-        assert_eq!(
-            (invoices, notes, payments),
-            (before.0, before.1, before.3),
-            "no document, note or payment while held"
-        );
-        let events = outbox_kinds(env).await;
-        let billing: Vec<&String> = events
-            .iter()
-            .filter(|kind| {
-                !events_before.contains(kind) && !kind.starts_with("SubscriptionUpdated")
-            })
-            .collect();
-        assert!(
-            billing.is_empty(),
-            "no billing event while held: {billing:?}"
-        );
-        diesel::sql_query("INSERT INTO billing_controller_release (tenant_id) VALUES (NULL)")
-            .execute(&mut env.conn().await)
-            .await
-            .expect("every tenant released");
-    }
-    for (month, day) in [(1, 20), (1, 21), (1, 23), (2, 1)] {
-        env.set_now(Utc.with_ymd_and_hms(2024, month, day, 13, 0, 0).unwrap());
-        for _ in 0..4 {
-            run_controller(&services).await;
-        }
-    }
-    let mut lines = super::derived_state::documents(env, sub_id).await;
-    lines.sort();
-    lines
-}
-
-/// A held tenant's immediate plan change writes no document; released, it is billed and credited
-/// what the same change bills and credits at once: Starter's unused days given back, Pro's stub,
-/// then Pro's February.
-/// Rules: R-123, R-120, R-080
-#[rstest]
-#[tokio::test]
-async fn a_held_tenants_plan_change_bills_what_was_due_once_released(#[future] test_env: TestEnv) {
-    let at_once = {
-        let env =
-            crate::harness::test_env_with_seed(crate::meteroid_it::container::SeedLevel::PLANS)
-                .await;
-        request_then_release(&env, false, HeldRequest::PlanChange).await
-    };
-    assert!(
-        at_once.iter().any(|line| line.contains("note:")),
-        "the change gives back Starter's unused days: {at_once:#?}"
-    );
-    let env = test_env.await;
-    assert_eq!(
-        request_then_release(&env, true, HeldRequest::PlanChange).await,
-        at_once
-    );
-}
-
-/// A held tenant's immediate amendment writes no document; released, it is billed what the same
-/// amendment bills at once: the 20.00 difference over the days left, then February at 49.00.
-/// Rules: R-123, R-120, R-078
-#[rstest]
-#[tokio::test]
-async fn a_held_tenants_amendment_bills_what_was_due_once_released(#[future] test_env: TestEnv) {
-    let at_once = {
-        let env =
-            crate::harness::test_env_with_seed(crate::meteroid_it::container::SeedLevel::PLANS)
-                .await;
-        request_then_release(&env, false, HeldRequest::Amendment).await
-    };
-    assert!(
-        at_once.iter().any(|line| line.ends_with(" 4900")),
-        "February bills the new price: {at_once:#?}"
-    );
-    let env = test_env.await;
-    assert_eq!(
-        request_then_release(&env, true, HeldRequest::Amendment).await,
-        at_once
     );
 }

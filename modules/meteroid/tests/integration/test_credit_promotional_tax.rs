@@ -150,6 +150,19 @@ async fn period_content(
         .await
         .map_err(test_error)?
         .id;
+    // The renewal opening the second period, before its draft is written.
+    {
+        use diesel_async::RunQueryDsl;
+        diesel::sql_query(
+            "UPDATE subscription SET current_period_start = $1, current_period_end = $2 WHERE id = $3",
+        )
+        .bind::<diesel::sql_types::Date, _>(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap())
+        .bind::<diesel::sql_types::Date, _>(NaiveDate::from_ymd_opt(2024, 3, 1).unwrap())
+        .bind::<diesel::sql_types::Uuid, _>(*subscription_id)
+        .execute(&mut setup.store.get_conn().await.map_err(test_error)?)
+        .await
+        .map_err(test_error)?;
+    }
     let details = setup
         .store
         .get_subscription_details_with_conn(
@@ -169,12 +182,7 @@ async fn period_content(
     .await;
     let content = setup
         .services
-        .compute_invoice(
-            &NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
-            &details,
-            None,
-            InvoiceType::Recurring,
-        )
+        .compute_period_invoice(&NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(), &details)
         .await
         .map_err(test_error)?;
     Ok((content, grant))

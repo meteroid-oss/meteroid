@@ -111,62 +111,6 @@ impl Slot {
     }
 }
 
-/// What a period invoice bills from the facts, before coupons, tax and credit.
-pub(in crate::services) struct FromFacts {
-    pub priced: PricedInvoice,
-    /// The state the facts derive now, checked against the stored row.
-    #[cfg(feature = "facts-shadow")]
-    pub state: billing_core::evaluate::DerivedState,
-    /// The instant the subscription ends at, as its ending fact records it.
-    #[cfg(feature = "facts-shadow")]
-    pub ending: Option<DateTime<Utc>>,
-    /// The reconcile watermark.
-    #[cfg(feature = "facts-shadow")]
-    pub watermark: Option<NaiveDate>,
-    /// The fee rows, as the comparison reads them.
-    #[cfg(feature = "facts-shadow")]
-    pub fees: Vec<crate::services::facts_shadow::ShadowFee>,
-    /// Where a free trial ends, fees billing from it.
-    #[cfg(feature = "facts-shadow")]
-    pub trial_end: Option<NaiveDate>,
-}
-
-#[cfg(feature = "facts-shadow")]
-fn shadow_fees(facts: &Facts<StoreFee>) -> Vec<crate::services::facts_shadow::ShadowFee> {
-    use crate::domain::SubscriptionFee;
-    facts
-        .fees
-        .iter()
-        .map(|fee| {
-            let store = &fee.fee;
-            let minor = Decimal::from(10_i64.pow(u32::from(store.precision)));
-            let price = match &store.fee {
-                SubscriptionFee::Rate { rate } | SubscriptionFee::Capacity { rate, .. } => {
-                    Some(*rate)
-                }
-                SubscriptionFee::Recurring { rate, quantity, .. }
-                | SubscriptionFee::OneTime { rate, quantity } => {
-                    Some(*rate * Decimal::from(*quantity))
-                }
-                _ => None,
-            };
-            let included = match &store.fee {
-                SubscriptionFee::Capacity { included, .. } => {
-                    Some(Decimal::from(*included) * store.instances)
-                }
-                _ => None,
-            };
-            crate::services::facts_shadow::ShadowFee {
-                row: fee.id,
-                arrears: fee.billing == Billing::Arrears,
-                price: price.map(|price| price * store.instances * minor),
-                included,
-                metric: store.metric(),
-            }
-        })
-        .collect()
-}
-
 /// The facts as a document written at `now` reads them: a cancellation still to come gives its
 /// period back at its date (R-077), so until then the period bills whole.
 pub(super) fn as_written(facts: &mut Facts<StoreFee>, now: DateTime<Utc>) {
@@ -225,7 +169,7 @@ fn unbilled_by_now(
 
 /// The instant an invoice of `invoice_date` is evaluated at, however late it is computed: its date,
 /// or the ending it settles that day. Every charge it carries is due by then.
-fn evaluated_at(facts: &Facts<StoreFee>, invoice_date: NaiveDate) -> DateTime<Utc> {
+pub(super) fn evaluated_at(facts: &Facts<StoreFee>, invoice_date: NaiveDate) -> DateTime<Utc> {
     let now = midnight(invoice_date);
     match facts.effective_ending() {
         Some(ending) if ending.on() == invoice_date => now.max(ending.at),
@@ -275,47 +219,35 @@ impl Services {
     ) -> StoreResult<PricedInvoice> {
         // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
         Box::pin(async move {
+            // Any other invoice carries bespoke lines: they are kept, estimating the credit they draw.
             if !bills_from_facts(&invoice_type) {
-                return self
-                    .price_invoice_lines(
-                        conn,
-                        invoice_date,
-                        details,
-                        prepaid_amount,
-                        invoice,
-                        invoice_type,
-                        book,
-                    )
-                    .await;
-            }
-            let billed = self
-                .bill_from_facts(
+                let invoice = invoice.ok_or_else(|| {
+                    Report::new(StoreError::InvalidArgument(format!(
+                        "a {invoice_type:?} invoice is priced from its stored lines"
+                    )))
+                })?;
+                let already_paid = prepaid_amount.unwrap_or(0) as i64;
+                return Box::pin(self.estimate_stored_credit(
                     conn,
-                    *invoice_date,
-                    details,
-                    prepaid_amount,
                     invoice,
-                    invoice_type.clone(),
+                    already_paid,
+                    common_clock::now(),
                     book,
-                    overlay,
-                )
-                .await?;
-            #[cfg(feature = "facts-shadow")]
-            if overlay.is_none() {
-                self.compare_with_legacy(
-                    conn,
-                    crate::services::facts_shadow::Compared {
-                        invoice_date: *invoice_date,
-                        details,
-                        prepaid_amount,
-                        invoice,
-                        invoice_type,
-                    },
-                    &billed,
-                )
-                .await;
+                ))
+                .await
+                .map(PricedInvoice::Stored);
             }
-            Ok(billed.priced)
+            self.bill_from_facts(
+                conn,
+                *invoice_date,
+                details,
+                prepaid_amount,
+                invoice,
+                invoice_type.clone(),
+                book,
+                overlay,
+            )
+            .await
         })
         .await
     }
@@ -331,7 +263,7 @@ impl Services {
         invoice_type: InvoiceType,
         book: Option<&CreditBooks>,
         overlay: Option<&Overlay>,
-    ) -> StoreResult<FromFacts> {
+    ) -> StoreResult<PricedInvoice> {
         let sub = &details.subscription;
         let currency = Currencies::resolve_currency(&sub.currency).ok_or_else(|| {
             Report::new(StoreError::ValueNotFound(format!(
@@ -383,12 +315,6 @@ impl Services {
             .ending
             .filter(|ending| ending.kind == EndingKind::Cancel)
             .map(|ending| ending.on());
-        #[cfg(feature = "facts-shadow")]
-        let ending = loaded.facts.effective_ending().map(|ending| ending.at);
-        #[cfg(feature = "facts-shadow")]
-        let state = evaluate(&loaded.facts, common_clock::now(), None, &StorePricer)
-            .map_err(pricing_error)?
-            .state;
         let now = evaluated_at(&loaded.facts, invoice_date);
         let cancelled_after = loaded
             .facts
@@ -424,22 +350,7 @@ impl Services {
                 let content = self
                     .estimate_stored_credit(conn, invoice, already_paid, common_clock::now(), book)
                     .await?;
-                return Ok(FromFacts {
-                    priced: PricedInvoice::Stored(content),
-                    #[cfg(feature = "facts-shadow")]
-                    state,
-                    #[cfg(feature = "facts-shadow")]
-                    ending,
-                    #[cfg(feature = "facts-shadow")]
-                    watermark: loaded.facts.reconcile_from,
-                    #[cfg(feature = "facts-shadow")]
-                    fees: shadow_fees(&loaded.facts),
-                    #[cfg(feature = "facts-shadow")]
-                    trial_end: loaded
-                        .facts
-                        .free_trial()
-                        .map(|_| loaded.facts.billing_start()),
-                });
+                return Ok(PricedInvoice::Stored(content));
             }
         }
 
@@ -660,11 +571,6 @@ impl Services {
                         "subscription {}: {key:?} owes {owed} no document billed; the written invoice keeps its lines",
                         sub.id
                     );
-                    #[cfg(feature = "facts-shadow")]
-                    crate::services::facts_shadow::record_unbilled(
-                        sub.id,
-                        &format!("{invoice_date}: {key:?} owes {owed} no document billed"),
-                    );
                     count(
                         &RECONCILE_UNBILLED,
                         sub.tenant_id,
@@ -804,33 +710,18 @@ impl Services {
             None => Box::default(),
         };
 
-        Ok(FromFacts {
-            priced: PricedInvoice::Lines(PricedLines {
-                lines,
-                invoice_date: read_at,
-                currency_precision: currency.precision,
-                tax_inclusive,
-                span,
-                invoice_type,
-                prepaid_amount,
-                invoice_id: invoice.map(|invoice| invoice.id),
-                true_up,
-                reopened,
-            }),
-            #[cfg(feature = "facts-shadow")]
-            state,
-            #[cfg(feature = "facts-shadow")]
-            ending,
-            #[cfg(feature = "facts-shadow")]
-            watermark: loaded.facts.reconcile_from,
-            #[cfg(feature = "facts-shadow")]
-            fees: shadow_fees(&loaded.facts),
-            #[cfg(feature = "facts-shadow")]
-            trial_end: loaded
-                .facts
-                .free_trial()
-                .map(|_| loaded.facts.billing_start()),
-        })
+        Ok(PricedInvoice::Lines(PricedLines {
+            lines,
+            invoice_date: read_at,
+            currency_precision: currency.precision,
+            tax_inclusive,
+            span,
+            invoice_type,
+            prepaid_amount,
+            invoice_id: invoice.map(|invoice| invoice.id),
+            true_up,
+            reopened,
+        }))
     }
 
     /// The slot of the invoice of `invoice_date`, with the periods it catches up: those since the
@@ -1180,7 +1071,7 @@ fn by_row<'a>(
 }
 
 /// Each fixed fee charge's whole period and its price there, as its notes prorate it (R-079).
-fn nominals(
+pub(super) fn nominals(
     details: &SubscriptionDetails,
     facts: &Facts<StoreFee>,
     evaluation: &Evaluation,

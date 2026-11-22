@@ -130,29 +130,6 @@ impl Drop for TestDatabase {
                 .collect::<Vec<_>>()
                 .join("\n")
         );
-        let timeline = meteroid_store::services::timeline_shadow::take_mismatches();
-        assert!(
-            std::thread::panicking() || timeline.is_empty(),
-            "an invoice bills a period that is no window of the timeline (R-084):\n{}",
-            timeline.join("\n")
-        );
-        let facts = meteroid_store::services::facts_shadow::take_mismatches();
-        // A report run collects the differences per test instead of failing it.
-        if let Some(dir) = std::env::var_os("FACTS_SHADOW_REPORT").filter(|_| !facts.is_empty()) {
-            let test = std::thread::current()
-                .name()
-                .unwrap_or("unnamed")
-                .replace("::", "__");
-            let path =
-                std::path::Path::new(&dir).join(format!("{test}-{}.txt", std::process::id()));
-            let _ = std::fs::write(path, facts.join("\n"));
-            return;
-        }
-        assert!(
-            std::thread::panicking() || facts.is_empty(),
-            "an invoice or a subscription's state differs from what its facts evaluate to:\n{}",
-            facts.join("\n")
-        );
     }
 }
 
@@ -502,7 +479,6 @@ async fn start_meteroid_from_config(
         invite_ttl_days: 7,
         mfa_issuer: "Meteroid".to_string(),
         portal_legacy_tokens_until: None,
-        billing_release: config.billing_controller_release,
     })
     .expect("Could not create store");
 

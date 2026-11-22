@@ -263,16 +263,8 @@ impl Services {
                     .await?;
 
                     // The controller wakes at the ending, before its period's end.
-                    let held = self.is_held(conn, tenant_id).await?;
-                    self.derive_state_unless_held_tx(
-                        conn,
-                        actor,
-                        tenant_id,
-                        subscription_id,
-                        requested_at,
-                        held,
-                    )
-                    .await?;
+                    self.derive_state_tx(conn, actor, tenant_id, subscription_id, requested_at)
+                        .await?;
 
                     Ok((res, Some(ends_at.and_utc())))
                 }
@@ -282,12 +274,7 @@ impl Services {
 
         // Reached already, the ending applies now, as the controller would: an ending past the
         // stored period's end first renews each period before it, one boundary a step.
-        let held = {
-            let mut conn = self.store.get_conn().await?;
-            self.is_held(&mut conn, tenant_id).await?
-        };
-        // Held (R-123), the ending and its documents are the controller's, on release.
-        if !held && ends_at.is_some_and(|at| at <= requested_at) {
+        if ends_at.is_some_and(|at| at <= requested_at) {
             self.step_until_idle(
                 tenant_id,
                 subscription_id,
