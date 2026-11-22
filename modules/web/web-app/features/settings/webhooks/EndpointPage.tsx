@@ -133,7 +133,7 @@ export const EndpointPage = ({
 
       <DeliverySheet
         deliveryId={openDelivery}
-        endpointUrl={endpoint.url}
+        endpoint={endpoint}
         onClose={() => setOpenDelivery(null)}
       />
     </div>
@@ -176,26 +176,28 @@ const StateBanner = ({
         action={
           <Button
             size="sm"
+            title="Sends the oldest waiting event now. If it goes through, the rest follow."
             disabled={resume.isPending}
             onClick={() =>
               resume.mutate(
                 { id: endpoint.id },
                 {
-                  onSuccess: () => toast.success('Retrying now'),
+                  onSuccess: () => toast.success('Sending the oldest waiting event'),
                   onError: e => toast.error(e.message),
                 }
               )
             }
           >
-            Retry now
+            Try now
           </Button>
         }
       >
         {endpoint.failingSince
           ? `It has failed since ${parseAndFormatDateTime(endpoint.failingSince)} (${endpoint.consecutiveFailures} attempts in a row). `
           : ''}
-        New events are queued, not lost.{' '}
-        {next ? `We'll try again at ${parseAndFormatDateTime(next)}.` : 'We are trying again now.'}
+        New events are queued, not lost. We retry one event at a time, oldest first, and send the
+        rest once one gets through.{' '}
+        {next ? `Next try at ${parseAndFormatDateTime(next)}.` : 'Trying again now.'}
       </Banner>
     )
   }

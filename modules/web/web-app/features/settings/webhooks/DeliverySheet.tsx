@@ -15,10 +15,15 @@ import { toast } from 'sonner'
 
 import { AttemptOutput } from '@/features/settings/webhooks/AttemptOutput'
 import { DeliveryStatusBadge } from '@/features/settings/webhooks/badges'
+import { isUnreachable, nextProbeAt } from '@/features/settings/webhooks/endpointState'
 import { useWebhooks } from '@/features/settings/webhooks/useWebhooks'
 import { useQuery } from '@/lib/connectrpc'
 import { copyToClipboard } from '@/lib/helpers'
-import { WebhookDeliveryStatusEnum, type WebhookAttempt } from '@/rpc/api/webhooksout/v1/models_pb'
+import {
+  WebhookDeliveryStatusEnum,
+  type WebhookAttempt,
+  type WebhookEndpoint,
+} from '@/rpc/api/webhooksout/v1/models_pb'
 import { getWebhookDelivery } from '@/rpc/api/webhooksout/v1/webhooksout-WebhooksService_connectquery'
 import { parseAndFormatDateTime } from '@/utils/date'
 import { useTheme } from 'providers/ThemeProvider'
@@ -28,7 +33,7 @@ const COLLAPSE_ABOVE = 4
 
 interface Props {
   deliveryId: string | null
-  endpointUrl: string
+  endpoint: WebhookEndpoint
   onClose: () => void
 }
 
@@ -41,7 +46,7 @@ const prettyPayload = (payload: string) => {
 }
 
 /** One event sent to one endpoint: why it failed first, then what was sent. */
-export const DeliverySheet = ({ deliveryId, endpointUrl, onClose }: Props) => {
+export const DeliverySheet = ({ deliveryId, endpoint, onClose }: Props) => {
   const { isDarkMode } = useTheme()
   const { resend } = useWebhooks()
   const [expanded, setExpanded] = useState(false)
@@ -62,6 +67,10 @@ export const DeliverySheet = ({ deliveryId, endpointUrl, onClose }: Props) => {
 
   const retrying =
     delivery?.status === WebhookDeliveryStatusEnum.PENDING && delivery.nextAttemptAt != null
+  // An unreachable endpoint is probed one event at a time, oldest first: this one's own
+  // schedule says nothing about when it goes out.
+  const waiting = retrying && isUnreachable(endpoint)
+  const nextProbe = nextProbeAt(endpoint)
 
   return (
     <Sheet
@@ -97,7 +106,7 @@ export const DeliverySheet = ({ deliveryId, endpointUrl, onClose }: Props) => {
               Resend
             </Button>
           </div>
-          <SheetDescription className="truncate font-mono text-xs">{endpointUrl}</SheetDescription>
+          <SheetDescription className="truncate font-mono text-xs">{endpoint.url}</SheetDescription>
         </SheetHeader>
 
         {detailQuery.isLoading || !delivery ? (
@@ -109,7 +118,9 @@ export const DeliverySheet = ({ deliveryId, endpointUrl, onClose }: Props) => {
           <div className="space-y-6">
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-[13px] sm:grid-cols-4">
               <Fact label="Created">{parseAndFormatDateTime(delivery.createdAt, 'sec')}</Fact>
-              {retrying ? (
+              {waiting ? (
+                <Fact label="Next try">Once the endpoint answers</Fact>
+              ) : retrying ? (
                 <Fact label="Next try">
                   {parseAndFormatDateTime(delivery.nextAttemptAt ?? '', 'sec')}
                 </Fact>
@@ -127,6 +138,15 @@ export const DeliverySheet = ({ deliveryId, endpointUrl, onClose }: Props) => {
                 <span className="break-all font-mono text-xs">{delivery.messageId}</span>
               </Fact>
             </dl>
+
+            {waiting && (
+              <p className="rounded-md bg-warning/10 px-3 py-2 text-[13px]">
+                Waiting: the endpoint is unreachable, so it is retried one event at a time, oldest
+                first (next try{' '}
+                {nextProbe ? `at ${parseAndFormatDateTime(nextProbe, 'sec')}` : 'now'}). Once one
+                gets through, the queued events, this one included, follow.
+              </p>
+            )}
 
             <section className="space-y-2">
               <h4 className="text-xs font-medium text-muted-foreground">Attempts</h4>

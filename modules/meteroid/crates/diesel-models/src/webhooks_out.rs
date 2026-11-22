@@ -68,6 +68,8 @@ pub struct WebhookOutEndpointRowPatch {
     pub disabled_reason: Option<Option<WebhookEndpointDisabledReasonEnum>>,
     pub disabled_at: Option<Option<NaiveDateTime>>,
     pub consecutive_failures: Option<i32>,
+    pub unreachable_streak: Option<i32>,
+    pub failing_since: Option<Option<NaiveDateTime>>,
     pub headers: Option<serde_json::Value>,
     pub sensitive_header_values: Option<Option<String>>,
     pub rate_limit_per_sec: Option<Option<i32>>,

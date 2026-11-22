@@ -315,12 +315,14 @@ async fn attempt_webhook_delivery(
     };
 
     let jitter = random_jitter(&mut rand::rng());
+    let now = common_clock::wall().naive_utc();
 
     let outcome = decide_outcome(
         AttemptContext {
             delivery_id: delivery.id,
             endpoint_id: delivery.endpoint_id,
             attempt_number,
+            due_at: delivery.next_attempt_at.unwrap_or(now),
             lease_expires_at,
             duration_ms: attempt.duration_ms,
             health: EndpointHealth {
@@ -328,7 +330,7 @@ async fn attempt_webhook_delivery(
                 failing_since: endpoint.endpoint.failing_since,
                 unreachable_streak: endpoint.endpoint.unreachable_streak,
             },
-            now: common_clock::wall().naive_utc(),
+            now,
             jitter,
             auto_disable_after_hours: DEFAULT_AUTO_DISABLE_AFTER_HOURS,
         },

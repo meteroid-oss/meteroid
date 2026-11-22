@@ -170,6 +170,30 @@ impl WebhookOutEndpointRow {
             .into_db_result()
     }
 
+    /// Ends a pause now, so the next claim probes the endpoint. `paused_until` is set to
+    /// `now` rather than cleared: the endpoint is still unreachable until a probe gets an
+    /// answer, which clears it. An endpoint that is not paused is left as it is.
+    pub async fn end_pause(
+        conn: &mut PgConn,
+        tenant_uid: TenantId,
+        endpoint_id: WebhookEndpointId,
+        now: NaiveDateTime,
+    ) -> DbResult<usize> {
+        use crate::schema::webhook_out_endpoint::dsl as e_dsl;
+        use diesel_async::RunQueryDsl;
+
+        diesel::update(e_dsl::webhook_out_endpoint)
+            .filter(e_dsl::id.eq(endpoint_id))
+            .filter(e_dsl::tenant_id.eq(tenant_uid))
+            .filter(e_dsl::archived_at.is_null())
+            .filter(e_dsl::paused_until.gt(now))
+            .set((e_dsl::paused_until.eq(now), e_dsl::updated_at.eq(now)))
+            .execute(conn)
+            .await
+            .attach("Error while ending webhook endpoint pause")
+            .into_db_result()
+    }
+
     pub async fn archive(
         conn: &mut PgConn,
         tenant_uid: TenantId,

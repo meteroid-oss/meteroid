@@ -23,6 +23,8 @@ pub struct AttemptContext {
     pub delivery_id: WebhookDeliveryId,
     pub endpoint_id: WebhookEndpointId,
     pub attempt_number: i32,
+    /// When the delivery was due, i.e. its place in the endpoint's queue.
+    pub due_at: NaiveDateTime,
     pub lease_expires_at: NaiveDateTime,
     pub duration_ms: i32,
     pub health: EndpointHealth,
@@ -85,13 +87,13 @@ pub fn decide_outcome(ctx: AttemptContext, result: AttemptResult) -> WebhookAtte
 
         match pause {
             // The endpoint as a whole is down: pause it, and keep this delivery at the
-            // head of its queue without spending budget, so the next probe sends it and
-            // a long outage never runs an event out of retries.
+            // head of its queue (the pause, not the delivery, holds it back) without
+            // spending budget, so the next probe sends it, even one sent early by
+            // "Try now", and a long outage never runs an event out of retries.
             Some(pause) => {
-                let until = ctx.now + pause;
-                pause_endpoint_until = Some(until);
+                pause_endpoint_until = Some(ctx.now + pause);
                 refund_attempt = true;
-                (WebhookDeliveryStatus::Pending, Some(until), disable)
+                (WebhookDeliveryStatus::Pending, Some(ctx.due_at), disable)
             }
             None => {
                 let next = next_attempt_at(ctx.now, ctx.attempt_number, ctx.jitter);
@@ -173,6 +175,7 @@ mod tests {
             delivery_id: WebhookDeliveryId::new(),
             endpoint_id: WebhookEndpointId::new(),
             attempt_number,
+            due_at: fixed_now() - Duration::seconds(5),
             lease_expires_at: fixed_now() + Duration::seconds(90),
             duration_ms: 42,
             health: EndpointHealth {
@@ -319,7 +322,11 @@ mod tests {
             "a paused endpoint's probe spends no budget"
         );
         assert_eq!(at.final_status, WebhookDeliveryStatus::Pending);
-        assert_eq!(at.next_attempt_at, at.pause_endpoint_until);
+        assert_eq!(
+            at.next_attempt_at,
+            Some(fixed_now() - Duration::seconds(5)),
+            "the probe keeps its place at the head of the queue"
+        );
     }
 
     #[test]

@@ -1347,7 +1347,8 @@ async fn a_rate_limited_endpoint_is_claimed_up_to_its_rate(#[future] test_env_mi
     assert!(claim(&env).await.is_empty(), "the second is used up");
 }
 
-/// "Retry now" lifts the pause immediately.
+/// "Try now" ends the pause immediately, but the endpoint stays unreachable (and probed
+/// one delivery at a time) until a probe gets an answer.
 #[rstest]
 #[tokio::test]
 async fn resuming_lifts_the_pause(#[future] test_env_minimal: TestEnv) {
@@ -1368,8 +1369,86 @@ async fn resuming_lifts_the_pause(#[future] test_env_minimal: TestEnv) {
         .resume_webhook_endpoint(TENANT_ID, paused.id)
         .await
         .expect("resume");
-    assert!(resumed.paused_until.is_none());
+    let ended = resumed.paused_until.expect("still marked unreachable");
+    assert!(ended <= chrono::Utc::now().naive_utc(), "the pause is over");
     assert_eq!(resumed.unreachable_streak, 9, "still probed one at a time");
+
+    let (healthy, _secret) = create_endpoint(&env, "https://healthy.example/hook", vec![]).await;
+    let untouched = env
+        .store()
+        .resume_webhook_endpoint(TENANT_ID, healthy.id)
+        .await
+        .expect("resume a healthy endpoint");
+    assert!(
+        untouched.paused_until.is_none(),
+        "an endpoint that was not paused is not marked unreachable"
+    );
+}
+
+/// "Try now" sends the event the last probe tried, ahead of those queued during the
+/// pause, without waiting for the pause it ended.
+#[rstest]
+#[tokio::test]
+async fn trying_now_sends_the_probed_event_first(#[future] test_env_minimal: TestEnv) {
+    use meteroid_store::services::webhooks::out::schedule::PROBE_THRESHOLD;
+
+    let env = test_env_minimal.await;
+    let (dead, _secret) = create_endpoint(&env, "http://127.0.0.1:1/hook", vec![]).await;
+    set_max_in_flight(&env, dead.id, 1).await;
+    insert_deliveries(&env, dead.id, 1).await;
+    let probed = delivery_row(&env, dead.id).await.id;
+
+    for _ in 0..PROBE_THRESHOLD {
+        force_due(&env).await;
+        worker(&env).run_tick().await;
+    }
+    assert!(endpoint(&env, dead.id).await.paused_until.is_some());
+
+    insert_deliveries(&env, dead.id, 2).await;
+    env.store()
+        .resume_webhook_endpoint(TENANT_ID, dead.id)
+        .await
+        .expect("try now");
+
+    let claimed = claim(&env).await;
+    assert_eq!(claimed.len(), 1, "still one at a time");
+    assert_eq!(claimed[0].id, probed, "the probed event goes first");
+}
+
+/// Re-enabling gives the endpoint a clean slate: its next failure must not pause it.
+#[rstest]
+#[tokio::test]
+async fn reenabling_ends_the_probe_mode(#[future] test_env_minimal: TestEnv) {
+    use meteroid_store::domain::webhooks_out::WebhookEndpointPatch;
+
+    let env = test_env_minimal.await;
+    let (ep, _secret) = create_endpoint(&env, "https://reenabled.example/hook", vec![]).await;
+
+    let mut conn = env.conn().await;
+    diesel::sql_query(
+        "UPDATE webhook_out_endpoint SET disabled = true, unreachable_streak = 9, failing_since = now() - interval '1 day', paused_until = now() + interval '1 hour' WHERE id = $1",
+    )
+    .bind::<diesel::sql_types::Uuid, _>(*ep.id)
+    .execute(&mut conn)
+    .await
+    .expect("disable");
+
+    let reenabled = env
+        .store()
+        .update_webhook_endpoint(
+            TENANT_ID,
+            WebhookEndpointPatch {
+                id: ep.id,
+                disabled: Some(false),
+                ..WebhookEndpointPatch::default()
+            },
+        )
+        .await
+        .expect("re-enable");
+    assert!(!reenabled.disabled);
+    assert!(reenabled.paused_until.is_none());
+    assert_eq!(reenabled.unreachable_streak, 0);
+    assert!(reenabled.failing_since.is_none());
 }
 
 /// The success-rate numbers count only finished deliveries, per day and per endpoint.

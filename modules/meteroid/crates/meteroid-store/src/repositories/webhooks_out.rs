@@ -163,8 +163,9 @@ pub trait WebhookOutInterface {
         message: WebhookOutMessageNew,
     ) -> StoreResult<WebhookDelivery>;
 
-    /// Lifts a pause now. The endpoint stays in probe mode (one delivery at a time)
-    /// until it answers again.
+    /// Ends a pause now, so the oldest due delivery is sent as the next probe. The
+    /// endpoint stays unreachable (`paused_until` set, one delivery at a time) until a
+    /// probe gets an answer.
     async fn resume_webhook_endpoint(
         &self,
         tenant_id: TenantId,
@@ -448,6 +449,7 @@ impl WebhookOutInterface for Store {
             )));
         }
 
+        let reenabling = patch.disabled == Some(false);
         let row_patch = WebhookOutEndpointRowPatch {
             url: patch.url,
             description: patch.description,
@@ -458,12 +460,14 @@ impl WebhookOutInterface for Store {
                 .disabled
                 .map(|disabled| disabled.then_some(WebhookEndpointDisabledReason::Manual.into())),
             disabled_at: patch.disabled.map(|disabled| disabled.then_some(now)),
-            consecutive_failures: patch.disabled.and_then(|disabled| (!disabled).then_some(0)),
+            consecutive_failures: reenabling.then_some(0),
+            // Otherwise the next failure would pause it again, for up to an hour.
+            unreachable_streak: reenabling.then_some(0),
+            failing_since: reenabling.then_some(None),
             headers: headers_json,
             sensitive_header_values,
             rate_limit_per_sec: patch.rate_limit_per_sec,
-            // Re-enabling an endpoint also lifts its pause.
-            paused_until: (patch.disabled == Some(false)).then_some(None),
+            paused_until: reenabling.then_some(None),
             updated_at: Some(now),
         };
 
@@ -1026,14 +1030,13 @@ impl WebhookOutInterface for Store {
         let now = common_clock::wall().naive_utc();
         let mut conn = self.get_conn().await?;
 
-        let row = WebhookOutEndpointRowPatch {
-            paused_until: Some(None),
-            updated_at: Some(now),
-            ..Default::default()
-        }
-        .patch(&mut conn, tenant_id, id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+        WebhookOutEndpointRow::end_pause(&mut conn, tenant_id, id, now)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        let row = WebhookOutEndpointRow::get_by_id(&mut conn, tenant_id, id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         Ok(row.into())
     }
