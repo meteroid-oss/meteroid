@@ -1,12 +1,6 @@
 import { BarCustomLayerProps, ResponsiveBar } from '@nivo/bar'
 import { linearGradientDef } from '@nivo/core'
-import {
-  ComputedSerie,
-  CustomLayerProps,
-  type Datum,
-  LineSvgProps,
-  ResponsiveLine,
-} from '@nivo/line'
+import { ComputedSeries, LineCustomSvgLayerProps, LineSeries, LineSvgProps, ResponsiveLine } from '@nivo/line'
 import { useTooltip } from '@nivo/tooltip'
 import dayjs from 'dayjs'
 import { useMemo, useRef, useState } from 'react'
@@ -136,7 +130,7 @@ export const resolveHiddenSegments = (
   return present.length > 0 && present.every(v => set.has(v)) ? new Set<string>() : set
 }
 
-const lineCommonProps: LineSvgProps = {
+const lineCommonProps: Partial<LineSvgProps<LineSeries>> = {
   data: [],
   lineWidth: 2,
   animate: false,
@@ -318,7 +312,7 @@ export const ExploreChart = ({
     return { yMin: min === 0 ? 0 : min - pad, yMax: max + pad }
   }, [lineData, forecastBandScaled])
 
-  const [serie, setSerie] = useState<ComputedSerie[]>([])
+  const [serie, setSerie] = useState<ComputedSeries<LineSeries>[]>([])
   const containerRef = useRef<HTMLDivElement>(null)
 
   // ---- Bar / stacked: one row per window, a key per breakdown ----------------
@@ -388,7 +382,7 @@ export const ExploreChart = ({
       multi
         ? { type: 'linear', min: 'auto', max: 'auto', stacked: isArea }
         : { type: 'linear', min: yMin, max: yMax }
-    ) as LineSvgProps['yScale']
+    ) as LineSvgProps<LineSeries>['yScale']
     const legendItems = groupKeys.map((k, i) => ({
       id: k,
       label: groupValueLabel(entry.groupBy, k),
@@ -408,7 +402,7 @@ export const ExploreChart = ({
           labelOf={id => groupValueLabel(entry.groupBy, id)}
           showSeries={multi}
         />
-        <ResponsiveLine
+        <ResponsiveLine<LineSeries>
           {...lineCommonProps}
           theme={axisTheme}
           areaOpacity={multi ? 0.5 : 0.15}
@@ -425,7 +419,7 @@ export const ExploreChart = ({
                 ]
               : undefined
           }
-          fill={!multi ? [{ match: (d: Datum) => d.id !== 'Forecast', id: 'exploreArea' }] : undefined}
+          fill={!multi ? [{ match: (d: { id?: unknown }) => d.id !== 'Forecast', id: 'exploreArea' }] : undefined}
           colors={(s: { id: string | number }) => colorOf(s.id)}
           data={lineData}
           margin={lineMargin}
@@ -453,7 +447,7 @@ export const ExploreChart = ({
             // Shaded confidence band under the dashed projection.
             ...(hasForecast
               ? [
-                  (props: CustomLayerProps) => (
+                  (props: LineCustomSvgLayerProps<LineSeries>) => (
                     <ForecastBand
                       key="forecast-band"
                       xScale={props.xScale as (v: unknown) => number}
@@ -571,7 +565,7 @@ const ForecastBand = ({
 
 // Replacement for Nivo's default `lines` layer: draws the actual series solid and
 // the "Forecast" series dashed, so the projected continuation reads as distinct.
-const ForecastLines = ({ series, lineGenerator }: CustomLayerProps) => (
+const ForecastLines = ({ series, lineGenerator }: LineCustomSvgLayerProps<LineSeries>) => (
   <g>
     {series.map(s => {
       const d = lineGenerator(s.data.map(p => p.position)) ?? undefined
@@ -712,8 +706,8 @@ const LineCrosshair = ({
   labelOf,
   showSeries,
 }: {
-  serie: ComputedSerie[]
-  containerRef: React.RefObject<HTMLDivElement>
+  serie: ComputedSeries<LineSeries>[]
+  containerRef: React.RefObject<HTMLDivElement | null>
   format: (v: number) => string
   marginLeft: number
   labelOf: (id: string) => string

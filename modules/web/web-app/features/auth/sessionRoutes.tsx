@@ -1,5 +1,5 @@
 import { jwtDecode } from 'jwt-decode'
-import { FC, useEffect, useMemo } from 'react'
+import { FC, useEffect, useMemo, type JSX } from 'react'
 import { Outlet, useNavigate } from 'react-router'
 
 import { Loading } from '@/components/Loading'

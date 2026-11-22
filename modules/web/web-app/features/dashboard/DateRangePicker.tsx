@@ -112,7 +112,7 @@ export function DatePickerWithRange({
             {twoMonths ? (
               <div className="flex">
                 <Calendar
-                  initialFocus
+                  autoFocus
                   mode="range"
                   month={leftMonth}
                   onMonthChange={setLeftMonth}
@@ -133,7 +133,7 @@ export function DatePickerWithRange({
               </div>
             ) : (
               <Calendar
-                initialFocus
+                autoFocus
                 mode="range"
                 defaultMonth={range?.from}
                 selected={range}

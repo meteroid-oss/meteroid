@@ -1,6 +1,6 @@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@md/ui'
 import { linearGradientDef } from '@nivo/core'
-import { ComputedSerie, LineSvgProps, ResponsiveLine } from '@nivo/line'
+import { ComputedSeries, LineSeries, LineSvgProps, ResponsiveLine } from '@nivo/line'
 import { ChevronDownIcon } from '@radix-ui/react-icons'
 import { differenceInCalendarDays, subDays } from 'date-fns'
 import { useMemo, useRef, useState } from 'react'
@@ -23,7 +23,7 @@ interface RevenueChartProps {
   onChartTypeChange?: (type: ChartType) => void
 }
 
-const commonChartProps: LineSvgProps = {
+const commonChartProps: Partial<LineSvgProps<LineSeries>> = {
   data: [],
   lineWidth: 2,
   animate: false,
@@ -96,7 +96,7 @@ export const RevenueChart = ({
     }
   }, [data])
 
-  const [serie, setSerie] = useState<ComputedSerie[]>([])
+  const [serie, setSerie] = useState<ComputedSeries<LineSeries>[]>([])
 
   const isEmpty = !chartData.data?.series || chartData.data.series.every(s => s.data.length === 0)
 
@@ -183,7 +183,7 @@ export const RevenueChart = ({
         {isEmpty ? (
           <ChartNoData error={!!chartData.error} />
         ) : (
-          <ResponsiveLine
+          <ResponsiveLine<LineSeries>
             {...commonChartProps}
             theme={{
               axis: {

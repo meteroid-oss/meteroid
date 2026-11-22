@@ -1,9 +1,11 @@
 import { format } from 'date-fns'
 import { Calendar as CalendarIcon, X } from 'lucide-react'
-import { DayPickerSingleProps } from 'react-day-picker'
+
 
 import { Button, Calendar, Popover, PopoverContent, PopoverTrigger } from '@ui/components'
 import { cn } from '@ui/lib'
+
+import type { PropsBase, PropsSingle } from 'react-day-picker'
 
 export interface Props {
   placeholder?: string
@@ -17,7 +19,7 @@ function DatePicker({
   className,
   clearable = true,
   ...props
-}: Props & DayPickerSingleProps) {
+}: Props & PropsBase & PropsSingle) {
   const handleClear = (e: React.MouseEvent) => {
     e.stopPropagation()
     props.onSelect?.(undefined, new Date(), {}, e)
@@ -45,7 +47,7 @@ function DatePicker({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0 border border-border rounded-md " align="start">
-        <Calendar initialFocus className=" " selected={date} {...props} />
+        <Calendar autoFocus className=" " selected={date} {...props} />
       </PopoverContent>
     </Popover>
   )

@@ -25,7 +25,7 @@ import {
   useReactTable,
 } from '@tanstack/react-table'
 import { AlertCircleIcon } from 'lucide-react'
-import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { ReactNode, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 
 import { DataTableViewOptions } from '@/components/table/DataTableViewOptions'

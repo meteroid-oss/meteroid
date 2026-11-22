@@ -11,7 +11,7 @@ import type { RefObject } from 'react'
  */
 export const useScrollFade = <T extends HTMLElement>(
   activeSelector = '[data-state="active"]'
-): { ref: RefObject<T>; fadeLeft: boolean; fadeRight: boolean } => {
+): { ref: RefObject<T | null>; fadeLeft: boolean; fadeRight: boolean } => {
   const ref = useRef<T>(null)
   const [fadeLeft, setFadeLeft] = useState(false)
   const [fadeRight, setFadeRight] = useState(false)

@@ -1,4 +1,4 @@
-import { ComputedSerie, Datum } from '@nivo/line'
+import { ComputedSeries, LineSeries } from '@nivo/line'
 import dayjs from 'dayjs'
 import { useMemo, useRef } from 'react'
 
@@ -9,8 +9,8 @@ import { ChartInterval, getTooltipFormat, keepWithinRange } from './utils'
 
 interface MrrCrosshairProps {
   interval: ChartInterval
-  containerRef: React.RefObject<HTMLDivElement>
-  serie: ComputedSerie[]
+  containerRef: React.RefObject<HTMLDivElement | null>
+  serie: ComputedSeries<LineSeries>[]
   tooltip: TooltipProps
   // Left margin of the nivo chart. `position.x` is relative to the inner
   // drawing area, so we offset by it to align with the container.
@@ -20,7 +20,7 @@ interface MrrCrosshairProps {
 interface TooltipProps {
   format: 'currency' | 'percent' | 'number'
   labels: Record<string, string>
-  render?: (data: Datum) => React.ReactNode
+  render?: (data: Record<string, unknown>) => React.ReactNode
 }
 
 export const MrrCrosshair: React.FC<MrrCrosshairProps> = ({

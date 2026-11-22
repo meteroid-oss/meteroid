@@ -1,5 +1,5 @@
 import { useMutation } from '@connectrpc/connect-query'
-import { useMemo, useState } from 'react'
+import { type CSSProperties, type JSX, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
 import { useQuery } from '@/lib/connectrpc'
@@ -25,7 +25,6 @@ import type {
   CustomerPortalOverview,
   SubscriptionSummary,
 } from '@/rpc/portal/customer/v1/models_pb'
-import type { CSSProperties } from 'react'
 
 /**
  * Embeddable, chromeless portal views.

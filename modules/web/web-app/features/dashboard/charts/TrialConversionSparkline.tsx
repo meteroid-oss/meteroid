@@ -1,5 +1,5 @@
 import { linearGradientDef } from '@nivo/core'
-import { ComputedSerie, ResponsiveLine } from '@nivo/line'
+import { ComputedSeries, LineSeries, ResponsiveLine } from '@nivo/line'
 import { useMemo, useRef, useState } from 'react'
 
 import { MrrCrosshair } from '@/features/dashboard/charts/MrrCrosshair'
@@ -12,7 +12,7 @@ export const TrialConversionSparkline = () => {
   const theme = useTheme()
 
   const chartData = useQuery(trialConversionRateSparkline)
-  const [serie, setSerie] = useState<ComputedSerie[]>([])
+  const [serie, setSerie] = useState<ComputedSeries<LineSeries>[]>([])
   const containerRef = useRef<HTMLDivElement>(null)
 
   const series =
@@ -59,7 +59,7 @@ export const TrialConversionSparkline = () => {
           labels: seriesLabels,
         }}
       />
-      <ResponsiveLine
+      <ResponsiveLine<LineSeries>
         enableGridX={false}
         enableCrosshair={false}
         enablePoints={false}

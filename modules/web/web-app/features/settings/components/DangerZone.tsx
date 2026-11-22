@@ -1,6 +1,6 @@
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@md/ui'
 import { AlertTriangleIcon } from 'lucide-react'
-import { ReactNode } from 'react'
+import { ReactNode, type JSX } from 'react'
 
 import {
   SettingsRow,

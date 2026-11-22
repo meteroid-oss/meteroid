@@ -20,7 +20,7 @@ const environmentLabels: Record<TenantEnvironmentEnum, string> = {
 // persistent reminder. Hovering the top edge peeks the label back for a moment.
 export const TestModeBanner = ({ environment }: TestModeBannerProps) => {
   const [revealed, setRevealed] = useState(true)
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>()
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   // Show the badge, then hide after a delay. Any prior timer is cleared, so
   // repeated calls (mount + hovers) never stack concurrent timers.

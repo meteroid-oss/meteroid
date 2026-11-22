@@ -1,5 +1,5 @@
 import { Modal } from '@md/ui'
-import { createContext, FC, ReactNode, useContext, useState } from 'react'
+import { createContext, FC, ReactNode, useContext, useState, type JSX } from 'react'
 
 import ConfirmationModal, { ConfirmationModalProps } from '@/components/ConfirmationModal'
 

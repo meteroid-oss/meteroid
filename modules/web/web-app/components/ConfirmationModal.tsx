@@ -1,5 +1,5 @@
 import { Button, Modal } from '@md/ui'
-import { FC, MouseEventHandler, useEffect, useState } from 'react'
+import { FC, MouseEventHandler, useEffect, useState, type JSX } from 'react'
 
 export interface ConfirmationModalProps {
   visible: boolean

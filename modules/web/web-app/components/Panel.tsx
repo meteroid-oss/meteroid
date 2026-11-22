@@ -1,4 +1,4 @@
-import { ReactNode } from 'react'
+import { ReactNode, type JSX } from 'react'
 
 interface Props {
   bodyClassName?: string

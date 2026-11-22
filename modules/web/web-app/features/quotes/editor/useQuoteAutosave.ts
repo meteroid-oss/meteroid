@@ -88,13 +88,13 @@ export function useQuoteAutosave({
     version: initialDraft?.version,
   })
   const ready = useRef(!quoteId)
-  const lastPayload = useRef<string>()
-  const timer = useRef<ReturnType<typeof setTimeout>>()
-  const inFlight = useRef<Promise<void>>()
+  const lastPayload = useRef<string | undefined>(undefined)
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const inFlight = useRef<Promise<void> | undefined>(undefined)
   const again = useRef(false)
   const done = useRef(disabled)
   const failed = useRef(false)
-  const pendingConflict = useRef<QuoteDraft>()
+  const pendingConflict = useRef<QuoteDraft | undefined>(undefined)
 
   const [status, setStatus] = useState<AutosaveStatus>('idle')
   const [conflict, setConflict] = useState<QuoteDraft>()

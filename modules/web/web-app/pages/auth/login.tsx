@@ -1,5 +1,5 @@
 import { Alert, cn } from '@md/ui'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 import { useLocation, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 

@@ -1,4 +1,4 @@
-import { ComputedDatum, ComputedSerie, CustomLayerProps } from '@nivo/line'
+import { ComputedDatum, ComputedSeries, LineCustomSvgLayerProps, LineSeries } from '@nivo/line'
 import dayjs from 'dayjs'
 import { useRef } from 'react'
 
@@ -35,8 +35,8 @@ export const formatDate = (date: Date, interval: ChartInterval): string => {
   return dayjs(date).format(getTooltipFormat(interval))
 }
 
-interface ActiveSerieLayerProps extends CustomLayerProps {
-  setSerie: React.Dispatch<React.SetStateAction<ComputedSerie[]>>
+interface ActiveSerieLayerProps extends LineCustomSvgLayerProps<LineSeries> {
+  setSerie: React.Dispatch<React.SetStateAction<ComputedSeries<LineSeries>[]>>
 }
 
 /**
@@ -53,7 +53,7 @@ export const ActiveSerieLayer: React.FC<ActiveSerieLayerProps> = ({
   const width = innerWidth + DEFAULT_PADDING * 2
   const getSerie = (
     event: React.PointerEvent<SVGRectElement> | React.MouseEvent
-  ): ComputedSerie[] => {
+  ): ComputedSeries<LineSeries>[] => {
     const layerBounds = rect.current!.getBoundingClientRect()
     const xOffset = event.clientX - layerBounds.x - DEFAULT_PADDING
 
@@ -63,7 +63,7 @@ export const ActiveSerieLayer: React.FC<ActiveSerieLayerProps> = ({
           const offsetCurr = curr.position.x - xOffset
           const offsetPrev = prev.position.x - xOffset
           return Math.abs(offsetCurr) < Math.abs(offsetPrev) ? curr : prev
-        }, serie.data?.[0] as ComputedDatum)
+        }, serie.data?.[0] as ComputedDatum<LineSeries>)
 
         return {
           ...serie,

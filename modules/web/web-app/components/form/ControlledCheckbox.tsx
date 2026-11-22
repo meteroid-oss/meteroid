@@ -7,6 +7,8 @@ import {
   type UseControllerProps,
 } from 'react-hook-form'
 
+import type { JSX } from 'react'
+
 type SelectProps<T extends FieldValues> = Omit<
   CheckboxPrimitive.CheckboxProps,
   'name' | 'checked' | 'ref' | 'onCheckedChange'

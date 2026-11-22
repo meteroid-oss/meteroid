@@ -1,6 +1,8 @@
 import { Accordion, AccordionItem, AccordionTrigger, cn } from '@md/ui'
 import { AccordionContent } from '@radix-ui/react-accordion'
 
+import type { JSX } from 'react'
+
 interface AccordionPanelProps {
   title: string | JSX.Element
   children: React.ReactNode
