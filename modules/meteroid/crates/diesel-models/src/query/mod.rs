@@ -32,6 +32,7 @@ pub mod customers;
 pub mod dead_letter;
 pub mod email_kind_audience;
 pub mod email_send_claim;
+pub mod encrypted_columns;
 pub mod entitlements;
 pub mod entity_activity;
 pub mod entity_display;

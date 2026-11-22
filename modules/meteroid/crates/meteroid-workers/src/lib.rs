@@ -465,6 +465,30 @@ pub async fn spawn_workers(
         });
     }
     {
+        use distributed_lock::LeaderElection;
+        use meteroid_store::leader_lock::LeaderLock;
+        use meteroid_store::leader_lock::PgLeaderElection;
+
+        let store = store.clone();
+        let elector = PgLeaderElection::new(store.pool.clone(), LeaderLock::SecretsReencryption);
+        join_set.spawn(async move {
+            let guard = match elector.try_acquire().await {
+                Ok(Some(guard)) => guard,
+                Ok(None) => return,
+                Err(e) => {
+                    log::warn!("Secrets re-encryption skipped, leader election failed: {e:?}");
+                    return;
+                }
+            };
+            match store.reencrypt_legacy_secrets().await {
+                Ok(report) if report == Default::default() => {}
+                Ok(report) => log::info!("Re-encrypted legacy secrets: {report:?}"),
+                Err(e) => log::warn!("Secrets re-encryption failed: {e:?}"),
+            }
+            guard.release().await;
+        });
+    }
+    {
         let services = services.clone();
         join_set.spawn(async move {
             billing::controller::run_worker(services).await;

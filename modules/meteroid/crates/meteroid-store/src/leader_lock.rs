@@ -51,6 +51,8 @@ pub enum LeaderLock {
     BillingControllerSweep = 92_000_022,
     /// Periodic DNS re-check of verified organization domains.
     DomainRecheck = 92_000_024,
+    /// One-shot re-encryption of secrets sealed under the legacy nonce, at startup.
+    SecretsReencryption = 92_000_025,
     // Retired keys, never reused: a replica of an earlier version may still hold one.
     // 92_000_007 (stale-draft refresh), 92_000_023 (pending changes start-up migration).
 }

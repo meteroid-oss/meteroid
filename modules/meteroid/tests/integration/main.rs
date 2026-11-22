@@ -88,6 +88,7 @@ mod test_rest_wallets;
 mod test_sandbox_credits;
 mod test_sandbox_tenants;
 mod test_schedule;
+mod test_secrets_reencryption;
 mod test_signals;
 mod test_slots;
 mod test_stats;

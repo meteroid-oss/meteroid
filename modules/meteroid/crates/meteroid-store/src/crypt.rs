@@ -24,9 +24,16 @@ pub enum EncryptionError {
 }
 
 pub fn encrypt(crypt_key: &SecretString, value: &str) -> Result<String, Report<EncryptionError>> {
-    let ciphertext = seal(crypt_key, &legacy_nonce(crypt_key)?, value)?;
+    let nonce: [u8; NONCE_SIZE] = rand::random();
+    let mut sealed = nonce.to_vec();
+    sealed.extend(seal(crypt_key, &Nonce::from(nonce), value)?);
 
-    Ok(hex::encode(ciphertext))
+    Ok(format!("{RANDOM_NONCE_PREFIX}{}", hex::encode(sealed)))
+}
+
+/// Whether the value was sealed under the legacy key-derived nonce, and should be re-encrypted.
+pub fn is_legacy(value: &str) -> bool {
+    !value.starts_with(RANDOM_NONCE_PREFIX)
 }
 
 pub fn decrypt(key: &SecretString, value: &str) -> Result<SecretString, Report<EncryptionError>> {
@@ -92,8 +99,8 @@ mod tests {
     const KEY: &str = "12345678901234567890123456789012";
 
     #[test]
-    fn test_encrypt_decrypt() {
-        // (key, raw, encrypted)
+    fn decrypts_legacy_values() {
+        // (key, raw, sealed under the key-derived nonce)
         let test_data = [
             (
                 "12345678901234567890123456789012",
@@ -115,14 +122,30 @@ mod tests {
         for (key_str, raw_str, encrypted_str) in test_data {
             let key: SecretString = SecretString::from(key_str.to_owned());
 
-            let encrypted = super::encrypt(&key, raw_str).unwrap();
-
-            assert_eq!(encrypted.as_str(), encrypted_str);
-
-            let decrypted = super::decrypt(&key, encrypted.as_str()).unwrap();
+            assert!(super::is_legacy(encrypted_str));
+            let decrypted = super::decrypt(&key, encrypted_str).unwrap();
 
             assert_eq!(decrypted.expose_secret(), raw_str);
         }
+    }
+
+    #[test]
+    fn encrypts_each_value_under_a_fresh_nonce() {
+        let key = SecretString::from(KEY);
+
+        let first = super::encrypt(&key, "RawValue").unwrap();
+        let second = super::encrypt(&key, "RawValue").unwrap();
+
+        assert_ne!(first, second);
+        assert!(!super::is_legacy(&first));
+        assert_eq!(
+            super::decrypt(&key, &first).unwrap().expose_secret(),
+            "RawValue"
+        );
+        assert_eq!(
+            super::decrypt(&key, &second).unwrap().expose_secret(),
+            "RawValue"
+        );
     }
 
     fn sealed_with_random_nonce(key: &SecretString, raw: &str, nonce: [u8; 12]) -> String {
@@ -156,7 +179,7 @@ mod tests {
     fn rejects_malformed_or_foreign_random_nonce_values() {
         let key = SecretString::from(KEY);
         let sealed = sealed_with_random_nonce(&key, "RawValue", *b"random nonce");
-        let legacy = super::encrypt(&key, "RawValue").unwrap();
+        let legacy = "d0bcdfc3a79f0bd426964fca333c19fb354fc6b22b60f121";
         let mut tampered_nonce = sealed.clone();
         tampered_nonce.replace_range(3..5, "00");
         let other_key = SecretString::from("023456F8901234G67890123456789019");
