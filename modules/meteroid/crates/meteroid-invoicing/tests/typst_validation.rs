@@ -464,6 +464,11 @@ fn usage_priced_in_a_credit_unit_prints_the_units_name_at_its_precision() {
         .join(" ");
     assert!(text.contains("480.00 Halyard credits"), "{text}");
     assert!(text.contains("1.00 Halyard credit "), "{text}");
+
+    invoice.lines[0].credit.as_mut().unwrap().consumed = Decimal::new(1_234_550, 2);
+    invoice.lang = "fr-FR".to_string();
+    let text = render_text(&invoice);
+    assert!(text.contains("12\u{a0}345,50 Halyard credits"), "{text}");
 }
 
 #[test]
@@ -2177,7 +2182,10 @@ fn a_note_splits_the_discount_from_the_promotional_credit() {
     assert!(text.contains("Remise"), "{text}");
     assert!(text.contains("+20,00"), "{text}");
     assert!(text.contains("+5,00"), "{text}");
-    assert!(text.contains("-90,00\u{a0}€"), "negative total: {text}");
+    assert!(
+        text.contains("\u{2212}90,00\u{a0}€"),
+        "negative total: {text}"
+    );
 }
 
 /// Amounts use the document language's decimal and thousands marks, like `format::grouped_number`.
@@ -2197,6 +2205,47 @@ fn amounts_are_written_in_the_documents_number_format() {
     invoice.lang = "de-DE".to_string();
     let text = render_text(&invoice);
     assert!(text.contains("€\u{a0}1.234,50"), "{text}");
+}
+
+/// Quantities, tax rates, annex amounts and the exchange rate follow the same marks as amounts.
+#[test]
+fn every_number_is_written_in_the_documents_number_format() {
+    use meteroid_invoicing::model::{Annex, AnnexCell, AnnexGroup, AnnexRow, AnnexTable};
+
+    let usd = iso::find("USD").unwrap();
+    let mut invoice = create_minimal_invoice();
+    invoice.lang = "fr-FR".to_string();
+    invoice.lines[0].quantity = Some(Decimal::from_str("1234.5").unwrap());
+    invoice.lines[0].tax_rate = Decimal::from_str("0.055").unwrap();
+    invoice.organization.accounting_currency = *usd;
+    invoice.organization.exchange_rate = Some(Decimal::from_str("1.0825").unwrap());
+    invoice.annexes = vec![Annex {
+        title: "Annex".to_string(),
+        description: None,
+        table: AnnexTable {
+            columns: vec!["Events".to_string(), "Amount".to_string()],
+            groups: vec![AnnexGroup {
+                heading: None,
+                rows: vec![AnnexRow {
+                    cells: vec![
+                        AnnexCell::Number(Decimal::from(25000)),
+                        AnnexCell::Money(Decimal::from(123450)),
+                    ],
+                    emphasis: false,
+                }],
+            }],
+        },
+    }];
+
+    let text = render_text(&invoice);
+    assert!(text.contains("1\u{a0}234,5"), "quantity: {text}");
+    assert!(text.contains("5,5%"), "tax rate: {text}");
+    assert!(text.contains("= 1,0825 USD"), "exchange rate: {text}");
+    assert!(text.contains("25\u{a0}000"), "annex number: {text}");
+    assert!(
+        text.contains("1\u{a0}234,50\u{a0}€"),
+        "annex amount: {text}"
+    );
 }
 
 /// Credit applied at issuance covered the whole invoice: nothing is due, so the PDF neither

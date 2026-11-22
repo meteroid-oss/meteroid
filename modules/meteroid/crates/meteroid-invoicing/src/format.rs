@@ -46,6 +46,23 @@ pub fn grouped_amount(lang: &str, value: Decimal) -> String {
     grouped(lang, value.to_string())
 }
 
+/// `value` at the currency exponent, as the templates print amounts (`numbers.typ`).
+pub(crate) fn amount(lang: &str, value: Decimal, currency: &iso::Currency) -> String {
+    let value = at_exponent(value, currency.exponent());
+    let digits = grouped(lang, value.abs().to_string());
+    let number = if value.is_sign_negative() && !value.is_zero() {
+        format!("\u{2212}{digits}")
+    } else {
+        digits
+    };
+    let symbol = currency.symbol();
+    if lang.starts_with("fr") {
+        format!("{number}\u{00A0}{symbol}")
+    } else {
+        format!("{symbol}\u{00A0}{number}")
+    }
+}
+
 fn grouped(lang: &str, text: String) -> String {
     let (group, decimal) = match lang {
         "en-US" => (",", "."),
@@ -73,9 +90,14 @@ fn grouped(lang: &str, text: String) -> String {
     }
 }
 
-fn rescaled(amount: Decimal, scale: u32) -> InvoicingResult<TypstDecimal> {
+fn at_exponent(amount: Decimal, scale: u32) -> Decimal {
     let mut amount = amount.round_dp(scale);
     amount.rescale(scale);
+    amount
+}
+
+fn rescaled(amount: Decimal, scale: u32) -> InvoicingResult<TypstDecimal> {
+    let amount = at_exponent(amount, scale);
     TypstDecimal::from_str(&amount.to_string()).map_err(|err| {
         InvoicingError::InvoiceGenerationError(format!("amount {amount} is not renderable: {err}"))
     })
@@ -101,6 +123,28 @@ mod tests {
         assert_eq!(
             grouped_number("fr-FR", Decimal::from_str("1000.00").unwrap()),
             "1\u{00A0}000"
+        );
+    }
+
+    #[test]
+    fn amounts_are_written_like_the_templates_write_them() {
+        let dec = |value: &str| Decimal::from_str(value).unwrap();
+        assert_eq!(
+            amount("en-US", dec("1234.5"), iso::EUR),
+            "€\u{00A0}1,234.50"
+        );
+        assert_eq!(
+            amount("fr-FR", dec("-1234.5"), iso::EUR),
+            "\u{2212}1\u{00A0}234,50\u{00A0}€"
+        );
+        assert_eq!(
+            amount("de-DE", dec("1234567"), iso::EUR),
+            "€\u{00A0}1.234.567,00"
+        );
+        assert_eq!(amount("en-US", dec("-0.001"), iso::EUR), "€\u{00A0}0.00");
+        assert_eq!(
+            amount("en-US", Decimal::from(1234), iso::JPY),
+            format!("{}\u{00A0}1,234", iso::JPY.symbol())
         );
     }
 

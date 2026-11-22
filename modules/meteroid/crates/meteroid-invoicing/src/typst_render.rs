@@ -18,6 +18,7 @@ use typst_as_lib::TypstEngine;
 
 static INVOICE_CORE: &str = include_str!("../templates/invoice.typ");
 static TEMPLATE_CORE: &str = include_str!("../templates/template.typ");
+static NUMBERS: &str = include_str!("../templates/numbers.typ");
 static MAIN_TEMPLATE: &str = include_str!("../templates/main.typ");
 
 static INTER_VARIABLE_FONT: &[u8] = include_bytes!("../assets/fonts/Inter-Variable.ttf");
@@ -202,10 +203,8 @@ typst_dict_struct! {
     }
 }
 
-impl TryFrom<&InvoiceLine> for TypstInvoiceLine {
-    type Error = InvoicingError;
-
-    fn try_from(line: &InvoiceLine) -> InvoicingResult<Self> {
+impl TypstInvoiceLine {
+    fn new(line: &InvoiceLine, lang: &str) -> InvoicingResult<Self> {
         let start_date = line.start_date.format("%Y-%m-%d").to_string();
         let end_date = line.end_date.format("%Y-%m-%d").to_string();
 
@@ -233,9 +232,15 @@ impl TryFrom<&InvoiceLine> for TypstInvoiceLine {
             is_prorated: line.is_prorated,
             group_label: line.group_label.clone(),
             sub_lines,
-            credit: line.credit.as_ref().map(|credit| TypstLineCredit {
-                consumed: credit.quantity(credit.consumed),
-                covered: credit.quantity(credit.covered),
+            credit: line.credit.as_ref().map(|credit| {
+                let quantity = |amount| {
+                    let number = format::grouped_amount(lang, amount);
+                    format!("{number} {}", credit.unit_name(amount))
+                };
+                TypstLineCredit {
+                    consumed: quantity(credit.consumed),
+                    covered: quantity(credit.covered),
+                }
             }),
             usage_breakdown: line
                 .usage_breakdown
@@ -474,10 +479,10 @@ fn format_annex_cell(
     match cell {
         AnnexCell::Empty => String::new(),
         AnnexCell::Text(s) => s.clone(),
-        AnnexCell::Number(d) => format_plain_number(*d),
+        AnnexCell::Number(d) => format::grouped_number(lang, d.round_dp(2)),
         AnnexCell::Money(minor) => {
             let scale = Decimal::from(10u64.pow(currency.exponent()));
-            format_currency_dec(minor / scale, currency)
+            format::amount(lang, minor / scale, currency)
         }
         AnnexCell::Date { ts, fmt } => format_annex_date(ts, fmt, lang),
         AnnexCell::DateRange { min, max, fmt } => {
@@ -485,14 +490,6 @@ fn format_annex_cell(
             let hi = format_annex_date(max, fmt, lang);
             if lo == hi { lo } else { format!("{lo} - {hi}") }
         }
-    }
-}
-
-fn format_plain_number(d: Decimal) -> String {
-    if d.fract() == Decimal::ZERO {
-        d.trunc().to_string()
-    } else {
-        d.round_dp(2).to_string()
     }
 }
 
@@ -831,11 +828,12 @@ impl TryFrom<&Invoice> for TypstInvoiceContent {
             let equality = format!(
                 "1 {} = {} {}",
                 invoice.metadata.currency.code(),
-                exchange_rate,
+                format::grouped_number(lang, exchange_rate),
                 invoice.organization.accounting_currency.code()
             );
 
-            let amount_converted = format_currency_dec(
+            let amount_converted = format::amount(
+                lang,
                 invoice.metadata.total_amount.amount() * exchange_rate,
                 &invoice.organization.accounting_currency,
             );
@@ -868,7 +866,7 @@ impl TryFrom<&Invoice> for TypstInvoiceContent {
 
         let mut lines = Vec::with_capacity(invoice.lines.len());
         for line in &invoice.lines {
-            lines.push(TypstInvoiceLine::try_from(line)?);
+            lines.push(TypstInvoiceLine::new(line, lang)?);
         }
 
         let mut transactions = Vec::with_capacity(invoice.transactions.len());
@@ -1012,11 +1010,6 @@ fn format_date(lang: &str, date: &NaiveDate) -> Result<String, InvoicingError> {
     Ok(crate::format::long_date(lang, date))
 }
 
-#[inline]
-fn format_currency_dec(amount: Decimal, currency: &iso::Currency) -> String {
-    meteroid_money::Money::from_decimal(amount, currency).to_string()
-}
-
 pub fn load_fonts() -> Result<Vec<Font>, InvoicingError> {
     fn load(data: &'static [u8], name: &str) -> Result<Font, InvoicingError> {
         Font::new(Bytes::new(data), 0)
@@ -1073,6 +1066,7 @@ impl TypstInvoiceRenderer {
             .with_static_source_file_resolver([
                 ("invoice.typ", INVOICE_CORE),
                 ("template.typ", TEMPLATE_CORE),
+                ("numbers.typ", NUMBERS),
                 ("main.typ", MAIN_TEMPLATE),
             ])
             .with_static_file_resolver([("wordmark.svg", WORDMARK_LOGO)])

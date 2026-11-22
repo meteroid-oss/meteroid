@@ -305,14 +305,18 @@ pub struct LineCredit {
 }
 
 impl LineCredit {
-    /// `amount` of the unit, by its name: singular for exactly one.
-    pub fn quantity(&self, amount: Decimal) -> String {
-        let name = if amount.abs() == Decimal::ONE {
+    /// The unit's name for `amount`: singular for exactly one.
+    pub fn unit_name(&self, amount: Decimal) -> &str {
+        if amount.abs() == Decimal::ONE {
             &self.name
         } else {
             &self.plural_name
-        };
-        format!("{amount} {name}")
+        }
+    }
+
+    /// `amount` of the unit, by its name.
+    pub fn quantity(&self, amount: Decimal) -> String {
+        format!("{amount} {}", self.unit_name(amount))
     }
 }
 

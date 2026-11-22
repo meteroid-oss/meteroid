@@ -1,4 +1,5 @@
 #import sys: inputs
+#import "numbers.typ"
 
 // A value counts as set only when it is neither none nor empty. Cleared text fields
 // can still reach us as "", and a section gated on `!= none` alone would then print
@@ -56,37 +57,9 @@
     debt_cancellation_badge: rgb(107, 114, 128),
   )
 
-  // Amounts are decimals scaled by the renderer; the marks follow `format::grouped_number`.
-  let (group_mark, decimal_mark) = if lang.starts-with("en") {
-    (",", ".")
-  } else if lang.starts-with("fr") or lang == "pt-PT" {
-    ("\u{00A0}", ",")
-  } else {
-    (".", ",")
-  }
-  let format_number = (amount) => {
-    let digits = str(amount)
-    let sign = ""
-    for minus in ("-", "\u{2212}") {
-      if digits.starts-with(minus) {
-        sign = "-"
-        digits = digits.slice(minus.len())
-      }
-    }
-    let parts = digits.split(".")
-    let whole = parts.at(0).clusters()
-    let grouped = whole.enumerate().map(((i, digit)) => {
-      if i > 0 and calc.rem(whole.len() - i, 3) == 0 { group_mark + digit } else { digit }
-    }).join()
-    sign + grouped + if parts.len() > 1 { decimal_mark + parts.at(1) } else { "" }
-  }
-  let format_amount = (amount) => {
-    if lang.starts-with("fr") {
-      format_number(amount) + "\u{00A0}" + currency_symbol
-    } else {
-      currency_symbol + "\u{00A0}" + format_number(amount)
-    }
-  }
+  let format_amount = (amount) => numbers.format_amount(lang, currency_symbol, amount)
+  let format_number = (value) => numbers.format_number(lang, value)
+  let format_percent = (rate) => numbers.format_percent(lang, rate)
 
   // A summary adjustment carries its sign: on a negative note a reversed reduction adds back.
   let format_signed = (amount) => {
@@ -317,11 +290,11 @@
         #text(size: 8pt, fill: color.date_text, item.start_date + " → " + item.end_date)
       ],
 
-      align(center, text(weight: "regular", if item.quantity != none { str(item.quantity) } else { "" })),
+      align(center, text(weight: "regular", if item.quantity != none { format_number(item.quantity) } else { "" })),
 
       align(right, text(weight: "regular", if item.unit_price != none { format_amount(item.unit_price) } else { "" })),
 
-      align(right, text(weight: "regular", if item.vat_rate != none { str(item.vat_rate) + "%" } else { "" })),
+      align(right, text(weight: "regular", if item.vat_rate != none { format_percent(item.vat_rate) } else { "" })),
 
       align(right, text(weight: "regular", format_amount(item.subtotal))),
     )
@@ -346,7 +319,7 @@
                 ])
               ],
 
-              align(center, text(size: 8.5pt, fill: color.accent, if sub_item.quantity != none { str(sub_item.quantity) } else { "" })),
+              align(center, text(size: 8.5pt, fill: color.accent, if sub_item.quantity != none { format_number(sub_item.quantity) } else { "" })),
 
               align(right, text(size: 8.5pt, fill: color.accent, if sub_item.unit_price != none { format_amount(sub_item.unit_price) } else { "" })),
 
@@ -432,7 +405,7 @@
         ..if tax_breakdown.len() > 0 and calc.abs(tax_amount) > 0 {
           for tax_item in tax_breakdown {
             (
-              text(fill: color.accent, tax_item.name + " " + str(tax_item.rate) + "%"),
+              text(fill: color.accent, tax_item.name + " " + format_percent(tax_item.rate)),
               align(right, text(weight: "regular", format_amount(tax_item.amount))),
             )
           }

@@ -16,6 +16,7 @@ use typst_as_lib::TypstEngine;
 
 static CREDIT_NOTE_CORE: &str = include_str!("../templates/credit_note.typ");
 static TEMPLATE_CORE: &str = include_str!("../templates/template.typ");
+static NUMBERS: &str = include_str!("../templates/numbers.typ");
 static CREDIT_NOTE_MAIN_TEMPLATE: &str = include_str!("../templates/credit_note_main.typ");
 
 static WORDMARK_LOGO: &[u8] = include_bytes!("../assets/wordmark.svg");
@@ -520,11 +521,12 @@ impl TryFrom<&CreditNote> for TypstCreditNoteContent {
             let equality = format!(
                 "1 {} = {} {}",
                 credit_note.metadata.currency.code(),
-                exchange_rate,
+                crate::format::grouped_number(lang, exchange_rate),
                 credit_note.organization.accounting_currency.code()
             );
 
-            let amount_converted = format_currency_dec(
+            let amount_converted = crate::format::amount(
+                lang,
                 credit_note.metadata.total_amount.amount() * exchange_rate,
                 &credit_note.organization.accounting_currency,
             );
@@ -659,11 +661,6 @@ fn format_date(lang: &str, date: &chrono::NaiveDate) -> Result<String, Invoicing
     Ok(crate::format::long_date(lang, date))
 }
 
-#[inline]
-fn format_currency_dec(amount: Decimal, currency: &iso::Currency) -> String {
-    meteroid_money::Money::from_decimal(amount, currency).to_string()
-}
-
 pub struct TypstCreditNoteRenderer {
     engine: TypstEngine,
     coverage: FontCoverage,
@@ -678,6 +675,7 @@ impl TypstCreditNoteRenderer {
             .with_static_source_file_resolver([
                 ("credit_note.typ", CREDIT_NOTE_CORE),
                 ("template.typ", TEMPLATE_CORE),
+                ("numbers.typ", NUMBERS),
                 ("credit_note_main.typ", CREDIT_NOTE_MAIN_TEMPLATE),
             ])
             .with_static_file_resolver([("wordmark.svg", WORDMARK_LOGO)])
