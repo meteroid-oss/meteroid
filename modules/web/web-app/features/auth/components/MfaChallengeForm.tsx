@@ -1,10 +1,11 @@
 import { create } from '@bufbuild/protobuf'
 import { useMutation } from '@connectrpc/connect-query'
 import { Button, Form, InputFormField } from '@md/ui'
-import { useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router'
+import { useEffect, useState } from 'react'
+import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { z } from 'zod'
 
+import { readRedirectToken } from '@/features/auth/redirectToken'
 import { useSession } from '@/features/auth/session'
 import { useAutoSubmitOtp } from '@/hooks/useAutoSubmitOtp'
 import { useZodForm } from '@/hooks/useZodForm'
@@ -24,7 +25,12 @@ export const MfaChallengeForm = () => {
   const [searchParams] = useSearchParams()
   const [, setSession] = useSession()
   const [error, setError] = useState<string>()
-  const challengeToken = searchParams.get('token') ?? ''
+  const location = useLocation()
+  const [challengeToken] = useState(() => readRedirectToken(location) ?? '')
+
+  useEffect(() => {
+    if (location.hash) navigate({ search: location.search }, { replace: true })
+  }, [location.hash, location.search, navigate])
   const returnUrl = sameOriginPath(searchParams.get('returnUrl'))
 
   const methods = useZodForm({

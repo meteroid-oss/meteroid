@@ -17,6 +17,10 @@ message OrganizationDomain {
   // Human-readable result of the last verify attempt (only set in VerifyDomains
   // responses; empty otherwise).
   optional string verification_detail = 8;
+  // Set while a verified domain fails its periodic re-check, with when it stops
+  // being verified unless the TXT record is restored.
+  optional string verification_failing_since = 9;
+  optional string verification_expires_at = 10;
 }
 
 message ListDomainsRequest {}

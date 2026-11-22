@@ -87,6 +87,12 @@ pub enum SecurityEventType {
     #[strum(serialize = "domain.removed")]
     #[serde(rename = "domain.removed")]
     DomainRemoved,
+    #[strum(serialize = "domain.verification.failing")]
+    #[serde(rename = "domain.verification.failing")]
+    DomainVerificationFailing,
+    #[strum(serialize = "domain.verification.lost")]
+    #[serde(rename = "domain.verification.lost")]
+    DomainVerificationLost,
 
     // -- Membership & invites --
     #[strum(serialize = "member.invited")]

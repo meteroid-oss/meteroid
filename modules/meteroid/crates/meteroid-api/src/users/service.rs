@@ -17,6 +17,7 @@ use meteroid_grpc::meteroid::api::users::v1::{
     users_service_server::UsersService,
 };
 use meteroid_middleware::server::auth::strategies::jwt_strategy::invalidate_member_access_cache;
+use meteroid_middleware::server::auth::strategies::jwt_strategy::invalidate_user_active_cache;
 use meteroid_store::domain::users::{
     LoginUserRequest, LoginUserResponse, RegisterUserRequest, UpdateUser,
 };
@@ -327,7 +328,8 @@ impl UsersService for UsersServiceComponents {
             .into());
         }
 
-        self.store
+        let user_id = self
+            .store
             .reset_password(
                 SecretString::from(inner.token),
                 SecretString::from(inner.new_password),
@@ -335,6 +337,7 @@ impl UsersService for UsersServiceComponents {
             )
             .await
             .map_err(Into::<UserApiError>::into)?;
+        invalidate_user_active_cache(user_id).await;
 
         Ok(Response::new(ResetPasswordResponse {}))
     }

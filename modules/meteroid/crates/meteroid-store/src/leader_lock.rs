@@ -49,6 +49,8 @@ pub enum LeaderLock {
     TelemetryReport = 92_000_021,
     /// Daily recompute of every customer's billing controller wake.
     BillingControllerSweep = 92_000_022,
+    /// Periodic DNS re-check of verified organization domains.
+    DomainRecheck = 92_000_024,
     // Retired keys, never reused: a replica of an earlier version may still hold one.
     // 92_000_007 (stale-draft refresh), 92_000_023 (pending changes start-up migration).
 }

@@ -35,6 +35,7 @@ pub mod org_security_audit_log;
 pub mod organization_invites;
 pub mod organization_members;
 pub mod organizations;
+pub mod password_reset_tokens;
 pub mod plan_component_prices;
 pub mod plan_version_adjustments;
 pub mod plan_versions;

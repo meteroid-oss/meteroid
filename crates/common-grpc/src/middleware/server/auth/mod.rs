@@ -248,6 +248,8 @@ pub enum AuthenticatedState {
     },
     User {
         id: UserId,
+        /// Checked against the user's current epoch, which a password reset bumps.
+        session_epoch: Option<i32>,
     },
     Shared {
         tenant_id: TenantId,

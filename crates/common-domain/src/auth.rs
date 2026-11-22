@@ -11,6 +11,9 @@ pub struct JwtClaims {
     pub sub: String,
     pub exp: usize,
     pub aud: Audience,
+    /// The user's session epoch at issuance; absent means 0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_epoch: Option<i32>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub payload: Option<JwtPayload>,

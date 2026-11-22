@@ -3,16 +3,25 @@ use crate::errors::IntoDbResult;
 use crate::users::{UserRow, UserRowNew, UserRowPatch, UserWithRoleRow};
 use crate::{DbResult, PgConn};
 
+use common_domain::email::normalize_email;
 use common_domain::ids::{OrganizationId, TenantId, UserId};
 use diesel::{ExpressionMethods, JoinOnDsl, OptionalExtension, QueryDsl, SelectableHelper};
 use error_stack::ResultExt;
+
+diesel::define_sql_function! {
+    fn lower(x: diesel::sql_types::Text) -> diesel::sql_types::Text;
+}
 
 impl UserRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<()> {
         use crate::schema::user::dsl;
         use diesel_async::RunQueryDsl;
 
-        let query = diesel::insert_into(dsl::user).values(self);
+        let query = diesel::insert_into(dsl::user).values((
+            dsl::id.eq(self.id),
+            dsl::email.eq(normalize_email(&self.email)),
+            dsl::password_hash.eq(&self.password_hash),
+        ));
 
         crate::debug_sql(&query);
 
@@ -149,8 +158,12 @@ impl UserRow {
 
         let query = u_dsl::user
             .inner_join(om_dsl::organization_member.on(u_dsl::id.eq(om_dsl::user_id)))
-            .filter(u_dsl::email.eq(email))
+            .filter(lower(u_dsl::email).eq(lower(normalize_email(&email))))
             .filter(om_dsl::organization_id.eq(organization_id))
+            .order_by((
+                u_dsl::email.eq(email.trim().to_string()).desc(),
+                u_dsl::created_at.asc(),
+            ))
             .select(UserWithRoleRow::as_select());
 
         crate::debug_sql(&query);
@@ -162,12 +175,18 @@ impl UserRow {
             .into_db_result()
     }
 
+    /// Case-insensitive. Accounts created before normalization may differ only by case;
+    /// the one spelled exactly as typed wins, so each stays reachable as before.
     pub async fn find_by_email(conn: &mut PgConn, email: String) -> DbResult<Option<UserRow>> {
         use crate::schema::user::dsl as u_dsl;
         use diesel_async::RunQueryDsl;
 
         let query = u_dsl::user
-            .filter(u_dsl::email.eq(email))
+            .filter(lower(u_dsl::email).eq(lower(normalize_email(&email))))
+            .order_by((
+                u_dsl::email.eq(email.trim().to_string()).desc(),
+                u_dsl::created_at.asc(),
+            ))
             .select(UserRow::as_select());
 
         crate::debug_sql(&query);
@@ -218,6 +237,7 @@ impl UserRow {
             .into_db_result()
     }
 
+    /// Also ends every session of the user, by bumping their session epoch.
     pub async fn update_password_hash(
         conn: &mut PgConn,
         user_id: UserId,
@@ -228,7 +248,10 @@ impl UserRow {
 
         let query = diesel::update(u_dsl::user)
             .filter(u_dsl::id.eq(user_id))
-            .set(u_dsl::password_hash.eq(new_password_hash));
+            .set((
+                u_dsl::password_hash.eq(new_password_hash),
+                u_dsl::session_epoch.eq(u_dsl::session_epoch + 1),
+            ));
 
         crate::debug_sql(&query);
 
@@ -365,6 +388,25 @@ impl UserRow {
             .into_db_result()
     }
 
+    /// `None` when the user is missing or deleted.
+    pub async fn active_session_epoch(conn: &mut PgConn, user_id: UserId) -> DbResult<Option<i32>> {
+        use crate::schema::user::dsl as u_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = u_dsl::user
+            .filter(u_dsl::id.eq(user_id))
+            .filter(u_dsl::archived_at.is_null())
+            .select(u_dsl::session_epoch);
+        crate::debug_sql(&query);
+
+        query
+            .first(conn)
+            .await
+            .optional()
+            .attach("Error while reading user session epoch")
+            .into_db_result()
+    }
+
     pub async fn is_active(conn: &mut PgConn, user_id: UserId) -> DbResult<bool> {
         use crate::schema::user::dsl as u_dsl;
         use diesel_async::RunQueryDsl;
@@ -410,7 +452,8 @@ impl UserRowPatch {
 
         let query = diesel::update(u_dsl::user)
             .filter(u_dsl::id.eq(self.id))
-            .set(self);
+            .set(self)
+            .returning(UserRow::as_returning());
 
         crate::debug_sql(&query);
 

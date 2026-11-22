@@ -35,11 +35,12 @@ export const LoginForm = () => {
   const loginMutation = useMutation(login, {
     onSuccess: data => {
       if (data.mfaChallengeToken) {
-        const params = new URLSearchParams({ token: data.mfaChallengeToken })
+        const params = new URLSearchParams()
         if (returnUrl) {
           params.set('returnUrl', returnUrl)
         }
-        navigate(`/mfa-challenge?${params.toString()}`)
+        const fragment = new URLSearchParams({ token: data.mfaChallengeToken })
+        navigate({ pathname: '/mfa-challenge', search: params.toString(), hash: fragment.toString() })
         return
       }
 

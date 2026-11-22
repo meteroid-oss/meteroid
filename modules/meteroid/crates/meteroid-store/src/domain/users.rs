@@ -155,3 +155,41 @@ pub struct UpdateUserRole {
     pub role: OrganizationUserRole,
     pub user_id: UserId,
 }
+
+/// What a user's web sessions are checked against on each request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UserSessionState {
+    Deleted,
+    Active { session_epoch: i32 },
+}
+
+impl UserSessionState {
+    /// Tokens issued before epochs were stamped belong to epoch 0.
+    pub fn accepts(&self, token_epoch: Option<i32>) -> bool {
+        match self {
+            UserSessionState::Deleted => false,
+            UserSessionState::Active { session_epoch } => {
+                token_epoch.unwrap_or(0) == *session_epoch
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod session_state_tests {
+    use super::UserSessionState;
+
+    #[test]
+    fn only_the_current_epoch_is_accepted() {
+        let fresh = UserSessionState::Active { session_epoch: 0 };
+        assert!(fresh.accepts(None));
+        assert!(fresh.accepts(Some(0)));
+
+        let reset = UserSessionState::Active { session_epoch: 1 };
+        assert!(!reset.accepts(None));
+        assert!(!reset.accepts(Some(0)));
+        assert!(reset.accepts(Some(1)));
+
+        assert!(!UserSessionState::Deleted.accepts(Some(0)));
+    }
+}

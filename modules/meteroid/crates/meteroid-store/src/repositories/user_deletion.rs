@@ -2,6 +2,7 @@ use crate::StoreResult;
 use crate::domain::org_security_audit_log::{
     Actor, RecordSecurityEvent, SecurityEventType, SecurityRequestContext,
 };
+use crate::domain::users::UserSessionState;
 use crate::errors::StoreError;
 use crate::repositories::org_security_audit_log::SecurityAuditInterface;
 use crate::repositories::organizations::{mark_organization_for_deletion, release_member_accounts};
@@ -36,6 +37,8 @@ pub trait UserDeletionInterface {
     ) -> StoreResult<DeletedUser>;
 
     async fn is_user_active(&self, user_id: UserId) -> StoreResult<bool>;
+
+    async fn user_session_state(&self, user_id: UserId) -> StoreResult<UserSessionState>;
 }
 
 #[async_trait::async_trait]
@@ -157,5 +160,16 @@ impl UserDeletionInterface for Store {
         UserRow::is_active(&mut conn, user_id)
             .await
             .map_err(Into::into)
+    }
+
+    async fn user_session_state(&self, user_id: UserId) -> StoreResult<UserSessionState> {
+        let mut conn = self.get_conn().await?;
+        let epoch = UserRow::active_session_epoch(&mut conn, user_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        Ok(match epoch {
+            None => UserSessionState::Deleted,
+            Some(session_epoch) => UserSessionState::Active { session_epoch },
+        })
     }
 }

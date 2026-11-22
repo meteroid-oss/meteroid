@@ -14,6 +14,7 @@ use meteroid_store::Store;
 use meteroid_store::domain::TenantEnvironmentEnum;
 use meteroid_store::domain::enums::OrganizationUserRole;
 use meteroid_store::domain::roles::MemberAccess;
+use meteroid_store::domain::users::UserSessionState;
 use meteroid_store::repositories::{
     OrganizationsInterface, RolesInterface, TenantInterface, UserDeletionInterface,
 };
@@ -55,7 +56,10 @@ pub fn validate_jwt(
         return Err(Status::unauthenticated("JWT expired"));
     }
 
-    Ok(AuthenticatedState::User { id: user_id })
+    Ok(AuthenticatedState::User {
+        id: user_id,
+        session_epoch: decoded.claims.session_epoch,
+    })
 }
 
 // Method-level authorization is enforced centrally via `rbac::method_auth`.
@@ -139,16 +143,19 @@ pub async fn invalidate_member_access_cache(user_id: UserId, org_id: Organizatio
     key = "UserId",
     convert = r#"{ user_id }"#
 )]
-pub async fn is_user_active_cached(store: &Store, user_id: UserId) -> Result<bool, Status> {
+pub async fn user_session_state_cached(
+    store: &Store,
+    user_id: UserId,
+) -> Result<UserSessionState, Status> {
     store
-        .is_user_active(user_id)
+        .user_session_state(user_id)
         .await
         .map_err(|e| Status::internal(format!("Failed to check user: {e}")))
 }
 
 pub async fn invalidate_user_active_cache(user_id: UserId) {
     use cached::Cached;
-    let mut cache = IS_USER_ACTIVE_CACHED.lock().await;
+    let mut cache = USER_SESSION_STATE_CACHED.lock().await;
     cache.cache_remove(&user_id);
 }
 

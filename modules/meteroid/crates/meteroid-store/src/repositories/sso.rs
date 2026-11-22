@@ -158,7 +158,7 @@ impl SsoInterface for Store {
             .await
             .change_context(StoreError::OauthError("failed to fetch SSO user".into()))?;
 
-        let email = oauth_user.email.to_lowercase();
+        let email = common_domain::email::normalize_email(&oauth_user.email);
         validate_domain(&email, &self.settings.domains_whitelist)?;
 
         // The IdP is only authoritative for domains this org has both configured

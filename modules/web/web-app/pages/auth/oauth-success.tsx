@@ -1,17 +1,18 @@
 import { create } from "@bufbuild/protobuf";
 import { useEffect } from "react";
-import { useSearchParams, useNavigate } from 'react-router'
+import { useLocation, useNavigate } from 'react-router'
 
 import { Loading } from "@/components/Loading";
 import { useSession } from "@/features/auth";
+import { readRedirectToken } from "@/features/auth/redirectToken";
 import { LoginResponseSchema } from "@/rpc/api/users/v1/users_pb";
 
 export const OauthSuccess = () => {
 
-  const [searchParams] = useSearchParams()
+  const location = useLocation()
   const navigate = useNavigate()
 
-  const token = searchParams.get('token')
+  const token = readRedirectToken(location)
 
   const [, setSession] = useSession()
 
@@ -20,7 +21,7 @@ export const OauthSuccess = () => {
       setSession(create(LoginResponseSchema, { token: token }))
       // Small delay to ensure session is persisted before navigation
       setTimeout(() => {
-        navigate('/')
+        navigate('/', { replace: true })
       }, 50)
     }
   }, [token, navigate, setSession])

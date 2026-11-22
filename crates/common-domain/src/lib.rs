@@ -1,6 +1,7 @@
 pub mod actor;
 pub mod auth;
 pub mod country;
+pub mod email;
 pub mod identifiers;
 pub mod ids;
 pub mod l10n;

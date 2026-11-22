@@ -6,7 +6,7 @@ use secrecy::SecretString;
 use crate::server::auth::SharedSupportGrantReader;
 use crate::server::auth::rbac::RoutePolicy;
 use crate::server::auth::strategies::jwt_strategy::{
-    authorize_user, is_user_active_cached, validate_jwt,
+    authorize_user, user_session_state_cached, validate_jwt,
 };
 use crate::server::auth::strategies::portal_jwt_strategy::{
     authorize_portal, validate_portal_token,
@@ -24,6 +24,7 @@ use futures_util::future::BoxFuture;
 use http::StatusCode;
 use meteroid_store::Store;
 use meteroid_store::domain::portal_tokens::PORTAL_LINK_EXPIRED;
+use meteroid_store::domain::users::UserSessionState;
 use meteroid_store::repositories::OrganizationsInterface;
 use std::task::{Context, Poll};
 use tonic::Status;
@@ -87,11 +88,15 @@ async fn is_organization_express_cached(
     Ok(org.is_express)
 }
 
-async fn ensure_user_active(store: &Store, user_id: UserId) -> Result<(), Status> {
-    if is_user_active_cached(store, user_id).await? {
-        Ok(())
-    } else {
-        Err(Status::unauthenticated("Account is deleted"))
+async fn ensure_session_valid(
+    store: &Store,
+    user_id: UserId,
+    session_epoch: Option<i32>,
+) -> Result<(), Status> {
+    match user_session_state_cached(store, user_id).await? {
+        UserSessionState::Deleted => Err(Status::unauthenticated("Account is deleted")),
+        state if state.accepts(session_epoch) => Ok(()),
+        _ => Err(Status::unauthenticated("Session revoked")),
     }
 }
 
@@ -255,8 +260,8 @@ where
                 AuthenticatedState::ApiKey { .. } => Err(BoxError::from(Status::unauthenticated(
                     "API keys authenticate with the REST API",
                 ))),
-                AuthenticatedState::User { id } => {
-                    ensure_user_active(&store, id)
+                AuthenticatedState::User { id, session_epoch } => {
+                    ensure_session_valid(&store, id, session_epoch)
                         .await
                         .map_err(|e| BoxError::from(e) as BoxError)?;
                     if UNAUTHORIZED_SERVICES.contains(&request.uri().path()) {

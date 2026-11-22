@@ -1,5 +1,6 @@
 use crate::domain::Organization;
 use crate::domain::oauth::{OauthConnection, OauthVerifierData};
+use crate::domain::portal_tokens::{hash_portal_token, is_portal_token};
 use crate::domain::users::{
     InitRegistrationResponse, LoginUserRequest, LoginUserResponse, Me, MfaActivated,
     MfaEnrollmentInit, RegisterUserRequest, RegisterUserRequestInternal, RegisterUserResponse,
@@ -14,6 +15,8 @@ use crate::{Store, StoreResult};
 use argon2::password_hash::SaltString;
 use argon2::password_hash::rand_core::OsRng;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use common_domain::actor::Actor;
 use common_domain::auth::{Audience, JwtClaims, JwtPayload};
@@ -22,6 +25,7 @@ use common_eventbus::Event;
 use diesel_models::organization_invites::OrganizationInviteRow;
 use diesel_models::organization_members::OrganizationMemberRow;
 use diesel_models::organizations::OrganizationRow;
+use diesel_models::password_reset_tokens::{PasswordResetTokenRow, PasswordResetTokenRowNew};
 use diesel_models::users::{UserRow, UserRowNew, UserRowPatch};
 use error_stack::{Report, ResultExt, bail};
 use jsonwebtoken::{DecodingKey, Validation};
@@ -120,7 +124,7 @@ pub trait UserInterface {
         token: SecretString,
         new_password: SecretString,
         request_context: crate::domain::org_security_audit_log::SecurityRequestContext,
-    ) -> StoreResult<()>;
+    ) -> StoreResult<UserId>;
 
     async fn oauth_signin(
         &self,
@@ -539,16 +543,8 @@ impl UserInterface for Store {
         };
 
         if let Some(user) = user {
-            // todo add expire_in to config
             let url_expires_in = chrono::Duration::minutes(10);
-
-            let token = generate_jwt_token(
-                &user.id.as_uuid().to_string(),
-                &self.settings.jwt_secret,
-                common_clock::now() + url_expires_in,
-                Audience::ResetPassword,
-                None,
-            )?;
+            let token = issue_password_reset_token(self, user.id, url_expires_in).await?;
 
             let url = SecretString::from(format!(
                 "{}/reset-password?token={}",
@@ -559,7 +555,7 @@ impl UserInterface for Store {
             let user_id = user.id;
             let user_email = user.email.clone();
             let recipient = EmailRecipient {
-                email,
+                email: user.email,
                 first_name: user.first_name,
                 last_name: user.last_name,
             };
@@ -630,6 +626,7 @@ impl UserInterface for Store {
                 invite_key: invite_key.map(|s| s.expose_secret().to_string()),
                 signup_source,
             }),
+            None,
         )?;
 
         let url = if let Some(ref path) = return_path {
@@ -672,36 +669,49 @@ impl UserInterface for Store {
         token: SecretString,
         new_password: SecretString,
         request_context: crate::domain::org_security_audit_log::SecurityRequestContext,
-    ) -> StoreResult<()> {
-        let mut validation = Validation::default();
-        validation.set_audience(&[Audience::ResetPassword.as_str()]);
-
-        let token_data = crate::jwt::decode::<JwtClaims>(
-            token.expose_secret(),
-            &DecodingKey::from_secret(self.settings.jwt_secret.expose_secret().as_bytes()),
-            &validation,
-        )
-        .map_err(|_| StoreError::InvalidArgument("invalid token".into()))?;
-
-        let user_id = Uuid::parse_str(token_data.claims.sub.as_str())
-            .map(UserId::from)
-            .map_err(|_| StoreError::InvalidArgument("invalid token".into()))?;
-
+    ) -> StoreResult<UserId> {
+        let token = token.expose_secret().trim().to_string();
+        if !is_portal_token(&token) {
+            bail!(StoreError::InvalidArgument(
+                PASSWORD_RESET_LINK_INVALID.into()
+            ));
+        }
+        let token_hash = hash_portal_token(&token);
         let new_password_hash = hash_password(new_password.expose_secret())?;
 
+        let user_id = self
+            .transaction(|conn| {
+                async move {
+                    let now = common_clock::now();
+                    let Some(reset) = PasswordResetTokenRow::consume(conn, &token_hash, now)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?
+                    else {
+                        bail!(StoreError::InvalidArgument(
+                            PASSWORD_RESET_LINK_INVALID.into()
+                        ));
+                    };
+                    if !UserRow::is_active(conn, reset.user_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?
+                    {
+                        bail!(StoreError::InvalidArgument(
+                            PASSWORD_RESET_LINK_INVALID.into()
+                        ));
+                    }
+                    UserRow::update_password_hash(conn, reset.user_id, new_password_hash.as_str())
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                    PasswordResetTokenRow::consume_all_for_user(conn, reset.user_id, now)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                    Ok(reset.user_id)
+                }
+                .scope_boxed()
+            })
+            .await?;
+
         let mut conn = self.get_conn().await?;
-
-        if !UserRow::is_active(&mut conn, user_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-        {
-            bail!(StoreError::InvalidArgument("invalid token".into()));
-        }
-
-        UserRow::update_password_hash(&mut conn, user_id, new_password_hash.as_str())
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
         let user = UserRow::find_by_id(&mut conn, user_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
@@ -714,7 +724,7 @@ impl UserInterface for Store {
             request_context,
         )
         .await;
-        Ok(())
+        Ok(user.id)
     }
 
     async fn oauth_signin(
@@ -739,7 +749,7 @@ impl UserInterface for Store {
             }
         };
 
-        let email = user.email;
+        let email = common_domain::email::normalize_email(&user.email);
 
         validate_domain(&email, &self.settings.domains_whitelist)?;
         // Social OAuth can't be used to sidestep an org's SSO requirement.
@@ -974,6 +984,9 @@ impl UserInterface for Store {
         if !user.totp_enabled {
             bail!(StoreError::LoginError("MFA not enrolled".into()));
         }
+        if token_data.claims.session_epoch.unwrap_or(0) != user.session_epoch {
+            bail!(StoreError::LoginError("invalid MFA challenge".into()));
+        }
 
         let secret_b32 = user
             .totp_secret
@@ -1004,7 +1017,11 @@ impl UserInterface for Store {
             )
             .await;
             return Ok(LoginUserResponse::Authenticated {
-                token: generate_auth_jwt_token(&user.id, &self.settings.jwt_secret)?,
+                token: generate_auth_jwt_token(
+                    &user.id,
+                    user.session_epoch,
+                    &self.settings.jwt_secret,
+                )?,
                 user: user.into(),
             });
         }
@@ -1035,7 +1052,11 @@ impl UserInterface for Store {
             )
             .await;
             return Ok(LoginUserResponse::Authenticated {
-                token: generate_auth_jwt_token(&user.id, &self.settings.jwt_secret)?,
+                token: generate_auth_jwt_token(
+                    &user.id,
+                    user.session_epoch,
+                    &self.settings.jwt_secret,
+                )?,
                 user: user.into(),
             });
         }
@@ -1059,11 +1080,13 @@ fn generate_jwt_token(
     expires_at: DateTime<Utc>,
     audience: Audience,
     payload: Option<JwtPayload>,
+    session_epoch: Option<i32>,
 ) -> StoreResult<SecretString> {
     let claims = serde_json::to_value(JwtClaims {
         sub: sub.to_owned(),
         exp: expires_at.timestamp() as usize,
         aud: audience,
+        session_epoch,
         payload,
     })
     .map_err(|err| StoreError::SerdeError("failed to generate JWT token".into(), err))?;
@@ -1078,13 +1101,57 @@ fn generate_jwt_token(
     Ok(SecretString::from(token))
 }
 
-fn generate_auth_jwt_token(user_id: &UserId, secret: &SecretString) -> StoreResult<SecretString> {
+const PASSWORD_RESET_LINK_INVALID: &str = "This reset link is invalid or has expired";
+
+/// Issues the only open reset link of the user: earlier ones stop working.
+async fn issue_password_reset_token(
+    store: &Store,
+    user_id: UserId,
+    valid_for: chrono::Duration,
+) -> StoreResult<SecretString> {
+    let token = URL_SAFE_NO_PAD.encode(rand::random::<[u8; 24]>());
+    let token_hash = hash_portal_token(&token);
+    let now = common_clock::now();
+
+    store
+        .transaction(|conn| {
+            async move {
+                PasswordResetTokenRow::consume_all_for_user(conn, user_id, now)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                PasswordResetTokenRow::delete_expired_before(conn, now - chrono::Duration::days(1))
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                PasswordResetTokenRowNew {
+                    id: Uuid::now_v7(),
+                    user_id,
+                    token_hash,
+                    created_at: now,
+                    expires_at: now + valid_for,
+                }
+                .insert(conn)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)
+            }
+            .scope_boxed()
+        })
+        .await?;
+
+    Ok(SecretString::from(token))
+}
+
+fn generate_auth_jwt_token(
+    user_id: &UserId,
+    session_epoch: i32,
+    secret: &SecretString,
+) -> StoreResult<SecretString> {
     generate_jwt_token(
         user_id.as_uuid().to_string().as_str(),
         secret,
         common_clock::now() + chrono::Duration::weeks(1),
         Audience::WebApi,
         None,
+        Some(session_epoch),
     )
 }
 
@@ -1193,18 +1260,23 @@ pub(crate) async fn finalize_login(
     }
     if user.totp_enabled {
         return Ok(LoginUserResponse::MfaChallenge {
-            challenge_token: generate_mfa_challenge_token(&user.id, &store.settings.jwt_secret)?,
+            challenge_token: generate_mfa_challenge_token(
+                &user.id,
+                user.session_epoch,
+                &store.settings.jwt_secret,
+            )?,
         });
     }
 
     Ok(LoginUserResponse::Authenticated {
-        token: generate_auth_jwt_token(&user.id, &store.settings.jwt_secret)?,
+        token: generate_auth_jwt_token(&user.id, user.session_epoch, &store.settings.jwt_secret)?,
         user: user.into(),
     })
 }
 
 fn generate_mfa_challenge_token(
     user_id: &UserId,
+    session_epoch: i32,
     secret: &SecretString,
 ) -> StoreResult<SecretString> {
     generate_jwt_token(
@@ -1213,14 +1285,16 @@ fn generate_mfa_challenge_token(
         common_clock::now() + chrono::Duration::minutes(5),
         Audience::MfaChallenge,
         None,
+        Some(session_epoch),
     )
 }
 
 pub(crate) async fn register_user_internal(
     store: &Store,
-    req: RegisterUserRequestInternal,
+    mut req: RegisterUserRequestInternal,
     request_context: crate::domain::org_security_audit_log::SecurityRequestContext,
 ) -> StoreResult<RegisterUserResponse> {
+    req.email = common_domain::email::normalize_email(&req.email);
     let mut conn = store.get_conn().await?;
 
     let user_opt = UserRow::find_by_email(&mut conn, req.email.clone()).await?;
@@ -1369,7 +1443,7 @@ pub(crate) async fn register_user_internal(
         .map(Into::into)?;
 
     Ok(RegisterUserResponse {
-        token: generate_auth_jwt_token(&user_id, &store.settings.jwt_secret)?,
+        token: generate_auth_jwt_token(&user_id, 0, &store.settings.jwt_secret)?,
         user,
     })
 }
@@ -1424,11 +1498,14 @@ pub(crate) fn validate_domain(email: &str, allowed_domains: &[String]) -> StoreR
         return Ok(true);
     }
     let domain = email
-        .split('@')
-        .nth(1)
+        .rsplit_once('@')
+        .map(|(_, domain)| domain.trim())
         .ok_or_else(|| StoreError::InvalidArgument("email does not contain domain".into()))?;
 
-    if allowed_domains.iter().any(|d| d == domain) {
+    if allowed_domains
+        .iter()
+        .any(|d| d.eq_ignore_ascii_case(domain))
+    {
         Ok(true)
     } else {
         Err(Report::new(StoreError::LoginError(

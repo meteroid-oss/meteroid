@@ -138,7 +138,7 @@ fn sso_callback_url(rest_api_external_url: &str) -> String {
 
 fn signin_success_url(public_url: &str, token: &SecretString) -> String {
     format!(
-        "{}/oauth_success?token={}",
+        "{}/oauth_success#token={}",
         public_url,
         token.expose_secret()
     )
@@ -146,7 +146,7 @@ fn signin_success_url(public_url: &str, token: &SecretString) -> String {
 
 fn mfa_challenge_url(public_url: &str, challenge_token: &SecretString) -> String {
     format!(
-        "{}/mfa-challenge?token={}",
+        "{}/mfa-challenge#token={}",
         public_url,
         challenge_token.expose_secret()
     )

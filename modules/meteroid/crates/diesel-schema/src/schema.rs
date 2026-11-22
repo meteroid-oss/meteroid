@@ -2002,6 +2002,8 @@ diesel::table! {
         verification_token -> Text,
         verified_at -> Nullable<Timestamptz>,
         created_at -> Timestamptz,
+        last_checked_at -> Nullable<Timestamptz>,
+        check_failing_since -> Nullable<Timestamptz>,
     }
 }
 
@@ -2132,6 +2134,17 @@ diesel::table! {
         occurred_at -> Timestamp,
         created_at -> Timestamp,
         store_xid -> Xid8,
+    }
+}
+
+diesel::table! {
+    password_reset_token (id) {
+        id -> Uuid,
+        user_id -> Uuid,
+        token_hash -> Text,
+        created_at -> Timestamptz,
+        expires_at -> Timestamptz,
+        consumed_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -3280,6 +3293,7 @@ diesel::table! {
         totp_recovery_codes -> Array<Nullable<Text>>,
         totp_enrolled_at -> Nullable<Timestamp>,
         preferences -> Jsonb,
+        session_epoch -> Int4,
     }
 }
 
@@ -3558,6 +3572,7 @@ diesel::joinable!(organization_milestone -> organization (organization_id));
 diesel::joinable!(organization_milestone -> tenant (tenant_id));
 diesel::joinable!(organization_sso_connection -> organization (organization_id));
 diesel::joinable!(outbox_event -> tenant (tenant_id));
+diesel::joinable!(password_reset_token -> user (user_id));
 diesel::joinable!(payment_reminder_sequence -> invoicing_entity (invoicing_entity_id));
 diesel::joinable!(payment_reminder_sequence -> tenant (tenant_id));
 diesel::joinable!(payment_reminder_step -> payment_reminder_sequence (sequence_id));

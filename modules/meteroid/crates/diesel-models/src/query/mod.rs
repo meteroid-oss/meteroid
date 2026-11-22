@@ -48,6 +48,7 @@ pub mod organization_invites;
 pub mod organization_members;
 pub mod organizations;
 pub mod outbox_event;
+pub mod password_reset_tokens;
 pub mod payment_reminders;
 pub mod payment_reversal_movements;
 pub mod payment_transactions;

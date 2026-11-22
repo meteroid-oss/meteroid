@@ -22,6 +22,7 @@ pub struct UserRow {
     pub totp_recovery_codes: Vec<Option<String>>,
     pub totp_enrolled_at: Option<NaiveDateTime>,
     pub preferences: serde_json::Value,
+    pub session_epoch: i32,
 }
 
 #[derive(Queryable, Debug, Selectable)]

@@ -9,6 +9,7 @@ mod subscription;
 mod test_account_ownership;
 mod test_add_ons;
 mod test_auth_api_key;
+mod test_auth_hardening;
 mod test_auth_jwt;
 mod test_basic;
 mod test_billable_metric;
