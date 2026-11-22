@@ -134,6 +134,45 @@ pub struct PaymentIntent {
     pub processed_at: Option<NaiveDateTime>,
 }
 
+/// Why a provider's report of a captured payment does not belong to the transaction it names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SettlementMismatch {
+    /// The transaction is bound to another provider payment.
+    ProviderPayment { stored: String, reported: String },
+    Amount {
+        expected_minor: i64,
+        expected_currency: String,
+        received_minor: i64,
+        received_currency: String,
+    },
+}
+
+impl PaymentTransaction {
+    /// Whether `intent` may settle this transaction. A provider that reports no amount
+    /// (GoCardless) is matched on its payment id only: the amount is the one we requested.
+    pub fn settlement_mismatch(&self, intent: &PaymentIntent) -> Option<SettlementMismatch> {
+        if let Some(stored) = &self.provider_transaction_id
+            && *stored != intent.external_id
+        {
+            return Some(SettlementMismatch::ProviderPayment {
+                stored: stored.clone(),
+                reported: intent.external_id.clone(),
+            });
+        }
+        let received_minor = intent.amount_received?;
+        // Some providers report lowercase ISO codes; local rows store uppercase.
+        if received_minor != self.amount || !intent.currency.eq_ignore_ascii_case(&self.currency) {
+            return Some(SettlementMismatch::Amount {
+                expected_minor: self.amount,
+                expected_currency: self.currency.clone(),
+                received_minor,
+                received_currency: intent.currency.clone(),
+            });
+        }
+        None
+    }
+}
+
 /// A charge on a saved method that waits on the customer's authentication (3DS / SCA), not on the
 /// provider. A hosted-redirect attempt also stores a next action on its pre-created row, but it
 /// has no method or provider id yet and is resumed by re-initiating the hosted flow instead.
@@ -160,7 +199,10 @@ pub struct PaymentTransactionWithMethod {
 
 #[cfg(test)]
 mod tests {
-    use super::{PaymentNextAction, row_awaits_authentication};
+    use super::{
+        PaymentIntent, PaymentNextAction, PaymentTransaction, SettlementMismatch,
+        row_awaits_authentication,
+    };
     use common_domain::ids::{
         BaseId, CustomerConnectionId, CustomerPaymentMethodId, PaymentTransactionId, TenantId,
     };
@@ -262,5 +304,74 @@ mod tests {
             !dbg.contains("pi_1_secret_xyz"),
             "Debug leaked the secret: {dbg}"
         );
+    }
+
+    fn success(external_id: &str, received: Option<(i64, &str)>) -> PaymentIntent {
+        let tx: PaymentTransaction = challenged_row().into();
+        PaymentIntent {
+            external_id: external_id.into(),
+            transaction_id: tx.id,
+            tenant_id: tx.tenant_id,
+            amount_requested: received.map_or(0, |(amount, _)| amount),
+            amount_received: received.map(|(amount, _)| amount),
+            currency: received.map(|(_, c)| c.to_string()).unwrap_or_default(),
+            next_action: None,
+            status: super::PaymentStatusEnum::Settled,
+            last_payment_error: None,
+            decline_kind: None,
+            processed_at: None,
+        }
+    }
+
+    #[test]
+    fn a_success_with_the_transaction_figures_settles_it() {
+        let tx: PaymentTransaction = challenged_row().into();
+
+        assert_eq!(
+            tx.settlement_mismatch(&success("pi_1", Some((3500, "EUR")))),
+            None
+        );
+        assert_eq!(
+            tx.settlement_mismatch(&success("pi_1", Some((3500, "eur")))),
+            None
+        );
+        assert_eq!(tx.settlement_mismatch(&success("pi_1", None)), None);
+
+        let mut unbound = tx.clone();
+        unbound.provider_transaction_id = None;
+        assert_eq!(
+            unbound.settlement_mismatch(&success("pi_new", Some((3500, "EUR")))),
+            None
+        );
+    }
+
+    #[test]
+    fn a_success_with_other_figures_does_not_settle_it() {
+        let tx: PaymentTransaction = challenged_row().into();
+        let amount = |received_minor: i64, received_currency: &str| {
+            Some(SettlementMismatch::Amount {
+                expected_minor: 3500,
+                expected_currency: "EUR".into(),
+                received_minor,
+                received_currency: received_currency.into(),
+            })
+        };
+
+        assert_eq!(
+            tx.settlement_mismatch(&success("pi_1", Some((3499, "EUR")))),
+            amount(3499, "EUR")
+        );
+        assert_eq!(
+            tx.settlement_mismatch(&success("pi_1", Some((3500, "USD")))),
+            amount(3500, "USD")
+        );
+        assert_eq!(
+            tx.settlement_mismatch(&success("pi_other", Some((3500, "EUR")))),
+            Some(SettlementMismatch::ProviderPayment {
+                stored: "pi_1".into(),
+                reported: "pi_other".into(),
+            })
+        );
+        assert!(tx.settlement_mismatch(&success("", None)).is_some());
     }
 }

@@ -40,7 +40,7 @@ pub use events::{
     ObservedRefundOnWire, PaymentFailedEvent, PaymentMethodAttachedEvent,
     PaymentMethodDetachedEvent, PaymentMethodExpiringEvent, PaymentMethodUpdatedEvent,
     PaymentPendingEvent, PaymentRefundedEvent, PaymentRequiresActionEvent, PaymentReversedEvent,
-    PaymentSucceededEvent, RefundStatusChangedEvent,
+    PaymentSucceededEvent, ReceivedAmount, RefundStatusChangedEvent,
 };
 pub use model::{
     ChargeAcknowledged, ChargeFailure, ChargeOutcome, ChargeReceipt, ChargeRequest,

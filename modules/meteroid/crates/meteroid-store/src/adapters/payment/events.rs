@@ -91,9 +91,16 @@ pub enum NormalizedEventSubscription {
 #[derive(Debug, Clone)]
 pub struct PaymentSucceededEvent {
     pub external_transaction_id: String,
-    pub amount_received_minor: i64,
-    pub currency: String,
+    /// `None` when the provider's event carries no amount (GoCardless).
+    pub received: Option<ReceivedAmount>,
     pub meteroid_transaction_id: Option<String>,
+}
+
+/// What the provider reports it captured.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReceivedAmount {
+    pub amount_minor: i64,
+    pub currency: String,
 }
 
 #[derive(Debug, Clone)]

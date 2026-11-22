@@ -15,7 +15,7 @@ use super::error::{
 use super::events::{
     DisputeEvent, NormalizedEventKind, NormalizedEventSubscription, NormalizedWebhookEvent,
     ObservedRefundOnWire, PaymentFailedEvent, PaymentPendingEvent, PaymentRefundedEvent,
-    PaymentSucceededEvent,
+    PaymentSucceededEvent, ReceivedAmount,
 };
 use super::model::{
     ChargeAcknowledged, ChargeCancelled, ChargeFailure, ChargeOutcome, ChargeReceipt,
@@ -1460,8 +1460,10 @@ fn events_for_payment(
     let state = match payment.status {
         PaymentStatus::Paid => NormalizedEventKind::PaymentSucceeded(PaymentSucceededEvent {
             external_transaction_id: payment.id.clone(),
-            amount_received_minor: amount_minor,
-            currency: payment.amount.currency.clone(),
+            received: Some(ReceivedAmount {
+                amount_minor,
+                currency: payment.amount.currency.clone(),
+            }),
             meteroid_transaction_id: meteroid_tx.clone(),
         }),
         PaymentStatus::Failed | PaymentStatus::Expired => {
@@ -2509,7 +2511,7 @@ mod tests {
         ));
         match &events[1].kind {
             NormalizedEventKind::PaymentSucceeded(e) => {
-                assert_eq!(e.amount_received_minor, 4_200);
+                assert_eq!(e.received.as_ref().map(|r| r.amount_minor), Some(4_200));
                 assert_eq!(e.meteroid_transaction_id.as_deref(), Some("txB62"));
             }
             other => panic!("expected PaymentSucceeded, got {other:?}"),
@@ -2714,8 +2716,13 @@ mod tests {
         paid.amount = amount;
         match &events_for_payment(&paid, &[], &[]).unwrap()[0].kind {
             NormalizedEventKind::PaymentSucceeded(e) => {
-                assert_eq!(e.amount_received_minor, 1500);
-                assert_eq!(e.currency, "JPY");
+                assert_eq!(
+                    e.received,
+                    Some(ReceivedAmount {
+                        amount_minor: 1500,
+                        currency: "JPY".to_string()
+                    })
+                );
             }
             other => panic!("expected PaymentSucceeded, got {other:?}"),
         }

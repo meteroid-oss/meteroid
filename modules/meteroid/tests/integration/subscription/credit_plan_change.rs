@@ -1419,9 +1419,21 @@ async fn a_change_reaches_the_pack_billed_on_a_consolidated_invoice(#[future] te
     assert_revenue_sane(&env, CUST_UBER_ID).await;
 }
 
-fn succeeded_payload(tx: common_domain::ids::PaymentTransactionId, amount: i64) -> String {
+/// The provider's success for `tx`, naming the provider payment the charge recorded.
+async fn succeeded_payload(
+    env: &TestEnv,
+    tx: common_domain::ids::PaymentTransactionId,
+    amount: i64,
+) -> String {
+    let mut conn = env.conn().await;
+    let external_id =
+        diesel_models::payments::PaymentTransactionRow::get_by_id(&mut conn, tx, TENANT_ID)
+            .await
+            .expect("payment transaction")
+            .provider_transaction_id
+            .unwrap_or_else(|| format!("pi_{}", tx.as_base62()));
     format!(
-        r#"{{"id":"evt_ok_{tx}","kind":"payment_succeeded","transaction_id":"{tx}","external_id":"pi_{tx}","amount":{amount},"currency":"EUR"}}"#,
+        r#"{{"id":"evt_ok_{tx}","kind":"payment_succeeded","transaction_id":"{tx}","external_id":"{external_id}","amount":{amount},"currency":"EUR"}}"#,
         tx = tx.as_base62(),
     )
 }
@@ -1734,7 +1746,7 @@ async fn a_legacy_netted_adjustment_settling_later_credits_nothing_twice(
     let (legacy, pending) = legacy_pending_adjustment(&env, sub_id).await;
     let legacy = legacy.id;
 
-    env.deliver_mock_webhook(succeeded_payload(pending, 8_500).as_bytes())
+    env.deliver_mock_webhook(succeeded_payload(&env, pending, 8_500).await.as_bytes())
         .await;
 
     assert_eq!(
@@ -2866,8 +2878,12 @@ async fn a_checkout_settling_after_a_rollover_pays_only_what_it_paid(#[future] t
         .await;
     env.process_cycles().await;
 
-    env.deliver_mock_webhook(succeeded_payload(pending.id, quote.amount_due).as_bytes())
-        .await;
+    env.deliver_mock_webhook(
+        succeeded_payload(&env, pending.id, quote.amount_due)
+            .await
+            .as_bytes(),
+    )
+    .await;
 
     let subscription = env.get_subscription(sub_id).await;
     assert_eq!(subscription.plan_version_id, SCALE);
@@ -3021,7 +3037,7 @@ async fn a_payment_above_its_repriced_adjustment_keeps_the_excess_until_reversed
         .expect("accepted payment");
     }
 
-    env.deliver_mock_webhook(succeeded_payload(payment, 34_193).as_bytes())
+    env.deliver_mock_webhook(succeeded_payload(&env, payment, 34_193).await.as_bytes())
         .await;
     let paid = reread(&env, &adjustment).await;
     assert_eq!(
@@ -3100,7 +3116,7 @@ async fn a_cancelled_plan_change_paid_late_keeps_the_money_as_credit(#[future] t
     change_on(&env, sub_id, LARGE, date(2024, 1, 20)).await;
     env.set_mock_charge_behavior(MockChargeBehavior::Succeeded)
         .await;
-    env.deliver_mock_webhook(succeeded_payload(pending.id, 30_193).as_bytes())
+    env.deliver_mock_webhook(succeeded_payload(&env, pending.id, 30_193).await.as_bytes())
         .await;
 
     assert_eq!(env.get_subscription(sub_id).await.plan_version_id, LARGE);
@@ -3209,7 +3225,7 @@ async fn kept_plan_change_payment(
     change_on(env, sub_id, LARGE, date(2024, 1, 20)).await;
     env.set_mock_charge_behavior(MockChargeBehavior::Succeeded)
         .await;
-    env.deliver_mock_webhook(succeeded_payload(pending.id, 30_193).as_bytes())
+    env.deliver_mock_webhook(succeeded_payload(env, pending.id, 30_193).await.as_bytes())
         .await;
     let kept = collected_credit(env, pending.id).await;
     assert_eq!(
@@ -3601,8 +3617,12 @@ async fn a_plan_change_payment_processing_is_never_abandoned(#[future] test_env:
     );
     env.set_mock_charge_behavior(MockChargeBehavior::Succeeded)
         .await;
-    env.deliver_mock_webhook(succeeded_payload(card_payment.id, 30_193).as_bytes())
-        .await;
+    env.deliver_mock_webhook(
+        succeeded_payload(&env, card_payment.id, 30_193)
+            .await
+            .as_bytes(),
+    )
+    .await;
     assert_eq!(env.get_subscription(card_sub).await.plan_version_id, SCALE);
 }
 
@@ -3675,11 +3695,11 @@ async fn a_later_payment_overpaying_a_plan_change_invoice_is_kept_once(
     assert_eq!(adjustment.amount_due, 30_193);
 
     let checkout = pending_payment(&env, adjustment.id, Some(session.id), 25_000).await;
-    env.deliver_mock_webhook(succeeded_payload(checkout, 25_000).as_bytes())
+    env.deliver_mock_webhook(succeeded_payload(&env, checkout, 25_000).await.as_bytes())
         .await;
     assert_eq!(reread(&env, &adjustment).await.amount_due, 5_193);
     let ordinary = pending_payment(&env, adjustment.id, None, 6_000).await;
-    env.deliver_mock_webhook(succeeded_payload(ordinary, 6_000).as_bytes())
+    env.deliver_mock_webhook(succeeded_payload(&env, ordinary, 6_000).await.as_bytes())
         .await;
 
     assert_eq!(reread(&env, &adjustment).await.amount_due, 0);
@@ -3836,7 +3856,7 @@ async fn a_legacy_payment_settling_over_a_draft_period_leaves_the_draft_whole(
     assert_eq!(starter.status, InvoiceStatusEnum::Draft);
     let (legacy, pending) = legacy_pending_adjustment(&env, sub_id).await;
 
-    env.deliver_mock_webhook(succeeded_payload(pending, 8_500).as_bytes())
+    env.deliver_mock_webhook(succeeded_payload(&env, pending, 8_500).await.as_bytes())
         .await;
 
     assert_eq!(
@@ -3998,10 +4018,10 @@ async fn an_overpayment_replaced_after_a_reversal_is_kept_again(#[future] test_e
     env.seed_payments().await;
     let (adjustment, session) = plan_change_adjustment(&env).await;
     let checkout = pending_payment(&env, adjustment.id, Some(session), 25_000).await;
-    env.deliver_mock_webhook(succeeded_payload(checkout, 25_000).as_bytes())
+    env.deliver_mock_webhook(succeeded_payload(&env, checkout, 25_000).await.as_bytes())
         .await;
     let first = pending_payment(&env, adjustment.id, None, 6_000).await;
-    env.deliver_mock_webhook(succeeded_payload(first, 6_000).as_bytes())
+    env.deliver_mock_webhook(succeeded_payload(&env, first, 6_000).await.as_bytes())
         .await;
     assert_eq!(kept_for(&env, &adjustment).await, 807);
 
@@ -4009,7 +4029,7 @@ async fn an_overpayment_replaced_after_a_reversal_is_kept_again(#[future] test_e
         .await;
     assert_eq!(kept_for(&env, &adjustment).await, 0);
     let replacement = pending_payment(&env, adjustment.id, None, 6_000).await;
-    env.deliver_mock_webhook(succeeded_payload(replacement, 6_000).as_bytes())
+    env.deliver_mock_webhook(succeeded_payload(&env, replacement, 6_000).await.as_bytes())
         .await;
     assert_eq!(kept_for(&env, &adjustment).await, 807);
     crate::helpers::credit::assert_ledger_balances(env.store(), TENANT_ID, CUST_UBER_ID).await;
@@ -4025,14 +4045,18 @@ async fn a_payment_reinstated_after_its_replacement_is_kept_as_credit(#[future] 
     let (adjustment, session) = plan_change_adjustment(&env).await;
     let original = pending_payment(&env, adjustment.id, Some(session), 30_193).await;
     let external_id = format!("pi_{}", original.as_base62());
-    env.deliver_mock_webhook(succeeded_payload(original, 30_193).as_bytes())
+    env.deliver_mock_webhook(succeeded_payload(&env, original, 30_193).await.as_bytes())
         .await;
     env.deliver_mock_webhook(late_failure_payload(&external_id).as_bytes())
         .await;
     assert_eq!(reread(&env, &adjustment).await.amount_due, 30_193);
     let replacement = pending_payment(&env, adjustment.id, None, 30_193).await;
-    env.deliver_mock_webhook(succeeded_payload(replacement, 30_193).as_bytes())
-        .await;
+    env.deliver_mock_webhook(
+        succeeded_payload(&env, replacement, 30_193)
+            .await
+            .as_bytes(),
+    )
+    .await;
     assert_eq!(kept_for(&env, &adjustment).await, 0);
 
     env.deliver_mock_webhook(reinstated_payload(&external_id).as_bytes())
@@ -4876,7 +4900,7 @@ async fn s14_an_overpaid_plan_change_invoice_keeps_overpayment_credit_and_reinst
     env.seed_payments().await;
     let (adjustment, session) = plan_change_adjustment(&env).await;
     let original = pending_payment(&env, adjustment.id, Some(session), 34_193).await;
-    env.deliver_mock_webhook(succeeded_payload(original, 34_193).as_bytes())
+    env.deliver_mock_webhook(succeeded_payload(&env, original, 34_193).await.as_bytes())
         .await;
 
     assert_eq!(reread(&env, &adjustment).await.amount_due, 0);
@@ -4926,8 +4950,12 @@ async fn s14_an_overpaid_plan_change_invoice_keeps_overpayment_credit_and_reinst
     );
 
     let replacement = pending_payment(&env, adjustment.id, None, 30_193).await;
-    env.deliver_mock_webhook(succeeded_payload(replacement, 30_193).as_bytes())
-        .await;
+    env.deliver_mock_webhook(
+        succeeded_payload(&env, replacement, 30_193)
+            .await
+            .as_bytes(),
+    )
+    .await;
     assert_eq!(reread(&env, &adjustment).await.amount_due, 0);
     assert_eq!(kept_for(&env, &adjustment).await, 0);
     assert_eq!(
@@ -4962,7 +4990,7 @@ async fn spent_overpayment_credit_is_reported_unrecovered_when_its_payment_is_re
     env.seed_payments().await;
     let (adjustment, session) = plan_change_adjustment(&env).await;
     let original = pending_payment(&env, adjustment.id, Some(session), 34_193).await;
-    env.deliver_mock_webhook(succeeded_payload(original, 34_193).as_bytes())
+    env.deliver_mock_webhook(succeeded_payload(&env, original, 34_193).await.as_bytes())
         .await;
     spend_on_one_off(&env, 2_000).await;
 
@@ -5010,7 +5038,7 @@ async fn a_recurring_invoice_overpaid_by_a_provider_settlement_keeps_the_excess(
     assert_eq!((period.total, period.amount_due), (3_900, 3_900));
 
     let payment = pending_payment(&env, period.id, None, 5_000).await;
-    env.deliver_mock_webhook(succeeded_payload(payment, 5_000).as_bytes())
+    env.deliver_mock_webhook(succeeded_payload(&env, payment, 5_000).await.as_bytes())
         .await;
     assert_eq!(reread(&env, &period).await.amount_due, 0);
     let kept = overpayment_credit(&env, &period).await;
@@ -5048,7 +5076,7 @@ async fn overpaid_period(env: &TestEnv) -> (Invoice, common_domain::ids::Payment
     let sub_id = start(env, CUST_UBER_ID, STUDIO, date(2024, 1, 1)).await;
     let period = invoice(env, sub_id, 0).await;
     let payment = pending_payment(env, period.id, None, 5_000).await;
-    env.deliver_mock_webhook(succeeded_payload(payment, 5_000).as_bytes())
+    env.deliver_mock_webhook(succeeded_payload(env, payment, 5_000).await.as_bytes())
         .await;
     (period, payment)
 }

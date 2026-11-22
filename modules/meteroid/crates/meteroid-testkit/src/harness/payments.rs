@@ -350,8 +350,13 @@ impl TestEnv {
     /// outbox so the settlement orchestration runs. This is the production path an HTTP webhook
     /// takes, minus signature verification (unit-tested per adapter).
     pub async fn deliver_mock_webhook(&self, payload: &[u8]) {
-        let connector = mock_connector();
-        let connector_impl = initialize_payment_connector(&connector).expect("mock connector init");
+        self.deliver_mock_webhook_to(&mock_connector(), payload)
+            .await;
+    }
+
+    /// [`Self::deliver_mock_webhook`] as received by `connector`.
+    pub async fn deliver_mock_webhook_to(&self, connector: &Connector, payload: &[u8]) {
+        let connector_impl = initialize_payment_connector(connector).expect("mock connector init");
 
         let event = connector_impl
             .parse_event(payload, &HeaderMap::new())
@@ -360,7 +365,7 @@ impl TestEnv {
 
         handle_normalized_event(
             event,
-            &connector,
+            connector,
             connector_impl.as_ref(),
             self.store().clone(),
             self.services(),

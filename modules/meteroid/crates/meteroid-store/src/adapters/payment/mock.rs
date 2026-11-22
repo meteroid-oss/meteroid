@@ -13,7 +13,7 @@ use super::events::{
     DisputeEvent, NormalizedEventKind, NormalizedEventSubscription, NormalizedWebhookEvent,
     ObservedRefundOnWire, PaymentFailedEvent, PaymentMethodAttachedEvent,
     PaymentMethodUpdatedEvent, PaymentPendingEvent, PaymentRefundedEvent, PaymentReinstatedEvent,
-    PaymentRequiresActionEvent, PaymentReversedEvent, PaymentSucceededEvent,
+    PaymentRequiresActionEvent, PaymentReversedEvent, PaymentSucceededEvent, ReceivedAmount,
 };
 use super::model::{
     ChargeAcknowledged, ChargeCancelled, ChargeFailure, ChargeOutcome, ChargeReceipt,
@@ -908,8 +908,13 @@ impl WebhookOps for MockConnector {
         let kind = match e.kind.as_str() {
             "payment_succeeded" => NormalizedEventKind::PaymentSucceeded(PaymentSucceededEvent {
                 external_transaction_id: e.external_id.clone().unwrap_or_default(),
-                amount_received_minor: e.amount.unwrap_or(0),
-                currency: e.currency.clone().unwrap_or_default(),
+                received: e
+                    .amount
+                    .zip(e.currency.clone())
+                    .map(|(amount_minor, currency)| ReceivedAmount {
+                        amount_minor,
+                        currency,
+                    }),
                 meteroid_transaction_id: e.transaction_id.clone(),
             }),
             "payment_failed" => NormalizedEventKind::PaymentFailed(PaymentFailedEvent {
@@ -1589,7 +1594,7 @@ mod tests {
         match ev.kind {
             NormalizedEventKind::PaymentSucceeded(e) => {
                 assert_eq!(e.meteroid_transaction_id.as_deref(), Some("tx_1"));
-                assert_eq!(e.amount_received_minor, 500);
+                assert_eq!(e.received.map(|r| r.amount_minor), Some(500));
             }
             other => panic!("expected PaymentSucceeded, got {other:?}"),
         }

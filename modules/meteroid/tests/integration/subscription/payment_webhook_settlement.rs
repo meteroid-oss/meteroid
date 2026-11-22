@@ -14,7 +14,7 @@ use rstest::rstest;
 use chrono::NaiveDate;
 
 use crate::data::ids::*;
-use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, test_env};
+use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, mock_connector, test_env};
 
 use meteroid_store::domain::PaymentStatusEnum;
 use meteroid_store::domain::connectors::MockChargeBehavior;
@@ -81,6 +81,22 @@ fn succeeded_payload(tx_id: PaymentTransactionId, external_id: &str) -> Vec<u8> 
         r#"{{"id":"evt_ok_{tx}","kind":"payment_succeeded","transaction_id":"{tx}","external_id":"{ext}","amount":3500,"currency":"EUR"}}"#,
         tx = tx_id.as_base62(),
         ext = external_id,
+    )
+    .into_bytes()
+}
+
+fn succeeded_payload_with(
+    tx_id: PaymentTransactionId,
+    external_id: &str,
+    received: Option<(i64, &str)>,
+    evt: &str,
+) -> Vec<u8> {
+    let received = received
+        .map(|(amount, currency)| format!(r#","amount":{amount},"currency":"{currency}""#))
+        .unwrap_or_default();
+    format!(
+        r#"{{"id":"evt_{evt}_{tx}","kind":"payment_succeeded","transaction_id":"{tx}","external_id":"{external_id}"{received}}}"#,
+        tx = tx_id.as_base62(),
     )
     .into_bytes()
 }
@@ -2018,4 +2034,160 @@ async fn test_rejected_credentials_during_a_charge_flag_the_connector(#[future] 
             .is_empty(),
         "the failed charge leaves no transaction behind"
     );
+}
+
+// =============================================================================
+// A success event settles only the transaction it was captured for
+// =============================================================================
+
+async fn pending_card_charge(
+    env: &TestEnv,
+) -> (
+    common_domain::ids::SubscriptionId,
+    InvoiceId,
+    meteroid_store::domain::payment_transactions::PaymentTransaction,
+) {
+    let (sub_id, invoice_id) = env.unpaid_card_invoice().await;
+    env.set_mock_charge_behavior(MockChargeBehavior::Pending)
+        .await;
+    let (tx, _) = env
+        .services()
+        .complete_invoice_payment(
+            TENANT_ID,
+            invoice_id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            false,
+            None,
+        )
+        .await
+        .expect("charge accepted");
+    assert_eq!(tx.status, PaymentStatusEnum::Pending);
+    (sub_id, invoice_id, tx)
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_success_for_other_figures_or_payment_does_not_settle(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let (sub_id, invoice_id, tx) = pending_card_charge(&env).await;
+    let external_id = tx.provider_transaction_id.clone().expect("provider id");
+    let (amount, currency) = (tx.amount, tx.currency.clone());
+
+    for (evt, payment, received) in [
+        (
+            "short",
+            external_id.as_str(),
+            (amount - 1, currency.as_str()),
+        ),
+        (
+            "over",
+            external_id.as_str(),
+            (amount + 1, currency.as_str()),
+        ),
+        ("currency", external_id.as_str(), (amount, "USD")),
+        ("foreign", "pi_another_payment", (amount, currency.as_str())),
+    ] {
+        env.deliver_mock_webhook(&succeeded_payload_with(tx.id, payment, Some(received), evt))
+            .await;
+        let unsettled = transaction_for_invoice(&env, invoice_id).await;
+        assert_eq!(unsettled.status, PaymentStatusEnum::Pending, "{evt}");
+        assert_eq!(unsettled.provider_transaction_id, Some(external_id.clone()));
+    }
+    env.get_invoices(sub_id)
+        .await
+        .assert()
+        .invoice_at(0)
+        .is_finalized_unpaid();
+
+    // The provider's own figures settle it, whatever the case of its currency code.
+    let lowercase = currency.to_lowercase();
+    let genuine = succeeded_payload_with(tx.id, &external_id, Some((amount, &lowercase)), "ok");
+    let saved_before = payment_tx_saved_count(&env, tx.id).await;
+    env.deliver_mock_webhook(&genuine).await;
+    env.deliver_mock_webhook(&genuine).await;
+
+    assert_eq!(
+        transaction_for_invoice(&env, invoice_id).await.status,
+        PaymentStatusEnum::Settled
+    );
+    assert_eq!(
+        payment_tx_saved_count(&env, tx.id).await,
+        saved_before + 1,
+        "a redelivered success settles once"
+    );
+    env.get_invoices(sub_id)
+        .await
+        .assert()
+        .invoice_at(0)
+        .is_finalized_paid();
+}
+
+/// GoCardless reports no amount on its payment events: the payment id alone binds them.
+#[rstest]
+#[tokio::test]
+async fn test_success_without_an_amount_settles_its_own_payment(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let (sub_id, invoice_id, tx) = pending_card_charge(&env).await;
+    let external_id = tx.provider_transaction_id.clone().expect("provider id");
+
+    env.deliver_mock_webhook(&succeeded_payload_with(tx.id, "PM_other", None, "foreign"))
+        .await;
+    assert_eq!(
+        transaction_for_invoice(&env, invoice_id).await.status,
+        PaymentStatusEnum::Pending
+    );
+
+    env.deliver_mock_webhook(&succeeded_payload_with(tx.id, &external_id, None, "ok"))
+        .await;
+    assert_eq!(
+        transaction_for_invoice(&env, invoice_id).await.status,
+        PaymentStatusEnum::Settled
+    );
+    env.get_invoices(sub_id)
+        .await
+        .assert()
+        .invoice_at(0)
+        .is_finalized_paid();
+}
+
+/// A setup completed on one connector is not attached when another connector receives it.
+#[rstest]
+#[tokio::test]
+async fn test_setup_received_by_another_connector_is_not_attached(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_dual_providers().await;
+    let payload = |external_id: &str| {
+        format!(
+            r#"{{"id":"evt_attach_{external_id}","kind":"payment_method_attached","external_payment_method_id":"{external_id}","external_customer_id":"mock_cus_uber","connection_id":"{connection}","customer_id":"{customer}"}}"#,
+            connection = CUST_UBER_CONNECTION_ID.as_base62(),
+            customer = CUST_UBER_ID.as_base62(),
+        )
+        .into_bytes()
+    };
+    let recorded = |external_id: &'static str| {
+        let env = &env;
+        async move {
+            let mut conn = env.conn().await;
+            diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_external_id(
+                &mut conn,
+                &TENANT_ID,
+                external_id,
+            )
+            .await
+            .expect("lookup")
+            .is_some()
+        }
+    };
+    let other = meteroid_store::domain::connectors::Connector {
+        id: MOCK_CONNECTOR_2_ID,
+        ..mock_connector()
+    };
+
+    env.deliver_mock_webhook_to(&other, &payload("mock_pm_uber_elsewhere"))
+        .await;
+    assert!(!recorded("mock_pm_uber_elsewhere").await);
+
+    env.deliver_mock_webhook(&payload("mock_pm_uber_here"))
+        .await;
+    assert!(recorded("mock_pm_uber_here").await);
 }

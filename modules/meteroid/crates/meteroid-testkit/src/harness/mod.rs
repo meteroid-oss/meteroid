@@ -18,3 +18,4 @@ pub use assertions::*;
 pub use builders::*;
 pub use env::*;
 pub use mailer::*;
+pub use payments::mock_connector;

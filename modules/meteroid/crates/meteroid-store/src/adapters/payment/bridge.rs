@@ -131,9 +131,13 @@ pub fn payment_intent_from_event(
             external_id: e.external_transaction_id.clone(),
             transaction_id,
             tenant_id,
-            amount_requested: e.amount_received_minor,
-            amount_received: Some(e.amount_received_minor),
-            currency: e.currency.clone(),
+            amount_requested: e.received.as_ref().map_or(0, |r| r.amount_minor),
+            amount_received: e.received.as_ref().map(|r| r.amount_minor),
+            currency: e
+                .received
+                .as_ref()
+                .map(|r| r.currency.clone())
+                .unwrap_or_default(),
             next_action: None,
             status: PaymentStatusEnum::Settled,
             last_payment_error: None,

@@ -272,7 +272,7 @@ async fn start_meteroid_with_gocardless() -> meteroid_it::container::MeteroidSet
 async fn insert_pending_gc_tx(
     setup: &meteroid_it::container::MeteroidSetup,
     tx_id: PaymentTransactionId,
-    provider_transaction_id: &str,
+    provider_transaction_id: Option<&str>,
 ) {
     let mut conn = setup.store.pool.get().await.unwrap();
     let checkout_session_id = CheckoutSessionId::new();
@@ -313,7 +313,7 @@ async fn insert_pending_gc_tx(
         id: tx_id,
         tenant_id: TENANT_ID,
         invoice_id: None,
-        provider_transaction_id: Some(provider_transaction_id.to_string()),
+        provider_transaction_id: provider_transaction_id.map(str::to_string),
         amount: 10_000,
         currency: "eur".to_string(),
         payment_method_id: None,
@@ -346,7 +346,7 @@ async fn test_gocardless_settles_via_provider_id_and_dedups() {
     let setup = start_meteroid_with_gocardless().await;
 
     let tx_id = PaymentTransactionId::new();
-    insert_pending_gc_tx(&setup, tx_id, "PM_GC_SETTLE_1").await;
+    insert_pending_gc_tx(&setup, tx_id, Some("PM_GC_SETTLE_1")).await;
 
     let body =
         include_str!("fixtures/webhooks/gocardless/gocardless_confirmed_empty_metadata.json");
@@ -416,9 +416,9 @@ async fn test_gocardless_settles_via_resource_metadata() {
     let setup = start_meteroid_with_gocardless().await;
 
     let tx_id = PaymentTransactionId::new();
-    // provider_transaction_id deliberately does NOT match links.payment, so the
-    // settlement can only land via the resource_metadata transaction id.
-    insert_pending_gc_tx(&setup, tx_id, "PM_UNRELATED_RM").await;
+    // No provider payment recorded yet, so the settlement can only land via the
+    // resource_metadata transaction id.
+    insert_pending_gc_tx(&setup, tx_id, None).await;
 
     let payload = serde_json::json!({
         "events": [{
@@ -467,6 +467,10 @@ async fn test_gocardless_settles_via_resource_metadata() {
         DomainPaymentStatus::Settled,
         "resource_metadata transaction id must settle the tx directly"
     );
+    assert_eq!(
+        tx.provider_transaction_id.as_deref(),
+        Some("PM_GC_RM_NOMATCH")
+    );
 
     // Settlement time is the event's own `created_at`, not wall-clock.
     let expected = chrono::NaiveDate::from_ymd_opt(2026, 7, 20)
@@ -488,7 +492,7 @@ async fn test_gocardless_poison_event_does_not_block_valid_settlement() {
     let setup = start_meteroid_with_gocardless().await;
 
     let valid_tx_id = PaymentTransactionId::new();
-    insert_pending_gc_tx(&setup, valid_tx_id, "PM_GC_VALID_1").await;
+    insert_pending_gc_tx(&setup, valid_tx_id, Some("PM_GC_VALID_1")).await;
 
     let body = include_str!("fixtures/webhooks/gocardless/gocardless_batch_poison_then_valid.json");
     let signature = gocardless_signature(body, GC_WEBHOOK_SECRET);

@@ -13,7 +13,7 @@ use super::events::{
     DisputeEvent, NormalizedEventKind, NormalizedEventSubscription, NormalizedWebhookEvent,
     ObservedRefundOnWire, PaymentFailedEvent, PaymentMethodAttachedEvent,
     PaymentMethodDetachedEvent, PaymentMethodUpdatedEvent, PaymentPendingEvent,
-    PaymentRefundedEvent, PaymentRequiresActionEvent, PaymentSucceededEvent,
+    PaymentRefundedEvent, PaymentRequiresActionEvent, PaymentSucceededEvent, ReceivedAmount,
     RefundStatusChangedEvent,
 };
 use super::model::{
@@ -1222,8 +1222,10 @@ fn normalize_kind(event_type: &str, object: EventObject) -> Option<NormalizedEve
         (event_type::PAYMENT_INTENT_SUCCEEDED, EventObject::PaymentIntent(pi)) => {
             NormalizedEventKind::PaymentSucceeded(PaymentSucceededEvent {
                 external_transaction_id: pi.id,
-                amount_received_minor: pi.amount_received.unwrap_or(pi.amount),
-                currency: pi.currency,
+                received: Some(ReceivedAmount {
+                    amount_minor: pi.amount_received.unwrap_or(pi.amount),
+                    currency: pi.currency,
+                }),
                 meteroid_transaction_id: pi.metadata.get("meteroid.transaction_id").cloned(),
             })
         }
@@ -1735,8 +1737,13 @@ mod tests {
         match parsed.kind {
             NormalizedEventKind::PaymentSucceeded(e) => {
                 assert_eq!(e.external_transaction_id, "pi_succeeded_1");
-                assert_eq!(e.amount_received_minor, 5000);
-                assert_eq!(e.currency, "eur");
+                assert_eq!(
+                    e.received,
+                    Some(ReceivedAmount {
+                        amount_minor: 5000,
+                        currency: "eur".to_string()
+                    })
+                );
                 assert_eq!(
                     e.meteroid_transaction_id.as_deref(),
                     Some("tx_xyz"),

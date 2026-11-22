@@ -11,6 +11,7 @@ use axum::response::{IntoResponse, Response};
 use common_domain::ids::{BaseId, ConnectorId, TenantId};
 use meteroid_store::adapters::payment::events::{
     NormalizedEventKind, NormalizedWebhookEvent, PaymentFailedEvent, PaymentSucceededEvent,
+    ReceivedAmount,
 };
 use meteroid_store::adapters::payment::initialize_payment_connector;
 use meteroid_store::domain::enums::PaymentStatusEnum;
@@ -138,8 +139,10 @@ pub async fn handle(
     let kind = if body.approve {
         NormalizedEventKind::PaymentSucceeded(PaymentSucceededEvent {
             external_transaction_id: q.intent.clone(),
-            amount_received_minor: transaction.amount,
-            currency: transaction.currency.clone(),
+            received: Some(ReceivedAmount {
+                amount_minor: transaction.amount,
+                currency: transaction.currency.clone(),
+            }),
             meteroid_transaction_id,
         })
     } else {

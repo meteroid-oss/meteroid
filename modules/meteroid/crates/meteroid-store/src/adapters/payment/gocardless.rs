@@ -1275,8 +1275,7 @@ fn normalize_payment_event(
                 external_transaction_id: payment_id,
                 // Webhook carries no amount; the local transaction holds the
                 // requested amount (fees arrive via a separate payout event).
-                amount_received_minor: 0,
-                currency: String::new(),
+                received: None,
                 meteroid_transaction_id: meteroid_tx,
             })
         }

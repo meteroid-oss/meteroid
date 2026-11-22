@@ -1122,8 +1122,9 @@ async fn late_failure_reopen_restarts_and_sends_one_step(#[future] test_env: Tes
     deliver_webhook(
         &env,
         format!(
-            r#"{{"id":"evt_ok_{tx}","kind":"payment_succeeded","transaction_id":"{tx}","external_id":"pi_reopen","amount":10000,"currency":"EUR"}}"#,
+            r#"{{"id":"evt_ok_{tx}","kind":"payment_succeeded","transaction_id":"{tx}","external_id":"{external_id}","amount":10000,"currency":"EUR"}}"#,
             tx = tx.id.as_base62(),
+            external_id = tx.provider_transaction_id.as_deref().expect("provider id"),
         ),
     )
     .await;
@@ -1190,8 +1191,9 @@ async fn reopen_of_an_in_flight_ladder_never_resends_a_step(#[future] test_env: 
     deliver_webhook(
         &env,
         format!(
-            r#"{{"id":"evt_ok_{tx}","kind":"payment_succeeded","transaction_id":"{tx}","external_id":"pi_inflight","amount":10000,"currency":"EUR"}}"#,
+            r#"{{"id":"evt_ok_{tx}","kind":"payment_succeeded","transaction_id":"{tx}","external_id":"{external_id}","amount":10000,"currency":"EUR"}}"#,
             tx = tx.id.as_base62(),
+            external_id = tx.provider_transaction_id.as_deref().expect("provider id"),
         ),
     )
     .await;
@@ -1282,8 +1284,9 @@ async fn a_dispute_keeps_the_invoice_paid_and_its_reminders_ended(#[future] test
     deliver_webhook(
         &env,
         format!(
-            r#"{{"id":"evt_ok_{tx}","kind":"payment_succeeded","transaction_id":"{tx}","external_id":"pi_disputed","amount":10000,"currency":"EUR"}}"#,
+            r#"{{"id":"evt_ok_{tx}","kind":"payment_succeeded","transaction_id":"{tx}","external_id":"{external_id}","amount":10000,"currency":"EUR"}}"#,
             tx = tx.id.as_base62(),
+            external_id = tx.provider_transaction_id.as_deref().expect("provider id"),
         ),
     )
     .await;
@@ -1357,8 +1360,9 @@ async fn operator_stop_survives_a_reopen(#[future] test_env: TestEnv) {
     deliver_webhook(
         &env,
         format!(
-            r#"{{"id":"evt_ok_{tx}","kind":"payment_succeeded","transaction_id":"{tx}","external_id":"pi_stopped","amount":10000,"currency":"EUR"}}"#,
+            r#"{{"id":"evt_ok_{tx}","kind":"payment_succeeded","transaction_id":"{tx}","external_id":"{external_id}","amount":10000,"currency":"EUR"}}"#,
             tx = tx.id.as_base62(),
+            external_id = tx.provider_transaction_id.as_deref().expect("provider id"),
         ),
     )
     .await;

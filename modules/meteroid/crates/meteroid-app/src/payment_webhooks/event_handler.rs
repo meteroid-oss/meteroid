@@ -394,6 +394,17 @@ async fn attach_payment_method_from_snapshot(
         return Err(Report::new(errors::AdapterWebhookError::InvalidMetadata)
             .attach("webhook connection_id / customer_id pair is inconsistent"));
     }
+    // A connection of another connector is that connector's: only its own delivery of the event
+    // attaches the method, which its credentials then charge.
+    if connection.connector_id != connector.id {
+        log::warn!(
+            "Ignoring webhook for connection {} of connector {}: received by connector {}",
+            connection.id,
+            connection.connector_id,
+            connector.id,
+        );
+        return Ok(());
+    }
 
     let invoice_to_charge = snapshot.meteroid_invoice_id.clone();
     // Invoice paid on the hosted page (Mollie): the first payment is the invoice payment.
@@ -862,6 +873,15 @@ async fn consolidate_once(
                 let existing = store
                     .get_payment_tx_by_id_for_update(conn, transaction_id, intent.tenant_id)
                     .await?;
+                if intent.status == PaymentStatusEnum::Settled
+                    && let Some(mismatch) = existing.settlement_mismatch(&intent)
+                {
+                    log::warn!(
+                        "Not settling transaction {transaction_id} from provider payment {}: {mismatch:?}",
+                        intent.external_id
+                    );
+                    return Ok(());
+                }
                 store
                     .consolidate_intent_and_transaction_tx(
                         conn,
