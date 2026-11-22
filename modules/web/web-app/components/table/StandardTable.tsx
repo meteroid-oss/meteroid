@@ -36,7 +36,7 @@ interface StandardTableProps<A> {
   defaultHidden?: string[]
   enableSelection?: boolean
   getRowId?: (originalRow: A, index: number) => string
-  renderSelectionActions?: (rows: Row<A>[]) => ReactNode
+  renderSelectionActions?: (rows: Row<A>[], clearSelection: () => void) => ReactNode
   /** Optional full-width metric strip above the rows, toggled from the view-options
    *  menu and remembered per table (needs `tableKey`). */
   chart?: ReactNode

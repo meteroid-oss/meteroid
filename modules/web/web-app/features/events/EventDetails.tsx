@@ -12,6 +12,7 @@ import {
 } from '@md/ui'
 import { Link } from 'react-router'
 
+import { Slot } from '@/edition'
 import { PropertyProfilePanel } from '@/features/events/PropertyProfilePanel'
 import { useBasePath } from '@/hooks/useBasePath'
 
@@ -100,6 +101,10 @@ export const EventDetailsDialog = ({
               </Card>
             </div>
           )}
+
+          <div className="flex justify-end gap-2">
+            <Slot name="eventDetail.actions" event={event} onDone={onClose} />
+          </div>
         </div>
       )}
     </DialogContent>

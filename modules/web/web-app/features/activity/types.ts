@@ -91,6 +91,7 @@ export const KNOWN_ACTIVITY_TYPES = [
   'reminder_sequence.created',
   'reminder_sequence.updated',
   'reminder_sequence.archived',
+  'usage_events.voided',
   'entity.field_changed',
   'entity.updated',
 ] as const

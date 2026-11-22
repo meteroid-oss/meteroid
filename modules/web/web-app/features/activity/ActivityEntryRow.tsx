@@ -274,6 +274,18 @@ function renderEntry(entry: ActivityEntry): RenderedEntry {
         icon: <Receipt className="h-4 w-4 text-success" />,
         title: <>{entityRef(entry, 'Invoice', 'Invoice')} marked as paid</>,
       }
+    case 'usage_events.voided': {
+      const count = typeof md.count === 'number' ? md.count : undefined
+      return {
+        icon: <CircleX className="h-4 w-4 text-destructive" />,
+        title: (
+          <>
+            {count === undefined ? 'Usage events' : `${count} usage event${count === 1 ? '' : 's'}`}{' '}
+            voided
+          </>
+        ),
+      }
+    }
     case 'invoice.voided':
       return {
         icon: <CircleX className="h-4 w-4 text-destructive" />,

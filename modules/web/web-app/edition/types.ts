@@ -9,6 +9,7 @@ import type { EditPlanSchema } from '@/lib/schemas/plans'
 import type { GeneralSettingsSchema } from '@/lib/schemas/settings'
 import type { EmailKind } from '@/rpc/api/customeremails/v1/models_pb'
 import type { CustomerBrief, CustomerPaymentMethod } from '@/rpc/api/customers/v1/models_pb'
+import type { EventSummary } from '@/rpc/api/events/v1/events_pb'
 import type { InvoiceAnnex } from '@/rpc/api/invoices/v1/models_pb'
 import type { MinimumCommitment, PlanVersion } from '@/rpc/api/plans/v1/models_pb'
 import type { DetailedQuote, QuoteAttachment } from '@/rpc/api/quotes/v1/models_pb'
@@ -25,6 +26,25 @@ import type { RouteObject } from 'react-router'
 
 export interface CustomerDetailContext {
   customerId: string
+}
+
+/** The rows selected on the current page of the events table. */
+export interface EventListSelectionContext {
+  events: EventSummary[]
+  clearSelection: () => void
+}
+
+/** An action on the selected events; the table offers selection while one is visible. */
+export interface EventSelectionAction {
+  id: string
+  useVisible: () => boolean
+  Action: ComponentType<EventListSelectionContext>
+}
+
+/** The event the detail dialog shows; `onDone` closes the dialog. */
+export interface EventDetailActionsContext {
+  event: EventSummary
+  onDone: () => void
 }
 
 export interface PlanVersionContext {
@@ -460,6 +480,7 @@ export interface ComponentSlots {
   'subscriptionDetail.usageLimitsAside': SubscriptionDetailContext
   /** In the Status column of the Wallets list, after the wallet's status. */
   'walletList.statusBadges': { wallet: WalletSummary }
+  'eventDetail.actions': EventDetailActionsContext
   /** The breakdown key field of the metric create and edit forms; without one, the metric detail still shows a stored key. */
   'metricForm.usageBreakdownKey': MetricBreakdownKeyContext
   /** The "When credit runs out" field of a draft plan version; without one, the stored rule is shown read-only. */
@@ -532,6 +553,7 @@ export type Slots = {
   'quoteList.tabs': QuoteListTab
   /** Entries of the subscription's action menu, after Edit Billing Settings. */
   'subscriptionDetail.actions': DetailAction<SubscriptionDetailContext>
+  'eventList.selectionActions': EventSelectionAction
   /** Notices of the help page, picked by `?topic=<id>`. */
   'help.topics': HelpTopic
   /** Views of the customer emails settings, each after the core view it names. */

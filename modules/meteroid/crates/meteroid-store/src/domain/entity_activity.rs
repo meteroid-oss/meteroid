@@ -430,6 +430,10 @@ pub enum ActivityType {
     #[strum(serialize = "reminder_sequence.archived")]
     #[serde(rename = "reminder_sequence.archived")]
     ReminderSequenceArchived,
+    /// Usage events voided together from the web app; the tenant is the entity.
+    #[strum(serialize = "usage_events.voided")]
+    #[serde(rename = "usage_events.voided")]
+    UsageEventsVoided,
 
     #[strum(serialize = "payment_reminder.enrolled")]
     #[serde(rename = "payment_reminder.enrolled")]

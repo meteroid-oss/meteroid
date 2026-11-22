@@ -12,6 +12,7 @@ import { useSearchParams } from 'react-router'
 import { Gate } from '@/components/Gate'
 import { ListPageLayout, ListToolbarSearch, RefreshButton } from '@/components/layouts'
 import { StandardTable } from '@/components/table/StandardTable'
+import { slotItems, useVisibleItems } from '@/edition'
 import { BaseFilter } from '@/features/TablePage'
 import { CustomerSelect } from '@/features/customers/CustomerSelect'
 import { DatePickerWithRange } from '@/features/dashboard/DateRangePicker'
@@ -174,6 +175,8 @@ export const EventsPage: FunctionComponent = () => {
     }
   }, [eventsQuery.data?.events, isLive])
 
+  const selectionActions = useVisibleItems(slotItems('eventList.selectionActions'), undefined)
+
   // Table columns
   const columns = useMemo<ColumnDef<EventSummary>[]>(
     () => [
@@ -313,6 +316,16 @@ export const EventsPage: FunctionComponent = () => {
         columns={columns}
         data={eventsQuery.data?.events || []}
         getRowId={event => event.id}
+        enableSelection={selectionActions.length > 0}
+        renderSelectionActions={(rows, clearSelection) =>
+          selectionActions.map(({ id, Action }) => (
+            <Action
+              key={id}
+              events={rows.map(row => row.original)}
+              clearSelection={clearSelection}
+            />
+          ))
+        }
         pagination={pagination}
         setPagination={setPagination}
         totalCount={eventsQuery.data?.events?.length || 0}

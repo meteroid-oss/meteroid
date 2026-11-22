@@ -65,7 +65,7 @@ interface CustomTableProps<A> {
   onShowChartChange?: (show: boolean) => void
   enableSelection?: boolean
   getRowId?: (originalRow: A, index: number) => string
-  renderSelectionActions?: (rows: Row<A>[]) => ReactNode
+  renderSelectionActions?: (rows: Row<A>[], clearSelection: () => void) => ReactNode
 }
 
 const MAX_SKELETON_ROWS = 10
@@ -245,7 +245,7 @@ export const CustomTable = <A extends object>({
       {enableSelection && selectedRows.length > 0 && (
         <div className="flex items-center gap-3 rounded-md border bg-muted/40 px-3 py-2 mb-1 text-sm">
           <span className="font-medium">{selectedRows.length} selected</span>
-          {renderSelectionActions?.(selectedRows)}
+          {renderSelectionActions?.(selectedRows, () => table.resetRowSelection())}
           <button
             type="button"
             className="ml-auto text-xs text-muted-foreground hover:text-foreground"
