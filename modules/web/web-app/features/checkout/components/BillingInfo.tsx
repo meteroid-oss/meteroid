@@ -26,6 +26,7 @@ const billingInfoSchema = z.object({
   line1: z.string().optional(),
   line2: z.string().optional(),
   city: z.string().optional(),
+  state: z.string().optional(),
   zipCode: z.string().optional(),
   country: z.string().optional(),
   vatNumber: z.string().optional(),
@@ -94,6 +95,7 @@ export const BillingInfo = ({
       line1: customer.billingAddress?.line1 || '',
       line2: customer.billingAddress?.line2 || '',
       city: customer.billingAddress?.city || '',
+      state: customer.billingAddress?.state || '',
       zipCode: customer.billingAddress?.zipCode || '',
       country: customer.billingAddress?.country,
       vatNumber: customer.vatNumber || '',
@@ -118,6 +120,7 @@ export const BillingInfo = ({
       line1: values.line1,
       line2: values.line2,
       city: values.city,
+      state: values.state || undefined,
       zipCode: values.zipCode,
       country: values.country,
     })
@@ -280,7 +283,7 @@ export const BillingInfo = ({
               placeholder="Apt, suite, etc. (optional)"
               className="rounded-none border-b-0 text-xs focus-visible:relative focus-visible:z-10"
             />
-            <div className="grid grid-cols-2">
+            <div className="grid grid-cols-3">
               <InputFormField
                 name="zipCode"
                 control={methods.control}
@@ -291,6 +294,12 @@ export const BillingInfo = ({
                 name="city"
                 control={methods.control}
                 placeholder="City"
+                className="rounded-none border-r-0 text-xs focus-visible:relative focus-visible:z-10"
+              />
+              <InputFormField
+                name="state"
+                control={methods.control}
+                placeholder="State"
                 className="rounded-none rounded-br-md text-xs focus-visible:relative focus-visible:z-10"
               />
             </div>

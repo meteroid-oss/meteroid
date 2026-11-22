@@ -12,6 +12,7 @@ import {
 } from '@/features/checkout/utils/checkoutRedirect'
 import { HOSTED_STATUS_PARAM } from '@/features/checkout/utils/hostedReturn'
 import { useQuery } from '@/lib/connectrpc'
+import { safeRedirectUrl } from '@/lib/utils/url'
 import { getCheckout } from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
 import { useForceTheme } from 'providers/ThemeProvider'
 
@@ -28,7 +29,7 @@ export const PortalCheckout = () => {
   const planChangeContext = checkoutQuery.data?.planChangeContext
   const addonPurchaseContext = checkoutQuery.data?.addonPurchaseContext
   const successUrl = checkoutQuery.data?.successUrl
-  const cancelUrl = checkoutQuery.data?.cancelUrl
+  const cancelUrl = safeRedirectUrl(checkoutQuery.data?.cancelUrl)
   const error = checkoutQuery.error
   const isLoading = checkoutQuery.isLoading
   // On the return leg from a hosted provider the URL carries `hosted_status`;
