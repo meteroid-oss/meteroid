@@ -708,6 +708,12 @@ impl ServicesEdge {
         self.services.run_billing_controller_with(limit, 1).await
     }
 
+    /// Decides the cadence origins the migration left pending, a run's worth; returns how many
+    /// plan windows are left.
+    pub async fn decide_pending_window_origins(&self) -> StoreResult<i64> {
+        self.services.decide_pending_window_origins().await
+    }
+
     /// Recomputes every customer's billing wake, counting the lost ones.
     pub async fn sweep_billing_controller(
         &self,

@@ -130,6 +130,10 @@ spec:
               value: {{ . | quote }}
             {{- end }}
             {{- include "meteroid.settingsEnv" . | nindent 12 }}
+            {{- with $worker.config.billingControllerSweepCron }}
+            - name: BILLING_CONTROLLER_SWEEP_CRON
+              value: {{ . | quote }}
+            {{- end }}
             {{- with $worker.config.tenantDeletionCleanupCron }}
             - name: TENANT_DELETION_CLEANUP_CRON
               value: {{ . | quote }}

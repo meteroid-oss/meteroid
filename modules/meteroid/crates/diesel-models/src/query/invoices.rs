@@ -1335,6 +1335,43 @@ impl InvoiceRow {
         Ok(())
     }
 
+    /// Closes a draft an operator deleted, its lines kept: billing from facts reads them as
+    /// voided (R-124). Only a draft is waived; anything else is an error.
+    pub async fn waive(conn: &mut PgConn, id: InvoiceId, tenant_id: TenantId) -> DbResult<()> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let now = common_clock::now().naive_utc();
+        let query = diesel::update(i_dsl::invoice)
+            .filter(i_dsl::id.eq(id))
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .filter(i_dsl::status.eq(InvoiceStatusEnum::Draft))
+            .set((
+                i_dsl::status.eq(InvoiceStatusEnum::Closed),
+                i_dsl::updated_at.eq(now),
+                i_dsl::waived_at.eq(now),
+                i_dsl::finalize_after.eq(None::<NaiveDateTime>),
+                i_dsl::next_payment_attempt_at.eq(None::<NaiveDateTime>),
+            ));
+
+        crate::debug_sql(&query);
+
+        let updated = query
+            .execute(conn)
+            .await
+            .attach("Error while waiving invoice")
+            .into_db_result()?;
+
+        if updated != 1 {
+            return Err(crate::errors::DatabaseError::ValidationError(format!(
+                "waive() updated {updated} rows for invoice {id}, expected exactly 1"
+            ))
+            .into());
+        }
+
+        Ok(())
+    }
+
     pub async fn mark_as_uncollectible(
         conn: &mut PgConn,
         id: InvoiceId,

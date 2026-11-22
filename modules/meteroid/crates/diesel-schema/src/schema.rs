@@ -1694,6 +1694,7 @@ diesel::table! {
         delivery_held_at -> Nullable<Timestamptz>,
         finalize_after -> Nullable<Timestamp>,
         next_payment_attempt_at -> Nullable<Timestamp>,
+        waived_at -> Nullable<Timestamp>,
     }
 }
 

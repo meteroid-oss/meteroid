@@ -480,9 +480,9 @@ WHERE i.id = e.invoice_id AND i.status = 'FINALIZED' AND i.payment_status <> 'PA
 
 ALTER TABLE subscription ADD COLUMN reconcile_from DATE;
 
--- The start of the latest period whose recurring invoice is issued with no draft before it: every
--- period ending by then was billed on an issued invoice. A draft still open is billed from facts.
--- A consolidated child is issued with its parent, and is no draft once merged.
+-- The start of the latest period whose recurring invoice is issued (closed included) with no draft
+-- before it: every period ending by then was billed. A draft still open is billed from facts. A
+-- consolidated child is issued with its parent, and is no draft once merged.
 UPDATE subscription s
 SET reconcile_from = w.settled
 FROM (SELECT i.subscription_id, max(i.billing_period_start) AS settled
@@ -491,8 +491,8 @@ FROM (SELECT i.subscription_id, max(i.billing_period_start) AS settled
       WHERE i.invoice_type = 'RECURRING'
         AND i.subscription_id IS NOT NULL
         AND CASE WHEN i.consolidated_into_invoice_id IS NULL
-                 THEN i.status IN ('FINALIZED', 'UNCOLLECTIBLE')
-                 ELSE p.status IN ('FINALIZED', 'UNCOLLECTIBLE') END
+                 THEN i.status IN ('FINALIZED', 'UNCOLLECTIBLE', 'CLOSED')
+                 ELSE p.status IN ('FINALIZED', 'UNCOLLECTIBLE', 'CLOSED') END
         AND NOT EXISTS (SELECT 1 FROM invoice d
                         WHERE d.subscription_id = i.subscription_id
                           AND d.invoice_type = 'RECURRING'
@@ -552,6 +552,69 @@ CREATE INDEX subscription_next_wake_at_idx ON subscription (tenant_id, customer_
 
 ALTER TABLE subscription ADD COLUMN reconcile_arrears_from DATE;
 
+UPDATE subscription s
+SET reconcile_from         = COALESCE(d.first_renewal, s.current_period_end),
+    reconcile_arrears_from = CASE WHEN d.first_renewal IS NULL THEN s.current_period_start
+                                  ELSE (s.imported_at - interval '1 day')::date END
+FROM (SELECT s2.id,
+             (SELECT min(i.billing_period_start) FROM invoice i
+              WHERE i.subscription_id = s2.id AND i.invoice_type = 'RECURRING'
+                AND i.status <> 'VOID') AS first_renewal
+      FROM subscription s2
+      WHERE s2.imported_at IS NOT NULL AND s2.reconcile_from IS NULL) d
+WHERE d.id = s.id
+  AND (d.first_renewal IS NOT NULL OR s.current_period_end IS NOT NULL);
+
+-- ── Gaps at the cursor ───────────────────────────────────────────────────────────────────────
+-- The previous release billed period after period and never went back. A live subscription whose
+-- current period has no recurring invoice nor any open draft (its draft deleted, a period skipped)
+-- owes nothing before that period nor its advance, and that period's arrears and usage at its end.
+UPDATE subscription s
+SET reconcile_from         = s.current_period_end,
+    reconcile_arrears_from = s.current_period_start
+WHERE s.imported_at IS NULL
+  AND s.status = 'ACTIVE'
+  AND s.current_period_end IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM invoice i
+                  WHERE i.subscription_id = s.id
+                    AND i.invoice_type = 'RECURRING'
+                    AND i.billing_period_start = s.current_period_start)
+  AND NOT EXISTS (SELECT 1 FROM invoice d
+                  WHERE d.subscription_id = s.id
+                    AND d.invoice_type = 'RECURRING'
+                    AND d.status = 'DRAFT'
+                    AND d.consolidated_into_invoice_id IS NULL);
+
+-- ── Drafts never issued ──────────────────────────────────────────────────────────────────────
+-- A live subscription the previous release only left empty drafts, on one cadence and with no
+-- add-on, is billed from its first draft: no period of its grid before it was billed. A mix of
+-- cadences keeps its history, a longer fee straddling that draft.
+UPDATE subscription s
+SET reconcile_from         = f.first_draft,
+    reconcile_arrears_from = f.first_draft
+FROM (SELECT d.subscription_id, min(d.billing_period_start) AS first_draft
+      FROM invoice d
+      WHERE d.invoice_type = 'RECURRING' AND d.status <> 'VOID'
+      GROUP BY d.subscription_id) f
+WHERE f.subscription_id = s.id
+  AND s.reconcile_from IS NULL
+  AND s.imported_at IS NULL
+  AND s.status = 'ACTIVE'
+  AND NOT EXISTS (SELECT 1 FROM invoice i
+                  WHERE i.subscription_id = s.id
+                    AND i.invoice_type = 'RECURRING'
+                    AND i.status NOT IN ('DRAFT', 'VOID'))
+  AND NOT EXISTS (SELECT 1 FROM invoice d
+                  WHERE d.subscription_id = s.id
+                    AND d.invoice_type = 'RECURRING'
+                    AND d.status = 'DRAFT'
+                    AND (d.total <> 0 OR jsonb_array_length(d.line_items) > 0
+                         OR d.consolidated_into_invoice_id IS NOT NULL))
+  AND NOT EXISTS (SELECT 1 FROM subscription_component c
+                  WHERE c.subscription_id = s.id
+                    AND c.period::text NOT IN (s.period::text, 'ONE_TIME'))
+  AND NOT EXISTS (SELECT 1 FROM subscription_add_on a WHERE a.subscription_id = s.id);
+
 -- ── Billing failures ─────────────────────────────────────────────────────────────────────────
 -- A subscription whose billing step fails, backed off on its own (its customer's other work goes
 -- on): the failures in a row, the first and the latest, the latest error and the retry. Cleared
@@ -565,19 +628,6 @@ ALTER TABLE subscription
 
 CREATE INDEX subscription_billing_failing_idx ON subscription (tenant_id, billing_last_failed_at)
     WHERE billing_failures > 0;
-
-UPDATE subscription s
-SET reconcile_from         = COALESCE(d.first_renewal, s.current_period_end),
-    reconcile_arrears_from = CASE WHEN d.first_renewal IS NULL THEN s.current_period_start
-                                  ELSE (s.imported_at - interval '1 day')::date END
-FROM (SELECT s2.id,
-             (SELECT min(i.billing_period_start) FROM invoice i
-              WHERE i.subscription_id = s2.id AND i.invoice_type = 'RECURRING'
-                AND i.status <> 'VOID') AS first_renewal
-      FROM subscription s2
-      WHERE s2.imported_at IS NOT NULL AND s2.reconcile_from IS NULL) d
-WHERE d.id = s.id
-  AND (d.first_renewal IS NOT NULL OR s.current_period_end IS NOT NULL);
 
 -- ── Seat upgrade lines ───────────────────────────────────────────────────────────────────────
 -- Seat purchases the previous release invoiced name their price component but no fee row, so

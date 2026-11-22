@@ -910,9 +910,9 @@ impl ScheduledRows {
 }
 
 impl crate::invoices::InvoiceRow {
-    /// The issued (finalized, uncollectible or voided) invoices of a subscription settling a
-    /// period from `from` on, its drafts too when `drafts`, all but `except`, and the consolidated
-    /// parents its drafts were merged into. A voided one forgives what it billed (R-096).
+    /// The issued (finalized, uncollectible, voided or closed) invoices of a subscription settling
+    /// a period from `from` on, its drafts too when `drafts`, all but `except`, and the consolidated
+    /// parents its drafts were merged into. A voided or waived one forgives what it held (R-096).
     pub async fn list_issued_of_subscription(
         conn: &mut PgConn,
         tenant_id: TenantId,
@@ -929,6 +929,7 @@ impl crate::invoices::InvoiceRow {
             InvoiceStatusEnum::Finalized,
             InvoiceStatusEnum::Uncollectible,
             InvoiceStatusEnum::Void,
+            InvoiceStatusEnum::Closed,
         ];
         if drafts {
             issued.push(InvoiceStatusEnum::Draft);

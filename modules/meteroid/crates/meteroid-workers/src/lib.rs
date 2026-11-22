@@ -479,10 +479,25 @@ pub async fn spawn_workers(
             store.pool.clone(),
             LeaderLock::BillingControllerSweep,
         ));
+        let schedule = config.workers.billing_controller_sweep_cron.clone();
         join_set.spawn(async move {
-            let schedule: meteroid_app::config::ParsedCron = "41 3 * * *"
-                .parse()
-                .expect("the billing controller sweep's schedule");
+            // The origins the migration left pending are decided at start, not at the first sweep.
+            let mut left = i64::MAX;
+            loop {
+                match services.decide_pending_window_origins().await {
+                    Ok(pending) if pending > 0 && pending < left => left = pending,
+                    Ok(pending) => {
+                        if pending > 0 {
+                            log::warn!("{pending} plan windows still have no cadence origin");
+                        }
+                        break;
+                    }
+                    Err(error) => {
+                        log::error!("cadence origins not decided at start: {error:?}");
+                        break;
+                    }
+                }
+            }
             meteroid_app::workers::misc::run_scheduled(
                 "billing_controller_sweep",
                 schedule,

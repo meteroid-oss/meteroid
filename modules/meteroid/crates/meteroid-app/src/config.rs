@@ -145,6 +145,10 @@ pub struct WorkersConfig {
     #[envconfig(from = "TENANT_DELETION_CLEANUP_CRON", default = "0 3 * * FRI")]
     pub tenant_deletion_cleanup_cron: ParsedCron,
 
+    // Billing controller sweep (every wake recomputed); defaults to daily, 03:41 UTC.
+    #[envconfig(from = "BILLING_CONTROLLER_SWEEP_CRON", default = "41 3 * * *")]
+    pub billing_controller_sweep_cron: ParsedCron,
+
     // VIES re-validation enqueuer schedule; defaults to daily, 04:00 UTC.
     #[envconfig(from = "VAT_REVALIDATION_CRON", default = "0 4 * * *")]
     pub vat_revalidation_cron: ParsedCron,

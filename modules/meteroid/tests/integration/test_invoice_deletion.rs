@@ -50,11 +50,12 @@ async fn webhook_events(env: &TestEnv) -> Vec<OutboxEvent> {
         .collect()
 }
 
-/// Deleting a draft records an `invoice.deleted` audit row naming the actor, and emits
-/// the matching webhook — the deleted row is otherwise unrecoverable.
+/// Deleting a subscription's recurring draft closes it (R-124): the invoice stays, Closed, and the
+/// close is audited under the actor and webhooked.
 #[rstest]
 #[tokio::test]
-async fn test_delete_draft_invoice_is_audited_and_webhooked(#[future] test_env: TestEnv) {
+async fn test_delete_recurring_draft_closes_it(#[future] test_env: TestEnv) {
+    use meteroid_store::domain::enums::InvoiceStatusEnum;
     let env = test_env.await;
 
     let sub_id = subscription()
@@ -68,6 +69,64 @@ async fn test_delete_draft_invoice_is_audited_and_webhooked(#[future] test_env: 
     let draft = env
         .insert_draft_invoice(sub_id, NaiveDate::from_ymd_opt(2024, 2, 1).unwrap())
         .await;
+
+    env.store()
+        .delete_invoice(Actor::User { id: USER_ID }, draft.id, TENANT_ID)
+        .await
+        .expect("delete draft invoice");
+
+    let closed = env
+        .get_invoices(sub_id)
+        .await
+        .into_iter()
+        .find(|i| i.id == draft.id)
+        .expect("the draft stays, closed");
+    assert_eq!(closed.status, InvoiceStatusEnum::Closed);
+
+    let activities = invoice_activities(&env, draft.id).await;
+    let closing = activities
+        .iter()
+        .find(|a| a.activity_type == "invoice.closed")
+        .expect("expected an invoice.closed audit row");
+    assert_eq!(closing.actor_type, ActorTypeEnum::User);
+    assert_eq!(closing.actor_uuid, Some(USER_ID.as_uuid()));
+    assert_eq!(closing.agg_subscription_id, Some(sub_id));
+
+    let events = webhook_events(&env).await;
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, OutboxEvent::InvoiceClosed(d) if d.invoice_id == draft.id)),
+        "expected an InvoiceClosed webhook event"
+    );
+}
+
+/// Deleting any other draft records an `invoice.deleted` audit row naming the actor, and emits
+/// the matching webhook — the deleted row is otherwise unrecoverable.
+#[rstest]
+#[tokio::test]
+async fn test_delete_draft_invoice_is_audited_and_webhooked(#[future] test_env: TestEnv) {
+    use diesel::prelude::*;
+    use diesel_async::RunQueryDsl;
+    use diesel_models::schema::invoice::dsl as i;
+    let env = test_env.await;
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    let draft = env
+        .insert_draft_invoice(sub_id, NaiveDate::from_ymd_opt(2024, 2, 1).unwrap())
+        .await;
+    diesel::update(i::invoice.filter(i::id.eq(draft.id)))
+        .set(i::invoice_type.eq(diesel_models::enums::InvoiceType::OneOff))
+        .execute(&mut env.conn().await)
+        .await
+        .expect("a one-off draft");
 
     env.store()
         .delete_invoice(Actor::User { id: USER_ID }, draft.id, TENANT_ID)
@@ -91,7 +150,6 @@ async fn test_delete_draft_invoice_is_audited_and_webhooked(#[future] test_env: 
     assert_eq!(deleted.actor_type, ActorTypeEnum::User);
     assert_eq!(deleted.actor_uuid, Some(USER_ID.as_uuid()));
     assert_eq!(deleted.agg_customer_id, Some(draft.customer_id));
-    assert_eq!(deleted.agg_subscription_id, Some(sub_id));
 
     let events = webhook_events(&env).await;
     assert!(

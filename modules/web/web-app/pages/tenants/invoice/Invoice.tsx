@@ -105,6 +105,7 @@ import {
   EInvoicingStatus,
   InvoicePaymentStatus,
   InvoiceStatus,
+  InvoiceType,
   LineItem,
 } from '@/rpc/api/invoices/v1/models_pb'
 import {
@@ -380,10 +381,11 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
     },
   })
 
+  // A subscription's recurring draft is closed rather than deleted: its period is never billed.
+  const closesOnDelete = invoice.invoiceType === InvoiceType.RECURRING && !!invoice.subscriptionId
   const deleteInvoiceMutation = useMutation(deleteInvoice, {
     onSuccess: async () => {
-      // Show success toast
-      toast.success(`Invoice deleted`)
+      toast.success(closesOnDelete ? `Invoice closed` : `Invoice deleted`)
       // Invalidate the list invoices query to refresh the list
       await queryClient.invalidateQueries({
         queryKey: createConnectQueryKey({
@@ -658,8 +660,12 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         onOpenChange={setShowDeleteConfirmation}
         onConfirm={handleDeleteConfirm}
         icon={Trash2}
-        title="Delete invoice"
-        description="Are you sure you want to delete this draft invoice? This action cannot be undone."
+        title={closesOnDelete ? 'Close invoice' : 'Delete invoice'}
+        description={
+          closesOnDelete
+            ? 'This draft will be closed and its period will not be billed. This action cannot be undone.'
+            : 'Are you sure you want to delete this draft invoice? This action cannot be undone.'
+        }
       />
 
       <InvoiceConfirmationDialog

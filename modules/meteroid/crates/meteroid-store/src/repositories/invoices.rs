@@ -909,6 +909,25 @@ impl InvoiceInterface for Store {
                     ));
                 }
 
+                // A subscription's recurring draft is closed, never numbered nor sent: its period is
+                // never billed again, the engine reading its lines as voided (R-124).
+                if invoice.invoice_type == InvoiceType::Recurring
+                    && invoice.subscription_id.is_some()
+                {
+                    InvoiceRow::waive(conn, id, tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                    let closed: Invoice = InvoiceRow::find_by_id(conn, tenant_id, id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)
+                        .and_then(TryInto::try_into)?;
+                    let event = domain::outbox_event::OutboxEvent::invoice_closed((&closed).into());
+                    return self
+                        .internal
+                        .record_outbox_batch_tx(conn, tenant_id, actor, vec![event])
+                        .await;
+                }
+
                 // Snapshot before the row is gone — the event payload is the only record left.
                 let event = domain::outbox_event::OutboxEvent::invoice_deleted((&invoice).into());
 

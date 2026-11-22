@@ -98,6 +98,8 @@ pub struct InvoiceRow {
     pub finalize_after: Option<NaiveDateTime>,
     /// When its payment is tried again; written next to its RetryPayment event.
     pub next_payment_attempt_at: Option<NaiveDateTime>,
+    /// Closed by an operator deleting the draft: its lines forgive what they billed (R-124).
+    pub waived_at: Option<NaiveDateTime>,
 }
 
 /// An invoice's money: what it asks (`owed`: total less applied credit and reducing notes) and

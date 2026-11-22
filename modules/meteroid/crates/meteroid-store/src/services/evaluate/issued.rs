@@ -120,6 +120,18 @@ pub async fn load_billed(
     )
     .await
     .map_err(Into::<Report<StoreError>>::into)?;
+    // A waived draft forgives what it holds as a void does (R-124); any other closed invoice
+    // (a declined purchase, an empty period) billed nothing and is not read.
+    let rows: Vec<InvoiceRow> = rows
+        .into_iter()
+        .filter(|row| row.status != InvoiceStatusEnum::Closed || row.waived_at.is_some())
+        .map(|mut row| {
+            if row.status == InvoiceStatusEnum::Closed {
+                row.status = InvoiceStatusEnum::Void;
+            }
+            row
+        })
+        .collect();
     // A merged draft bills through its consolidated invoice: counted once, as the draft, while
     // that invoice stands; the one being computed never counts its own parent.
     let parents: HashMap<InvoiceId, bool> = rows
