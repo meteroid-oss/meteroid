@@ -6,8 +6,8 @@ use std::str::FromStr;
 use axum::{extract::State, response::IntoResponse};
 
 use crate::subscriptions::mapping::{
-    domain_to_rest, domain_to_rest_details, rest_to_domain_create_request,
-    rest_to_domain_update_request,
+    domain_to_rest, domain_to_rest_details, pending_events_to_rest, rest_to_domain_create_request,
+    rest_to_domain_update_request, scheduled_cancellation_date,
 };
 use crate::subscriptions::model::{
     Subscription, SubscriptionCreateRequest, SubscriptionDetails, SubscriptionListResponse,
@@ -368,8 +368,24 @@ pub async fn cancel_subscription(
             RestApiError::from(e)
         })?;
 
+    // The cancellation is committed: failing to read it back must not fail the request.
+    let pending_events = app_state
+        .store
+        .get_subscription_details(authorized_state.tenant_id, subscription_id)
+        .await
+        .map(|details| pending_events_to_rest(details.pending_events))
+        .unwrap_or_else(|e| {
+            log::error!(
+                "cancel_subscription: failed to read pending events of {subscription_id}: {e}"
+            );
+            Vec::new()
+        });
+    let scheduled_cancellation_date = scheduled_cancellation_date(&pending_events);
+
     Ok(Json(super::model::CancelSubscriptionResponse {
         subscription: domain_to_rest(subscription)?,
+        pending_events,
+        scheduled_cancellation_date,
     }))
 }
 

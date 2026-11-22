@@ -12049,9 +12049,25 @@
       "CancelSubscriptionResponse": {
         "type": "object",
         "required": [
-          "subscription"
+          "subscription",
+          "pending_events"
         ],
         "properties": {
+          "pending_events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PendingScheduledEvent"
+            },
+            "description": "Changes still scheduled after this request, including the cancellation."
+          },
+          "scheduled_cancellation_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "Date the subscription ends at the start of: its first day without service. Empty when the\ncancellation applied immediately."
+          },
           "subscription": {
             "$ref": "#/components/schemas/Subscription"
           }
@@ -19239,6 +19255,53 @@
           "REFUND"
         ]
       },
+      "PendingScheduledEvent": {
+        "type": "object",
+        "required": [
+          "id",
+          "event_type",
+          "scheduled_date",
+          "customer_initiated"
+        ],
+        "properties": {
+          "cancel_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "customer_initiated": {
+            "type": "boolean"
+          },
+          "event_type": {
+            "$ref": "#/components/schemas/ScheduledEventType"
+          },
+          "id": {
+            "$ref": "#/components/schemas/ScheduledEventId"
+          },
+          "new_plan_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "new_plan_version_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PlanVersionId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scheduled_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Date the event takes effect at the start of"
+          }
+        }
+      },
       "PerUnitPlanPricing": {
         "type": "object",
         "required": [
@@ -20711,6 +20774,21 @@
           }
         }
       },
+      "ScheduledEventId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "sev_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "ScheduledEventType": {
+        "type": "string",
+        "enum": [
+          "PLAN_CHANGE",
+          "CANCEL",
+          "AMENDMENT"
+        ]
+      },
       "SelectOption": {
         "type": "object",
         "required": [
@@ -21682,6 +21760,13 @@
               }
             ]
           },
+          "pending_events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PendingScheduledEvent"
+            },
+            "description": "Changes scheduled to apply later: cancellation, plan change or amendment."
+          },
           "period": {
             "$ref": "#/components/schemas/BillingPeriodEnum",
             "description": "Billing period (monthly, annual, etc.)"
@@ -21705,6 +21790,14 @@
               "string",
               "null"
             ]
+          },
+          "scheduled_cancellation_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "Date the subscription ends at the start of, when a cancellation is scheduled: its first\nday without service. `end_date` is not affected by a scheduled cancellation."
           },
           "start_date": {
             "type": "string",

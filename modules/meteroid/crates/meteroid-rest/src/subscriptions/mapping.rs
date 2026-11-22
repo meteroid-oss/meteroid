@@ -2,12 +2,15 @@ use crate::currencies;
 use crate::entitlements::mapping::entitlement_to_rest;
 use crate::subscriptions::model::{
     AppliedCoupon, AppliedCouponDetailed, Coupon, CreateSubscriptionAddOn,
-    CreateSubscriptionComponents, Subscription, SubscriptionAddOnCustomization,
-    SubscriptionCreateRequest, SubscriptionDetails, SubscriptionUpdateRequest, UsageFilter,
+    CreateSubscriptionComponents, PendingScheduledEvent, ScheduledEventType, Subscription,
+    SubscriptionAddOnCustomization, SubscriptionCreateRequest, SubscriptionDetails,
+    SubscriptionUpdateRequest, UsageFilter,
 };
+use chrono::NaiveDate;
 use common_domain::ids::{CouponId, CustomerId, PlanVersionId, SubscriptionId};
 use meteroid_app::errors::RestApiError;
 use meteroid_store::domain;
+use meteroid_store::domain::enums::ScheduledEventTypeEnum;
 use meteroid_store::domain::{CreateSubscription, SubscriptionNew, SubscriptionPatch};
 
 pub fn domain_to_rest(s: domain::Subscription) -> Result<Subscription, RestApiError> {
@@ -65,6 +68,9 @@ pub fn domain_to_rest_details(
         crate::plans::mapping::subscription_minimum_to_rest(m, s.subscription.currency.as_str())
     });
 
+    let pending_events = pending_events_to_rest(s.pending_events);
+    let scheduled_cancellation_date = scheduled_cancellation_date(&pending_events);
+
     Ok(SubscriptionDetails {
         id: s.subscription.id,
         customer_id: s.subscription.customer_id,
@@ -107,7 +113,37 @@ pub fn domain_to_rest_details(
         custom_properties: s.subscription.custom_properties,
         usage_filter: s.subscription.usage_filter.map(usage_filter_to_rest),
         usage_filter_effective_from: s.subscription.usage_filter_since.map(Into::into),
+        pending_events,
+        scheduled_cancellation_date,
     })
+}
+
+pub fn pending_events_to_rest(
+    events: Vec<domain::subscriptions::PendingScheduledEvent>,
+) -> Vec<PendingScheduledEvent> {
+    events
+        .into_iter()
+        .map(|e| PendingScheduledEvent {
+            id: e.id,
+            event_type: match e.event_type {
+                ScheduledEventTypeEnum::ApplyPlanChange => ScheduledEventType::PlanChange,
+                ScheduledEventTypeEnum::CancelSubscription => ScheduledEventType::Cancel,
+                ScheduledEventTypeEnum::ApplyAmendment => ScheduledEventType::Amendment,
+            },
+            scheduled_date: e.scheduled_date,
+            cancel_reason: e.cancel_reason,
+            customer_initiated: e.customer_initiated,
+            new_plan_name: e.new_plan_name,
+            new_plan_version_id: e.new_plan_version_id,
+        })
+        .collect()
+}
+
+pub fn scheduled_cancellation_date(events: &[PendingScheduledEvent]) -> Option<NaiveDate> {
+    events
+        .iter()
+        .find(|e| e.event_type == ScheduledEventType::Cancel)
+        .map(|e| e.scheduled_date)
 }
 
 fn domain_applied_coupon_to_rest(

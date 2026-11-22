@@ -3,7 +3,8 @@ use crate::entitlements::model::Entitlement;
 use chrono::NaiveDate;
 use common_domain::ids::{
     AddOnId, AliasOr, AppliedCouponId, BankAccountId, BillableMetricId, CouponId, CreditUnitId,
-    CustomerId, PlanVersionId, PriceComponentId, PriceId, ProductId, SubscriptionAddOnId,
+    CustomerId, PlanVersionId, PriceComponentId, PriceId, ProductId, ScheduledEventId,
+    SubscriptionAddOnId,
 };
 use common_domain::ids::{PlanId, string_serde_opt, string_serde_vec_opt};
 use common_domain::ids::{SubscriptionId, string_serde};
@@ -325,6 +326,35 @@ pub struct SubscriptionDetails {
     /// neither this subscription nor the customer's others had invoiced when it was set.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub usage_filter_effective_from: Option<ApiDateTime>,
+    /// Changes scheduled to apply later: cancellation, plan change or amendment.
+    #[serde(default)]
+    pub pending_events: Vec<PendingScheduledEvent>,
+    /// Date the subscription ends at the start of, when a cancellation is scheduled: its first
+    /// day without service. `end_date` is not affected by a scheduled cancellation.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub scheduled_cancellation_date: Option<NaiveDate>,
+}
+
+#[derive(Clone, Copy, ToSchema, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ScheduledEventType {
+    PlanChange,
+    Cancel,
+    Amendment,
+}
+
+#[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
+pub struct PendingScheduledEvent {
+    #[serde(with = "string_serde")]
+    pub id: ScheduledEventId,
+    pub event_type: ScheduledEventType,
+    /// Date the event takes effect at the start of
+    pub scheduled_date: NaiveDate,
+    pub cancel_reason: Option<String>,
+    pub customer_initiated: bool,
+    pub new_plan_name: Option<String>,
+    #[serde(default, with = "string_serde_opt")]
+    pub new_plan_version_id: Option<PlanVersionId>,
 }
 
 #[derive(ToSchema, Serialize, Deserialize, Validate, Debug)]
@@ -1192,6 +1222,12 @@ pub struct CancelSubscriptionRequest {
 #[derive(ToSchema, Serialize, Deserialize)]
 pub struct CancelSubscriptionResponse {
     pub subscription: Subscription,
+    /// Changes still scheduled after this request, including the cancellation.
+    pub pending_events: Vec<PendingScheduledEvent>,
+    /// Date the subscription ends at the start of: its first day without service. Empty when the
+    /// cancellation applied immediately.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub scheduled_cancellation_date: Option<NaiveDate>,
 }
 
 #[derive(ToSchema, Serialize, Deserialize)]
