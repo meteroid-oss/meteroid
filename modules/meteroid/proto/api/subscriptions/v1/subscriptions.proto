@@ -438,13 +438,13 @@ message UpcomingInvoice {
 }
 
 enum UpcomingInvoiceChange {
+  reserved 4;
+  reserved "UPCOMING_INVOICE_CHANGE_PAUSE";
   UPCOMING_INVOICE_CHANGE_NONE = 0;
-  // The subscription is cancelled, paused or reaches its end date: its final invoice.
+  // The subscription is cancelled or reaches its end date: its final invoice.
   UPCOMING_INVOICE_CHANGE_ENDS = 1;
   UPCOMING_INVOICE_CHANGE_PLAN_CHANGE = 2;
   UPCOMING_INVOICE_CHANGE_AMENDMENT = 3;
-  // The subscription is paused: the last invoice before the pause.
-  UPCOMING_INVOICE_CHANGE_PAUSE = 4;
 }
 
 message UpcomingBilledFirst {

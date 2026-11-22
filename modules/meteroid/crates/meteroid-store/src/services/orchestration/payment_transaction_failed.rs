@@ -4,17 +4,18 @@ use crate::domain::enums::DeclineKind;
 use crate::domain::outbox_event::PaymentTransactionEvent;
 use crate::errors::StoreError;
 use crate::repositories::customer_emails::CustomerEmailsInterface;
+use crate::repositories::invoice_account::{self, is_issued};
 use crate::repositories::payment_transactions::PaymentTransactionInterface;
-use crate::repositories::payment_transactions::recompute_invoice_payment_state;
 use crate::services::Services;
 use crate::services::payment_reminders::sweep::ReopenedReminders;
 use crate::store::{PgConn, Store};
+use billing_core::settlement::{Charge, PaymentStatus};
 use common_domain::ids::{
     CustomerId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, SubscriptionId, TenantId,
 };
 use diesel_models::checkout_sessions::CheckoutSessionRow;
 use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
-use diesel_models::enums::{InvoicePaymentStatus, InvoiceStatusEnum};
+use diesel_models::enums::InvoiceStatusEnum;
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::payments::PaymentTransactionRow;
 use error_stack::Report;
@@ -133,40 +134,18 @@ impl Services {
                         return Ok(FailureOutcome::Skipped);
                     }
 
-                    // Recompute rather than trust the event: a redelivery, or a concurrent
-                    // settlement of a different attempt, must not push a paid invoice into
-                    // Errored. This is the same idempotency contract as the settle handler.
-                    let refreshed = InvoiceRow::recompute_amount_due_from_settled_payments(
-                        conn,
-                        invoice_id,
-                        event.tenant_id,
-                    )
-                    .await?;
+                    // Settled from the account rather than the event: a redelivery, or a
+                    // concurrent settlement of a different attempt, never errors a paid invoice.
+                    let settled =
+                        invoice_account::settle_tx(conn, event.tenant_id, invoice_id, None).await?;
 
-                    if refreshed.amount_due <= 0 {
-                        return Ok(FailureOutcome::Skipped);
-                    }
-
-                    // Another attempt is already in flight (retry raced the failure webhook,
-                    // or a customer paid via the portal). It owns the invoice; leave it alone.
-                    if PaymentTransactionRow::exists_live_for_invoice(
-                        conn,
-                        invoice_id,
-                        event.tenant_id,
-                    )
-                    .await?
+                    // Paid, or another attempt is in flight (a retry raced the failure webhook, or
+                    // the customer paid in the portal) and owns the invoice: leave it alone.
+                    if !matches!(settled.state.charge(), Charge::Due(_))
+                        || settled.state.status != PaymentStatus::Errored
                     {
                         return Ok(FailureOutcome::Skipped);
                     }
-
-                    InvoiceRow::apply_payment_status(
-                        conn,
-                        invoice_id,
-                        event.tenant_id,
-                        diesel_models::enums::InvoicePaymentStatus::Errored,
-                        None,
-                    )
-                    .await?;
 
                     let payment = PaymentTransactionRow::get_by_id(
                         conn,
@@ -262,15 +241,10 @@ impl Services {
                     let invoice = InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
-                    if invoice.invoice.payment_status != InvoicePaymentStatus::Processing
-                        || PaymentTransactionRow::exists_live_for_invoice(
-                            conn, invoice_id, tenant_id,
-                        )
-                        .await?
-                    {
-                        return Ok(());
+                    // The attempt is recorded: the account no longer counts it in flight.
+                    if is_issued(&invoice.invoice) {
+                        invoice_account::settle_tx(conn, tenant_id, invoice_id, None).await?;
                     }
-                    recompute_invoice_payment_state(conn, tenant_id, invoice_id, None).await?;
                     Ok(())
                 }
                 .scope_boxed()
@@ -288,12 +262,14 @@ impl Services {
         self.store
             .transaction(|conn| {
                 async move {
-                    InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
+                    let invoice = InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
                         .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-                    if PaymentTransactionRow::exists_live_for_invoice(conn, invoice_id, tenant_id)
-                        .await?
-                    {
+                        .map_err(Into::<Report<StoreError>>::into)?
+                        .invoice;
+                    if !matches!(
+                        invoice_account::charge_tx(conn, &invoice).await?,
+                        Charge::Due(_)
+                    ) {
                         return Ok(());
                     }
                     self.store
@@ -499,13 +475,14 @@ async fn rearm_retries_where(
         if !is_hard_decline(&failed) || !revived(&failed) {
             continue;
         }
-        if PaymentTransactionRow::exists_live_for_invoice(conn, invoice_id, tenant_id).await? {
-            continue;
-        }
         let invoice = InvoiceRow::find_by_id(conn, tenant_id, invoice_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
-        if invoice.next_payment_attempt_at.is_some() {
+        if !matches!(
+            invoice_account::charge_tx(conn, &invoice).await?,
+            Charge::Due(_)
+        ) || invoice.next_payment_attempt_at.is_some()
+        {
             continue;
         }
         set_payment_attempt(

@@ -218,7 +218,7 @@ async fn a_seat_increase_in_the_cut_period_bills_the_days_up_to_the_term_end(
             "Recurring 2024-01-01: Seats 2024-01-01..2024-02-01 1000",
             "Recurring 2024-02-01: Platform Fee 2024-02-01..2024-02-15 1400",
             "Recurring 2024-02-01: Seats 2024-02-01..2024-02-15 483",
-            "OneOff 2024-02-08: 2 Seats upgrade 2024-02-08..2024-02-15 482",
+            "Adjustment 2024-02-08: 2 Seats upgrade 2024-02-08..2024-02-15 482",
         ]
     );
 }

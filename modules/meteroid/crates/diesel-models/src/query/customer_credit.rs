@@ -942,6 +942,34 @@ impl CustomerCreditGrantRow {
         .into_db_result()
     }
 
+    /// `lock_all` without locking anything, for previews.
+    pub async fn list_all(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        currency: &str,
+    ) -> DbResult<Vec<ScopedGrantRow>> {
+        use diesel::sql_types::Uuid as SqlUuid;
+        let Some(account) =
+            CustomerCreditAccountRow::find_by_currency(conn, tenant_id, customer_id, currency)
+                .await?
+        else {
+            return Ok(Vec::new());
+        };
+        diesel::sql_query(scoped_grants_query(
+            "c.tenant_id = $1 AND c.customer_id = $2 AND c.account_id = $3",
+            "g.tenant_id = $1 AND g.customer_id = $2 AND g.account_id = $3",
+            "",
+        ))
+        .bind::<SqlUuid, _>(tenant_id.as_uuid())
+        .bind::<SqlUuid, _>(customer_id.as_uuid())
+        .bind::<SqlUuid, _>(account.id.as_uuid())
+        .load(conn)
+        .await
+        .attach("Error while reading customer credit")
+        .into_db_result()
+    }
+
     /// Customers and currencies holding credit that lapsed (expired or ended) at or before
     /// `expired_by` and still has value, in `(tenant, customer, currency)` order after `after`,
     /// with the earliest such lapse and the customer's invoicing entity grace. Nothing is locked.

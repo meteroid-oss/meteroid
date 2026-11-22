@@ -959,6 +959,151 @@ async fn spending_the_pack_then_changing_plan_refunds_nothing_of_it() {
     assert_revenue_sane(&env, CUST_UBER_ID).await;
 }
 
+/// Scale -> Studio previewed, then applied, ten days into the period after 350.00 of usage: the
+/// bonus pays 50.00 of it and paid credit 300.00, so 200.00 of the 500.00 is left and the pack's
+/// fee credit is capped there (50000 × 20000/50000 = 20000, below what its unused days are
+/// worth). The preview settles that usage in memory and shows the credit removed and the fee
+/// credited exactly as the change then writes them, and changes nothing itself.
+/// On a moved clock: the pack is paid as its period opens, so its credit is spendable before the
+/// change; paid today, after the change's midnight, it could pay none of the usage before it.
+/// Rules: OQ1, OQ3, R15, D3
+#[tokio::test]
+async fn the_preview_shows_the_pack_credit_the_change_writes() {
+    let (env, usage) = usage_env().await;
+    halyard(&env, CreditExpiry::BillingPeriod).await;
+    scale_usage(&env).await;
+    let today = Utc::now().date_naive();
+    let start_on = today - Duration::days(10);
+    env.set_now(midnight(start_on) + Duration::hours(1));
+    let sub_id = start(&env, CUST_UBER_ID, SCALE, start_on).await;
+    let opening = invoice(&env, sub_id, 0).await;
+    assert_eq!(
+        pack_lines(&opening),
+        vec![
+            pack("Monthly credit", 50_000, 55_000),
+            pack("Welcome credit", 0, 5_000)
+        ],
+        "a whole period from its start"
+    );
+    pay(&env, &opening).await;
+    env.set_now(midnight(today) + Duration::hours(1));
+    set_usage(&usage, start_on, today, 3_500);
+    let period_end = env
+        .get_subscription(sub_id)
+        .await
+        .current_period_end
+        .expect("period end");
+
+    let proration = env
+        .services()
+        .preview_plan_change(
+            sub_id,
+            TENANT_ID,
+            STUDIO,
+            vec![],
+            Some(PlanChangeMode::Immediate),
+        )
+        .await
+        .expect("immediate preview")
+        .proration
+        .expect("proration");
+    let outgoing: Vec<_> = proration
+        .pack_changes
+        .iter()
+        .filter(|c| c.kind != PackChangeKind::Charge)
+        .map(|c| {
+            (
+                c.kind,
+                c.name.clone(),
+                c.amount_cents,
+                c.credit_minor,
+                c.promotional,
+            )
+        })
+        .collect();
+    assert_eq!(
+        outgoing,
+        vec![
+            (
+                PackChangeKind::CreditRemoved,
+                "Monthly credit".to_owned(),
+                0,
+                20_000,
+                false
+            ),
+            (
+                PackChangeKind::FeeCredit,
+                "Monthly credit".to_owned(),
+                -20_000,
+                0,
+                false
+            ),
+        ],
+        "the paid credit the usage leaves, the fee capped by it; the bonus is spent"
+    );
+    let before = grants(&env, CUST_UBER_ID).await;
+    assert!(
+        before.contains(&"EUR CREDIT_PURCHASE PAID 50000 50000".to_owned())
+            && before.contains(&"EUR CREDIT_PURCHASE PROMOTIONAL 5000 5000".to_owned()),
+        "the preview changed nothing: {before:?}"
+    );
+    let mut conn = env.conn().await;
+    let open = diesel_models::customer_credit::CreditUsageSettlementRow::list_for_period(
+        &mut conn, TENANT_ID, sub_id, start_on, "EUR",
+    )
+    .await
+    .expect("settlements");
+    assert!(open.is_empty(), "the preview recorded no settlement");
+    drop(conn);
+
+    change_on(&env, sub_id, STUDIO, today).await;
+
+    let rows = grant_rows(&env, CUST_UBER_ID).await;
+    assert_eq!(
+        movements(&env, the(&rows, "CREDIT_PURCHASE", "PROMOTIONAL", 5_000)).await,
+        vec!["FUND 5000", "DRAW -5000"],
+        "the bonus pays 50.00 of the usage first"
+    );
+    assert_eq!(
+        movements(&env, the(&rows, "CREDIT_PURCHASE", "PAID", 50_000)).await,
+        vec![
+            "FUND 50000".to_owned(),
+            "DRAW -30000".to_owned(),
+            format!("REVERSAL -20000 {PLAN_CHANGE_REMOVAL}"),
+        ],
+        "paid credit pays the other 300.00; the 200.00 left is refunded and removed"
+    );
+    // A fee's days left, rounded half up: 99.00 of platform fee, 25.00 of seats.
+    let (left, days) = (
+        (period_end - today).num_days(),
+        (period_end - start_on).num_days(),
+    );
+    let unused = |full: i64| (2 * full * left + days) / (2 * days);
+    let ((kind, subtotal, tax, total), lines) = the_note(&env, &opening).await;
+    assert_eq!(kind, CreditType::CreditToBalance);
+    assert_eq!(
+        lines,
+        vec![
+            ("Monthly credit".to_owned(), -20_000, 0),
+            ("Platform Fee".to_owned(), -unused(9_900), 0),
+            ("Seats".to_owned(), -unused(2_500), 0),
+        ]
+    );
+    assert_eq!(
+        (subtotal, tax, total),
+        (
+            -(20_000 + unused(9_900) + unused(2_500)),
+            0,
+            -(20_000 + unused(9_900) + unused(2_500))
+        )
+    );
+    assert_eq!(
+        proration.credits_total_cents, subtotal,
+        "the preview credits what the note credits"
+    );
+    crate::helpers::credit::assert_ledger_balances(env.store(), TENANT_ID, CUST_UBER_ID).await;
+}
+
 /// Scale -> Large on Jan 16 while January's Scale invoice is unpaid: no credit was granted yet, so
 /// the pack's fee is credited by the unused time on a note that cancels that debt. Paid later, the
 /// invoice grants only what was paid (55000 less its credited share), ending with the change: it

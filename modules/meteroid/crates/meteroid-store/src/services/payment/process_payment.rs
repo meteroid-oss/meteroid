@@ -10,6 +10,7 @@ use crate::domain::outbox_event::PaymentTransactionEvent;
 use crate::domain::payment_transactions::{PaymentIntent, PaymentNextAction, PaymentTransaction};
 use crate::domain::{DeclineKind, PaymentStatusEnum as DomainPaymentStatus};
 use crate::errors::StoreError;
+use crate::repositories::invoice_account;
 use crate::repositories::payment_transactions::PaymentTransactionInterface;
 use crate::services::InvoiceDelivery;
 use crate::services::Services;
@@ -17,6 +18,7 @@ use crate::services::checkout_completion::{
     ChargeNeeded, PaymentCoupons, find_payment_method, payment_method_not_found,
 };
 use crate::store::PgConn;
+use billing_core::settlement::Charge;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use common_domain::ids::{
     BaseId, CheckoutSessionId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, TenantId,
@@ -24,7 +26,7 @@ use common_domain::ids::{
 use diesel_models::checkout_sessions::CheckoutSessionRow;
 use diesel_models::customer_connection::CustomerConnectionDetailsRow;
 use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
-use diesel_models::enums::{InvoicePaymentStatus, PaymentStatusEnum, PaymentTypeEnum};
+use diesel_models::enums::{PaymentStatusEnum, PaymentTypeEnum};
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::payments::{
     PaymentTransactionRow, PaymentTransactionRowNew, PaymentTransactionRowPatch,
@@ -549,25 +551,35 @@ impl Services {
                 .attach("Cannot process payment for this invoice status"));
         }
 
-        if invoice.invoice.amount_due <= 0 {
-            return Err(Report::new(StoreError::BillingError).attach("Invoice has no amount due"));
-        }
-
         let existing_transactions =
             PaymentTransactionRow::list_by_invoice_id(conn, invoice_id, tenant_id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-        // Only one payment attempt at a time. A REFUND row in flight moves money the other way
-        // and never fences a charge.
-        if let Some(pending) = existing_transactions.iter().find(|tx| {
-            tx.transaction.payment_type.is_collection()
-                && tx.transaction.status == PaymentStatusEnum::Pending
-        }) {
-            return Ok(InvoiceChargeClaim::InFlight(
-                pending.transaction.clone().into(),
-            ));
-        }
+        // What the account leaves due, under the lock (R-127): never measured against the total,
+        // so credit and settled payments netted or not, nothing is collected twice. One attempt
+        // at a time; a REFUND row moves money the other way and never fences a charge.
+        let amount_due = match invoice_account::charge_tx(conn, &invoice.invoice).await? {
+            Charge::Due(amount) => amount,
+            Charge::Covered => {
+                return Err(Report::new(StoreError::PaymentError(
+                    "Invoice already has sufficient payments: nothing is left due".to_string(),
+                )));
+            }
+            Charge::InFlight => {
+                let in_flight = existing_transactions.iter().find(|tx| {
+                    tx.transaction.payment_type.is_collection()
+                        && matches!(
+                            tx.transaction.status,
+                            PaymentStatusEnum::Pending | PaymentStatusEnum::Ready
+                        )
+                });
+                return match in_flight {
+                    Some(row) => Ok(InvoiceChargeClaim::InFlight(row.transaction.clone().into())),
+                    None => Err(payment_in_flight()),
+                };
+            }
+        };
 
         // Every caller charges a method of the invoice's own customer, whoever chose it.
         let method_archived = find_payment_method(conn, tenant_id, payment_method_id)
@@ -576,43 +588,6 @@ impl Services {
             .ok_or_else(payment_method_not_found)?
             .archived_at
             .is_some();
-
-        // Calculate total of active payments (pending/ready/settled) to prevent over-payment.
-        // This check, combined with SELECT FOR UPDATE on the invoice, ensures atomicity
-        // in a distributed environment. Involuntary claw-backs are netted out (mirroring
-        // `recompute_amount_due_from_settled_payments`) so a chargebacked settlement doesn't
-        // block collecting the reopened balance; REFUND rows are not payments at all.
-        let active_payment_sum: i64 = existing_transactions
-            .iter()
-            .filter(|tx| {
-                tx.transaction.payment_type.is_collection()
-                    && matches!(
-                        tx.transaction.status,
-                        PaymentStatusEnum::Pending
-                            | PaymentStatusEnum::Ready
-                            | PaymentStatusEnum::Settled
-                            | PaymentStatusEnum::Refunded
-                    )
-            })
-            .map(|tx| tx.transaction.amount - tx.transaction.amount_reversed)
-            .sum();
-
-        // Prevent payment if invoice is already fully covered
-        if active_payment_sum >= invoice.invoice.total {
-            return Err(Report::new(StoreError::PaymentError(format!(
-                "Invoice already has sufficient payments. Total: {}, Already paid: {}",
-                invoice.invoice.total, active_payment_sum
-            ))));
-        }
-
-        // Prevent payment if this would exceed the invoice total
-        let proposed_payment = invoice.invoice.amount_due;
-        if active_payment_sum + proposed_payment > invoice.invoice.total {
-            return Err(Report::new(StoreError::PaymentError(format!(
-                "Payment of {} would exceed invoice total. Already paid: {}, Total: {}",
-                proposed_payment, active_payment_sum, invoice.invoice.total
-            ))));
-        }
 
         let (method, external_customer_id, connector, connector_impl) = self
             .load_charge_context(conn, &tenant_id, &payment_method_id)
@@ -673,7 +648,7 @@ impl Services {
             tenant_id,
             invoice_id: Some(invoice_id),
             provider_transaction_id: None,
-            amount: invoice.invoice.amount_due,
+            amount: amount_due,
             currency: invoice.invoice.currency.clone(),
             payment_method_id: Some(payment_method_id),
             status: PaymentStatusEnum::Pending,
@@ -933,16 +908,9 @@ impl Services {
                             self.on_invoice_payment_settled_tx(conn, &event, invoice_id, at)
                                 .await?;
                         }
+                        // The declined attempt is recorded: the account reads the invoice Errored.
                         DomainPaymentStatus::Failed => {
-                            InvoiceRow::apply_payment_status(
-                                conn,
-                                invoice_id,
-                                tenant_id,
-                                InvoicePaymentStatus::Errored,
-                                None,
-                            )
-                            .await
-                            .map_err(Into::<Report<StoreError>>::into)?;
+                            invoice_account::settle_tx(conn, tenant_id, invoice_id, None).await?;
                         }
                         _ => {}
                     }

@@ -355,7 +355,8 @@ pub async fn assert_ledger_balances(store: &Store, tenant_id: TenantId, customer
 }
 
 /// The subscription hand-authored drafts bill once they sell credit packs: a pack always belongs
-/// to a subscription. A plan with no components, so it bills nothing of its own.
+/// to a subscription. A plan with no components, so it bills nothing of its own; its facts are
+/// recorded as a subscription's insert records them.
 pub async fn pack_subscription(
     store: &Store,
     tenant_id: TenantId,
@@ -372,6 +373,10 @@ pub async fn pack_subscription(
     use diesel_models::errors::DatabaseErrorContainer;
     use diesel_models::plan_versions::PlanVersionRowNew;
     use diesel_models::plans::{PlanRowNew, PlanRowPatch};
+    use diesel_models::subscription_facts::{
+        StartSettledBy, SubscriptionPlanWindowRow, SubscriptionPlanWindowRowNew,
+        SubscriptionStartSettledRow,
+    };
     use diesel_models::subscriptions::{SubscriptionRow, SubscriptionRowNew};
 
     let derived = |label: &str| uuid::Uuid::new_v5(&customer_id.as_uuid(), label.as_bytes());
@@ -390,7 +395,8 @@ pub async fn pack_subscription(
         PlanId::from(derived("credit-pack-plan")),
         PlanVersionId::from(derived("credit-pack-plan-version")),
     );
-    let today = common_clock::now().date_naive();
+    let now = common_clock::now().naive_utc();
+    let today = now.date();
     conn.transaction(async |tx| {
         PlanRowNew {
             id: plan_id,
@@ -442,11 +448,11 @@ pub async fn pack_subscription(
             tenant_id,
             start_date: today,
             plan_version_id,
-            created_at: common_clock::now().naive_utc(),
+            created_at: now,
             net_terms: 0,
             invoice_memo: None,
             invoice_threshold: None,
-            activated_at: Some(common_clock::now().naive_utc()),
+            activated_at: Some(now),
             currency: currency.to_owned(),
             mrr_cents: 0,
             period: BillingPeriodEnum::Monthly,
@@ -473,6 +479,30 @@ pub async fn pack_subscription(
             usage_filter_since: None,
         }
         .insert(tx)
+        .await?;
+        SubscriptionPlanWindowRow::insert_batch(
+            tx,
+            &[SubscriptionPlanWindowRowNew {
+                id: uuid::Uuid::now_v7(),
+                tenant_id,
+                subscription_id,
+                plan_version_id,
+                from_date: today,
+                cadence: BillingPeriodEnum::Monthly,
+                cadence_origin: today,
+            }],
+        )
+        .await?;
+        SubscriptionStartSettledRow::insert_batch(
+            tx,
+            &[SubscriptionStartSettledRow {
+                subscription_id,
+                tenant_id,
+                at: now,
+                settled_by: StartSettledBy::Start.as_str().to_owned(),
+                created_at: now,
+            }],
+        )
         .await?;
         Ok::<_, DatabaseErrorContainer>(())
     })

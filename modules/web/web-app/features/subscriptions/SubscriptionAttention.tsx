@@ -63,8 +63,6 @@ const scheduledEventLabel = (
         title: `Cancellation scheduled for ${on}${event.cancelReason ? ` (${event.cancelReason})` : ''}`,
         variant: 'destructive',
       }
-    case ScheduledEventType.PAUSE:
-      return { title: `Pause scheduled for ${on}`, variant: 'warning' }
     case ScheduledEventType.END_TRIAL:
       return { title: `Trial ending on ${on}`, variant: 'warning' }
     case ScheduledEventType.AMENDMENT:

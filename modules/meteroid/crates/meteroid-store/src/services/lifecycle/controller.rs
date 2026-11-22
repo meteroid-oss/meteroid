@@ -704,12 +704,15 @@ impl Services {
         let invoice = InvoiceRow::find_by_id(conn, tenant_id, invoice_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
-        // Collected, written off, or cancelled since.
-        if invoice.status != InvoiceStatusEnum::Finalized || invoice.amount_due <= 0 {
+        // Written off or cancelled since.
+        if invoice.status != InvoiceStatusEnum::Finalized {
             return Ok(());
         }
-        // Someone got there first (portal payment, manual charge).
-        if PaymentTransactionRow::exists_live_for_invoice(conn, invoice_id, tenant_id).await? {
+        // Collected since, or someone got there first (portal payment, manual charge).
+        if !matches!(
+            crate::repositories::invoice_account::charge_tx(conn, &invoice).await?,
+            billing_core::settlement::Charge::Due(_)
+        ) {
             return Ok(());
         }
         let ResolvedPaymentMethod::CustomerPaymentMethod(payment_method_id) = self

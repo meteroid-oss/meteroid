@@ -974,7 +974,8 @@ impl InvoiceInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
                 let lock = &locked.lock;
-                diesel_models::query::credit_inputs::bump_customer(conn, lock).await?;
+                let account =
+                    crate::repositories::invoice_account::load_tx(conn, &locked.invoice).await?;
                 let invoice: Invoice = locked.invoice.try_into()?;
 
                 // A consolidated child is superseded by its parent and never finalized on its own;
@@ -988,15 +989,16 @@ impl InvoiceInterface for Store {
                     ));
                 }
 
-                if matches!(
-                    invoice.payment_status,
-                    domain::enums::InvoicePaymentStatus::Paid
-                        | domain::enums::InvoicePaymentStatus::PartiallyPaid
-                ) {
-                    bail!(StoreError::InvalidArgument(
-                        "Paid or partially paid invoices cannot be voided".to_string()
-                    ));
-                }
+                // The account decides the void before anything is written (R-128).
+                let void = account.void().map_err(|refusal| {
+                    Report::new(StoreError::InvalidArgument(match refusal {
+                        billing_core::settlement::Refusal::InFlight => {
+                            "an invoice cannot be voided while a payment is in flight".to_string()
+                        }
+                        _ => "Paid or partially paid invoices cannot be voided".to_string(),
+                    }))
+                })?;
+                diesel_models::query::credit_inputs::bump_customer(conn, lock).await?;
 
                 // 2b. A consolidated parent activates its member subscriptions only when it is
                 // paid (see `activate_subscription_on_invoice_paid`). Voiding it never pays, so any
@@ -1029,9 +1031,9 @@ impl InvoiceInterface for Store {
                 let voided_coupons = invoice.coupons.clone();
                 let voided_currency = invoice.currency.clone();
 
-                // 3. The void gives back the credit the invoice drew; its note then converts only
-                // collected cash, so the drawn credit is never returned twice. Every grant is
-                // locked first, in the order the expiry sweep takes them (see step 4b).
+                // 3. The void gives back the draws still on the invoice; its note returns nothing
+                // itself, so no credit is returned twice. Every grant is locked first, in the
+                // order the expiry sweep takes them (see step 4b).
                 let customer_id = invoice.customer_id;
                 // Unit wallets first, as finalization draws them before the money wallet.
                 let money =
@@ -1054,7 +1056,7 @@ impl InvoiceInterface for Store {
                 }
                 crate::repositories::credit_notes::restore_invoice_credit_tx(
                     conn,
-                    &*self.hooks.credit, lock, &invoice, now,
+                    &*self.hooks.credit, lock, &invoice, void, now,
                 )
                     .await?;
                 crate::services::credit::follow_credit_given_back_tx(conn, &*self.hooks.credit, lock, id).await?;
@@ -1074,7 +1076,6 @@ impl InvoiceInterface for Store {
                         custom_properties: None,
                         from_proration: false,
                         purchased_credit_removed: false,
-                        applied_credits_restored_externally: true,
                         voids_invoice: true,
                         origin: domain::enums::CreditNoteOrigin::Void,
                     },

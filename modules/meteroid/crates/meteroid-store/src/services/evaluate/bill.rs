@@ -93,7 +93,7 @@ pub(in crate::services) fn bills_from_facts(invoice_type: &InvoiceType) -> bool 
 
 /// The document a recurring invoice of `invoice_date` (or a final one) is, and those it carries.
 #[derive(Clone, Debug)]
-struct Slot {
+pub(super) struct Slot {
     slot: DocumentSlot,
     /// The ending's day while final invoices are off: its last charges ride that day's invoice.
     final_on: Option<NaiveDate>,
@@ -104,7 +104,7 @@ struct Slot {
 }
 
 impl Slot {
-    fn carries(&self, document: DocumentSlot) -> bool {
+    pub(super) fn carries(&self, document: DocumentSlot) -> bool {
         document == self.slot
             || (document == DocumentSlot::Final && self.final_on.is_some())
             || matches!(document, DocumentSlot::Recurring { period_start } if self.caught_up.contains(&period_start))
@@ -175,6 +175,73 @@ pub(super) fn evaluated_at(facts: &Facts<StoreFee>, invoice_date: NaiveDate) -> 
         Some(ending) if ending.on() == invoice_date => now.max(ending.at),
         _ => now,
     }
+}
+
+/// The slot of the invoice of `invoice_date` (or a final one), with the periods it catches up among
+/// those `documents` name: since the last recurring invoice before it, none written for them.
+pub(super) async fn slot_on(
+    conn: &mut PgConn,
+    loaded: &LoadedFacts,
+    documents: &[DocumentSlot],
+    invoice_date: NaiveDate,
+    invoice_type: &InvoiceType,
+) -> StoreResult<Slot> {
+    if *invoice_type == InvoiceType::Final {
+        return Ok(Slot {
+            slot: DocumentSlot::Final,
+            final_on: None,
+            caught_up: Vec::new(),
+            last: None,
+        });
+    }
+    let final_on = loaded
+        .facts
+        .effective_ending()
+        .map(|ending| ending.on())
+        .filter(|on| {
+            *on == invoice_date
+                && !crate::services::subscriptions::terminate::issues_final_invoices()
+        });
+    let subscription = loaded.facts.subscription;
+    let last = InvoiceRow::latest_recurring_period_before(
+        conn,
+        loaded.tenant_id,
+        subscription,
+        invoice_date,
+    )
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?;
+    let Some(last) = last else {
+        return Ok(Slot {
+            slot: DocumentSlot::Recurring {
+                period_start: invoice_date,
+            },
+            final_on,
+            caught_up: Vec::new(),
+            last: None,
+        });
+    };
+    let mut caught_up: Vec<NaiveDate> = documents
+        .iter()
+        .filter_map(|document| match *document {
+            DocumentSlot::Recurring { period_start }
+                if period_start < invoice_date && period_start > last =>
+            {
+                Some(period_start)
+            }
+            _ => None,
+        })
+        .collect();
+    caught_up.sort();
+    caught_up.dedup();
+    Ok(Slot {
+        slot: DocumentSlot::Recurring {
+            period_start: invoice_date,
+        },
+        final_on,
+        caught_up,
+        last: Some(last),
+    })
 }
 
 impl Services {
@@ -734,65 +801,13 @@ impl Services {
         invoice_date: NaiveDate,
         invoice_type: &InvoiceType,
     ) -> StoreResult<Slot> {
-        if *invoice_type == InvoiceType::Final {
-            return Ok(Slot {
-                slot: DocumentSlot::Final,
-                final_on: None,
-                caught_up: Vec::new(),
-                last: None,
-            });
-        }
-        let final_on = loaded
-            .facts
-            .effective_ending()
-            .map(|ending| ending.on())
-            .filter(|on| {
-                *on == invoice_date
-                    && !crate::services::subscriptions::terminate::issues_final_invoices()
-            });
-        let subscription = loaded.facts.subscription;
-        let last = InvoiceRow::latest_recurring_period_before(
-            conn,
-            loaded.tenant_id,
-            subscription,
-            invoice_date,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-        let Some(last) = last else {
-            return Ok(Slot {
-                slot: DocumentSlot::Recurring {
-                    period_start: invoice_date,
-                },
-                final_on,
-                caught_up: Vec::new(),
-                last: None,
-            });
-        };
-        let mut caught_up: Vec<NaiveDate> = planned
+        let documents: Vec<DocumentSlot> = planned
             .charges
             .iter()
             .map(|charge| charge.document)
             .chain(planned.usage_needed.iter().map(|need| need.document))
-            .filter_map(|document| match document {
-                DocumentSlot::Recurring { period_start }
-                    if period_start < invoice_date && period_start > last =>
-                {
-                    Some(period_start)
-                }
-                _ => None,
-            })
             .collect();
-        caught_up.sort();
-        caught_up.dedup();
-        Ok(Slot {
-            slot: DocumentSlot::Recurring {
-                period_start: invoice_date,
-            },
-            final_on,
-            caught_up,
-            last: Some(last),
-        })
+        slot_on(conn, loaded, &documents, invoice_date, invoice_type).await
     }
 
     /// Whether the invoice of `invoice_date` reads usage of an elapsed window: an empty one still

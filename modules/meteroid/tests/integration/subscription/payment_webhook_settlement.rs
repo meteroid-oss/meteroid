@@ -315,6 +315,7 @@ async fn test_success_webhook_for_a_rolled_back_transaction_settles_by_provider_
 }
 
 /// A failed provider-hosted attempt (no saved method) is not a failed collection: no dunning.
+/// Rules: R-125
 #[rstest]
 #[tokio::test]
 async fn test_hosted_attempt_failure_keeps_invoice_payable_without_dunning(
@@ -367,12 +368,14 @@ async fn test_hosted_attempt_failure_keeps_invoice_payable_without_dunning(
         PaymentStatusEnum::Failed
     );
     env.run_outbox_and_orchestration().await;
+    // A hosted attempt charged no saved method: no decline, the invoice stays payable (R-125).
     env.get_invoices(sub_id)
         .await
         .assert()
         .invoice_at(0)
         .has_status(InvoiceStatusEnum::Finalized)
-        .has_payment_status(InvoicePaymentStatus::Unpaid);
+        .has_payment_status(InvoicePaymentStatus::Unpaid)
+        .has_amount_due(invoice.amount_due);
     assert_eq!(
         env.pending_payment_retries(sub_id, invoice_id).await,
         0,
@@ -801,19 +804,17 @@ async fn test_partially_reversed_balance_is_recollectable(#[future] test_env: Te
     assert_eq!(invoices[0].amount_due, clawed_back);
 
     // The re-collection fences (auto-charge orchestration, dunning retry) all
-    // gate on this predicate: the partially reversed settlement must not own
+    // gate on the account's charge: the partially reversed settlement must not own
     // the invoice while a reopened balance is outstanding.
-    {
-        use diesel_models::payments::PaymentTransactionRow;
-        let mut conn = env.conn().await;
-        let live = PaymentTransactionRow::exists_live_for_invoice(&mut conn, invoice_id, TENANT_ID)
-            .await
-            .expect("live-payment check");
-        assert!(
-            !live,
-            "a partially reversed settlement must not block re-collection"
-        );
-    }
+    let live = env
+        .store()
+        .invoice_has_live_payment(TENANT_ID, invoice_id)
+        .await
+        .expect("live-payment check");
+    assert!(
+        !live,
+        "a partially reversed settlement must not block re-collection"
+    );
 
     // Collect the reopened balance (portal/manual/auto-charge path).
     let (tx2, _) = env
@@ -987,13 +988,11 @@ async fn test_partial_dispute_leaves_nothing_to_collect(#[future] test_env: Test
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().invoice_at(0).is_finalized_paid();
     invoices.assert().invoice_at(0).has_amount_due(0);
-    let mut conn = env.conn().await;
     assert!(
-        diesel_models::payments::PaymentTransactionRow::exists_live_for_invoice(
-            &mut conn, invoice_id, TENANT_ID
-        )
-        .await
-        .expect("live-payment check"),
+        env.store()
+            .invoice_has_live_payment(TENANT_ID, invoice_id)
+            .await
+            .expect("live-payment check"),
         "the disputed payment still paid the invoice"
     );
 }
@@ -1491,11 +1490,29 @@ async fn amend_remove_rate_component(
     sub_id: common_domain::ids::SubscriptionId,
     invoice_id: InvoiceId,
 ) -> meteroid_store::domain::credit_notes::CreditNote {
+    use meteroid_store::repositories::credit_notes::CreditNoteInterface;
+
+    try_amend_remove_rate_component(env, sub_id)
+        .await
+        .expect("apply amendment failed");
+    let mut credit_notes = env
+        .store()
+        .list_credit_notes_by_invoice_id(TENANT_ID, invoice_id)
+        .await
+        .expect("list credit notes");
+    assert_eq!(credit_notes.len(), 1, "exactly one credit note expected");
+    credit_notes.remove(0)
+}
+
+/// Removes the subscription rate on Jan 16, immediately.
+async fn try_amend_remove_rate_component(
+    env: &TestEnv,
+    sub_id: common_domain::ids::SubscriptionId,
+) -> meteroid_store::StoreResult<()> {
     use meteroid_store::domain::subscription_amendment::{
         AddOnChanges, ComponentChanges, SubscriptionAmendment,
     };
     use meteroid_store::domain::subscription_changes::PlanChangeMode;
-    use meteroid_store::repositories::credit_notes::CreditNoteInterface;
 
     let rate = env
         .get_subscription_components(sub_id)
@@ -1521,15 +1538,7 @@ async fn amend_remove_rate_component(
             NaiveDate::from_ymd_opt(2024, 1, 16).unwrap(),
         )
         .await
-        .expect("apply amendment failed");
-
-    let mut credit_notes = env
-        .store()
-        .list_credit_notes_by_invoice_id(TENANT_ID, invoice_id)
-        .await
-        .expect("list credit notes");
-    assert_eq!(credit_notes.len(), 1, "exactly one credit note expected");
-    credit_notes.remove(0)
+        .map(|_| ())
 }
 
 /// A DebtCancellation credit note on an unpaid invoice must survive the later
@@ -1583,12 +1592,13 @@ async fn test_debt_cancellation_survives_later_settlement(#[future] test_env: Te
         .has_amount_due(0);
 }
 
-/// An amendment while a direct debit is in flight must NOT cancel debt (the debit
-/// collects the full amount regardless); it credits the customer balance, and the
-/// later settlement closes the invoice at its full total.
+/// An accepted SEPA debit is still in flight: removing a fee would return to the balance money
+/// the debit has not brought in, so the amendment waits for it. Once it settles, the same
+/// amendment credits the balance what the invoice received for the fee.
+/// Rules: R-126
 #[rstest]
 #[tokio::test]
-async fn test_amendment_with_in_flight_debit_credits_balance(#[future] test_env: TestEnv) {
+async fn test_amendment_waits_for_an_in_flight_debit(#[future] test_env: TestEnv) {
     use meteroid_store::domain::enums::CreditType;
 
     let env = test_env.await;
@@ -1604,69 +1614,43 @@ async fn test_amendment_with_in_flight_debit_credits_balance(#[future] test_env:
         .expect("debit accepted");
     assert_eq!(tx.status, PaymentStatusEnum::Pending);
     let external_id = tx.provider_transaction_id.clone().expect("provider id");
-
     let balance_before = env.invoice_credit_balance_minor(CUST_UBER_ID).await;
 
-    let cn = amend_remove_rate_component(&env, sub_id, invoice_id).await;
-    assert_eq!(cn.credit_type, CreditType::CreditToBalance);
-    assert!(cn.credited_amount_cents > 0);
-    let balance_after = env.invoice_credit_balance_minor(CUST_UBER_ID).await;
-    assert_eq!(balance_after - balance_before, cn.credited_amount_cents);
-
-    // The in-flight debit still collects the full amount; nothing was cancelled.
+    let refused = try_amend_remove_rate_component(&env, sub_id)
+        .await
+        .expect_err("nothing is returned before the debit lands");
+    assert!(
+        format!("{refused:?}").contains("wait for the payment to settle"),
+        "{refused:?}"
+    );
+    assert_eq!(
+        env.invoice_credit_balance_minor(CUST_UBER_ID).await,
+        balance_before
+    );
     env.get_invoices(sub_id)
         .await
         .assert()
         .invoice_at(0)
+        .has_payment_status(InvoicePaymentStatus::Processing)
         .has_amount_due(3500);
 
     env.deliver_mock_webhook(&succeeded_payload_for(tx.id, &external_id, 3500))
         .await;
-
     env.get_invoices(sub_id)
         .await
         .assert()
         .invoice_at(0)
         .is_finalized_paid()
         .has_amount_due(0);
-    // The credit stays on the balance: no money is eaten by the settlement.
-    assert_eq!(
-        env.invoice_credit_balance_minor(CUST_UBER_ID).await,
-        balance_after
-    );
-}
-
-/// Same rule keyed on the invoice's own `Processing` marker (accepted async debit
-/// recorded at checkout), independently of a live transaction row.
-#[rstest]
-#[tokio::test]
-async fn test_amendment_on_processing_invoice_credits_balance(#[future] test_env: TestEnv) {
-    use diesel_models::invoices::InvoiceRow;
-    use meteroid_store::domain::enums::CreditType;
-
-    let env = test_env.await;
-    let (sub_id, invoice_id) = env.unpaid_card_invoice().await;
-    {
-        let mut conn = env.conn().await;
-        InvoiceRow::apply_payment_status(
-            &mut conn,
-            invoice_id,
-            TENANT_ID,
-            diesel_models::enums::InvoicePaymentStatus::Processing,
-            None,
-        )
-        .await
-        .expect("mark invoice processing");
-    }
 
     let cn = amend_remove_rate_component(&env, sub_id, invoice_id).await;
     assert_eq!(cn.credit_type, CreditType::CreditToBalance);
     assert!(cn.credited_amount_cents > 0);
-    env.get_invoices(sub_id)
-        .await
-        .assert()
-        .invoice_at(0)
-        .has_amount_due(3500);
+    assert_eq!(cn.debt_cancelled_amount_cents, 0);
+    assert_eq!(
+        env.invoice_credit_balance_minor(CUST_UBER_ID).await - balance_before,
+        cn.credited_amount_cents
+    );
 }
 
 // =============================================================================

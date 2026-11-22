@@ -720,7 +720,7 @@ fn lay_minimum(minimums: &mut Vec<MinimumFact>, change: &MinimumChange, on: Naiv
 }
 
 /// Every component and add-on row: a priced (v2) row from its price, a stored one as stored, its
-/// credit unit restored once closed, as `load_closed_arrears` reads closed rows.
+/// credit unit restored once closed.
 async fn fee_rows(
     conn: &mut PgConn,
     tenant_id: TenantId,

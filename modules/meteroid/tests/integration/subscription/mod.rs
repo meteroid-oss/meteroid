@@ -39,6 +39,7 @@ mod payment_method_binding;
 mod payment_methods_config;
 mod payment_reconciliation;
 mod payment_refunds;
+mod payment_settlement_account;
 mod payment_webhook_settlement;
 mod pending_facts;
 mod plan_change;

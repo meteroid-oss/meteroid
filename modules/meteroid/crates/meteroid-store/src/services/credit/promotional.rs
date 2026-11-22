@@ -100,15 +100,6 @@ fn line_shares(
     })
 }
 
-/// Puts back on lines priced but not yet taxed what an earlier estimate took off them.
-pub(crate) fn restore_before_tax(lines: &mut [LineItem]) {
-    for line in lines {
-        if let Some(share) = line.promotional_credit.take() {
-            line.taxable_amount += share;
-        }
-    }
-}
-
 pub(crate) fn quoted_total(lines: &[LineItem]) -> StoreResult<i64> {
     lines
         .iter()
@@ -495,7 +486,7 @@ mod tests {
     }
 
     #[test]
-    fn shares_split_each_demand_pro_rata_and_restore_exactly() {
+    fn shares_split_each_demand_pro_rata() {
         let mut lines = vec![
             line(3_000, false, LineItemKind::Regular),
             line(1_000, false, LineItemKind::Regular),
@@ -512,10 +503,8 @@ mod tests {
         assert_eq!(shares, vec![1_500, 500, 500]);
         take_before_tax(&mut lines, &shares);
         assert_eq!(lines[0].taxable_amount, 1_500);
+        assert_eq!(lines[2].taxable_amount, 1_500);
         assert_eq!(quoted_total(&lines).unwrap(), 2_500);
-        restore_before_tax(&mut lines);
-        assert_eq!(lines[2].taxable_amount, 2_000);
-        assert_eq!(lines[2].promotional_credit, None);
     }
 
     fn rated(mut item: LineItem, rate: Decimal) -> LineItem {

@@ -12,6 +12,7 @@ use crate::repositories::credit::customer_credit::{
     PaymentMovement, balance_changed_tx, dispute_follow_up_tx, follow_payment_tx,
     report_unrecovered_credit_tx, source,
 };
+use crate::repositories::invoice_account;
 use crate::store::PgConn;
 use common_domain::ids::{BaseId, CreditGrantId, InvoiceId, TenantId};
 use diesel_models::customer_credit::{
@@ -346,10 +347,10 @@ fn plan_movements(remaining: &[i64], followed: &[Followed], shares: &[i64]) -> P
 
 /// The invoice money the purchased credit still stands on, and how much of it is missing.
 struct Backing {
-    /// Reversed or refunded collections nothing collected again (`InvoiceCollections::uncollected`).
+    /// Reversed, disputed or refunded money nothing collected again (the account's `uncollected`).
     unbacked: i64,
-    /// What the invoice still collects: refunds and forgiven debt took the rest. A refund of a
-    /// purchase line also took back its credit, one of another line left the credit whole, so
+    /// What the invoice still asks in cash: refunds and forgiven debt took the rest. A refund of
+    /// a purchase line also took back its credit, one of another line left the credit whole, so
     /// the purchase stands on a larger share of what remains.
     standing: i64,
     /// What took its money, when no payment movement says.
@@ -362,17 +363,18 @@ impl Backing {
         tenant_id: TenantId,
         invoice_id: InvoiceId,
     ) -> StoreResult<Self> {
-        let collections = InvoiceRow::collections(conn, invoice_id, tenant_id).await?;
-        let cause = if collections.failed == 0 && collections.disputed > 0 {
+        let invoice = InvoiceRow::find_by_id(conn, tenant_id, invoice_id).await?;
+        let state = invoice_account::load_tx(conn, &invoice).await?.state();
+        let cause = if state.failed == 0 && state.disputed > 0 {
             CreditUnrecoveredCause::PaymentDisputed
-        } else if collections.failed == 0 && collections.refunded > 0 {
+        } else if state.failed == 0 && state.goodwill > 0 {
             CreditUnrecoveredCause::PaymentRefunded
         } else {
             CreditUnrecoveredCause::PaymentReversed
         };
         Ok(Self {
-            unbacked: collections.uncollected(),
-            standing: collections.owed.max(0),
+            unbacked: state.uncollected,
+            standing: (state.remaining - state.credit).max(0),
             cause,
         })
     }

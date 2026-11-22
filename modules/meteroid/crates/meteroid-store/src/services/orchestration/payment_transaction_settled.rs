@@ -1,7 +1,7 @@
 use crate::StoreResult;
 use crate::domain::entity_activity::Actor;
 use crate::domain::outbox_event::{OutboxEvent, PaymentTransactionEvent};
-use crate::domain::{Invoice, InvoicePaymentStatus, SubscriptionStatusEnum};
+use crate::domain::{Invoice, SubscriptionStatusEnum};
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
 use crate::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
@@ -236,16 +236,27 @@ impl Services {
                 .await?;
             }
 
-            // Idempotently recompute amount_due from Σ settled payments rather than
-            // blindly subtracting event.amount: a pgmq redelivery of the same settle
-            // event (commit-then-delete window) must be a no-op, never driving a paid
-            // invoice negative or flipping it back to PartiallyPaid.
-            let res = InvoiceRow::recompute_amount_due_from_settled_payments(
-                conn,
-                invoice_id,
-                event.tenant_id,
-            )
-            .await?;
+            // Dated at the payment that covered it, should this settlement pay it.
+            let paid_at = if was_paid {
+                None
+            } else {
+                let issued = InvoiceRow::find_by_id(conn, event.tenant_id, invoice_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                PaymentTransactionRow::date_covered_by_payments(
+                    conn,
+                    invoice_id,
+                    event.tenant_id,
+                    issued.total - issued.applied_credits,
+                )
+                .await?
+                .or(event.processed_at)
+            };
+            // Settled from the account: a redelivered settlement folds the same payments and
+            // changes nothing.
+            let settled = self
+                .settle_invoice_unfunded_tx(conn, event.tenant_id, invoice_id, paid_at)
+                .await?;
 
             let collected = crate::repositories::credit::customer_credit::PaymentMovement::collection(
                 event.payment_transaction_id,
@@ -275,28 +286,21 @@ impl Services {
             )
             .await?;
 
-            let completed = res.amount_due == 0;
+            // A payment landing on a voided invoice (a challenge completed after the void) is kept
+            // as overpayment above; it pays, activates and changes nothing (R-128).
+            if settled.invoice.status == crate::domain::enums::InvoiceStatusEnum::Void {
+                log::warn!(
+                    "Payment {} settled on voided invoice {invoice_id}: kept as customer credit",
+                    event.payment_transaction_id
+                );
+                return Ok(());
+            }
 
-            if completed {
-                let invoice: Invoice = res.try_into()?;
+            if settled.state.due == 0 {
+                let invoice: &Invoice = &settled.invoice;
 
-                if invoice.payment_status != InvoicePaymentStatus::Paid {
-                    let paid_at = PaymentTransactionRow::date_covered_by_payments(
-                        conn,
-                        invoice_id,
-                        event.tenant_id,
-                        invoice.total - invoice.applied_credits,
-                    )
-                    .await?
-                    .or(event.processed_at);
-                    self.apply_invoice_paid_at_tx(
-                        conn,
-                        event.tenant_id,
-                        invoice_id,
-                        paid_at,
-                        now,
-                    )
-                    .await?;
+                if settled.paid_now {
+                    self.fund_paid_invoice_tx(conn, invoice, now).await?;
 
                     self.store
                         .internal
@@ -304,7 +308,7 @@ impl Services {
                             conn,
                             event.tenant_id,
                             &actor,
-                            vec![OutboxEvent::invoice_paid((&invoice).into())],
+                            vec![OutboxEvent::invoice_paid(invoice.into())],
                         )
                         .await?;
                 }
@@ -335,7 +339,7 @@ impl Services {
                     let change_date = common_clock::now().date_naive();
                     // A savepoint: a change that can no longer apply never rolls the payment back;
                     // the invoice it paid is credited to the customer's balance instead.
-                    let legacy = &invoice;
+                    let legacy = invoice;
                     let applied = self
                         .store
                         .transaction_with(conn, |conn| {
@@ -483,24 +487,6 @@ impl Services {
                         .await?;
                     }
                 }
-            } else {
-                // Derive the label the same way the reversal paths do: a
-                // stale settlement event replayed after a full reversal
-                // recomputes amount_due == total, which is Unpaid, not
-                // PartiallyPaid.
-                let payment_status = if res.amount_due >= res.total {
-                    diesel_models::enums::InvoicePaymentStatus::Unpaid
-                } else {
-                    diesel_models::enums::InvoicePaymentStatus::PartiallyPaid
-                };
-                InvoiceRow::apply_payment_status(
-                    conn,
-                    invoice_id,
-                    event.tenant_id,
-                    payment_status,
-                    event.processed_at,
-                )
-                .await?;
             }
 
             // TODO payment receipt
@@ -515,12 +501,9 @@ impl Services {
     /// the reclaimed amount back into `amount_due` and downgrade the payment
     /// status. The invoice stays Finalized so it re-enters collection.
     ///
-    /// Recomputes `amount_due` / `payment_status` from the transactions that are
-    /// STILL settled (the clawed-back one is already `Failed`, so it's excluded),
-    /// rather than blindly decrementing. That makes it (a) idempotent — a
-    /// redelivered event derives the same value from the terminal transaction
-    /// states, so nothing double-reverses — and (b) correct for invoices covered
-    /// by more than one payment (each clawback removes exactly its own amount).
+    /// Settles the invoice from its account, which folds what each payment still holds rather
+    /// than decrementing: (a) idempotent, a redelivered event folds the same payments, and (b)
+    /// exact for invoices covered by more than one payment (each clawback removes its own amount).
     pub async fn on_payment_transaction_reversed(
         &self,
         event: PaymentTransactionEvent,
@@ -561,23 +544,15 @@ impl Services {
         self.store
             .transaction(|conn| {
                 async move {
-                    use diesel_models::enums::InvoicePaymentStatus;
-
-                    // Lock the invoice, then re-derive amount_due + payment status
-                    // from the still-settled payments via the SAME recompute the
-                    // webhook reversal path (`reverse_transaction_tx`) uses, so the
-                    // two reversal paths can never disagree on the reopened total.
-                    InvoiceRow::select_for_update_by_id(conn, event.tenant_id, invoice_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-
-                    let recomputed = InvoiceRow::recompute_amount_due_from_settled_payments(
+                    // The account the webhook reversal path (`reverse_transaction_tx`) settles
+                    // too: the two reversal paths never disagree on the reopened balance.
+                    let settled = crate::repositories::invoice_account::settle_tx(
                         conn,
-                        invoice_id,
                         event.tenant_id,
+                        invoice_id,
+                        event.refunded_at,
                     )
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                    .await?;
                     crate::services::credit::collected_payment::reconcile_overpayment_tx(
                         conn,
                         &*self.store.hooks.credit,
@@ -589,30 +564,13 @@ impl Services {
                     )
                     .await?;
 
-                    let new_status = if recomputed.amount_due <= 0 {
-                        InvoicePaymentStatus::Paid
-                    } else if recomputed.amount_due >= recomputed.total {
-                        InvoicePaymentStatus::Unpaid
-                    } else {
-                        InvoicePaymentStatus::PartiallyPaid
-                    };
-                    if new_status != recomputed.payment_status {
-                        InvoiceRow::apply_payment_status(
-                            conn,
-                            invoice_id,
-                            event.tenant_id,
-                            new_status,
-                            event.refunded_at,
-                        )
-                        .await?;
-                    }
                     self.store
                         .internal
                         .on_invoice_reopened(
                             conn,
                             event.tenant_id,
                             invoice_id,
-                            recomputed.payment_status == InvoicePaymentStatus::Paid,
+                            settled.reopened,
                             true,
                             ReopenedReminders::after_reversal(event.reversal_kind),
                             common_clock::now().naive_utc(),
@@ -1478,25 +1436,10 @@ impl Services {
 
         match phase {
             CheckoutPaymentPhase::Settled => {
-                // Recorded for what it pays, recomputed from the settled payments: Paid only
-                // when nothing is left due, any excess kept as customer credit.
-                let invoice = InvoiceRow::recompute_amount_due_from_settled_payments(
-                    conn, invoice_id, tenant_id,
-                )
-                .await?;
-                if invoice.amount_due <= 0 {
-                    self.apply_invoice_paid_tx(conn, tenant_id, invoice_id, processed_at)
-                        .await?;
-                } else {
-                    InvoiceRow::apply_payment_status(
-                        conn,
-                        invoice_id,
-                        tenant_id,
-                        diesel_models::enums::InvoicePaymentStatus::PartiallyPaid,
-                        None,
-                    )
+                // Recorded for what it pays, settled from the account: Paid only when nothing
+                // is left due, any excess kept as customer credit.
+                self.settle_invoice_tx(conn, tenant_id, invoice_id, processed_at)
                     .await?;
-                }
                 crate::services::credit::collected_payment::reconcile_overpayment_tx(
                     conn,
                     &*self.store.hooks.credit,
@@ -1512,14 +1455,17 @@ impl Services {
                 .await?;
             }
             CheckoutPaymentPhase::AcceptedInFlight => {
-                InvoiceRow::apply_payment_status(
+                // Money is moving: the account reads the invoice Processing.
+                PaymentTransactionRow::mark_accepted(
                     conn,
-                    invoice_id,
+                    transaction_id,
                     tenant_id,
-                    diesel_models::enums::InvoicePaymentStatus::Processing,
-                    None,
+                    common_clock::now(),
                 )
-                .await?;
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+                crate::repositories::invoice_account::settle_tx(conn, tenant_id, invoice_id, None)
+                    .await?;
             }
         }
 

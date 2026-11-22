@@ -870,8 +870,8 @@ async fn test_refund_on_a_partially_paid_invoice_restores_what_is_owed(
     let credit_note = refund_credit_note(&env, invoice_id, 1400).await;
     assert_eq!(
         env.get_invoices(sub_id).await[0].amount_due,
-        total - 1400 - 1400,
-        "the avoir reduces the invoice while the payment still covers what it paid for"
+        total - 1400,
+        "R-125: the cash the avoir promises back leaves the invoice once the note is finalized"
     );
 
     env.services()

@@ -279,7 +279,11 @@ pub(crate) async fn reconcile_overpayment_tx(
 ) -> StoreResult<()> {
     let InvoiceLockRow { lock, invoice } =
         InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id).await?;
-    let target = InvoiceRow::overpaid_by_collections(conn, invoice_id, tenant_id).await?;
+    // The cash the account keeps above what the invoice asks (OQ12).
+    let target = crate::repositories::invoice_account::load_tx(conn, &invoice)
+        .await?
+        .state()
+        .excess;
     let grants: Vec<_> = CustomerCreditGrantRow::lock_by_invoice(conn, &lock, invoice_id)
         .await?
         .into_iter()

@@ -1042,9 +1042,7 @@ async fn amendment_grid(
     )
     .await?;
     Ok(match cadence {
-        Some(cadence) => {
-            grid.renewing((cadence.current.start, cadence.current.end), cadence.period)
-        }
+        Some(cadence) => grid.renewing((cadence.current.start, cadence.current.end)),
         None => grid,
     })
 }

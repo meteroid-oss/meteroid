@@ -65,36 +65,23 @@ impl CadenceSubject {
     }
 }
 
-/// The cadence runs up to `invoice_date` (before it, with `switch_on_date` false), latest first:
-/// one per plan switch that changed the cadence. Empty: the billing start's grid applies.
-pub(crate) async fn load_cadence_runs(
-    conn: &mut PgConn,
-    details: &SubscriptionDetails,
-    invoice_date: NaiveDate,
-    switch_on_date: bool,
-) -> StoreResult<Vec<CadenceRun>> {
-    cadence_runs_of(
-        conn,
-        CadenceSubject::of(details),
-        invoice_date,
-        switch_on_date,
-    )
-    .await
-}
-
-/// The latest of [`load_cadence_runs`]: the grid `invoice_date` falls on.
+/// The cadence run `invoice_date` falls on (on or before it, before it with `switch_on_date`
+/// false): the latest plan switch that changed the cadence. None: the billing start's grid applies.
 pub(crate) async fn load_cadence_run(
     conn: &mut PgConn,
     details: &SubscriptionDetails,
     invoice_date: NaiveDate,
     switch_on_date: bool,
 ) -> StoreResult<Option<CadenceRun>> {
-    Ok(
-        load_cadence_runs(conn, details, invoice_date, switch_on_date)
-            .await?
-            .into_iter()
-            .next(),
+    Ok(cadence_runs_of(
+        conn,
+        CadenceSubject::of(details),
+        invoice_date,
+        switch_on_date,
     )
+    .await?
+    .into_iter()
+    .next())
 }
 
 /// The cadence runs up to `invoice_date`, latest first: each from its recorded origin, else where

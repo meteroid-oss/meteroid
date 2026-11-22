@@ -188,16 +188,11 @@ impl SandboxInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-                InvoiceRow::apply_payment_status(
-                    conn,
-                    invoice_id,
-                    tenant_id,
-                    InvoicePaymentStatus::Errored,
-                    None,
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)
-                .and_then(TryInto::try_into)
+                // The declined attempt is recorded: the account reads the invoice Errored.
+                crate::repositories::invoice_account::settle_tx(conn, tenant_id, invoice_id, None)
+                    .await?
+                    .row
+                    .try_into()
             }
             .scope_boxed()
         })

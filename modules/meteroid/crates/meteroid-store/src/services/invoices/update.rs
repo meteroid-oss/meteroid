@@ -12,7 +12,6 @@ use diesel_models::PgConn;
 use diesel_models::customers::CustomerRow;
 use diesel_models::invoices::{InvoiceRow, InvoiceRowPatch};
 use diesel_models::invoicing_entities::InvoicingEntityRow;
-use diesel_models::payments::PaymentTransactionRow;
 use error_stack::bail;
 use rust_decimal::Decimal;
 use scoped_futures::ScopedFutureExt;
@@ -82,6 +81,9 @@ impl Services {
     ) -> StoreResult<DetailedInvoice> {
         let invoice_lock = InvoiceRow::select_for_update_by_id(conn, tenant_id, id).await?;
         diesel_models::query::credit_inputs::bump_customer(conn, &invoice_lock.lock).await?;
+        let account = crate::repositories::invoice_account::load_tx(conn, &invoice_lock.invoice)
+            .await?
+            .state();
         let invoice: Invoice = invoice_lock.invoice.try_into()?;
 
         if !invoice.can_edit() {
@@ -94,7 +96,7 @@ impl Services {
         // Editing amounts under a live charge would desync the invoice from the money the
         // provider is already moving: on settlement the invoice lands PartiallyPaid or
         // overpaid depending on which way the edit went.
-        if PaymentTransactionRow::exists_live_for_invoice(conn, id, tenant_id).await? {
+        if crate::repositories::invoice_account::owned_by_payment(&account) {
             bail!(StoreError::InvalidArgument(
                 "Cannot edit an invoice with a payment in progress".into(),
             ));
@@ -392,9 +394,6 @@ impl Services {
         } else {
             invoice.line_items.clone()
         };
-        // Promotional credit is estimated again below, on the edited lines.
-        crate::services::credit::promotional::restore_before_tax(&mut lines);
-
         // A discount comes off the lines' positive subtotals, never more and never below zero (I25).
         let discountable: i64 = lines.iter().map(|line| line.amount_subtotal.max(0)).sum();
         let discount = if let Some(discount_str) = params.discount {
@@ -419,12 +418,16 @@ impl Services {
             ));
         }
 
-        if discount > 0 {
-            lines = crate::services::invoice_lines::discount::distribute_discount(
-                lines,
-                discount as u64,
-            );
-        }
+        // Each line's amount after discount comes from its subtotal and the discount's split, never
+        // from a stored taxable amount: the settlement below takes promotional credit off it once.
+        crate::services::invoice_lines::invoice_lines::assemble_lines(
+            &mut lines,
+            &billing_core::assembly::AssemblyInputs {
+                currency: invoice.currency.clone(),
+                coupons: Vec::new(),
+                discount: Some(discount as u64),
+            },
+        );
 
         // On a tax-inclusive invoice the editor works in quoted figures throughout: line
         // prices and the discount come in tax-included, and the lines leave net.

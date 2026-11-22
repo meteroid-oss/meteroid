@@ -270,25 +270,9 @@ pub fn detect_change_direction(
     }
 }
 
-/// The fee credited back for an old pack tied to the period: its unused time, but never more than
-/// its unused paid credit is worth, so spending the credit and then changing plan refunds nothing.
-pub fn capped_pack_fee_credit(
-    fee_minor: i64,
-    unused_time: DayFraction,
-    unused_paid: i64,
-    paid_face: i64,
-) -> i64 {
-    let by_time = unused_time.prorate(fee_minor);
-    if paid_face <= 0 {
-        return by_time;
-    }
-    by_time.min(DayFraction::new(unused_paid, paid_face).prorate(fee_minor))
-}
-
-/// Where a change on a date reads each fee's own period (R-083, R-084): on the subscription's
-/// cadence, its current period; on another, the period of the fee's own grid, the latest change of
-/// cadence's, else the base grid from the billing start or a free trial's end. Each is the full
-/// period its price is for; the fixed term's end cuts what is left of it.
+/// The subscription's current period as a change on a date reads it (R-083, R-084): on the grid
+/// of the latest change of cadence, else the base grid from the billing start or a free trial's
+/// end, the full period its price is for; the fixed term's end cuts what is left of it.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct OwnGrid {
     /// The subscription's period holding the change, as its price is for: never cut by the
@@ -297,15 +281,10 @@ pub(crate) struct OwnGrid {
     /// Where the subscription's current period started.
     pub renewed: NaiveDate,
     pub term_end: Option<NaiveDate>,
-    pub cadence: crate::domain::enums::BillingPeriodEnum,
-    pub billing_start: NaiveDate,
-    pub billing_from: NaiveDate,
-    pub billing_day: u32,
-    pub run: Option<crate::utils::periods::CadenceRun>,
 }
 
 impl OwnGrid {
-    /// The grids of `sub`, whose current period is `current`, at `change_date`.
+    /// The grid of `sub`, whose current period is `current`, at `change_date`.
     pub(crate) async fn read(
         conn: &mut crate::store::PgConn,
         sub: &crate::domain::Subscription,
@@ -342,11 +321,6 @@ impl OwnGrid {
             current: grid.map_or(current, |grid| priced_over(&grid, current, sub.end_date)),
             renewed: current.0,
             term_end: sub.end_date,
-            cadence: sub.period,
-            billing_start,
-            billing_from,
-            billing_day,
-            run,
         })
     }
 
@@ -373,17 +347,9 @@ impl OwnGrid {
         )
     }
 
-    /// The same, renewing on `cadence` over `current`: an amendment moving the cadence.
-    pub(crate) fn renewing(
-        self,
-        current: (NaiveDate, NaiveDate),
-        cadence: crate::domain::enums::BillingPeriodEnum,
-    ) -> Self {
-        OwnGrid {
-            current,
-            cadence,
-            ..self
-        }
+    /// The same, renewing over `current`: an amendment moving the cadence.
+    pub(crate) fn renewing(self, current: (NaiveDate, NaiveDate)) -> Self {
+        OwnGrid { current, ..self }
     }
 }
 
@@ -404,36 +370,6 @@ fn priced_over(
             grid.nominal(period)
         }
         _ => current,
-    }
-}
-
-/// The period a fee of `period` bills on at `change_date` (see [`OwnGrid`]).
-pub(crate) fn own_period(
-    grid: OwnGrid,
-    change_date: NaiveDate,
-) -> impl Fn(&SubscriptionFeeBillingPeriod) -> (NaiveDate, NaiveDate) + Sync + use<> {
-    move |period| match period.as_billing_period_opt() {
-        Some(own) if own.as_months() != grid.cadence.as_months() => {
-            let months = own.as_months();
-            match grid.run {
-                Some(run) => {
-                    billing_core::timeline::Grid::from_origin(run.origin, grid.billing_day, months)
-                }
-                None => crate::utils::periods::base_grid(
-                    grid.billing_start,
-                    grid.billing_from,
-                    grid.billing_day,
-                    months,
-                ),
-            }
-            .and_then(|own| {
-                let period = own.period_containing(change_date)?;
-                // A change before the grid starts (during a free trial) reads the current period.
-                (period.0 <= change_date).then(|| own.nominal(period))
-            })
-            .unwrap_or(grid.current)
-        }
-        _ => grid.current,
     }
 }
 
@@ -651,59 +587,6 @@ mod tests {
         assert_eq!(direction, ChangeDirection::Downgrade);
     }
 
-    /// Switched to quarterly with an origin on April 15, a yearly fee reads its year on the grid from
-    /// there (April 15 to April 15), not from the billing start (January 1); a quarterly fee reads
-    /// the subscription's current period.
-    #[test]
-    fn a_fee_off_cadence_after_a_change_of_cadence_reads_its_period_on_the_change_s_grid() {
-        let day = |m, d| NaiveDate::from_ymd_opt(2024, m, d).unwrap();
-        let grid = OwnGrid {
-            current: (day(7, 15), day(10, 15)),
-            renewed: day(7, 15),
-            term_end: None,
-            cadence: crate::domain::enums::BillingPeriodEnum::Quarterly,
-            billing_start: day(1, 1),
-            billing_from: day(1, 1),
-            billing_day: 15,
-            run: Some(crate::utils::periods::CadenceRun {
-                switched_on: day(3, 20),
-                origin: day(4, 15),
-                previous_renewal: day(7, 15),
-            }),
-        };
-        let own = own_period(grid, day(8, 1));
-        assert_eq!(
-            own(&SubscriptionFeeBillingPeriod::Annual),
-            (day(4, 15), NaiveDate::from_ymd_opt(2025, 4, 15).unwrap())
-        );
-        assert_eq!(
-            own(&SubscriptionFeeBillingPeriod::Quarterly),
-            (day(7, 15), day(10, 15))
-        );
-    }
-
-    /// A yearly fee changed on February 5, during a free trial ending February 15, reads the
-    /// subscription's current period: its grid starts only at the trial's end.
-    #[test]
-    fn a_fee_off_cadence_changed_during_a_free_trial_reads_the_current_period() {
-        let day = |m, d| NaiveDate::from_ymd_opt(2024, m, d).unwrap();
-        let grid = OwnGrid {
-            current: (day(2, 1), day(2, 15)),
-            renewed: day(2, 1),
-            term_end: None,
-            cadence: crate::domain::enums::BillingPeriodEnum::Monthly,
-            billing_start: day(2, 1),
-            billing_from: day(2, 15),
-            billing_day: 15,
-            run: None,
-        };
-        let own = own_period(grid, day(2, 5));
-        assert_eq!(
-            own(&SubscriptionFeeBillingPeriod::Annual),
-            (day(2, 1), day(2, 15))
-        );
-    }
-
     fn line(name: &str, amount: i64, is_credit: bool, net_key: Option<&str>) -> ProrationLineItem {
         ProrationLineItem {
             period_end: None,
@@ -904,24 +787,6 @@ mod tests {
         assert_eq!(half.prorate(3), 2);
         assert_eq!(DayFraction::new(40, 30).prorate(3_000), 3_000);
         assert_eq!(DayFraction::new(5, 0).prorate(1_000), 0);
-    }
-
-    #[test]
-    fn a_pack_fee_credit_is_capped_by_the_unused_paid_credit() {
-        let half = DayFraction::new(15, 30);
-        // Nothing used: the unused time decides.
-        assert_eq!(capped_pack_fee_credit(50_000, half, 50_000, 50_000), 25_000);
-        // A fifth left: a fifth of the fee, though half the period is left.
-        assert_eq!(capped_pack_fee_credit(50_000, half, 10_000, 50_000), 10_000);
-        // Everything spent, then the change: nothing back.
-        assert_eq!(capped_pack_fee_credit(50_000, half, 0, 50_000), 0);
-        // Never a grant (unpaid): only time.
-        assert_eq!(capped_pack_fee_credit(50_000, half, 0, 0), 25_000);
-        // Rounding of the cap: 50000 × 1 / 3 = 16666.67.
-        assert_eq!(
-            capped_pack_fee_credit(50_000, DayFraction::WHOLE, 1, 3),
-            16_667
-        );
     }
 
     #[test]

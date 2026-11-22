@@ -13,9 +13,7 @@ modules/meteroid/crates/meteroid-store/src/services/invoices/draft.rs::Services:
 modules/meteroid/crates/meteroid-store/src/services/invoices/draft.rs::Services::create_corrected_invoice_from | primitive | the same, in its own transaction
 modules/meteroid/crates/meteroid-store/src/services/invoices/consolidate.rs::Services::build_and_finalize_consolidated | primitive | a consolidated invoice over its members' drafts
 modules/meteroid/crates/meteroid-store/src/services/invoices/consolidate.rs::Services::consolidate_and_finalize | primitive | finalizes a customer's same-day drafts as one invoice
-modules/meteroid/crates/meteroid-store/src/services/subscriptions/slots.rs::Services::create_slot_upgrade_invoice_internal | primitive | a seat purchase's invoice
-modules/meteroid/crates/meteroid-store/src/services/subscriptions/slots.rs::Services::create_slot_upgrade_invoice_draft | primitive | a seat purchase's invoice left a draft
-modules/meteroid/crates/meteroid-store/src/services/subscriptions/slots.rs::Services::create_slot_upgrade_invoice | primitive | a seat purchase's invoice, finalized
+modules/meteroid/crates/meteroid-store/src/services/subscriptions/slots.rs::Services::seat_purchase_invoice_tx | primitive | a seat purchase's adjustment invoice, issued or left a draft
 modules/meteroid/crates/meteroid-store/src/repositories/credit_notes.rs::create_user_credit_note_tx | primitive | a credit note against one invoice
 modules/meteroid/crates/meteroid-store/src/repositories/invoices.rs::Store::insert_invoice | primitive | an invoice as given, the API's and the imports'
 modules/meteroid/crates/meteroid-store/src/services/edge.rs::ServicesEdge::create_corrected_invoice_from | primitive | the correction, through the edge

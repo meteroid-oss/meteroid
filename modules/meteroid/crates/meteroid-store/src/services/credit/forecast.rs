@@ -113,9 +113,8 @@ struct BooksState {
     drawn: Vec<Drawn>,
 }
 
-/// The books of one forecast, read lazily per denomination. The estimates of the document being
-/// computed each record what they drew; a later estimate of the same pool replaces an earlier one
-/// (a promotional estimate repriced after tax).
+/// The books of one forecast, read lazily per denomination. The document being estimated records
+/// what it drew, once per pool and denomination: it is settled once (`settle_estimate`).
 #[derive(Debug)]
 pub(crate) struct CreditBooks {
     tenant_id: TenantId,
@@ -177,9 +176,15 @@ impl CreditBooks {
 
     pub(crate) fn record(&self, drawn: Drawn) -> StoreResult<()> {
         let mut state = self.state()?;
-        state.drawn.retain(|other| {
-            !(other.denomination == drawn.denomination && other.pool == drawn.pool)
-        });
+        debug_assert!(
+            !state
+                .drawn
+                .iter()
+                .any(|other| other.denomination == drawn.denomination && other.pool == drawn.pool),
+            "a document recorded its {:?} draws of {} twice",
+            drawn.pool,
+            drawn.denomination
+        );
         state.drawn.push(drawn);
         Ok(())
     }
@@ -429,8 +434,8 @@ impl CustomerCreditForecast {
     }
 }
 
-/// A live subscription's place in billing order, read from its row alone: its period end, or the
-/// earlier day a cancellation or a pause bills its final invoice.
+/// A live subscription's place in billing order, read from its row and its scheduled
+/// cancellation: its period end, or the earlier day the cancellation bills its final invoice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct BillingSlot {
     pub subscription_id: SubscriptionId,

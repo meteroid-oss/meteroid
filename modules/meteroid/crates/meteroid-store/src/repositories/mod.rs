@@ -23,6 +23,7 @@ pub use webhooks_out::WebhookOutInterface;
 
 pub mod accounting;
 pub mod customers;
+pub mod invoice_account;
 pub mod invoices;
 pub mod plans;
 pub mod production_revenue;

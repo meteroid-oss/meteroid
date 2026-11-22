@@ -247,6 +247,7 @@ mod tests {
             amount_reversed_excess: 0,
             refund_excess: 0,
             charge_attempt: None,
+            accepted_at: None,
         }
     }
 

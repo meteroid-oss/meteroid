@@ -1,4 +1,3 @@
-mod credit_note_effects;
 mod financial;
 
 pub(crate) use financial::{
@@ -12,17 +11,17 @@ use crate::domain::entity_activity::Actor;
 use crate::domain::invoice_lines::{LineItem, LineItemKind, TaxDetail};
 use crate::domain::invoices::TaxBreakdownItem;
 use crate::domain::{
-    CreditNote, CreditNoteNew, Invoice, InvoicePaymentStatus, InvoiceStatusEnum,
+    CreditNote, CreditNoteNew, Invoice, InvoiceStatusEnum,
     outbox_event::{InvoiceEvent, OutboxEvent},
 };
 use crate::errors::StoreError;
-use crate::repositories::payment_transactions::{
-    CreditNoteRefundSummary, recompute_invoice_payment_state,
-};
+use crate::repositories::invoice_account;
+use crate::repositories::payment_transactions::CreditNoteRefundSummary;
 use crate::services::payment_reminders::sweep::ReopenedReminders;
 use crate::services::utils::format_document_number;
 use crate::store::Store;
 use crate::utils::money::format_money;
+use billing_core::settlement::{Account, MoveStatus, NoteKind, NoteStatus, Refusal, Split, State};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use common_domain::ids::{BaseId, CreditNoteId, CustomerId, InvoiceId, TenantId};
 use common_utils::decimals::ToSubunit;
@@ -113,10 +112,8 @@ pub(crate) struct CreateCreditNoteTxParams {
     /// The caller removes the credit the credited purchase lines funded in the same transaction
     /// (an immediate plan change), so crediting their money to the balance grants nothing twice.
     pub purchased_credit_removed: bool,
-    /// True on the invoice-void path, which returns the invoice's drawn credit itself. The note then
-    /// converts only collected cash to credit, so the draw is never returned twice.
-    pub applied_credits_restored_externally: bool,
-    /// Issued by voiding the invoice, whose void reversal reports the revenue it reverses.
+    /// Issued by voiding the invoice, which returns the draws itself (R-128): the note returns
+    /// nothing, and its void reversal reports the revenue it reverses.
     pub voids_invoice: bool,
     pub origin: crate::domain::enums::CreditNoteOrigin,
 }
@@ -519,225 +516,182 @@ fn compute_tax_breakdown(line_items: &[LineItem]) -> Vec<TaxBreakdownItem> {
         .collect()
 }
 
-/// Whether credit notes alone settled `invoice`: see `Invoice::settled_by_credit_notes`.
-async fn settled_by_credit_notes_tx(
-    conn: &mut PgConn,
-    tenant_id: TenantId,
-    invoice: &Invoice,
-) -> StoreResult<bool> {
-    let cancelled = CreditNoteRow::sum_finalized_debt_cancelled(conn, invoice.id, tenant_id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-    let collected =
-        !PaymentTransactionRow::invoices_with_collection(conn, tenant_id, &[invoice.id])
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-            .is_empty();
-    Ok(invoice.settled_by_credit_notes(cancelled, collected))
+/// Paid with nothing collected, its finalized notes cancelling the whole charge: see
+/// `Invoice::settled_by_credit_notes`.
+fn settled_by_notes(invoice: &Invoice, account: &Account) -> bool {
+    let cancelled: i64 = account
+        .notes
+        .iter()
+        .filter(|note| note.status == NoteStatus::Finalized)
+        .map(|note| note.debt_cancelled)
+        .sum();
+    let collected = account.collections.iter().any(|collection| {
+        matches!(
+            collection.status,
+            MoveStatus::Settled | MoveStatus::Refunded
+        )
+    });
+    invoice.settled_by_credit_notes(cancelled, collected)
 }
 
-/// Reduces `amount_due` by the debt the note cancelled (a Refund note by its settled refunds); at
-/// zero the invoice becomes Paid and emits `invoice_paid`. Forgiven debt funds no purchased credit.
+/// Writes the invoice's state from its account once a note is finalized (R-125). The note that
+/// makes it paid owes `invoice_paid` and funds the credit its purchase was paid for, forgiven debt
+/// funding none. The invoice-void note settles nothing: the invoice is voided with it.
 async fn apply_credit_note_to_invoice_tx(
     store: &Store,
     conn: &mut PgConn,
     tenant_id: TenantId,
     actor: &Actor,
     credit_note: &CreditNote,
+    voids_invoice: bool,
 ) -> StoreResult<()> {
-    // A refund note is settled by a separate refund action, so `apply_transaction` (an unclamped
-    // delta) would drift: re-derive the balance from the settled payments and the note instead.
-    if credit_note.credit_type == CreditType::Refund {
-        let (_, recomputed, became_paid) = recompute_invoice_payment_state(
-            conn,
-            tenant_id,
-            credit_note.invoice_id,
-            credit_note.finalized_at,
-        )
-        .await?;
-
-        if became_paid {
-            let invoice: Invoice = recomputed.try_into()?;
-            let event = InvoiceEvent {
-                settled_by_credit_notes: settled_by_credit_notes_tx(conn, tenant_id, &invoice)
-                    .await?,
-                ..(&invoice).into()
-            };
-            store
-                .internal
-                .record_outbox_batch_tx(
-                    conn,
-                    tenant_id,
-                    actor,
-                    vec![OutboxEvent::invoice_paid(event)],
-                )
-                .await?;
-        }
+    if voids_invoice {
         return Ok(());
     }
-
-    // The debt the note cancelled: all of a debt cancellation, the unpaid share of a
-    // credit-to-balance note.
-    let cn_amount = credit_note.debt_cancelled_amount_cents;
-    if cn_amount == 0 {
+    let settled = invoice_account::settle_tx(
+        conn,
+        tenant_id,
+        credit_note.invoice_id,
+        credit_note.finalized_at,
+    )
+    .await?;
+    if !settled.paid_now {
         return Ok(());
     }
-
-    let updated = InvoiceRow::apply_transaction(conn, credit_note.invoice_id, tenant_id, cn_amount)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-    if updated.amount_due <= 0
-        && updated.payment_status != diesel_models::enums::InvoicePaymentStatus::Paid
-    {
-        let updated_row = InvoiceRow::apply_payment_status(
+    let account = invoice_account::load_tx(conn, &settled.row).await?;
+    let invoice: Invoice = settled.row.try_into()?;
+    // What was paid before the rest was forgiven funds its share of the purchased credit, from
+    // when that money landed.
+    let paid_at =
+        PaymentTransactionRow::last_settled_by_invoice_id(conn, credit_note.invoice_id, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .and_then(|payment| payment.processed_at)
+            .map_or_else(common_clock::now, |at| at.and_utc());
+    crate::services::credit::mint::mint_purchased_credit_tx(
+        conn,
+        &*store.hooks.credit,
+        &invoice,
+        paid_at,
+        common_clock::now(),
+    )
+    .await?;
+    let event = InvoiceEvent {
+        settled_by_credit_notes: settled_by_notes(&invoice, &account),
+        ..(&invoice).into()
+    };
+    store
+        .internal
+        .record_outbox_batch_tx(
             conn,
-            credit_note.invoice_id,
             tenant_id,
-            diesel_models::enums::InvoicePaymentStatus::Paid,
-            credit_note.finalized_at,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-        let invoice: Invoice = updated_row.try_into()?;
-        // What was paid before the rest was forgiven funds its share of the purchased credit,
-        // from when that money landed.
-        let paid_at = PaymentTransactionRow::last_settled_by_invoice_id(
-            conn,
-            credit_note.invoice_id,
-            tenant_id,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?
-        .and_then(|payment| payment.processed_at)
-        .map_or_else(common_clock::now, |at| at.and_utc());
-        crate::services::credit::mint::mint_purchased_credit_tx(
-            conn,
-            &*store.hooks.credit,
-            &invoice,
-            paid_at,
-            common_clock::now(),
+            actor,
+            vec![OutboxEvent::invoice_paid(event)],
         )
         .await?;
-        let event = InvoiceEvent {
-            settled_by_credit_notes: settled_by_credit_notes_tx(conn, tenant_id, &invoice).await?,
-            ..(&invoice).into()
-        };
-        store
-            .internal
-            .record_outbox_batch_tx(
-                conn,
-                tenant_id,
-                actor,
-                vec![OutboxEvent::invoice_paid(event)],
-            )
-            .await?;
-    }
-
     Ok(())
 }
 
-/// Reverses the effect of `apply_credit_note_to_invoice_tx` when voiding a CN.
-/// Adds the credit note total back to `amount_due`. If the invoice was Paid and now has outstanding balance, recomputes payment_status from
-/// settled payment transactions (Unpaid if none, PartiallyPaid otherwise).
-/// Returns whether the invoice was `Paid` before the revert (it is payable again afterwards).
-async fn revert_credit_note_from_invoice_tx(
-    conn: &mut PgConn,
-    tenant_id: TenantId,
-    credit_note_row: &CreditNoteRow,
-) -> StoreResult<bool> {
-    // Voiding a refund note that money was already given back on would leave the refund
-    // unbacked; the refund has to be reversed first.
-    if credit_note_row.credit_type == diesel_models::enums::CreditTypeEnum::Refund {
-        let drawn =
-            PaymentTransactionRow::list_refunds_by_credit_note(conn, credit_note_row.id, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-
-        if drawn
-            .iter()
-            .any(|r| r.status != diesel_models::enums::PaymentStatusEnum::Failed)
-        {
-            bail!(StoreError::InvalidArgument(
-                "This credit note already has refunds attached and cannot be voided".to_string()
-            ));
-        }
-
-        let was_paid =
-            InvoiceRow::select_for_update_by_id(conn, tenant_id, credit_note_row.invoice_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .invoice
-                .payment_status
-                == diesel_models::enums::InvoicePaymentStatus::Paid;
-        let _ = recompute_invoice_payment_state(conn, tenant_id, credit_note_row.invoice_id, None)
-            .await?;
-        return Ok(was_paid);
+fn note_kind(kind: CreditType) -> NoteKind {
+    match kind {
+        CreditType::CreditToBalance => NoteKind::CreditToBalance,
+        CreditType::Refund => NoteKind::Refund,
+        CreditType::DebtCancellation => NoteKind::DebtCancellation,
     }
-
-    let cn_amount = credit_note_row.debt_cancelled_amount_cents;
-    if cn_amount == 0 {
-        return Ok(false);
-    }
-
-    let updated =
-        InvoiceRow::apply_transaction(conn, credit_note_row.invoice_id, tenant_id, -cn_amount)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-    if updated.payment_status == diesel_models::enums::InvoicePaymentStatus::Paid
-        && updated.amount_due > 0
-    {
-        let txs =
-            PaymentTransactionRow::list_by_invoice_id(conn, credit_note_row.invoice_id, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-
-        let amount_paid: i64 = txs
-            .iter()
-            .filter(|t| {
-                t.transaction.payment_type.is_collection()
-                    && t.transaction.status == diesel_models::enums::PaymentStatusEnum::Settled
-            })
-            .map(|t| t.transaction.amount - t.transaction.amount_reversed)
-            .sum();
-
-        let new_status = if amount_paid > 0 {
-            diesel_models::enums::InvoicePaymentStatus::PartiallyPaid
-        } else {
-            diesel_models::enums::InvoicePaymentStatus::Unpaid
-        };
-
-        InvoiceRow::apply_payment_status(
-            conn,
-            credit_note_row.invoice_id,
-            tenant_id,
-            new_status,
-            None,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-        return Ok(true);
-    }
-
-    Ok(false)
 }
 
-/// True when money is already moving toward this invoice: an accepted async debit
-/// (`Processing`) or any live Pending/Ready payment attempt. Such a charge collects
-/// the full amount, so debt can no longer be cancelled — only credited back.
-pub(crate) async fn invoice_payment_in_flight(
+/// The account's refusal of a note of `kind` crediting `requested`, worded for the operator.
+fn refused_note(
+    kind: CreditType,
+    requested: i64,
+    refusal: Refusal,
+    currency: &str,
+) -> Report<StoreError> {
+    let money = |amount: i64| format_money(amount, currency);
+    let message = match refusal {
+        Refusal::NotPositive => "a credit note must credit a positive amount".to_owned(),
+        Refusal::InFlight => format!(
+            "{kind:?} credit notes cannot be created while a payment is in flight; use CreditToBalance"
+        ),
+        Refusal::AboveDue { due: 0 } => "DebtCancellation credit notes can only be created for invoices with an outstanding balance".to_owned(),
+        Refusal::AboveDue { due } => format!(
+            "a debt cancellation cannot cancel more than the invoice's amount due: {} requested, {} due",
+            money(requested),
+            money(due)
+        ),
+        Refusal::AboveHeld { credit, cash } => format!(
+            "a refund cannot give back more than the invoice received: {} requested, {} of credit and {} of cash received; cancel the unpaid part with a DebtCancellation note",
+            money(requested),
+            money(credit),
+            money(cash)
+        ),
+        Refusal::AboveInvoice { left } => format!(
+            "a credit to the balance cannot exceed what the invoice owes and holds: {} requested, {} left",
+            money(requested),
+            money(left)
+        ),
+        Refusal::AwaitingPayment { left } => format!(
+            "a credit to the balance cannot return money a payment in flight has not brought in: {} requested, {} available; wait for the payment to settle",
+            money(requested),
+            money(left)
+        ),
+        Refusal::Paid | Refusal::Refunded | Refusal::UnknownNote => {
+            format!("the invoice's account refuses this credit note: {refusal:?}")
+        }
+    };
+    Report::new(StoreError::InvalidArgument(message))
+}
+
+/// How a note of `kind` crediting `total` (positive) is paid back, read from the account without
+/// the draft `except` (R-126). A note crediting nothing moves nothing.
+fn decide_split(
+    account: &Account,
+    kind: CreditType,
+    total: i64,
+    except: Option<CreditNoteId>,
+    currency: &str,
+) -> StoreResult<Split> {
+    if total == 0 {
+        return Ok(Split::default());
+    }
+    account
+        .note(note_kind(kind), total, except.map(|id| id.as_uuid()))
+        .map_err(|refusal| refused_note(kind, total, refusal, currency))
+}
+
+/// Why a finalized note cannot be voided (`Account::void_note`).
+fn refused_note_void(refusal: Refusal) -> Report<StoreError> {
+    Report::new(StoreError::InvalidArgument(match refusal {
+        Refusal::Refunded => {
+            "This credit note already has refunds attached and cannot be voided".to_owned()
+        }
+        Refusal::InFlight => {
+            "a credit note cannot be voided while a payment is in flight".to_owned()
+        }
+        other => format!("the invoice's account refuses voiding this credit note: {other:?}"),
+    }))
+}
+
+/// The account of `invoice`, read without its lock: what a change previews and the kind of note it
+/// issues. The note itself is split again under the lock.
+async fn account_tx(
     conn: &mut PgConn,
     tenant_id: TenantId,
     invoice: &Invoice,
-) -> StoreResult<bool> {
-    if invoice.payment_status == InvoicePaymentStatus::Processing {
-        return Ok(true);
-    }
-    PaymentTransactionRow::exists_live_for_invoice(conn, invoice.id, tenant_id)
+) -> StoreResult<Account> {
+    let row = InvoiceRow::find_by_id(conn, tenant_id, invoice.id)
         .await
-        .map_err(Into::<Report<StoreError>>::into)
+        .map_err(Into::<Report<StoreError>>::into)?;
+    invoice_account::load_tx(conn, &row).await
+}
+
+/// Debt is cancelled only on an invoice nothing paid, by credit or cash, nor is collecting.
+fn change_note_kind(state: &State) -> CreditType {
+    if state.in_flight == 0 && state.credit + state.cash <= 0 && state.due > 0 {
+        CreditType::DebtCancellation
+    } else {
+        CreditType::CreditToBalance
+    }
 }
 
 /// The note a change issues on `invoice`: to the balance once any of it was collected, paid by
@@ -747,41 +701,33 @@ pub(crate) async fn change_note_type(
     tenant_id: TenantId,
     invoice: &Invoice,
 ) -> StoreResult<CreditType> {
-    let collected_or_in_flight = matches!(
-        invoice.payment_status,
-        InvoicePaymentStatus::Paid | InvoicePaymentStatus::PartiallyPaid
-    ) || invoice.amount_due <= 0
-        || invoice.amount_due < invoice.total
-        || invoice_payment_in_flight(conn, tenant_id, invoice).await?;
-    Ok(if collected_or_in_flight {
-        CreditType::CreditToBalance
-    } else {
-        CreditType::DebtCancellation
-    })
+    Ok(change_note_kind(
+        &account_tx(conn, tenant_id, invoice).await?.state(),
+    ))
 }
 
-/// What a note of `amount` a change issues on `invoice` returns to the balance (R-078).
+/// What a note of `amount` a change issues on `invoice` returns to the balance (R-078, R-126).
 pub(crate) async fn change_note_to_balance(
     conn: &mut PgConn,
     tenant_id: TenantId,
     invoice: &Invoice,
     amount: i64,
 ) -> StoreResult<i64> {
-    if change_note_type(conn, tenant_id, invoice).await? != CreditType::CreditToBalance {
+    let account = account_tx(conn, tenant_id, invoice).await?;
+    if change_note_kind(&account.state()) != CreditType::CreditToBalance {
         return Ok(0);
     }
-    let prior = CreditNoteRow::list_by_invoice_id(conn, tenant_id, invoice.id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-    let in_flight = invoice_payment_in_flight(conn, tenant_id, invoice).await?;
-    let (credited, _) = credit_note_effects::balance_effects_in_flight(
-        invoice,
-        credit_note_effects::total(amount)?,
-        &prior,
-        false,
-        in_flight,
-    )?;
-    Ok(credited)
+    let amount = amount.checked_abs().ok_or_else(|| {
+        StoreError::InvalidArgument("credit-note total exceeds the currency range".into())
+    })?;
+    Ok(decide_split(
+        &account,
+        CreditType::CreditToBalance,
+        amount,
+        None,
+        &invoice.currency,
+    )?
+    .credited)
 }
 
 const CREDITS_PURCHASE_TWICE: &str = "the credit purchased on this invoice is already the customer's; issue a Refund to reverse it, not a credit-to-balance note that would grant it twice";
@@ -809,6 +755,7 @@ async fn refuse_unfunded_purchase_credit_tx(
     conn: &mut PgConn,
     lock: &CustomerLock,
     invoice: &Invoice,
+    account: &Account,
     line_items_to_credit: &[LineItem],
 ) -> StoreResult<()> {
     let sold = invoice
@@ -823,7 +770,7 @@ async fn refuse_unfunded_purchase_credit_tx(
                     .any(|credited| credited.local_id == line.local_id)
         })
         .collect::<Vec<_>>();
-    if sold.is_empty() || !invoice_payment_in_flight(conn, lock.tenant_id(), invoice).await? {
+    if sold.is_empty() || account.state().in_flight == 0 {
         return Ok(());
     }
     let grants = financial::purchase_grants_tx(conn, lock, invoice).await?;
@@ -971,41 +918,6 @@ async fn clamp_refund_to_unspent_purchased_credit(
     Ok(())
 }
 
-/// Applied invoice credit a refund returns: the credited share of the invoice, cumulatively
-/// across refund notes, never clawing back what earlier notes already returned.
-fn refund_applied_credit_share(
-    invoice: &Invoice,
-    credit_total: i64,
-    existing: &[CreditNoteRow],
-) -> StoreResult<i64> {
-    if invoice.total <= 0 || invoice.applied_credits <= 0 || credit_total <= 0 {
-        return Ok(0);
-    }
-    let overflow = || StoreError::InvalidArgument("prior refunds exceed currency range".into());
-    let (mut prior_total, mut prior_credited) = (0_i64, 0_i64);
-    for note in existing.iter().filter(|note| {
-        note.status != diesel_models::enums::CreditNoteStatus::Voided
-            && note.credit_type == diesel_models::enums::CreditTypeEnum::Refund
-    }) {
-        prior_total = prior_total
-            .checked_add(credit_note_effects::total(note.total)?)
-            .ok_or_else(overflow)?;
-        prior_credited = prior_credited
-            .checked_add(note.credited_amount_cents)
-            .ok_or_else(overflow)?;
-    }
-    let cumulative = credit_note_effects::cumulative_return(
-        invoice.applied_credits,
-        invoice.total,
-        prior_total,
-        0,
-        credit_total,
-    )?;
-    Ok(cumulative
-        .saturating_sub(prior_credited)
-        .clamp(0, credit_total))
-}
-
 /// User-facing create path: loads the invoice, validates status + credit type invariants,
 /// and delegates to the shared `create_credit_note_tx`. Used by both `create_credit_note`
 /// (draft) and `create_and_finalize_credit_note` (interactive).
@@ -1021,7 +933,7 @@ pub(crate) async fn create_user_credit_note_tx(
 ) -> StoreResult<CreditNote> {
     // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
     Box::pin(async move {
-    let (_, invoice) = lock_credit_invoice(conn, tenant_id, params.invoice_id).await?;
+    let (_, invoice, account) = lock_invoice_account(conn, tenant_id, params.invoice_id).await?;
 
     // A merged draft is never issued: its consolidated parent bills its lines and takes the notes.
     invoice.ensure_not_consolidated_child("credit")?;
@@ -1031,43 +943,31 @@ pub(crate) async fn create_user_credit_note_tx(
         ));
     }
 
-    let payment_in_flight = invoice_payment_in_flight(conn, tenant_id, &invoice).await?;
-
+    // The account splits the note (R-126); these name the kind that fits what it lacks.
+    let state = account.state();
     match params.credit_type {
         CreditType::DebtCancellation => {
-            if invoice.amount_due <= 0 {
+            if state.due <= 0 {
                 bail!(StoreError::InvalidArgument(
                     "DebtCancellation credit notes can only be created for invoices with an outstanding balance".to_string()
                 ));
             }
-            // A submitted debit/charge collects the full amount regardless of
-            // what we cancel; the overpayment would then be silently clamped away.
-            if payment_in_flight {
+            // A submitted debit/charge collects the whole amount due regardless of what we cancel.
+            if state.in_flight > 0 {
                 bail!(StoreError::InvalidArgument(
                     "DebtCancellation credit notes cannot be created while a payment is in flight; use CreditToBalance".to_string()
                 ));
             }
         }
         CreditType::Refund => {
-            if !matches!(
-                invoice.payment_status,
-                InvoicePaymentStatus::Paid | InvoicePaymentStatus::PartiallyPaid
-            ) {
+            if state.credit + state.held() <= 0 {
                 bail!(StoreError::InvalidArgument(
-                    "Refund-type credit notes can only be created for paid or partially paid invoices".to_string()
+                    "Refund-type credit notes can only be created for invoices paid by credit or cash; cancel the unpaid part with a DebtCancellation note".to_string()
                 ));
             }
         }
         CreditType::CreditToBalance => {
-            // Credit that paid the invoice, whole or in part, makes it paid or partly paid,
-            // marked so yet or not.
-            if !matches!(
-                invoice.payment_status,
-                InvoicePaymentStatus::Paid | InvoicePaymentStatus::PartiallyPaid
-            ) && !payment_in_flight
-                && invoice.amount_due > 0
-                && invoice.amount_due >= invoice.total
-            {
+            if state.credit + state.cash + state.in_flight <= 0 && state.due > 0 {
                 bail!(StoreError::InvalidArgument(
                     "CreditToBalance credit notes can only be created for paid or partially paid invoices, or while a payment is in flight".to_string()
                 ));
@@ -1097,13 +997,21 @@ pub(crate) async fn create_user_credit_note_tx(
             custom_properties: params.custom_properties,
             from_proration,
             purchased_credit_removed,
-            applied_credits_restored_externally: false,
             voids_invoice: false,
             origin,
         },
     )
     .await
 }).await
+}
+
+async fn lock_invoice_row(
+    conn: &mut PgConn,
+    tenant: TenantId,
+    invoice: InvoiceId,
+) -> StoreResult<(CustomerLock, InvoiceRow)> {
+    let locked = InvoiceRow::select_for_update_by_id(conn, tenant, invoice).await?;
+    Ok((locked.lock, locked.invoice))
 }
 
 /// Locks the invoice a credit note is issued against, serializing every note and ledger movement
@@ -1113,48 +1021,65 @@ pub(crate) async fn lock_credit_invoice(
     tenant: TenantId,
     invoice: InvoiceId,
 ) -> StoreResult<(CustomerLock, Invoice)> {
-    let locked = InvoiceRow::select_for_update_by_id(conn, tenant, invoice).await?;
-    Ok((locked.lock, locked.invoice.try_into()?))
+    let (lock, row) = lock_invoice_row(conn, tenant, invoice).await?;
+    Ok((lock, row.try_into()?))
+}
+
+/// `lock_credit_invoice` with the invoice's account, read under that lock.
+async fn lock_invoice_account(
+    conn: &mut PgConn,
+    tenant: TenantId,
+    invoice: InvoiceId,
+) -> StoreResult<(CustomerLock, Invoice, Account)> {
+    let (lock, row) = lock_invoice_row(conn, tenant, invoice).await?;
+    let account = invoice_account::load_tx(conn, &row).await?;
+    Ok((lock, row.try_into()?, account))
 }
 
 async fn lock_mutable_credit_note_tx(
     conn: &mut PgConn,
     tenant: TenantId,
     note: CreditNoteId,
-) -> StoreResult<(CustomerLock, CreditNoteRow)> {
+) -> StoreResult<(CustomerLock, InvoiceRow, CreditNoteRow)> {
     let observed = CreditNoteRow::find_by_id(conn, tenant, note).await?;
-    let (lock, _) = lock_credit_invoice(conn, tenant, observed.invoice_id).await?;
+    let (lock, invoice) = lock_invoice_row(conn, tenant, observed.invoice_id).await?;
     let row = CreditNoteRow::find_by_id_for_update(conn, &lock, note).await?;
-    Ok((lock, row))
+    Ok((lock, invoice, row))
 }
 
-/// A payment may land after the draft was created: keep the reviewed credit total, but split it
-/// again between cancelled debt and returned value under the invoice lock.
+/// A payment may land after the draft was created: keep the reviewed credit total, but decide its
+/// split again from the account, under the invoice lock (R-126). The invoice-void note returns
+/// nothing itself: the void gives back the draws (R-128).
 async fn refresh_credit_note_balance_tx(
     conn: &mut PgConn,
     tenant_id: TenantId,
     invoice: &Invoice,
+    account: &Account,
     credit_note_row: &CreditNoteRow,
-    external: bool,
 ) -> StoreResult<()> {
-    if credit_note_row.credit_type == diesel_models::enums::CreditTypeEnum::CreditToBalance {
-        let mut prior = CreditNoteRow::list_by_invoice_id(conn, tenant_id, invoice.id).await?;
-        prior.retain(|note| note.id != credit_note_row.id);
-        let payment_in_flight = invoice_payment_in_flight(conn, tenant_id, invoice).await?;
-        let (credited, debt) = credit_note_effects::balance_effects_in_flight(
-            invoice,
-            credit_note_effects::total(credit_note_row.total)?,
-            &prior,
-            external,
-            payment_in_flight,
-        )?;
-        CreditNoteRow::set_balance_effects(conn, tenant_id, credit_note_row.id, credited, debt)
-            .await?;
-    } else if credit_note_row.debt_cancelled_amount_cents > invoice.amount_due.max(0) {
-        bail!(StoreError::InvalidArgument(
-            "invoice payment changed the debt available for cancellation".into()
-        ));
-    }
+    let split = if credit_note_row.voids_invoice {
+        Split::default()
+    } else {
+        let total = credit_note_row.total.checked_abs().ok_or_else(|| {
+            StoreError::InvalidArgument("credit-note total exceeds the currency range".into())
+        })?;
+        decide_split(
+            account,
+            CreditType::from(credit_note_row.credit_type),
+            total,
+            Some(credit_note_row.id),
+            &invoice.currency,
+        )?
+    };
+    CreditNoteRow::set_balance_effects(
+        conn,
+        tenant_id,
+        credit_note_row.id,
+        split.credited,
+        split.refunded,
+        split.debt_cancelled,
+    )
+    .await?;
     Ok(())
 }
 
@@ -1165,7 +1090,7 @@ pub(crate) async fn finalize_credit_note_tx(
     actor: &Actor,
     id: CreditNoteId,
 ) -> StoreResult<CreditNote> {
-    financial::finalize_tx(store, conn, tenant, actor, id, false, false, None).await
+    financial::finalize_tx(store, conn, tenant, actor, id, false, None).await
 }
 
 /// `finalize_credit_note_tx` for a note a change issues: credit it returns to the balance is dated
@@ -1188,15 +1113,13 @@ pub(crate) async fn finalize_credit_note_at_tx(
         tenant,
         actor,
         id,
-        false,
         purchased_credit_removed,
         credit_at,
     )
     .await
 }
 
-/// The invoice-void note: the void returns the drawn credit itself, so the note converts only
-/// collected cash.
+/// The invoice-void note: the void returns the drawn credit itself, so the note returns nothing.
 pub(crate) async fn finalize_void_credit_note_tx(
     store: &Store,
     conn: &mut PgConn,
@@ -1204,7 +1127,7 @@ pub(crate) async fn finalize_void_credit_note_tx(
     actor: &Actor,
     id: CreditNoteId,
 ) -> StoreResult<CreditNote> {
-    financial::finalize_tx(store, conn, tenant, actor, id, true, false, None).await
+    financial::finalize_tx(store, conn, tenant, actor, id, false, None).await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1214,8 +1137,8 @@ async fn finalize_credit_note_decision_tx(
     lock: &CustomerLock,
     actor: &Actor,
     invoice: &Invoice,
+    account: &Account,
     credit_note_id: CreditNoteId,
-    applied_credits_restored_externally: bool,
     purchased_credit_removed: bool,
 ) -> StoreResult<CreditNote> {
     let tenant_id = lock.tenant_id();
@@ -1232,7 +1155,7 @@ async fn finalize_credit_note_decision_tx(
         let lines: Vec<LineItem> = serde_json::from_value(credit_note_row.line_items.clone())
             .map_err(|error| StoreError::SerdeError("credit-note lines".into(), error))?;
         if !purchased_credit_removed {
-            refuse_unfunded_purchase_credit_tx(conn, lock, invoice, &lines).await?;
+            refuse_unfunded_purchase_credit_tx(conn, lock, invoice, account, &lines).await?;
         }
         if !purchased_credit_removed
             && credits_funded_purchase_tx(conn, lock, invoice, &lines).await?
@@ -1243,14 +1166,7 @@ async fn finalize_credit_note_decision_tx(
         }
     }
 
-    refresh_credit_note_balance_tx(
-        conn,
-        tenant_id,
-        invoice,
-        &credit_note_row,
-        applied_credits_restored_externally,
-    )
-    .await?;
+    refresh_credit_note_balance_tx(conn, tenant_id, invoice, account, &credit_note_row).await?;
 
     let invoicing_entity = InvoicingEntityRow::select_for_update_by_id_and_tenant(
         conn,
@@ -1285,7 +1201,15 @@ async fn finalize_credit_note_decision_tx(
         .map_err(Into::<Report<StoreError>>::into)?
         .try_into()?;
 
-    apply_credit_note_to_invoice_tx(store, conn, tenant_id, actor, &credit_note).await?;
+    apply_credit_note_to_invoice_tx(
+        store,
+        conn,
+        tenant_id,
+        actor,
+        &credit_note,
+        credit_note_row.voids_invoice,
+    )
+    .await?;
 
     store
         .internal
@@ -1317,7 +1241,8 @@ pub(crate) async fn create_credit_note_tx(
     // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
     Box::pin(async move {
     // 1. Lock the invoice row so concurrent credit notes (and ledger movements) serialize.
-    let (lock, invoice) = lock_credit_invoice(conn, tenant_id, params.invoice.id).await?;
+    let (lock, invoice, account) =
+        lock_invoice_account(conn, tenant_id, params.invoice.id).await?;
     let lock = &lock;
     invoice.ensure_not_consolidated_child("credit")?;
 
@@ -1344,8 +1269,10 @@ pub(crate) async fn create_credit_note_tx(
                 .or_default()
                 .add(&item)?;
             let previous = already_credited_amounts.entry(item.local_id).or_insert(0);
-            *previous = previous
-                .checked_add(credit_note_effects::total(item.amount_subtotal)?)
+            *previous = item
+                .amount_subtotal
+                .checked_abs()
+                .and_then(|amount| previous.checked_add(amount))
                 .ok_or_else(|| {
                     StoreError::InvalidArgument("credited subtotal exceeds currency range".into())
                 })?;
@@ -1604,8 +1531,14 @@ pub(crate) async fn create_credit_note_tx(
         }
         CreditType::CreditToBalance => {
             if !params.purchased_credit_removed {
-                refuse_unfunded_purchase_credit_tx(conn, lock, &invoice, &line_items_to_credit)
-                    .await?;
+                refuse_unfunded_purchase_credit_tx(
+                    conn,
+                    lock,
+                    &invoice,
+                    &account,
+                    &line_items_to_credit,
+                )
+                .await?;
             }
             if !params.purchased_credit_removed
                 && credits_funded_purchase_tx(conn, lock, &invoice, &line_items_to_credit).await?
@@ -1625,14 +1558,19 @@ pub(crate) async fn create_credit_note_tx(
     );
 
     // 6. Totals of the negated line items (negative), as an invoice's (R-076).
-    let promotional = credit_note_effects::sum(negated_line_items.iter().map(
-        crate::services::credit::promotional::net_share,
-    ))?;
-    let discount = credit_note_effects::sum(
-        negated_line_items
-            .iter()
-            .map(|item| item.amount_subtotal - item.taxable_amount),
-    )? - promotional;
+    let out_of_range =
+        || StoreError::InvalidArgument("credit-note effects exceed the currency range".into());
+    let promotional = negated_line_items
+        .iter()
+        .map(crate::services::credit::promotional::net_share)
+        .try_fold(0_i64, i64::checked_add)
+        .ok_or_else(out_of_range)?;
+    let discount = negated_line_items
+        .iter()
+        .map(|item| item.amount_subtotal - item.taxable_amount)
+        .try_fold(0_i64, i64::checked_add)
+        .ok_or_else(out_of_range)?
+        - promotional;
     let billing_core::Totals {
         subtotal,
         tax: tax_amount,
@@ -1643,16 +1581,6 @@ pub(crate) async fn create_credit_note_tx(
         bail!(StoreError::InvalidArgument(
             "a credit note cannot increase the invoice charge".into()
         ));
-    }
-
-    if params.credit_type == CreditType::DebtCancellation
-        && credit_note_effects::total(total)? > invoice.amount_due
-    {
-        bail!(StoreError::InvalidArgument(format!(
-            "a debt cancellation cannot cancel more than the invoice's amount due: {} requested, {} due",
-            format_money(i64::try_from(total.unsigned_abs()).unwrap_or(i64::MAX), &invoice.currency),
-            format_money(invoice.amount_due, &invoice.currency)
-        )));
     }
 
     // 7. Compute tax breakdown from negated line items (uses actual credited amounts).
@@ -1668,36 +1596,27 @@ pub(crate) async fn create_credit_note_tx(
     // 8. A draft carries a placeholder number until it is finalized.
     let credit_note_number = "draft".to_string();
 
-    // 9. Split the credited amount between returned value, cash refund and cancelled debt
-    // (positive values).
-    let credit_total = credit_note_effects::total(total)?;
-
-    let (credited_amount_cents, refunded_amount_cents, debt_cancelled_amount_cents) =
-        match params.credit_type {
-            CreditType::CreditToBalance => {
-                let payment_in_flight =
-                    invoice_payment_in_flight(conn, tenant_id, &invoice).await?;
-                let (credited, debt) = credit_note_effects::balance_effects_in_flight(
-                    &invoice,
-                    credit_total,
-                    &existing_credit_notes,
-                    params.applied_credits_restored_externally,
-                    payment_in_flight,
-                )?;
-                (credited, 0, debt)
-            }
-            CreditType::DebtCancellation => (0, 0, credit_total),
-            CreditType::Refund => {
-                // Applied invoice credit returns to the customer in proportion to the credited
-                // share, cumulatively across refunds, so rounding never returns more than applied.
-                let credited =
-                    refund_applied_credit_share(&invoice, credit_total, &existing_credit_notes)?;
-                let refunded = credit_total.checked_sub(credited).ok_or_else(|| {
-                    StoreError::InvalidArgument("refund amount exceeds currency range".into())
-                })?;
-                (credited, refunded, 0)
-            }
-        };
+    // 9. Split the credited amount between returned value, cash refund and cancelled debt from the
+    // account (R-126); the invoice-void note returns nothing itself (R-128).
+    let credit_total = total.checked_abs().ok_or_else(|| {
+        StoreError::InvalidArgument("credit-note total exceeds the currency range".into())
+    })?;
+    let split = if params.voids_invoice {
+        Split::default()
+    } else {
+        decide_split(
+            &account,
+            params.credit_type,
+            credit_total,
+            None,
+            &invoice.currency,
+        )?
+    };
+    let Split {
+        credited: credited_amount_cents,
+        refunded: refunded_amount_cents,
+        debt_cancelled: debt_cancelled_amount_cents,
+    } = split;
 
     // 10. Validate any user-supplied custom properties against the tenant's credit-note
     // definitions. A null bag (system-triggered creates, e.g. void) is a no-op → empty object.
@@ -1966,9 +1885,8 @@ impl CreditNoteInterface for Store {
             async move {
                 // 1. Customer, invoice, then the note, as finalization takes them: its lock
                 // waits out a concurrent finalization.
-                let (lock, credit_note_row) =
+                let (lock, invoice_row, credit_note_row) =
                     lock_mutable_credit_note_tx(conn, tenant_id, credit_note_id).await?;
-                diesel_models::query::credit_inputs::bump_customer(conn, &lock).await?;
 
                 // 2. Validate it's finalized (only finalized credit notes can be voided)
                 if credit_note_row.status != diesel_models::enums::CreditNoteStatus::Finalized {
@@ -1976,8 +1894,21 @@ impl CreditNoteInterface for Store {
                         "Only finalized credit notes can be voided".to_string()
                     ));
                 }
+                if credit_note_row.voids_invoice {
+                    bail!(StoreError::InvalidArgument(
+                        "the credit note of a voided invoice cannot be voided".to_string()
+                    ));
+                }
+                // The account without the note must not owe back a refund already made, nor
+                // move under a collection in flight.
+                invoice_account::load_tx(conn, &invoice_row)
+                    .await?
+                    .void_note(credit_note_row.id.as_uuid())
+                    .map_err(refused_note_void)?;
+                diesel_models::query::credit_inputs::bump_customer(conn, &lock).await?;
 
-                // 3. Take back the credit it returned, then void the credit note
+                // 3. Take back the credit it returned, void the credit note, then settle the
+                // invoice on what is left (R-125).
                 financial::take_back_returned_credit_tx(
                     conn,
                     &*self.hooks.credit,
@@ -1988,10 +1919,9 @@ impl CreditNoteInterface for Store {
                 CreditNoteRow::void(conn, credit_note_id, tenant_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
-
-                // 3b. Reverse the invoice settlement (DebtCancellation only)
-                let was_paid =
-                    revert_credit_note_from_invoice_tx(conn, tenant_id, &credit_note_row).await?;
+                let settled =
+                    invoice_account::settle_tx(conn, tenant_id, credit_note_row.invoice_id, None)
+                        .await?;
                 crate::services::credit::reconcile_purchased_credit_tx(
                     conn,
                     &*self.hooks.credit,
@@ -2006,8 +1936,8 @@ impl CreditNoteInterface for Store {
                         conn,
                         tenant_id,
                         credit_note_row.invoice_id,
-                        was_paid,
-                        was_paid,
+                        settled.reopened,
+                        settled.reopened,
                         ReopenedReminders::Restart,
                         common_clock::now().naive_utc(),
                     )
@@ -2093,13 +2023,14 @@ impl CreditNoteInterface for Store {
             return Ok(std::collections::HashSet::new());
         }
         let mut conn = self.get_conn().await?;
-        let cancelled = CreditNoteRow::sum_finalized_debt_cancelled_by_invoices(
-            &mut conn,
-            tenant_id,
-            &candidates,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+        // The debt their finalized notes cancelled, as the account folds it.
+        let mut cancelled: HashMap<InvoiceId, i64> = HashMap::new();
+        for note in CreditNoteRow::list_finalized_by_invoices(&mut conn, tenant_id, &candidates)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+        {
+            *cancelled.entry(note.invoice_id).or_insert(0) += note.debt_cancelled_amount_cents;
+        }
         let collected: std::collections::HashSet<InvoiceId> =
             diesel_models::payments::PaymentTransactionRow::invoices_with_collection(
                 &mut conn,

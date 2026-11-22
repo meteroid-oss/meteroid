@@ -739,7 +739,7 @@ impl Change {
             Change::Seats => vec![
                 "Recurring 2024-01-01: Platform Fee 2024-01-01..2024-02-01 2900",
                 "Recurring 2024-01-01: Seats 2024-01-01..2024-02-01 1000",
-                "OneOff 2024-01-15: 2 Seats upgrade 2024-01-15..2024-02-01 1097",
+                "Adjustment 2024-01-15: 2 Seats upgrade 2024-01-15..2024-02-01 1097",
                 "Recurring 2024-02-01: Platform Fee 2024-02-01..2024-03-01 2900",
                 "Recurring 2024-02-01: Seats 2024-02-01..2024-03-01 3000",
             ],
@@ -802,7 +802,7 @@ async fn a_change_after_a_seat_purchase_gives_back_the_purchased_seats(
             "Recurring 2024-01-01: Seats 2024-01-01..2024-02-01 1000",
             "note: Platform Fee 2024-01-01..2024-02-01 -1123",
             "note: Seats 2024-01-01..2024-02-01 -387",
-            "OneOff 2024-01-10: 2 Seats upgrade 2024-01-10..2024-02-01 1419",
+            "Adjustment 2024-01-10: 2 Seats upgrade 2024-01-10..2024-02-01 1419",
             "note: 2 Seats upgrade 2024-01-10..2024-02-01 -774",
             "Adjustment 2024-01-20: Platform Fee (prorated) 2024-01-20..2024-02-01 3832",
             "Adjustment 2024-01-20: Seats (prorated) 2024-01-20..2024-02-01 2903",
@@ -921,9 +921,9 @@ async fn a_seat_purchase_the_previous_release_invoiced_is_given_back_as_the_seat
             "Recurring 2024-01-01: Seats 2024-01-01..2024-02-01 1000",
             "note: Platform Fee 2024-01-01..2024-02-01 -1123",
             "note: Seats 2024-01-01..2024-02-01 -387",
-            "OneOff 2024-01-10: 2 Seats upgrade 2024-01-10..2024-02-01 1419",
+            "Adjustment 2024-01-10: 2 Seats upgrade 2024-01-10..2024-02-01 1419",
             "note: 2 Seats upgrade 2024-01-10..2024-02-01 -773",
-            "OneOff 2024-01-15: 1 Seats upgrade 2024-01-15..2024-02-01 549",
+            "Adjustment 2024-01-15: 1 Seats upgrade 2024-01-15..2024-02-01 549",
             "note: 1 Seats upgrade 2024-01-15..2024-02-01 -388",
         ]
     );

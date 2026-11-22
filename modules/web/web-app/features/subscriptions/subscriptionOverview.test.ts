@@ -214,9 +214,6 @@ describe('nextInvoiceTitle', () => {
     expect(
       nextInvoiceTitle({ change: UpcomingInvoiceChange.PLAN_CHANGE, newPlanName: 'Scale' }, false)
     ).toEqual({ title: 'Next invoice', after: 'after the change to Scale' })
-    expect(nextInvoiceTitle({ change: UpcomingInvoiceChange.PAUSE }, false)).toEqual({
-      title: 'Last invoice before the pause',
-    })
     expect(nextInvoiceTitle({ change: UpcomingInvoiceChange.NONE }, true)).toEqual({
       title: 'First invoice',
     })

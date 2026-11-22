@@ -80,6 +80,9 @@ pub struct PaymentTransactionRow {
     pub refund_excess: i64,
     /// The provider request of an invoice charge, committed before it is sent.
     pub charge_attempt: Option<serde_json::Value>,
+    /// When the provider accepted the collection while still in flight: the invoice is
+    /// Processing until it settles or fails.
+    pub accepted_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Insertable)]

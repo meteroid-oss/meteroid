@@ -240,8 +240,6 @@ export const nextInvoiceTitle = (
   switch (invoice.change) {
     case UpcomingInvoiceChange.ENDS:
       return { title: 'Final invoice' }
-    case UpcomingInvoiceChange.PAUSE:
-      return { title: 'Last invoice before the pause' }
     case UpcomingInvoiceChange.PLAN_CHANGE:
       return {
         title: 'Next invoice',

@@ -1483,6 +1483,22 @@ pub(crate) async fn lock_grants_tx(
     Ok(CustomerCreditGrantRow::lock_all(conn, lock, &normalized_currency(currency)).await?)
 }
 
+/// `lock_grants_tx` without locking anything, for previews.
+pub(crate) async fn list_grants_tx(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    customer_id: CustomerId,
+    currency: &str,
+) -> StoreResult<LockedGrants> {
+    Ok(CustomerCreditGrantRow::list_all(
+        conn,
+        tenant_id,
+        customer_id,
+        &normalized_currency(currency),
+    )
+    .await?)
+}
+
 /// The customer's unspent grants of a denomination, with their products, locked in id order.
 pub(crate) async fn lock_drawable_tx(
     conn: &mut PgConn,
@@ -1553,7 +1569,7 @@ pub struct UsageOwed {
 }
 
 impl UsageOwed {
-    fn core(&self) -> billing_core::credit::owed::UsageOwed {
+    pub(crate) fn core(&self) -> billing_core::credit::owed::UsageOwed {
         billing_core::credit::owed::UsageOwed {
             product: self.product_id,
             base_minor: self.base_minor,
@@ -1575,14 +1591,12 @@ impl UsageOwed {
         self.core().invoiced(base)
     }
 
-    /// The tax in what `covered` of `base`'s invoiced figure pays, as its invoice line levies it,
-    /// `base` being invoiced at `full` (`invoiced_together`).
+    #[cfg(test)]
     pub(crate) fn tax_in_within(&self, base: i64, covered: i64, full: i64) -> i64 {
         self.core().tax_in_within(base, covered, full)
     }
 
-    /// What each of `owed` is invoiced at for `bases`, tax included, each rate rounded once over
-    /// all of them (OQ14).
+    #[cfg(test)]
     pub(crate) fn invoiced_together(owed: &[Self], bases: &[i64]) -> Vec<i64> {
         billing_core::credit::owed::UsageOwed::invoiced_together(
             &owed.iter().map(Self::core).collect::<Vec<_>>(),
@@ -1590,7 +1604,7 @@ impl UsageOwed {
         )
     }
 
-    /// `usage_paid_by` where `base` is invoiced at `full`: all of it only once `paid` reaches it.
+    #[cfg(test)]
     pub(crate) fn usage_paid_by_within(&self, base: i64, paid: i64, full: i64) -> i64 {
         self.core().usage_paid_by_within(base, paid, full)
     }
@@ -1702,43 +1716,28 @@ pub(crate) async fn settle_usage_tx(
     grants: &mut LockedGrants,
     ending: &[CreditGrantId],
 ) -> StoreResult<(Vec<WalletId>, i64)> {
-    let at = settlement.bound - Duration::microseconds(1);
-    let (expiring, mut others): (Vec<_>, Vec<_>) =
-        candidates(grants)?.into_iter().partition(|grant| {
-            if ending.is_empty() {
-                grant.lapses_at == Some(settlement.bound)
-            } else {
-                ending.contains(&grant.id)
-            }
-        });
-    if !ending.is_empty() {
-        others.clear();
-    }
-    let mut left = owed
-        .iter()
-        .map(|owed| owed.base_minor.max(0))
-        .collect::<Vec<_>>();
-    let (subscription_id, dated_before) = (settlement.subscription_id, settlement.dated_before);
-    for pool in pools.iter().rev() {
-        let held = earlier
+    let payers: Vec<billing_core::credit::allocation::Grant> =
+        candidates(grants)?.iter().map(Into::into).collect();
+    let period = billing_core::credit::expiry::PeriodOwed {
+        subscription: settlement.subscription_id,
+        dated_before: settlement.dated_before,
+        owed: owed.iter().map(UsageOwed::core).collect(),
+        held: earlier
             .iter()
-            .filter(|(grant, _)| pool.admits(grant.classification))
-            .cloned()
-            .collect::<Vec<_>>();
-        let asked = owed_request(owed, &left, *pool, subscription_id, dated_before);
-        let placed = assign(&held, &asked)?;
-        pay_owed(owed, &mut left, *pool, &placed);
-    }
-    let mut taxed: HashMap<CreditGrantId, i64> = HashMap::new();
-    let plan = draw_owed(
-        owed,
-        &mut left,
-        (subscription_id, dated_before),
-        &[&expiring, &others],
-        pools,
-        at,
-        &mut taxed,
-    )?;
+            .map(|(grant, amount)| (grant.into(), *amount))
+            .collect(),
+    };
+    let pools: Vec<billing_core::credit::allocation::Pool> =
+        pools.iter().map(|pool| (*pool).into()).collect();
+    let billing_core::credit::expiry::PeriodDraws { draws: plan, taxed } =
+        billing_core::credit::expiry::settle_period(
+            &period,
+            &payers,
+            ending,
+            settlement.bound,
+            &pools,
+        )
+        .map_err(|_| overflow())?;
     let mut by_account: BTreeMap<Uuid, (WalletId, Vec<(CreditGrantId, i64)>)> = BTreeMap::new();
     for (grant_id, amount) in plan {
         let account_id = grants
@@ -1813,121 +1812,6 @@ pub(crate) async fn settle_usage_tx(
         settled = settled.checked_add(total).ok_or_else(overflow)?;
     }
     Ok((paid_by, settled))
-}
-
-/// Adds the tax paid credit settled in `drawn` to its draws, split by what each drew so the parts
-/// sum to it exactly.
-/// What `owed` (`left` of it) asks of `pool`: promotional credit pays its usage before tax, paid
-/// credit its invoiced figure.
-fn owed_request(
-    owed: &[UsageOwed],
-    left: &[i64],
-    pool: GrantPool,
-    subscription_id: SubscriptionId,
-    dated_before: DateTime<Utc>,
-) -> CreditRequest {
-    let amounts = if pool == GrantPool::Paid {
-        UsageOwed::invoiced_together(owed, left)
-    } else {
-        left.to_vec()
-    };
-    CreditRequest {
-        requested_minor: amounts.iter().sum(),
-        demands: owed
-            .iter()
-            .zip(amounts)
-            .map(|(owed, amount)| CreditDemand {
-                subscription_id: Some(subscription_id),
-                product_id: owed.product_id,
-                usage: true,
-                amount_minor: amount,
-                dated_before: Some(dated_before),
-            })
-            .collect(),
-    }
-}
-
-/// Takes off `left` the usage `paid` (drawn from `pool`) pays: paid credit covers invoiced
-/// figures, so what it pays comes off the usage they invoice.
-fn pay_owed(owed: &[UsageOwed], left: &mut [i64], pool: GrantPool, paid: &Allocation) {
-    let full = UsageOwed::invoiced_together(owed, left);
-    for (index, base) in left.iter_mut().enumerate() {
-        let covered = paid.covered.get(index).copied().unwrap_or(0);
-        *base = if pool == GrantPool::Paid {
-            *base - owed[index].usage_paid_by_within(*base, covered, full[index])
-        } else {
-            (*base - covered).max(0)
-        };
-    }
-}
-
-/// Draws what is `left` of `owed` (one subscription's usage dated before a bound) from each of
-/// `sets` in turn, each by `pools` in turn, as they stand at `at`; `taxed` gathers, by grant, the
-/// tax the paid draws carry. Returns the draws.
-pub(crate) fn draw_owed(
-    owed: &[UsageOwed],
-    left: &mut [i64],
-    (subscription_id, dated_before): (SubscriptionId, DateTime<Utc>),
-    sets: &[&[GrantCandidate]],
-    pools: &[GrantPool],
-    at: DateTime<Utc>,
-    taxed: &mut HashMap<CreditGrantId, i64>,
-) -> StoreResult<Vec<(CreditGrantId, i64)>> {
-    let mut plan = Allocation::default();
-    for (set, pool) in sets
-        .iter()
-        .flat_map(|set| pools.iter().map(move |pool| (*set, *pool)))
-    {
-        let asked = owed_request(owed, left, pool, subscription_id, dated_before);
-        if asked.requested_minor <= 0 {
-            continue;
-        }
-        let drawn = allocate(set, &asked, at, pool)?;
-        if pool == GrantPool::Paid {
-            carried_tax(owed, left, &drawn, taxed)?;
-        }
-        pay_owed(owed, left, pool, &drawn);
-        plan = plan.then(Allocation {
-            draws: drawn.draws,
-            covered: Vec::new(),
-            placed: Vec::new(),
-        })?;
-    }
-    Ok(plan.draws)
-}
-
-fn carried_tax(
-    owed: &[UsageOwed],
-    left: &[i64],
-    drawn: &Allocation,
-    taxed: &mut HashMap<CreditGrantId, i64>,
-) -> StoreResult<()> {
-    let full = UsageOwed::invoiced_together(owed, left);
-    let tax = owed
-        .iter()
-        .zip(left)
-        .enumerate()
-        .try_fold(0_i64, |sum, (index, (owed, base))| {
-            sum.checked_add(owed.tax_in_within(
-                *base,
-                drawn.covered.get(index).copied().unwrap_or(0),
-                full[index],
-            ))
-        })
-        .ok_or_else(overflow)?;
-    let total = drawn.total()?;
-    if tax == 0 || total <= 0 {
-        return Ok(());
-    }
-    let (mut cumulative, mut assigned) = (0_i128, 0_i64);
-    for (grant_id, amount) in &drawn.draws {
-        cumulative += i128::from(*amount);
-        let share = i64::try_from(cumulative * i128::from(tax) / i128::from(total))
-            .map_err(|_| overflow())?;
-        *taxed.entry(*grant_id).or_default() += share - assigned;
-        assigned = share;
-    }
-    Ok(())
 }
 
 /// The usage a settlement pays: one subscription period, up to an event-time bound.
@@ -3529,7 +3413,8 @@ mod tests {
     }
 
     /// $54 of paid credit settling usage taxed 10% on top pays $49.09 of it and carries its $4.91
-    /// of tax, split exactly over the grants that drew it; priced tax included, the tax inside.
+    /// of tax; priced tax included, the tax inside. Its split over the grants is the core's
+    /// (`billing_core::credit::expiry`).
     #[test]
     fn settled_paid_credit_carries_the_tax_of_the_usage_it_pays() {
         let ten = |base_minor| UsageOwed {
@@ -3548,16 +3433,6 @@ mod tests {
             ..vat(12_000)
         };
         assert_eq!(included.tax_in_within(12_000, 12_000, 12_000), 2_000);
-
-        let (first, second) = (CreditGrantId::new(), CreditGrantId::new());
-        let drawn = Allocation {
-            draws: vec![(first, 3_000), (second, 2_400)],
-            covered: vec![5_400],
-            placed: Vec::new(),
-        };
-        let mut taxed = HashMap::new();
-        carried_tax(&[ten(4_909)], &[4_909], &drawn, &mut taxed).unwrap();
-        assert_eq!((taxed[&first], taxed[&second]), (272, 219));
     }
 
     /// Every figure paid of an invoiced amount converts to the most usage it pays whole; what is

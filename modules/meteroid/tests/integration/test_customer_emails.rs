@@ -23,7 +23,6 @@ use diesel_models::entity_activity::EntityActivityRow;
 use diesel_models::enums::{
     EmailSendClaimStateEnum, OrganizationUserRole as DbOrganizationUserRole,
 };
-use diesel_models::invoices::InvoiceRow;
 use diesel_models::organization_members::OrganizationMemberRow;
 use diesel_models::query::sent_email::SentEmailFilter;
 use diesel_models::sent_email::SentEmailRow;
@@ -2292,18 +2291,12 @@ async fn deferred_message_reclaims_after_release(#[future] test_env: TestEnv) {
     let key = format!("payment_reminder:{invoice_id}:{}:0", row.generation);
 
     // A SEPA debit is in flight: the step is deferred, the claim released.
-    {
-        let mut conn = env.conn().await;
-        InvoiceRow::apply_payment_status(
-            &mut conn,
-            invoice_id,
-            TENANT_ID,
-            diesel_models::enums::InvoicePaymentStatus::Processing,
-            None,
-        )
-        .await
-        .expect("processing");
-    }
+    force_payment_status(
+        &env,
+        invoice_id,
+        diesel_models::enums::InvoicePaymentStatus::Processing,
+    )
+    .await;
     enqueue(&env, EmailKind::PaymentReminder, context.clone(), &key).await;
     assert!(run_email_worker_once(&env).await.is_empty());
     assert_eq!(
@@ -2333,18 +2326,12 @@ async fn deferred_message_reclaims_after_release(#[future] test_env: TestEnv) {
     );
 
     // The debit bounced; the retried message wins the released claim and sends.
-    {
-        let mut conn = env.conn().await;
-        InvoiceRow::apply_payment_status(
-            &mut conn,
-            invoice_id,
-            TENANT_ID,
-            diesel_models::enums::InvoicePaymentStatus::Unpaid,
-            None,
-        )
-        .await
-        .expect("unpaid");
-    }
+    force_payment_status(
+        &env,
+        invoice_id,
+        diesel_models::enums::InvoicePaymentStatus::Unpaid,
+    )
+    .await;
     make_queue_visible(&env).await;
     let emails = env.drain_email_queue().await;
     assert_eq!(emails.len(), 1);
@@ -3372,4 +3359,26 @@ async fn audience_rules_refuse_foreign_entities_and_payment_reminders(#[future] 
     .expect_err("mode is required");
     assert_eq!(err.code(), Code::InvalidArgument, "{err}");
     assert_eq!(stored_audience_rows(&env, INVOICING_ENTITY_ID).await, 0);
+}
+
+/// Stands the invoice in `status` directly, as a fixture: no payment moved it.
+async fn force_payment_status(
+    env: &TestEnv,
+    invoice: InvoiceId,
+    status: diesel_models::enums::InvoicePaymentStatus,
+) {
+    use diesel::prelude::*;
+    use diesel_async::RunQueryDsl;
+    use diesel_models::schema::invoice::dsl as i;
+
+    let mut conn = env.conn().await;
+    diesel::update(
+        i::invoice
+            .filter(i::id.eq(invoice))
+            .filter(i::tenant_id.eq(TENANT_ID)),
+    )
+    .set(i::payment_status.eq(status))
+    .execute(&mut conn)
+    .await
+    .expect("payment status");
 }

@@ -1239,3 +1239,79 @@ async fn test_pending_seats_count_against_the_maximum(#[future] test_env: TestEn
         .expect_err("over the maximum");
     assert!(format!("{err:?}").contains("maximum"), "{err:?}");
 }
+
+// =============================================================================
+// (e) Credit and a settled payment cover the invoice: a second charge is refused
+// =============================================================================
+
+/// 3500 billed, 1750 paid by credit, 1750 charged and settled while its settlement event is still
+/// queued: the account leaves nothing due, so a second charge is refused. Measured against the
+/// total (1750 + 1750 ≤ 3500), it was taken.
+/// Rules: R-127, R-125
+#[rstest]
+#[tokio::test]
+async fn test_second_charge_refused_when_credit_and_a_settled_payment_cover_the_invoice(
+    #[future] test_env: TestEnv,
+) {
+    use crate::helpers::credit::assert_ledger_balances;
+    use crate::helpers::invariants::assert_invoice_accounts;
+
+    let env = test_env.await;
+    env.fund_invoice_credit(CUST_UBER_ID, 1_750).await;
+    let (sub_id, invoice_id) = env.unpaid_card_invoice().await;
+    let invoice = env.get_detailed_invoice(invoice_id).await.invoice;
+    assert_eq!(
+        (invoice.total, invoice.applied_credits, invoice.amount_due),
+        (3_500, 1_750, 1_750)
+    );
+
+    let (tx, _) = env
+        .services()
+        .complete_invoice_payment(
+            TENANT_ID,
+            invoice_id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            false,
+            None,
+        )
+        .await
+        .expect("first charge accepted");
+    assert_eq!(tx.status, PaymentStatusEnum::Settled);
+    assert_eq!(tx.amount, 1_750);
+
+    let err = env
+        .services()
+        .complete_invoice_payment(
+            TENANT_ID,
+            invoice_id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            false,
+            None,
+        )
+        .await
+        .expect_err("credit and the settled charge cover the invoice");
+    assert!(
+        format!("{err:?}").contains("sufficient payments"),
+        "unexpected error: {err:?}"
+    );
+    let payments = env
+        .store()
+        .list_payment_tx_by_invoice_id(TENANT_ID, invoice_id)
+        .await
+        .expect("list payment transactions");
+    assert_eq!(payments.len(), 1, "no second charge was recorded");
+    assert_eq!(payments[0].transaction.amount, 1_750);
+
+    env.run_outbox_and_orchestration().await;
+    env.get_invoices(sub_id)
+        .await
+        .assert()
+        .invoice_at(0)
+        .is_finalized_paid()
+        .has_total(3_500)
+        .has_applied_credits(1_750)
+        .has_amount_due(0);
+    assert_eq!(env.invoice_credit_balance_minor(CUST_UBER_ID).await, 0);
+    assert_ledger_balances(env.store(), TENANT_ID, CUST_UBER_ID).await;
+    assert_invoice_accounts(env.store(), TENANT_ID).await;
+}

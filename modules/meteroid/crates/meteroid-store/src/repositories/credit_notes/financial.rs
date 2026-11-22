@@ -11,6 +11,7 @@ use crate::repositories::credit::line_allocation;
 use crate::services::credit::promotional::{LineScope, pretax_request};
 use crate::services::credit::scope::{LineOwners, line_subscription};
 use crate::services::credit::{invalid, precondition};
+use billing_core::settlement::Void;
 use common_domain::ids::SubscriptionId;
 use diesel_models::customer_credit::{
     CustomerCreditAccountRow, CustomerCreditEntryRow, CustomerCreditGrantRow,
@@ -24,12 +25,11 @@ pub(super) async fn finalize_tx(
     tenant: TenantId,
     actor: &Actor,
     note_id: CreditNoteId,
-    applied_credits_restored_externally: bool,
     purchased_credit_removed: bool,
     credit_at: Option<DateTime<Utc>>,
 ) -> StoreResult<CreditNote> {
     let observed = CreditNoteRow::find_by_id(conn, tenant, note_id).await?;
-    let (lock, invoice) = lock_credit_invoice(conn, tenant, observed.invoice_id).await?;
+    let (lock, invoice, account) = lock_invoice_account(conn, tenant, observed.invoice_id).await?;
     let lock = &lock;
     diesel_models::query::credit_inputs::bump_customer(conn, lock).await?;
     let note = finalize_credit_note_decision_tx(
@@ -38,8 +38,8 @@ pub(super) async fn finalize_tx(
         lock,
         actor,
         &invoice,
+        &account,
         note_id,
-        applied_credits_restored_externally,
         purchased_credit_removed,
     )
     .await?;
@@ -401,6 +401,24 @@ async fn historical_refund_return_tx(
     invoice: &Invoice,
     note: &CreditNote,
 ) -> StoreResult<(i64, String)> {
+    let (original, currency) = historical_deduction_tx(conn, invoice).await?;
+    let (prior_invoice, prior_original) =
+        historical_refund_returns_tx(conn, lock, invoice, Some(note.id)).await?;
+    let amount = cumulative_return(
+        original,
+        invoice.applied_credits,
+        prior_invoice,
+        prior_original,
+        note.credited_amount_cents,
+    )?;
+    Ok((amount, currency))
+}
+
+/// What the retired scalar deducted for the invoice, and in which currency.
+async fn historical_deduction_tx(
+    conn: &mut PgConn,
+    invoice: &Invoice,
+) -> StoreResult<(i64, String)> {
     let deductions = HistoricalBalanceTxRow::deductions_for_invoice(
         conn,
         invoice.tenant_id,
@@ -411,6 +429,17 @@ async fn historical_refund_return_tx(
     let (original, currency) = historical_deduction(&deductions)?.ok_or_else(|| {
         precondition("the credit this invoice drew before the ledger existed has no record")
     })?;
+    Ok((original, currency.to_owned()))
+}
+
+/// Of the pre-ledger credit, what the finalized Refund notes other than `except` returned: in the
+/// invoice's currency, and as restored in the deduction's.
+async fn historical_refund_returns_tx(
+    conn: &mut PgConn,
+    lock: &CustomerLock,
+    invoice: &Invoice,
+    except: Option<CreditNoteId>,
+) -> StoreResult<(i64, i64)> {
     let returned = CustomerCreditGrantRow::lock_by_invoice(conn, lock, invoice.id)
         .await?
         .into_iter()
@@ -418,7 +447,7 @@ async fn historical_refund_return_tx(
         .collect::<Vec<_>>();
     let (mut prior_invoice, mut prior_original) = (0_i64, 0_i64);
     for prior in CreditNoteRow::list_by_invoice_id(conn, invoice.tenant_id, invoice.id).await? {
-        if prior.id == note.id
+        if Some(prior.id) == except
             || prior.status != diesel_models::enums::CreditNoteStatus::Finalized
             || prior.credit_type != diesel_models::enums::CreditTypeEnum::Refund
             || prior.credited_amount_cents == 0
@@ -449,14 +478,40 @@ async fn historical_refund_return_tx(
             .checked_add(restored)
             .ok_or_else(|| invalid("historical invoice credit overflow"))?;
     }
-    let amount = credit_note_effects::cumulative_return(
-        original,
-        invoice.applied_credits,
-        prior_invoice,
-        prior_original,
-        note.credited_amount_cents,
-    )?;
-    Ok((amount, currency.to_owned()))
+    Ok((prior_invoice, prior_original))
+}
+
+/// Share of `original` owed back once `prior_invoice + requested` of `invoice_applied` is
+/// returned, minus what earlier returns already took: cumulative rounding never over-returns.
+fn cumulative_return(
+    original: i64,
+    invoice_applied: i64,
+    prior_invoice: i64,
+    prior_original: i64,
+    requested: i64,
+) -> StoreResult<i64> {
+    let refused = |message: &str| {
+        error_stack::Report::new(StoreError::FailedPrecondition(message.to_owned()))
+    };
+    if original <= 0
+        || invoice_applied <= 0
+        || prior_invoice < 0
+        || prior_original < 0
+        || requested <= 0
+    {
+        return Err(refused("the invoice refund allocation is invalid"));
+    }
+    let cumulative = prior_invoice
+        .checked_add(requested)
+        .filter(|total| *total <= invoice_applied)
+        .ok_or_else(|| refused("the invoice refunds exceed the invoiced amount"))?;
+    let numerator = i128::from(original) * i128::from(cumulative);
+    let rounded = (numerator + i128::from(invoice_applied) / 2) / i128::from(invoice_applied);
+    i64::try_from(rounded)
+        .ok()
+        .and_then(|value| value.checked_sub(prior_original))
+        .filter(|value| *value >= 0)
+        .ok_or_else(|| refused("earlier invoice refunds exceed their original allocation"))
 }
 
 /// A refund takes back the credit its purchase lines bought, from the unspent grant of each line.
@@ -774,13 +829,16 @@ pub(crate) async fn take_back_invoice_granted_credit_tx(
     Ok(())
 }
 
-/// A voided invoice gives back the credit it drew. One finalized before the ledger existed gives
-/// back what the retired scalar deducted, in the currency it was deducted in (never converted).
+/// A voided invoice gives back the draws still on it, `void.credit` of its paid credit (R-128):
+/// what its notes returned is not returned twice. One finalized before the ledger existed gives
+/// back that share of what the retired scalar deducted, in the currency it was deducted in (never
+/// converted).
 pub(crate) async fn restore_invoice_credit_tx(
     conn: &mut PgConn,
     controls: &dyn CreditControlHooks,
     lock: &CustomerLock,
     invoice: &Invoice,
+    void: Void,
     now: DateTime<Utc>,
 ) -> StoreResult<()> {
     let drawn =
@@ -800,23 +858,28 @@ pub(crate) async fn restore_invoice_credit_tx(
         }
         return Ok(());
     }
-    let deductions = HistoricalBalanceTxRow::deductions_for_invoice(
-        conn,
-        invoice.tenant_id,
-        invoice.customer_id,
-        invoice.id,
-    )
-    .await?;
-    let (amount, currency) = historical_deduction(&deductions)?.ok_or_else(|| {
-        precondition("the credit this invoice drew before the ledger existed has no record")
-    })?;
+    if void.credit <= 0 {
+        return Ok(());
+    }
+    let (original, currency) = historical_deduction_tx(conn, invoice).await?;
+    let (_, prior_original) = historical_refund_returns_tx(conn, lock, invoice, None).await?;
+    let amount = cumulative_return(
+        original,
+        invoice.applied_credits,
+        invoice.applied_credits - void.credit,
+        prior_original,
+        void.credit,
+    )?;
+    if amount == 0 {
+        return Ok(());
+    }
     credit::fund_tx(
         conn,
         controls,
         CreditFunding {
             tenant_id: invoice.tenant_id,
             customer_id: invoice.customer_id,
-            currency: currency.to_owned(),
+            currency: currency.clone(),
             scope: GrantScope::customer_wide(),
             amount_minor: amount,
             classification: GrantClassification::Paid,
@@ -827,7 +890,7 @@ pub(crate) async fn restore_invoice_credit_tx(
             now: common_clock::now(),
             source_kind: source::INVOICE_VOID_RESTORE,
             source_id: invoice.id.as_uuid(),
-            cost: Some(CreditCost::at_face(amount, currency)),
+            cost: Some(CreditCost::at_face(amount, &currency)),
             rollover: None,
             invoice_id: Some(invoice.id),
             line_local_id: None,
@@ -885,8 +948,19 @@ pub(crate) fn credit_note_grant_reason(note_reason: Option<&str>) -> &'static st
 
 #[cfg(test)]
 mod tests {
-    use super::historical_deduction;
+    use super::{cumulative_return, historical_deduction};
     use diesel_models::customer_credit::HistoricalBalanceTxRow;
+
+    #[test]
+    fn partial_refunds_carry_rounding_and_never_exceed_the_original_amount() {
+        assert_eq!(cumulative_return(1, 3, 0, 0, 1).unwrap(), 0);
+        assert_eq!(cumulative_return(1, 3, 1, 0, 1).unwrap(), 1);
+        assert_eq!(cumulative_return(1, 3, 2, 1, 1).unwrap(), 0);
+        assert_eq!(cumulative_return(1001, 3000, 0, 0, 1000).unwrap(), 334);
+        assert_eq!(cumulative_return(1001, 3000, 1000, 334, 1000).unwrap(), 333);
+        assert_eq!(cumulative_return(1001, 3000, 2000, 667, 1000).unwrap(), 334);
+        assert!(cumulative_return(1001, 3000, 3000, 1001, 1).is_err());
+    }
 
     fn row(amount_cents: i64, currency: &str) -> HistoricalBalanceTxRow {
         HistoricalBalanceTxRow {

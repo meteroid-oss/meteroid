@@ -1,6 +1,6 @@
 use crate::errors::IntoDbResult;
 use crate::invoices::{
-    ConsolidatedMemberLinesRow, DetailedInvoiceRow, InvoiceCollections, InvoiceLockRow, InvoiceRow,
+    ConsolidatedMemberLinesRow, DetailedInvoiceRow, InvoiceLockRow, InvoiceRow,
     InvoiceRowLinesPatch, InvoiceRowNew, InvoiceWithCustomerRow, UnsettledInvoiceRow,
 };
 
@@ -838,32 +838,6 @@ impl InvoiceRow {
         Ok(updated)
     }
 
-    /// What the invoice still asks for after the credits and credit notes applied to it — the
-    /// figure `amount_due` is measured against. The issued `total` never moves, so comparing
-    /// against it would read a fully credited, fully unpaid invoice as partially paid.
-    pub async fn collectible_total(
-        conn: &mut PgConn,
-        id: InvoiceId,
-        tenant_id: TenantId,
-    ) -> DbResult<i64> {
-        use crate::schema::invoice::dsl as i_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let (total, applied_credits): (i64, i64) = i_dsl::invoice
-            .filter(i_dsl::id.eq(id))
-            .filter(i_dsl::tenant_id.eq(tenant_id))
-            .select((i_dsl::total, i_dsl::applied_credits))
-            .first(conn)
-            .await
-            .attach("Error while loading invoice total")
-            .into_db_result()?;
-
-        let cancelled =
-            crate::credit_notes::CreditNoteRow::sum_finalized_invoice_reducing(conn, id, tenant_id)
-                .await?;
-        Ok((total - applied_credits - cancelled).max(0))
-    }
-
     /// Records when a dispute first withdrew money still lost on the invoice's payments, or
     /// clears it once none is; the earliest stamp is kept while some stays disputed.
     pub async fn sync_payment_disputed_at(
@@ -896,239 +870,54 @@ impl InvoiceRow {
             .into_db_result()
     }
 
-    pub async fn apply_payment_status(
+    /// Writes an issued invoice's settled state (`billing_core::settlement`): its amount due and
+    /// payment status, `paid_at` when it becomes paid (kept while it stays paid, cleared once it
+    /// owes again). The only writer of these columns on an issued invoice.
+    pub async fn write_settlement(
         conn: &mut PgConn,
+        lock: &crate::lock::CustomerLock,
         id: InvoiceId,
-        tenant_id: TenantId,
+        amount_due: i64,
         payment_status: InvoicePaymentStatus,
-        tx_at: Option<NaiveDateTime>,
+        paid_at: Option<NaiveDateTime>,
     ) -> DbResult<InvoiceRow> {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
 
-        let now = common_clock::now().naive_utc();
-        let paid_at = if payment_status == InvoicePaymentStatus::Paid {
-            Some(tx_at.unwrap_or(now))
-        } else {
-            None
-        };
-
-        let query = diesel::update(i_dsl::invoice)
+        lock.on(conn);
+        let target = i_dsl::invoice
             .filter(i_dsl::id.eq(id))
-            .filter(i_dsl::tenant_id.eq(tenant_id))
-            .set((
-                i_dsl::payment_status.eq(payment_status),
-                i_dsl::paid_at.eq(paid_at),
-                i_dsl::updated_at.eq(now),
-            ));
-        if paid_at.is_some() {
-            // Paid: no payment attempt left to make.
-            diesel::update(i_dsl::invoice)
-                .filter(i_dsl::id.eq(id))
-                .filter(i_dsl::tenant_id.eq(tenant_id))
-                .set(i_dsl::next_payment_attempt_at.eq(None::<NaiveDateTime>))
+            .filter(i_dsl::tenant_id.eq(lock.tenant_id()))
+            .filter(i_dsl::customer_id.eq(lock.customer_id()));
+        let now = common_clock::now().naive_utc();
+        let paid = payment_status == InvoicePaymentStatus::Paid;
+        if let Some(paid_at) = paid_at.filter(|_| paid) {
+            diesel::update(target)
+                .set((
+                    i_dsl::paid_at.eq(Some(paid_at)),
+                    i_dsl::next_payment_attempt_at.eq(None::<NaiveDateTime>),
+                ))
                 .execute(conn)
                 .await
-                .attach("Error while clearing an invoice's next payment attempt")
+                .attach("Error while stamping an invoice paid")
+                .into_db_result()?;
+        } else if !paid {
+            diesel::update(target)
+                .set(i_dsl::paid_at.eq(None::<NaiveDateTime>))
+                .execute(conn)
+                .await
+                .attach("Error while clearing an invoice's paid date")
                 .into_db_result()?;
         }
-
-        crate::debug_sql(&query);
-
-        query
-            .get_result(conn)
-            .await
-            .attach("Error while applying payment status to invoice")
-            .into_db_result()
-    }
-
-    pub async fn apply_transaction(
-        conn: &mut PgConn,
-        id: InvoiceId,
-        tenant_id: TenantId,
-        transaction_amount: i64,
-    ) -> DbResult<InvoiceRow> {
-        use crate::schema::invoice::dsl as i_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let now = common_clock::now().naive_utc();
-
-        let query = diesel::update(i_dsl::invoice)
-            .filter(i_dsl::id.eq(id))
-            .filter(i_dsl::tenant_id.eq(tenant_id))
+        diesel::update(target)
             .set((
+                i_dsl::amount_due.eq(amount_due),
+                i_dsl::payment_status.eq(payment_status),
                 i_dsl::updated_at.eq(now),
-                i_dsl::amount_due.eq(i_dsl::amount_due - transaction_amount),
-            ));
-
-        crate::debug_sql(&query);
-
-        query
-            .get_result(conn)
-            .await
-            .attach("Error while applying transaction to invoice")
-            .into_db_result()
-    }
-
-    /// What the invoice asks and what its collections did for it. See [`InvoiceCollections`].
-    pub async fn collections(
-        conn: &mut PgConn,
-        id: InvoiceId,
-        tenant_id: TenantId,
-    ) -> DbResult<InvoiceCollections> {
-        use crate::schema::invoice::dsl as i_dsl;
-        use crate::schema::payment_transaction::dsl as pt_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let settled: Vec<(i64, i64, i64)> = pt_dsl::payment_transaction
-            .filter(pt_dsl::invoice_id.eq(id))
-            .filter(pt_dsl::tenant_id.eq(tenant_id))
-            // `Refunded` belongs here too: a payment fully given back voluntarily still
-            // collected the money once, and its refund rows are what take it away below.
-            .filter(pt_dsl::status.eq_any([
-                crate::enums::PaymentStatusEnum::Settled,
-                crate::enums::PaymentStatusEnum::Refunded,
-            ]))
-            .filter(pt_dsl::payment_type.eq_any(crate::enums::PaymentTypeEnum::COLLECTIONS))
-            .select((
-                pt_dsl::amount,
-                pt_dsl::amount_reversed,
-                pt_dsl::amount_disputed,
             ))
-            .load(conn)
-            .await
-            .attach("Error while summing settled payments")
-            .into_db_result()?;
-        // A refund drawn against an avoir is netted because that avoir also shrank what is owed.
-        let refunded_against_notes =
-            crate::payments::PaymentTransactionRow::sum_credit_note_backed_refunds_by_invoice(
-                conn, id, tenant_id,
-            )
-            .await?;
-        let excess_refunded =
-            crate::payments::PaymentTransactionRow::sum_live_refund_excess_by_invoice(
-                conn, id, tenant_id,
-            )
-            .await?;
-        let refunded_without_notes =
-            crate::payments::PaymentTransactionRow::sum_live_refunds_without_note_by_invoice(
-                conn, id, tenant_id,
-            )
-            .await?;
-        // Finalized DebtCancellation and Refund credit notes reduce what is owed; keep them
-        // netted out here or a later settlement silently re-bills the cancelled debt.
-        let cancelled_sum =
-            crate::credit_notes::CreditNoteRow::sum_finalized_invoice_reducing(conn, id, tenant_id)
-                .await?;
-        let refundable =
-            crate::credit_notes::CreditNoteRow::sum_finalized_refundable(conn, id, tenant_id)
-                .await?;
-        let (total, applied_credits): (i64, i64) = i_dsl::invoice
-            .filter(i_dsl::id.eq(id))
-            .filter(i_dsl::tenant_id.eq(tenant_id))
-            .select((i_dsl::total, i_dsl::applied_credits))
-            .first(conn)
-            .await
-            .attach("Error while loading invoice total")
-            .into_db_result()?;
-
-        let (mut gross, mut failed, mut disputed) = (0_i64, 0_i64, 0_i64);
-        for (amount, reversed, in_dispute) in settled {
-            gross += amount;
-            failed += reversed - in_dispute;
-            disputed += in_dispute;
-        }
-        let owed = total - applied_credits - cancelled_sum;
-        let gross = gross - refunded_against_notes;
-        Ok(InvoiceCollections {
-            owed,
-            gross,
-            failed,
-            disputed,
-            excess_refunded,
-            refunded: (refunded_without_notes - excess_refunded).max(0),
-            owed_back: (refundable - refunded_against_notes).max(0),
-        })
-    }
-
-    /// What the invoice's collections keep above what it asks, net of cancelled debt. Refund notes
-    /// and their refunds cancel out; a refund with no note, from the moment it is issued, gives
-    /// back the excess first.
-    pub async fn overpaid_by_collections(
-        conn: &mut PgConn,
-        id: InvoiceId,
-        tenant_id: TenantId,
-    ) -> DbResult<i64> {
-        use crate::schema::invoice::dsl as i_dsl;
-        use crate::schema::payment_transaction::dsl as pt_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let collections: Vec<(i64, i64)> = pt_dsl::payment_transaction
-            .filter(pt_dsl::invoice_id.eq(id))
-            .filter(pt_dsl::tenant_id.eq(tenant_id))
-            .filter(pt_dsl::status.eq_any([
-                crate::enums::PaymentStatusEnum::Settled,
-                crate::enums::PaymentStatusEnum::Refunded,
-            ]))
-            .filter(pt_dsl::payment_type.eq_any(crate::enums::PaymentTypeEnum::COLLECTIONS))
-            .select((pt_dsl::amount, pt_dsl::amount_reversed))
-            .load(conn)
-            .await
-            .attach("Error while summing collections")
-            .into_db_result()?;
-        let refunded_without_notes =
-            crate::payments::PaymentTransactionRow::sum_live_refunds_without_note_by_invoice(
-                conn, id, tenant_id,
-            )
-            .await?;
-        let cancelled =
-            crate::credit_notes::CreditNoteRow::sum_finalized_debt_cancelled(conn, id, tenant_id)
-                .await?;
-        let (total, applied_credits): (i64, i64) = i_dsl::invoice
-            .filter(i_dsl::id.eq(id))
-            .filter(i_dsl::tenant_id.eq(tenant_id))
-            .select((i_dsl::total, i_dsl::applied_credits))
-            .first(conn)
-            .await
-            .attach("Error while loading invoice total")
-            .into_db_result()?;
-        let due = total - applied_credits - cancelled;
-        let collected: i64 = collections
-            .into_iter()
-            .map(|(amount, reversed)| amount - reversed)
-            .sum();
-        Ok((collected - refunded_without_notes - due).max(0))
-    }
-
-    /// Idempotently recompute `amount_due` from [`InvoiceCollections::amount_due`]: safe under
-    /// queue redelivery and never negative. A failed collection reopens the invoice; money lost
-    /// to a dispute and a voluntary refund leave it as it stands. The caller must have locked the
-    /// invoice row and persisted the transaction state.
-    pub async fn recompute_amount_due_from_settled_payments(
-        conn: &mut PgConn,
-        id: InvoiceId,
-        tenant_id: TenantId,
-    ) -> DbResult<InvoiceRow> {
-        use crate::schema::invoice::dsl as i_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let new_amount_due = Self::collections(conn, id, tenant_id).await?.amount_due();
-        let now = common_clock::now().naive_utc();
-
-        let query = diesel::update(i_dsl::invoice)
-            .filter(i_dsl::id.eq(id))
-            .filter(i_dsl::tenant_id.eq(tenant_id))
-            .set((
-                i_dsl::updated_at.eq(now),
-                i_dsl::amount_due.eq(new_amount_due),
-            ));
-
-        crate::debug_sql(&query);
-
-        query
             .get_result(conn)
             .await
-            .attach("Error while recomputing invoice amount due")
+            .attach("Error while writing an invoice's settlement")
             .into_db_result()
     }
 
@@ -1862,30 +1651,6 @@ impl InvoiceRow {
             .into_db_result()
     }
 
-    /// Whether a final invoice of the subscription ever billed its last window, voided ones
-    /// included: that window is then billed again only by regenerating the final invoice.
-    pub async fn final_invoice_owns_last_window(
-        conn: &mut PgConn,
-        param_tenant_id: TenantId,
-        param_subscription_id: SubscriptionId,
-    ) -> DbResult<bool> {
-        use crate::enums::InvoiceType;
-        use crate::schema::invoice::dsl as i_dsl;
-        use diesel::dsl::exists;
-        use diesel_async::RunQueryDsl;
-
-        diesel::select(exists(
-            i_dsl::invoice
-                .filter(i_dsl::tenant_id.eq(param_tenant_id))
-                .filter(i_dsl::subscription_id.eq(param_subscription_id))
-                .filter(i_dsl::invoice_type.eq(InvoiceType::Final)),
-        ))
-        .get_result(conn)
-        .await
-        .attach("Error while checking for a subscription's final invoice")
-        .into_db_result()
-    }
-
     /// Whether the subscription changed within the period starting on `period_start` after its
     /// invoice was issued at `since`: an adjustment invoice, a component, add-on or seat change
     /// effective in the period, or a plan switch or update applying to it.
@@ -2049,69 +1814,6 @@ impl InvoiceRow {
             .attach("Error while reading the previous renewal")
             .into_db_result()?;
         Ok((first, previous))
-    }
-
-    /// The row and end of each line billing one of `rows` on the subscription's invoices dated
-    /// from `from`, void ones aside, and `except` and the recurring or final invoices of the
-    /// period starting `except_period`: what the others billed or will bill, up to when.
-    pub async fn billed_row_ends_since(
-        conn: &mut PgConn,
-        param_tenant_id: TenantId,
-        param_subscription_id: SubscriptionId,
-        from: chrono::NaiveDate,
-        rows: &[uuid::Uuid],
-        except: Option<InvoiceId>,
-        except_period: Option<chrono::NaiveDate>,
-    ) -> DbResult<Vec<(uuid::Uuid, chrono::NaiveDate)>> {
-        use diesel::sql_types;
-        use diesel_async::RunQueryDsl;
-
-        #[derive(diesel::QueryableByName)]
-        struct Billed {
-            #[diesel(sql_type = sql_types::Uuid)]
-            row_id: uuid::Uuid,
-            #[diesel(sql_type = sql_types::Date)]
-            end_date: chrono::NaiveDate,
-        }
-
-        let rows: Vec<String> = rows.iter().map(ToString::to_string).collect();
-        diesel::sql_query(
-            r#"
-            SELECT DISTINCT billed.row_id::uuid AS row_id, billed.end_date::date AS end_date
-            FROM invoice i
-            CROSS JOIN LATERAL (
-                SELECT COALESCE(line->>'sub_component_id', line->>'sub_add_on_id') AS row_id,
-                       line->>'end_date' AS end_date
-                FROM jsonb_array_elements(i.line_items) AS line
-            ) billed
-            WHERE i.tenant_id = $1
-              AND i.subscription_id = $2
-              AND i.invoice_date >= $3
-              AND (i.status <> 'VOID' OR i.consolidated_into_invoice_id IS NOT NULL)
-              AND ($5::uuid IS NULL OR i.id <> $5)
-              AND ($6::date IS NULL
-                   OR NOT (i.invoice_type IN ('RECURRING', 'FINAL')
-                           AND i.billing_period_start = $6))
-              AND billed.row_id = ANY($4)
-              AND billed.end_date IS NOT NULL
-            "#,
-        )
-        .bind::<sql_types::Uuid, _>(param_tenant_id)
-        .bind::<sql_types::Uuid, _>(param_subscription_id)
-        .bind::<sql_types::Date, _>(from)
-        .bind::<sql_types::Array<sql_types::Text>, _>(rows)
-        .bind::<sql_types::Nullable<sql_types::Uuid>, _>(except)
-        .bind::<sql_types::Nullable<sql_types::Date>, _>(except_period)
-        .load::<Billed>(conn)
-        .await
-        .map(|billed| {
-            billed
-                .into_iter()
-                .map(|billed| (billed.row_id, billed.end_date))
-                .collect()
-        })
-        .attach("Error while reading the lines billed since a date")
-        .into_db_result()
     }
 
     /// The line items of the subscription's recurring invoices for the period starting `on`.

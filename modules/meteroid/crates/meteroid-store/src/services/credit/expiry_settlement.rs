@@ -22,10 +22,10 @@ use crate::hooks::CreditControlHooks;
 use crate::repositories::credit::allocation::GrantPool;
 use crate::repositories::credit::customer_credit::{
     LockedGrants, MIN_SETTLEMENT_GRACE, MovementTime, UsageOwed, UsageSettlementTerms,
-    awaits_rollover_tx, balance_changed_tx, customer_settlement_grace_tx, expire_value_tx,
-    lapse_unsettled_tx, list_drawable_tx, lock_customer_tx, lock_drawable_tx, lock_grants_tx,
-    normalized_currency, return_settlement_tx, roll_over_tx, settle_usage_tx, settlement_grace,
-    settlement_holders_tx,
+    awaits_rollover_tx, balance_changed_tx, candidate, customer_settlement_grace_tx,
+    expire_value_tx, lapse_unsettled_tx, list_drawable_tx, lock_customer_tx, lock_drawable_tx,
+    lock_grants_tx, normalized_currency, return_settlement_tx, roll_over_tx, settle_usage_tx,
+    settlement_grace, settlement_holders_tx,
 };
 use crate::repositories::subscriptions::SubscriptionInterface;
 use crate::services::clients::usage::{GroupedUsageData, UsageClient};
@@ -764,47 +764,23 @@ async fn settle_expiry_tx(
             .max()
             .unwrap_or_else(|| period_windows[0].end.and_utc());
         // Only usage the lapsing credit could pay settles now; the rest waits for billing order.
-        if !lapsing_credit_pays(grants, expiry, *subscription_id, dated_before, ending) {
+        if !lapsing_credit_pays(grants, expiry, *subscription_id, dated_before, ending)? {
             continue;
         }
-        let mut owed: Vec<UsageOwed> = Vec::new();
-        let mut credits: Vec<(&PlannedWindow, i64)> = Vec::new();
-        for window in period_windows {
-            let Some(until) = window_until(window, expiry) else {
-                continue;
-            };
-            let groups = usage[&(
-                window.metric.id,
-                window.metric.usage_scope.fingerprint(),
-                window.start,
-                until,
-            )]
-                .clone();
-            let amount = price_window_groups(window, until, groups, pinned)?;
-            if window.currency == currency {
-                add_owed(&mut owed, window, amount, &window.taxes)?;
-            } else {
-                credits.push((window, amount));
-            }
-        }
-        for (window, money) in overage_owed(
+        let owed = period_owed(
             conn,
             tenant_id,
             customer_id,
+            currency,
             *subscription_id,
+            period_windows,
             (period_start, dated_before),
-            &credits,
-            cover,
+            pinned,
             expiry,
+            usage,
+            cover,
         )
-        .await?
-        {
-            let taxes = window
-                .overage
-                .as_ref()
-                .map_or(&window.taxes, |overage| &overage.taxes);
-            add_owed(&mut owed, window, money, taxes)?;
-        }
+        .await?;
         // Earlier settlements of the period are placed on the products their grants pay for;
         // only what is left of each product's usage settles now.
         let earlier = CreditUsageSettlementRow::list_for_period(
@@ -842,6 +818,64 @@ async fn settle_expiry_tx(
     Ok((touched, total_settled))
 }
 
+/// What one subscription period of `windows` (priced in `currency`) consumed up to `expiry`, by
+/// product: its own usage, and the money overage of its credit-priced usage beyond what `cover`
+/// says the unit wallet covers.
+#[allow(clippy::too_many_arguments)]
+async fn period_owed(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    customer_id: CustomerId,
+    currency: &str,
+    subscription_id: SubscriptionId,
+    period_windows: &[&PlannedWindow],
+    (period_start, dated_before): (NaiveDate, DateTime<Utc>),
+    pinned: &PinnedPrices,
+    expiry: DateTime<Utc>,
+    usage: &HashMap<UsageKey, Vec<GroupedUsageData>>,
+    cover: UnitCover<'_>,
+) -> StoreResult<Vec<UsageOwed>> {
+    let mut owed: Vec<UsageOwed> = Vec::new();
+    let mut credits: Vec<(&PlannedWindow, i64)> = Vec::new();
+    for window in period_windows {
+        let Some(until) = window_until(window, expiry) else {
+            continue;
+        };
+        let groups = usage[&(
+            window.metric.id,
+            window.metric.usage_scope.fingerprint(),
+            window.start,
+            until,
+        )]
+            .clone();
+        let amount = price_window_groups(window, until, groups, pinned)?;
+        if window.currency == currency {
+            add_owed(&mut owed, window, amount, &window.taxes)?;
+        } else {
+            credits.push((window, amount));
+        }
+    }
+    for (window, money) in overage_owed(
+        conn,
+        tenant_id,
+        customer_id,
+        subscription_id,
+        (period_start, dated_before),
+        &credits,
+        cover,
+        expiry,
+    )
+    .await?
+    {
+        let taxes = window
+            .overage
+            .as_ref()
+            .map_or(&window.taxes, |overage| &overage.taxes);
+        add_owed(&mut owed, window, money, taxes)?;
+    }
+    Ok(owed)
+}
+
 /// How many credits a unit wallet covers of a period's credit-priced usage, to find the money
 /// overage a lapsing currency grant settles: credits cover the earliest usage, so the overage up
 /// to a bound is what was consumed by then beyond that cover.
@@ -852,6 +886,9 @@ pub(crate) enum UnitCover<'a> {
     AtBound,
     /// What the invoice taking the period over covered, by subscription, period start and unit.
     Invoiced(&'a HashMap<(SubscriptionId, NaiveDate, String), i64>),
+    /// `AtBound` as a preview's settlement in memory left the unit: its open settlements with
+    /// those the preview added, then its grants as the preview left them.
+    Folded(&'a EndingFold),
 }
 
 fn add_owed(
@@ -922,8 +959,8 @@ async fn overage_owed<'w>(
                 .get(&(subscription_id, period_start, unit.clone()))
                 .copied()
                 .unwrap_or(0),
-            UnitCover::AtBound => {
-                let settled = CreditUsageSettlementRow::list_for_period(
+            UnitCover::AtBound | UnitCover::Folded(_) => {
+                let open = CreditUsageSettlementRow::list_for_period(
                     conn,
                     tenant_id,
                     subscription_id,
@@ -935,25 +972,48 @@ async fn overage_owed<'w>(
                 .filter(|settlement| settlement.invoice_id.is_none())
                 .try_fold(0_i64, |sum, settlement| sum.checked_add(settlement.amount))
                 .ok_or_else(|| invalid("settled credit exceeds the supported range"))?;
+                let (settled, folded) = match cover {
+                    UnitCover::Folded(fold) => (
+                        open.saturating_add(
+                            fold.settled
+                                .get(&(subscription_id, period_start, unit.clone()))
+                                .copied()
+                                .unwrap_or(0),
+                        ),
+                        fold.grants.get(&unit),
+                    ),
+                    _ => (open, None),
+                };
                 let rest = total - settled.min(total);
-                let fresh = if rest > 0 {
-                    crate::repositories::credit::customer_credit::preview_tx(
+                let request = crate::repositories::credit::allocation::CreditRequest::usage_for(
+                    Some(subscription_id),
+                    rest,
+                    Some(dated_before),
+                );
+                let at = bound - Duration::microseconds(1);
+                let fresh = match folded {
+                    _ if rest <= 0 => 0,
+                    Some(grants) => crate::repositories::credit::allocation::allocate(
+                        &grants
+                            .iter()
+                            .map(candidate)
+                            .collect::<StoreResult<Vec<_>>>()?,
+                        &request,
+                        at,
+                        GrantPool::All,
+                    )?
+                    .total()?,
+                    None => crate::repositories::credit::customer_credit::preview_tx(
                         conn,
                         tenant_id,
                         customer_id,
                         &unit,
                         GrantPool::All,
-                        &crate::repositories::credit::allocation::CreditRequest::usage_for(
-                            Some(subscription_id),
-                            rest,
-                            Some(dated_before),
-                        ),
-                        bound - Duration::microseconds(1),
+                        &request,
+                        at,
                     )
                     .await?
-                    .total()?
-                } else {
-                    0
+                    .total()?,
                 };
                 settled.saturating_add(fresh)
             }
@@ -987,22 +1047,22 @@ fn lapsing_credit_pays(
     subscription_id: SubscriptionId,
     dated_before: DateTime<Utc>,
     ending: &[CreditGrantId],
-) -> bool {
-    grants.iter().any(|scoped| {
-        let grant = &scoped.grant;
-        let lapsing = if ending.is_empty() {
-            grant.lapses_at == Some(expiry)
-        } else {
-            ending.contains(&grant.id)
-        };
-        lapsing
-            && grant.remaining > 0
-            && grant.effective_at < expiry
-            && grant.usage_start() < dated_before
-            && grant
-                .subscription_id
-                .is_none_or(|own| own == subscription_id)
-    })
+) -> StoreResult<bool> {
+    Ok(billing_core::credit::expiry::ending_pays(
+        &core_grants(grants)?,
+        ending,
+        expiry,
+        subscription_id,
+        dated_before,
+    ))
+}
+
+/// `grants` as the core's settlement reads them.
+fn core_grants(grants: &LockedGrants) -> StoreResult<Vec<billing_core::credit::allocation::Grant>> {
+    grants
+        .iter()
+        .map(|scoped| candidate(scoped).map(|candidate| (&candidate).into()))
+        .collect()
 }
 
 /// Pays the usage of the invoice's periods that credit already expired covered, before the
@@ -1329,6 +1389,147 @@ pub(crate) async fn settle_ending_grants_tx(
     balance_changed_tx(conn, &*store.hooks.credit, tenant_id, &touched, now).await
 }
 
+/// What a preview of an ending settled in memory, writing nothing: the grants of each
+/// denomination as its settlement left them, and the open settlements it added, by subscription,
+/// period start and denomination (a later denomination's overage reads both, `UnitCover::Folded`).
+#[derive(Debug, Default)]
+pub(crate) struct EndingFold {
+    grants: HashMap<String, LockedGrants>,
+    settled: HashMap<(SubscriptionId, NaiveDate, String), i64>,
+}
+
+/// [`settle_ending_grants_tx`] in memory, writing nothing: `grants` (every grant of `currency`,
+/// read without locks) are left as the ending's settlement would leave them, through the same
+/// core draws (`billing_core::credit::expiry::settle_expiry`), and `fold` keeps what it settled
+/// for the denominations folded after it. Metering is read on `usage_client`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn fold_ending_grants(
+    store: &Store,
+    usage_client: &dyn UsageClient,
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    customer_id: CustomerId,
+    currency: &str,
+    grants: &mut LockedGrants,
+    ending: &[CreditGrantId],
+    bound: DateTime<Utc>,
+    now: DateTime<Utc>,
+    read: Option<&EndingUsage>,
+    fold: &mut EndingFold,
+) -> StoreResult<()> {
+    if ending.is_empty() {
+        return Ok(());
+    }
+    let currency = normalized_currency(currency);
+    let (windows, pinned) =
+        open_windows(store, conn, tenant_id, customer_id, &currency, now).await?;
+    if windows.is_empty() {
+        return Ok(());
+    }
+    let read_before = read.map(|read| &read.0);
+    let usage = match read_before {
+        Some(usage)
+            if usage_keys(&windows, &[bound])
+                .iter()
+                .all(|(key, _)| usage.contains_key(key)) =>
+        {
+            usage.clone()
+        }
+        _ => read_usage(usage_client, tenant_id, customer_id, &windows, &[bound]).await?,
+    };
+    let mut periods = Vec::new();
+    let mut keys = Vec::new();
+    for (subscription_id, period_windows) in by_period(&windows).values() {
+        let period_start = period_windows[0].period.start;
+        let dated_before = period_windows
+            .iter()
+            .map(|window| window.end.and_utc())
+            .max()
+            .unwrap_or_else(|| period_windows[0].end.and_utc());
+        let owed = period_owed(
+            conn,
+            tenant_id,
+            customer_id,
+            &currency,
+            *subscription_id,
+            period_windows,
+            (period_start, dated_before),
+            &pinned,
+            bound,
+            &usage,
+            UnitCover::Folded(&*fold),
+        )
+        .await?;
+        let earlier = CreditUsageSettlementRow::list_for_period(
+            conn,
+            tenant_id,
+            *subscription_id,
+            period_start,
+            &currency,
+        )
+        .await?;
+        // A wallet whose settlement at the bound an invoice took over records nothing more.
+        let taken: Vec<WalletId> = earlier
+            .iter()
+            .filter(|settlement| settlement.event_time_bound == bound)
+            .filter(|settlement| settlement.invoice_id.is_some())
+            .map(|settlement| settlement.account_id)
+            .collect();
+        let refused = grants
+            .iter()
+            .filter(|scoped| taken.contains(&scoped.grant.account_id))
+            .map(|scoped| scoped.grant.id)
+            .collect();
+        let earlier = earlier
+            .iter()
+            .map(|settlement| settlement.id)
+            .collect::<Vec<_>>();
+        let held = settlement_holders_tx(conn, tenant_id, &earlier).await?;
+        periods.push(billing_core::credit::expiry::ExpiryPeriod {
+            owed: billing_core::credit::expiry::PeriodOwed {
+                subscription: *subscription_id,
+                dated_before,
+                owed: owed.iter().map(UsageOwed::core).collect(),
+                held: held
+                    .iter()
+                    .map(|(grant, amount)| (grant.into(), *amount))
+                    .collect(),
+            },
+            refused,
+        });
+        keys.push((*subscription_id, period_start));
+    }
+    let pools: Vec<billing_core::credit::allocation::Pool> = GrantPool::sequence(&currency)
+        .iter()
+        .map(|pool| (*pool).into())
+        .collect();
+    let mut left = core_grants(grants)?;
+    let drawn =
+        billing_core::credit::expiry::settle_expiry(&periods, &mut left, ending, bound, &pools)
+            .map_err(|_| invalid("credit settled exceeds the supported range"))?;
+    for ((subscription_id, period_start), period) in keys.into_iter().zip(drawn) {
+        for (grant_id, amount) in &period.draws {
+            if let Some(scoped) = grants
+                .iter_mut()
+                .find(|scoped| scoped.grant.id == *grant_id)
+            {
+                scoped.grant.remaining -= amount;
+            }
+        }
+        let total = period
+            .total()
+            .map_err(|_| invalid("credit settled exceeds the supported range"))?;
+        if total > 0 {
+            *fold
+                .settled
+                .entry((subscription_id, period_start, currency.clone()))
+                .or_default() += total;
+        }
+    }
+    fold.grants.insert(currency, grants.clone());
+    Ok(())
+}
+
 /// Gives back the settlements open for at least `RETURN_AFTER` whose period no invoice can bill
 /// any more, `page` customers at a time. A customer that fails is logged and retried later.
 async fn return_orphaned_settlements(
@@ -1520,23 +1721,23 @@ mod tests {
             lapsing(Some(b), 1_000, at(1), at(1)),
         ];
         let end = at(1);
-        assert!(lapsing_credit_pays(&grants, at(1), a, end, &[]));
+        assert!(lapsing_credit_pays(&grants, at(1), a, end, &[]).unwrap());
         assert!(
-            !lapsing_credit_pays(&grants, at(1), b, end, &[]),
+            !lapsing_credit_pays(&grants, at(1), b, end, &[]).unwrap(),
             "B's credit is spent or not yet due"
         );
         let mut shared = grants.clone();
         shared.push(lapsing(None, 500, at(1) - Duration::days(31), at(1)));
         assert!(
-            lapsing_credit_pays(&shared, at(1), b, end, &[]),
+            lapsing_credit_pays(&shared, at(1), b, end, &[]).unwrap(),
             "customer-wide credit pays B"
         );
         assert!(
-            !lapsing_credit_pays(&grants, at(2), a, end, &[]),
+            !lapsing_credit_pays(&grants, at(2), a, end, &[]).unwrap(),
             "nothing lapses then"
         );
         assert!(
-            !lapsing_credit_pays(&grants, at(1), a, at(1) - Duration::days(31), &[]),
+            !lapsing_credit_pays(&grants, at(1), a, at(1) - Duration::days(31), &[]).unwrap(),
             "credit effective once a period ended never settles its usage"
         );
     }

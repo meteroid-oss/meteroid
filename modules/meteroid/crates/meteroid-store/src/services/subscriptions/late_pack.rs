@@ -6,15 +6,13 @@ use crate::domain::credit::LedgerEntryKind;
 use crate::domain::credit_units::DenominationCode;
 use crate::domain::{LineItem, LineItemKind};
 use crate::repositories::credit::allocation::{GrantCandidate, GrantPool};
-use crate::repositories::credit::customer_credit::{
-    UsageOwed, candidate, draw_owed, normalized_currency,
-};
+use crate::repositories::credit::customer_credit::{UsageOwed, candidate, normalized_currency};
 use crate::repositories::credit_notes::Returned;
 use crate::services::credit::promotional::taxed_base;
 use crate::services::credit::scope::{LineOwners, line_subscription};
 use crate::services::subscriptions::amendment::gather_period_credit_context;
 use crate::store::PgConn;
-use chrono::{Duration, NaiveDate};
+use chrono::NaiveDate;
 use common_domain::ids::{CreditGrantId, SubscriptionId, TenantId};
 use diesel_models::customer_credit::{CustomerCreditEntryRow, CustomerCreditGrantRow};
 use std::collections::HashMap;
@@ -120,19 +118,24 @@ pub(super) async fn pack_face_drawn_on_time_tx(
             });
         }
     }
-    let mut left = owed
+    // Every grant here lapses at the bound: the settlement draws them alone, as their lapse would.
+    let period = billing_core::credit::expiry::PeriodOwed {
+        subscription: pack.subscription_id,
+        dated_before: bound,
+        owed: owed.iter().map(UsageOwed::core).collect(),
+        held: Vec::new(),
+    };
+    let grants: Vec<billing_core::credit::allocation::Grant> =
+        lapsing.iter().map(Into::into).collect();
+    let pools: Vec<billing_core::credit::allocation::Pool> = GrantPool::sequence(&denomination)
         .iter()
-        .map(|owed| owed.base_minor.max(0))
-        .collect::<Vec<_>>();
-    let draws = draw_owed(
-        &owed,
-        &mut left,
-        (pack.subscription_id, bound),
-        &[&lapsing],
-        GrantPool::sequence(&denomination),
-        bound - Duration::microseconds(1),
-        &mut HashMap::new(),
-    )?;
+        .map(|pool| (*pool).into())
+        .collect();
+    let draws = billing_core::credit::expiry::settle_period(&period, &grants, &[], bound, &pools)
+        .map_err(|_| {
+            crate::services::credit::invalid("late pack settlement exceeds the currency range")
+        })?
+        .draws;
     Ok(draws
         .into_iter()
         .filter(|(grant_id, _)| own(*grant_id))

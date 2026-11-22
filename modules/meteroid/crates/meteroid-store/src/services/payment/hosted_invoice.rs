@@ -14,6 +14,7 @@ use crate::errors::StoreError;
 use crate::services::Services;
 use crate::services::payment::hosted_setup::HostedSetupOutcome;
 use crate::services::payment::method::CancelPendingIntentOutcome;
+use billing_core::settlement::Charge;
 use common_domain::ids::{BaseId, CustomerConnectionId, InvoiceId, TenantId};
 use diesel_models::customer_connection::CustomerConnectionDetailsRow;
 use diesel_models::enums::PaymentStatusEnum;
@@ -64,8 +65,9 @@ impl Services {
 
                         // Same payability gates as `claim_invoice_charge_tx`.
                         if invoice.invoice.consolidated_into_invoice_id.is_some() {
-                            return Err(Report::new(StoreError::BillingError)
-                                .attach("Cannot pay an invoice merged into a consolidated parent"));
+                            return Err(Report::new(StoreError::BillingError).attach(
+                                "Cannot pay an invoice merged into a consolidated parent",
+                            ));
                         }
                         if invoice.invoice.status != diesel_models::enums::InvoiceStatusEnum::Draft
                             && invoice.invoice.status
@@ -74,7 +76,10 @@ impl Services {
                             return Err(Report::new(StoreError::BillingError)
                                 .attach("Cannot process payment for this invoice status"));
                         }
-                        if invoice.invoice.amount_due <= 0 {
+                        let charge =
+                            crate::repositories::invoice_account::charge_tx(conn, &invoice.invoice)
+                                .await?;
+                        if charge == Charge::Covered {
                             return Err(Report::new(StoreError::BillingError)
                                 .attach("Invoice has no amount due"));
                         }
@@ -97,11 +102,10 @@ impl Services {
                             connection.connector.provider.clone().into();
                         let connector_id = connection.connector.id;
 
-                        let existing = PaymentTransactionRow::list_by_invoice_id(
-                            conn, invoice_id, tenant_id,
-                        )
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
+                        let existing =
+                            PaymentTransactionRow::list_by_invoice_id(conn, invoice_id, tenant_id)
+                                .await
+                                .map_err(Into::<Report<StoreError>>::into)?;
 
                         // One attempt at a time: an in-flight hosted attempt is
                         // RETURNED; any other in-flight payment refuses a second.
@@ -113,23 +117,25 @@ impl Services {
                             let row = &pending.transaction;
                             if let (Some(intent_id), Some(url)) = (
                                 row.pending_provider_intent_id.clone(),
-                                row.next_action.clone().and_then(|v| {
-                                    match serde_json::from_value::<PaymentNextAction>(v) {
+                                row.next_action.clone().and_then(
+                                    |v| match serde_json::from_value::<PaymentNextAction>(v) {
                                         Ok(PaymentNextAction::RedirectToUrl { url }) => Some(url),
                                         _ => None,
-                                    }
-                                }),
+                                    },
+                                ),
                             ) {
                                 let stored_connection =
                                     row.pending_connection_id.unwrap_or(connection_id);
-                                return Ok(HostedInvoiceInitiation::Intent(Box::new(SetupIntent {
-                                    intent_id,
-                                    client_secret: url,
-                                    public_key: secrecy::SecretString::from(String::new()),
-                                    provider,
-                                    connector_id,
-                                    connection_id: stored_connection,
-                                })));
+                                return Ok(HostedInvoiceInitiation::Intent(Box::new(
+                                    SetupIntent {
+                                        intent_id,
+                                        client_secret: url,
+                                        public_key: secrecy::SecretString::from(String::new()),
+                                        provider,
+                                        connector_id,
+                                        connection_id: stored_connection,
+                                    },
+                                )));
                             }
                             return Err(Report::new(StoreError::PaymentError(
                                 "A payment for this invoice is already being processed. Please \
@@ -138,39 +144,25 @@ impl Services {
                             )));
                         }
 
-                        // Over-payment guards (no Pending rows remain here).
-                        let active_payment_sum: i64 = existing
-                            .iter()
-                            .filter(|tx| {
-                                tx.transaction.payment_type.is_collection()
-                                    && matches!(
-                                        tx.transaction.status,
-                                        PaymentStatusEnum::Ready | PaymentStatusEnum::Settled
-                                    )
-                            })
-                            .map(|tx| tx.transaction.amount - tx.transaction.amount_reversed)
-                            .sum();
-                        if active_payment_sum >= invoice.invoice.total {
-                            return Err(Report::new(StoreError::PaymentError(format!(
-                                "Invoice already has sufficient payments. Total: {}, Already paid: {}",
-                                invoice.invoice.total, active_payment_sum
-                            ))));
-                        }
-                        if active_payment_sum + invoice.invoice.amount_due > invoice.invoice.total {
-                            return Err(Report::new(StoreError::PaymentError(format!(
-                                "Payment of {} would exceed invoice total. Already paid: {}, Total: {}",
-                                invoice.invoice.amount_due, active_payment_sum, invoice.invoice.total
-                            ))));
-                        }
+                        // What the account leaves due is the single charge (R-127); a collection
+                        // committed and not sent yet owns the invoice too.
+                        let Charge::Due(amount_due) = charge else {
+                            return Err(Report::new(StoreError::PaymentError(
+                                "A payment for this invoice is already being processed. Please \
+                                 wait for it to complete before attempting another payment."
+                                    .to_string(),
+                            )));
+                        };
 
                         // Single-intent discipline: cancel the prior stored
                         // intent BEFORE minting a replacement; adopt it when
                         // the provider refuses (payment underway/captured).
-                        if let Some(prior) = PaymentTransactionRow::latest_with_pending_intent_by_invoice_id(
-                            conn, invoice_id, tenant_id,
-                        )
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?
+                        if let Some(prior) =
+                            PaymentTransactionRow::latest_with_pending_intent_by_invoice_id(
+                                conn, invoice_id, tenant_id,
+                            )
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?
                             && let Some(prior_intent) = prior.pending_provider_intent_id.clone()
                         {
                             let prior_connection =
@@ -214,7 +206,7 @@ impl Services {
                             crate::adapters::payment::model::HostedInvoicePaymentContext {
                                 invoice_id: invoice_id.as_base62(),
                                 transaction_id: transaction_id.as_base62(),
-                                amount_minor: invoice.invoice.amount_due,
+                                amount_minor: amount_due,
                                 currency: invoice.invoice.currency.clone(),
                             };
 
@@ -245,7 +237,7 @@ impl Services {
                             tenant_id,
                             invoice_id: Some(invoice_id),
                             provider_transaction_id: None,
-                            amount: invoice.invoice.amount_due,
+                            amount: amount_due,
                             currency: invoice.invoice.currency.clone(),
                             payment_method_id: None,
                             status: PaymentStatusEnum::Pending,

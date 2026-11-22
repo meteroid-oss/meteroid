@@ -225,17 +225,37 @@ impl Services {
         // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
         Box::pin(async move {
             let sub = &details.subscription;
-            let (tenant_id, subscription_id) = (sub.tenant_id, sub.id);
-            let precision = Currencies::resolve_currency_precision(&sub.currency).unwrap_or(2);
             let documents = change_documents(
                 conn,
-                tenant_id,
-                subscription_id,
+                sub.tenant_id,
+                sub.id,
                 &change,
                 Some(overlay),
                 Some(self.usage_client.as_ref()),
             )
             .await?;
+            self.preview_documents(conn, details, change.on, documents, also)
+                .await
+        })
+        .await
+    }
+
+    /// What `documents`, those of a change on `on` not written yet, issue: the adjustment taxed
+    /// and its credit estimated, the notes as one document with `also` credited on them. A change
+    /// and a seat purchase preview through it.
+    pub(in crate::services) async fn preview_documents(
+        &self,
+        conn: &mut PgConn,
+        details: &SubscriptionDetails,
+        on: NaiveDate,
+        documents: super::change::ChangeDocuments,
+        also: Vec<(InvoiceId, CreditLineItem)>,
+    ) -> StoreResult<ChangeDocuments> {
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
+            let sub = &details.subscription;
+            let (tenant_id, subscription_id) = (sub.tenant_id, sub.id);
+            let precision = Currencies::resolve_currency_precision(&sub.currency).unwrap_or(2);
             let credits: Vec<(InvoiceId, CreditLineItem)> =
                 documents.credits.into_iter().chain(also).collect();
             let mut invoices: Vec<InvoiceId> = credits.iter().map(|(id, _)| *id).collect();
@@ -254,7 +274,7 @@ impl Services {
                         conn,
                         sub,
                         &details.customer,
-                        change.on,
+                        on,
                         &documents.bills,
                     )
                     .await?
@@ -504,31 +524,21 @@ impl Services {
             })?;
 
         let (prorated_amount, adjustment_invoice) = if delta > 0 {
-            // What the purchase bills, from the facts, and the invoice it issues for it.
-            let prorated = self
-                .seat_purchase_amount(
-                    &mut conn,
-                    &details,
-                    price_component_id,
-                    delta,
-                    today,
-                    u32::from(precision),
-                )
+            // What the purchase bills, from the facts, and the adjustment it issues for it.
+            let bought = self
+                .seat_purchase_documents(&mut conn, &details, price_component_id, delta, today)
                 .await?;
-            let invoice = self
-                .compute_slot_upgrade_invoice_content(
-                    &mut conn,
-                    tenant_id,
-                    &details,
-                    price_component_id,
-                    delta,
-                    unit,
-                    prorated,
-                    today,
-                    period_end,
-                )
+            let prorated = Decimal::new(
+                bought
+                    .as_ref()
+                    .map_or(0, |bought| bought.purchase.amount.max(0)),
+                u32::from(precision),
+            );
+            let documents = bought.map(|bought| bought.documents).unwrap_or_default();
+            let previewed = self
+                .preview_documents(&mut conn, &details, today, documents, Vec::new())
                 .await?;
-            (prorated, Some(invoice))
+            (prorated, previewed.adjustment)
         } else {
             (Decimal::ZERO, None)
         };

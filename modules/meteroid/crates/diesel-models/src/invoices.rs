@@ -102,52 +102,6 @@ pub struct InvoiceRow {
     pub waived_at: Option<NaiveDateTime>,
 }
 
-/// An invoice's money: what it asks (`owed`: total less applied credit and reducing notes) and
-/// what its settled collections did, net of refunds drawn on notes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct InvoiceCollections {
-    pub owed: i64,
-    pub gross: i64,
-    /// Clawed back as a failed collection: the invoice owes it again.
-    pub failed: i64,
-    /// Lost to disputes: the invoice stays as paid, the merchant bears the loss.
-    pub disputed: i64,
-    /// What refunds without a note gave back of the excess when each was issued: a reversal
-    /// after them never counts it as collected again.
-    pub excess_refunded: i64,
-    /// What refunds without a note gave back beyond the excess (issued, in flight or settled):
-    /// the invoice stays paid, but the credit it sold no longer stands on that money.
-    pub refunded: i64,
-    /// What finalized refund notes still owe back in cash, undrawn or in flight: out of hand for
-    /// the credit the invoice sold, though it pays the invoice until it is refunded.
-    pub owed_back: i64,
-}
-
-impl InvoiceCollections {
-    /// What collections keep above what the invoice asks, before a refund without a note.
-    pub fn excess(&self) -> i64 {
-        (self.gross - self.failed - self.disputed - self.excess_refunded - self.owed).max(0)
-    }
-
-    pub fn amount_due(&self) -> i64 {
-        (self.owed - (self.gross - self.failed - self.excess_refunded)).max(0)
-    }
-
-    /// The reversed or refunded money of the invoice that nothing collected again: what the
-    /// credit it sold still stands on is missing by this much.
-    pub fn uncollected(&self) -> i64 {
-        let in_hand = self.gross
-            - self.failed
-            - self.disputed
-            - self.excess_refunded
-            - self.refunded
-            - self.owed_back;
-        (self.failed + self.disputed + self.refunded)
-            .min(self.owed - in_hand)
-            .max(0)
-    }
-}
-
 /// Freezes the resolved identity onto an invoice at finalization, so the issued document keeps
 /// what was rendered rather than continuing to track the live records.
 #[derive(Debug, AsChangeset)]
@@ -303,62 +257,4 @@ pub struct DetailedInvoiceRow {
     pub customer: CustomerRow,
     #[diesel(embed)]
     pub plan: Option<PlanVersionRowOverview>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::InvoiceCollections;
-
-    fn paid(owed: i64) -> InvoiceCollections {
-        InvoiceCollections {
-            owed,
-            gross: owed,
-            failed: 0,
-            disputed: 0,
-            excess_refunded: 0,
-            refunded: 0,
-            owed_back: 0,
-        }
-    }
-
-    /// A 5000 purchase paid once: what refunds without a note, disputes and failures took is
-    /// missing, together and at most what the invoice asks; money collected again backs it.
-    #[test]
-    fn refunded_money_is_missing_like_reversed_money() {
-        assert_eq!(paid(5_000).uncollected(), 0);
-        let refunded = InvoiceCollections {
-            refunded: 2_000,
-            ..paid(5_000)
-        };
-        assert_eq!(refunded.uncollected(), 2_000);
-        assert_eq!(refunded.amount_due(), 0, "a refund keeps the invoice paid");
-        let then_disputed = InvoiceCollections {
-            disputed: 3_000,
-            ..refunded
-        };
-        assert_eq!(then_disputed.uncollected(), 5_000);
-        // The 1000 refunded out of a 1000 overpayment gave back excess only.
-        let overpaid = InvoiceCollections {
-            gross: 6_000,
-            excess_refunded: 1_000,
-            ..paid(5_000)
-        };
-        assert_eq!(overpaid.uncollected(), 0);
-        let paid_again = InvoiceCollections {
-            gross: 10_000,
-            failed: 5_000,
-            refunded: 1_000,
-            ..paid(5_000)
-        };
-        assert_eq!(paid_again.uncollected(), 1_000);
-        // 2000 refunded at the provider, then a note for the other 3000 not refunded yet: the
-        // note lowers what is owed, its cash is already the customer's.
-        let then_noted = InvoiceCollections {
-            owed: 2_000,
-            owed_back: 3_000,
-            ..refunded
-        };
-        assert_eq!(then_noted.uncollected(), 2_000);
-        assert_eq!(then_noted.amount_due(), 0);
-    }
 }

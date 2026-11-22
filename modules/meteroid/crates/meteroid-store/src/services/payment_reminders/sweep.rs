@@ -32,7 +32,6 @@ use diesel_models::lock::CustomerLock;
 use diesel_models::payment_reminders::{
     InvoicePaymentReminderRow, PaymentReminderSequenceRow, PaymentReminderStepRow,
 };
-use diesel_models::payments::PaymentTransactionRow;
 use diesel_models::query::payment_reminders::{
     EntityReachRow, InvoiceReminderUpdates, ReminderCandidateRow, ScanCursor,
     end_unpayable_scheduled, last_customer_email_at, list_entity_reach, list_reminder_candidates,
@@ -840,9 +839,10 @@ impl Services {
                         return Ok(ExecOutcome::Ended);
                     }
                     if invoice.pdf_document_id.is_none()
-                        || PaymentTransactionRow::exists_live_for_invoice(conn, invoice_id, tenant_id)
-                            .await
-                            .map_err(Into::<Report<StoreError>>::into)?
+                        || !matches!(
+                            crate::repositories::invoice_account::charge_tx(conn, &invoice).await?,
+                            billing_core::settlement::Charge::Due(_)
+                        )
                     {
                         InvoiceReminderUpdates::defer(conn, invoice_id, tenant_id, retry_at)
                             .await

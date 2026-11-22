@@ -666,10 +666,9 @@ async fn test_credit_note_race_condition() {
     );
 }
 
-/// Test CreditType::Refund with applied credits
-/// When invoice was partially paid with customer balance, refund should:
-/// - Restore the balance portion
-/// - Only refund the actually paid amount
+/// A full Refund note on an invoice paid 20.00 by credit and 80.00 in cash gives the credit back
+/// first, then the cash: 2000 returned to the balance, 8000 refunded, nothing left due.
+/// Rules: R-126
 #[tokio::test]
 async fn test_credit_note_refund_with_applied_credits() {
     helpers::init::logging();
@@ -874,13 +873,8 @@ async fn test_credit_note_refund_with_applied_credits() {
         credit_note.status
     );
 
-    // For a refund:
-    // - credited_amount_cents should be the amount that was paid from balance (to restore it)
-    // - refunded_amount_cents should be the amount actually paid (amount_due)
-    //
-    // Total credit = 10000, but:
-    // - 2000 was from customer balance -> should be credited back
-    // - 8000 was actually paid -> should be refunded
+    // Credits first: the 2000 the invoice drew go back to the balance, the remaining 8000 is the
+    // cash it collected, refunded.
     assert_eq!(
         credit_note.credited_amount_cents, 2000,
         "Credited amount should restore the applied credits (2000)"
@@ -928,12 +922,21 @@ async fn test_credit_note_refund_with_applied_credits() {
         "Credit note should be finalized"
     );
 
+    assert_eq!(finalized.debt_cancelled_amount_cents, 0);
+
     let customer_balance =
         crate::helpers::credit::available(&store, TENANT_ID, customer_id, None).await;
 
     assert_eq!(
         customer_balance, 2000,
         "Customer should have final balance of 2000 cents"
+    );
+
+    let after = fetch_invoice(&store, invoice.id).await;
+    assert_eq!(after.amount_due, 0, "nothing is billed any more");
+    assert_eq!(
+        after.payment_status,
+        meteroid_store::domain::enums::InvoicePaymentStatus::Paid
     );
 }
 
@@ -1275,6 +1278,19 @@ pub(crate) async fn setup_unpaid_invoice() -> (
     meteroid_store::Store,
     meteroid_store::domain::Invoice,
 ) {
+    setup_unpaid_invoice_with_credit(0).await
+}
+
+/// One unpaid finalized 100.00 invoice (lines of 10, 20, 30 and 40), for a customer holding
+/// `credit_cents` of invoice credit beforehand: finalize draws it.
+async fn setup_unpaid_invoice_with_credit(
+    credit_cents: i64,
+) -> (
+    meteroid_it::container::MeteroidSetup,
+    meteroid_store::Services,
+    meteroid_store::Store,
+    meteroid_store::domain::Invoice,
+) {
     helpers::init::logging();
     let postgres_connection_string =
         meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
@@ -1293,6 +1309,9 @@ pub(crate) async fn setup_unpaid_invoice() -> (
 
     let (plan_version_id, _) = create_plan_with_4_components(&mut conn).await;
     let customer_id = create_customer_with_tax(&mut conn).await;
+    if credit_cents > 0 {
+        crate::helpers::credit::fund(&store, TENANT_ID, customer_id, None, credit_cents).await;
+    }
 
     let subscription = services
         .insert_subscription(
@@ -2915,4 +2934,554 @@ async fn a_reissued_invoice_gives_back_only_its_unused_days() {
         .await
         .expect("notes on the original");
     assert_eq!(on_original.len(), 1, "the reissue's note alone");
+}
+
+// =============================================================================
+// Notes and voids decided by the invoice's account
+// =============================================================================
+
+async fn credit_of(store: &meteroid_store::Store, customer_id: CustomerId) -> i64 {
+    crate::helpers::credit::available(store, TENANT_ID, customer_id, None).await
+}
+
+/// A collection committed toward the invoice and not settled yet: a charge in flight.
+async fn collection_in_flight(
+    store: &meteroid_store::Store,
+    invoice: &meteroid_store::domain::Invoice,
+    amount: i64,
+) {
+    let mut conn = store.pool.get().await.unwrap();
+    diesel_models::payments::PaymentTransactionRowNew {
+        id: common_domain::ids::PaymentTransactionId::new(),
+        tenant_id: TENANT_ID,
+        invoice_id: Some(invoice.id),
+        provider_transaction_id: Some("pi_in_flight".to_string()),
+        amount,
+        currency: invoice.currency.clone(),
+        payment_method_id: None,
+        status: diesel_models::enums::PaymentStatusEnum::Pending,
+        payment_type: diesel_models::enums::PaymentTypeEnum::Payment,
+        error_type: None,
+        processed_at: None,
+        checkout_session_id: None,
+        pending_plan_version_id: None,
+        next_action: None,
+        initiated_by_customer_id: None,
+        pending_provider_intent_id: None,
+        pending_connection_id: None,
+        parent_transaction_id: None,
+        credit_note_id: None,
+        refund_mode: None,
+        reversal_reason: None,
+    }
+    .insert(&mut conn)
+    .await
+    .expect("insert the in-flight collection");
+}
+
+async fn pay_part(
+    services: &meteroid_store::Services,
+    store: &meteroid_store::Store,
+    invoice: &meteroid_store::domain::Invoice,
+    amount: Decimal,
+) -> meteroid_store::domain::payment_transactions::PaymentTransaction {
+    let payment = services
+        .add_manual_payment_transaction(
+            common_domain::actor::Actor::System,
+            TENANT_ID,
+            invoice.id,
+            amount,
+            invoice.created_at.and_utc().fixed_offset(),
+            None,
+        )
+        .await
+        .unwrap();
+    run_once_invoice_orchestration(Arc::new(store.clone()), Arc::new(services.clone())).await;
+    payment
+}
+
+/// The account's example: a 100.00 invoice that drew 30.00 of credit, then got 20.00 in cash,
+/// 50.00 still due. Returns the invoice and its settled payment.
+async fn invoice_paid_partly_with_credits() -> (
+    meteroid_it::container::MeteroidSetup,
+    meteroid_store::Services,
+    meteroid_store::Store,
+    meteroid_store::domain::Invoice,
+    meteroid_store::domain::payment_transactions::PaymentTransaction,
+) {
+    let (setup, services, store, invoice) = setup_unpaid_invoice_with_credit(3_000).await;
+    assert_eq!(invoice.total, 10_000);
+    assert_eq!(invoice.applied_credits, 3_000);
+    assert_eq!(invoice.amount_due, 7_000);
+
+    let payment = pay_part(&services, &store, &invoice, dec!(20.00)).await;
+
+    let invoice = fetch_invoice(&store, invoice.id).await;
+    assert_eq!(invoice.amount_due, 5_000);
+    assert_eq!(
+        invoice.payment_status,
+        meteroid_store::domain::enums::InvoicePaymentStatus::PartiallyPaid
+    );
+    assert_eq!(credit_of(&store, invoice.customer_id).await, 0);
+    (setup, services, store, invoice, payment)
+}
+
+/// A Refund note crediting `amounts` (line subtotal, cents credited on it) of the invoice.
+async fn draft_refund_note(
+    store: &meteroid_store::Store,
+    invoice: &meteroid_store::domain::Invoice,
+    amounts: &[(i64, i64)],
+) -> meteroid_store::StoreResult<meteroid_store::domain::CreditNote> {
+    let line_items = amounts
+        .iter()
+        .map(|(line_subtotal, amount_cents)| CreditLineItem::Amount {
+            local_id: invoice
+                .line_items
+                .iter()
+                .find(|l| l.amount_subtotal == *line_subtotal)
+                .expect("line with that subtotal")
+                .local_id
+                .clone(),
+            amount_cents: *amount_cents,
+        })
+        .collect();
+    store
+        .create_credit_note(
+            common_domain::actor::Actor::System,
+            TENANT_ID,
+            CreateCreditNoteParams {
+                invoice_id: invoice.id,
+                line_items,
+                reason: None,
+                memo: None,
+                credit_type: CreditType::Refund,
+                custom_properties: None,
+            },
+        )
+        .await
+}
+
+async fn finalize_note(
+    store: &meteroid_store::Store,
+    note: &meteroid_store::domain::CreditNote,
+) -> meteroid_store::domain::CreditNote {
+    store
+        .finalize_credit_note(common_domain::actor::Actor::System, TENANT_ID, note.id)
+        .await
+        .unwrap()
+}
+
+async fn refund_offline(
+    services: &meteroid_store::Services,
+    payment: &meteroid_store::domain::payment_transactions::PaymentTransaction,
+    credit_note_id: common_domain::ids::CreditNoteId,
+    amount: i64,
+) -> meteroid_store::StoreResult<meteroid_store::domain::payment_transactions::PaymentTransaction> {
+    services
+        .record_offline_refund(
+            common_domain::actor::Actor::System,
+            TENANT_ID,
+            meteroid_store::services::OfflineRefundCommand {
+                parent_transaction_id: payment.id,
+                amount,
+                credit_note_id: Some(credit_note_id),
+                refund_date: chrono::Utc::now().naive_utc(),
+                reference: None,
+                reason: None,
+            },
+        )
+        .await
+}
+
+/// Credit goes back first: a 20.00 note returns 20.00 of the 30.00 drawn and no cash. The invoice
+/// now bills 80.00 against 10.00 of credit and 20.00 of cash: 50.00 is still due. Split in
+/// proportion to the total, it returned 6.00 of credit, promised 14.00 of cash and due read 30.00.
+/// Rules: R-126, R-125
+#[tokio::test]
+async fn test_refund_note_returns_credits_first_and_keeps_amount_due() {
+    let (_setup, _services, store, invoice, _payment) = invoice_paid_partly_with_credits().await;
+
+    let draft = draft_refund_note(&store, &invoice, &[(4_000, 2_000)])
+        .await
+        .unwrap();
+    assert_eq!(draft.total, -2_000);
+    assert_eq!(
+        (draft.credited_amount_cents, draft.refunded_amount_cents),
+        (2_000, 0),
+        "the draft is split credits first"
+    );
+    let note = finalize_note(&store, &draft).await;
+
+    assert_eq!(note.credited_amount_cents, 2_000, "credits go back first");
+    assert_eq!(note.refunded_amount_cents, 0, "no cash is owed back");
+    assert_eq!(note.debt_cancelled_amount_cents, 0);
+    assert_eq!(credit_of(&store, invoice.customer_id).await, 2_000);
+
+    let after = fetch_invoice(&store, invoice.id).await;
+    assert_eq!(
+        after.amount_due, 5_000,
+        "80.00 - 10.00 of credit - 20.00 of cash"
+    );
+    assert_eq!(
+        after.payment_status,
+        meteroid_store::domain::enums::InvoicePaymentStatus::PartiallyPaid
+    );
+    let refunds = store
+        .get_credit_note_refunds(TENANT_ID, note.id)
+        .await
+        .unwrap();
+    assert_eq!(refunds.refundable_cents, 0, "nothing to refund in cash");
+}
+
+/// A full Refund note would promise back 70.00 of cash on a 20.00 payment: refused, the unpaid
+/// part is a debt cancellation. A 50.00 note returns the 30.00 of credit and exactly the 20.00 paid,
+/// and no refund draws more on it.
+/// Rules: R-126
+#[tokio::test]
+async fn test_refund_note_cash_never_exceeds_cash_paid() {
+    let (_setup, services, store, invoice, payment) = invoice_paid_partly_with_credits().await;
+
+    let err = draft_refund_note(&store, &invoice, &[])
+        .await
+        .expect_err("a 100.00 refund on 30.00 of credit and 20.00 of cash must be refused");
+    assert!(
+        format!("{err:?}").contains("DebtCancellation"),
+        "unexpected error: {err:?}"
+    );
+
+    let draft = draft_refund_note(&store, &invoice, &[(4_000, 4_000), (1_000, 1_000)])
+        .await
+        .unwrap();
+    assert_eq!(draft.total, -5_000);
+    let note = finalize_note(&store, &draft).await;
+    assert_eq!(note.credited_amount_cents, 3_000);
+    assert_eq!(
+        note.refunded_amount_cents, 2_000,
+        "capped at the 20.00 paid"
+    );
+    assert_eq!(note.debt_cancelled_amount_cents, 0);
+    assert_eq!(credit_of(&store, invoice.customer_id).await, 3_000);
+
+    // The promised cash leaves the invoice with the note: 50.00 billed, nothing paying it.
+    let promised = fetch_invoice(&store, invoice.id).await;
+    assert_eq!(promised.amount_due, 5_000);
+    assert_eq!(
+        promised.payment_status,
+        meteroid_store::domain::enums::InvoicePaymentStatus::Unpaid
+    );
+    let refunds = store
+        .get_credit_note_refunds(TENANT_ID, note.id)
+        .await
+        .unwrap();
+    assert_eq!(refunds.refundable_cents, 2_000);
+
+    let err = refund_offline(&services, &payment, note.id, 2_001)
+        .await
+        .expect_err("more than the note allows");
+    assert!(
+        format!("{err:?}").contains("exceeds"),
+        "unexpected error: {err:?}"
+    );
+    refund_offline(&services, &payment, note.id, 2_000)
+        .await
+        .unwrap();
+
+    let refunds = store
+        .get_credit_note_refunds(TENANT_ID, note.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        (
+            refunds.refundable_cents,
+            refunds.refunded_cents,
+            refunds.pending_cents
+        ),
+        (0, 2_000, 0)
+    );
+    assert_eq!(credit_of(&store, invoice.customer_id).await, 3_000);
+    let after = fetch_invoice(&store, invoice.id).await;
+    assert_eq!(after.amount_due, 5_000, "the unpaid 50.00 is still owed");
+    assert_eq!(
+        after.payment_status,
+        meteroid_store::domain::enums::InvoicePaymentStatus::Unpaid
+    );
+}
+
+/// Two partial notes cross from credit to cash: 20.00 (all credit), then 30.00 (the last 10.00 of
+/// credit and the 20.00 paid). A third note finds nothing left to give back. What is due never
+/// moves: each note takes off the invoice what it gives back.
+/// Rules: R-126
+#[tokio::test]
+async fn test_successive_refund_notes_cross_from_credits_to_cash() {
+    let (_setup, services, store, invoice, payment) = invoice_paid_partly_with_credits().await;
+
+    let first = draft_refund_note(&store, &invoice, &[(4_000, 2_000)])
+        .await
+        .unwrap();
+    let first = finalize_note(&store, &first).await;
+    assert_eq!(
+        (first.credited_amount_cents, first.refunded_amount_cents),
+        (2_000, 0)
+    );
+    assert_eq!(fetch_invoice(&store, invoice.id).await.amount_due, 5_000);
+
+    let second = draft_refund_note(&store, &invoice, &[(3_000, 3_000)])
+        .await
+        .unwrap();
+    let second = finalize_note(&store, &second).await;
+    assert_eq!(
+        (second.credited_amount_cents, second.refunded_amount_cents),
+        (1_000, 2_000),
+        "the 10.00 of credit left, then cash"
+    );
+    assert_eq!(credit_of(&store, invoice.customer_id).await, 3_000);
+    assert_eq!(
+        fetch_invoice(&store, invoice.id).await.amount_due,
+        5_000,
+        "50.00 billed, nothing left paying it"
+    );
+
+    let err = draft_refund_note(&store, &invoice, &[(1_000, 1_000)])
+        .await
+        .expect_err("no credit and no refundable cash left");
+    assert!(
+        format!("{err:?}").contains("DebtCancellation"),
+        "unexpected error: {err:?}"
+    );
+
+    refund_offline(&services, &payment, second.id, 2_000)
+        .await
+        .unwrap();
+    let after = fetch_invoice(&store, invoice.id).await;
+    assert_eq!(
+        after.amount_due, 5_000,
+        "the refund pays out what the note already took off"
+    );
+    assert_eq!(
+        after.payment_status,
+        meteroid_store::domain::enums::InvoicePaymentStatus::Unpaid
+    );
+}
+
+/// A draft DebtCancellation note is checked against what the invoice owed when drafted. A payment
+/// landing before its finalization shrinks that, and the note is then refused rather than cancel
+/// more than is due.
+/// Rules: R-126
+#[tokio::test]
+async fn test_debt_cancellation_rechecked_when_payment_lands_before_finalize() {
+    let (_setup, services, store, invoice) = setup_unpaid_invoice().await;
+    assert_eq!(
+        invoice.amount_due, 10_000,
+        "10 + 20 + 30 + 40 EUR of components"
+    );
+
+    let credit_note = store
+        .create_credit_note(
+            common_domain::actor::Actor::System,
+            TENANT_ID,
+            CreateCreditNoteParams {
+                invoice_id: invoice.id,
+                line_items: vec![],
+                reason: None,
+                memo: None,
+                credit_type: CreditType::DebtCancellation,
+                custom_properties: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(credit_note.total, -10_000);
+    assert_eq!(credit_note.debt_cancelled_amount_cents, 10_000);
+
+    pay_part(&services, &store, &invoice, dec!(30.00)).await;
+    assert_eq!(fetch_invoice(&store, invoice.id).await.amount_due, 7_000);
+
+    let err = store
+        .finalize_credit_note(
+            common_domain::actor::Actor::System,
+            TENANT_ID,
+            credit_note.id,
+        )
+        .await
+        .expect_err("cancelling 100.00 of a 70.00 debt must be refused");
+    assert!(
+        format!("{err:?}").contains("cannot cancel more than the invoice's amount due"),
+        "unexpected error: {err:?}"
+    );
+
+    let after = fetch_invoice(&store, invoice.id).await;
+    assert_eq!(after.amount_due, 7_000);
+    assert_eq!(
+        after.payment_status,
+        meteroid_store::domain::enums::InvoicePaymentStatus::PartiallyPaid
+    );
+    let note = store
+        .get_credit_note_by_id(TENANT_ID, credit_note.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        note.status,
+        meteroid_store::domain::enums::CreditNoteStatus::Draft
+    );
+}
+
+/// Voiding a DebtCancellation note raises what is owed. A collection in flight is already
+/// collecting the lower amount, so the void is refused and the invoice keeps what it owes.
+/// Rules: R-126
+#[tokio::test]
+async fn test_debt_cancellation_void_refused_while_payment_in_flight() {
+    let (_setup, _services, store, invoice) = setup_unpaid_invoice().await;
+    let cancelled_line = &invoice.line_items[0];
+
+    let credit_note = store
+        .create_credit_note(
+            common_domain::actor::Actor::System,
+            TENANT_ID,
+            CreateCreditNoteParams {
+                invoice_id: invoice.id,
+                line_items: vec![CreditLineItem::Line {
+                    local_id: cancelled_line.local_id.clone(),
+                    quantity: dec!(1),
+                }],
+                reason: None,
+                memo: None,
+                credit_type: CreditType::DebtCancellation,
+                custom_properties: None,
+            },
+        )
+        .await
+        .unwrap();
+    let finalized = finalize_note(&store, &credit_note).await;
+    assert_eq!(
+        finalized.debt_cancelled_amount_cents,
+        cancelled_line.amount_total
+    );
+
+    let owed = invoice.amount_due - cancelled_line.amount_total;
+    assert_eq!(fetch_invoice(&store, invoice.id).await.amount_due, owed);
+
+    collection_in_flight(&store, &invoice, owed).await;
+
+    let err = store
+        .void_credit_note(common_domain::actor::Actor::System, TENANT_ID, finalized.id)
+        .await
+        .expect_err("voiding under a collection in flight must be refused");
+    assert!(
+        format!("{err:?}").contains("while a payment is in flight"),
+        "unexpected error: {err:?}"
+    );
+
+    let after = fetch_invoice(&store, invoice.id).await;
+    assert_eq!(after.amount_due, owed);
+    assert_eq!(
+        after.payment_status,
+        meteroid_store::domain::enums::InvoicePaymentStatus::Unpaid
+    );
+    let note = store
+        .get_credit_note_by_id(TENANT_ID, finalized.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        note.status,
+        meteroid_store::domain::enums::CreditNoteStatus::Finalized
+    );
+}
+
+/// A collection in flight is collecting the invoice: voiding it would leave the money landing on a
+/// void invoice, so the void is refused and the credit it drew stays drawn.
+/// Rules: R-128
+#[tokio::test]
+async fn test_void_refused_while_payment_in_flight() {
+    let (_setup, _services, store, invoice) = setup_unpaid_invoice_with_credit(3_000).await;
+    assert_eq!(invoice.applied_credits, 3_000);
+    collection_in_flight(&store, &invoice, invoice.amount_due).await;
+
+    let err = store
+        .void_invoice(common_domain::actor::Actor::System, invoice.id, TENANT_ID)
+        .await
+        .expect_err("voiding under a collection in flight must be refused");
+    assert!(
+        format!("{err:?}").contains("while a payment is in flight"),
+        "unexpected error: {err:?}"
+    );
+
+    let after = fetch_invoice(&store, invoice.id).await;
+    assert_eq!(after.status, InvoiceStatusEnum::Finalized);
+    assert_eq!(after.amount_due, 7_000);
+    assert_eq!(credit_of(&store, invoice.customer_id).await, 0);
+    assert!(
+        store
+            .list_credit_notes_by_invoice_id(TENANT_ID, invoice.id)
+            .await
+            .unwrap()
+            .is_empty(),
+        "no void note"
+    );
+}
+
+/// A 100.00 invoice drawing 30.00 of credit, 20.00 of it refunded by a note (credits first): the
+/// void gives back the 10.00 still on the invoice, never the 30.00 again. Before, a void reversed
+/// what it took as every draw.
+/// Rules: R-128, R-126
+#[tokio::test]
+async fn test_void_after_a_credits_first_refund_returns_only_the_credit_left() {
+    let (_setup, _services, store, invoice) = setup_unpaid_invoice_with_credit(3_000).await;
+    assert_eq!(invoice.applied_credits, 3_000);
+    assert_eq!(credit_of(&store, invoice.customer_id).await, 0);
+
+    let draft = draft_refund_note(&store, &invoice, &[(4_000, 2_000)])
+        .await
+        .unwrap();
+    let refund = finalize_note(&store, &draft).await;
+    assert_eq!(
+        (
+            refund.credited_amount_cents,
+            refund.refunded_amount_cents,
+            refund.debt_cancelled_amount_cents
+        ),
+        (2_000, 0, 0),
+        "nothing was paid in cash: the note returns credit only"
+    );
+    assert_eq!(credit_of(&store, invoice.customer_id).await, 2_000);
+    let refunded = fetch_invoice(&store, invoice.id).await;
+    assert_eq!(
+        refunded.amount_due, 7_000,
+        "80.00 billed, 10.00 of credit left"
+    );
+    assert_eq!(
+        refunded.payment_status,
+        meteroid_store::domain::enums::InvoicePaymentStatus::Unpaid
+    );
+
+    let voided = store
+        .void_invoice(common_domain::actor::Actor::System, invoice.id, TENANT_ID)
+        .await
+        .unwrap()
+        .invoice;
+    assert_eq!(voided.status, InvoiceStatusEnum::Void);
+    assert_eq!(
+        credit_of(&store, invoice.customer_id).await,
+        3_000,
+        "20.00 from the note, the 10.00 left from the void"
+    );
+
+    let notes = store
+        .list_credit_notes_by_invoice_id(TENANT_ID, invoice.id)
+        .await
+        .unwrap();
+    assert_eq!(notes.len(), 2);
+    let void_note = notes
+        .iter()
+        .find(|note| note.id != refund.id)
+        .expect("the void note");
+    assert_eq!(void_note.total, -8_000, "what the invoice still billed");
+    assert_eq!(
+        (
+            void_note.credited_amount_cents,
+            void_note.refunded_amount_cents,
+            void_note.debt_cancelled_amount_cents
+        ),
+        (0, 0, 0),
+        "the void returns the draws itself"
+    );
 }

@@ -2191,6 +2191,7 @@ diesel::table! {
         amount_reversed_excess -> Int8,
         refund_excess -> Int8,
         charge_attempt -> Nullable<Jsonb>,
+        accepted_at -> Nullable<Timestamptz>,
     }
 }
 

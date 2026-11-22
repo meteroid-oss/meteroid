@@ -10,6 +10,7 @@ meteroid-grpc-mapping.workspace = true
 meteroid-rest-common.workspace = true
 meteroid-kit.workspace = true
 meteroid-app.workspace = true
+billing-core.workspace = true
 error-stack.workspace = true
 thiserror.workspace = true
 chrono = { workspace = true, features = ["clock"] }

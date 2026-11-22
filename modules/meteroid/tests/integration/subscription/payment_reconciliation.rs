@@ -576,8 +576,9 @@ async fn assert_resume_refused(env: &TestEnv, invoice_id: InvoiceId) {
     ));
 }
 
-/// Handing out the secret is what lets the money move: a charge left behind on an invoice that
-/// was voided since must not be completable.
+/// A challenge waiting on the customer could still move the money, so it holds the void back
+/// (R-128). An invoice voided under one by an earlier release never hands out the secret again:
+/// handing it out is what lets the money move.
 #[rstest]
 #[tokio::test]
 async fn test_resume_authentication_refuses_a_voided_invoice(#[future] test_env: TestEnv) {
@@ -586,10 +587,27 @@ async fn test_resume_authentication_refuses_a_voided_invoice(#[future] test_env:
 
     let invoice_id = unpaid_invoice(&env).await;
     charge_awaiting_authentication(&env, invoice_id).await;
-    env.try_void_invoice(invoice_id)
+    let refused = env
+        .try_void_invoice(invoice_id)
         .await
-        .expect("invoice voided");
+        .expect_err("a challenge in flight holds the void");
+    assert!(
+        format!("{refused:?}").contains("while a payment is in flight"),
+        "{refused:?}"
+    );
 
+    {
+        use diesel::prelude::*;
+        use diesel_async::RunQueryDsl;
+        use diesel_models::schema::invoice::dsl as i;
+
+        let mut conn = env.conn().await;
+        diesel::update(i::invoice.filter(i::id.eq(invoice_id)))
+            .set(i::status.eq(diesel_models::enums::InvoiceStatusEnum::Void))
+            .execute(&mut conn)
+            .await
+            .expect("voided by an earlier release");
+    }
     assert_resume_refused(&env, invoice_id).await;
 }
 

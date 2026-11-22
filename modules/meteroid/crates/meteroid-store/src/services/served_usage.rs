@@ -313,6 +313,125 @@ impl UsageClient for ServedUsage {
     }
 }
 
+/// Reads metering on `inner` and keeps what it read, for later work under locks to be served the
+/// same (see [`Services::served_only`]).
+pub(crate) struct RecordingUsage {
+    inner: Arc<dyn UsageClient>,
+    reads: Mutex<UsageReads>,
+}
+
+impl RecordingUsage {
+    pub(crate) fn new(inner: Arc<dyn UsageClient>) -> Self {
+        Self {
+            inner,
+            reads: Mutex::default(),
+        }
+    }
+
+    /// What it read so far.
+    pub(crate) fn reads(&self) -> StoreResult<UsageReads> {
+        Ok(self.kept()?.clone())
+    }
+
+    fn kept(&self) -> StoreResult<std::sync::MutexGuard<'_, UsageReads>> {
+        self.reads
+            .lock()
+            .map_err(|_| Report::new(StoreError::InvoiceComputationError))
+    }
+}
+
+#[async_trait::async_trait]
+impl UsageClient for RecordingUsage {
+    async fn fetch_usage(
+        &self,
+        tenant_id: &TenantId,
+        customer_id: &CustomerId,
+        metric: &BillableMetric,
+        period: UsagePeriod,
+    ) -> StoreResult<UsageData> {
+        let read = UsageRead::of(tenant_id, customer_id, metric, &period, None);
+        let data = self
+            .inner
+            .fetch_usage(tenant_id, customer_id, metric, period)
+            .await?;
+        self.kept()?.usage.insert(read, data.clone());
+        Ok(data)
+    }
+
+    async fn fetch_usage_grouped_by(
+        &self,
+        tenant_id: &TenantId,
+        customer_id: &CustomerId,
+        metric: &BillableMetric,
+        group_by: &str,
+        period: UsagePeriod,
+    ) -> StoreResult<UsageData> {
+        let read = UsageRead::of(tenant_id, customer_id, metric, &period, Some(group_by));
+        let data = self
+            .inner
+            .fetch_usage_grouped_by(tenant_id, customer_id, metric, group_by, period)
+            .await?;
+        self.kept()?.usage.insert(read, data.clone());
+        Ok(data)
+    }
+
+    async fn fetch_total_usage(
+        &self,
+        tenant_id: &TenantId,
+        customer_id: &CustomerId,
+        metric: &BillableMetric,
+        period: UsagePeriod,
+    ) -> StoreResult<Decimal> {
+        self.inner
+            .fetch_total_usage(tenant_id, customer_id, metric, period)
+            .await
+    }
+
+    async fn fetch_windowed_usage(
+        &self,
+        tenant_id: &TenantId,
+        customer_id: &CustomerId,
+        metric: &BillableMetric,
+        period: UsagePeriod,
+    ) -> StoreResult<WindowedUsageData> {
+        self.inner
+            .fetch_windowed_usage(tenant_id, customer_id, metric, period)
+            .await
+    }
+
+    async fn fetch_usage_summary(
+        &self,
+        tenant_id: &TenantId,
+        customer_id: Option<&CustomerId>,
+        metric: &BillableMetric,
+        period: UsagePeriod,
+    ) -> StoreResult<UsageData> {
+        self.inner
+            .fetch_usage_summary(tenant_id, customer_id, metric, period)
+            .await
+    }
+
+    async fn search_events(
+        &self,
+        tenant_id: &TenantId,
+        options: EventSearchOptions,
+    ) -> StoreResult<EventSearchResult> {
+        let found = self.inner.search_events(tenant_id, options.clone()).await?;
+        self.kept()?
+            .events
+            .push((*tenant_id, options, found.clone()));
+        Ok(found)
+    }
+
+    async fn ingest_events(
+        &self,
+        tenant_id: &TenantId,
+        request: IngestEventsRequest,
+    ) -> StoreResult<IngestEventsResult> {
+        self.inner.ingest_events(tenant_id, request).await
+    }
+}
+
 /// The passes of work under row locks: each is served the metering the previous ones missed.
 #[derive(Default)]
 pub(crate) struct UsagePasses {

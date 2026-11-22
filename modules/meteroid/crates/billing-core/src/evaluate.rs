@@ -102,6 +102,28 @@ pub struct UsageNeed {
     pub document: DocumentSlot,
 }
 
+/// A usage window as [`evaluate`] bills it: the row pricing it, the days it bills `[from, until)`
+/// (an ending's day alone when both are that day), the instants its usage is read over, the share
+/// of a capacity's allowance it holds and the document its charges go on.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BilledWindow<'a, F> {
+    pub row: &'a FeeFact<F>,
+    pub days: (NaiveDate, NaiveDate),
+    pub read: UsageWindow,
+    pub allowance: DayFraction,
+    pub document: DocumentSlot,
+}
+
+/// A usage window begun by the evaluation's instant, its row by index in the facts' fees.
+#[derive(Clone, Copy, Debug)]
+struct Begun {
+    row: usize,
+    days: (NaiveDate, NaiveDate),
+    read: UsageWindow,
+    allowance: DayFraction,
+    document: DocumentSlot,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Evaluation {
     pub charges: Vec<Charge>,
@@ -195,7 +217,29 @@ pub fn evaluate<F>(
     pricer: &impl Pricer<F>,
 ) -> Result<Evaluation, PricingError> {
     let run = Run::new(facts, now, usage, pricer);
-    run.evaluate()
+    run.evaluate().map(|(evaluation, _)| evaluation)
+}
+
+/// The usage windows begun by `now`, ended or still open, each with the row pricing it and the
+/// document [`evaluate`] puts its charges on, read alike (R-002, R-016, R-084, R-094). Without
+/// reads: what each window bills is the pricer's, on the read.
+pub fn usage_windows<'a, F>(
+    facts: &'a Facts<F>,
+    now: DateTime<Utc>,
+    pricer: &impl Pricer<F>,
+) -> Result<Vec<BilledWindow<'a, F>>, PricingError> {
+    let run = Run::new(facts, now, None, pricer);
+    let (_, begun) = run.evaluate()?;
+    Ok(begun
+        .into_iter()
+        .map(|window| BilledWindow {
+            row: &facts.fees[window.row],
+            days: window.days,
+            read: window.read,
+            allowance: window.allowance,
+            document: window.document,
+        })
+        .collect())
 }
 
 /// The subscription's first renewal on or after `day` as its facts stand at `now`: the start of
@@ -301,6 +345,7 @@ struct Out {
     wakes: Vec<DateTime<Utc>>,
     needed: Vec<UsageNeed>,
     settled: Vec<(Fee, (NaiveDate, NaiveDate))>,
+    begun: Vec<Begun>,
 }
 
 impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
@@ -552,7 +597,8 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
             .collect()
     }
 
-    fn evaluate(&self) -> Result<Evaluation, PricingError> {
+    /// The evaluation, with the usage windows begun by its instant.
+    fn evaluate(&self) -> Result<(Evaluation, Vec<Begun>), PricingError> {
         let mut out = Out::default();
         let mut prices: BTreeMap<usize, Vec<Rate>> = BTreeMap::new();
         let mut usage_pieces: Vec<UsagePiece<'_, F>> = Vec::new();
@@ -575,6 +621,7 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
             mut charges,
             mut needed,
             mut settled,
+            mut begun,
             ..
         } = out;
         if let Some(start) = self.billing_start.filter(|start| self.end == Some(*start)) {
@@ -599,6 +646,11 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                         need.document = opening;
                     }
                 }
+                for window in &mut begun {
+                    if window.document == DocumentSlot::Final {
+                        window.document = opening;
+                    }
+                }
             }
         }
         if let (false, Some(start)) = (self.settled, self.billing_start) {
@@ -609,6 +661,7 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
             };
             charges.retain(|charge| charge.document == opening);
             needed.clear();
+            begun.clear();
         }
         charges.sort_by(|a, b| {
             (a.due_at, &a.key, a.window, a.usage, a.amount)
@@ -618,13 +671,17 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
         needed.dedup();
         settled.sort();
         settled.dedup();
-        Ok(Evaluation {
-            charges,
-            state,
-            next_wake,
-            usage_needed: needed,
-            settled,
-        })
+        begun.sort_by_key(|window| (window.read, window.days, window.row));
+        Ok((
+            Evaluation {
+                charges,
+                state,
+                next_wake,
+                usage_needed: needed,
+                settled,
+            },
+            begun,
+        ))
     }
 
     fn grid(&self, span: &PlanSpan, months: u32) -> Option<Grid> {
@@ -1467,6 +1524,21 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
             return;
         }
         let document = self.document(piece.read.until, true, piece.cut);
+        if piece.read.from <= self.now
+            && let Some(row) = self
+                .facts
+                .fees
+                .iter()
+                .position(|row| std::ptr::eq(row, piece.row))
+        {
+            out.begun.push(Begun {
+                row,
+                days: (piece.from, piece.until),
+                read: piece.read,
+                allowance: piece.allowance,
+                document,
+            });
+        }
         let need = |read: UsageRead| UsageNeed {
             fee: piece.row.lineage.clone(),
             read,

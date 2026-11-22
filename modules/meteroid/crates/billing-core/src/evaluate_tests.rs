@@ -2707,6 +2707,279 @@ fn an_open_usage_window_is_only_reported() {
     assert_eq!(evaluation.next_wake, Some(at(2024, 2, 1, 0)));
 }
 
+/// The usage windows of `facts` begun by `now`: row, days, read, document.
+fn windows_of(
+    facts: &Facts<TestFee>,
+    now: DateTime<Utc>,
+) -> Vec<(u128, (NaiveDate, NaiveDate), UsageRead, DocumentSlot)> {
+    usage_windows(facts, now, &TestPricer)
+        .unwrap()
+        .iter()
+        .map(|window| {
+            (
+                window.row.id.as_u128(),
+                window.days,
+                UsageRead {
+                    metric: id(METRIC),
+                    window: window.read,
+                },
+                window.document,
+            )
+        })
+        .collect()
+}
+
+/// Metered from January 1 on a monthly grid, read on March 15: January and February on the
+/// renewals ending them, March open on April's; each as `usage_needed` lists it.
+/// Rules: R-084
+#[test]
+fn usage_windows_follow_the_fees_grid_open_window_included() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts.fees.push(metered(20, 2, d(2024, 1, 1), 1, 10));
+    let now = at(2024, 3, 15, 0);
+    let windows = windows_of(&facts, now);
+    assert_eq!(
+        windows,
+        vec![
+            (
+                20,
+                (d(2024, 1, 1), d(2024, 2, 1)),
+                read(at(2024, 1, 1, 0), at(2024, 2, 1, 0)),
+                recurring(d(2024, 2, 1))
+            ),
+            (
+                20,
+                (d(2024, 2, 1), d(2024, 3, 1)),
+                read(at(2024, 2, 1, 0), at(2024, 3, 1, 0)),
+                recurring(d(2024, 3, 1))
+            ),
+            (
+                20,
+                (d(2024, 3, 1), d(2024, 4, 1)),
+                read(at(2024, 3, 1, 0), at(2024, 4, 1, 0)),
+                recurring(d(2024, 4, 1))
+            ),
+        ]
+    );
+    let needed: Vec<_> = run(&facts, now)
+        .usage_needed
+        .into_iter()
+        .map(|need| (need.read, need.document))
+        .collect();
+    assert_eq!(
+        needed,
+        windows
+            .iter()
+            .map(|(_, _, read, document)| (*read, *document))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        usage_windows(&facts, now, &TestPricer)
+            .unwrap()
+            .iter()
+            .all(|window| window.allowance == DayFraction::WHOLE)
+    );
+}
+
+/// Cancelled on January 20 at 14:00, the window runs to the instant on the invoice the
+/// cancellation opens; cancelled at 10:00 on February 1, a renewal, January stays on that
+/// renewal's invoice and the morning is a window of that day alone on the final invoice, holding
+/// none of a capacity's allowance.
+/// Rules: R-016, R-002
+#[test]
+fn usage_windows_end_at_the_cancellation_on_its_document() {
+    let mid = with_usage(Some(Ending {
+        at: at(2024, 1, 20, 14),
+        kind: EndingKind::Cancel,
+    }));
+    assert_eq!(
+        windows_of(&mid, at(2024, 1, 25, 0)),
+        vec![(
+            20,
+            (d(2024, 1, 1), d(2024, 1, 20)),
+            read(at(2024, 1, 1, 0), at(2024, 1, 20, 14)),
+            recurring(d(2024, 1, 20))
+        )]
+    );
+
+    let renewal = with_usage(Some(Ending {
+        at: at(2024, 2, 1, 10),
+        kind: EndingKind::Cancel,
+    }));
+    assert_eq!(
+        windows_of(&renewal, at(2024, 2, 2, 0)),
+        vec![
+            (
+                20,
+                (d(2024, 1, 1), d(2024, 2, 1)),
+                read(at(2024, 1, 1, 0), at(2024, 2, 1, 0)),
+                recurring(d(2024, 2, 1))
+            ),
+            (
+                20,
+                (d(2024, 2, 1), d(2024, 2, 1)),
+                read(at(2024, 2, 1, 0), at(2024, 2, 1, 10)),
+                DocumentSlot::Final
+            ),
+        ]
+    );
+    let morning = usage_windows(&renewal, at(2024, 2, 2, 0), &TestPricer).unwrap();
+    assert_eq!(
+        morning[1].allowance.prorate_decimal(Decimal::from(310)),
+        Decimal::ZERO
+    );
+}
+
+/// Switched to yearly on March 15, its origin April 1: the monthly fee's last window, March 1
+/// to 15, rides the April 1 renewal; the yearly fee's stub, March 15 to April 1, ends on it; its
+/// year from April 1 is open on the next year's invoice.
+/// Rules: R-084, R-011
+#[test]
+fn usage_windows_follow_a_change_of_cadence() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts
+        .plan_windows
+        .push(plan(101, d(2024, 3, 15), 12, d(2024, 4, 1)));
+    facts.fees.push(FeeFact {
+        to: Some(d(2024, 3, 15)),
+        ..metered(20, 2, d(2024, 1, 1), 1, 10)
+    });
+    facts.fees.push(metered(30, 3, d(2024, 3, 15), 12, 10));
+    let windows: Vec<_> = windows_of(&facts, at(2024, 4, 10, 0))
+        .into_iter()
+        .map(|(row, days, _, document)| (row, days, document))
+        .collect();
+    assert_eq!(
+        windows,
+        vec![
+            (20, (d(2024, 1, 1), d(2024, 2, 1)), recurring(d(2024, 2, 1))),
+            (20, (d(2024, 2, 1), d(2024, 3, 1)), recurring(d(2024, 3, 1))),
+            (
+                20,
+                (d(2024, 3, 1), d(2024, 3, 15)),
+                recurring(d(2024, 4, 1))
+            ),
+            (
+                30,
+                (d(2024, 3, 15), d(2024, 4, 1)),
+                recurring(d(2024, 4, 1))
+            ),
+            (30, (d(2024, 4, 1), d(2025, 4, 1)), recurring(d(2025, 4, 1))),
+        ]
+    );
+}
+
+/// A capacity of 310 units: a whole January holds all of them, cut on January 17 by a
+/// cancellation 16 of 31 days, 160 units, and started on January 10 its first period's 22 of 31
+/// days, 220 units, as its fee is prorated.
+/// Rules: R-002
+#[test]
+fn a_usage_window_holds_the_share_of_a_capacitys_allowance_its_fee_bills() {
+    let capacity = |start: NaiveDate| {
+        let mut facts = subscription(start, 1, 1);
+        facts.fees.push(FeeFact {
+            billing: Billing::Advance,
+            fee: TestFee {
+                metric: Some(id(METRIC)),
+                unit: 10,
+                included: 310,
+                per_period: true,
+                ..TestFee::default()
+            },
+            ..metered(10, 1, start, 1, 10)
+        });
+        facts
+    };
+    let included = |facts: &Facts<TestFee>, now: DateTime<Utc>| -> Vec<Decimal> {
+        usage_windows(facts, now, &TestPricer)
+            .unwrap()
+            .iter()
+            .filter(|window| window.read.until <= now)
+            .map(|window| window.allowance.prorate_decimal(Decimal::from(310)))
+            .collect()
+    };
+    let whole = capacity(d(2024, 1, 1));
+    assert_eq!(
+        included(&whole, at(2024, 2, 1, 0)),
+        vec![Decimal::from(310)]
+    );
+
+    let mut cancelled = whole.clone();
+    cancelled.ending = Some(Ending {
+        at: midnight(d(2024, 1, 17)),
+        kind: EndingKind::Cancel,
+    });
+    assert_eq!(
+        included(&cancelled, at(2024, 1, 18, 0)),
+        vec![Decimal::from(160)]
+    );
+
+    let late = capacity(d(2024, 1, 10));
+    assert_eq!(
+        included(&late, at(2024, 3, 1, 0)),
+        vec![Decimal::from(220), Decimal::from(310)]
+    );
+}
+
+/// A watermark on March 15 leaves out the periods it settled, January and February; cleared,
+/// they read whole again.
+/// Rules: R-094
+#[test]
+fn usage_windows_leave_out_the_periods_a_watermark_settled() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts.fees.push(metered(20, 2, d(2024, 1, 1), 1, 10));
+    facts.reconcile_from = Some(d(2024, 3, 15));
+    let days = |facts: &Facts<TestFee>| -> Vec<(NaiveDate, NaiveDate)> {
+        windows_of(facts, at(2024, 4, 10, 0))
+            .into_iter()
+            .map(|(_, days, _, _)| days)
+            .collect()
+    };
+    assert_eq!(
+        days(&facts),
+        vec![
+            (d(2024, 3, 1), d(2024, 4, 1)),
+            (d(2024, 4, 1), d(2024, 5, 1))
+        ]
+    );
+    facts.reconcile_from = None;
+    assert_eq!(
+        days(&facts),
+        vec![
+            (d(2024, 1, 1), d(2024, 2, 1)),
+            (d(2024, 2, 1), d(2024, 3, 1)),
+            (d(2024, 3, 1), d(2024, 4, 1)),
+            (d(2024, 4, 1), d(2024, 5, 1))
+        ]
+    );
+}
+
+/// Ended the day it started with nothing billed in advance, the day's window opens that day's
+/// invoice; a start not settled yet bills no window at all.
+/// Rules: R-016, R-011
+#[test]
+fn usage_windows_follow_the_opening_invoice_rules() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts.fees.push(metered(20, 2, d(2024, 1, 1), 1, 10));
+    let mut ended = facts.clone();
+    ended.ending = Some(Ending {
+        at: at(2024, 1, 1, 10),
+        kind: EndingKind::Cancel,
+    });
+    assert_eq!(
+        windows_of(&ended, at(2024, 1, 2, 0)),
+        vec![(
+            20,
+            (d(2024, 1, 1), d(2024, 1, 1)),
+            read(at(2024, 1, 1, 0), at(2024, 1, 1, 10)),
+            recurring(d(2024, 1, 1))
+        )]
+    );
+
+    facts.start.settled = None;
+    assert!(windows_of(&facts, at(2024, 2, 10, 0)).is_empty());
+}
+
 // ---- properties
 
 #[derive(Clone, Debug)]

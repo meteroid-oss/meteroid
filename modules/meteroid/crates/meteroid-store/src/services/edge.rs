@@ -494,14 +494,24 @@ impl ServicesEdge {
         charged: Option<&PaymentTransaction>,
         document: &str,
     ) -> StoreResult<()> {
-        let recorded = match charged {
+        let finalized_at =
+            diesel_models::invoices::InvoiceRow::find_by_id(conn, tenant_id, invoice_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .finalized_at;
+        let settled = self
+            .services
+            .settle_invoice_unfunded_tx(
+                conn,
+                tenant_id,
+                invoice_id,
+                charged
+                    .and_then(|transaction| transaction.processed_at)
+                    .or(finalized_at),
+            )
+            .await?;
+        match charged {
             Some(transaction) => {
-                let recorded =
-                    diesel_models::invoices::InvoiceRow::recompute_amount_due_from_settled_payments(
-                        conn, invoice_id, tenant_id,
-                    )
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
                 crate::services::credit::collected_payment::reconcile_overpayment_tx(
                     conn,
                     &*self.store.hooks.credit,
@@ -517,50 +527,26 @@ impl ServicesEdge {
                     None,
                 )
                 .await?;
-                recorded
             }
-            None => {
-                let recorded =
-                    diesel_models::invoices::InvoiceRow::find_by_id(conn, tenant_id, invoice_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-                if recorded.amount_due != 0 {
-                    return Err(Report::new(StoreError::CheckoutError).attach(format!(
-                        "{document} invoice {invoice_id} asks {} that credit no longer covers",
-                        recorded.amount_due
-                    )));
-                }
-                recorded
+            None if settled.state.due != 0 => {
+                return Err(Report::new(StoreError::CheckoutError).attach(format!(
+                    "{document} invoice {invoice_id} asks {} that credit no longer covers",
+                    settled.state.due
+                )));
             }
-        };
-        if recorded.amount_due > 0 {
+            None => {}
+        }
+        if settled.state.due > 0 {
             log::error!(
                 "{document} invoice {invoice_id} left {} due after its checkout charge {}",
-                recorded.amount_due,
+                settled.state.due,
                 charged
                     .and_then(|transaction| transaction.provider_transaction_id.as_deref())
                     .unwrap_or("none")
             );
-            diesel_models::invoices::InvoiceRow::apply_payment_status(
-                conn,
-                invoice_id,
-                tenant_id,
-                diesel_models::enums::InvoicePaymentStatus::PartiallyPaid,
-                None,
-            )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-        } else {
-            let paid = self
-                .services
-                .apply_invoice_paid_tx(
-                    conn,
-                    tenant_id,
-                    invoice_id,
-                    charged
-                        .and_then(|transaction| transaction.processed_at)
-                        .or(recorded.finalized_at),
-                )
+        } else if settled.paid_now {
+            self.services
+                .fund_paid_invoice_tx(conn, &settled.invoice, common_clock::now())
                 .await?;
             self.store
                 .internal
@@ -568,7 +554,7 @@ impl ServicesEdge {
                     conn,
                     tenant_id,
                     &Actor::Customer { id: customer_id },
-                    vec![OutboxEvent::invoice_paid((&paid).into())],
+                    vec![OutboxEvent::invoice_paid((&settled.invoice).into())],
                 )
                 .await?;
         }
@@ -636,11 +622,11 @@ impl ServicesEdge {
         // PartiallyPaid or overpaid, and `FinalizeAfterPayment` asserts the amount it confirmed.
         // The background refresh excludes these in SQL; this covers the operator-driven path.
         let mut conn = self.get_conn().await?;
-        if diesel_models::payments::PaymentTransactionRow::exists_live_for_invoice(
-            &mut conn, invoice_id, tenant_id,
-        )
-        .await?
-        {
+        let row = diesel_models::invoices::InvoiceRow::find_by_id(&mut conn, tenant_id, invoice_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        let account = crate::repositories::invoice_account::load_tx(&mut conn, &row).await?;
+        if crate::repositories::invoice_account::owned_by_payment(&account.state()) {
             return Err(crate::errors::StoreError::InvalidArgument(
                 "Cannot refresh an invoice with a payment in progress".to_string(),
             )

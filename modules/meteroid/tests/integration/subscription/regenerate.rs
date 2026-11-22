@@ -611,7 +611,7 @@ async fn a_void_forgives_the_arrears_it_billed() {
             "Void Recurring 2024-02-01: Platform Fee 2024-02-01..2024-03-01 2900",
             "Void Recurring 2024-02-01: Seats 2024-02-01..2024-03-01 1000",
             "Void Recurring 2024-02-01: Overage Fee 2024-01-01..2024-01-20 1900",
-            "Finalized OneOff 2024-02-16: 2 Seats upgrade 2024-02-16..2024-03-01 965",
+            "Finalized Adjustment 2024-02-16: 2 Seats upgrade 2024-02-16..2024-03-01 965",
             "Finalized Recurring 2024-03-01: Platform Fee 2024-03-01..2024-04-01 2900",
             "Finalized Recurring 2024-03-01: Seats 2024-03-01..2024-04-01 3000",
         ]

@@ -1117,7 +1117,7 @@ async fn movement_log_change_at(
 }
 
 /// A French consumer: no VAT number, so the supply is B2C and FR→FR domestic VAT applies.
-async fn create_french_consumer(env: &TestEnv) -> CustomerId {
+pub(crate) async fn create_french_consumer(env: &TestEnv) -> CustomerId {
     create_french_customer(env, CustomerTaxStatusEnum::Taxable).await
 }
 
@@ -1522,7 +1522,7 @@ async fn test_a_unit_pack_keeps_its_unit_s_rate_when_mrr_is_restated() {
     );
 }
 
-async fn enable_eu_vat(env: &TestEnv) {
+pub(crate) async fn enable_eu_vat(env: &TestEnv) {
     env.store()
         .patch_invoicing_entity(
             common_domain::actor::Actor::System,

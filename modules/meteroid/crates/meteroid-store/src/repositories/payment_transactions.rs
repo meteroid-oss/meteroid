@@ -11,9 +11,7 @@ use crate::domain::{PaymentIntent, PaymentTransactionWithMethod};
 use crate::errors::StoreError;
 use crate::repositories::credit::customer_credit::PaymentMovement;
 use common_domain::ids::{BaseId, CreditNoteId, InvoiceId, PaymentTransactionId, TenantId};
-use diesel_models::enums::InvoicePaymentStatus;
 use diesel_models::invoices::InvoiceRow;
-use diesel_models::lock::CustomerLock;
 use diesel_models::payments::{
     PaymentTransactionRow, PaymentTransactionRowNew, PaymentTransactionRowPatch,
 };
@@ -142,8 +140,8 @@ pub trait PaymentTransactionInterface {
         transaction_id: PaymentTransactionId,
     ) -> StoreResult<()>;
 
-    /// True when a payment attempt owns this invoice (in flight or settled).
-    /// Callers must not charge, merge or mutate such an invoice.
+    /// True when the invoice's account refuses a charge (R-127): a collection is in flight, or
+    /// nothing is left due. Callers must not charge or chase such an invoice.
     async fn invoice_has_live_payment(
         &self,
         tenant_id: TenantId,
@@ -285,9 +283,13 @@ impl PaymentTransactionInterface for Store {
         invoice_id: InvoiceId,
     ) -> StoreResult<bool> {
         let mut conn = self.get_conn().await?;
-        PaymentTransactionRow::exists_live_for_invoice(&mut conn, invoice_id, tenant_id)
+        let invoice = InvoiceRow::find_by_id(&mut conn, tenant_id, invoice_id)
             .await
-            .map_err(Into::<Report<StoreError>>::into)
+            .map_err(Into::<Report<StoreError>>::into)?;
+        Ok(!matches!(
+            crate::repositories::invoice_account::charge_tx(&mut conn, &invoice).await?,
+            billing_core::settlement::Charge::Due(_)
+        ))
     }
 
     async fn invoice_has_any_payment(
@@ -696,9 +698,9 @@ impl PaymentTransactionInterface for Store {
             && (settled_against_note || refunded.is_some())
         {
             let lock = if settled_against_note {
-                recompute_invoice_payment_state(conn, tenant_id, invoice_id, None)
+                crate::repositories::invoice_account::settle_tx(conn, tenant_id, invoice_id, None)
                     .await?
-                    .0
+                    .lock
             } else {
                 InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
                     .await?
@@ -833,14 +835,16 @@ impl PaymentTransactionInterface for Store {
                     // orchestration (see `reinstate_transaction_tx`).
                     let _ = sync_parent_refunded(conn, parent).await?;
                 }
-                // Its avoir already shrank the invoice; now the money is gone the payment no
-                // longer covers what it did, so re-derive the balance. A refund with no avoir
-                // leaves the invoice alone.
+                // Its avoir already took the cash it promised back out of the account; settle the
+                // invoice from it. A refund with no avoir leaves the invoice alone.
                 if let Some(invoice_id) =
                     invoice_id.filter(|_| moved.iter().any(|row| row.credit_note_id.is_some()))
                 {
-                    let (lock, _, _) =
-                        recompute_invoice_payment_state(conn, tenant_id, invoice_id, None).await?;
+                    let lock = crate::repositories::invoice_account::settle_tx(
+                        conn, tenant_id, invoice_id, None,
+                    )
+                    .await?
+                    .lock;
                     crate::services::credit::reconcile_purchased_credit_tx(
                         conn,
                         &*self.hooks.credit,
@@ -1001,54 +1005,6 @@ impl PaymentTransactionInterface for Store {
         .map_err(Into::<Report<StoreError>>::into)
         .map(|row_opt| row_opt.map(std::convert::Into::into))
     }
-}
-
-/// Re-derive an invoice's `amount_due` from its net settled payments and finalized
-/// invoice-reducing credit notes, then re-derive its payment status. The invoice row is locked
-/// first; callers must already be inside a transaction.
-/// Returns the invoice and whether this call is what turned it Paid — the only moment an
-/// `invoice_paid` event is owed. An invoice that was already Paid is left alone entirely, so a
-/// recompute never re-stamps `paid_at` with a later refund's or credit note's timestamp.
-pub(crate) async fn recompute_invoice_payment_state(
-    conn: &mut PgConn,
-    tenant_id: TenantId,
-    invoice_id: InvoiceId,
-    paid_at: Option<chrono::NaiveDateTime>,
-) -> StoreResult<(CustomerLock, InvoiceRow, bool)> {
-    let before = InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id).await?;
-    let was_paid = before.invoice.payment_status == InvoicePaymentStatus::Paid;
-    let recomputed =
-        InvoiceRow::recompute_amount_due_from_settled_payments(conn, invoice_id, tenant_id).await?;
-
-    // Measured against what the invoice still collects: its issued `total` never moves, so a
-    // fully credited invoice with nothing paid would otherwise read as partially paid.
-    let collectible = InvoiceRow::collectible_total(conn, invoice_id, tenant_id).await?;
-    let payment_status = if recomputed.amount_due <= 0 {
-        InvoicePaymentStatus::Paid
-    } else if recomputed.amount_due >= collectible {
-        InvoicePaymentStatus::Unpaid
-    } else {
-        InvoicePaymentStatus::PartiallyPaid
-    };
-
-    if was_paid && payment_status == InvoicePaymentStatus::Paid {
-        return Ok((before.lock, recomputed, false));
-    }
-
-    let updated = InvoiceRow::apply_payment_status(
-        conn,
-        invoice_id,
-        tenant_id,
-        payment_status.clone(),
-        paid_at,
-    )
-    .await
-    .map_err(Into::<Report<StoreError>>::into)?;
-    Ok((
-        before.lock,
-        updated,
-        payment_status == InvoicePaymentStatus::Paid,
-    ))
 }
 
 /// A refund without a note failed: the money it held back backs the credit it took again. Run

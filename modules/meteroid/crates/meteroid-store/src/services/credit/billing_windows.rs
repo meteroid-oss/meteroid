@@ -2,9 +2,7 @@
 //! the upcoming invoice of each subscription, a draft's or a final invoice's own windows.
 use crate::StoreResult;
 use crate::constants::Currencies;
-use crate::domain::{
-    BillableMetric, Period, SubscriptionDetails, SubscriptionFeeInterface, UsagePeriod,
-};
+use crate::domain::{BillableMetric, Period, SubscriptionDetails, SubscriptionFee, UsagePeriod};
 use crate::errors::StoreError;
 use crate::repositories::credit::customer_credit::normalized_currency;
 use crate::repositories::subscriptions::SubscriptionInterface;
@@ -12,11 +10,9 @@ use crate::services::clients::usage::{GroupedUsageData, UsageData};
 use crate::services::credit::invalid;
 use crate::services::credit::unit_wallets::OverageRates;
 use crate::services::invoice_lines::component::{
-    PinnedPrices, capacity_overage_lines, convert_usage_units, usage_lines, usage_window,
+    PinnedPrices, capacity_overage_lines, convert_usage_units, usage_lines,
 };
-use crate::services::invoice_lines::invoice_lines::{
-    BilledSpan, MeteredFee, MeteredWindow, details_for_span, load_closed_arrears, metered_windows,
-};
+use crate::services::invoice_lines::invoice_lines::{BilledSpan, MeteredFee};
 use crate::services::invoice_lines::invoice_lines::{build_tax_engine, rates_of};
 use crate::services::invoice_lines::tax_inputs::{customer_for_tax, product_tax_config_with_conn};
 use crate::services::invoices::upcoming::upcoming_invoice_details;
@@ -231,79 +227,66 @@ pub async fn subscription_windows(
     windows_at(conn, &upcoming, invoice_date, BilledSpan::Period).await
 }
 
-/// The windows the invoice of `cycle_index`, dated `invoice_date`, bills for the subscription:
-/// its period's own invoice, or its final one (`span`).
+/// The windows the invoice of `invoice_date` (keyed as `billed_at` keys it) carries for the
+/// subscription, its period's own or its final one (`span`), read from its facts as billing
+/// evaluates them (R-084, R-016, R-002).
 pub(crate) async fn windows_at(
     conn: &mut PgConn,
-    upcoming: &SubscriptionDetails,
+    details: &SubscriptionDetails,
     invoice_date: NaiveDate,
     span: BilledSpan,
 ) -> StoreResult<Vec<PlannedWindow>> {
     // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
-    Box::pin(windows_at_unboxed(conn, upcoming, invoice_date, span)).await
-}
-
-async fn windows_at_unboxed(
-    conn: &mut PgConn,
-    upcoming: &SubscriptionDetails,
-    invoice_date: NaiveDate,
-    span: BilledSpan,
-) -> StoreResult<Vec<PlannedWindow>> {
-    let reading = details_for_span(conn, upcoming, span).await?;
-    let upcoming: &SubscriptionDetails = reading.as_deref().unwrap_or(upcoming);
-    let Some(billing_start_date) = upcoming.subscription.billing_start_date else {
-        return Ok(Vec::new());
-    };
-
-    let currency = normalized_currency(&upcoming.subscription.currency);
-    let precision = Currencies::resolve_currency(&currency)
-        .ok_or_else(|| {
-            Report::new(StoreError::ValueNotFound(format!(
-                "Currency {currency} not found"
-            )))
-        })?
-        .precision;
-
-    let closed = load_closed_arrears(conn, upcoming, invoice_date, None).await?;
-    let closed_details = closed.details_for(upcoming);
-    let runs = crate::services::invoice_lines::cadence::load_cadence_runs(
-        conn,
-        upcoming,
-        invoice_date,
-        true,
-    )
-    .await?;
-
-    let mut planned = Vec::new();
-    // The credit-priced windows, by index in `planned`, whose overage rate is resolved below.
-    let mut credit_priced: Vec<(usize, CreditUnitId, String, PlanVersionId)> = Vec::new();
-    let mut plan_windows = |details: &SubscriptionDetails, windows: Vec<MeteredWindow>| {
-        for window in windows {
-            let metric = details
-                .metrics
-                .iter()
-                .find(|metric| metric.id == window.metric_id)
-                .ok_or_else(|| {
-                    Report::new(StoreError::ValueNotFound(format!(
-                        "metric with id {}",
-                        window.metric_id
-                    )))
-                })?;
-            let usage = usage_window(details, window.period.clone());
-            if usage.end <= usage.start {
-                continue;
-            }
-            // Usage priced in a credit unit is owed to that unit's wallet, in its minor units;
-            // what it leaves uncovered is owed in money.
-            if let Some(unit) = &window.credit_unit {
+    Box::pin(async move {
+        let subscription = &details.subscription;
+        let carried = crate::services::evaluate::windows::invoice_windows(
+            conn,
+            subscription.tenant_id,
+            subscription.id,
+            invoice_date,
+            span,
+        )
+        .await?;
+        let currency = normalized_currency(&subscription.currency);
+        let precision = Currencies::resolve_currency(&currency)
+            .ok_or_else(|| {
+                Report::new(StoreError::ValueNotFound(format!(
+                    "Currency {currency} not found"
+                )))
+            })?
+            .precision;
+        let mut planned = Vec::with_capacity(carried.len());
+        let mut credit_priced: Vec<(usize, CreditUnitId, String, PlanVersionId)> = Vec::new();
+        for window in carried {
+            let (fee, credit_unit) = match &window.fee.fee {
+                SubscriptionFee::Usage {
+                    model, credit_unit, ..
+                } => (MeteredFee::Usage(model.clone()), credit_unit.clone()),
+                SubscriptionFee::Capacity {
+                    included,
+                    overage_rate,
+                    credit_unit,
+                    ..
+                } => (
+                    MeteredFee::CapacityOverage {
+                        included: window
+                            .allowance
+                            .prorate_decimal(rust_decimal::Decimal::from(*included)),
+                        overage_rate: *overage_rate,
+                    },
+                    credit_unit.clone(),
+                ),
+                _ => continue,
+            };
+            if let Some(unit) = &credit_unit {
                 credit_priced.push((
                     planned.len(),
                     unit.unit_id,
                     unit.code.clone(),
-                    details.subscription.plan_version_id,
+                    subscription.plan_version_id,
                 ));
             }
-            let (overage, (currency, precision)) = match &window.credit_unit {
+            let (overage, (window_currency, window_precision)) = match &credit_unit {
                 Some(unit) => (
                     Some(MoneyOverage {
                         currency: currency.clone(),
@@ -315,109 +298,63 @@ async fn windows_at_unboxed(
                 ),
                 None => (None, (currency.clone(), precision)),
             };
-            let product_id = details
-                .price_components
-                .iter()
-                .find(|component| {
-                    window.sub_component_id.is_some()
-                        && component.sub_component_id() == window.sub_component_id
-                })
-                .and_then(|component| component.product_id())
-                .or_else(|| {
-                    details
-                        .add_ons
-                        .iter()
-                        .find(|add_on| {
-                            window.sub_add_on_id.is_some()
-                                && add_on.sub_add_on_id() == window.sub_add_on_id
-                        })
-                        .and_then(|add_on| add_on.product_id())
-                });
             planned.push(PlannedWindow {
-                subscription_id: details.subscription.id,
-                metric: metric.clone(),
-                fee: window.fee,
-                sub_component_id: window.sub_component_id,
-                sub_add_on_id: window.sub_add_on_id,
-                product_id,
-                tax_inclusive: details.subscription.tax_inclusive,
+                subscription_id: subscription.id,
+                metric: window.metric,
+                fee,
+                sub_component_id: window.fee.sub_component_id,
+                sub_add_on_id: window.fee.sub_add_on_id,
+                product_id: window.fee.product_id,
+                tax_inclusive: subscription.tax_inclusive,
                 taxes: Vec::new(),
-                period: window.period,
-                start: usage.start,
-                end: usage.end,
-                currency,
-                precision,
+                period: Period {
+                    start: window.days.0,
+                    end: window.days.1,
+                },
+                start: window.read.from.naive_utc(),
+                end: window.read.until.naive_utc(),
+                currency: window_currency,
+                precision: window_precision,
                 overage,
             });
         }
-        Ok::<_, Report<StoreError>>(())
-    };
+        resolve_overage_rates(conn, details, &currency, &mut planned, credit_priced).await?;
+        Ok(planned)
+    })
+    .await
+}
 
-    plan_windows(
-        upcoming,
-        metered_windows(
-            upcoming,
-            &upcoming.price_components,
-            invoice_date,
-            billing_start_date,
-            &runs,
-            span,
-        ),
-    )?;
-    plan_windows(
-        upcoming,
-        metered_windows(
-            upcoming,
-            &upcoming.add_ons,
-            invoice_date,
-            billing_start_date,
-            &runs,
-            span,
-        ),
-    )?;
-    plan_windows(
-        &closed_details,
-        metered_windows(
-            &closed_details,
-            &closed.components,
-            invoice_date,
-            billing_start_date,
-            &runs,
-            span,
-        ),
-    )?;
-    plan_windows(
-        &closed_details,
-        metered_windows(
-            &closed_details,
-            &closed.add_ons,
-            invoice_date,
-            billing_start_date,
-            &runs,
-            span,
-        ),
-    )?;
-    if !credit_priced.is_empty() {
-        let subscription = &upcoming.subscription;
-        let unit_ids: Vec<CreditUnitId> = credit_priced.iter().map(|(_, id, ..)| *id).collect();
-        let plan_version_ids: Vec<PlanVersionId> =
-            credit_priced.iter().map(|(.., version)| *version).collect();
-        let mut rates = OverageRates::load(
-            conn,
-            subscription.tenant_id,
-            subscription.customer_id,
-            &currency,
-            &unit_ids,
-            &plan_version_ids,
-        )
-        .await?;
-        for (index, unit_id, code, plan_version_id) in credit_priced {
-            if let Some(overage) = planned[index].overage.as_mut() {
-                overage.rate = rates.rate(unit_id, &code, plan_version_id, overage.rate);
-            }
+/// The rate of each credit-priced window's money overage (`credit_priced`, by index in `planned`),
+/// as the customer's account and the plan version price the credits past the balance.
+async fn resolve_overage_rates(
+    conn: &mut PgConn,
+    details: &SubscriptionDetails,
+    currency: &str,
+    planned: &mut [PlannedWindow],
+    credit_priced: Vec<(usize, CreditUnitId, String, PlanVersionId)>,
+) -> StoreResult<()> {
+    if credit_priced.is_empty() {
+        return Ok(());
+    }
+    let subscription = &details.subscription;
+    let unit_ids: Vec<CreditUnitId> = credit_priced.iter().map(|(_, id, ..)| *id).collect();
+    let plan_version_ids: Vec<PlanVersionId> =
+        credit_priced.iter().map(|(.., version)| *version).collect();
+    let mut rates = OverageRates::load(
+        conn,
+        subscription.tenant_id,
+        subscription.customer_id,
+        currency,
+        &unit_ids,
+        &plan_version_ids,
+    )
+    .await?;
+    for (index, unit_id, code, plan_version_id) in credit_priced {
+        if let Some(overage) = planned[index].overage.as_mut() {
+            overage.rate = rates.rate(unit_id, &code, plan_version_id, overage.rate);
         }
     }
-    Ok(planned)
+    Ok(())
 }
 
 /// What a window's usage, read as `groups` up to `until`, prices at, honouring `pinned` draft prices.

@@ -2,6 +2,7 @@
 //! lines and totals.
 
 pub mod allocation;
+pub mod expiry;
 pub mod owed;
 pub mod settle;
 

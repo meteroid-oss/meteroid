@@ -6,7 +6,9 @@ use crate::domain::payment_transactions::PaymentTransaction;
 use crate::errors::StoreError;
 use crate::repositories::InvoiceInterface;
 use crate::repositories::api_idempotency::{ClaimOutcome, claim_tx};
+use crate::repositories::invoice_account;
 use crate::services::{InvoiceDelivery, Services};
+use billing_core::settlement::Charge;
 use chrono::{DateTime, FixedOffset, Utc};
 use common_domain::ids::{BaseId, InvoiceId, PaymentTransactionId, TenantId};
 use common_utils::decimals::ToSubunit;
@@ -60,6 +62,8 @@ impl Services {
                         paid_at: payment_date.to_utc(),
                         reference: reference.clone(),
                     };
+                    // Against what the invoice showed when the transfer arrived: a second transfer
+                    // recorded before the first settles is money received, kept as overpayment.
                     self.record_manual_payment_tx(
                         conn,
                         actor,
@@ -100,13 +104,14 @@ impl Services {
                         paid_at: payment_date.to_utc(),
                         reference: reference.clone(),
                     };
+                    let amount_due = account_due(conn, &invoice).await?;
                     self.record_manual_payment_tx(
                         conn,
                         actor,
                         &invoice,
                         &payment,
                         ManualInvoicePaymentKind::MarkPaid,
-                        invoice.amount_due,
+                        amount_due,
                         PaymentTransactionId::new(),
                     )
                     .await?;
@@ -155,20 +160,17 @@ impl Services {
                     }
                     check_manual_payment_invoice(&invoice, kind)?;
                     check_paid_at(payment.paid_at, common_clock::now())?;
-                    // Count money already recorded by the admin API even if its settlement event
-                    // is still in the queue.
-                    let amount_due = InvoiceRow::collections(conn, invoice_id, tenant_id)
-                        .await?
-                        .amount_due();
-                    if PaymentTransactionRow::exists_in_flight_for_invoice(
-                        conn, invoice_id, tenant_id,
-                    )
-                    .await?
-                    {
-                        return Err(Report::new(StoreError::InvalidArgument(
-                            "A payment of this invoice is already in progress".to_string(),
-                        )));
-                    }
+                    // The account counts money already recorded by the admin API even if its
+                    // settlement event is still in the queue.
+                    let amount_due = match invoice_account::charge_tx(conn, &invoice).await? {
+                        Charge::Due(amount) => amount,
+                        Charge::Covered => 0,
+                        Charge::InFlight => {
+                            return Err(Report::new(StoreError::InvalidArgument(
+                                "A payment of this invoice is already in progress".to_string(),
+                            )));
+                        }
+                    };
                     let transaction = self
                         .record_manual_payment_tx(
                             conn,
@@ -259,6 +261,11 @@ impl Services {
             .await?;
         Ok(transaction)
     }
+}
+
+/// What the invoice's account leaves due, money recorded but not settled yet included.
+async fn account_due(conn: &mut PgConn, invoice: &InvoiceRow) -> StoreResult<i64> {
+    Ok(invoice_account::load_tx(conn, invoice).await?.state().due)
 }
 
 fn check_manual_payment_invoice(
@@ -371,27 +378,27 @@ impl Services {
                                 .to_string(),
                         )));
                     }
-                    if invoice.amount_due <= 0 {
-                        return Err(Report::new(StoreError::InvalidArgument(
-                            "The invoice has nothing left to pay".to_string(),
-                        )));
-                    }
+                    let amount_due = match invoice_account::charge_tx(conn, &invoice).await? {
+                        Charge::Due(amount) => amount,
+                        Charge::Covered => {
+                            return Err(Report::new(StoreError::InvalidArgument(
+                                "The invoice has nothing left to pay".to_string(),
+                            )));
+                        }
+                        Charge::InFlight => {
+                            return Err(Report::new(StoreError::InvalidArgument(
+                                "A payment of this invoice is already in progress".to_string(),
+                            )));
+                        }
+                    };
                     check_payment_date(paid_at.fixed_offset(), common_clock::now())?;
-                    if PaymentTransactionRow::exists_live_for_invoice(conn, invoice_id, tenant_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?
-                    {
-                        return Err(Report::new(StoreError::InvalidArgument(
-                            "A payment of this invoice is already in progress".to_string(),
-                        )));
-                    }
                     delivery.apply_tx(conn, tenant_id, invoice_id).await?;
                     let transaction: PaymentTransaction = PaymentTransactionRowNew {
                         id: PaymentTransactionId::new(),
                         tenant_id,
                         invoice_id: Some(invoice_id),
                         provider_transaction_id: reference.clone(),
-                        amount: invoice.amount_due,
+                        amount: amount_due,
                         currency: invoice.currency.clone(),
                         payment_method_id: None,
                         status: PaymentStatusEnum::Settled,

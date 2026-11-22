@@ -235,13 +235,18 @@ impl Services {
                     {
                         return Ok(());
                     }
-                    // Nothing to pay: paid the moment it was issued, not when this event ran.
+                    // Nothing to pay: paid the moment it was issued, not when this event ran. The
+                    // account decides: an invoice it finds owing stays as it is.
                     let paid_at = current
                         .finalized_at
                         .unwrap_or_else(|| common_clock::now().naive_utc());
-                    let invoice = self
-                        .apply_invoice_paid_tx(conn, tenant_id, invoice.id, Some(paid_at))
+                    let settled = self
+                        .settle_invoice_tx(conn, tenant_id, invoice.id, Some(paid_at))
                         .await?;
+                    if !settled.paid_now {
+                        return Ok(());
+                    }
+                    let invoice = &settled.invoice;
 
                     // Emit invoice paid event - this triggers on_invoice_paid which handles
                     // subscription activation (TrialExpired → Active)
@@ -251,7 +256,7 @@ impl Services {
                             conn,
                             tenant_id,
                             &Actor::System,
-                            vec![OutboxEvent::invoice_paid((&invoice).into())],
+                            vec![OutboxEvent::invoice_paid(invoice.into())],
                         )
                         .await?;
 

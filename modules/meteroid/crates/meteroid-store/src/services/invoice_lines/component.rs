@@ -1,14 +1,11 @@
 use billing_core::pricing;
-use chrono::NaiveDateTime;
 use rust_decimal::Decimal;
 
 use crate::domain::credit_units::FeeCreditUnit;
 use crate::domain::enums::UnitConversionRoundingEnum;
 use crate::domain::invoice_lines::{UsageBreakdown, UsageBreakdownItem};
 use crate::domain::price_components::MatrixRow;
-use crate::domain::{
-    BillableMetric, LineItem, Period, SubscriptionDetails, UsagePeriod, UsagePricingModel,
-};
+use crate::domain::{BillableMetric, LineItem, UsagePricingModel};
 
 use super::fees::pricing_error;
 use crate::StoreResult;
@@ -320,129 +317,6 @@ pub(crate) fn capacity_overage_lines(
         .attach("Capacity overage exceeds the supported range")
 }
 
-/// The usage query window for an arrear `period`.
-///
-/// The date-granular `Period -> UsagePeriod` conversion truncates the exclusive upper bound to the
-/// period-end midnight. For a terminated subscription's final period that drops usage consumed on
-/// the termination day — there is no later period to bill it — so the bound is extended to the exact
-/// termination instant. Only ever extends the window (never shrinks it), and only when the arrear
-/// window ends on the termination day itself, so an ongoing subscription, an earlier period, or a
-/// date-effective cancel (whose `terminated_at` is that date's midnight) is left unchanged.
-fn arrear_usage_period(
-    period: Period,
-    is_completed: bool,
-    terminated_at: Option<NaiveDateTime>,
-) -> UsagePeriod {
-    let period_end = period.end;
-    let mut usage_period: UsagePeriod = period.into();
-    if is_completed
-        && let Some(terminated_at) = terminated_at
-        && terminated_at.date() == period_end
-        && terminated_at > usage_period.end
-    {
-        usage_period.end = terminated_at;
-    }
-    usage_period
-}
-
-pub(crate) fn usage_window(
-    subscription_details: &SubscriptionDetails,
-    period: Period,
-) -> UsagePeriod {
-    let sub = &subscription_details.subscription;
-    let is_completed = sub.current_period_end.is_none() && !sub.pending_checkout;
-    arrear_usage_period(period, is_completed, sub.terminated_at)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use chrono::{NaiveDate, NaiveTime};
-
-    fn at(y: i32, m: u32, d: u32, h: u32, min: u32) -> NaiveDateTime {
-        NaiveDate::from_ymd_opt(y, m, d)
-            .unwrap()
-            .and_hms_opt(h, min, 0)
-            .unwrap()
-    }
-    fn day(y: i32, m: u32, d: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(y, m, d).unwrap()
-    }
-
-    #[test]
-    fn arrear_window_extends_to_termination_instant_same_day() {
-        // Start and immediate-cancel on the same day: the date window [D, D) is empty; the terminal
-        // cutoff extends the upper bound to the actual instant so the day's usage is billed.
-        let d = day(2025, 3, 10);
-        let terminated_at = at(2025, 3, 10, 14, 37);
-        let up = arrear_usage_period(Period { start: d, end: d }, true, Some(terminated_at));
-        assert_eq!(up.start, d.and_time(NaiveTime::MIN));
-        assert_eq!(up.end, terminated_at);
-        assert!(
-            up.end > up.start,
-            "window must be non-empty so usage is queried"
-        );
-    }
-
-    #[test]
-    fn arrear_window_extends_only_the_termination_day_for_multi_day_period() {
-        let up = arrear_usage_period(
-            Period {
-                start: day(2025, 3, 1),
-                end: day(2025, 3, 10),
-            },
-            true,
-            Some(at(2025, 3, 10, 9, 0)),
-        );
-        assert_eq!(up.start, day(2025, 3, 1).and_time(NaiveTime::MIN));
-        assert_eq!(up.end, at(2025, 3, 10, 9, 0));
-    }
-
-    #[test]
-    fn arrear_window_unchanged_for_active_subscription() {
-        // Not completed: midnight-exclusive bound preserved even if a cutoff were somehow present.
-        let up = arrear_usage_period(
-            Period {
-                start: day(2025, 3, 1),
-                end: day(2025, 3, 31),
-            },
-            false,
-            Some(at(2025, 3, 31, 12, 0)),
-        );
-        assert_eq!(up.end, day(2025, 3, 31).and_time(NaiveTime::MIN));
-    }
-
-    #[test]
-    fn arrear_window_unchanged_for_date_effective_cancel_at_midnight() {
-        // Date-effective cancel records terminated_at at the date's midnight: no extension, so the
-        // exclusive boundary is preserved (regression guard for scheduled / end-of-period cancels).
-        let end = day(2025, 3, 15);
-        let up = arrear_usage_period(
-            Period {
-                start: day(2025, 3, 1),
-                end,
-            },
-            true,
-            Some(end.and_time(NaiveTime::MIN)),
-        );
-        assert_eq!(up.end, end.and_time(NaiveTime::MIN));
-    }
-
-    #[test]
-    fn arrear_window_unchanged_when_cutoff_is_on_a_different_day() {
-        // A cutoff that does not fall on the arrear window's end day must not move the window.
-        let up = arrear_usage_period(
-            Period {
-                start: day(2025, 3, 1),
-                end: day(2025, 3, 31),
-            },
-            true,
-            Some(at(2025, 3, 20, 10, 0)),
-        );
-        assert_eq!(up.end, day(2025, 3, 31).and_time(NaiveTime::MIN));
-    }
-}
-
 /// Credit a pack sells, in whole minor units of the invoice currency. A fractional minor unit is
 /// refused rather than rounded: the grant must be exactly what was sold.
 pub(crate) fn pack_credit_minor(
@@ -621,9 +495,10 @@ mod credit_unit_pin_tests {
 mod unit_conversion_tests {
     use super::*;
     use crate::domain::enums::BillingMetricAggregateEnum;
+    use crate::domain::{Period, UsagePeriod};
     use crate::services::credit::billing_windows::{PlannedWindow, price_window_groups};
     use crate::services::invoice_lines::invoice_lines::MeteredFee;
-    use chrono::{NaiveDate, NaiveTime};
+    use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
     use common_domain::ids::{BaseId, ProductFamilyId, SubscriptionId, TenantId};
     use rust_decimal_macros::dec;
 

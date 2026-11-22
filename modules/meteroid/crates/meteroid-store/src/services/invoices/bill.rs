@@ -4,6 +4,7 @@ use crate::domain::payment_transactions::PaymentTransaction;
 use crate::domain::{Customer, DetailedInvoice, Invoice, PaymentStatusEnum, SubscriptionDetails};
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
+use crate::repositories::invoice_account;
 use crate::services::Services;
 use crate::services::checkout_completion::DirectChargeResult;
 use crate::services::invoices::PeriodBilling;
@@ -18,6 +19,7 @@ use diesel_models::customers::CustomerRow;
 use diesel_models::enums::{ConnectorProviderEnum, PaymentMethodTypeEnum};
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::invoicing_entities::InvoicingEntityRow;
+use diesel_models::payments::PaymentTransactionRow;
 use error_stack::Report;
 
 #[allow(clippy::large_enum_variant)]
@@ -143,15 +145,25 @@ impl Services {
             .accepted_async_debit(conn, tenant_id, transaction, &method)
             .await?
         {
-            InvoiceRow::apply_payment_status(
-                conn,
-                invoice_id,
-                tenant_id,
-                diesel_models::enums::InvoicePaymentStatus::Processing,
-                None,
-            )
-            .await?;
+            self.mark_collection_accepted_tx(conn, tenant_id, invoice_id, transaction.id)
+                .await?;
         }
+        Ok(())
+    }
+
+    /// The provider accepted the in-flight collection: recorded on it, the account reads the
+    /// invoice `Processing`, neither charged again nor chased until it settles or fails.
+    pub(in crate::services) async fn mark_collection_accepted_tx(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+        transaction_id: PaymentTransactionId,
+    ) -> StoreResult<()> {
+        PaymentTransactionRow::mark_accepted(conn, transaction_id, tenant_id, common_clock::now())
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        invoice_account::settle_tx(conn, tenant_id, invoice_id, None).await?;
         Ok(())
     }
 
@@ -467,7 +479,7 @@ impl Services {
 
                 // Handle zero amount case (e.g., 100% coupon discount): paid when issued.
                 if draft_invoice.amount_due == 0 {
-                    self.apply_invoice_paid_tx(
+                    self.settle_invoice_tx(
                         conn,
                         tenant_id,
                         draft_invoice.id,
@@ -562,13 +574,15 @@ impl Services {
                             .await?;
 
                         // Nothing to pay: paid the moment it is issued.
-                        self.apply_invoice_paid_tx(
-                            conn,
-                            tenant_id,
-                            draft_invoice.id,
-                            finalized.invoice.finalized_at,
-                        )
-                        .await?;
+                        let paid_now = self
+                            .settle_invoice_tx(
+                                conn,
+                                tenant_id,
+                                draft_invoice.id,
+                                finalized.invoice.finalized_at,
+                            )
+                            .await?
+                            .paid_now;
 
                         // Get the updated invoice and return with no transactions
                         let updated_invoice =
@@ -579,17 +593,19 @@ impl Services {
                         // A zero-amount invoice is paid the moment it is finalized. Emit the same
                         // event as every other paid path, else webhooks-out and `on_invoice_paid`
                         // never learn about 100%-coupon checkouts.
-                        self.store
-                            .internal
-                            .record_outbox_batch_tx(
-                                conn,
-                                tenant_id,
-                                actor,
-                                vec![crate::domain::outbox_event::OutboxEvent::invoice_paid(
-                                    (&detailed.invoice).into(),
-                                )],
-                            )
-                            .await?;
+                        if paid_now {
+                            self.store
+                                .internal
+                                .record_outbox_batch_tx(
+                                    conn,
+                                    tenant_id,
+                                    actor,
+                                    vec![crate::domain::outbox_event::OutboxEvent::invoice_paid(
+                                        (&detailed.invoice).into(),
+                                    )],
+                                )
+                                .await?;
+                        }
 
                         return Ok(Some(detailed.with_transactions(vec![])));
                     }
@@ -671,14 +687,8 @@ impl Services {
                         )
                         .await?;
 
-                        InvoiceRow::apply_payment_status(
-                            conn,
-                            draft_invoice.id,
-                            tenant_id,
-                            diesel_models::enums::InvoicePaymentStatus::Processing,
-                            None,
-                        )
-                        .await?;
+                        self.mark_collection_accepted_tx(conn, tenant_id, draft_invoice.id, res.id)
+                            .await?;
                     } else {
                         // Card 3DS (Pending with a next_action), or a non-terminal state we
                         // can't call accepted. Leave it draft; the webhook finalizes on settle.
@@ -739,34 +749,17 @@ impl Services {
                     )
                     .await?;
 
-                    // Apply the transaction amount to reduce amount_due and mark as paid
-                    let updated_invoice_row = InvoiceRow::apply_transaction(
-                        conn,
-                        draft_invoice.id,
-                        tenant_id,
-                        charge_result.amount,
-                    )
-                    .await?;
-
-                    if updated_invoice_row.amount_due > 0 {
-                        InvoiceRow::apply_payment_status(
-                            conn,
-                            draft_invoice.id,
-                            tenant_id,
-                            diesel_models::enums::InvoicePaymentStatus::PartiallyPaid,
-                            None,
-                        )
-                        .await?;
-                    } else {
-                        self.apply_invoice_paid_tx(
+                    // Settled from the account, the collected payment included: paid when nothing
+                    // is left due.
+                    let settled = self
+                        .settle_invoice_tx(
                             conn,
                             tenant_id,
                             draft_invoice.id,
                             transaction.processed_at,
                         )
                         .await?;
-
-                        let invoice: Invoice = updated_invoice_row.try_into()?;
+                    if settled.paid_now {
                         self.store
                             .internal
                             .record_outbox_batch_tx(
@@ -774,7 +767,7 @@ impl Services {
                                 tenant_id,
                                 actor,
                                 vec![crate::domain::outbox_event::OutboxEvent::invoice_paid(
-                                    (&invoice).into(),
+                                    (&settled.invoice).into(),
                                 )],
                             )
                             .await?;
@@ -824,15 +817,13 @@ impl Services {
                     )
                     .await?;
 
-                    // Processing (not Paid) and NO apply_transaction: the funds are in
-                    // flight, so amount_due stays full until real settlement. This also
-                    // fences the invoice off from auto-charge and dunning.
-                    InvoiceRow::apply_payment_status(
+                    // Processing, not Paid: the funds are in flight, so amount_due stays full until
+                    // real settlement. This also fences the invoice off from auto-charge and dunning.
+                    self.mark_collection_accepted_tx(
                         conn,
-                        draft_invoice.id,
                         tenant_id,
-                        diesel_models::enums::InvoicePaymentStatus::Processing,
-                        None,
+                        draft_invoice.id,
+                        existing_transaction_id,
                     )
                     .await?;
                 }

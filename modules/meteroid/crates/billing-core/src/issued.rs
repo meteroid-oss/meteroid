@@ -4,8 +4,6 @@ use chrono::NaiveDate;
 use common_domain::ids::PriceComponentId;
 use rust_decimal::Decimal;
 
-use crate::DayFraction;
-use crate::allocation::largest_remainder;
 use crate::charge::{ChargeKey, Fee};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,11 +72,11 @@ impl IssuedLine {
         })
     }
 
-    fn covers(&self, at: NaiveDate) -> bool {
+    pub(crate) fn covers(&self, at: NaiveDate) -> bool {
         self.from <= at && at < self.until
     }
 
-    fn left(&self) -> i64 {
+    pub(crate) fn left(&self) -> i64 {
         (self.subtotal - self.already_credited).max(0)
     }
 
@@ -98,47 +96,4 @@ impl IssuedLine {
             _ => amount,
         }
     }
-}
-
-/// What the shortfalls charged up front for a period covering `at` give back: the period's days
-/// left, prorated once over the lines a product-scoped minimum split it into, never above what a
-/// line has left.
-pub fn shortfall_credits(at: NaiveDate, lines: &[IssuedLine]) -> Vec<(String, i64)> {
-    let current: Vec<&IssuedLine> = lines
-        .iter()
-        .filter(|line| {
-            matches!(line.kind, IssuedKind::Shortfall { up_front: true })
-                && line.covers(at)
-                && line.settled.is_none()
-        })
-        .collect();
-    let mut periods: Vec<(NaiveDate, NaiveDate)> =
-        current.iter().map(|line| (line.from, line.until)).collect();
-    periods.sort();
-    periods.dedup();
-    let mut credits = Vec::new();
-    for (from, until) in periods {
-        let period: Vec<&&IssuedLine> = current
-            .iter()
-            .filter(|line| (line.from, line.until) == (from, until))
-            .collect();
-        let billed: i64 = period.iter().map(|line| line.subtotal).sum();
-        if billed <= 0 {
-            continue;
-        }
-        let credited = DayFraction::remaining(from, until, at).prorate(billed);
-        let exact: Vec<Decimal> = period
-            .iter()
-            .map(|line| {
-                Decimal::from(credited) * Decimal::from(line.subtotal) / Decimal::from(billed)
-            })
-            .collect();
-        for (line, share) in period.iter().zip(largest_remainder(&exact)) {
-            let amount = share.min(line.left());
-            if amount > 0 {
-                credits.push((line.id.clone(), amount));
-            }
-        }
-    }
-    credits
 }

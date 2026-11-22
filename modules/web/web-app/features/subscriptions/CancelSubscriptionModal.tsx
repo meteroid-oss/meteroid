@@ -157,11 +157,9 @@ export const CancelSubscriptionModal = ({
                       <li key={event.id}>
                         {event.eventType === ScheduledEventType.PLAN_CHANGE
                           ? `Plan change to "${event.newPlanName}"`
-                          : event.eventType === ScheduledEventType.PAUSE
-                            ? 'Pause'
-                            : event.eventType === ScheduledEventType.END_TRIAL
-                              ? 'Trial end'
-                              : 'Event'}
+                          : event.eventType === ScheduledEventType.END_TRIAL
+                            ? 'Trial end'
+                            : 'Event'}
                         {event.scheduledDate
                           ? ` on ${parseAndFormatDate(event.scheduledDate)}`
                           : ''}

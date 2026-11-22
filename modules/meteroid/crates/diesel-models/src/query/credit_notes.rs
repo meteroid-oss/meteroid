@@ -35,11 +35,13 @@ impl CreditNoteRowNew {
 }
 
 impl CreditNoteRow {
+    /// Records how the note is paid back: returned to the balance, refunded in cash, cancelled.
     pub async fn set_balance_effects(
         conn: &mut PgConn,
         tenant: TenantId,
         id: CreditNoteId,
         credited: i64,
+        refunded: i64,
         debt: i64,
     ) -> DbResult<()> {
         use crate::schema::credit_note::dsl as note;
@@ -51,6 +53,7 @@ impl CreditNoteRow {
         )
         .set((
             note::credited_amount_cents.eq(credited),
+            note::refunded_amount_cents.eq(refunded),
             note::debt_cancelled_amount_cents.eq(debt),
         ))
         .execute(conn)
@@ -152,113 +155,8 @@ impl CreditNoteRow {
             .into_db_result()
     }
 
-    /// Σ refundable amount of the invoice's finalized Refund credit notes — money already
-    /// promised back through an avoir, drawn or not.
-    pub async fn sum_finalized_refundable(
-        conn: &mut PgConn,
-        param_invoice_id: InvoiceId,
-        param_tenant_id: TenantId,
-    ) -> DbResult<i64> {
-        use crate::schema::credit_note::dsl as cn_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let query = cn_dsl::credit_note
-            .filter(cn_dsl::invoice_id.eq(param_invoice_id))
-            .filter(cn_dsl::tenant_id.eq(param_tenant_id))
-            .filter(cn_dsl::credit_type.eq(crate::enums::CreditTypeEnum::Refund))
-            .filter(cn_dsl::status.eq(CreditNoteStatus::Finalized))
-            .select(cn_dsl::refunded_amount_cents);
-
-        crate::debug_sql(&query);
-
-        let amounts: Vec<i64> = query
-            .load(conn)
-            .await
-            .attach("Error while summing refundable credit notes")
-            .into_db_result()?;
-        Ok(amounts.iter().sum())
-    }
-
-    /// Σ |total| of the Finalized credit notes on an invoice that reduce what it collects:
-    /// DebtCancellation (debt written off) and Refund (the avoir behind a refund — the money is
-    /// given back by a separate REFUND transaction, so only the credit note may shrink the
-    /// invoice). Totals are stored negative, hence abs. Shared by `exists_live_for_invoice` and
-    /// `recompute_amount_due_from_settled_payments` so their netting can't drift apart.
-    pub async fn sum_finalized_invoice_reducing(
-        conn: &mut PgConn,
-        param_invoice_id: InvoiceId,
-        param_tenant_id: TenantId,
-    ) -> DbResult<i64> {
-        use crate::schema::credit_note::dsl as cn_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let query = cn_dsl::credit_note
-            .filter(cn_dsl::invoice_id.eq(param_invoice_id))
-            .filter(cn_dsl::tenant_id.eq(param_tenant_id))
-            .filter(cn_dsl::status.eq(CreditNoteStatus::Finalized))
-            .select((
-                cn_dsl::credit_type,
-                cn_dsl::total,
-                cn_dsl::debt_cancelled_amount_cents,
-            ));
-
-        crate::debug_sql(&query);
-
-        let notes: Vec<(crate::enums::CreditTypeEnum, i64, i64)> = query
-            .load(conn)
-            .await
-            .attach("Error while summing invoice-reducing credit notes")
-            .into_db_result()?;
-        // A credit-to-balance note reduces the invoice only by the debt it cancelled.
-        Ok(notes
-            .iter()
-            .map(|(credit_type, total, debt)| match credit_type {
-                crate::enums::CreditTypeEnum::CreditToBalance => *debt,
-                crate::enums::CreditTypeEnum::DebtCancellation
-                | crate::enums::CreditTypeEnum::Refund => total.abs(),
-            })
-            .sum())
-    }
-
-    /// Σ debt the Finalized credit notes of an invoice cancelled: DebtCancellation totals and
-    /// the debt part of credit-to-balance notes. Refund notes are left out.
-    pub async fn sum_finalized_debt_cancelled(
-        conn: &mut PgConn,
-        param_invoice_id: InvoiceId,
-        param_tenant_id: TenantId,
-    ) -> DbResult<i64> {
-        use crate::schema::credit_note::dsl as cn_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let query = cn_dsl::credit_note
-            .filter(cn_dsl::invoice_id.eq(param_invoice_id))
-            .filter(cn_dsl::tenant_id.eq(param_tenant_id))
-            .filter(cn_dsl::status.eq(CreditNoteStatus::Finalized))
-            .filter(cn_dsl::credit_type.ne(crate::enums::CreditTypeEnum::Refund))
-            .select((
-                cn_dsl::credit_type,
-                cn_dsl::total,
-                cn_dsl::debt_cancelled_amount_cents,
-            ));
-
-        crate::debug_sql(&query);
-
-        let notes: Vec<(crate::enums::CreditTypeEnum, i64, i64)> = query
-            .load(conn)
-            .await
-            .attach("Error while summing debt cancelled by credit notes")
-            .into_db_result()?;
-        Ok(notes
-            .iter()
-            .map(|(credit_type, total, debt)| match credit_type {
-                crate::enums::CreditTypeEnum::DebtCancellation => total.abs(),
-                crate::enums::CreditTypeEnum::CreditToBalance
-                | crate::enums::CreditTypeEnum::Refund => *debt,
-            })
-            .sum())
-    }
-
-    /// [`Self::sum_finalized_debt_cancelled`] for each of `invoice_ids` that has any.
+    /// Σ debt the finalized credit notes cancelled (DebtCancellation totals, the debt part of
+    /// credit-to-balance notes), for each of `invoice_ids` that has any.
     pub async fn sum_finalized_debt_cancelled_by_invoices(
         conn: &mut PgConn,
         param_tenant_id: TenantId,
@@ -679,6 +577,33 @@ impl CreditNoteRow {
             .load(conn)
             .await
             .attach("Error while listing the credit note lines of invoices")
+            .into_db_result()
+    }
+
+    /// The finalized credit notes of each of `invoice_ids`.
+    pub async fn list_finalized_by_invoices(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        invoice_ids: &[InvoiceId],
+    ) -> DbResult<Vec<CreditNoteRow>> {
+        use crate::schema::credit_note::dsl as cn;
+        use diesel_async::RunQueryDsl;
+
+        if invoice_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let query = cn::credit_note
+            .filter(cn::tenant_id.eq(tenant_id))
+            .filter(cn::invoice_id.eq_any(invoice_ids))
+            .filter(cn::status.eq(CreditNoteStatus::Finalized))
+            .select(CreditNoteRow::as_select());
+
+        crate::debug_sql(&query);
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while listing the finalized credit notes of invoices")
             .into_db_result()
     }
 }

@@ -18,8 +18,7 @@ use diesel::{JoinOnDsl, PgSortExpressionMethods};
 use error_stack::ResultExt;
 
 /// Payment states that own their invoice: money is either moving or has landed.
-/// Used by the consolidation fence; [`PaymentTransactionRow::exists_live_for_invoice`]
-/// applies the same statuses but nets involuntary claw-backs out of Settled amounts.
+/// Used by the consolidation fence on drafts; an issued invoice asks its account instead.
 pub const LIVE_PAYMENT_STATUSES: [PaymentStatusEnum; 3] = [
     PaymentStatusEnum::Pending,
     PaymentStatusEnum::Ready,
@@ -216,100 +215,6 @@ impl PaymentTransactionRow {
             .into_db_result()
     }
 
-    /// Whether a collection is in flight. Refunds and adjustments do not collect the balance.
-    pub async fn exists_in_flight_for_invoice(
-        conn: &mut PgConn,
-        inv_uid: InvoiceId,
-        tenant_uid: TenantId,
-    ) -> DbResult<bool> {
-        use crate::schema::payment_transaction::dsl as pt_dsl;
-        use diesel::dsl::{exists, select};
-        use diesel_async::RunQueryDsl;
-
-        let query = select(exists(
-            pt_dsl::payment_transaction
-                .filter(pt_dsl::invoice_id.eq(inv_uid))
-                .filter(pt_dsl::tenant_id.eq(tenant_uid))
-                .filter(
-                    pt_dsl::status.eq_any([PaymentStatusEnum::Pending, PaymentStatusEnum::Ready]),
-                )
-                .filter(pt_dsl::payment_type.eq_any(PaymentTypeEnum::COLLECTIONS)),
-        ));
-
-        crate::debug_sql(&query);
-
-        query
-            .get_result(conn)
-            .await
-            .attach("Error while checking for in-flight payment transactions")
-            .into_db_result()
-    }
-
-    /// True when a payment attempt owns the invoice: in flight (Pending/Ready), or settled money
-    /// that covers the collectible total, netted like `recompute_amount_due_from_settled_payments`
-    /// (involuntary claw-backs, finalized invoice-reducing credit notes). Never re-charge, merge
-    /// or mutate such an invoice.
-    pub async fn exists_live_for_invoice(
-        conn: &mut PgConn,
-        inv_uid: InvoiceId,
-        tenant_uid: TenantId,
-    ) -> DbResult<bool> {
-        use crate::schema::invoice::dsl as i_dsl;
-        use crate::schema::payment_transaction::dsl as pt_dsl;
-        use diesel_async::RunQueryDsl;
-
-        if Self::exists_in_flight_for_invoice(conn, inv_uid, tenant_uid).await? {
-            return Ok(true);
-        }
-
-        let settled_amounts: Vec<(i64, i64, i64)> = pt_dsl::payment_transaction
-            .filter(pt_dsl::invoice_id.eq(inv_uid))
-            .filter(pt_dsl::tenant_id.eq(tenant_uid))
-            .filter(
-                pt_dsl::status.eq_any([PaymentStatusEnum::Settled, PaymentStatusEnum::Refunded]),
-            )
-            .filter(pt_dsl::payment_type.eq_any(PaymentTypeEnum::COLLECTIONS))
-            .select((
-                pt_dsl::amount,
-                pt_dsl::amount_reversed,
-                pt_dsl::amount_disputed,
-            ))
-            .load(conn)
-            .await
-            .attach("Error while summing settled payment transactions")
-            .into_db_result()?;
-        let refunded_against_notes =
-            Self::sum_credit_note_backed_refunds_by_invoice(conn, inv_uid, tenant_uid).await?;
-        // Money lost to a dispute still paid the invoice.
-        let settled_net: i64 = settled_amounts
-            .iter()
-            .map(|(amount, reversed, disputed)| amount - (reversed - disputed))
-            .sum::<i64>()
-            - refunded_against_notes;
-        if settled_net <= 0 {
-            return Ok(false);
-        }
-
-        let (total, applied_credits): (i64, i64) = i_dsl::invoice
-            .filter(i_dsl::id.eq(inv_uid))
-            .filter(i_dsl::tenant_id.eq(tenant_uid))
-            .select((i_dsl::total, i_dsl::applied_credits))
-            .first(conn)
-            .await
-            .attach("Error while loading invoice total for live-payment check")
-            .into_db_result()?;
-
-        // Finalized invoice-reducing credit notes shrink the collectible total (same
-        // netting as recompute), so a settled payment covering only the remainder
-        // still owns the invoice. Requires settled_net > 0 (gated above).
-        let cancelled_sum = crate::credit_notes::CreditNoteRow::sum_finalized_invoice_reducing(
-            conn, inv_uid, tenant_uid,
-        )
-        .await?;
-
-        Ok(settled_net >= (total - applied_credits) - cancelled_sum)
-    }
-
     /// Number of genuinely Failed (declined) collection attempts against this invoice.
     /// Drives the dunning ladder, so it counts attempts, not events (a redelivered webhook
     /// re-derives the same number), and excludes Cancelled: aborted, not declined.
@@ -493,12 +398,27 @@ impl PaymentTransactionRow {
         }
         // Payment dates alone cannot date a credit note settling debt, or a reversal reopening
         // debt after excess cash was refunded. Keep the settling event's date in those cases.
-        let credited = crate::credit_notes::CreditNoteRow::sum_finalized_invoice_reducing(
-            conn, invoice, tenant,
-        )
-        .await?;
+        let credited = {
+            use crate::schema::credit_note::dsl as cn;
+            use diesel::BoolExpressionMethods;
+            diesel::select(diesel::dsl::exists(
+                cn::credit_note
+                    .filter(cn::invoice_id.eq(invoice))
+                    .filter(cn::tenant_id.eq(tenant))
+                    .filter(cn::status.eq(crate::enums::CreditNoteStatus::Finalized))
+                    .filter(
+                        cn::credit_type
+                            .ne(crate::enums::CreditTypeEnum::CreditToBalance)
+                            .or(cn::debt_cancelled_amount_cents.gt(0_i64)),
+                    ),
+            ))
+            .get_result::<bool>(conn)
+            .await
+            .attach("Error while looking for notes settling an invoice")
+            .into_db_result()?
+        };
         let has_failed_collection = payments.iter().any(|(_, _, failed)| *failed > 0);
-        if credited > 0
+        if credited
             || (has_failed_collection
                 && Self::sum_live_refund_excess_by_invoice(conn, invoice, tenant).await? > 0)
         {
@@ -846,37 +766,6 @@ impl PaymentTransactionRow {
         Ok(amounts.iter().sum())
     }
 
-    /// Σ amount of an invoice's settled REFUND rows that draw on a credit note. Their avoir
-    /// already shrank the invoice total, so the payment they came out of no longer covers what
-    /// it used to: netting them keeps the two sides of the balance in step. A refund with no
-    /// credit note (a provider-side refund we only observed) is deliberately excluded — it
-    /// leaves the invoice as it stands.
-    pub async fn sum_credit_note_backed_refunds_by_invoice(
-        conn: &mut PgConn,
-        inv_uid: InvoiceId,
-        tenant_uid: TenantId,
-    ) -> DbResult<i64> {
-        use crate::schema::payment_transaction::dsl as pt_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let query = pt_dsl::payment_transaction
-            .filter(pt_dsl::invoice_id.eq(inv_uid))
-            .filter(pt_dsl::tenant_id.eq(tenant_uid))
-            .filter(pt_dsl::status.eq(PaymentStatusEnum::Settled))
-            .filter(pt_dsl::payment_type.eq(PaymentTypeEnum::Refund))
-            .filter(pt_dsl::credit_note_id.is_not_null())
-            .select(pt_dsl::amount);
-
-        crate::debug_sql(&query);
-
-        let amounts: Vec<i64> = query
-            .load(conn)
-            .await
-            .attach("Error while summing credit-note-backed refunds of an invoice")
-            .into_db_result()?;
-        Ok(amounts.iter().sum())
-    }
-
     /// Σ refunds of the payment not drawn on a credit note, issued, in flight or settled.
     pub async fn sum_live_refunds_without_note_by_parent(
         conn: &mut PgConn,
@@ -900,38 +789,6 @@ impl PaymentTransactionRow {
             .load(conn)
             .await
             .attach("Error while summing refunds of a payment without a credit note")
-            .into_db_result()?;
-        Ok(amounts.iter().sum())
-    }
-
-    /// Σ refunds of the invoice not drawn on a credit note, issued (Ready), in flight (Pending)
-    /// or settled: from its issue, a refund holds back what it gives.
-    pub async fn sum_live_refunds_without_note_by_invoice(
-        conn: &mut PgConn,
-        inv_uid: InvoiceId,
-        tenant_uid: TenantId,
-    ) -> DbResult<i64> {
-        use crate::schema::payment_transaction::dsl as pt_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let query = pt_dsl::payment_transaction
-            .filter(pt_dsl::invoice_id.eq(inv_uid))
-            .filter(pt_dsl::tenant_id.eq(tenant_uid))
-            .filter(pt_dsl::status.eq_any([
-                PaymentStatusEnum::Ready,
-                PaymentStatusEnum::Pending,
-                PaymentStatusEnum::Settled,
-            ]))
-            .filter(pt_dsl::payment_type.eq(PaymentTypeEnum::Refund))
-            .filter(pt_dsl::credit_note_id.is_null())
-            .select(pt_dsl::amount);
-
-        crate::debug_sql(&query);
-
-        let amounts: Vec<i64> = query
-            .load(conn)
-            .await
-            .attach("Error while summing refunds of an invoice without a credit note")
             .into_db_result()?;
         Ok(amounts.iter().sum())
     }
@@ -962,6 +819,28 @@ impl PaymentTransactionRow {
             .attach("Error while summing the excess refunds of an invoice gave back")
             .into_db_result()?;
         Ok(amounts.iter().sum())
+    }
+
+    /// Records that the provider accepted an in-flight collection (a delayed-notification debit).
+    pub async fn mark_accepted(
+        conn: &mut PgConn,
+        id: PaymentTransactionId,
+        tenant_uid: TenantId,
+        at: chrono::DateTime<chrono::Utc>,
+    ) -> DbResult<()> {
+        use crate::schema::payment_transaction::dsl as pt_dsl;
+        use diesel_async::RunQueryDsl;
+
+        diesel::update(pt_dsl::payment_transaction)
+            .filter(pt_dsl::id.eq(id))
+            .filter(pt_dsl::tenant_id.eq(tenant_uid))
+            .filter(pt_dsl::accepted_at.is_null())
+            .set(pt_dsl::accepted_at.eq(Some(at)))
+            .execute(conn)
+            .await
+            .map(|_| ())
+            .attach("Error while recording an accepted collection")
+            .into_db_result()
     }
 
     /// Records the part of a just-issued refund without a credit note that gave back excess.

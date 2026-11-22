@@ -6,34 +6,34 @@ use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, 
 use crate::domain::payment_transactions::PaymentNextAction;
 use crate::domain::slot_transactions::{SlotUpgradeBillingMode, UpdateSlotsResult};
 use crate::domain::{
-    ChargeType, LineItem, PaymentTransaction, SlotForTransaction, SubscriptionFee,
-    SubscriptionFeeInterface,
+    LineItem, PaymentTransaction, SlotForTransaction, SubscriptionFee, SubscriptionFeeInterface,
 };
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
-use crate::repositories::customers::CustomersInterface;
 use crate::repositories::entity_activity::EntityActivityInterface;
-use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::repositories::subscriptions::SubscriptionSlotsInterface as RepoInterface;
 use crate::repositories::subscriptions::slots::validate_slot_limits;
 use crate::services::Services;
-use crate::services::evaluate::change::{Bought, seat_purchase};
-use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
-use crate::services::subscriptions::proration::DaySpan;
+use crate::services::evaluate::change::{
+    Bought, SeatDocuments, adjustment_dated, fee_period_on, seat_purchase,
+};
 use crate::store::PgConn;
-use crate::utils::local_id::LocalId;
-use chrono::{NaiveDateTime, NaiveTime};
+use chrono::NaiveDateTime;
 use common_domain::ids::{BaseId, InvoiceId, PriceComponentId, SubscriptionId, TenantId};
-use common_utils::decimals::ToSubunit;
 use diesel_models::enums::SubscriptionEventType;
 use diesel_models::lock::CustomerLock;
 use diesel_models::subscription_events::SubscriptionEventRow;
 use diesel_models::subscriptions::SubscriptionRow;
-use error_stack::{Report, ResultExt};
+use error_stack::Report;
 use rust_decimal::Decimal;
-use rust_decimal::prelude::FromPrimitive;
 use scoped_futures::ScopedFutureExt;
 use uuid::Uuid;
+
+/// Seats priced for purchase: what they bill, in major units, and the adjustment's lines.
+struct PricedSeats {
+    amount: Decimal,
+    bills: Vec<LineItem>,
+}
 
 impl Services {
     /// Upgrades (delta > 0): Behavior depends on billing_mode (OnCheckout/OnInvoicePaid/Optimistic)
@@ -82,10 +82,9 @@ impl Services {
 
                 let now = at_ts.unwrap_or(common_clock::now().naive_utc());
                 let now_date = now.date();
-                let left = services
-                    .slot_fee_period(conn, &subscription_details, price_component_id, now_date)
+                let period_end = services
+                    .slot_period_end(conn, &subscription_details, price_component_id, now_date)
                     .await?;
-                let period_end = left.until;
 
                 let customer_id = subscription.customer_id;
 
@@ -113,26 +112,10 @@ impl Services {
                         slots_active: true,
                     }
                 } else {
-                    // Get currency precision for proper rounding
-                    let currency = Currencies::resolve_currency(&subscription.currency)
-                        .ok_or_else(|| {
-                            StoreError::ValueNotFound(format!(
-                                "Currency {} not found",
-                                subscription.currency
-                            ))
-                        })?;
-
                     // Held from the day their step is written, at most the fee period's end.
                     let on = now_date.min(period_end);
-                    let prorated = services
-                        .seat_purchase_amount(
-                            conn,
-                            &subscription_details,
-                            price_component_id,
-                            delta,
-                            on,
-                            currency.precision as u32,
-                        )
+                    let priced = services
+                        .price_seats(conn, &subscription_details, price_component_id, delta, on)
                         .await?;
 
                     match billing_mode {
@@ -144,39 +127,39 @@ impl Services {
                                     subscription_id,
                                     delta,
                                     &slot,
-                                    prorated,
+                                    priced.amount,
                                     at_ts,
                                 )
                                 .await?
                         }
-                        SlotUpgradeBillingMode::OnInvoicePaid => {
+                        // Nothing to pay holds nothing back: the seats are in force at once.
+                        SlotUpgradeBillingMode::OnInvoicePaid if !priced.bills.is_empty() => {
                             services
                                 .handle_on_invoice_paid_upgrade_tx(
                                     conn,
                                     lock,
                                     subscription_id,
-                                    price_component_id,
-                                    subscription_details,
+                                    &subscription_details,
                                     delta,
                                     &slot,
-                                    prorated,
+                                    priced,
                                     on,
                                     period_end,
                                     at_ts,
                                 )
                                 .await?
                         }
-                        SlotUpgradeBillingMode::Optimistic => {
+                        SlotUpgradeBillingMode::OnInvoicePaid
+                        | SlotUpgradeBillingMode::Optimistic => {
                             services
                                 .handle_optimistic_upgrade_tx(
                                     conn,
                                     lock,
                                     subscription_id,
-                                    price_component_id,
-                                    subscription_details,
+                                    &subscription_details,
                                     delta,
                                     &slot,
-                                    prorated,
+                                    priced,
                                     on,
                                     period_end,
                                     at_ts,
@@ -230,16 +213,16 @@ impl Services {
     }
 
     /// What `delta` seats bought on `on` bill, from the facts as if held from that day: the slot
-    /// fee's charge for its period less what its lines billed (R-079, R-080), in major units.
-    pub(in crate::services) async fn seat_purchase_amount(
+    /// fee's charge for its period less what its lines billed (R-079, R-080), and the lines of
+    /// the adjustment invoice billing it. None when no charge of the fee is due that day.
+    pub(in crate::services) async fn seat_purchase_documents(
         &self,
         conn: &mut PgConn,
         details: &crate::domain::SubscriptionDetails,
         price_component_id: PriceComponentId,
         delta: i32,
         on: chrono::NaiveDate,
-        precision: u32,
-    ) -> StoreResult<Decimal> {
+    ) -> StoreResult<Option<SeatDocuments>> {
         let component = details
             .price_components
             .iter()
@@ -253,18 +236,84 @@ impl Services {
             lineage: billing_core::charge::Fee::Component(component.lineage()),
             seats: u64::try_from(delta).unwrap_or(0),
         };
-        let purchase = seat_purchase(
+        seat_purchase(
             conn,
             details.subscription.tenant_id,
             details.subscription.id,
             on,
             &bought,
         )
-        .await?;
-        Ok(Decimal::new(
-            purchase.map_or(0, |purchase| purchase.amount.max(0)),
-            precision,
-        ))
+        .await
+    }
+
+    /// The same, in the subscription's currency: nothing billed when no charge is due.
+    async fn price_seats(
+        &self,
+        conn: &mut PgConn,
+        details: &crate::domain::SubscriptionDetails,
+        price_component_id: PriceComponentId,
+        delta: i32,
+        on: chrono::NaiveDate,
+    ) -> StoreResult<PricedSeats> {
+        let subscription = &details.subscription;
+        let currency = Currencies::resolve_currency(&subscription.currency).ok_or_else(|| {
+            StoreError::ValueNotFound(format!("Currency {} not found", subscription.currency))
+        })?;
+        let bought = self
+            .seat_purchase_documents(conn, details, price_component_id, delta, on)
+            .await?;
+        Ok(match bought {
+            Some(bought) => PricedSeats {
+                amount: Decimal::new(bought.purchase.amount.max(0), currency.precision as u32),
+                bills: bought.documents.bills,
+            },
+            None => PricedSeats {
+                amount: Decimal::new(0, currency.precision as u32),
+                bills: Vec::new(),
+            },
+        })
+    }
+
+    /// The adjustment invoice of a seat purchase's `bills`, dated `on`: finalized when `issue`,
+    /// else a draft its payment or the operator issues. None when the seats bill nothing.
+    async fn seat_purchase_invoice_tx(
+        &self,
+        conn: &mut PgConn,
+        details: &crate::domain::SubscriptionDetails,
+        bills: &[LineItem],
+        on: chrono::NaiveDate,
+        issue: bool,
+    ) -> StoreResult<Option<InvoiceId>> {
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
+            let subscription = &details.subscription;
+            let invoice = if issue {
+                let actor = Actor::Customer {
+                    id: subscription.customer_id,
+                };
+                self.issue_change_adjustment_tx(
+                    conn,
+                    &actor,
+                    subscription,
+                    &details.customer,
+                    on,
+                    bills,
+                )
+                .await?
+            } else {
+                self.create_adjustment_invoice(
+                    conn,
+                    subscription.tenant_id,
+                    subscription,
+                    &details.customer,
+                    &adjustment_dated(subscription, on),
+                    bills,
+                )
+                .await?
+            };
+            Ok(invoice.map(|invoice| invoice.id))
+        })
+        .await
     }
 
     async fn handle_on_checkout_upgrade_tx(
@@ -303,11 +352,10 @@ impl Services {
         conn: &mut PgConn,
         lock: &CustomerLock,
         subscription_id: SubscriptionId,
-        price_component_id: PriceComponentId,
-        subscription_details: crate::domain::SubscriptionDetails,
+        subscription_details: &crate::domain::SubscriptionDetails,
         delta: i32,
         slot: &SlotForTransaction,
-        prorated_amount: Decimal,
+        priced: PricedSeats,
         start_date: chrono::NaiveDate,
         end_date: chrono::NaiveDate,
         at_ts: Option<chrono::NaiveDateTime>,
@@ -318,18 +366,19 @@ impl Services {
             let unit = slot.unit.clone();
 
             let invoice_id = self
-                .create_slot_upgrade_invoice(
+                .seat_purchase_invoice_tx(
                     conn,
-                    tenant_id,
                     subscription_details,
-                    price_component_id,
-                    delta,
-                    unit.as_str(),
-                    prorated_amount,
+                    &priced.bills,
                     start_date,
-                    end_date,
+                    subscription_details.subscription.auto_advance_invoices,
                 )
-                .await?;
+                .await?
+                .ok_or_else(|| {
+                    Report::new(StoreError::InvalidArgument(
+                        "The seats bill nothing to pay".to_string(),
+                    ))
+                })?;
 
             self.store
                 .add_pending_slot_transaction_with_conn(
@@ -353,7 +402,7 @@ impl Services {
                 new_slot_count: current_slots as i32, // No change yet
                 delta_applied: delta,
                 invoice_id: Some(invoice_id),
-                prorated_amount: Some(prorated_amount),
+                prorated_amount: Some(priced.amount),
                 slots_active: false, // Will activate on payment webhook
             })
         })
@@ -365,11 +414,10 @@ impl Services {
         conn: &mut PgConn,
         lock: &CustomerLock,
         subscription_id: SubscriptionId,
-        price_component_id: PriceComponentId,
-        mut subscription_details: crate::domain::SubscriptionDetails,
+        subscription_details: &crate::domain::SubscriptionDetails,
         delta: i32,
         slot: &SlotForTransaction,
-        prorated_amount: Decimal,
+        priced: PricedSeats,
         start_date: chrono::NaiveDate,
         end_date: chrono::NaiveDate,
         at_ts: Option<chrono::NaiveDateTime>,
@@ -401,22 +449,16 @@ impl Services {
                     .map_err(Into::<Report<StoreError>>::into)?
                     .subscription
                     .mrr_cents;
-            subscription_details.subscription.mrr_cents = new_mrr.max(0) as u64;
 
-            let invoice_id = Some(
-                self.create_slot_upgrade_invoice(
+            let invoice_id = self
+                .seat_purchase_invoice_tx(
                     conn,
-                    tenant_id,
                     subscription_details,
-                    price_component_id,
-                    delta,
-                    slot.unit.as_str(),
-                    prorated_amount,
+                    &priced.bills,
                     start_date,
-                    end_date,
+                    subscription_details.subscription.auto_advance_invoices,
                 )
-                .await?,
-            );
+                .await?;
 
             // The expansion's record: a Switch event (mrr_delta None, so process_mrr never
             // books it); the writer booked the movement.
@@ -440,77 +482,54 @@ impl Services {
                 new_slot_count,
                 delta_applied: delta,
                 invoice_id,
-                prorated_amount: Some(prorated_amount),
+                prorated_amount: Some(priced.amount),
                 slots_active: true,
             })
         })
         .await
     }
 
-    /// What is left from `on` of the slot fee's period on its own grid (R-084), up to the term's
-    /// end: a fee billed off the subscription's cadence prorates an upgrade, and steps a downgrade
-    /// down, over its own period.
-    async fn slot_fee_period(
+    /// Where the slot fee's period holding `on` ends, as the facts bill it on its own grid, up to
+    /// the term's end (R-084, R-108): an upgrade is held from at most then, a downgrade leaves
+    /// then. With no charge holding it (a free trial), the subscription's current period's end.
+    async fn slot_period_end(
         &self,
         conn: &mut PgConn,
         details: &crate::domain::SubscriptionDetails,
         price_component_id: PriceComponentId,
         on: chrono::NaiveDate,
-    ) -> StoreResult<DaySpan> {
+    ) -> StoreResult<chrono::NaiveDate> {
         let subscription = &details.subscription;
         let current_end = subscription.current_period_end.ok_or_else(|| {
             StoreError::InvalidArgument(
                 "Cannot modify slots for subscription without active billing period".to_string(),
             )
         })?;
-        let period = details
-            .price_components
-            .iter()
-            .find(|c| c.price_component_id() == Some(price_component_id))
-            .map(|c| *c.period_ref())
-            .ok_or_else(|| {
-                StoreError::ValueNotFound(format!(
-                    "Price component {price_component_id} not found in subscription"
-                ))
-            })?;
-        let grid = crate::services::subscriptions::proration::OwnGrid::read(
-            conn,
-            subscription,
-            (subscription.current_period_start, current_end),
-            on,
-        )
-        .await?;
-        // A fee of the subscription's cadence bills the period holding its current one, on its
-        // run's own grid, which a change of cadence may have left apart (R-084).
-        let same_cadence = period
-            .as_billing_period_opt()
-            .is_some_and(|own| own.as_months() == subscription.period.as_months());
         let lineage = details
             .price_components
             .iter()
             .find(|c| c.price_component_id() == Some(price_component_id))
             .map(|c| billing_core::charge::Fee::Component(c.lineage()))
-            .filter(|_| same_cadence);
+            .ok_or_else(|| {
+                StoreError::ValueNotFound(format!(
+                    "Price component {price_component_id} not found in subscription"
+                ))
+            })?;
         let held = on
             .min(current_end.pred_opt().unwrap_or(current_end))
             .max(subscription.current_period_start);
-        let billed = match &lineage {
-            Some(lineage) => {
-                crate::services::evaluate::change::fee_period_on(
-                    conn,
-                    subscription.tenant_id,
-                    subscription.id,
-                    held,
-                    lineage,
-                )
-                .await?
-            }
-            None => None,
-        };
-        let own = billed.unwrap_or_else(|| {
-            crate::services::subscriptions::proration::own_period(grid, on)(&period)
-        });
-        Ok(grid.left(own, on))
+        let end = fee_period_on(
+            conn,
+            subscription.tenant_id,
+            subscription.id,
+            held,
+            &lineage,
+        )
+        .await?
+        .map_or(current_end, |(_, until)| until);
+        Ok(subscription
+            .end_date
+            .map_or(end, |term_end| term_end.min(end)))
     }
 
     fn extract_slot(
@@ -548,308 +567,6 @@ impl Services {
             ))
             .into()),
         }
-    }
-
-    async fn create_slot_upgrade_invoice_draft(
-        &self,
-        conn: &mut PgConn,
-        tenant_id: TenantId,
-        subscription_details: crate::domain::SubscriptionDetails,
-        price_component_id: PriceComponentId,
-        delta: i32,
-        unit_name: &str,
-        prorated_amount: Decimal,
-        start_date: chrono::NaiveDate,
-        end_date: chrono::NaiveDate,
-    ) -> StoreResult<InvoiceId> {
-        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
-        Box::pin(async move {
-            self.create_slot_upgrade_invoice_internal(
-                conn,
-                tenant_id,
-                subscription_details,
-                price_component_id,
-                delta,
-                unit_name,
-                prorated_amount,
-                start_date,
-                end_date,
-                false,
-            )
-            .await
-        })
-        .await
-    }
-
-    async fn create_slot_upgrade_invoice(
-        &self,
-        conn: &mut PgConn,
-        tenant_id: TenantId,
-        subscription_details: crate::domain::SubscriptionDetails,
-        price_component_id: PriceComponentId,
-        delta: i32,
-        unit_name: &str,
-        prorated_amount: Decimal,
-        start_date: chrono::NaiveDate,
-        end_date: chrono::NaiveDate,
-    ) -> StoreResult<InvoiceId> {
-        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
-        Box::pin(async move {
-            self.create_slot_upgrade_invoice_internal(
-                conn,
-                tenant_id,
-                subscription_details,
-                price_component_id,
-                delta,
-                unit_name,
-                prorated_amount,
-                start_date,
-                end_date,
-                true,
-            )
-            .await
-        })
-        .await
-    }
-
-    /// Build the taxed prorated invoice content for a slot upgrade (delta > 0).
-    ///
-    /// `prorated_amount` is the prorated total for ALL `delta` slots (it already
-    /// includes `delta` — see `calculate_slot_upgrade_amount`), so it is converted
-    /// straight to subunits and must NOT be multiplied by `delta` again. The
-    /// per-slot `unit_price` is derived so `quantity × unit_price == amount_subtotal`.
-    ///
-    /// Shared by the apply route (`create_slot_upgrade_invoice_internal`) and the
-    /// preview (`preview_slot_update`) so the previewed charge equals what is billed.
-    pub(in crate::services) async fn compute_slot_upgrade_invoice_content(
-        &self,
-        conn: &mut PgConn,
-        tenant_id: TenantId,
-        subscription_details: &crate::domain::SubscriptionDetails,
-        price_component_id: PriceComponentId,
-        delta: i32,
-        unit_name: &str,
-        prorated_amount: Decimal,
-        start_date: chrono::NaiveDate,
-        end_date: chrono::NaiveDate,
-    ) -> StoreResult<ComputedInvoiceContent> {
-        let subscription = &subscription_details.subscription;
-        let slot_component = subscription_details
-            .price_components
-            .iter()
-            .find(|c| c.price_component_id() == Some(price_component_id))
-            .ok_or_else(|| {
-                StoreError::ValueNotFound(format!(
-                    "Price component {} not found in subscription",
-                    price_component_id
-                ))
-            })?;
-
-        let currency = Currencies::resolve_currency(&subscription.currency).ok_or_else(|| {
-            StoreError::ValueNotFound(format!("Currency {} not found", subscription.currency))
-        })?;
-
-        let delta_decimal = Decimal::from_i32(delta).ok_or_else(|| {
-            StoreError::InvalidArgument(format!("Invalid delta value: {}", delta))
-        })?;
-        let amount_subtotal = prorated_amount
-            .to_subunit_opt(currency.precision)
-            .ok_or_else(|| {
-                StoreError::InvalidArgument(format!(
-                    "Failed to convert amount to subunits for currency {} with precision {}",
-                    subscription.currency, currency.precision
-                ))
-            })?;
-
-        // Per-slot prorated price (precision 8) for display; `amount_subtotal` above
-        // is the authoritative figure used to compute the invoice total.
-        let unit_price = round_money(prorated_amount / delta_decimal, 8);
-
-        let line_item = LineItem {
-            local_id: LocalId::no_prefix(),
-            name: format!("{} {} upgrade", delta, unit_name),
-            // Slot upgrade: prorated per-seat recurring charge.
-            charge_type: Some(ChargeType::Recurring),
-            start_date,
-            end_date,
-            quantity: Some(delta_decimal),
-            unit_price: Some(unit_price),
-            tax_rate: Decimal::ZERO,
-            taxable_amount: amount_subtotal,
-            tax_amount: 0,
-            amount_total: 0,
-            is_prorated: true,
-            price_component_id: Some(price_component_id),
-            // The seats bill the slot fee's charge for its period: reconcile reads them on it.
-            sub_component_id: Some(slot_component.id),
-            sub_add_on_id: None,
-            product_id: slot_component.product_id(),
-            metric_id: None,
-            description: Some(format!(
-                "Prorated charge for {} additional {}",
-                delta, unit_name
-            )),
-            amount_subtotal,
-            tax_details: vec![],
-            sub_lines: vec![],
-            group_by_dimensions: None,
-            kind: crate::domain::LineItemKind::Regular,
-            credit_grant_amount: None,
-            credit_grant_expiry: None,
-            credit_grant_included: false,
-            taxed_at_purchase: false,
-            tax_inclusive_quote: None,
-            credit_unit: None,
-            credit_grant_unit: None,
-            credit_grant_rollover: None,
-            promotional_credit: None,
-            subscription_id: Some(subscription.id),
-            usage_ends_at: None,
-            usage_breakdown: None,
-        };
-
-        let customer = self
-            .store
-            .find_customer_by_id_with_conn(conn, subscription.customer_id, tenant_id)
-            .await?;
-
-        let invoicing_entity = self
-            .store
-            .get_invoicing_entity_with_conn(conn, tenant_id, Some(subscription.invoicing_entity_id))
-            .await?;
-
-        self.compute_oneoff_invoice(
-            conn,
-            &start_date,
-            vec![line_item],
-            &invoicing_entity,
-            &customer,
-            subscription.currency.clone(),
-            None,
-            None,
-            subscription.tax_inclusive,
-        )
-        .await
-        .change_context(StoreError::InvoiceComputationError)
-    }
-
-    async fn create_slot_upgrade_invoice_internal(
-        &self,
-        conn: &mut PgConn,
-        tenant_id: TenantId,
-        subscription_details: crate::domain::SubscriptionDetails,
-        price_component_id: PriceComponentId,
-        delta: i32,
-        unit_name: &str,
-        prorated_amount: Decimal,
-        start_date: chrono::NaiveDate,
-        end_date: chrono::NaiveDate,
-        respect_auto_advance: bool,
-    ) -> StoreResult<InvoiceId> {
-        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
-        Box::pin(async move {
-            use crate::domain::{InvoiceNew, InvoicePaymentStatus, InvoiceStatusEnum, InvoiceType};
-            use crate::repositories::invoices::insert_invoice_tx;
-
-            let invoice_content = self
-                .compute_slot_upgrade_invoice_content(
-                    conn,
-                    tenant_id,
-                    &subscription_details,
-                    price_component_id,
-                    delta,
-                    unit_name,
-                    prorated_amount,
-                    start_date,
-                    end_date,
-                )
-                .await?;
-
-            let subscription = &subscription_details.subscription;
-
-            let customer = self
-                .store
-                .find_customer_by_id_with_conn(conn, subscription.customer_id, tenant_id)
-                .await?;
-
-            let invoicing_entity = self
-                .store
-                .get_invoicing_entity_with_conn(
-                    conn,
-                    tenant_id,
-                    Some(subscription.invoicing_entity_id),
-                )
-                .await?;
-
-            let due_at = Some(
-                (start_date + chrono::Duration::days(i64::from(subscription.net_terms)))
-                    .and_time(NaiveTime::MIN),
-            );
-
-            let invoice_new = InvoiceNew {
-                tenant_id,
-                customer_id: subscription.customer_id,
-                subscription_id: Some(subscription.id),
-                plan_version_id: Some(subscription.plan_version_id),
-                invoice_type: InvoiceType::OneOff,
-                // Not a subscription period: never period-refreshed, so no cycle to pin.
-                cycle_index: None,
-                currency: subscription.currency.clone(),
-                line_items: invoice_content.invoice_lines,
-                coupons: invoice_content.applied_coupons,
-                data_updated_at: None,
-                status: InvoiceStatusEnum::Draft,
-                invoice_date: start_date,
-                billing_period_start: start_date,
-                tax_inclusive: subscription.tax_inclusive,
-                finalized_at: None,
-                total: invoice_content.total,
-                amount_due: invoice_content.amount_due,
-                applied_credits: invoice_content.applied_credits,
-                promotional_credits: invoice_content.promotional_credits,
-                net_terms: subscription.net_terms as i32,
-                subtotal: invoice_content.subtotal,
-                subtotal_recurring: invoice_content.subtotal_recurring,
-                reference: None,
-                purchase_order: subscription.purchase_order.clone(),
-                memo: Some(format!("Slot upgrade: +{} {}", delta, unit_name)),
-                due_at,
-                plan_name: Some(subscription.plan_name.clone()),
-                invoice_number: format!("SLOT-{}", uuid::Uuid::new_v4()),
-                customer_details: customer.into(),
-                seller_details: invoicing_entity.into(),
-                auto_advance: subscription.auto_advance_invoices,
-                payment_status: InvoicePaymentStatus::Unpaid,
-                discount: invoice_content.discount,
-                tax_breakdown: invoice_content.tax_breakdown,
-                tax_amount: invoice_content.tax_amount,
-                manual: false,
-                invoicing_entity_id: subscription.invoicing_entity_id,
-                parent_invoice_id: None,
-                consolidated_into_invoice_id: None,
-                annexes: vec![],
-                custom_properties: serde_json::Value::Null,
-            };
-
-            let draft_invoice = insert_invoice_tx(&self.store, conn, invoice_new).await?;
-
-            if respect_auto_advance && subscription.auto_advance_invoices {
-                self.finalize_invoice_tx(
-                    conn,
-                    &Actor::Customer {
-                        id: subscription.customer_id,
-                    },
-                    draft_invoice.id,
-                    tenant_id,
-                    false,
-                    &None,
-                )
-                .await?;
-            }
-
-            Ok(draft_invoice.id)
-        })
-        .await
     }
 
     /// Activate pending slot transactions when invoice is paid
@@ -943,33 +660,15 @@ impl Services {
                     let now_date = now.date();
 
                     let slot = self.extract_slot(&subscription_details, price_component_id)?;
-                    let left = self
-                        .slot_fee_period(conn, &subscription_details, price_component_id, now_date)
+                    let period_end = self
+                        .slot_period_end(conn, &subscription_details, price_component_id, now_date)
                         .await?;
-                    let period_end = left.until;
 
                     let unit_name = slot.unit.clone();
 
-                    // Get currency precision for proper rounding
-                    let currency =
-                        Currencies::resolve_currency(&subscription_details.subscription.currency)
-                            .ok_or_else(|| {
-                            StoreError::ValueNotFound(format!(
-                                "Currency {} not found",
-                                subscription_details.subscription.currency
-                            ))
-                        })?;
-
                     let on = now_date.min(period_end);
-                    let prorated = self
-                        .seat_purchase_amount(
-                            conn,
-                            &subscription_details,
-                            price_component_id,
-                            delta,
-                            on,
-                            currency.precision as u32,
-                        )
+                    let priced = self
+                        .price_seats(conn, &subscription_details, price_component_id, delta, on)
                         .await?;
 
                     let active_slots = self
@@ -985,19 +684,20 @@ impl Services {
 
                     validate_slot_limits(&slot, delta, active_slots as i32)?;
 
+                    // A draft until its payment is answered: issued then, closed when refused.
                     let invoice_id = self
-                        .create_slot_upgrade_invoice_draft(
+                        .seat_purchase_invoice_tx(
                             conn,
-                            tenant_id,
-                            subscription_details.clone(),
-                            price_component_id,
-                            delta,
-                            &unit_name,
-                            prorated,
+                            &subscription_details,
+                            &priced.bills,
                             on,
-                            period_end,
+                            false,
                         )
-                        .await?;
+                        .await?
+                        .ok_or_else(|| {
+                            Report::new(StoreError::BillingError)
+                                .attach("Invoice has no amount due")
+                        })?;
 
                     // Pending until its payment settles; a refused payment drops it.
                     self.store
@@ -1236,12 +936,4 @@ impl Services {
             })
             .await
     }
-}
-
-/// Money to the currency's minor unit, half-up like every invoice amount (OQ14).
-fn round_money(amount: Decimal, precision: u32) -> Decimal {
-    amount.round_dp_with_strategy(
-        precision,
-        rust_decimal::RoundingStrategy::MidpointAwayFromZero,
-    )
 }

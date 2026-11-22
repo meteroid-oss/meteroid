@@ -11,72 +11,112 @@ use crate::repositories::credit::customer_credit::{
     self as credit, CreditFunding, DEFAULT_PRIORITY, source,
 };
 use crate::repositories::credit_notes::cumulative_grant_reversal;
+use crate::repositories::invoice_account::{self, Settled};
 use crate::services::Services;
 use crate::services::credit::scope::{LineOwners, line_subscription};
 use crate::services::credit::{invalid, precondition};
 use crate::store::PgConn;
+use billing_core::settlement::State;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use common_domain::ids::{BaseId, CreditNoteId, InvoiceId, TenantId};
 use diesel_models::credit_notes::CreditNoteRow;
 use diesel_models::customer_credit::{
     CreditPurchaseRow, CustomerCreditGrantRow, CustomerCreditOperationRow,
 };
-use diesel_models::enums::{CreditNoteStatus, InvoicePaymentStatus};
+use diesel_models::enums::CreditNoteStatus;
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::subscription_components::SubscriptionComponentRow;
 use diesel_models::subscription_events::SubscriptionEventRow;
-use error_stack::Report;
 use std::collections::HashMap;
 use uuid::Uuid;
 
+/// What settling an invoice from its account wrote, and the invoice as it now stands.
+pub(crate) struct InvoiceSettlement {
+    pub invoice: Invoice,
+    pub state: State,
+    /// This settlement made the invoice paid: the only moment `invoice_paid` is owed.
+    pub paid_now: bool,
+}
+
+impl InvoiceSettlement {
+    fn of(settled: Settled) -> StoreResult<Self> {
+        Ok(Self {
+            invoice: settled.row.try_into()?,
+            state: settled.state,
+            paid_now: settled.paid_now,
+        })
+    }
+}
+
 impl Services {
-    /// The choke point for marking an invoice Paid on a payment: the status and the credit its
-    /// purchase lines sold commit together. Debt forgiveness (a credit note zeroing the balance)
-    /// is not a payment and never comes here; it funds only the paid share itself.
-    pub(crate) async fn apply_invoice_paid_tx(
+    /// Settles the invoice from its account (R-125). A settlement that pays it funds the credit its
+    /// purchase lines sold in the same transaction. Debt forgiveness pays nothing in cash: a credit
+    /// note funds only the paid share itself.
+    pub(crate) async fn settle_invoice_tx(
         &self,
         conn: &mut PgConn,
         tenant_id: TenantId,
         invoice_id: InvoiceId,
         paid_at: Option<NaiveDateTime>,
-    ) -> StoreResult<Invoice> {
-        self.apply_invoice_paid_at_tx(conn, tenant_id, invoice_id, paid_at, common_clock::now())
+    ) -> StoreResult<InvoiceSettlement> {
+        self.settle_invoice_at_tx(conn, tenant_id, invoice_id, paid_at, common_clock::now())
             .await
     }
 
     /// `now` is the present the funded balance is judged at: the clock, or a replay's moment.
-    pub(crate) async fn apply_invoice_paid_at_tx(
+    pub(crate) async fn settle_invoice_at_tx(
         &self,
         conn: &mut PgConn,
         tenant_id: TenantId,
         invoice_id: InvoiceId,
         paid_at: Option<NaiveDateTime>,
         now: DateTime<Utc>,
-    ) -> StoreResult<Invoice> {
-        let row = InvoiceRow::apply_payment_status(
-            conn,
-            invoice_id,
-            tenant_id,
-            InvoicePaymentStatus::Paid,
-            paid_at,
+    ) -> StoreResult<InvoiceSettlement> {
+        let settled = InvoiceSettlement::of(
+            invoice_account::settle_tx(conn, tenant_id, invoice_id, paid_at).await?,
+        )?;
+        if settled.paid_now {
+            self.fund_paid_invoice_tx(conn, &settled.invoice, now)
+                .await?;
+        }
+        Ok(settled)
+    }
+
+    /// Settles the invoice like [`Self::settle_invoice_at_tx`] but leaves funding a payment to the
+    /// caller ([`Self::fund_paid_invoice_tx`]), which follows the money first.
+    pub(crate) async fn settle_invoice_unfunded_tx(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+        paid_at: Option<NaiveDateTime>,
+    ) -> StoreResult<InvoiceSettlement> {
+        InvoiceSettlement::of(
+            invoice_account::settle_tx(conn, tenant_id, invoice_id, paid_at).await?,
         )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-        let invoice: Invoice = row.try_into()?;
-        // Funded when the money landed: the stored payment time, which the status update set.
+    }
+
+    /// Funds the credit a just-paid invoice's purchase lines sold, and credits back the period
+    /// packs it paid late: once, when a settlement makes it paid.
+    pub(crate) async fn fund_paid_invoice_tx(
+        &self,
+        conn: &mut PgConn,
+        invoice: &Invoice,
+        now: DateTime<Utc>,
+    ) -> StoreResult<()> {
+        // Funded when the money landed: the stored payment time, which the settlement set.
         let paid_at = invoice
             .paid_at
             .map(|at| at.and_utc())
             .ok_or_else(|| precondition("a paid invoice has no payment time"))?;
-        mint_purchased_credit_tx(conn, &*self.store.hooks.credit, &invoice, paid_at, now).await?;
+        mint_purchased_credit_tx(conn, &*self.store.hooks.credit, invoice, paid_at, now).await?;
         self.credit_back_late_period_packs_tx(
             conn,
-            &invoice,
-            funding_time(&invoice, paid_at, now),
+            invoice,
+            funding_time(invoice, paid_at, now),
             None,
         )
-        .await?;
-        Ok(invoice)
+        .await
     }
 }
 

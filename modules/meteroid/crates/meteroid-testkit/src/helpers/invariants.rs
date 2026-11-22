@@ -642,7 +642,7 @@ fn check_id(check: &str) -> &str {
 
 /// Whether `id` names a check, so an exemption cannot silently match nothing.
 pub fn is_check_id(id: &str) -> bool {
-    CHECKS.iter().any(|(check, _)| check_id(check) == id)
+    CHECKS.iter().any(|(check, _)| check_id(check) == id) || check_id(I30) == id
 }
 
 /// Every invariant violated by `tenant_id`, as "invariant: detail" lines. Reads one snapshot.
@@ -777,6 +777,74 @@ fn may_report(sql: &str, populated: &[String]) -> bool {
         .map(|w| w[1])
         .collect();
     reads.is_empty() || reads.iter().any(|t| populated.iter().any(|p| p == t))
+}
+
+/// I30, folded in Rust by the store's own account (`invoice_account::account_of`): SQL cannot
+/// replay the fold faithfully (notes in finalization order, the void note, goodwill refunds,
+/// the status ladder). Not checked when a database is dropped: between a payment's write and its
+/// settlement event (still queued) an invoice is legitimately behind its account.
+pub const I30: &str = "I30 an issued invoice's amount due and payment status are its account's";
+
+/// Every finalized or uncollectible invoice of `tenant_id` whose `amount_due` or `payment_status`
+/// is not its account's state, Unpaid with nothing due before R26 allowed.
+pub async fn invoice_account_violations(conn: &mut PgConn, tenant_id: TenantId) -> Vec<String> {
+    use diesel_models::credit_notes::CreditNoteRow;
+    use diesel_models::enums::InvoicePaymentStatus;
+    use diesel_models::invoices::InvoiceRow;
+    use diesel_models::payments::PaymentTransactionRow;
+    use meteroid_store::repositories::invoice_account::{account_of, payment_status};
+
+    let ids: Vec<Uuid> = diesel::sql_query(
+        "SELECT id FROM invoice WHERE tenant_id = $1 AND status IN ('FINALIZED', 'UNCOLLECTIBLE')
+         ORDER BY id",
+    )
+    .bind::<diesel::sql_types::Uuid, _>(tenant_id.as_uuid())
+    .load::<IdRow>(conn)
+    .await
+    .expect("issued invoices")
+    .into_iter()
+    .map(|row| row.id)
+    .collect();
+    let mut violations = Vec::new();
+    for id in ids {
+        let id = common_domain::ids::InvoiceId::from(id);
+        let invoice = InvoiceRow::find_by_id(conn, tenant_id, id)
+            .await
+            .expect("issued invoice");
+        let payments = PaymentTransactionRow::list_by_invoice_id(conn, id, tenant_id)
+            .await
+            .expect("invoice payments")
+            .into_iter()
+            .map(|row| row.transaction)
+            .collect::<Vec<_>>();
+        let notes = CreditNoteRow::list_by_invoice_id(conn, tenant_id, id)
+            .await
+            .expect("invoice credit notes");
+        let state = account_of(&invoice, &payments, &notes).state();
+        let status = payment_status(state.status);
+        let before_r26 = invoice.payment_status == InvoicePaymentStatus::Unpaid
+            && invoice.amount_due == 0
+            && state.due == 0;
+        if (invoice.amount_due != state.due || invoice.payment_status != status) && !before_r26 {
+            violations.push(format!(
+                "{I30}: invoice {} owes {} ({:?}); its account owes {} ({:?})",
+                invoice.id.as_uuid(),
+                invoice.amount_due,
+                invoice.payment_status,
+                state.due,
+                status
+            ));
+        }
+    }
+    violations
+}
+
+/// Fails the test when an issued invoice of `tenant_id` is not what its account says (I30). Call
+/// it once every settlement the test set off was handled.
+pub async fn assert_invoice_accounts(store: &Store, tenant_id: TenantId) {
+    let mut conn = store.get_conn().await.expect("billing connection");
+    let violations = invoice_account_violations(&mut conn, tenant_id).await;
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
 }
 
 /// Fails the test when `tenant_id` breaks a credit invariant.

@@ -354,6 +354,7 @@ mod tests {
             last_reconciled_at: None,
             decline_kind: None,
             charge_attempt: None,
+            accepted_at: None,
         }
     }
 

@@ -478,6 +478,64 @@ async fn the_draft_previews_exactly_what_finalization_draws() -> TestResult {
     Ok(())
 }
 
+/// The draft editor settles its credit once, from each line's subtotal less its share of the
+/// discount: 100.00 discounted 10.00 takes 30.00 of promotional credit off 90.00 (20% of 60.00 is
+/// 12.00); the discount taken back off leaves 70.00 taxed 14.00, 84.00, and finalizing the edited
+/// draft draws exactly that.
+/// Rules: R-087, R-021, R-076
+#[tokio::test]
+async fn the_draft_editor_estimates_what_finalization_draws() -> TestResult {
+    use meteroid_store::domain::UpdateInvoiceParams;
+
+    let setup = setup().await;
+    let promo = promotional(&setup, Grant::invoice(3_000)).await;
+    let invoice = taxed_draft(&setup, vec![taxed("Seats", 10_000)], false).await?;
+    let edit = |discount: &str| UpdateInvoiceParams {
+        discount: Some(discount.to_owned()),
+        ..Default::default()
+    };
+
+    let discounted = setup
+        .services
+        .update_draft_invoice(invoice.id, TENANT_ID, edit("10.00"))
+        .await
+        .map_err(test_error)?
+        .invoice;
+    assert_eq!(
+        figures(&discounted),
+        vec![(10_000, 6_000, 1_200, 7_200, Some(3_000))]
+    );
+    assert_eq!(discounted.discount, 1_000);
+    assert_eq!(totals(&discounted), (10_000, 3_000, 1_200, 7_200, 0, 7_200));
+    assert_reconciles(&discounted);
+
+    let edited = setup
+        .services
+        .update_draft_invoice(invoice.id, TENANT_ID, edit("0"))
+        .await
+        .map_err(test_error)?
+        .invoice;
+    assert_eq!(
+        figures(&edited),
+        vec![(10_000, 7_000, 1_400, 8_400, Some(3_000))],
+        "the 10.00 discount no longer in the taxable amount"
+    );
+    assert_eq!(edited.discount, 0);
+    assert_eq!(totals(&edited), (10_000, 3_000, 1_400, 8_400, 0, 8_400));
+    assert_reconciles(&edited);
+
+    let finalized = finalize(&setup, invoice.id).await?.invoice;
+    assert_eq!(figures(&finalized), figures(&edited));
+    assert_eq!(totals(&finalized), totals(&edited));
+    assert_eq!(
+        movements_of(&setup, &finalized).await?,
+        vec![(promo, "DRAW".to_owned(), -3_000)]
+    );
+    assert_eq!(remaining(&setup, promo).await, 0);
+    assert_ledger_balances(&setup.store, TENANT_ID, CUST_UBER_ID).await;
+    Ok(())
+}
+
 /// A note crediting the line gives the promotional credit it took back to its grant, and reverses
 /// only the tax the invoice charged.
 #[tokio::test]

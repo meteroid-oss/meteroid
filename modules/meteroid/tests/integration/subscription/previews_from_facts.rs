@@ -502,6 +502,139 @@ async fn a_seat_preview_is_what_the_seat_purchase_invoices(#[future] test_env: T
     assert_eq!((billed.subtotal, billed.total), (1_500, 1_500));
 }
 
+/// Three seats added on Apr 17 to a French consumer's Starter seat, 14 of April's 30 days left:
+/// 4000 × 14/30 (1866.67 → 1867) − 1000 × 14/30 (466.67 → 467) = 1400, 4.66666667 a seat, and
+/// 20% VAT, 280. The purchase is issued as the change's adjustment invoice, its line naming the
+/// seats fee, and its preview is that invoice to the cent.
+/// Rules: R-075, R-079
+#[rstest]
+#[tokio::test]
+async fn a_seat_purchase_is_issued_as_its_preview_quotes_it(#[future] test_env: TestEnv) {
+    use meteroid_store::domain::{InvoiceStatusEnum, LineItem};
+    use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
+
+    let env = test_env.await;
+    crate::test_mrr_tax_inclusive::enable_eu_vat(&env).await;
+    let customer_id = crate::test_mrr_tax_inclusive::create_french_consumer(&env).await;
+    env.set_now(at(apr(1)));
+    let sub_id = subscription()
+        .customer(customer_id)
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(apr(1))
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    env.run_outbox_and_orchestration().await;
+    let seats_fee = env
+        .store()
+        .get_subscription_details(TENANT_ID, sub_id)
+        .await
+        .expect("the subscription")
+        .price_components
+        .into_iter()
+        .find(|component| component.price_component_id == Some(COMP_STARTER_SEATS_ID))
+        .expect("the seats fee")
+        .id;
+    env.set_now(at(apr(17)));
+
+    let preview = env
+        .services()
+        .preview_slot_update(TENANT_ID, sub_id, COMP_STARTER_SEATS_ID, 3)
+        .await
+        .expect("the preview");
+    assert_eq!((preview.days_remaining, preview.days_total), (14, 30));
+    assert_eq!(preview.prorated_amount, dec!(14.00));
+    let previewed = preview
+        .adjustment_invoice
+        .expect("an invoice for the seats");
+
+    let applied = env
+        .services()
+        .update_subscription_slots_for_test(
+            TENANT_ID,
+            sub_id,
+            COMP_STARTER_SEATS_ID,
+            3,
+            SlotUpgradeBillingMode::Optimistic,
+            Some(apr(17).and_hms_opt(9, 0, 0).unwrap()),
+        )
+        .await
+        .expect("the seats");
+    assert_eq!(applied.prorated_amount, Some(dec!(14.00)));
+    let billed = invoice(
+        &env,
+        sub_id,
+        applied.invoice_id.expect("the seats' invoice"),
+    )
+    .await;
+    assert_eq!(
+        (billed.invoice_type, billed.status, billed.invoice_date),
+        (
+            InvoiceType::Adjustment,
+            InvoiceStatusEnum::Finalized,
+            apr(17)
+        )
+    );
+
+    let shown = |line: &LineItem| {
+        (
+            line.name.clone(),
+            line.description.clone(),
+            line.quantity,
+            line.unit_price,
+            (line.start_date, line.end_date),
+            line.is_prorated,
+            line.sub_component_id,
+            (line.amount_subtotal, line.tax_rate, line.tax_amount),
+            line.amount_total,
+        )
+    };
+    let line = (
+        "3 Seats upgrade".to_owned(),
+        Some("Prorated charge for 3 additional Seats".to_owned()),
+        Some(dec!(3)),
+        Some(dec!(4.66666667)),
+        (apr(17), NaiveDate::from_ymd_opt(2024, 5, 1).unwrap()),
+        true,
+        Some(seats_fee),
+        (1_400, dec!(0.2), 280),
+        1_680,
+    );
+    assert_eq!(
+        billed.line_items.iter().map(shown).collect::<Vec<_>>(),
+        vec![line.clone()]
+    );
+    assert_eq!(
+        previewed
+            .invoice_lines
+            .iter()
+            .map(shown)
+            .collect::<Vec<_>>(),
+        vec![line]
+    );
+    assert_eq!(
+        (
+            billed.subtotal,
+            billed.discount,
+            billed.tax_amount,
+            billed.total,
+            billed.amount_due
+        ),
+        (1_400, 0, 280, 1_680, 1_680)
+    );
+    assert_eq!(
+        (
+            previewed.subtotal,
+            previewed.discount,
+            previewed.tax_amount,
+            previewed.total,
+            previewed.amount_due
+        ),
+        (1_400, 0, 280, 1_680, 1_680)
+    );
+}
+
 /// A 20.00 add-on bought through the portal on Apr 16, 15 of April's 30 days left: the quote is
 /// what the checkout charges and the purchase invoices.
 /// Rules: R-079

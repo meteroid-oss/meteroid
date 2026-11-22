@@ -454,8 +454,8 @@ where
 
 /// An immediate Scale -> Studio change ends Scale's period pack ten days into the period. The
 /// preview's estimate of the pack and the plan-change checkout's amount settle the pack's usage in
-/// a transaction rolled back: they read that usage outside any transaction, with the customer
-/// free, and price exactly what they price when metering answers at once.
+/// memory: they read that usage outside any transaction, with the customer free, and price
+/// exactly what they price when metering answers at once.
 #[tokio::test]
 async fn plan_change_previews_read_metering_outside_transactions() {
     use super::credit_plan_change::{SCALE, STUDIO, halyard, invoice, pay, scale_usage, start};

@@ -203,22 +203,18 @@ async fn reclose_disputed_invoice_tx(
     tenant_id: TenantId,
     invoice_id: InvoiceId,
 ) -> StoreResult<bool> {
+    use crate::repositories::invoice_account;
+
     let invoice = InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
         .await?
         .invoice;
-    let owed = InvoiceRow::collections(conn, invoice_id, tenant_id)
-        .await?
-        .amount_due();
-    if owed == invoice.amount_due {
+    let state = invoice_account::load_tx(conn, &invoice).await?.state();
+    if state.due == invoice.amount_due
+        && invoice_account::payment_status(state.status) == invoice.payment_status
+    {
         return Ok(false);
     }
-    crate::repositories::payment_transactions::recompute_invoice_payment_state(
-        conn,
-        tenant_id,
-        invoice_id,
-        invoice.paid_at,
-    )
-    .await?;
+    invoice_account::settle_tx(conn, tenant_id, invoice_id, invoice.paid_at).await?;
     log::warn!(
         "disputed invoice {invoice_id} of tenant {tenant_id} re-closed after a mixed-version reopen"
     );

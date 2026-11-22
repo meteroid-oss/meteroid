@@ -104,11 +104,22 @@ async fn row(env: &TestEnv, invoice: InvoiceId) -> InvoicePaymentReminderRow {
         .unwrap_or_else(|| panic!("no reminder row for {invoice}"))
 }
 
+/// Stands the invoice in `status` directly, as a fixture: no payment moved it.
 async fn set_status(env: &TestEnv, invoice: InvoiceId, status: InvoicePaymentStatus) {
+    use diesel::prelude::*;
+    use diesel_async::RunQueryDsl;
+    use diesel_models::schema::invoice::dsl as i;
+
     let mut conn = env.conn().await;
-    InvoiceRow::apply_payment_status(&mut conn, invoice, TENANT_ID, status, None)
-        .await
-        .expect("payment status");
+    diesel::update(
+        i::invoice
+            .filter(i::id.eq(invoice))
+            .filter(i::tenant_id.eq(TENANT_ID)),
+    )
+    .set(i::payment_status.eq(status))
+    .execute(&mut conn)
+    .await
+    .expect("payment status");
 }
 
 async fn set_auto_charge(env: &TestEnv, invoice: InvoiceId, at_: Option<NaiveDateTime>) {

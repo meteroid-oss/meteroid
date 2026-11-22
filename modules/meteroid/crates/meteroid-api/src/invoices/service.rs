@@ -1277,7 +1277,8 @@ async fn to_domain_invoice_new(
     let total_tax_amount: i64 = lines.iter().map(|line| line.tax_amount).sum();
     let total_taxable: i64 = lines.iter().map(|line| line.taxable_amount).sum();
     let total = total_taxable + total_tax_amount;
-    let amount_due = total;
+    // A manual draft has collected nothing and drawn no credit yet (R-087).
+    let amount_due = billing_core::amount_due(total, 0, 0);
 
     let invoicing_entity = store
         .get_invoicing_entity(tenant_id, Some(customer.invoicing_entity_id))

@@ -12,16 +12,16 @@ use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::payment_transactions::PaymentTransaction;
 use crate::errors::StoreError;
 use crate::repositories::credit::customer_credit::PaymentMovement;
+use crate::repositories::invoice_account;
 use crate::repositories::payment_transactions::{
     PaymentTransactionInterface, ReversalAmount, TransactionReinstatement, TransactionReversal,
-    recompute_invoice_payment_state,
 };
 use crate::services::credit::collected_payment::Collection;
 use crate::services::payment_reminders::sweep::ReopenedReminders;
 use crate::store::{PgConn, Store};
 use chrono::{NaiveDateTime, SubsecRound};
 use common_domain::ids::PaymentTransactionId;
-use diesel_models::enums::{InvoicePaymentStatus, PaymentStatusEnum as DbStatus};
+use diesel_models::enums::PaymentStatusEnum as DbStatus;
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::lock::CustomerLock;
 use diesel_models::payment_reversal_movements::{
@@ -596,19 +596,12 @@ impl Store {
         let Some(invoice_id) = payment.invoice_id else {
             return Ok(());
         };
-        let was_paid = InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
-            .await?
-            .invoice
-            .payment_status
-            == InvoicePaymentStatus::Paid;
-        let (lock, _, _) =
-            recompute_invoice_payment_state(conn, tenant_id, invoice_id, paid_at).await?;
-        let collections = InvoiceRow::collections(conn, invoice_id, tenant_id).await?;
+        let settled = invoice_account::settle_tx(conn, tenant_id, invoice_id, paid_at).await?;
         InvoiceRow::sync_payment_disputed_at(
             conn,
             invoice_id,
             tenant_id,
-            collections.disputed > 0,
+            settled.state.disputed > 0,
             moved.at.naive_utc(),
         )
         .await?;
@@ -620,7 +613,7 @@ impl Store {
                     conn,
                     tenant_id,
                     invoice_id,
-                    was_paid,
+                    settled.reopened,
                     true,
                     ReopenedReminders::after_reversal(Some(kind)),
                     common_clock::now().naive_utc(),
@@ -630,7 +623,7 @@ impl Store {
         crate::services::credit::reconcile_purchased_credit_tx(
             conn,
             &*self.hooks.credit,
-            &lock,
+            &settled.lock,
             invoice_id,
             Some(moved),
         )
@@ -698,14 +691,12 @@ pub(crate) async fn record_refund_excess_tx(
     else {
         return Ok(0);
     };
-    let lock = InvoiceRow::select_for_update_by_id(conn, refund.tenant_id, invoice_id)
+    let locked = InvoiceRow::select_for_update_by_id(conn, refund.tenant_id, invoice_id).await?;
+    let lock = locked.lock;
+    // The refund just issued counts in the account with no excess yet (Q1).
+    let excess = invoice_account::load_tx(conn, &locked.invoice)
         .await?
-        .lock;
-    let excess = InvoiceRow::collections(conn, invoice_id, refund.tenant_id)
-        .await?
-        .excess()
-        .min(refund.amount)
-        .max(0);
+        .refund_excess(refund.amount);
     if excess > 0 {
         PaymentTransactionRow::set_refund_excess(conn, &lock, refund.id, excess).await?;
     }

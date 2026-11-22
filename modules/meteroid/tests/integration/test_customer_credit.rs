@@ -87,22 +87,32 @@ async fn refreeze_balance_tx(conn: &mut diesel_async::AsyncPgConnection) -> Test
         .map_err(test_error)
 }
 
-/// Settles an invoice by hand, with no payment: only for invoices whose payment is not under test.
-async fn mark_paid(setup: &MeteroidSetup, invoice: InvoiceId) -> TestResult {
-    execute(
-        setup,
-        format!(
-            "UPDATE invoice SET amount_due=0, payment_status='PAID' WHERE tenant_id='{}' AND id='{}'",
-            TENANT_ID.as_uuid(),
-            invoice.as_uuid()
-        ),
-    )
-    .await
-}
-
 /// Records a manual payment of the whole amount due and runs its settlement.
 async fn pay(setup: &MeteroidSetup, invoice: &Invoice) -> TestResult {
     pay_amount(setup, invoice.id, invoice.amount_due).await
+}
+
+/// Records a manual payment of `cents`, part of what is due, and runs its settlement: the
+/// invoice's account reads its payments, never a status set by hand.
+async fn pay_part(setup: &MeteroidSetup, invoice: InvoiceId, cents: i64) -> TestResult {
+    setup
+        .services
+        .add_manual_payment_transaction(
+            Actor::System,
+            TENANT_ID,
+            invoice,
+            Decimal::new(cents, 2),
+            common_clock::now().fixed_offset(),
+            None,
+        )
+        .await
+        .map_err(test_error)?;
+    run_once_invoice_orchestration(
+        Arc::new(setup.store.clone()),
+        Arc::new(setup.services.clone()),
+    )
+    .await;
+    Ok(())
 }
 
 fn note(
@@ -352,6 +362,80 @@ async fn historical_invoice_void_restores_the_original_currency_once() -> TestRe
     Ok(())
 }
 
+/// The same pre-ledger invoice (70.00, 30.00 of credit taken as 50.00 USD), a 10.00 refund first:
+/// it returns 10.00 of the credit, 16.67 USD. The void then returns the 20.00 still on the invoice,
+/// the rest of the deduction: 50.00 USD in all, never the whole deduction again.
+/// Rules: R-128, R-126
+#[tokio::test]
+async fn historical_void_after_a_refund_returns_the_original_currency_once() -> TestResult {
+    let setup = setup().await;
+    setup.skip_checks(&["I3"],
+        "seeds pre-ledger balances and purchases by raw SQL, without the cost the cutover backfills",
+    );
+    let invoice = draft(&setup, vec![line("Usage", 7_000, true)]).await?;
+    let mut conn = setup.store.get_conn().await.map_err(test_error)?;
+    diesel::sql_query(
+        "UPDATE invoice SET status='FINALIZED',invoice_number='HISTORICAL-FX-REFUND-VOID',
+        finalized_at=now(),applied_credits=3000,amount_due=4000 WHERE tenant_id=$1 AND id=$2",
+    )
+    .bind::<SqlUuid, _>(TENANT_ID.as_uuid())
+    .bind::<SqlUuid, _>(invoice.id.as_uuid())
+    .execute(&mut conn)
+    .await
+    .map_err(test_error)?;
+    unfreeze_balance_tx(&mut conn).await?;
+    diesel::sql_query(
+        "INSERT INTO customer_balance_tx (id,amount_cents,balance_cents_after,invoice_id,tenant_id,customer_id,currency)
+         VALUES($1,$2,0,$3,$4,$5,$6)",
+    )
+    .bind::<SqlUuid, _>(Uuid::new_v4())
+    .bind::<BigInt, _>(-5_000_i64)
+    .bind::<SqlUuid, _>(invoice.id.as_uuid())
+    .bind::<SqlUuid, _>(TENANT_ID.as_uuid())
+    .bind::<SqlUuid, _>(CUST_UBER_ID.as_uuid())
+    .bind::<Text, _>("USD")
+    .execute(&mut conn)
+    .await
+    .map_err(test_error)?;
+    refreeze_balance_tx(&mut conn).await?;
+    drop(conn);
+    let usd = || available(&setup.store, TENANT_ID, CUST_UBER_ID, Some("USD"));
+
+    let refund = issue(
+        &setup,
+        note(
+            invoice.id,
+            CreditType::Refund,
+            vec![CreditLineItem::Amount {
+                local_id: invoice.line_items[0].local_id.clone(),
+                amount_cents: 1_000,
+            }],
+        ),
+    )
+    .await
+    .map_err(test_error)?;
+    assert_eq!(
+        (refund.credited_amount_cents, refund.refunded_amount_cents),
+        (1_000, 0),
+        "nothing was paid in cash: the note returns credit only"
+    );
+    assert_eq!(
+        usd().await,
+        1_667,
+        "a third of the deduction, rounded half up"
+    );
+
+    setup
+        .store
+        .void_invoice(Actor::System, invoice.id, TENANT_ID)
+        .await
+        .map_err(test_error)?;
+    assert_eq!(usd().await, 5_000, "the rest of the deduction, 33.33 USD");
+    assert_eq!(eur(&setup).await, 0, "never converted into invoice credit");
+    assert_ledger_balances(&setup.store, TENANT_ID, CUST_UBER_ID).await;
+    Ok(())
+}
+
 /// m3. Voiding a pre-ledger invoice restores the EUR 50.00 it took from the old balance. That
 /// value was the customer's before the release, like the balance carried over: it pays usage of
 /// any date, here a usage line of January 2024 finalized now.
@@ -464,6 +548,9 @@ async fn historical_paid_invoice_of(
     Ok(invoice)
 }
 
+/// 90.00 paid 30.00 by the retired scalar (10.01 USD) and 60.00 in cash: three 10.00 refunds each
+/// return 10.00 of the credit first (R-126), which maps back onto the USD deduction cumulatively.
+/// Rules: R-126
 #[tokio::test]
 async fn historical_partial_refunds_return_the_original_currency_cumulatively() -> TestResult {
     let setup = setup().await;
@@ -476,7 +563,7 @@ async fn historical_partial_refunds_return_the_original_currency_cumulatively() 
         CreditType::Refund,
         vec![CreditLineItem::Amount {
             local_id: invoice.line_items[0].local_id.clone(),
-            amount_cents: 3_000,
+            amount_cents: 1_000,
         }],
     );
     let usd = || available(&setup.store, TENANT_ID, CUST_UBER_ID, Some("USD"));
@@ -487,7 +574,7 @@ async fn historical_partial_refunds_return_the_original_currency_cumulatively() 
             settled.credited_amount_cents, 1_000,
             "the note stays denominated in the invoice currency"
         );
-        assert_eq!(settled.refunded_amount_cents, 2_000);
+        assert_eq!(settled.refunded_amount_cents, 0, "credit goes back first");
         assert_eq!(usd().await, cumulative);
         assert!(
             setup
@@ -519,12 +606,13 @@ async fn historical_refund_after_an_unrecorded_return_is_refused() -> TestResult
         "seeds pre-ledger balances and purchases by raw SQL, without the cost the cutover backfills",
     );
     let invoice = historical_paid_invoice(&setup, "HISTORICAL-AMBIGUOUS").await?;
+    // 10.00 each: credit goes back first (R-126), so both notes return pre-ledger credit.
     let params = note(
         invoice.id,
         CreditType::Refund,
         vec![CreditLineItem::Amount {
             local_id: invoice.line_items[0].local_id.clone(),
-            amount_cents: 3_000,
+            amount_cents: 1_000,
         }],
     );
     let legacy = setup
@@ -560,6 +648,8 @@ async fn historical_refund_after_an_unrecorded_return_is_refused() -> TestResult
 }
 
 /// A refund whose share rounds to nothing returns no credit, and must not block the next one.
+/// Each 10.00 note returns 10.00 of the 30.00 of credit first (R-126).
+/// Rules: R-126
 #[tokio::test]
 async fn historical_refunds_that_round_to_nothing_do_not_block_later_ones() -> TestResult {
     let setup = setup().await;
@@ -572,7 +662,7 @@ async fn historical_refunds_that_round_to_nothing_do_not_block_later_ones() -> T
         CreditType::Refund,
         vec![CreditLineItem::Amount {
             local_id: invoice.line_items[0].local_id.clone(),
-            amount_cents: 3_000,
+            amount_cents: 1_000,
         }],
     );
     let usd = || available(&setup.store, TENANT_ID, CUST_UBER_ID, Some("USD"));
@@ -645,8 +735,8 @@ async fn a_historical_deduction_in_the_customers_currency_is_returned_exactly() 
 async fn a_credit_to_balance_note_returns_paid_value_and_its_void_takes_it_back() -> TestResult {
     let setup = setup().await;
     let invoice = draft(&setup, vec![line("Seats", 3_000, false)]).await?;
-    finalize(&setup, invoice.id).await?;
-    mark_paid(&setup, invoice.id).await?;
+    let finalized = finalize(&setup, invoice.id).await?.invoice;
+    pay(&setup, &finalized).await?;
     let returned = issue(
         &setup,
         note(invoice.id, CreditType::CreditToBalance, vec![]),
@@ -700,15 +790,7 @@ async fn a_credit_to_balance_note_on_an_unpaid_invoice_cancels_its_debt() -> Tes
     let invoice = draft(&setup, vec![line("Seats", 3_000, false)]).await?;
     finalize(&setup, invoice.id).await?;
     // Half paid: the note cancels the unpaid 1500 first and returns only collected cash.
-    execute(
-        &setup,
-        format!(
-            "UPDATE invoice SET amount_due=1500, payment_status='PARTIALLY_PAID' WHERE tenant_id='{}' AND id='{}'",
-            TENANT_ID.as_uuid(),
-            invoice.id.as_uuid()
-        ),
-    )
-    .await?;
+    pay_part(&setup, invoice.id, 1_500).await?;
     let credited = issue(
         &setup,
         note(invoice.id, CreditType::CreditToBalance, vec![]),
@@ -736,18 +818,37 @@ async fn a_draft_credit_to_balance_note_cannot_double_mint_a_purchase_paid_meanw
 {
     let setup = setup().await;
     let invoice = buy(&setup, 10_000).await?;
-    let set_payment_status = |status: &str| {
-        execute(
-            &setup,
-            format!(
-                "UPDATE invoice SET payment_status='{status}' WHERE tenant_id='{}' AND id='{}'",
-                TENANT_ID.as_uuid(),
-                invoice.id.as_uuid()
-            ),
-        )
-    };
     // While its payment is in flight the purchase is not the customer's: no note on it at all.
-    set_payment_status("PROCESSING").await?;
+    let attempt = common_domain::ids::PaymentTransactionId::new();
+    {
+        let mut conn = setup.store.get_conn().await.map_err(test_error)?;
+        diesel_models::payments::PaymentTransactionRowNew {
+            id: attempt,
+            tenant_id: TENANT_ID,
+            invoice_id: Some(invoice.id),
+            provider_transaction_id: Some("pi_purchase".to_string()),
+            amount: invoice.amount_due,
+            currency: invoice.currency.clone(),
+            payment_method_id: None,
+            status: diesel_models::enums::PaymentStatusEnum::Pending,
+            payment_type: diesel_models::enums::PaymentTypeEnum::Payment,
+            error_type: None,
+            processed_at: None,
+            checkout_session_id: None,
+            pending_plan_version_id: None,
+            next_action: None,
+            initiated_by_customer_id: None,
+            pending_provider_intent_id: None,
+            pending_connection_id: None,
+            parent_transaction_id: None,
+            credit_note_id: None,
+            refund_mode: None,
+            reversal_reason: None,
+        }
+        .insert(&mut conn)
+        .await
+        .map_err(test_error)?;
+    }
     let in_flight = setup
         .store
         .create_credit_note(
@@ -761,8 +862,18 @@ async fn a_draft_credit_to_balance_note_cannot_double_mint_a_purchase_paid_meanw
         format!("{in_flight:?}").contains("wait until the payment settles"),
         "{in_flight:?}"
     );
-    // Partly paid, a draft may return what was received; the purchase is then paid in full.
-    set_payment_status("PARTIALLY_PAID").await?;
+    // The attempt given up and half paid by hand, a draft may return what was received; the
+    // purchase is then paid in full.
+    execute(
+        &setup,
+        format!(
+            "UPDATE payment_transaction SET status='CANCELLED' WHERE tenant_id='{}' AND id='{}'",
+            TENANT_ID.as_uuid(),
+            attempt.as_uuid()
+        ),
+    )
+    .await?;
+    pay_part(&setup, invoice.id, 5_000).await?;
     let draft_note = setup
         .store
         .create_credit_note(
@@ -772,8 +883,15 @@ async fn a_draft_credit_to_balance_note_cannot_double_mint_a_purchase_paid_meanw
         )
         .await
         .map_err(test_error)?;
-    set_payment_status("UNPAID").await?;
-    pay_amount(&setup, invoice.id, 10_000).await?;
+    assert_eq!(
+        (
+            draft_note.debt_cancelled_amount_cents,
+            draft_note.credited_amount_cents
+        ),
+        (5_000, 5_000),
+        "the unpaid half is cancelled, the paid half returned"
+    );
+    pay_amount(&setup, invoice.id, 5_000).await?;
     assert_eq!(eur(&setup).await, 10_000);
 
     let refused = setup
@@ -1887,8 +2005,8 @@ async fn voiding_a_pre_ledger_note_takes_back_the_carried_balance() -> TestResul
         "seeds pre-ledger balances and purchases by raw SQL, without the cost the cutover backfills",
     );
     let invoice = draft(&setup, vec![line("Seats", 3_000, false)]).await?;
-    finalize(&setup, invoice.id).await?;
-    mark_paid(&setup, invoice.id).await?;
+    let finalized = finalize(&setup, invoice.id).await?.invoice;
+    pay(&setup, &finalized).await?;
     let (tenant, customer, invoice_id) = (TENANT_ID.as_uuid(), CUST_UBER_ID.as_uuid(), invoice.id);
     execute(
         &setup,
@@ -2055,16 +2173,7 @@ async fn a_purchase_funds_only_the_credit_paid_for_net_of_forgiven_debt() -> Tes
 
     // Paid first, the rest forgiven: the forgiveness settles the invoice and funds the paid part.
     let paid_first = buy(&setup, 10_000).await?;
-    // A partial collection, as a provider payment leaves it: manual payments settle in full.
-    execute(
-        &setup,
-        format!(
-            "UPDATE invoice SET amount_due=6000, payment_status='PARTIALLY_PAID' WHERE tenant_id='{}' AND id='{}'",
-            TENANT_ID.as_uuid(),
-            paid_first.id.as_uuid()
-        ),
-    )
-    .await?;
+    pay_part(&setup, paid_first.id, 4_000).await?;
     issue(
         &setup,
         note(

@@ -872,11 +872,44 @@ fn as_change_line(
     line
 }
 
+/// A seat purchase's line as its invoice shows it: the seats bought, each at their share of what
+/// they bill to 8 places, half-up. Its id is random and it names its slot fee, so reconcile reads
+/// it on that fee's charge for the period (R-075).
+fn as_seat_line(
+    mut line: LineItem,
+    row: &FeeFact<StoreFee>,
+    bought: &Bought,
+    amount: i64,
+) -> LineItem {
+    let fee = &row.fee;
+    let unit = match &fee.fee {
+        crate::domain::SubscriptionFee::Slot { unit, .. } => unit.as_str(),
+        _ => fee.name.as_str(),
+    };
+    let seats = Decimal::from(bought.seats);
+    line.local_id = crate::utils::local_id::LocalId::no_prefix();
+    line.name = format!("{} {unit} upgrade", bought.seats);
+    line.description = Some(format!(
+        "Prorated charge for {} additional {unit}",
+        bought.seats
+    ));
+    line.quantity = Some(seats);
+    line.unit_price = (!seats.is_zero()).then(|| {
+        (Decimal::new(amount, u32::from(fee.precision)) / seats)
+            .round_dp_with_strategy(8, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
+    });
+    line.is_prorated = true;
+    line
+}
+
+/// The lines of what `evaluated` bills; those of the fee whose seats are `bought`, as the
+/// purchase's.
 async fn bills_of(
     conn: &mut PgConn,
     tenant_id: TenantId,
     subscription_id: SubscriptionId,
     evaluated: &Evaluated,
+    bought: Option<&Bought>,
 ) -> StoreResult<Vec<LineItem>> {
     let lineages = lineages_of(&evaluated.facts);
     let no_usage = HashMap::new();
@@ -927,7 +960,10 @@ async fn bills_of(
             &no_usage,
             &lineages,
         )?;
-        lines.push(as_change_line(line, row, first, *amount, repriced));
+        lines.push(match bought.filter(|bought| bought.lineage == key.fee) {
+            Some(bought) => as_seat_line(line, row, bought, *amount),
+            None => as_change_line(line, row, first, *amount, repriced),
+        });
     }
     // As adjustment invoices list them: components, then add-ons, packs last.
     lines.sort_by_key(|line| {
@@ -983,7 +1019,14 @@ async fn documents_of(
     else {
         return Ok(ChangeDocuments::default());
     };
-    let bills = bills_of(conn, tenant_id, subscription_id, &evaluated).await?;
+    let bills = bills_of(
+        conn,
+        tenant_id,
+        subscription_id,
+        &evaluated,
+        hypothesis.bought.as_ref(),
+    )
+    .await?;
     let (credits, credited) = credits_of(&evaluated, change.give_back);
     // What the lines bill: a charge rendered as no line (a `once` credit billed) bills nothing.
     let charged = bills.iter().map(|line| line.amount_subtotal).sum();
@@ -1027,15 +1070,23 @@ pub(in crate::services) struct SeatPurchase {
     pub until: NaiveDate,
 }
 
-/// What buying `bought` on `on` owes on that day's documents; None when no charge of its fee is
-/// due there (a free trial, a period its renewal still has to bill).
+/// A seat purchase and the documents it writes: its adjustment invoice's lines, no note.
+#[derive(Debug)]
+pub(in crate::services) struct SeatDocuments {
+    pub purchase: SeatPurchase,
+    pub documents: ChangeDocuments,
+}
+
+/// What buying `bought` on `on` owes on that day's documents, and the adjustment's lines billing
+/// it; None when no charge of its fee is due there (a free trial, a period its renewal still has
+/// to bill). Seats bought only add to what their fee owes: nothing is taken back.
 pub(in crate::services) async fn seat_purchase(
     conn: &mut PgConn,
     tenant_id: TenantId,
     subscription_id: SubscriptionId,
     on: NaiveDate,
     bought: &Bought,
-) -> StoreResult<Option<SeatPurchase>> {
+) -> StoreResult<Option<SeatDocuments>> {
     let change = Change::of_rows(on, GiveBack::LatestFirst, "seats");
     let hypothesis = Hypothesis {
         bought: Some(bought.clone()),
@@ -1054,12 +1105,25 @@ pub(in crate::services) async fn seat_purchase(
     else {
         return Ok(None);
     };
-    Ok(purchase_of(
+    let Some(purchase) = purchase_of(
         &evaluated.evaluation,
         &evaluated.own,
         &evaluated.planned,
         &bought.lineage,
-    ))
+    ) else {
+        return Ok(None);
+    };
+    let bills = bills_of(conn, tenant_id, subscription_id, &evaluated, Some(bought)).await?;
+    let charged = bills.iter().map(|line| line.amount_subtotal).sum();
+    Ok(Some(SeatDocuments {
+        purchase,
+        documents: ChangeDocuments {
+            bills,
+            credits: Vec::new(),
+            charged,
+            credited: 0,
+        },
+    }))
 }
 
 /// The period of `lineage` on its own grid holding `on`, as the facts bill it: a run carried

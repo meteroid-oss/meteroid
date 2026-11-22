@@ -56,8 +56,6 @@ const scheduledEventLabel = (eventType: ScheduledEventType): string => {
       return 'Pending plan change'
     case ScheduledEventType.CANCEL:
       return 'Pending cancellation'
-    case ScheduledEventType.PAUSE:
-      return 'Pending pause'
     case ScheduledEventType.END_TRIAL:
       return 'Pending trial end'
     default:

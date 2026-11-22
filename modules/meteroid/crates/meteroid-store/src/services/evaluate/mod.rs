@@ -8,3 +8,4 @@ pub mod load;
 pub mod preview;
 pub mod pricer;
 pub mod usage;
+pub(crate) mod windows;

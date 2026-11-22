@@ -17,23 +17,26 @@ use crate::domain::{
 };
 use crate::errors::StoreError;
 use crate::repositories::credit::customer_credit::{
-    self as credit, PeriodCreditRemoval, lock_customer_tx, lock_grants_tx, normalized_currency,
-    source,
+    self as credit, LockedGrants, PeriodCreditRemoval, list_grants_tx, lock_customer_tx,
+    lock_grants_tx, normalized_currency, source,
 };
 use crate::repositories::credit_notes::CreditLineItem;
 use crate::services::Services;
-use crate::services::credit::expiry_settlement::{read_ending_usage, settle_ending_grants_tx};
+use crate::services::clients::usage::UsageClient;
+use crate::services::credit::expiry_settlement::{
+    EndingFold, fold_ending_grants, read_ending_usage, settle_ending_grants_tx,
+};
 use crate::services::evaluate::change::{Change, GiveBack, change_credits};
 use crate::services::invoice_lines::minimum;
-use crate::services::served_usage::UsageReads;
+use crate::services::served_usage::{RecordingUsage, UsageReads};
 use crate::services::subscriptions::amendment::{
     PeriodCreditContext, gather_period_credit_context,
 };
 use crate::services::subscriptions::plan_change::PreparedPlanChange;
-use crate::services::subscriptions::proration::{
-    DayFraction, capped_pack_fee_credit, is_period_tied,
-};
+use crate::services::subscriptions::proration::{DayFraction, is_period_tied};
 use crate::store::PgConn;
+use billing_core::credit::allocation::Classification;
+use billing_core::give_back::{self, PackGrant};
 use chrono::{DateTime, NaiveDate, Utc};
 use common_domain::ids::{
     BaseId, CreditGrantId, CreditNoteId, CustomerId, InvoiceId, SubscriptionAddOnId,
@@ -136,29 +139,20 @@ fn midnight(day: NaiveDate) -> DateTime<Utc> {
     day.and_time(chrono::NaiveTime::MIN).and_utc()
 }
 
-/// The subtotal of an old pack line credited back: the unused time of what is left of it after
-/// earlier notes, capped by its unused paid credit, both read against what the line still bills.
-/// Included credit refunds nothing; a pack not yet paid (no grant) by time.
-fn pack_fee_credit(
-    line: &LineItem,
-    grants: &[CustomerCreditGrantRow],
-    change_date: NaiveDate,
-    already_credited: i64,
-) -> i64 {
-    if line.credit_grant_included || line.taxable_amount <= 0 {
-        return 0;
-    }
-    let billed = (line.amount_subtotal - already_credited).max(0);
-    let unused_time = DayFraction::remaining(line.start_date, line.end_date, change_date);
-    let paid = grants.iter().filter(|grant| grant.classification == PAID);
-    let (unused, face) = paid.fold((0_i64, 0_i64), |(unused, face), grant| {
-        (unused + grant.remaining.max(0), face + grant.amount)
-    });
-    if face > 0 {
-        capped_pack_fee_credit(billed, unused_time, unused, face)
-    } else {
-        unused_time.prorate(billed)
-    }
+/// A pack line's grants as the core's give-back reads them.
+fn pack_grants(grants: &[CustomerCreditGrantRow]) -> Vec<PackGrant> {
+    grants
+        .iter()
+        .map(|grant| PackGrant {
+            face: grant.amount,
+            classification: if grant.classification == PAID {
+                Classification::Paid
+            } else {
+                Classification::Promotional
+            },
+            left: grant.remaining,
+        })
+        .collect()
 }
 
 /// What an immediate plan change or cancellation at `at` stops of the old plan, by lineage.
@@ -562,7 +556,7 @@ fn shortfall_credit_items(
         return Vec::new();
     }
     let lines = ctx.issued_lines(|id| settled.credited.get(id).copied());
-    credit_items(billing_core::shortfall_credits(ending.at, &lines))
+    credit_items(give_back::shortfalls(ending.at, &lines))
 }
 
 /// The old packs tied to the period whose line covers the change and that no change settled yet,
@@ -663,36 +657,105 @@ fn refunded_face(grant: &CustomerCreditGrantRow, refunded_net: i64) -> i64 {
     face.clamp(0, grant.remaining.max(0))
 }
 
-/// What the last pass of a rolled-back preview computed: each pass starts afresh, so a pass that
-/// read metering it was not served never leaves its figures behind.
-struct PassResult<T>(std::sync::Mutex<Option<T>>);
-
-impl<T> Default for PassResult<T> {
-    fn default() -> Self {
-        Self(std::sync::Mutex::new(None))
-    }
+/// The denominations of the ended packs whose credit is left to settle, or not funded yet: their
+/// usage is read before the locks.
+fn owed_denominations(
+    ctx: &PeriodCreditContext,
+    ending: &Ending,
+    settled: &Settled,
+    grants: &[CustomerCreditGrantRow],
+) -> Vec<String> {
+    let mut owed_packs = tied_pack_lines(ctx, ending, settled);
+    // A pack whose credit is all gone has nothing left to settle.
+    owed_packs.retain(|_, lines| {
+        lines.retain(|(line, invoice)| {
+            let mut of_this = grants
+                .iter()
+                .filter(|g| of_line(g, line, *invoice))
+                .peekable();
+            of_this.peek().is_none()
+                || of_this.any(|grant| grant.remaining > 0 && settles_now(ending, grant))
+        });
+        !lines.is_empty()
+    });
+    owed_packs.into_keys().collect()
 }
 
-impl<T> PassResult<T> {
-    fn slot(&self) -> StoreResult<std::sync::MutexGuard<'_, Option<T>>> {
-        self.0
-            .lock()
-            .map_err(|_| Report::new(StoreError::InvoiceComputationError))
-    }
+/// The grants of `lines` the ending settles up to it now: those of a line with credit left to
+/// settle.
+fn ending_grant_ids(
+    lines: &[(&LineItem, InvoiceId)],
+    grants: &LockedGrants,
+    ending: &Ending,
+) -> Vec<CreditGrantId> {
+    let settling: Vec<&(&LineItem, InvoiceId)> = lines
+        .iter()
+        .filter(|(line, invoice)| {
+            grants.iter().any(|scoped| {
+                of_line(&scoped.grant, line, *invoice)
+                    && scoped.grant.remaining > 0
+                    && settles_now(ending, &scoped.grant)
+            })
+        })
+        .collect();
+    grants
+        .iter()
+        .filter(|scoped| {
+            settling
+                .iter()
+                .any(|(line, invoice)| of_line(&scoped.grant, line, *invoice))
+        })
+        .map(|scoped| scoped.grant.id)
+        .collect()
+}
 
-    fn clear(&self) -> StoreResult<()> {
-        *self.slot()? = None;
-        Ok(())
+/// Each pack line's give-back (OQ1) from its grants as the settlement of the usage up to the
+/// ending left them (D3).
+fn outgoing_packs(
+    lines: Vec<(&LineItem, InvoiceId)>,
+    grants: &LockedGrants,
+    ctx: &PeriodCreditContext,
+    ending: &Ending,
+    currency_precision: u8,
+) -> Vec<OutgoingPack> {
+    let mut packs = Vec::new();
+    for (line, invoice_id) in lines {
+        let line_grants: Vec<CustomerCreditGrantRow> = grants
+            .iter()
+            .filter(|scoped| of_line(&scoped.grant, line, invoice_id))
+            .map(|scoped| scoped.grant.clone())
+            .collect();
+        let already = ctx
+            .already_credited
+            .get(&line.local_id)
+            .copied()
+            .unwrap_or(0);
+        // What is left of the line after earlier notes; an included pack, or a line
+        // discounted whole, was paid nothing and gives nothing back.
+        let billed = if line.credit_grant_included || line.taxable_amount <= 0 {
+            0
+        } else {
+            (line.amount_subtotal - already).max(0)
+        };
+        let fee_credit = give_back::pack(
+            billed,
+            DayFraction::remaining(line.start_date, line.end_date, ending.at),
+            &pack_grants(&line_grants),
+        );
+        packs.push(OutgoingPack {
+            name: line.name.clone(),
+            invoice_id,
+            line_local_id: line.local_id.clone(),
+            unit: line.credit_grant_unit.clone(),
+            precision: line
+                .credit_grant_unit
+                .as_ref()
+                .map_or(currency_precision, |unit| unit.precision),
+            fee_credit,
+            grants: line_grants,
+        });
     }
-
-    fn set(&self, value: T) -> StoreResult<()> {
-        *self.slot()? = Some(value);
-        Ok(())
-    }
-
-    fn take(&self) -> StoreResult<Option<T>> {
-        Ok(self.slot()?.take())
-    }
+    packs
 }
 
 /// What an ending settles, under the locks it took.
@@ -1205,20 +1268,30 @@ impl Services {
         Ok(notes)
     }
 
-    /// The old packs' credit as a preview reads it: the usage up to the change is settled in a
-    /// transaction rolled back, so the figures are exactly those the change would remove. Metering
-    /// is read between passes, outside any transaction.
+    /// The old packs' credit as a preview reads it: the ending's settlement of the usage up to the
+    /// change folded in memory over the grants as they stand, writing nothing. Metering is read
+    /// outside any transaction.
     pub(crate) async fn estimate_outgoing_packs(
         &self,
         prepared: &PreparedPlanChange,
         change_date: NaiveDate,
     ) -> StoreResult<OutgoingEstimate> {
-        Ok(self.outgoing_packs_read(prepared, change_date).await?.0)
+        let ending = Ending::of_change(prepared, change_date);
+        let Some(scope) =
+            EndingScope::of_subscription(&prepared.subscription_details.subscription, &ending)
+        else {
+            return Ok(OutgoingEstimate::default());
+        };
+        let mut conn = self.store.get_conn().await?;
+        let packs = self
+            .preview_outgoing_packs(&mut conn, self.usage_client.as_ref(), &scope, &ending)
+            .await?;
+        Ok(OutgoingEstimate { packs })
     }
 
-    /// What the old packs' fees give back on the change's notes, settled in a transaction nested
-    /// in `conn`'s and rolled back: a quote counts them as the change issues them. Metering is
-    /// the caller's: served, or read between passes.
+    /// What the old packs' fees give back on the change's notes, read on `conn` and settled in
+    /// memory: a quote counts them as the change issues them. Metering is the caller's: served,
+    /// or read between passes.
     pub(crate) async fn outgoing_pack_credits_tx(
         &self,
         conn: &mut PgConn,
@@ -1231,31 +1304,9 @@ impl Services {
         else {
             return Ok(Vec::new());
         };
-        let read: PassResult<Vec<OutgoingPack>> = PassResult::default();
-        let (scope, ending, slot) = (&scope, &ending, &read);
-        let outcome = self
-            .store
-            .transaction_with(conn, |conn| {
-                use scoped_futures::ScopedFutureExt;
-                async move {
-                    let packs = self
-                        .plan_ending_tx(conn, scope, ending)
-                        .await?
-                        .map(|planned| planned.packs)
-                        .unwrap_or_default();
-                    slot.set(packs)?;
-                    Err::<(), _>(Report::new(StoreError::InvalidArgument(
-                        "a quoted change is rolled back".to_owned(),
-                    )))
-                }
-                .scope_boxed()
-            })
-            .await;
-        let packs = match (read.take()?, outcome) {
-            (Some(packs), _) => packs,
-            (None, Err(error)) => return Err(error),
-            (None, Ok(())) => Vec::new(),
-        };
+        let packs = self
+            .preview_outgoing_packs(conn, self.usage_client.as_ref(), &scope, &ending)
+            .await?;
         Ok(packs
             .into_iter()
             .filter(|pack| pack.fee_credit > 0)
@@ -1269,47 +1320,6 @@ impl Services {
                 )
             })
             .collect())
-    }
-
-    /// [`Self::estimate_outgoing_packs`] and the metering its last pass was served.
-    async fn outgoing_packs_read(
-        &self,
-        prepared: &PreparedPlanChange,
-        change_date: NaiveDate,
-    ) -> StoreResult<(OutgoingEstimate, UsageReads)> {
-        let ending = Ending::of_change(prepared, change_date);
-        let Some(scope) =
-            EndingScope::of_subscription(&prepared.subscription_details.subscription, &ending)
-        else {
-            return Ok(Default::default());
-        };
-        let estimate = PassResult::default();
-        let (scope, ending, slot) = (&scope, &ending, &estimate);
-        let mut conn = self.store.get_conn().await?;
-        let (outcome, reads) = self
-            .transaction_keeping_usage_reads(&mut conn, |services, conn| {
-                use scoped_futures::ScopedFutureExt;
-                async move {
-                    slot.clear()?;
-                    let estimate = match services.plan_ending_tx(conn, scope, ending).await? {
-                        Some(planned) => OutgoingEstimate {
-                            packs: planned.packs,
-                        },
-                        None => OutgoingEstimate::default(),
-                    };
-                    slot.set(estimate)?;
-                    Err::<(), _>(Report::new(StoreError::InvalidArgument(
-                        "plan change preview rolled back".to_owned(),
-                    )))
-                }
-                .scope_boxed()
-            })
-            .await?;
-        match (estimate.take()?, outcome) {
-            (Some(estimate), _) => Ok((estimate, reads)),
-            (None, Err(error)) => Err(error),
-            (None, Ok(())) => Ok((OutgoingEstimate::default(), reads)),
-        }
     }
 
     /// The metering an immediate plan change reads, read outside any transaction or lock: the
@@ -1333,14 +1343,97 @@ impl Services {
                 change_date,
             )
             .await?;
-        drop(conn);
         if prepared.is_free_trial() {
             return Ok(None);
         }
-        Ok(Some(
-            self.outgoing_packs_read(&prepared, change_date).await?.1,
-        ))
+        let ending = Ending::of_change(&prepared, change_date);
+        let Some(scope) =
+            EndingScope::of_subscription(&prepared.subscription_details.subscription, &ending)
+        else {
+            return Ok(Some(UsageReads::default()));
+        };
+        let recorded = RecordingUsage::new(self.usage_client.clone());
+        self.preview_outgoing_packs(&mut conn, &recorded, &scope, &ending)
+            .await?;
+        Ok(Some(recorded.reads()?))
     }
+
+    /// The old packs as the ending would leave them, read without a lock: the settlement of their
+    /// usage up to it folded over the grants in memory (`fold_ending_grants`), in the order the
+    /// ending settles their denominations, then each pack's give-back. Writes nothing.
+    async fn preview_outgoing_packs(
+        &self,
+        conn: &mut PgConn,
+        usage_client: &dyn UsageClient,
+        scope: &EndingScope,
+        ending: &Ending,
+    ) -> StoreResult<Vec<OutgoingPack>> {
+        let EndingScope {
+            tenant_id,
+            customer_id,
+            subscription_id,
+            ..
+        } = *scope;
+        let at = ending.settle_at;
+        let now = common_clock::now();
+        let ctx =
+            gather_period_credit_context(conn, tenant_id, subscription_id, scope.from, scope.to)
+                .await?;
+        let settled = Settled::read(conn, tenant_id, subscription_id, &ctx).await?;
+        let grants =
+            CustomerCreditGrantRow::list_for_customer(conn, tenant_id, customer_id).await?;
+        let owed = owed_denominations(&ctx, ending, &settled, &grants);
+        if owed.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut usage = HashMap::new();
+        for denomination in owed {
+            let read = read_ending_usage(
+                &self.store,
+                usage_client,
+                conn,
+                tenant_id,
+                customer_id,
+                &denomination,
+                at,
+                now,
+            )
+            .await?;
+            usage.insert(denomination, read);
+        }
+        let currency_precision =
+            crate::constants::Currencies::resolve_currency_precision(&scope.currency).unwrap_or(2);
+        let mut fold = EndingFold::default();
+        let mut packs = Vec::new();
+        for (denomination, lines) in tied_pack_lines(&ctx, ending, &settled) {
+            let mut grants = list_grants_tx(conn, tenant_id, customer_id, &denomination).await?;
+            let ending_ids = ending_grant_ids(&lines, &grants, ending);
+            fold_ending_grants(
+                &self.store,
+                usage_client,
+                conn,
+                tenant_id,
+                customer_id,
+                &denomination,
+                &mut grants,
+                &ending_ids,
+                at,
+                now,
+                usage.get(&denomination),
+                &mut fold,
+            )
+            .await?;
+            packs.extend(outgoing_packs(
+                lines,
+                &grants,
+                &ctx,
+                ending,
+                currency_precision,
+            ));
+        }
+        Ok(packs)
+    }
+
     /// Locks the customer, the scope's invoices and the grants of each denomination the ended
     /// packs funded, in the credit lock order, then settles those packs' usage up to the change.
     /// None, without a lock, when nothing is left to settle.
@@ -1380,27 +1473,15 @@ impl Services {
         };
         let grants =
             CustomerCreditGrantRow::list_for_customer(conn, tenant_id, customer_id).await?;
-        let mut owed_packs = tied_pack_lines(&unlocked, ending, &settled);
-        // A pack whose credit is all gone has nothing left to settle.
-        owed_packs.retain(|_, lines| {
-            lines.retain(|(line, invoice)| {
-                let mut of_this = grants
-                    .iter()
-                    .filter(|g| of_line(g, line, *invoice))
-                    .peekable();
-                of_this.peek().is_none()
-                    || of_this.any(|grant| grant.remaining > 0 && settles_now(ending, grant))
-            });
-            !lines.is_empty()
-        });
-        if owed_packs.is_empty()
+        let owed = owed_denominations(&unlocked, ending, &settled, &grants);
+        if owed.is_empty()
             && ending_fee_items(&unlocked, from_facts.as_deref()).is_empty()
             && shortfall_credit_items(ending, &unlocked, &settled).is_empty()
         {
             return Ok(None);
         }
         let mut usage = HashMap::new();
-        for denomination in owed_packs.into_keys() {
+        for denomination in owed {
             let read = read_ending_usage(
                 &self.store,
                 self.usage_client.as_ref(),
@@ -1429,25 +1510,7 @@ impl Services {
         let mut packs = Vec::new();
         for (denomination, lines) in tied_pack_lines(&ctx, ending, &settled) {
             let mut grants = lock_grants_tx(conn, &lock, &denomination).await?;
-            let settling: Vec<&(&LineItem, InvoiceId)> = lines
-                .iter()
-                .filter(|(line, invoice)| {
-                    grants.iter().any(|scoped| {
-                        of_line(&scoped.grant, line, *invoice)
-                            && scoped.grant.remaining > 0
-                            && settles_now(ending, &scoped.grant)
-                    })
-                })
-                .collect();
-            let ending_ids: Vec<CreditGrantId> = grants
-                .iter()
-                .filter(|scoped| {
-                    settling
-                        .iter()
-                        .any(|(line, invoice)| of_line(&scoped.grant, line, *invoice))
-                })
-                .map(|scoped| scoped.grant.id)
-                .collect();
+            let ending_ids = ending_grant_ids(&lines, &grants, ending);
             settle_ending_grants_tx(
                 &self.store,
                 self.usage_client.as_ref(),
@@ -1462,30 +1525,13 @@ impl Services {
                 usage.get(&denomination),
             )
             .await?;
-            for (line, invoice_id) in lines {
-                let line_grants: Vec<CustomerCreditGrantRow> = grants
-                    .iter()
-                    .filter(|scoped| of_line(&scoped.grant, line, invoice_id))
-                    .map(|scoped| scoped.grant.clone())
-                    .collect();
-                let already = ctx
-                    .already_credited
-                    .get(&line.local_id)
-                    .copied()
-                    .unwrap_or(0);
-                packs.push(OutgoingPack {
-                    name: line.name.clone(),
-                    invoice_id,
-                    line_local_id: line.local_id.clone(),
-                    unit: line.credit_grant_unit.clone(),
-                    precision: line
-                        .credit_grant_unit
-                        .as_ref()
-                        .map_or(currency_precision, |unit| unit.precision),
-                    fee_credit: pack_fee_credit(line, &line_grants, ending.at, already),
-                    grants: line_grants,
-                });
-            }
+            packs.extend(outgoing_packs(
+                lines,
+                &grants,
+                &ctx,
+                ending,
+                currency_precision,
+            ));
         }
         // Read again under the locks: an invoice issued meanwhile is credited too.
         let from_facts = match &ending.from_facts {
@@ -1728,7 +1774,15 @@ impl Services {
             let owed = (on_time - drawn).max(0);
             let left = line.amount_subtotal - credited.get(&line.local_id).copied().unwrap_or(0);
             let fee_credit = if left > 0 && owed > 0 {
-                capped_pack_fee_credit(left, DayFraction::WHOLE, owed, paid.amount)
+                give_back::pack(
+                    left,
+                    DayFraction::WHOLE,
+                    &[PackGrant {
+                        face: paid.amount,
+                        classification: Classification::Paid,
+                        left: owed,
+                    }],
+                )
             } else {
                 0
             };

@@ -1,7 +1,7 @@
 //! Credit settlement of one document: promotional credit off the charges after
 //! discount and before tax (R-021, R1), the lines it moves taxed again by their rates, then paid
-//! credit on what is left with tax. Drafts, previews and forecasts call [`settle`]; finalize runs
-//! the same steps with the ledger's draws in between.
+//! credit on what is left with tax. Drafts, previews, forecasts and finalize each call [`settle`]
+//! once; finalize on the grants it holds under its locks, then writes the draws it decided.
 
 use std::collections::{BTreeMap, HashMap};
 

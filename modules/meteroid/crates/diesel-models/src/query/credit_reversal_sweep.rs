@@ -148,7 +148,7 @@ impl ReversedPurchaseInvoice {
                  LEFT JOIN reversed r ON r.tenant_id = iv.tenant_id AND r.invoice_id = iv.invoice_id
                  LEFT JOIN refunded rf ON rf.tenant_id = iv.tenant_id AND rf.invoice_id = iv.invoice_id
                  LEFT JOIN reduced f ON f.tenant_id = iv.tenant_id AND f.invoice_id = iv.invoice_id),
-             -- `InvoiceCollections::uncollected`, in SQL.
+             -- The account's `uncollected` (`billing_core::settlement`), in SQL: candidates only.
              backing AS (
                  SELECT m.tenant_id, m.invoice_id, m.since, m.touched_at,
                         greatest(least(m.reversed + m.refunded,

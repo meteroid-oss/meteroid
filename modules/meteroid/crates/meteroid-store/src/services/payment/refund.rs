@@ -477,20 +477,29 @@ impl Services {
                     let _ = sync_parent_refunded(conn, &parent).await?;
                     if let (Some(_), Some(invoice_id)) = (command.credit_note_id, parent.invoice_id)
                     {
-                        let (lock, _, _) = crate::repositories::payment_transactions::recompute_invoice_payment_state(
+                        let lock = crate::repositories::invoice_account::settle_tx(
                             conn, tenant_id, invoice_id, None,
                         )
-                        .await?;
+                        .await?
+                        .lock;
                         crate::services::credit::reconcile_purchased_credit_tx(
                             conn,
-                            &*self.store.hooks.credit, &lock, invoice_id, None,
+                            &*self.store.hooks.credit,
+                            &lock,
+                            invoice_id,
+                            None,
                         )
                         .await?;
                     }
                     if let Some(invoice_id) = parent.invoice_id {
                         crate::services::credit::collected_payment::reconcile_overpayment_tx(
                             conn,
-                            &*self.store.hooks.credit, tenant_id, invoice_id, None, crate::domain::wallet_events::CreditUnrecoveredCause::PaymentRefunded, None
+                            &*self.store.hooks.credit,
+                            tenant_id,
+                            invoice_id,
+                            None,
+                            crate::domain::wallet_events::CreditUnrecoveredCause::PaymentRefunded,
+                            None,
                         )
                         .await?;
                     }
@@ -854,53 +863,12 @@ async fn validate_overpayment_draw(
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
-    let transactions = PaymentTransactionRow::list_by_invoice_id(conn, invoice_id, tenant_id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-    let collected: i64 = transactions
-        .iter()
-        .map(|t| &t.transaction)
-        .filter(|t| {
-            t.payment_type.is_collection()
-                && matches!(
-                    t.status,
-                    PaymentStatusEnum::Settled | PaymentStatusEnum::Refunded
-                )
-        })
-        .map(|t| t.amount - t.amount_reversed)
-        .sum();
-
-    // Refunds that claim no avoir: they come out of the same overpaid money this draw wants.
-    // A refund drawn on an avoir is already reserved by `entitlement` below, whether or not it
-    // has settled, so counting it here too would charge it twice.
-    let taken: i64 = transactions
-        .iter()
-        .map(|t| &t.transaction)
-        .filter(|t| {
-            t.payment_type == PaymentTypeEnum::Refund
-                && t.credit_note_id.is_none()
-                && matches!(
-                    t.status,
-                    PaymentStatusEnum::Ready
-                        | PaymentStatusEnum::Pending
-                        | PaymentStatusEnum::Settled
-                )
-        })
-        .map(|t| t.amount)
-        .sum();
-
-    // Every finalized avoir's refundable amount is spoken for even before it is drawn: it is
-    // owed to the customer through the credit note, so it can never double as overpaid money.
-    let entitlement = CreditNoteRow::sum_finalized_refundable(conn, invoice_id, tenant_id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-    let cancelled = CreditNoteRow::sum_finalized_invoice_reducing(conn, invoice_id, tenant_id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-    let owed = invoice.invoice.total - invoice.invoice.applied_credits - cancelled;
-
-    let overpaid = collected - owed - entitlement - taken;
+    // The account's excess: what collections keep above what the invoice asks, once refunds
+    // without a note took theirs and finalized avoirs promised their cash back (Q1).
+    let overpaid = crate::repositories::invoice_account::load_tx(conn, &invoice.invoice)
+        .await?
+        .state()
+        .excess;
     if amount > overpaid {
         return Err(missing_credit_note());
     }

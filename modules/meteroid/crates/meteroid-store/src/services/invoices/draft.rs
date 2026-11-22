@@ -894,11 +894,8 @@ impl Services {
             customer_details: customer.clone().into(),
             seller_details: invoicing_entity.into(),
             auto_advance: false,
-            payment_status: if content.computed.amount_due > 0 {
-                InvoicePaymentStatus::Unpaid
-            } else {
-                InvoicePaymentStatus::Paid
-            },
+            // Its account decides once it is issued (R-125).
+            payment_status: InvoicePaymentStatus::Unpaid,
             discount: 0,
             tax_breakdown: content.computed.tax_breakdown,
             tax_amount: content.computed.tax_amount,
