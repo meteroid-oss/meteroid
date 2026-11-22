@@ -1,4 +1,4 @@
-import { Navigate, useParams } from 'react-router-dom'
+import { Navigate, useParams } from 'react-router'
 
 import { DemoDataOnboardingForm } from '@/features/onboarding/demoDataOnboardingForm'
 import { useQuery } from '@/lib/connectrpc'

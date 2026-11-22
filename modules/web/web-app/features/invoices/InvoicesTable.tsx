@@ -13,7 +13,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { ColumnDef, OnChangeFn, PaginationState, SortingState } from '@tanstack/react-table'
 import { CheckCircleIcon, Eye, MoreVerticalIcon, TriangleAlertIcon } from 'lucide-react'
 import { ReactNode, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
 import { Gate } from '@/components/Gate'

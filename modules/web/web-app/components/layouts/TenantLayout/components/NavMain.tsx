@@ -14,7 +14,7 @@ import {
 } from '@ui/index'
 import { ChevronRight, type LucideIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { NavLink, To, useLocation } from 'react-router-dom'
+import { NavLink, To, useLocation } from 'react-router'
 
 function Tree({
   item,

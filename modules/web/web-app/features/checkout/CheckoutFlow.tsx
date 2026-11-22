@@ -2,7 +2,7 @@ import { Code, ConnectError } from '@connectrpc/connect'
 import { useMutation } from '@connectrpc/connect-query'
 import { AlertCircle, ArrowLeft } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router'
 
 import { CheckoutThemePane } from '@/features/checkout/CheckoutThemePane'
 import { PaymentPanel } from '@/features/checkout/PaymentPanel'

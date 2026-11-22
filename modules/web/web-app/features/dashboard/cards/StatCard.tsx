@@ -1,6 +1,6 @@
 import { Button, Card, Skeleton, cn } from '@md/ui'
 import { useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { useCurrency } from '@/hooks/useCurrency'
 

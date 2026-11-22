@@ -1,7 +1,7 @@
 import { UseQueryResult } from '@tanstack/react-query'
 import { ColumnDef, OnChangeFn, PaginationState, SortingState } from '@tanstack/react-table'
 import { useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 
 import { LocalId } from '@/components/LocalId'
 import { StandardTable } from '@/components/table/StandardTable'

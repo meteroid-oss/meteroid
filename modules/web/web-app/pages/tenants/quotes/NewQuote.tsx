@@ -1,6 +1,6 @@
 import { Skeleton } from '@md/ui'
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 
 import { decodeSnapshot } from '@/features/quotes/editor/draftPayload'

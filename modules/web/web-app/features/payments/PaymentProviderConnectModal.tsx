@@ -15,7 +15,7 @@ import {
 import { Check, CheckCircle2, X } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Control } from 'react-hook-form'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import { z } from 'zod'
 

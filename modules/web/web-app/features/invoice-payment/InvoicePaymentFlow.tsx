@@ -3,7 +3,7 @@ import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
 import { AlertCircle } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 
 import { pagePortalToken } from '@/features/auth/portalToken'
 import { CheckoutThemePane } from '@/features/checkout/CheckoutThemePane'

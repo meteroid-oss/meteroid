@@ -25,7 +25,7 @@ import { format } from 'date-fns'
 import { CalendarIcon, InfoIcon } from 'lucide-react'
 import { customAlphabet } from 'nanoid'
 import { FunctionComponent, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
 import { CurrencySelect } from '@/components/CurrencySelect'

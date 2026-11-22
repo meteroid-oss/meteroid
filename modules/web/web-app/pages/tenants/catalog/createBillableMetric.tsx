@@ -1,5 +1,5 @@
 import { FunctionComponent } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation } from 'react-router'
 
 import { ProductMetricsCreatePanel } from '@/features/productCatalog/metrics/ProductMetricsCreatePanel'
 

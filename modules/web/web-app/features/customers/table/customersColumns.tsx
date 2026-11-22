@@ -12,7 +12,7 @@ import { ColumnDef, Row } from '@tanstack/react-table'
 import { CountryFlag } from '@ui/components'
 import { Eye, FolderSyncIcon, MoreVerticalIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router'
 
 import { Gate } from '@/components/Gate'
 import { slotItems } from '@/edition'

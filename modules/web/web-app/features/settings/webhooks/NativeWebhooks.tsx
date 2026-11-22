@@ -1,7 +1,7 @@
 import { Button } from '@md/ui'
 import { ArrowLeftIcon } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
 import { EndpointDialog } from '@/features/settings/webhooks/EndpointDialog'

@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { cn } from '@ui/lib'
 import { AlertTriangle, ExternalLink, Plus } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 
 import { LocalId } from '@/components/LocalId'
 import { TenantPageLayout } from '@/components/layouts'

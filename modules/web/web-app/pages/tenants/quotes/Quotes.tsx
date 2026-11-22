@@ -2,7 +2,7 @@ import { Button } from '@md/ui'
 import { SortingState } from '@tanstack/react-table'
 import { Plus } from 'lucide-react'
 import { useCallback, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { Gate } from '@/components/Gate'
 import { ListPageHeader, ListToolbarSearch, RefreshButton, TableCard } from '@/components/layouts'

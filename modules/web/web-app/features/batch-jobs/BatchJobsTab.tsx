@@ -15,7 +15,7 @@ import {
 } from '@md/ui'
 import { PaginationState } from '@tanstack/react-table'
 import { FunctionComponent, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 
 import Pagination from '@/components/table/CustomTable/components/Pagination/Pagination'
 import {

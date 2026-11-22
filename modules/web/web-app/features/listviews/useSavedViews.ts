@@ -1,7 +1,7 @@
 import { create } from '@bufbuild/protobuf'
 import { OnChangeFn, SortingState, VisibilityState } from '@tanstack/react-table'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 
 import { ColumnState } from '@/components/table/StandardTable'

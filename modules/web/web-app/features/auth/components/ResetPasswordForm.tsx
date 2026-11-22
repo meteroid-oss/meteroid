@@ -1,6 +1,6 @@
 import { useMutation } from '@connectrpc/connect-query'
 import { Button, Form, InputFormField } from '@md/ui'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router'
 import { z } from 'zod'
 
 import { useZodForm } from '@/hooks/useZodForm'

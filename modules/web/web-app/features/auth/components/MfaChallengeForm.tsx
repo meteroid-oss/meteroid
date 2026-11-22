@@ -2,7 +2,7 @@ import { create } from '@bufbuild/protobuf'
 import { useMutation } from '@connectrpc/connect-query'
 import { Button, Form, InputFormField } from '@md/ui'
 import { useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router'
 import { z } from 'zod'
 
 import { useSession } from '@/features/auth/session'

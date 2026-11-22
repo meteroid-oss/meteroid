@@ -12,7 +12,7 @@ import {
 import { cn } from '@ui/lib'
 import { ChevronRight } from 'lucide-react'
 import { Fragment, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import Pagination from '@/components/table/CustomTable/components/Pagination'
 import { ProductScopeBadge } from '@/features/credit/ProductScopeBadge'

@@ -14,7 +14,7 @@ import { SortingState } from '@tanstack/react-table'
 import { Button } from '@ui/components'
 import { ChevronDown } from 'lucide-react'
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 
 import { Gate } from '@/components/Gate'
 import { ListPageLayout, ListToolbarSearch, RefreshButton } from '@/components/layouts'

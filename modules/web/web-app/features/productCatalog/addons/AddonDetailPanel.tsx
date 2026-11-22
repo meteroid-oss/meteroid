@@ -11,7 +11,7 @@ import {
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { PencilIcon, Trash2Icon } from 'lucide-react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router'
 
 import { Gate } from '@/components/Gate'
 import { LocalId } from '@/components/LocalId'

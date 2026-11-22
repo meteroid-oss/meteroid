@@ -10,7 +10,7 @@ import {
 import { format, formatDistanceToNow, isValid } from 'date-fns'
 import { RefreshCw, X } from 'lucide-react'
 import { ReactNode, useCallback, useEffect, useRef } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router'
 
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
 import { useDismissRouteModal } from '@/hooks/useDismissRouteModal'

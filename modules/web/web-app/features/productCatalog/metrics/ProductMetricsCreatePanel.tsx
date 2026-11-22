@@ -10,7 +10,7 @@ import {
 import { D, pipe } from '@mobily/ts-belt'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
 import { Slot, hasSlot } from '@/edition'

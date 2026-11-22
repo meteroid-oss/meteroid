@@ -1,6 +1,6 @@
 import { Button, Tabs, TabsContent, TabsList, TabsTrigger } from '@md/ui'
 import { useCallback, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { Slot, hasSlot, placeAfter, slotItems, useVisibleItems } from '@/edition'
 import { QuoteLineComments } from '@/edition/types'

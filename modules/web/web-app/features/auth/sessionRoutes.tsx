@@ -1,6 +1,6 @@
 import { jwtDecode } from 'jwt-decode'
 import { FC, useEffect, useMemo } from 'react'
-import { Outlet, useNavigate } from 'react-router-dom'
+import { Outlet, useNavigate } from 'react-router'
 
 import { Loading } from '@/components/Loading'
 import { ForcedEnrollmentGate } from '@/features/auth/components/ForcedEnrollmentGate'

@@ -2,7 +2,7 @@ import { Button } from '@md/ui'
 import { cn } from '@ui/lib'
 import { useAtom } from 'jotai'
 import { useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router'
 import { useWizard } from 'react-use-wizard'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'

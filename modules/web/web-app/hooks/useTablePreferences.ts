@@ -2,7 +2,7 @@ import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
 import { OnChangeFn, PaginationState, VisibilityState } from '@tanstack/react-table'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router'
 
 import { useQuery } from '@/lib/connectrpc'
 import { me, updateUserPreferences } from '@/rpc/api/users/v1/users-UsersService_connectquery'

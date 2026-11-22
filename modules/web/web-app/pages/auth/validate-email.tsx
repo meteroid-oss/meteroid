@@ -1,4 +1,4 @@
-import { Navigate, useSearchParams } from 'react-router-dom'
+import { Navigate, useSearchParams } from 'react-router'
 
 import { Loader } from '@/features/auth/components/Loader'
 import { ValidateEmailForm } from '@/features/auth/components/ValidateEmailForm'

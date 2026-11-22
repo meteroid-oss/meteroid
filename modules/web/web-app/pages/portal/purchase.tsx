@@ -4,7 +4,7 @@ import { Form, cn } from '@md/ui'
 import { AlertCircle, Loader2, Server } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWatch } from 'react-hook-form'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router'
 import { z } from 'zod'
 
 import { CheckoutThemePane } from '@/features/checkout/CheckoutThemePane'

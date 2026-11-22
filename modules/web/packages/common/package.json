@@ -2,7 +2,7 @@
   "name": "@md/common",
   "version": "0.1.0",
   "dependencies": {
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@md/tsconfig": "workspace:*",

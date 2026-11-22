@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { useEffect } from "react";
-import { useSearchParams, useNavigate } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router'
 
 import { Loading } from "@/components/Loading";
 import { useSession } from "@/features/auth";

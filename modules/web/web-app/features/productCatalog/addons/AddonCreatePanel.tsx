@@ -28,7 +28,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 import { InfoIcon } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 
 import { CustomCreationFlow, IdentitySchema } from '@/features/addons/CustomCreationFlow'
 import { ProductEntitlementsCreationStep } from '@/features/entitlements/creation/ProductEntitlementsCreationStep'

@@ -8,7 +8,7 @@ import {
 } from '@md/ui'
 import { MoreHorizontal, RefreshCwIcon } from 'lucide-react'
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { PaymentMethodDisplay } from '@/features/invoices/PaymentMethodDisplay'
 import { RefundCreditNoteOption, RefundDialog } from '@/features/invoices/RefundDialog'

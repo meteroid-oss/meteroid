@@ -1,5 +1,5 @@
 import { FunctionComponent } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams } from 'react-router'
 
 import { ProductMetricsEditView } from '@/features/productCatalog/metrics/ProductMetricsEditView'
 

@@ -8,7 +8,7 @@ import {
 } from '@md/ui'
 import { createContext, useContext, useEffect } from 'react'
 import { useController, useWatch, type Control, type FieldValues } from 'react-hook-form'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { UncontrolledPriceInput } from '@/components/form/PriceInput'
 import { creditValue } from '@/features/pricing/creditValue'

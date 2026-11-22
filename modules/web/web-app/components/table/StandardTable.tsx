@@ -9,7 +9,7 @@ import {
   flexRender,
 } from '@tanstack/react-table'
 import { ReactNode, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { CustomTable } from '@/components/table/CustomTable'
 import { useTableDensity, useTablePreferences } from '@/hooks/useTablePreferences'

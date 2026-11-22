@@ -1,8 +1,8 @@
 import { Badge, cn } from '@md/ui'
-import { NavLink } from 'react-router-dom'
+import { NavLink } from 'react-router'
 
 import type { FunctionComponent, ReactNode } from 'react'
-import type { To } from 'react-router-dom'
+import type { To } from 'react-router'
 
 export interface ItemProps {
   label: string | ReactNode

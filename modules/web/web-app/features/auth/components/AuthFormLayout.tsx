@@ -1,6 +1,6 @@
 import { useQuery } from '@connectrpc/connect-query'
 import { Button, Flex, Separator } from '@ui/components'
-import { Outlet, useLocation, useSearchParams } from 'react-router-dom'
+import { Outlet, useLocation, useSearchParams } from 'react-router'
 
 import { env } from "@/lib/env";
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'

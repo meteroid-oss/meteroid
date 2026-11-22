@@ -1,7 +1,7 @@
 import { create } from '@bufbuild/protobuf'
 import { AlertTriangle, Plus } from 'lucide-react'
 import { Fragment, useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router'
 
 import { Slot } from '@/edition'
 import { productScopeLabel } from '@/features/credit/ProductScopeBadge'

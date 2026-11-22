@@ -22,7 +22,7 @@ import {
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { ArchiveIcon, ArchiveRestoreIcon } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { toast } from 'sonner'
 
 import { Gate } from '@/components/Gate'

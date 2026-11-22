@@ -1,4 +1,4 @@
-import { RouteObject } from 'react-router-dom'
+import { RouteObject } from 'react-router'
 
 import { AuthFormLayout } from '@/features/auth/components/AuthFormLayout'
 import { AuthLayout } from '@/features/auth/components/AuthLayout'

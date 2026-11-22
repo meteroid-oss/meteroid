@@ -6,7 +6,7 @@ import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '@ui/com
 import { useAtom } from 'jotai'
 import { Calendar, Package, PlusIcon, Shield, Tag, User } from 'lucide-react'
 import { useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { useWizard } from 'react-use-wizard'
 import { toast } from 'sonner'
 

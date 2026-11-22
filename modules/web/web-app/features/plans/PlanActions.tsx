@@ -11,7 +11,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useAtom } from 'jotai'
 import { ArchiveIcon, ArchiveRestoreIcon, ChevronDown, PencilIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
 import ConfirmationModal from '@/components/ConfirmationModal'

@@ -1,6 +1,6 @@
 import { skipToken } from '@connectrpc/connect-query'
 import { Skeleton } from '@md/ui'
-import { useParams , Outlet } from 'react-router-dom'
+import { useParams , Outlet } from 'react-router'
 
 import { FeatureCreateSheet } from '@/features/entitlements/features/FeatureCreateSheet'
 import { FeatureDetailSheet } from '@/features/entitlements/features/FeatureDetailSheet'

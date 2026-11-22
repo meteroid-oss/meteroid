@@ -1,4 +1,4 @@
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate } from 'react-router'
 
 import { useSession } from '@/features/auth'
 import { clearAllPortalTokens } from '@/features/auth/portalToken'

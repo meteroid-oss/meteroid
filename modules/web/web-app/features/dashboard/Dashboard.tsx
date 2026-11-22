@@ -1,7 +1,7 @@
 import { Button, Card, Checkbox, Flex, Separator } from '@md/ui'
 import { Heart, SettingsIcon } from 'lucide-react'
 import { useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { DetailsSection } from '@/features/dashboard/sections/DetailsSection'
 import { MrrSection } from '@/features/dashboard/sections/MrrSection'

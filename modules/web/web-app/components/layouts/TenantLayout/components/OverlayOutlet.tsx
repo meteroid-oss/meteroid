@@ -8,7 +8,7 @@ import {
   useNavigate,
   useOutlet,
   useParams,
-} from 'react-router-dom'
+} from 'react-router'
 
 import { historyIdx } from '@/lib/utils/history'
 

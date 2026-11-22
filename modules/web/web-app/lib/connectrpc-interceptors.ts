@@ -1,5 +1,5 @@
 import { Code, ConnectError } from '@connectrpc/connect'
-import { matchRoutes } from 'react-router-dom'
+import { matchRoutes } from 'react-router'
 import { toast } from 'sonner'
 
 import { clearPortalToken, portalTokenScope, scopePortalToken } from '@/features/auth/portalToken'

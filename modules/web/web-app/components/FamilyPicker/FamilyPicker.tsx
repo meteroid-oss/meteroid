@@ -9,7 +9,7 @@ import {
   PopoverTrigger,
 } from '@md/ui'
 import { ChevronsUpDown, PlusIcon } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { useQueryState } from '@/hooks/useQueryState'
 import { useQuery } from '@/lib/connectrpc'

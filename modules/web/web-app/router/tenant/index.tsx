@@ -1,5 +1,5 @@
 import { SidebarProvider } from '@ui/components'
-import { RouteObject } from 'react-router-dom'
+import { RouteObject } from 'react-router'
 
 import { StandardOnly } from '@/components/StandardOnly'
 import { TenantLayoutOutlet } from '@/components/layouts'

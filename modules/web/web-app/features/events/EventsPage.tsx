@@ -7,7 +7,7 @@ import { format, parseISO } from 'date-fns'
 import { EyeIcon, FileUpIcon, PauseIcon, PlayIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { DateRange } from 'react-day-picker'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router'
 
 import { Gate } from '@/components/Gate'
 import { ListPageLayout, ListToolbarSearch, RefreshButton } from '@/components/layouts'

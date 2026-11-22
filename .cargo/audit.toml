@@ -1,13 +1,9 @@
 [advisories]
 # quick-xml <0.41 DoS (RUSTSEC-2026-0194/0195). Only reachable via trusted XML
-# (object_store cloud API responses, typst-bundled themes/CSL styles). No
-# object_store/plist/citationberg release depends on quick-xml >=0.41 yet; drop these when one does.
-#
-# rkyv 0.7 OOB reads (RUSTSEC-2026-0235). Lockfile-only via rust_decimal's
-# never-enabled legacy `rkyv` feature (`cargo tree -i rkyv --target all` is
-# empty); drop when rust_decimal removes the optional rkyv 0.7 dependency.
+# (object_store cloud API responses, typst-bundled CSL styles). object_store 0.14
+# has quick-xml 0.41 but forces aws-lc (see check-crypto-backends.sh), and no
+# citationberg release depends on quick-xml >=0.41 yet; drop these when both do.
 ignore = [
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
-    "RUSTSEC-2026-0235",
 ]

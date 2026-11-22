@@ -20,7 +20,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { FunctionComponent, ReactNode, useState } from 'react'
-import { Navigate, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Navigate, Outlet, useLocation, useNavigate, useParams } from 'react-router'
 
 import { useCloseOverlay } from '@/components/layouts/TenantLayout/components/OverlayOutlet'
 import { editionId, placeAfter, slotItems, useVisibleItems } from '@/edition'

@@ -1,5 +1,5 @@
 import { Button } from '@md/ui'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 
 import { OrganizationOnboardingForm } from '@/features/onboarding/organizationOnboardingForm'
 import { useQuery } from '@/lib/connectrpc'

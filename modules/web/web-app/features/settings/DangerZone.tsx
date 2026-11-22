@@ -1,6 +1,6 @@
 import { useMutation } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
 import { DangerAction, DangerZone as DangerZoneSection } from '@/features/settings/components/DangerZone'

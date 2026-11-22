@@ -6,7 +6,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { addDays, startOfDay } from 'date-fns'
 import { ArrowLeft, Save } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 
 import { Slot, hasSlot } from '@/edition'

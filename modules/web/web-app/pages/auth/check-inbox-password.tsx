@@ -1,5 +1,5 @@
 import { Button } from '@ui/components'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router'
 
 import type { FunctionComponent } from 'react'
 

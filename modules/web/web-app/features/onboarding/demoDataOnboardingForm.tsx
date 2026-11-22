@@ -1,6 +1,6 @@
 import { useMutation } from '@connectrpc/connect-query'
 import { Button, Flex, Spinner } from '@md/ui'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 
 import { buildSyncParam } from '@/hooks/useSyncQueries'
 import { TenantEnvironmentEnum } from '@/rpc/api/tenants/v1/models_pb'

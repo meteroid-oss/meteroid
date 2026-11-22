@@ -1,5 +1,5 @@
 import { FunctionComponent } from 'react'
-import { Outlet } from 'react-router-dom'
+import { Outlet } from 'react-router'
 
 import { TenantPageLayout } from '@/components/layouts'
 

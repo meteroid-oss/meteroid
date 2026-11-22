@@ -13,7 +13,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { CommandList } from 'cmdk'
 import { ChevronsUpDownIcon, PlusIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { useOrganizationSlug } from '@/hooks/useOrganization'
 import { useTenant } from '@/hooks/useTenant'

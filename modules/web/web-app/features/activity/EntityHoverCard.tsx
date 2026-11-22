@@ -1,5 +1,5 @@
 import { HoverCard, HoverCardContent, HoverCardTrigger, Skeleton } from '@md/ui'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { toast } from 'sonner'
 
 import { useBasePath } from '@/hooks/useBasePath'

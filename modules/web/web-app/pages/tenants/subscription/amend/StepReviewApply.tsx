@@ -15,7 +15,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useAtom } from 'jotai'
 import { ArrowRight, Calendar, Minus, Pencil, Plus, Zap } from 'lucide-react'
 import { useEffect, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { useWizard } from 'react-use-wizard'
 import { toast } from 'sonner'
 

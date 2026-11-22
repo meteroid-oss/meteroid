@@ -1,6 +1,6 @@
 import { useQuery } from '@connectrpc/connect-query'
 import { Flex } from '@ui/components'
-import { Outlet, useLocation } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router'
 import { match } from 'ts-pattern'
 
 import { MeteroidTitle } from '@/components/svg'

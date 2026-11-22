@@ -1,7 +1,7 @@
 import { TransportProvider } from '@connectrpc/connect-query'
 import { createGrpcWebTransport } from '@connectrpc/connect-web'
 import { QueryClientProvider } from '@tanstack/react-query'
-import { RouterProvider } from 'react-router-dom'
+import { RouterProvider } from 'react-router/dom'
 
 import {
   authInterceptor,
@@ -27,7 +27,7 @@ export const App: React.FC = () => {
     <TransportProvider transport={transport}>
       <QueryClientProvider client={queryClient}>
         {/* Route changes render as a transition: the clicked page keeps responding while the next one renders. */}
-        <RouterProvider router={router} future={{ v7_startTransition: true }} />
+        <RouterProvider router={router} />
       </QueryClientProvider>
     </TransportProvider>
   )

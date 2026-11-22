@@ -15,7 +15,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { PaginationState } from '@tanstack/react-table'
 import { DownloadIcon, ExternalLinkIcon, FileIcon, RefreshCwIcon, XCircleIcon } from 'lucide-react'
 import { FunctionComponent, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { toast } from 'sonner'
 
 import Pagination from '@/components/table/CustomTable/components/Pagination/Pagination'

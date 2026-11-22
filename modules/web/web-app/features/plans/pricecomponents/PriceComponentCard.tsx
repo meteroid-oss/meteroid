@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useAtom } from 'jotai'
 import { PencilIcon, Trash2Icon } from 'lucide-react'
 import { ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { toast } from 'sonner'
 
 import { metricUnitFromProto } from '@/features/billing/metrics/units'

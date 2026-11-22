@@ -1,6 +1,6 @@
 import { TooltipProvider } from '@md/ui'
 import { Toaster } from '@ui/components/ui/sonner'
-import { Outlet } from 'react-router-dom'
+import { Outlet } from 'react-router'
 
 import { usePageTitle } from '@/hooks/usePageTitle'
 import ConfirmationModalProvider from 'providers/ConfirmationProvider'

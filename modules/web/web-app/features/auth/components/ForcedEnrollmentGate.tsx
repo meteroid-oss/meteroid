@@ -1,5 +1,5 @@
 import { Button } from '@md/ui'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { MfaSettings } from '@/features/profile/MfaSettings'
 

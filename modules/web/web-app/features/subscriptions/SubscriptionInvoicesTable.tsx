@@ -10,7 +10,7 @@ import {
 } from '@md/ui'
 import { RefreshCw } from 'lucide-react'
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { InvoiceStateBadge } from '@/features/invoices/InvoiceStatusBadge'
 import { invoiceRowState } from '@/features/invoices/invoiceState'

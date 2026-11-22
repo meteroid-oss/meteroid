@@ -1,7 +1,7 @@
 import { Code, ConnectError } from '@connectrpc/connect'
 import { AlertCircle, Loader2 } from 'lucide-react'
 import { useEffect } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router'
 
 import CheckoutFlow from '@/features/checkout/CheckoutFlow'
 import {

@@ -38,7 +38,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { ReactNode, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { toast } from 'sonner'
 
 import { Gate } from '@/components/Gate'

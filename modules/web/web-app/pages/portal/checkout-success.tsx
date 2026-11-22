@@ -1,6 +1,6 @@
 import { CheckCircle, Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useLocation, useSearchParams } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router'
 
 import { CheckoutSuccessState } from '@/features/checkout/utils/checkoutRedirect'
 import { safeRedirectUrl } from '@/lib/utils/url'

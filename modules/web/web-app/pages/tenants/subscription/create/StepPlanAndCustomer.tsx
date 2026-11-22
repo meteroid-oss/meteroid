@@ -2,7 +2,7 @@ import { skipToken } from '@connectrpc/connect-query'
 import { Button, Form, GenericFormField } from '@ui/components'
 import { useAtom } from 'jotai'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router'
 import { useWizard } from 'react-use-wizard'
 import { z } from 'zod'
 

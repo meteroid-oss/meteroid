@@ -2,7 +2,7 @@ import { PlusIcon } from '@md/icons'
 import { Badge, Button } from '@md/ui'
 import { X } from 'lucide-react'
 import { useCallback, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { Gate } from '@/components/Gate'
 import { ListPageLayout, ListToolbarSearch, RefreshButton } from '@/components/layouts'

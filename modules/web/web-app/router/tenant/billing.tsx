@@ -1,4 +1,4 @@
-import { Navigate, RouteObject } from 'react-router-dom'
+import { Navigate, RouteObject } from 'react-router'
 
 import { StandardOnly } from '@/components/StandardOnly'
 import { NotFound } from '@/features/NotFound'

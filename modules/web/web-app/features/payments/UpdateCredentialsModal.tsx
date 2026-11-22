@@ -2,7 +2,7 @@ import { useMutation } from '@connectrpc/connect-query'
 import { Alert, Button, DialogDescription, DialogTitle, Form, Modal, Spinner } from '@md/ui'
 import { useEffect, useMemo, useState } from 'react'
 import { Control, useWatch } from 'react-hook-form'
-import { useParams } from 'react-router-dom'
+import { useParams } from 'react-router'
 import { toast } from 'sonner'
 
 import { useDismissRouteModal } from '@/hooks/useDismissRouteModal'

@@ -3,7 +3,7 @@ import { Button, Card, Form, InputFormField, SelectFormField, SelectItem } from 
 import { ChevronLeft } from 'lucide-react'
 import { FunctionComponent, useEffect, useMemo, useState } from 'react'
 import { useWatch } from 'react-hook-form'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { z } from 'zod'
 

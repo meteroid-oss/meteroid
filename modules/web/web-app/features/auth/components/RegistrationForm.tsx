@@ -2,7 +2,7 @@ import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/conne
 import { Button, Form, InputFormField } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router'
 import { z } from 'zod'
 
 import { useZodForm } from '@/hooks/useZodForm'

@@ -1,4 +1,4 @@
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router'
 
 import { SubscriptionSummary } from '@/rpc/portal/customer/v1/models_pb'
 

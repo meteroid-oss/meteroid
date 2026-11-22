@@ -10,7 +10,7 @@ import {
   DialogTitle,
   Label,
 } from '@md/ui'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { PropertyProfilePanel } from '@/features/events/PropertyProfilePanel'
 import { useBasePath } from '@/hooks/useBasePath'

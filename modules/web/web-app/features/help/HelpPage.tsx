@@ -16,7 +16,7 @@ import {
   SendHorizonalIcon,
 } from 'lucide-react'
 import { FunctionComponent, useCallback, useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 
 import { LocalId } from '@/components/LocalId'

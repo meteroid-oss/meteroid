@@ -1,6 +1,6 @@
 import { skipToken } from '@connectrpc/connect-query'
 import { Button } from '@md/ui'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
 import { AddOnCard } from '@/features/plans/addons/AddOnCard'

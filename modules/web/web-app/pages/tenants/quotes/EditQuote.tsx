@@ -1,6 +1,6 @@
 import { Button, Skeleton } from '@md/ui'
 import { useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { isQuoteEditable } from '@/features/quotes/quoteEditable'
 import { quoteToFormSeed } from '@/features/quotes/quoteFormSeed'

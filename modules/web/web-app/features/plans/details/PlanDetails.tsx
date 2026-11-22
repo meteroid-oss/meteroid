@@ -1,7 +1,7 @@
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@md/ui'
 import { CopyIcon, PencilIcon } from 'lucide-react'
 import { ReactNode } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
 import {

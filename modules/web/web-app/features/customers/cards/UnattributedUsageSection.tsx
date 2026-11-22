@@ -1,7 +1,7 @@
 import { Button, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@md/ui'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { formatMetricQuantity, formatRawQuantity } from '@/features/billing/metrics/units'
 import { formatUsageFilter } from '@/features/subscriptions/UsageFilterFields'

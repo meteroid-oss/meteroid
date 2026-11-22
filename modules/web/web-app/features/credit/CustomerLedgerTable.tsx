@@ -3,7 +3,7 @@ import { useMutation } from '@connectrpc/connect-query'
 import { Badge, Button, Dialog, DialogContent, DialogHeader, DialogTitle, cn } from '@md/ui'
 import { Download } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { toast } from 'sonner'
 
 import Pagination from '@/components/table/CustomTable/components/Pagination'

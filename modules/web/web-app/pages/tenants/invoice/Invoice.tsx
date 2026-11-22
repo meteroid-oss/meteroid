@@ -38,7 +38,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { Fragment, useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
 import { Slot } from '@/edition'

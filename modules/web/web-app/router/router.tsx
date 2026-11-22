@@ -1,4 +1,4 @@
-import { createBrowserRouter } from 'react-router-dom'
+import { createBrowserRouter } from 'react-router'
 
 import { OnboardingLayout } from '@/components/layouts/OnboardingLayout'
 import { editionOrgRoutes, editionProtectedRoutes, editionRootRoutes } from '@/edition'
@@ -94,12 +94,7 @@ const router = createBrowserRouter(
         ...editionRootRoutes(),
       ],
     },
-  ],
-  {
-    future: {
-      v7_normalizeFormMethod: true,
-    },
-  }
+  ]
 )
 
 export default router

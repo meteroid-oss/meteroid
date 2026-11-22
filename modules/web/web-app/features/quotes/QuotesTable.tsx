@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { ColumnDef, PaginationState, SortingState } from '@tanstack/react-table'
 import { CopyPlus, Eye, FileText, MoreVerticalIcon, Pencil, Send } from 'lucide-react'
 import { FC, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { toast } from 'sonner'
 
 import { ColumnState, StandardTable } from '@/components/table/StandardTable'

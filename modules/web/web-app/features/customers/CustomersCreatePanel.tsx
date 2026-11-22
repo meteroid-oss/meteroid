@@ -22,7 +22,7 @@ import {
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 
 import { Combobox } from '@/components/Combobox'
 import ConfirmationModal from '@/components/ConfirmationModal'

@@ -2,7 +2,7 @@ import { ScrollArea, Tooltip, TooltipContent, TooltipTrigger } from '@ui/compone
 import { cn } from '@ui/lib'
 import { format } from 'date-fns'
 import { ArrowDownIcon, ArrowUpIcon, MinusIcon, PlusIcon, RefreshCwIcon } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { ChartNoData } from '@/features/dashboard/charts/ChartNoData'
 import { useBasePath } from '@/hooks/useBasePath'

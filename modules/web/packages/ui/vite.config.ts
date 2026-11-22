@@ -27,10 +27,10 @@ export default defineConfig(() => ({
     },
     rollupOptions: {
       // allow importing external dependencies
-      external: ['react-router-dom'],
+      external: ['react-router'],
       output: {
         globals: {
-          'react-router-dom': 'react-router-dom',
+          'react-router': 'react-router',
         },
       },
     },

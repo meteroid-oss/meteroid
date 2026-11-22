@@ -2,7 +2,7 @@ import { Card, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Sk
 import { format, subDays } from 'date-fns'
 import { Gauge } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { PanelEmptyState } from '@/components/empty-state/PanelEmptyState'
 import { useBasePath } from '@/hooks/useBasePath'

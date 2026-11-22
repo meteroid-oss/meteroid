@@ -33,7 +33,7 @@ import {
   XCircleIcon,
 } from 'lucide-react'
 import { Fragment, FunctionComponent, useCallback, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { toast } from 'sonner'
 
 import Pagination from '@/components/table/CustomTable/components/Pagination/Pagination'

@@ -1,7 +1,7 @@
 import { Button } from '@md/ui'
 import { ChevronRight, Eye, Save } from 'lucide-react'
 import { Fragment } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { QuoteStatusBadge } from '@/features/quotes/QuoteStatusBadge'
 import { AutosaveIndicator } from '@/features/quotes/editor/AutosaveBanners'

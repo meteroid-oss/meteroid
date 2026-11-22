@@ -1,7 +1,7 @@
 import { skipToken } from '@connectrpc/connect-query'
 import { Card, Skeleton, cn } from '@md/ui'
 import { ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { creditUnitName, formatWalletAmount, walletTitle } from '@/features/credit/format'
 import { paymentMethodLabel } from '@/features/credit/paymentMethods'

@@ -19,7 +19,7 @@ import {
 } from '@ui/index'
 import { ChevronDown, Menu, PanelLeftClose, PanelLeftOpen, Plus } from 'lucide-react'
 import { PropsWithChildren, useEffect } from 'react'
-import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router'
 
 import { NavMain } from '@/components/layouts/TenantLayout/components/NavMain'
 import { OverlayOutlet } from '@/components/layouts/TenantLayout/components/OverlayOutlet'

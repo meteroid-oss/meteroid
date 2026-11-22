@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { useMatches } from 'react-router-dom'
+import { useMatches } from 'react-router'
 
 type TitleHandle = { title?: string | ((match: { params: Record<string, string | undefined> }) => string) }
 

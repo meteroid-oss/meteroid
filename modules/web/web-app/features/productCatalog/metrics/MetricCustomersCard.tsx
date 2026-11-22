@@ -11,7 +11,7 @@ import {
 } from '@md/ui'
 import { ExternalLink, Users } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { useModule } from '@/edition'
 import { isAdditiveAggregation } from '@/features/productCatalog/metrics/aggregation'

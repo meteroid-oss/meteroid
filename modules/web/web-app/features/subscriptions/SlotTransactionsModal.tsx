@@ -13,7 +13,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { AlertCircle, ArrowDown, ArrowUp, XCircle } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { toast } from 'sonner'
 
 import { invalidateSubscriptionBilling } from '@/features/subscriptions/invalidateSubscriptionBilling'

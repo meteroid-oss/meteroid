@@ -1,7 +1,7 @@
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@md/ui'
 import { Plus } from 'lucide-react'
 import { Fragment, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { slotItems } from '@/edition'
 import { WalletStatusBadge } from '@/features/credit/WalletStatusBadge'

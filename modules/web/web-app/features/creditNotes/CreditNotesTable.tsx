@@ -2,7 +2,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@md/ui'
 import { ColumnDef, OnChangeFn, PaginationState, SortingState } from '@tanstack/react-table'
 import { MoreVerticalIcon } from 'lucide-react'
 import { useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { ColumnState, StandardTable } from '@/components/table/StandardTable'
 import { CreditNoteStatusBadge } from '@/features/creditNotes/CreditNoteStatusBadge'

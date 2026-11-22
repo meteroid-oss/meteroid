@@ -24,7 +24,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 import { Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { FunctionComponent, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
 import { Loader } from '@/features/auth/components/Loader'

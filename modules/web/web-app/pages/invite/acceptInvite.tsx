@@ -1,7 +1,7 @@
 import { skipToken } from '@connectrpc/connect-query'
 import { Button } from '@md/ui'
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 
 import { Loader } from '@/features/auth/components/Loader'
 import { INVITE_TOKEN_KEY } from '@/features/auth/invite'

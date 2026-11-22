@@ -2,7 +2,7 @@ import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow } from 'date-fns'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { toast } from 'sonner'
 
 import { useMembers } from '@/features/accounts/hooks/useMembers'

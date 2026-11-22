@@ -1,6 +1,6 @@
 import { Alert, cn } from '@md/ui'
 import { useEffect } from 'react'
-import { useLocation, useSearchParams } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 
 import { LoginForm } from '@/features/auth/components/LoginForm'

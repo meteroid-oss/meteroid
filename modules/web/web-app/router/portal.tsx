@@ -1,4 +1,4 @@
-import { redirect, RouteObject } from 'react-router-dom'
+import { redirect, RouteObject } from 'react-router'
 
 import { editionPortalRoutes } from '@/edition'
 import { PortalCheckout } from '@/pages/portal/checkout'

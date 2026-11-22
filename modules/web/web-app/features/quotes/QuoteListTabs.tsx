@@ -1,5 +1,5 @@
 import { Tabs, TabsList, TabsTrigger } from '@md/ui'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { slotItems } from '@/edition'
 import { useBasePath } from '@/hooks/useBasePath'

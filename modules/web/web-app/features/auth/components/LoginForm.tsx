@@ -1,7 +1,7 @@
 import { useMutation } from '@connectrpc/connect-query'
 import { Button, Form, InputFormField } from '@md/ui'
 import { useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import { z } from 'zod'
 
 import { INVITE_TOKEN_KEY } from '@/features/auth/invite'

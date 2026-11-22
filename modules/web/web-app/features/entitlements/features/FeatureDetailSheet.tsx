@@ -12,7 +12,7 @@ import {
 } from '@md/ui'
 import { ArchiveIcon, ArchiveRestoreIcon, ExternalLinkIcon, PencilIcon, PowerIcon } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router'
 
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
 import { EntityEntitlementsSection } from '@/features/entitlements/EntityEntitlementsSection'

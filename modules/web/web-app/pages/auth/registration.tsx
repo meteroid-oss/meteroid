@@ -1,4 +1,4 @@
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router'
 
 import { Loader } from '@/features/auth/components/Loader'
 import { RegistrationForm } from '@/features/auth/components/RegistrationForm'

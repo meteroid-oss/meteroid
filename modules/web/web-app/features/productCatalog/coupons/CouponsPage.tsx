@@ -2,7 +2,7 @@ import { PlusIcon } from '@md/icons'
 import { SortingState } from '@tanstack/react-table'
 import { Button, Tabs, TabsList, TabsTrigger } from '@ui/components'
 import { FunctionComponent, useCallback, useState } from 'react'
-import { Outlet, useNavigate } from 'react-router-dom'
+import { Outlet, useNavigate } from 'react-router'
 
 import { Gate } from '@/components/Gate'
 import { ListPageLayout, ListToolbarSearch, RefreshButton } from '@/components/layouts'

@@ -3,7 +3,7 @@ import { Skeleton } from '@md/ui'
 import { PaginationState } from '@tanstack/react-table'
 import { ChevronRight } from 'lucide-react'
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import Pagination from '@/components/table/CustomTable/components/Pagination/Pagination'
 import { FeatureUsageList, byUsage } from '@/features/subscriptions/FeatureUsageList'

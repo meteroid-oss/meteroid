@@ -22,7 +22,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 import { InfoIcon } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 
 import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'

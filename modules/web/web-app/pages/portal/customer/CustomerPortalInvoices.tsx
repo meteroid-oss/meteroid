@@ -1,7 +1,7 @@
 import { Badge } from '@md/ui'
 import { Download } from 'lucide-react'
 import { useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router'
 
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'

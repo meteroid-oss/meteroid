@@ -2,7 +2,7 @@ import { Skeleton } from '@md/ui'
 import { useAtom } from 'jotai'
 import { useResetAtom } from 'jotai/utils'
 import { Fragment, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router'
 import { Wizard } from 'react-use-wizard'
 
 import PageHeading from '@/components/PageHeading/PageHeading'

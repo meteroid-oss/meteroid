@@ -2,7 +2,7 @@ import edition from 'virtual:edition'
 
 import type { ComponentSlots, NavMainSection, Slots, WebModule } from '@/edition/types'
 import type { ComponentType } from 'react'
-import type { RouteObject } from 'react-router-dom'
+import type { RouteObject } from 'react-router'
 
 // Read the edition when called or rendered, never at module load: the edition's modules import
 // core, so a core module can load before the edition is initialised.

@@ -2,7 +2,7 @@ import { SearchIcon } from '@md/icons'
 import { Button, cn } from '@md/ui'
 import { ChevronRight, Home, RefreshCwIcon } from 'lucide-react'
 import { Fragment, ReactNode, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import {
   TableFooterSlotProvider,

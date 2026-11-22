@@ -1,6 +1,6 @@
 import { Badge } from '@md/ui'
 import { ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { MinimumCommitmentDisplay, productScopeOptions } from '@/features/billing/minimumCommitment'
 import { CustomPropertyValue } from '@/features/customproperties/CustomPropertyValue'

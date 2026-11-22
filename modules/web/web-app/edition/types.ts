@@ -20,7 +20,7 @@ import type { DescMethodUnary } from '@bufbuild/protobuf'
 import type { LucideIcon } from 'lucide-react'
 import type { ComponentType } from 'react'
 import type { Control } from 'react-hook-form'
-import type { RouteObject } from 'react-router-dom'
+import type { RouteObject } from 'react-router'
 
 export interface CustomerDetailContext {
   customerId: string

@@ -2,7 +2,7 @@ import { useMutation } from '@connectrpc/connect-query'
 import { Button, Flex, Form, InputFormField, Label, Spinner } from '@md/ui'
 import { ArrowLeft } from 'lucide-react'
 import { useWatch } from 'react-hook-form'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { z } from 'zod'
 
 import { CountrySelect } from '@/components/CountrySelect'

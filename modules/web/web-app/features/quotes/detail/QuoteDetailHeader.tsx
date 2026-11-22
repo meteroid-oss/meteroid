@@ -25,7 +25,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { slotItems } from '@/edition'
 import {

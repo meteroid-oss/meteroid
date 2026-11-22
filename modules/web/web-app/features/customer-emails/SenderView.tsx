@@ -3,7 +3,7 @@ import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/conne
 import { Button, Form, GenericFormField, InputFormField } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import { z } from 'zod'
 

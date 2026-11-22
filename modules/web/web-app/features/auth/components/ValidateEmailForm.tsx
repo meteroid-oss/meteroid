@@ -1,7 +1,7 @@
 import { create } from '@bufbuild/protobuf'
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { Button, Form, InputFormField } from '@md/ui'
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { z } from 'zod'
 
 import { INVITE_TOKEN_KEY } from '@/features/auth/invite'

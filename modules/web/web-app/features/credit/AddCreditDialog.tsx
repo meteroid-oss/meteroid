@@ -33,7 +33,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { InfoIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Control, useWatch } from 'react-hook-form'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
 import { AdvancedSection, useHasFieldErrors } from '@/components/form'

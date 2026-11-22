@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 import * as React from 'react';
 import { FunctionComponent, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { siAdyen, siHubspot, siQuickbooks } from 'simple-icons'
 import { toast } from 'sonner'
 

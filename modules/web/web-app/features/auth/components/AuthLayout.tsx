@@ -1,6 +1,6 @@
 import { Flex } from '@ui/components'
 import { useEffect, useState } from 'react'
-import { Link, Outlet, useLocation } from 'react-router-dom'
+import { Link, Outlet, useLocation } from 'react-router'
 
 import { MeteroidTitle } from '@/components/svg'
 import { useForceTheme } from 'providers/ThemeProvider'
