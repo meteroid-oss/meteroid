@@ -7,6 +7,10 @@ use secrecy::{ExposeSecret, SecretString};
 
 const NONCE_SIZE: usize = 12;
 
+/// Prefix of values sealed under a random nonce, stored as hex(nonce || ciphertext).
+/// Unprefixed values are legacy ones, sealed under a nonce derived from the key.
+const RANDOM_NONCE_PREFIX: &str = "v2:";
+
 #[derive(Debug, thiserror::Error, PartialEq, Clone)]
 pub enum EncryptionError {
     #[error("Invalid key")]
@@ -20,28 +24,29 @@ pub enum EncryptionError {
 }
 
 pub fn encrypt(crypt_key: &SecretString, value: &str) -> Result<String, Report<EncryptionError>> {
-    let cipher = ChaCha20Poly1305::new_from_slice(crypt_key.expose_secret().as_bytes())
-        .change_context(EncryptionError::InvalidKey)?;
-
-    let nonce = generate_nonce(crypt_key);
-
-    let ciphertext: Vec<u8> = cipher
-        .encrypt(nonce, value.as_bytes())
-        .map_err(|_| EncryptionError::EncryptError)?;
+    let ciphertext = seal(crypt_key, &legacy_nonce(crypt_key)?, value)?;
 
     Ok(hex::encode(ciphertext))
 }
 
 pub fn decrypt(key: &SecretString, value: &str) -> Result<SecretString, Report<EncryptionError>> {
-    let cipher = ChaCha20Poly1305::new_from_slice(key.expose_secret().as_bytes())
-        .change_context(EncryptionError::InvalidKey)?;
+    let (nonce, ciphertext) = match value.strip_prefix(RANDOM_NONCE_PREFIX) {
+        Some(sealed) => {
+            let bytes = hex::decode(sealed).change_context(EncryptionError::InvalidHex)?;
+            if bytes.len() < NONCE_SIZE {
+                return Err(Report::new(EncryptionError::DecryptError));
+            }
+            let (nonce, ciphertext) = bytes.split_at(NONCE_SIZE);
+            (to_nonce(nonce)?, ciphertext.to_vec())
+        }
+        None => (
+            legacy_nonce(key)?,
+            hex::decode(value).change_context(EncryptionError::InvalidHex)?,
+        ),
+    };
 
-    let nonce = generate_nonce(key);
-
-    let ciphertext = hex::decode(value).change_context(EncryptionError::InvalidHex)?;
-
-    let decoded = cipher
-        .decrypt(nonce, ciphertext.as_ref())
+    let decoded = cipher(key)?
+        .decrypt(&nonce, ciphertext.as_ref())
         .map_err(|_| EncryptionError::DecryptError)?;
 
     let plaintext = String::from_utf8(decoded).change_context(EncryptionError::DecryptError)?;
@@ -49,15 +54,42 @@ pub fn decrypt(key: &SecretString, value: &str) -> Result<SecretString, Report<E
     Ok(SecretString::from(plaintext))
 }
 
-fn generate_nonce(key: &SecretString) -> &Nonce {
-    // https://github.com/RustCrypto/AEADs/issues/730
-    #[allow(deprecated)]
-    Nonce::from_slice(&key.expose_secret().as_bytes()[0..NONCE_SIZE])
+fn seal(
+    key: &SecretString,
+    nonce: &Nonce,
+    value: &str,
+) -> Result<Vec<u8>, Report<EncryptionError>> {
+    cipher(key)?
+        .encrypt(nonce, value.as_bytes())
+        .map_err(|_| Report::new(EncryptionError::EncryptError))
+}
+
+fn cipher(key: &SecretString) -> Result<ChaCha20Poly1305, Report<EncryptionError>> {
+    ChaCha20Poly1305::new_from_slice(key.expose_secret().as_bytes())
+        .change_context(EncryptionError::InvalidKey)
+}
+
+fn legacy_nonce(key: &SecretString) -> Result<Nonce, Report<EncryptionError>> {
+    let prefix = key
+        .expose_secret()
+        .as_bytes()
+        .get(..NONCE_SIZE)
+        .ok_or_else(|| Report::new(EncryptionError::InvalidKey))?;
+    to_nonce(prefix)
+}
+
+fn to_nonce(bytes: &[u8]) -> Result<Nonce, Report<EncryptionError>> {
+    let bytes: [u8; NONCE_SIZE] = bytes
+        .try_into()
+        .map_err(|_| Report::new(EncryptionError::DecryptError))?;
+    Ok(Nonce::from(bytes))
 }
 
 #[cfg(test)]
 mod tests {
     use secrecy::{ExposeSecret, SecretString};
+
+    const KEY: &str = "12345678901234567890123456789012";
 
     #[test]
     fn test_encrypt_decrypt() {
@@ -91,5 +123,54 @@ mod tests {
 
             assert_eq!(decrypted.expose_secret(), raw_str);
         }
+    }
+
+    fn sealed_with_random_nonce(key: &SecretString, raw: &str, nonce: [u8; 12]) -> String {
+        let mut bytes = nonce.to_vec();
+        bytes.extend(super::seal(key, &nonce.into(), raw).unwrap());
+        format!("{}{}", super::RANDOM_NONCE_PREFIX, hex::encode(bytes))
+    }
+
+    #[test]
+    fn decrypts_values_sealed_under_a_random_nonce() {
+        let key = SecretString::from(KEY);
+        let sealed = sealed_with_random_nonce(&key, "RawValue", *b"random nonce");
+
+        let decrypted = super::decrypt(&key, &sealed).unwrap();
+
+        assert_eq!(decrypted.expose_secret(), "RawValue");
+    }
+
+    #[test]
+    fn rejects_a_tampered_random_nonce_value() {
+        let key = SecretString::from(KEY);
+        let mut sealed = sealed_with_random_nonce(&key, "RawValue", *b"random nonce");
+        let last = sealed.pop().unwrap();
+        sealed.push(if last == '0' { '1' } else { '0' });
+
+        assert!(super::decrypt(&key, &sealed).is_err());
+        assert!(super::decrypt(&key, "v2:00").is_err());
+    }
+
+    #[test]
+    fn rejects_malformed_or_foreign_random_nonce_values() {
+        let key = SecretString::from(KEY);
+        let sealed = sealed_with_random_nonce(&key, "RawValue", *b"random nonce");
+        let legacy = super::encrypt(&key, "RawValue").unwrap();
+        let mut tampered_nonce = sealed.clone();
+        tampered_nonce.replace_range(3..5, "00");
+        let other_key = SecretString::from("023456F8901234G67890123456789019");
+
+        for value in [
+            "v2:".to_owned(),
+            "v2:abc".to_owned(),
+            format!("v2:{}", hex::encode(b"random nonce")),
+            format!("v2:{legacy}"),
+            sealed.replacen("v2:", "V2:", 1),
+            tampered_nonce,
+        ] {
+            assert!(super::decrypt(&key, &value).is_err(), "{value}");
+        }
+        assert!(super::decrypt(&other_key, &sealed).is_err());
     }
 }
