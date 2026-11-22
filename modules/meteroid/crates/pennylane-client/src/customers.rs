@@ -1,180 +1,172 @@
 use crate::client::PennylaneClient;
 use crate::error::PennylaneError;
-use crate::model::{ListResponse, QueryFilter, QueryParams};
+use crate::model::{ListQuery, ListResponse};
 use reqwest::Method;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
-#[async_trait::async_trait]
-pub trait CustomersApi {
-    async fn create_company_customer(
-        &self,
-        company: &NewCompany,
-        access_token: &SecretString,
-    ) -> Result<Company, PennylaneError>;
-
-    async fn update_company_customer(
-        &self,
-        id: i64,
-        company: &UpdateCompany,
-        access_token: &SecretString,
-    ) -> Result<Company, PennylaneError>;
-
-    async fn upsert_company_customer(
-        &self,
-        company: &NewCompany,
-        access_token: &SecretString,
-    ) -> Result<Company, PennylaneError>;
-
-    async fn get_company_customer(
-        &self,
-        external_reference: &str,
-        access_token: &SecretString,
-    ) -> Result<Option<Company>, PennylaneError>;
-}
-
-#[async_trait::async_trait]
-impl CustomersApi for PennylaneClient {
-    /// <https://pennylane.readme.io/v2.0/reference/postcompanycustomer>
-    async fn create_company_customer(
-        &self,
-        company: &NewCompany,
-        access_token: &SecretString,
-    ) -> Result<Company, PennylaneError> {
-        self.execute(
-            "/api/external/v2/company_customers",
-            Method::POST,
-            access_token,
-            Some(company),
-            None::<()>.as_ref(),
-        )
-        .await
-    }
-
-    /// <https://pennylane.readme.io/v2.0/reference/putcompanycustomer>
-    async fn update_company_customer(
-        &self,
-        id: i64,
-        company: &UpdateCompany,
-        access_token: &SecretString,
-    ) -> Result<Company, PennylaneError> {
-        self.execute(
-            format!("/api/external/v2/company_customers/{id}").as_str(),
-            Method::PUT,
-            access_token,
-            Some(company),
-            None::<()>.as_ref(),
-        )
-        .await
-    }
-
-    async fn upsert_company_customer(
-        &self,
-        company: &NewCompany,
-        access_token: &SecretString,
-    ) -> Result<Company, PennylaneError> {
-        let created = self.create_company_customer(company, access_token).await;
-
-        if let Err(
-            err @ PennylaneError::ClientError {
-                error: _,
-                status_code: Some(409 | 422),
-            },
-        ) = created
-        {
-            let existing = self
-                .get_company_customer(company.external_reference.as_str(), access_token)
-                .await?
-                .ok_or(err)?;
-
-            self.update_company_customer(existing.id, &company.into(), access_token)
-                .await
-        } else {
-            created
-        }
-    }
-
-    /// <https://pennylane.readme.io/v2.0/reference/getcustomers>
-    async fn get_company_customer(
-        &self,
-        external_reference: &str,
-        access_token: &SecretString,
-    ) -> Result<Option<Company>, PennylaneError> {
-        let list: ListResponse<Company> = self
-            .execute(
-                "/api/external/v2/customers",
-                Method::GET,
-                access_token,
-                None::<()>.as_ref(),
-                Some(&QueryParams {
-                    filter: Some(vec![QueryFilter {
-                        field: "external_reference".to_string(),
-                        operator: "eq".to_string(),
-                        value: external_reference.to_string(),
-                    }]),
-                }),
-            )
-            .await?;
-
-        Ok(list.items.into_iter().next())
-    }
-}
-
-#[skip_serializing_none]
-#[derive(Debug, Clone, Serialize)]
-pub struct NewCompany {
-    pub name: String,
-    pub billing_address: BillingAddress,
-    pub phone: Option<String>,
-    pub external_reference: String, // meteroid customer id
-    pub vat_number: Option<String>,
-    pub emails: Vec<String>, // invoicing_emails
-    pub billing_iban: Option<String>,
-}
-
-#[skip_serializing_none]
-#[derive(Debug, Clone, Serialize)]
-pub struct UpdateCompany {
-    pub name: String,
-    pub billing_address: BillingAddress,
-    pub phone: Option<String>,
-    pub external_reference: String, // meteroid customer id
-    pub vat_number: Option<String>,
-    pub emails: Vec<String>, // invoicing_emails
-    pub billing_iban: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BillingAddress {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Address {
     pub address: String,
     pub postal_code: String,
     pub city: String,
     pub country_alpha2: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct Company {
-    pub id: i64,
-    pub name: String,
-    pub billing_address: BillingAddress,
-    pub phone: Option<String>,
-    pub reference: Option<String>, // meteroid customer id
-    pub vat_number: Option<String>,
-    pub emails: Vec<String>, // invoicing_emails
-    pub billing_iban: Option<String>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum BillingLanguage {
+    #[serde(rename = "fr_FR")]
+    French,
+    #[serde(rename = "en_GB")]
+    English,
+    #[serde(rename = "de_DE")]
+    German,
+    #[serde(rename = "es_ES")]
+    Spanish,
 }
 
-impl From<&NewCompany> for UpdateCompany {
-    fn from(new: &NewCompany) -> Self {
-        UpdateCompany {
-            name: new.name.clone(),
-            billing_address: new.billing_address.clone(),
-            phone: new.phone.clone(),
-            external_reference: new.external_reference.clone(),
-            vat_number: new.vat_number.clone(),
-            emails: new.emails.clone(),
-            billing_iban: new.billing_iban.clone(),
+/// Body of both the creation and the update of a company customer.
+#[skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CompanyCustomer {
+    pub name: String,
+    pub vat_number: Option<String>,
+    pub reg_no: Option<String>,
+    pub phone: Option<String>,
+    pub billing_address: Address,
+    pub delivery_address: Option<Address>,
+    pub emails: Vec<String>,
+    pub external_reference: String,
+    pub billing_language: Option<BillingLanguage>,
+}
+
+/// Body of both the creation and the update of an individual customer.
+#[skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct IndividualCustomer {
+    pub first_name: String,
+    pub last_name: String,
+    pub phone: Option<String>,
+    pub billing_address: Address,
+    pub delivery_address: Option<Address>,
+    pub emails: Vec<String>,
+    pub external_reference: String,
+    pub billing_language: Option<BillingLanguage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CustomerUpsert {
+    Company(CompanyCustomer),
+    Individual(IndividualCustomer),
+}
+
+impl CustomerUpsert {
+    pub fn external_reference(&self) -> &str {
+        match self {
+            CustomerUpsert::Company(company) => &company.external_reference,
+            CustomerUpsert::Individual(individual) => &individual.external_reference,
         }
+    }
+
+    pub fn customer_type(&self) -> CustomerType {
+        match self {
+            CustomerUpsert::Company(_) => CustomerType::Company,
+            CustomerUpsert::Individual(_) => CustomerType::Individual,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CustomerType {
+    Company,
+    Individual,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Customer {
+    pub id: i64,
+    #[serde(default)]
+    pub external_reference: Option<String>,
+    /// Only set by the list endpoint.
+    #[serde(default)]
+    pub customer_type: Option<CustomerType>,
+}
+
+impl PennylaneClient {
+    /// <https://pennylane.readme.io/reference/postcompanycustomer>,
+    /// <https://pennylane.readme.io/reference/postindividualcustomer>
+    pub async fn create_customer(
+        &self,
+        customer: &CustomerUpsert,
+        access_token: &SecretString,
+    ) -> Result<Customer, PennylaneError> {
+        match customer {
+            CustomerUpsert::Company(body) => {
+                self.send_json(
+                    Method::POST,
+                    "/api/external/v2/company_customers",
+                    access_token,
+                    body,
+                )
+                .await
+            }
+            CustomerUpsert::Individual(body) => {
+                self.send_json(
+                    Method::POST,
+                    "/api/external/v2/individual_customers",
+                    access_token,
+                    body,
+                )
+                .await
+            }
+        }
+    }
+
+    /// <https://pennylane.readme.io/reference/putcompanycustomer>,
+    /// <https://pennylane.readme.io/reference/putindividualcustomer>
+    pub async fn update_customer(
+        &self,
+        id: i64,
+        customer: &CustomerUpsert,
+        access_token: &SecretString,
+    ) -> Result<Customer, PennylaneError> {
+        match customer {
+            CustomerUpsert::Company(body) => {
+                self.send_json(
+                    Method::PUT,
+                    &format!("/api/external/v2/company_customers/{id}"),
+                    access_token,
+                    body,
+                )
+                .await
+            }
+            CustomerUpsert::Individual(body) => {
+                self.send_json(
+                    Method::PUT,
+                    &format!("/api/external/v2/individual_customers/{id}"),
+                    access_token,
+                    body,
+                )
+                .await
+            }
+        }
+    }
+
+    /// <https://pennylane.readme.io/reference/getcustomers>
+    pub async fn find_customer(
+        &self,
+        external_reference: &str,
+        access_token: &SecretString,
+    ) -> Result<Option<Customer>, PennylaneError> {
+        let list: ListResponse<Customer> = self
+            .get(
+                "/api/external/v2/customers",
+                access_token,
+                &ListQuery::eq("external_reference", external_reference),
+            )
+            .await?;
+        Ok(list.items.into_iter().next())
     }
 }

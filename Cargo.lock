@@ -5598,6 +5598,7 @@ dependencies = [
  "pennylane-client",
  "rand 0.10.4",
  "rust_decimal",
+ "rust_decimal_macros",
  "secrecy",
  "serde",
  "serde_json",
@@ -6497,16 +6498,12 @@ dependencies = [
 name = "pennylane-client"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "bytes",
  "chrono",
  "governor",
  "http-client-tracing",
- "meteroid-middleware",
  "nonzero_ext",
  "reqwest 0.13.5",
- "reqwest-middleware",
- "reqwest-retry",
  "rust_decimal",
  "rust_decimal_macros",
  "secrecy",
@@ -6514,6 +6511,8 @@ dependencies = [
  "serde_json",
  "serde_with",
  "thiserror 2.0.21",
+ "tokio",
+ "wiremock",
  "workspace-hack",
 ]
 

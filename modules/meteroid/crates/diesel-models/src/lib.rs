@@ -17,6 +17,7 @@ pub mod batch_jobs;
 pub mod bi;
 pub mod billable_metrics;
 pub mod billing_controller;
+pub mod connector_sync_issues;
 pub mod connectors;
 pub mod credit_inputs;
 pub mod credit_notes;

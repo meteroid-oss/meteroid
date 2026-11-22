@@ -22,6 +22,7 @@ use crate::repositories::TenantInterface;
 use crate::repositories::oauth::OauthInterface;
 use crate::{Store, StoreResult};
 use common_domain::ids::{BaseId, ConnectorId, InvoicingEntityId, TenantId};
+use diesel_models::connector_sync_issues::ConnectorSyncIssueRow;
 use diesel_models::connectors::{ConnectorRow, ConnectorRowNew, ConnectorRowPatch};
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::query::pgmq;
@@ -197,6 +198,13 @@ pub trait ConnectorsInterface {
     ) -> StoreResult<Connector>;
 
     async fn get_pennylane_connector(&self, tenant_id: TenantId) -> StoreResult<Option<Connector>>;
+
+    async fn update_pennylane_connector(
+        &self,
+        connector_id: ConnectorId,
+        tenant_id: TenantId,
+        data: PennylanePublicData,
+    ) -> StoreResult<Connector>;
 
     async fn get_pennylane_connector_access_token(
         &self,
@@ -872,6 +880,31 @@ impl ConnectorsInterface for Store {
         .await
     }
 
+    async fn update_pennylane_connector(
+        &self,
+        connector_id: ConnectorId,
+        tenant_id: TenantId,
+        data: PennylanePublicData,
+    ) -> StoreResult<Connector> {
+        let mut conn = self.get_conn().await?;
+
+        let patch = ConnectorRowPatch {
+            id: connector_id,
+            alias: None,
+            sensitive: None,
+            account: None,
+            data: Some(Some(ProviderData::Pennylane(data).try_into()?)),
+            updated_at: Some(common_clock::now().naive_utc()),
+        };
+
+        let row = patch
+            .patch(&mut conn, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        Connector::from_row(&self.settings.crypt_key, row)
+    }
+
     async fn get_pennylane_connector_access_token(
         &self,
         tenant_id: TenantId,
@@ -903,6 +936,7 @@ impl ConnectorsInterface for Store {
                 let access_token = ConnectorAccessToken {
                     connector_id: connector.id,
                     external_company_id: data.external_company_id,
+                    invoicing_entity_id: data.invoicing_entity_id,
                     access_token: SecretString::from(sensitive.access_token.clone()),
                     expires_at: sensitive.expires_at,
                 };
@@ -930,6 +964,7 @@ impl ConnectorsInterface for Store {
                 ConnectorAccessToken {
                     connector_id: connector.id,
                     external_company_id: data.external_company_id,
+                    invoicing_entity_id: data.invoicing_entity_id,
                     access_token: SecretString::from(sensitive.access_token),
                     expires_at: sensitive.expires_at,
                 }
@@ -1515,6 +1550,7 @@ async fn connect_pennylane(
         config: ConnectorConfig::Pennylane {
             data: Some(PennylanePublicData {
                 external_company_id: user.company_id,
+                invoicing_entity_id: None,
             }),
             sensitive: Some(PennylaneSensitiveData {
                 refresh_token,
@@ -1530,10 +1566,25 @@ async fn connect_pennylane(
     }
     .to_row(&store.settings.crypt_key)?;
 
-    let inserted = row
-        .insert(&mut conn)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+    let inserted = store
+        .transaction_with(&mut conn, |conn| {
+            async move {
+                let inserted = row
+                    .insert(conn)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                ConnectorSyncIssueRow::adopt_from_previous_connectors(
+                    conn,
+                    inserted.tenant_id,
+                    inserted.id,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+                Ok(inserted)
+            }
+            .scope_boxed()
+        })
+        .await?;
 
     Ok(OauthConnected {
         connector: inserted.into(),

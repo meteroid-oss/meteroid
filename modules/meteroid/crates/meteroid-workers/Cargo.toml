@@ -57,6 +57,7 @@ common-grpc-error-as-tonic-macros = { workspace = true }
 workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
 
 [dev-dependencies]
+rust_decimal_macros = { workspace = true }
 meteroid-app = { workspace = true }
 
 [package.metadata.cargo-machete]

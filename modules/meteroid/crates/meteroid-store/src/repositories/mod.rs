@@ -36,6 +36,7 @@ pub mod bank_accounts;
 pub mod batch_jobs;
 pub mod billable_metrics;
 pub mod checkout_sessions;
+pub mod connector_sync_issues;
 pub mod connectors;
 mod constants;
 pub mod coupons;

@@ -184,6 +184,7 @@ export const IntegrationsTab = () => {
           description: 'Financial and accounting management',
           features: [],
           link: 'connect-pennylane',
+          editLink: 'edit-pennylane-connection',
           data: connectorsQuery.data?.connectors.filter(
             connector => connector.provider === ConnectorProviderEnum.PENNYLANE
           ),

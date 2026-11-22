@@ -866,6 +866,20 @@ diesel::table! {
 }
 
 diesel::table! {
+    connector_sync_issue (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        connector_id -> Uuid,
+        resource_type -> Text,
+        resource_id -> Uuid,
+        message -> Text,
+        occurrences -> Int4,
+        first_seen_at -> Timestamptz,
+        last_seen_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     coupon (id) {
         id -> Uuid,
         code -> Text,
@@ -3404,6 +3418,8 @@ diesel::joinable!(connect_platform_settings -> invoicing_entity (branding_invoic
 diesel::joinable!(connect_platform_settings -> organization (organization_id));
 diesel::joinable!(connect_refresh_token -> connect_access_token (access_token_id));
 diesel::joinable!(connector -> tenant (tenant_id));
+diesel::joinable!(connector_sync_issue -> connector (connector_id));
+diesel::joinable!(connector_sync_issue -> tenant (tenant_id));
 diesel::joinable!(coupon -> tenant (tenant_id));
 diesel::joinable!(coupon_plan -> coupon (coupon_id));
 diesel::joinable!(coupon_plan -> plan (plan_id));

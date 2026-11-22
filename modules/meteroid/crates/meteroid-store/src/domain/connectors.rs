@@ -5,7 +5,7 @@ use crate::domain::enums::{
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::{StoreResult, json_value_ser, json_value_serde};
 use chrono::{DateTime, NaiveDateTime, Utc};
-use common_domain::ids::{BaseId, ConnectorId, TenantId};
+use common_domain::ids::{BaseId, ConnectorId, InvoicingEntityId, TenantId};
 use diesel_models::connectors::{ConnectorRow, ConnectorRowNew};
 use error_stack::{Report, ResultExt};
 use meteroid_oauth::model::OAuthTokens;
@@ -202,6 +202,13 @@ impl Connector {
     pub fn hubspot_data(&self) -> Option<&HubspotPublicData> {
         match &self.config {
             ConnectorConfig::Hubspot { data, .. } => data.as_ref(),
+            _ => None,
+        }
+    }
+
+    pub fn pennylane_data(&self) -> Option<&PennylanePublicData> {
+        match &self.config {
+            ConnectorConfig::Pennylane { data, .. } => data.as_ref(),
             _ => None,
         }
     }
@@ -856,6 +863,9 @@ json_value_ser!(HubspotPublicData);
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PennylanePublicData {
     pub external_company_id: String, // company.id
+    /// Only this entity's documents reach the Pennylane company; all of them when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invoicing_entity_id: Option<InvoicingEntityId>,
 }
 
 json_value_ser!(PennylanePublicData);
@@ -1263,6 +1273,7 @@ json_value_serde!(ConnectionMetaItem);
 pub struct ConnectorAccessToken {
     pub connector_id: ConnectorId,
     pub external_company_id: String,
+    pub invoicing_entity_id: Option<InvoicingEntityId>,
     pub access_token: SecretString,
     pub expires_at: Option<DateTime<Utc>>,
 }
@@ -1300,6 +1311,7 @@ golden::golden!(ProviderData, {
     }),
     "pennylane" => ProviderData::Pennylane(PennylanePublicData {
         external_company_id: "company_1".into(),
+        invoicing_entity_id: None,
     })
 });
 

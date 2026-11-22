@@ -199,6 +199,25 @@ message HubspotConnectorData {
 
 message PennylaneConnectorData {
   string external_company_id = 1;
+  // Only this invoicing entity's documents are synced; all of them when unset.
+  optional string invoicing_entity_id = 2;
+}
+
+enum SyncResourceType {
+  SYNC_RESOURCE_CUSTOMER = 0;
+  SYNC_RESOURCE_INVOICE = 1;
+  SYNC_RESOURCE_CREDIT_NOTE = 2;
+}
+
+// A document an integration could not sync as it stands. Kept until it syncs.
+message ConnectorSyncIssue {
+  string id = 1;
+  SyncResourceType resource_type = 2;
+  string resource_id = 3;
+  string message = 4;
+  int32 occurrences = 5;
+  string first_seen_at = 6;
+  string last_seen_at = 7;
 }
 
 // GoCardless connector. Mandate-based bank-debit provider; merchants manage

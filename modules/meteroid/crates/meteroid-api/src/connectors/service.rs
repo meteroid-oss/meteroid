@@ -1,6 +1,6 @@
 use crate::connectors::error::ConnectorApiError;
 use crate::connectors::{ConnectorsServiceComponents, mapping};
-use common_domain::ids::ConnectorId;
+use common_domain::ids::{ConnectorId, InvoicingEntityId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::connectors::v1::connectors_service_server::ConnectorsService;
 use meteroid_grpc::meteroid::api::connectors::v1::{
@@ -8,15 +8,20 @@ use meteroid_grpc::meteroid::api::connectors::v1::{
     ConnectPaymentProviderResponse, ConnectPennylaneRequest, ConnectPennylaneResponse,
     ConnectorIdRequest, ConnectorResponse, ConnectorTypeEnum, CreatePaymentProviderDraftRequest,
     CreatePaymentProviderDraftResponse, DeleteConnectorResponse, DisconnectConnectorRequest,
-    DisconnectConnectorResponse, GetConnectorUsageResponse, ListConnectorsRequest,
-    ListConnectorsResponse, RenameConnectorRequest, UpdateHubspotConnectorRequest,
+    DisconnectConnectorResponse, GetConnectorUsageResponse, ListConnectorSyncIssuesResponse,
+    ListConnectorsRequest, ListConnectorsResponse, RenameConnectorRequest,
+    RetryConnectorSyncIssuesResponse, UpdateHubspotConnectorRequest,
     UpdateHubspotConnectorResponse, UpdatePaymentProviderCredentialsRequest,
-    UpdatePaymentProviderCredentialsResponse,
+    UpdatePaymentProviderCredentialsResponse, UpdatePennylaneConnectorRequest,
+    UpdatePennylaneConnectorResponse,
 };
 use meteroid_oauth::model::OauthProvider;
-use meteroid_store::domain::connectors::{Connector, HubspotPublicData};
+use meteroid_store::domain::connectors::{Connector, HubspotPublicData, PennylanePublicData};
+use meteroid_store::domain::enums::ConnectorProviderEnum;
 use meteroid_store::domain::oauth::{ConnectHubspotData, ConnectPennylaneData, OauthVerifierData};
+use meteroid_store::repositories::connector_sync_issues::ConnectorSyncIssuesInterface;
 use meteroid_store::repositories::connectors::ConnectorsInterface;
+use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
 use meteroid_store::repositories::oauth::OauthInterface;
 use secrecy::ExposeSecret;
 use tonic::{Request, Response, Status};
@@ -372,6 +377,108 @@ impl ConnectorsService for ConnectorsServiceComponents {
 
         Ok(Response::new(ConnectPennylaneResponse {
             auth_url: url.expose_secret().to_owned(),
+        }))
+    }
+
+    async fn update_pennylane_connector(
+        &self,
+        request: Request<UpdatePennylaneConnectorRequest>,
+    ) -> Result<Response<UpdatePennylaneConnectorResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+        let connector_id = ConnectorId::from_proto(&req.id)?;
+        let invoicing_entity_id = req
+            .invoicing_entity_id
+            .as_deref()
+            .map(InvoicingEntityId::from_proto)
+            .transpose()?;
+
+        if let Some(entity_id) = invoicing_entity_id {
+            self.store
+                .get_invoicing_entity(tenant_id, Some(entity_id))
+                .await
+                .map_err(Into::<ConnectorApiError>::into)?;
+        }
+
+        let connector = self
+            .store
+            .get_connector_with_data(connector_id, tenant_id)
+            .await
+            .map_err(Into::<ConnectorApiError>::into)?;
+        let external_company_id = connector
+            .pennylane_data()
+            .ok_or(ConnectorApiError::InvalidArgument(
+                "not a Pennylane connector".into(),
+            ))?
+            .external_company_id
+            .clone();
+
+        let connector = self
+            .store
+            .update_pennylane_connector(
+                connector_id,
+                tenant_id,
+                PennylanePublicData {
+                    external_company_id,
+                    invoicing_entity_id,
+                },
+            )
+            .await
+            .map_err(Into::<ConnectorApiError>::into)?;
+
+        Ok(Response::new(UpdatePennylaneConnectorResponse {
+            connector: self.to_server(&connector),
+        }))
+    }
+
+    async fn list_connector_sync_issues(
+        &self,
+        request: Request<ConnectorIdRequest>,
+    ) -> Result<Response<ListConnectorSyncIssuesResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let connector_id = ConnectorId::from_proto(&request.into_inner().id)?;
+
+        let issues = self
+            .store
+            .list_sync_issues(tenant_id, connector_id)
+            .await
+            .map_err(Into::<ConnectorApiError>::into)?;
+
+        Ok(Response::new(ListConnectorSyncIssuesResponse {
+            issues: issues
+                .iter()
+                .map(mapping::connectors::sync_issue_to_server)
+                .collect(),
+        }))
+    }
+
+    async fn retry_connector_sync_issues(
+        &self,
+        request: Request<ConnectorIdRequest>,
+    ) -> Result<Response<RetryConnectorSyncIssuesResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let connector_id = ConnectorId::from_proto(&request.into_inner().id)?;
+
+        let connector = self
+            .store
+            .get_connector_with_data(connector_id, tenant_id)
+            .await
+            .map_err(Into::<ConnectorApiError>::into)?;
+        if connector.config.provider() != ConnectorProviderEnum::Pennylane {
+            return Err(ConnectorApiError::InvalidArgument(
+                "only Pennylane sync issues can be retried".into(),
+            )
+            .into());
+        }
+
+        let requeued = self
+            .store
+            .retry_pennylane_sync_issues(tenant_id, connector_id)
+            .await
+            .map_err(Into::<ConnectorApiError>::into)?;
+
+        Ok(Response::new(RetryConnectorSyncIssuesResponse {
+            requeued: u32::try_from(requeued).unwrap_or(u32::MAX),
         }))
     }
 }

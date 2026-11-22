@@ -4,7 +4,7 @@ use crate::pgmq::hubspot_sync::HubspotSync;
 use crate::pgmq::invoice_orchestration::InvoiceOrchestration;
 use crate::pgmq::payment_request::{PAYMENT_REQUEST_MAX_READS, PaymentRequest};
 use crate::pgmq::pdf_render::PdfRender;
-use crate::pgmq::pennylane_sync::PennylaneSync;
+use crate::pgmq::pennylane::PennylaneSync;
 use crate::pgmq::processor::{Noop, PgmqHandler, ProcessorConfig, run};
 use crate::pgmq::quote_conversion::QuoteConversion;
 use crate::pgmq::send_email::EmailSender;
@@ -141,7 +141,13 @@ pub async fn run_pennylane_sync(
     storage: Arc<dyn ObjectStoreService>,
 ) {
     let queue = PgmqQueue::PennylaneSync;
-    let processor = Arc::new(PennylaneSync::new(store.clone(), pennylane_client, storage));
+    let max_read_count = ReadCt(10);
+    let processor = Arc::new(PennylaneSync::new(
+        store.clone(),
+        pennylane_client,
+        storage,
+        max_read_count,
+    ));
 
     run(ProcessorConfig {
         name: processor_name("PennylaneSync"),
@@ -153,7 +159,7 @@ pub async fn run_pennylane_sync(
         vt: MessageReadVtSec(300),
         delete_succeeded: true,
         sleep_duration: std::time::Duration::from_millis(3000),
-        max_read_count: ReadCt(10),
+        max_read_count,
     })
     .await;
 }

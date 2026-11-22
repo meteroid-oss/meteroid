@@ -110,6 +110,24 @@ message ConnectPennylaneResponse {
   string auth_url = 1;
 }
 
+message UpdatePennylaneConnectorRequest {
+  string id = 1;
+  optional string invoicing_entity_id = 2;
+}
+
+message UpdatePennylaneConnectorResponse {
+  Connector connector = 1;
+}
+
+message ListConnectorSyncIssuesResponse {
+  // Most recent first, at most 500.
+  repeated ConnectorSyncIssue issues = 1;
+}
+
+message RetryConnectorSyncIssuesResponse {
+  uint32 requeued = 1;
+}
+
 service ConnectorsService {
   rpc ListConnectors(ListConnectorsRequest) returns (ListConnectorsResponse) {}
   // Deprecated: use DeleteConnector.
@@ -137,4 +155,10 @@ service ConnectorsService {
   rpc UpdateHubspotConnector(UpdateHubspotConnectorRequest) returns (UpdateHubspotConnectorResponse) {}
 
   rpc ConnectPennylane(ConnectPennylaneRequest) returns (ConnectPennylaneResponse) {}
+  rpc UpdatePennylaneConnector(UpdatePennylaneConnectorRequest) returns (UpdatePennylaneConnectorResponse) {}
+
+  // Documents the connector could not sync, and why.
+  rpc ListConnectorSyncIssues(ConnectorIdRequest) returns (ListConnectorSyncIssuesResponse) {}
+  // Sends every document with an issue again. Pennylane only.
+  rpc RetryConnectorSyncIssues(ConnectorIdRequest) returns (RetryConnectorSyncIssuesResponse) {}
 }

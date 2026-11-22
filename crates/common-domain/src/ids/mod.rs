@@ -44,6 +44,7 @@ id_type!(CreditNoteId, "crn_");
 id_type!(CustomerPaymentMethodId, "pm_");
 id_type!(CustomerConnectionId, "ctn_");
 id_type!(ConnectorId, "ctr_");
+id_type!(ConnectorSyncIssueId, "csi_");
 id_type!(EventId, "evt_");
 id_type!(PaymentTransactionId, "pay_");
 id_type!(ProductFamilyId, "pf_");

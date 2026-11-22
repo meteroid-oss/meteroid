@@ -8,6 +8,7 @@ pub mod connectors {
         HostedSetupCompletion, MandateSetupMode, PaymentCapabilities, payment_capabilities,
         requires_webhook_secret,
     };
+    use meteroid_store::domain::connector_sync_issues::{ConnectorSyncIssue, SyncResource};
     use meteroid_store::domain::connectors as domain;
     use meteroid_store::domain::connectors::{
         ConnectionMeta, ConnectorConfig, GocardlessEnvironment, PaymentCredentialsUpdate,
@@ -389,6 +390,7 @@ pub mod connectors {
                         data: Some(server::connector_data::Data::Pennylane(
                             server::PennylaneConnectorData {
                                 external_company_id: d.external_company_id.clone(),
+                                invoicing_entity_id: d.invoicing_entity_id.map(|id| id.as_proto()),
                             },
                         )),
                     })
@@ -512,6 +514,31 @@ pub mod connectors {
                 webhook_secret: secret(&value.webhook_secret),
             },
         ))
+    }
+
+    pub fn sync_issue_to_server(value: &ConnectorSyncIssue) -> server::ConnectorSyncIssue {
+        let (resource_type, resource_id) = match value.resource {
+            SyncResource::Customer(id) => (
+                server::SyncResourceType::SyncResourceCustomer,
+                id.as_proto(),
+            ),
+            SyncResource::Invoice(id) => {
+                (server::SyncResourceType::SyncResourceInvoice, id.as_proto())
+            }
+            SyncResource::CreditNote(id) => (
+                server::SyncResourceType::SyncResourceCreditNote,
+                id.as_proto(),
+            ),
+        };
+        server::ConnectorSyncIssue {
+            id: value.id.as_proto(),
+            resource_type: resource_type as i32,
+            resource_id,
+            message: value.message.clone(),
+            occurrences: value.occurrences,
+            first_seen_at: value.first_seen_at.as_proto(),
+            last_seen_at: value.last_seen_at.as_proto(),
+        }
     }
 
     pub fn connection_metadata_to_server(value: &ConnectionMeta) -> server::ConnectionMetadata {

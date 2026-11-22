@@ -4,7 +4,7 @@ mod hubspot_sync;
 mod invoice_orchestration;
 mod payment_request;
 mod pdf_render;
-mod pennylane_sync;
+mod pennylane;
 pub mod processors;
 mod quote_conversion;
 mod send_email;

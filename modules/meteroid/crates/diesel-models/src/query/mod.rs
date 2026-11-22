@@ -12,6 +12,7 @@ pub mod bi;
 pub mod billable_metrics;
 pub mod billing_controller;
 pub mod checkout_sessions;
+pub mod connector_sync_issues;
 pub mod connectors;
 pub mod coupon_plans;
 pub mod coupons;

@@ -13,6 +13,7 @@ mod test_auth_jwt;
 mod test_basic;
 mod test_billable_metric;
 mod test_connector_lifecycle;
+mod test_connector_sync_issues;
 mod test_connectors;
 mod test_coupon;
 mod test_customer;

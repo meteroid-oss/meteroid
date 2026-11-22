@@ -9,6 +9,7 @@ import { ManageConnectorModal } from '@/features/payments/ManageConnectorModal'
 import { PaymentProviderConnectModal } from '@/features/payments/PaymentProviderConnectModal'
 import { UpdateCredentialsModal } from '@/features/payments/UpdateCredentialsModal'
 import { EditHubspotIntegrationModal } from '@/features/settings/integrations/EditHubspotIntegrationModal'
+import { EditPennylaneIntegrationModal } from '@/features/settings/integrations/EditPennylaneIntegrationModal'
 import { HubspotIntegrationModal } from '@/features/settings/integrations/HubspotIntegration'
 import { PennylaneIntegrationModal } from '@/features/settings/integrations/PennylaneIntegration'
 import { UserSettings } from '@/pages/profile/userSettings'
@@ -62,6 +63,10 @@ export const tenantRoutes: RouteObject = {
             {
               path: 'connect-pennylane',
               element: <PennylaneIntegrationModal />,
+            },
+            {
+              path: 'edit-pennylane-connection/:connectionId',
+              element: <EditPennylaneIntegrationModal />,
             },
             {
               path: 'connect-hubspot',
