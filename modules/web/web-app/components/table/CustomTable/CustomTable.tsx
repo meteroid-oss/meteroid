@@ -198,7 +198,8 @@ export const CustomTable = <A extends object>({
   const toolbarSlot = useTableToolbarSlot()
   const footerSlot = useTableFooterSlot()
 
-  const tableBody = useMemo(() => {
+  // Not memoized: rows read the table's state (selection, expansion) when they render.
+  const tableBody = (() => {
     if (isLoading) {
       // One animation per row, not per cell: each animated element costs style and compositing work.
       const skeletonRowsArray = Array.from({ length: Math.min(pagination.pageSize, MAX_SKELETON_ROWS) })
@@ -238,21 +239,23 @@ export const CustomTable = <A extends object>({
     }
 
     return rows.map(rowRenderer)
-  }, [isLoading, data, rows, rowRenderer, columns, emptyMessage, pagination.pageSize])
+  })()
 
   return (
     <>
       {enableSelection && selectedRows.length > 0 && (
-        <div className="flex items-center gap-3 rounded-md border bg-muted/40 px-3 py-2 mb-1 text-sm">
+        <div className="flex min-h-11 items-center gap-3 rounded-md border bg-muted/40 px-3 py-1.5 mb-1 text-sm">
           <span className="font-medium">{selectedRows.length} selected</span>
-          {renderSelectionActions?.(selectedRows, () => table.resetRowSelection())}
           <button
             type="button"
-            className="ml-auto text-xs text-muted-foreground hover:text-foreground"
+            className="text-xs text-muted-foreground hover:text-foreground"
             onClick={() => table.resetRowSelection()}
           >
             Clear
           </button>
+          <div className="ml-auto flex items-center gap-2">
+            {renderSelectionActions?.(selectedRows, () => table.resetRowSelection())}
+          </div>
         </div>
       )}
       {showViewOptions &&
