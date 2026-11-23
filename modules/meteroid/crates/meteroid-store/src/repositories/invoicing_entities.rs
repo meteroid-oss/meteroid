@@ -185,6 +185,16 @@ impl InvoicingEntityInterface for Store {
             row.brand_color_light = Some(normalize_brand_color_light(color.as_deref())?);
         }
 
+        if row
+            .min_charge_amount
+            .flatten()
+            .is_some_and(|amount| amount < 0)
+        {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "min_charge_amount cannot be negative".to_string(),
+            )));
+        }
+
         if let Some(Some(category_id)) = row.default_tax_category_id {
             let available =
                 TaxCategoryRow::is_available_for_tenant(&mut conn, category_id, tenant_id)
@@ -582,6 +592,7 @@ fn invoicing_entity_changed_fields(
     diff!(portal_auto_top_up_enabled);
     diff!(portal_budgets_enabled);
     diff!(require_billing_information);
+    diff!(min_charge_amount);
     changed
 }
 
@@ -728,6 +739,7 @@ impl StoreInternal {
             require_billing_information: invoicing_entity
                 .require_billing_information
                 .unwrap_or(false),
+            min_charge_amount: None,
         };
         if let Some(extras) = customer_extra_locales {
             entity.customer_extra_locales =

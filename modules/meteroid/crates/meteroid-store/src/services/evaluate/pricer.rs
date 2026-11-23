@@ -290,7 +290,7 @@ fn fixed(fee: &StoreFee, lineage: &Fee, seats: Option<u64>) -> Result<Option<Rat
         fee: lineage.clone(),
         kind,
         quantity: Some(quantity),
-        amount: i64::try_from(total).map_err(|_| PricingError::OutOfRange)?,
+        amount: total,
         denomination: Denomination::Money,
         prorated,
         credit_grant: fee.credit_grant()?,
@@ -385,7 +385,7 @@ fn usage_rate(
             dimensions: line.dimensions.as_ref().map(sorted).unwrap_or_default(),
         },
         quantity: line.quantity,
-        amount: i64::try_from(line.total).map_err(|_| PricingError::OutOfRange)?,
+        amount: line.total,
         denomination,
         prorated: false,
         credit_grant: None,
@@ -609,13 +609,13 @@ mod tests {
         fee.instances = dec!(3);
         let rate = only(rates_of(&fee, None));
         let whole = pricing::simple_prorated(&dec!(10), &dec!(3), None, 2).unwrap();
-        assert_eq!(rate.amount, whole.total as i64);
+        assert_eq!(rate.amount, whole.total);
         assert_eq!(rate.quantity, Some(dec!(3)));
         assert_eq!(rate.kind, ChargeKind::Fee);
         assert!(rate.prorated);
         let partial =
             pricing::simple_prorated(&dec!(10), &dec!(3), Some(the_11th_share()), 2).unwrap();
-        assert_eq!(from_the_11th(rate.amount), partial.total as i64);
+        assert_eq!(from_the_11th(rate.amount), partial.total);
     }
 
     #[test]
@@ -629,11 +629,11 @@ mod tests {
             let rate = only(rates_of(&fee, None));
             let whole = pricing::simple_prorated(&dec!(9.99), &dec!(2), None, 2).unwrap();
             assert_eq!(rate.amount, 1_998);
-            assert_eq!(rate.amount, whole.total as i64);
+            assert_eq!(rate.amount, whole.total);
             assert!(rate.prorated);
             let partial =
                 pricing::simple_prorated(&dec!(9.99), &dec!(2), Some(the_11th_share()), 2).unwrap();
-            assert_eq!(from_the_11th(rate.amount), partial.total as i64);
+            assert_eq!(from_the_11th(rate.amount), partial.total);
         }
         let arrears = store_fee(SubscriptionFee::Recurring {
             rate: dec!(1),
@@ -652,7 +652,7 @@ mod tests {
         fee.instances = dec!(2);
         let rate = only(rates_of(&fee, None));
         let whole = pricing::simple_prorated(&dec!(49.5), &dec!(4), None, 2).unwrap();
-        assert_eq!(rate.amount, whole.total as i64);
+        assert_eq!(rate.amount, whole.total);
         assert_eq!(rate.quantity, Some(dec!(4)));
         assert!(!rate.prorated);
         assert_eq!(fee.billing(), Billing::OneTime);
@@ -673,7 +673,7 @@ mod tests {
             at_minimum.amount,
             pricing::simple_prorated(&dec!(25), &dec!(5), None, 2)
                 .unwrap()
-                .total as i64
+                .total
         );
         assert!(at_minimum.prorated);
         let held = only(rates_of(&fee, Some(8)));
@@ -681,7 +681,7 @@ mod tests {
         assert_eq!(only(rates_of(&fee, Some(50))).quantity, Some(dec!(20)));
         let partial =
             pricing::simple_prorated(&dec!(25), &dec!(8), Some(the_11th_share()), 2).unwrap();
-        assert_eq!(from_the_11th(held.amount), partial.total as i64);
+        assert_eq!(from_the_11th(held.amount), partial.total);
     }
 
     #[test]
@@ -719,7 +719,7 @@ mod tests {
         let usage: &[(&[(&str, &str)], Decimal)] = &[(&[("region", "eu")], dec!(1_500))];
         let overage = only(usage_of(&fee, &reads_of(metric, usage)));
         let today = capacity_overage_lines(dec!(1_000), &dec!(0.5), &grouped(usage), 2).unwrap();
-        assert_eq!(overage.amount, today[0].total as i64);
+        assert_eq!(overage.amount, today[0].total);
         assert_eq!(overage.amount, 25_000);
         assert_eq!(
             overage.kind,
@@ -841,10 +841,10 @@ mod tests {
         assert_eq!(rate.kind, ChargeKind::Credit);
         assert!(rate.prorated);
         let whole = pricing::credit_pack(&dec!(100), dec!(2), None, 2).unwrap();
-        assert_eq!(rate.amount, whole.total as i64);
+        assert_eq!(rate.amount, whole.total);
         let share = the_11th_share();
         let partial = pricing::credit_pack(&dec!(100), dec!(2), Some(share), 2).unwrap();
-        assert_eq!(from_the_11th(rate.amount), partial.total as i64);
+        assert_eq!(from_the_11th(rate.amount), partial.total);
         let granted = pricing::pack_credit_minor(dec!(50), dec!(2), 2).unwrap();
         let grant = rate.credit_grant.expect("a pack grants credit");
         assert_eq!(grant.amount, granted);
@@ -902,7 +902,7 @@ mod tests {
             .map(|line| {
                 (
                     line.dimensions.as_ref().map(sorted).unwrap_or_default(),
-                    line.total as i64,
+                    line.total,
                     line.quantity,
                 )
             })
@@ -1154,7 +1154,7 @@ mod tests {
             let today: i64 = store_usage_lines(&model, &converted.data, 2, |_| None)
                 .unwrap()
                 .iter()
-                .map(|line| line.total as i64)
+                .map(|line| line.total)
                 .sum();
             assert_eq!(priced, expected);
             assert_eq!(priced, today);

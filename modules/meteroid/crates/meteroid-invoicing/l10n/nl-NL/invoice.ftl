@@ -23,6 +23,9 @@ subtotal = Subtotaal
 total-due = Totaal te betalen
 total = Totaal
 credits-applied = Toegepast tegoed
+previous-balance = Vorig saldo
+carried-forward = Geïnd met uw volgende factuur
+credited-to-balance = Bijgeschreven op uw tegoed
 prepaid-credit-tax-note = Belasting op vooruitbetaald tegoed wordt berekend wanneer het tegoed wordt gebruikt.
 legal-info = Juridische informatie
 exchange-rate-info = Wisselkoers op {$date}: {$equality} | Omgerekend totaalbedrag = {$amount_converted}

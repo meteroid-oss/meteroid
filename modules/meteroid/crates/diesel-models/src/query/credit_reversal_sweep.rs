@@ -137,7 +137,7 @@ impl ReversedPurchaseInvoice {
                  GROUP BY cn.tenant_id, cn.invoice_id),
              money AS (
                  SELECT iv.tenant_id, iv.invoice_id, iv.since, greatest(r.touched_at, rf.touched_at) AS touched_at,
-                        i.total - i.applied_credits - coalesce(f.reduced, 0) AS owed,
+                        i.total + i.carried_balance - i.applied_credits - coalesce(f.reduced, 0) AS owed,
                         coalesce(r.gross, 0) - coalesce(rf.against_notes, 0) AS gross,
                         coalesce(r.reversed, 0) AS reversed,
                         coalesce(rf.excess_refunded, 0) AS excess_refunded,

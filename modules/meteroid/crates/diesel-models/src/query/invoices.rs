@@ -870,6 +870,57 @@ impl InvoiceRow {
             .into_db_result()
     }
 
+    /// Records what a finalizing invoice carried in and out, with the amount it then asks.
+    pub async fn set_carried_balance(
+        conn: &mut PgConn,
+        id: InvoiceId,
+        tenant_id: TenantId,
+        carried_balance: i64,
+        amount_due: i64,
+    ) -> DbResult<()> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        diesel::update(i_dsl::invoice)
+            .filter(i_dsl::id.eq(id))
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .filter(i_dsl::status.eq(crate::enums::InvoiceStatusEnum::Draft))
+            .set((
+                i_dsl::carried_balance.eq(carried_balance),
+                i_dsl::amount_due.eq(amount_due),
+            ))
+            .execute(conn)
+            .await
+            .map(|_| ())
+            .attach("Error while recording carried balances")
+            .into_db_result()
+    }
+
+    /// Moves an issued invoice's carried balance by `delta`, a credit note cancelling part of a
+    /// carried debt.
+    pub async fn adjust_carried_balance(
+        conn: &mut PgConn,
+        id: InvoiceId,
+        tenant_id: TenantId,
+        delta: i64,
+    ) -> DbResult<()> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        diesel::update(i_dsl::invoice)
+            .filter(i_dsl::id.eq(id))
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .set((
+                i_dsl::carried_balance.eq(i_dsl::carried_balance + delta),
+                i_dsl::updated_at.eq(common_clock::now().naive_utc()),
+            ))
+            .execute(conn)
+            .await
+            .map(|_| ())
+            .attach("Error while adjusting a carried balance")
+            .into_db_result()
+    }
+
     /// Writes an issued invoice's settled state (`billing_core::settlement`): its amount due and
     /// payment status, `paid_at` when it becomes paid (kept while it stays paid, cleared once it
     /// owes again). The only writer of these columns on an issued invoice.

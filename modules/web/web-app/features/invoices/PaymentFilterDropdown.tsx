@@ -20,6 +20,7 @@ const STATUS_LABELS: Record<InvoicePaymentStatus, string> = {
   [InvoicePaymentStatus.PARTIALLY_PAID]: 'Partially paid',
   [InvoicePaymentStatus.PAID]: 'Paid',
   [InvoicePaymentStatus.ERRORED]: 'Errored',
+  [InvoicePaymentStatus.CARRIED]: 'Carried forward',
 }
 
 const STATUSES: { label: string; value: InvoicePaymentStatus }[] = [
@@ -28,6 +29,7 @@ const STATUSES: { label: string; value: InvoicePaymentStatus }[] = [
   { label: 'Partially paid', value: InvoicePaymentStatus.PARTIALLY_PAID },
   { label: 'Paid', value: InvoicePaymentStatus.PAID },
   { label: 'Errored', value: InvoicePaymentStatus.ERRORED },
+  { label: 'Carried forward', value: InvoicePaymentStatus.CARRIED },
 ]
 
 interface Props {

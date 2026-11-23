@@ -154,6 +154,7 @@ const getInvoicePaymentStatusLabel = (status: InvoicePaymentStatus) => {
     [InvoicePaymentStatus.PARTIALLY_PAID]: 'Partially Paid',
     [InvoicePaymentStatus.UNPAID]: 'Unpaid',
     [InvoicePaymentStatus.PROCESSING]: 'Processing',
+    [InvoicePaymentStatus.CARRIED]: 'Carried forward',
   }
   return statusMap[status] || 'Unknown'
 }

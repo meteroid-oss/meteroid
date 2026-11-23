@@ -237,6 +237,9 @@ pub enum InvoicePaymentStatus {
     /// (delayed-notification rails: SEPA/ACH/BACS direct debit). Money is moving;
     /// the invoice must not be re-charged nor chased by dunning.
     Processing,
+    /// Its amount due was below the minimum charge: never collected on its own, it is owed on
+    /// the customer's next invoice and settled, then paid, with it.
+    Carried,
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]

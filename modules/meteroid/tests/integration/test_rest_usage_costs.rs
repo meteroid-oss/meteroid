@@ -1192,8 +1192,8 @@ async fn test_linear_bucket_costs_reconcile_with_the_invoice_in_minor_units() {
     let expected = api.invoiced(subscription, calls).await;
     assert_eq!(
         expected,
-        dec!(5.76),
-        "each region is rounded to cents on its own; a net-negative region is not billed"
+        dec!(5.71),
+        "each region is rounded to cents on its own; a net-negative region credits"
     );
 
     for granularity in ["HOUR", "DAY", "MONTH"] {

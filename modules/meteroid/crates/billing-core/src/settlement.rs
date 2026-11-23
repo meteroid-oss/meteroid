@@ -95,6 +95,18 @@ pub struct Note {
     pub voids_invoice: bool,
 }
 
+/// Debts carried between invoices: an amount due too small to collect is owed on the customer's
+/// next invoice (R-129).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Carry {
+    /// Debts of earlier invoices this one took, owed on top of its total.
+    pub taken: i64,
+    /// Its own debt, carried to a later invoice.
+    pub carried: i64,
+    /// The invoice that took that debt is paid: this one is paid with it.
+    pub carried_paid: bool,
+}
+
 /// An issued invoice and everything that moved its money. Collections and notes in the order
 /// they happened (notes by finalization).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -105,6 +117,7 @@ pub struct Account {
     pub collections: Vec<Collection>,
     pub refunds: Vec<Refund>,
     pub notes: Vec<Note>,
+    pub carry: Carry,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -115,6 +128,8 @@ pub enum PaymentStatus {
     Paid,
     Errored,
     Processing,
+    /// Its debt is owed on a later invoice not paid yet.
+    Carried,
 }
 
 /// The account folded (R-125).
@@ -261,13 +276,15 @@ impl Account {
             cash -= from_cash + note.refunded;
         }
         let goodwill = (without_note - excess_refunded).max(0);
-        let owed_cash = (remaining - credit).max(0);
+        let owed_cash = (remaining + self.carry.taken - self.carry.carried - credit).max(0);
         let due = (owed_cash - cash).max(0);
         let excess = (cash - disputed - goodwill - owed_cash).max(0);
         let lost = failed + disputed + goodwill;
         let in_hand = cash - disputed - goodwill;
         let uncollected = lost.min(owed_cash - in_hand).max(0);
-        let status = if due == 0 {
+        let status = if due == 0 && self.carry.carried > 0 && !self.carry.carried_paid {
+            PaymentStatus::Carried
+        } else if due == 0 {
             PaymentStatus::Paid
         } else if accepted {
             PaymentStatus::Processing
@@ -322,8 +339,16 @@ impl Account {
                 if state.in_flight > 0 {
                     return Err(Refusal::InFlight);
                 }
-                if amount > state.due {
-                    return Err(Refusal::AboveDue { due: state.due });
+                // A debt carried to a later invoice is cancelled here, where it was billed.
+                let open_carried = if account.carry.carried_paid {
+                    0
+                } else {
+                    account.carry.carried
+                };
+                if amount > state.due + open_carried {
+                    return Err(Refusal::AboveDue {
+                        due: state.due + open_carried,
+                    });
                 }
                 Ok(Split {
                     debt_cancelled: amount,
@@ -837,5 +862,78 @@ mod tests {
                 prop_assert_eq!(after.state().due, before.due);
             }
         }
+    }
+
+    /// Rules: R-129
+    #[test]
+    fn a_carried_debt_is_owed_on_the_invoice_that_took_it() {
+        let carried = Account {
+            total: 3_500,
+            carry: Carry {
+                carried: 3_500,
+                ..Carry::default()
+            },
+            ..Account::default()
+        };
+        assert_eq!(carried.state().due, 0);
+        assert_eq!(carried.state().status, PaymentStatus::Carried);
+        let paid_with_it = Account {
+            carry: Carry {
+                carried: 3_500,
+                carried_paid: true,
+                ..Carry::default()
+            },
+            ..carried.clone()
+        };
+        assert_eq!(paid_with_it.state().status, PaymentStatus::Paid);
+
+        let taking = Account {
+            total: 3_500,
+            drawn: 1_000,
+            carry: Carry {
+                taken: 3_500,
+                ..Carry::default()
+            },
+            ..Account::default()
+        };
+        assert_eq!(taking.state().due, 6_000, "credit pays its own total only");
+        assert_eq!(taking.state().status, PaymentStatus::Unpaid);
+    }
+
+    /// Rules: R-129
+    #[test]
+    fn a_carried_debt_is_cancelled_where_it_was_billed() {
+        let carried = Account {
+            total: 3_500,
+            carry: Carry {
+                carried: 3_500,
+                ..Carry::default()
+            },
+            ..Account::default()
+        };
+        assert_eq!(
+            carried.note(NoteKind::DebtCancellation, 3_500, None),
+            Ok(Split {
+                debt_cancelled: 3_500,
+                ..Split::default()
+            })
+        );
+        assert_eq!(
+            carried.note(NoteKind::DebtCancellation, 3_600, None),
+            Err(Refusal::AboveDue { due: 3_500 })
+        );
+        let paid_with_it = Account {
+            carry: Carry {
+                carried: 3_500,
+                carried_paid: true,
+                ..Carry::default()
+            },
+            ..carried
+        };
+        assert_eq!(
+            paid_with_it.note(NoteKind::DebtCancellation, 100, None),
+            Err(Refusal::AboveDue { due: 0 }),
+            "paid with the invoice that took it: nothing left to cancel"
+        );
     }
 }

@@ -186,6 +186,7 @@ pub mod invoicing_entities {
             contact_phone: proto.contact_phone.map(Some),
             contact_email: proto.contact_email.map(Some),
             require_billing_information: proto.require_billing_information,
+            min_charge_amount: proto.min_charge_amount.map(|m| m.amount),
         })
     }
 
@@ -275,6 +276,7 @@ pub mod invoicing_entities {
             contact_phone: domain.contact_phone,
             contact_email: domain.contact_email,
             require_billing_information: domain.require_billing_information,
+            min_charge_amount: domain.min_charge_amount,
         }
     }
 

@@ -221,6 +221,13 @@ impl InvoicesService for InvoiceServiceComponents {
             .map_err(Into::<InvoiceApiError>::into)?
             .contains(&invoice_id);
 
+        let links = self
+            .store
+            .list_carry_links(tenant_id, invoice_id)
+            .await
+            .map_err(Into::<InvoiceApiError>::into)?;
+        let carry = meteroid_store::domain::CarrySummary::of(&detailed.invoice, &links);
+
         let mut invoice = mapping::invoices::domain_invoice_with_transactions_to_server(
             detailed.invoice,
             detailed.transactions,
@@ -230,6 +237,19 @@ impl InvoicesService for InvoiceServiceComponents {
         invoice.dates_projected = dates_projected;
         invoice.regenerable = regenerable;
         invoice.settled_by_credit_notes = settled_by_credit_notes;
+        invoice.previous_balance = carry.previous_balance;
+        invoice.carried_forward = carry.carried_forward;
+        invoice.carried_balances = links
+            .into_iter()
+            .map(
+                |link| meteroid_grpc::meteroid::api::invoices::v1::CarriedBalance {
+                    outgoing: link.outgoing,
+                    amount: link.amount,
+                    invoice_id: link.invoice_id.map(|id| id.as_proto()),
+                    invoice_number: link.invoice_number,
+                },
+            )
+            .collect();
 
         invoice.transactions = transactions;
 

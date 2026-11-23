@@ -222,6 +222,8 @@ pub enum InvoicePaymentStatus {
     Errored,
     /// Payment accepted by the provider, not yet settled (async direct debit).
     Processing,
+    /// Below the minimum charge: owed on the next invoice and paid with it.
+    Carried,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]

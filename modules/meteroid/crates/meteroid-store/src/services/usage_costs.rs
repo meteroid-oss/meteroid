@@ -863,8 +863,15 @@ impl ServicesEdge {
             &window.fee,
             MeteredFee::Usage(UsagePricingModel::PerUnit { .. } | UsagePricingModel::Matrix { .. })
         ) && !rounds_converted_units(metric);
+        // Priced like the invoice: per-unit money usage netting negative credits, other models
+        // and credit units bill positive usage only.
+        let signed = window.overage.is_none()
+            && matches!(
+                &window.fee,
+                MeteredFee::Usage(UsagePricingModel::PerUnit { .. })
+            );
         let price = |dimensions: &HashMap<String, String>, units: Decimal, until| {
-            if units <= Decimal::ZERO {
+            if units.is_zero() || (units.is_sign_negative() && !signed) {
                 return Ok(0);
             }
             price_window_groups(

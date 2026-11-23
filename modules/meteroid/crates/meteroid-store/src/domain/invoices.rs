@@ -131,6 +131,50 @@ pub struct Invoice {
     pub promotional_credits: i64,
     /// When a dispute first withdrew money still lost on its payments; the invoice stays paid.
     pub payment_disputed_at: Option<NaiveDateTime>,
+    /// Debts carried in from earlier invoices less the debt carried to a later one, owed on top
+    /// of the total: `amount_due = total + carried_balance - applied_credits - paid`. Each carried
+    /// debt is a row of its own (`InvoiceInterface::list_carry_links`).
+    pub carried_balance: i64,
+}
+
+/// A balance carried between invoices, seen from one of them: `outgoing` when it carried it out
+/// (to `invoice_id`, none while no later invoice took it), else taken in from `invoice_id`.
+#[derive(Debug, Clone, PartialEq, Eq, o2o)]
+#[from_owned(diesel_models::invoice_carry_forward::CarryLink)]
+pub struct InvoiceCarryLink {
+    pub outgoing: bool,
+    pub amount: i64,
+    pub invoice_id: Option<InvoiceId>,
+    pub invoice_number: Option<String>,
+}
+
+/// The two parts of an invoice's carried balance, read from its carry rows: the debts it took
+/// from earlier invoices, and what it carried out, a debt (positive) or, for a negative total, the
+/// credit it left (negative).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CarrySummary {
+    pub previous_balance: i64,
+    pub carried_forward: i64,
+}
+
+impl CarrySummary {
+    pub fn of(invoice: &Invoice, links: &[InvoiceCarryLink]) -> Self {
+        let previous_balance = links
+            .iter()
+            .filter(|link| !link.outgoing)
+            .map(|link| link.amount)
+            .sum::<i64>();
+        let debt_out = links
+            .iter()
+            .filter(|link| link.outgoing)
+            .map(|link| link.amount)
+            .sum::<i64>();
+        let credit_left = (invoice.total + previous_balance).min(0);
+        Self {
+            previous_balance,
+            carried_forward: if debt_out > 0 { debt_out } else { credit_left },
+        }
+    }
 }
 
 /// Per-subscription inputs for projecting a draft's emission/due dates. The default yields a
@@ -230,6 +274,17 @@ pub enum InvoiceAnnexCell {
 }
 
 impl Invoice {
+    /// What the invoice asks before credit and payments: its total, plus debts carried in, less
+    /// a debt it carried out.
+    pub fn payable(&self) -> i64 {
+        self.total + self.carried_balance
+    }
+
+    /// What payments (not credit) settled of what the invoice asks.
+    pub fn collected(&self) -> i64 {
+        (self.payable() - self.amount_due - self.applied_credits).max(0)
+    }
+
     pub fn can_edit(&self) -> bool {
         self.status == InvoiceStatusEnum::Draft
     }
@@ -809,6 +864,7 @@ impl From<InvoiceNew> for Invoice {
             voided_at: None,
             marked_as_uncollectible_at: None,
             payment_disputed_at: None,
+            carried_balance: 0,
             invoicing_entity_id: value.invoicing_entity_id,
             parent_invoice_id: value.parent_invoice_id,
             consolidated_into_invoice_id: value.consolidated_into_invoice_id,
@@ -1051,6 +1107,7 @@ mod identity_tests {
             voided_at: None,
             marked_as_uncollectible_at: None,
             payment_disputed_at: None,
+            carried_balance: 0,
             invoicing_entity_id: InvoicingEntityId::new(),
             parent_invoice_id: None,
             consolidated_into_invoice_id: None,

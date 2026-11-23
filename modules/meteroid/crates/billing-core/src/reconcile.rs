@@ -111,7 +111,11 @@ pub fn reconcile(
             .map(|line| line.quoted_of(line.subtotal - line.corrected))
             .sum();
         let delta = charge.amount - billed;
-        if delta > 0 {
+        // Usage netting negative (a share of revenue net of credit notes) credits on a line of its
+        // own while none bills it yet: there is nothing to take it back from.
+        let negative_usage =
+            delta < 0 && lines.is_empty() && matches!(charge.key.kind, ChargeKind::Usage { .. });
+        if delta > 0 || negative_usage {
             adjustments.push(Adjustment::Bill {
                 key: charge.key.clone(),
                 amount: delta,
@@ -298,6 +302,46 @@ mod tests {
             settled: None,
             voided: false,
         }
+    }
+
+    #[test]
+    fn usage_netting_negative_bills_a_credit_line_once() {
+        let fee = expected(None, &[term(0, 0, 31)]);
+        let usage = Expected {
+            key: ChargeKey {
+                kind: ChargeKind::Usage {
+                    metric: Uuid::from_u128(2).into(),
+                    dimensions: Default::default(),
+                },
+                ..fee[0].key.clone()
+            },
+            amount: -600,
+        };
+        let expected = std::slice::from_ref(&usage);
+        assert_eq!(
+            reconcile(expected, &[], TakeBack::LatestFirst),
+            vec![Adjustment::Bill {
+                key: usage.key.clone(),
+                amount: -600
+            }]
+        );
+        let billed = issued("a", &usage.key, 0, -600);
+        assert!(reconcile(expected, &[billed], TakeBack::LatestFirst).is_empty());
+        assert_eq!(
+            reconcile(
+                &[Expected {
+                    amount: -600,
+                    ..fee[0].clone()
+                }],
+                &[],
+                TakeBack::LatestFirst
+            ),
+            vec![Adjustment::Short {
+                key: fee[0].key.clone(),
+                amount: 600
+            }],
+            "a fee owed back is not billed as a line"
+        );
     }
 
     #[test]

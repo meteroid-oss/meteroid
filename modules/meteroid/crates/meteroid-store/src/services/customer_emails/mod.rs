@@ -697,6 +697,33 @@ impl Services {
             };
 
         let (lang, subject, body, attachments) = match (kind, context) {
+            (EmailKind::InvoiceReady, EmailContext::Invoice { .. })
+                if invoice.payment_status == InvoicePaymentStatus::Carried =>
+            {
+                let attachments = match required_pdf(SentEmailAttachmentKind::InvoicePdf) {
+                    Ok(a) => a,
+                    Err(outcome) => return Ok(outcome),
+                };
+                let links = self.store.list_carry_links(tenant_id, invoice.id).await?;
+                let carried = crate::domain::CarrySummary::of(invoice, &links).carried_forward;
+                (
+                    lang,
+                    Subject::Fixed,
+                    Body::InvoiceCarried {
+                        summary: invoice_summary(
+                            invoice,
+                            carried,
+                            invoice_ready_label(
+                                lang,
+                                invoice.plan_name.as_deref(),
+                                service_period(invoice),
+                            ),
+                        ),
+                        cta: Cta::new(pay_link(invoice.id)?),
+                    },
+                    attachments,
+                )
+            }
             (EmailKind::InvoiceReady, EmailContext::Invoice { .. }) => {
                 let attachments = match required_pdf(SentEmailAttachmentKind::InvoicePdf) {
                     Ok(a) => a,
@@ -729,7 +756,7 @@ impl Services {
                     .store
                     .last_settled_payment_tx_by_invoice_id(tenant_id, invoice.id)
                     .await?;
-                let amount_paid = receipt.as_ref().map_or(invoice.total, |r| r.amount);
+                let amount_paid = receipt.as_ref().map_or(invoice.collected(), |r| r.amount);
                 if let Some(receipt_pdf_id) = receipt.and_then(|r| r.receipt_pdf_id) {
                     attachments.push(AttachmentRef {
                         document_id: receipt_pdf_id,

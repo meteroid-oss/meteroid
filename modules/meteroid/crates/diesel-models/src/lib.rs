@@ -29,6 +29,7 @@ pub mod entitlements;
 pub use diesel_schema::enums;
 pub mod errors;
 pub mod instance_telemetry;
+pub mod invoice_carry_forward;
 pub mod invoices;
 pub mod lock;
 pub mod org_security_audit_log;

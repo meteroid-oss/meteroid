@@ -69,6 +69,21 @@ async fn build_line_groups(
 
 /// The credit units the lines are priced in or sell, archived ones included: the documents
 /// name a unit, never print its code.
+/// The two parts of `invoice`'s carried balance, for its document.
+pub async fn invoice_carry(
+    store: &Arc<Store>,
+    invoice: &meteroid_store::domain::Invoice,
+) -> Result<meteroid_store::domain::CarrySummary, Report<InvoicingRenderError>> {
+    if invoice.carried_balance == 0 && invoice.total >= 0 {
+        return Ok(meteroid_store::domain::CarrySummary::default());
+    }
+    let links = store
+        .list_carry_links(invoice.tenant_id, invoice.id)
+        .await
+        .change_context(InvoicingRenderError::StoreError)?;
+    Ok(meteroid_store::domain::CarrySummary::of(invoice, &links))
+}
+
 pub async fn line_credit_units(
     store: &Arc<Store>,
     tenant_id: TenantId,
@@ -235,8 +250,11 @@ async fn resolve_payment_info(
         .await
         .change_context(InvoicingRenderError::StoreError)?;
 
-    // A consolidated child is superseded by its parent and must never be presented as payable.
-    if invoice.is_consolidated_child() {
+    // A consolidated child is superseded by its parent and must never be presented as payable;
+    // a carried invoice is collected with the next one.
+    if invoice.is_consolidated_child()
+        || invoice.payment_status == meteroid_store::domain::enums::InvoicePaymentStatus::Carried
+    {
         return Ok(PaymentInfo::default());
     }
 
@@ -419,6 +437,7 @@ impl InvoicePreviewRenderingService {
         let line_groups = build_line_groups(&self.store, &invoice).await?;
         let credit_units =
             line_credit_units(&self.store, invoice.tenant_id, &invoice.line_items).await?;
+        let carry = invoice_carry(&self.store, &invoice).await?;
 
         let mapped = mapper::map_invoice_to_invoicing(
             invoice,
@@ -429,6 +448,7 @@ impl InvoicePreviewRenderingService {
             parent_invoice.as_ref(),
             &line_groups,
             &credit_units,
+            carry,
         )?;
 
         let svgs = self
@@ -561,6 +581,7 @@ impl InvoicePreviewRenderingService {
 
         let credit_units =
             line_credit_units(&self.store, invoice.tenant_id, &invoice.line_items).await?;
+        let carry = invoice_carry(&self.store, &invoice).await?;
         let mapped = mapper::map_invoice_to_invoicing(
             invoice,
             &invoicing_entity,
@@ -570,6 +591,7 @@ impl InvoicePreviewRenderingService {
             parent_invoice.as_ref(),
             &HashMap::new(),
             &credit_units,
+            carry,
         )?;
 
         // The same three outcomes `generate` produces, folded into the stored
@@ -768,6 +790,7 @@ impl PdfRenderingService {
         let line_groups = build_line_groups(&self.store, &invoice).await?;
         let credit_units =
             line_credit_units(&self.store, invoice.tenant_id, &invoice.line_items).await?;
+        let carry = invoice_carry(&self.store, &invoice).await?;
         let is_consolidated_child = invoice.is_consolidated_child();
 
         let mapped_invoice = mapper::map_invoice_to_invoicing(
@@ -779,6 +802,7 @@ impl PdfRenderingService {
             parent_invoice.as_ref(),
             &line_groups,
             &credit_units,
+            carry,
         )?;
 
         // Structured e-invoicing, when the entity opted in.
@@ -913,6 +937,7 @@ mod mapper {
         parent_invoice: Option<&store_model::Invoice>,
         line_groups: &HashMap<String, String>,
         credit_units: &CreditUnitsById,
+        carry: store_model::CarrySummary,
     ) -> Result<invoicing_model::Invoice, Report<InvoicingRenderError>> {
         // Issue date is the invoice_date, not finalized_at: it's the date the rest of
         // the system anchors on (numbering, due date, VAT report), so the PDF must match
@@ -964,6 +989,8 @@ mod mapper {
             memo: invoice.memo.clone(),
             payment_url: payment.payment_url,
             prepaid_amount: meteroid_money::Money::from_minor(invoice.applied_credits, currency),
+            previous_balance: meteroid_money::Money::from_minor(carry.previous_balance, currency),
+            carried_forward: meteroid_money::Money::from_minor(carry.carried_forward, currency),
             flags: Flags {
                 show_payment_status: Some(true),
                 show_payment_info: Some(true),

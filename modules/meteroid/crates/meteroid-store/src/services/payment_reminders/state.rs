@@ -9,6 +9,7 @@ use crate::domain::payment_reminders::{
     SequenceRef,
 };
 use crate::errors::StoreError;
+use crate::services::invoices::carry_forward::below_provider_minimum_tx;
 use crate::services::payment_reminders::audience::{compile, evaluate_audience};
 use crate::services::payment_reminders::schedule::{anchor_date, fire_time, schedulable};
 use crate::services::payment_reminders::sweep::{is_payable, is_reminder_eligible, offsets};
@@ -30,6 +31,7 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EligibilityFacts {
     pub payable: bool,
+    pub below_provider_minimum: bool,
     pub has_due_and_finalized: bool,
     pub has_pdf: bool,
     pub consolidated_child: bool,
@@ -47,6 +49,10 @@ pub struct EligibilityFacts {
 pub fn not_eligible_reason(f: &EligibilityFacts) -> Option<NotEligibleReason> {
     [
         (!f.payable, NotEligibleReason::NotPayable),
+        (
+            f.below_provider_minimum,
+            NotEligibleReason::BelowProviderMinimum,
+        ),
         (!f.has_due_and_finalized, NotEligibleReason::NoDueDate),
         (!f.has_pdf, NotEligibleReason::NoPdf),
         (f.consolidated_child, NotEligibleReason::ConsolidatedChild),
@@ -253,6 +259,7 @@ impl StoreInternal {
 
         let facts = EligibilityFacts {
             payable: is_payable(&invoice),
+            below_provider_minimum: below_provider_minimum_tx(conn, &invoice).await?,
             has_due_and_finalized: anchor.is_some(),
             has_pdf: invoice.pdf_document_id.is_some(),
             consolidated_child: invoice.consolidated_into_invoice_id.is_some(),
@@ -362,6 +369,7 @@ mod tests {
     fn eligible() -> EligibilityFacts {
         EligibilityFacts {
             payable: true,
+            below_provider_minimum: false,
             has_due_and_finalized: true,
             has_pdf: true,
             consolidated_child: false,

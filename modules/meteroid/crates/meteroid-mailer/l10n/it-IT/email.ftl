@@ -55,12 +55,14 @@ invoice-number = Numero fattura
 invoice-date = Data di emissione
 amount-due = Importo dovuto
 amount-paid = Importo pagato
+amount-carried = Riportato
 credit-note-number = Numero nota di credito
 amount-credited = Importo accreditato
 quote-number = Numero preventivo
 valid-until = Valido fino al
 # $date = a long localized date, under the headline amount.
 due-on = Scade il { $date }
+collected-with-next-invoice = Addebitato con la sua prossima fattura
 
 ## Status badges, next to the headline amount
 status-paid = Pagato
@@ -75,6 +77,7 @@ invoice-paid-plan = Questo pagamento riguarda il Suo abbonamento { $plan }.
 
 ## Buttons
 view-and-pay = Visualizza e paga
+view-invoice = Visualizza fattura
 pay-invoice = Paga la fattura
 confirm-payment = Conferma il pagamento
 update-payment-method = Aggiorna il metodo di pagamento e paga

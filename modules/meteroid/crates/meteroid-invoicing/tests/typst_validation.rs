@@ -1369,6 +1369,8 @@ fn create_minimal_invoice() -> Invoice {
             promotional_credit: Money::from_major(0, eur),
             quoted_promotional_credit: None,
             prepaid_amount: Money::from_major(0, eur),
+            previous_balance: Money::from_major(0, eur),
+            carried_forward: Money::from_major(0, eur),
             purchase_order: Some("some order".to_string()),
             parent_invoice_number: None,
             parent_invoice_date: None,
@@ -1492,6 +1494,8 @@ fn create_full_invoice() -> Invoice {
             promotional_credit: Money::from_major(0, eur),
             quoted_promotional_credit: None,
             prepaid_amount: Money::from_major(0, eur),
+            previous_balance: Money::from_major(0, eur),
+            carried_forward: Money::from_major(0, eur),
             purchase_order: Some("some order".to_string()),
             parent_invoice_number: None,
             parent_invoice_date: None,
@@ -2273,6 +2277,45 @@ fn an_invoice_with_nothing_left_to_pay_says_so_and_offers_no_payment() {
     let text = render_text(&owed);
     assert!(text.contains("Pay online"), "{text}");
     assert!(!text.contains("Nothing to pay"), "{text}");
+}
+
+/// An amount due below the minimum charge is owed but collected with the next invoice, which adds
+/// it on top of its own total.
+#[test]
+fn a_carried_amount_shows_on_both_invoices() {
+    let eur = iso::find("EUR").unwrap();
+    let mut source = create_minimal_invoice();
+    source.metadata.carried_forward = source.metadata.total_amount;
+    source.metadata.payment_url = Some("https://pay.example.com/i/1".to_string());
+    let text = render_text(&source);
+    assert!(text.contains("Collected with your next invoice"), "{text}");
+    assert!(
+        !text.contains("Nothing to pay"),
+        "the amount is owed: {text}"
+    );
+    assert!(!text.contains("Pay online"), "{text}");
+
+    let mut next = create_minimal_invoice();
+    next.metadata.previous_balance = Money::from_minor(30, eur);
+    let text = render_text(&next);
+    assert!(text.contains("Previous balance"), "{text}");
+    let due = next.metadata.total_amount.amount() + rust_decimal::Decimal::new(30, 2);
+    assert!(text.contains(&format!("{due:.2}")), "{due} is due: {text}");
+
+    next.lang = "fr-FR".to_string();
+    assert!(render_text(&next).contains("Solde précédent"));
+}
+
+/// A negative total is not refunded: it is credited to the customer's balance.
+#[test]
+fn a_negative_total_credited_to_the_balance_leaves_nothing_due() {
+    let eur = iso::find("EUR").unwrap();
+    let mut invoice = create_minimal_invoice();
+    invoice.metadata.total_amount = Money::from_major(-50, eur);
+    invoice.metadata.carried_forward = Money::from_major(-50, eur);
+    let text = render_text(&invoice);
+    assert!(text.contains("Credited to your balance"), "{text}");
+    assert!(text.contains("Nothing to pay"), "{text}");
 }
 
 #[test]

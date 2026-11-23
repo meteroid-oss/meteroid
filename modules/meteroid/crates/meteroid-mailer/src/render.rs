@@ -84,6 +84,11 @@ pub enum Body {
         summary: InvoiceSummary,
         cta: Cta,
     },
+    /// An issued invoice whose amount due was below the minimum charge: collected with the next.
+    InvoiceCarried {
+        summary: InvoiceSummary,
+        cta: Cta,
+    },
     InvoicePaid {
         summary: InvoiceSummary,
     },
@@ -331,6 +336,29 @@ pub fn render(
                 label: non_blank(&summary.label),
                 summary: summary_box,
                 cta: button(cta, l10n.view_and_pay(), &color),
+            };
+            let subject = l10n.invoice_ready_subject(company).to_string();
+            (
+                subject.clone(),
+                render_layout(lang, subject, preheader, header, footer, &l10n, content)?,
+            )
+        }
+        Body::InvoiceCarried { summary, cta } => {
+            let carried = SummaryHero {
+                caption: Some(l10n.collected_with_next_invoice().to_string()),
+                ..hero(
+                    l10n.amount_carried(),
+                    summary.amount_minor,
+                    &summary.currency,
+                )
+            };
+            let summary_box = invoice_box(&l10n, lang, &summary, carried);
+            let preheader = preview_line(&summary_box, &summary.number);
+            let content = InvoiceReadyContent {
+                heading: l10n.invoice_ready_heading().to_string(),
+                label: non_blank(&summary.label),
+                summary: summary_box,
+                cta: button(cta, l10n.view_invoice(), &color),
             };
             let subject = l10n.invoice_ready_subject(company).to_string();
             (

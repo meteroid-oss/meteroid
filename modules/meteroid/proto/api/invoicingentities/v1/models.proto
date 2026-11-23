@@ -72,6 +72,15 @@ message InvoicingEntity {
   // Checkout completes only once the customer has a billing email and a complete billing
   // address (line 1, city, postal code, country).
   bool require_billing_information = 45;
+  // Amounts due below it are carried to the next invoice instead of being collected, in minor
+  // units of the accounting currency, converted for invoices in other currencies. The payment
+  // providers' minimum applies when it is higher.
+  optional int64 min_charge_amount = 46;
+}
+
+message MinChargeAmount {
+  // Unset clears it: the payment providers' minimum alone applies.
+  optional int64 amount = 1;
 }
 
 message LocaleList {
@@ -151,6 +160,8 @@ message InvoicingEntityData {
   optional bool portal_auto_top_up_enabled = 39;
   optional bool portal_budgets_enabled = 40;
   optional bool require_billing_information = 41;
+  // Absent = unchanged.
+  optional MinChargeAmount min_charge_amount = 42;
 }
 
 // Siblings, not levels: XRechnung and Peppol BIS are each a CIUS of EN 16931

@@ -46,6 +46,8 @@
   total_excl_tax: none,            // Net total shown above the included tax on a tax-inclusive document
   promotional_credit: 0,           // Promotional credit drawn before tax, like a discount
   prepaid_amount: 0,               // Customer credit applied at issuance, deducted from the total
+  previous_balance: 0,             // Debts carried in from earlier invoices, owed on top of the total
+  carried_forward: 0,              // Carried to a later invoice: a small debt (> 0) or credit (< 0)
   amount_due: none,                // total_amount - prepaid_amount; defaults to total_amount
   prepaid_credit_purchase: false,  // Sells currency credit, taxed when the credit is used
 ) = {
@@ -75,8 +77,12 @@
   let format_amount = (amount) => numbers.format_amount(lang, currency_symbol, amount)
   let format_number = (value) => numbers.format_number(lang, value)
   let format_percent = (rate) => numbers.format_percent(lang, rate)
+  // Below the minimum charge: owed, but collected with the customer's next invoice.
+  let carried = carried_forward > 0
   let due_summary = if nothing_due {
     translations.at("nothing_to_pay", default: "Nothing to pay")
+  } else if carried {
+    format_amount(amount_due) + " " + translations.at("carried_forward", default: "Collected with your next invoice")
   } else {
     format_amount(amount_due) + " " + translations.due_label + " " + due_date
   }
@@ -263,7 +269,7 @@
         #v(4pt)
 
         // Add payment button with url link if provided
-        #if pay_online_url != none and not nothing_due {
+        #if pay_online_url != none and not nothing_due and not carried {
           link(pay_online_url,
             box(
               fill: color.button,
@@ -576,15 +582,39 @@
           }
         },
 
-        ..if prepaid_amount > 0 {
+        ..if prepaid_amount > 0 or previous_balance > 0 or carried_forward != 0 {
           (
             text(fill: color.accent, translations.at("total", default: "Total")),
             align(right, text(weight: "regular", format_amount(total_amount))),
-            text(fill: color.accent, translations.at("credits_applied", default: "Credits applied")),
-            align(right, text(weight: "regular", sym.minus + format_amount(prepaid_amount))),
+          )
+          if prepaid_amount > 0 {
+            (
+              text(fill: color.accent, translations.at("credits_applied", default: "Credits applied")),
+              align(right, text(weight: "regular", sym.minus + format_amount(prepaid_amount))),
+            )
+          }
+          if previous_balance > 0 {
+            (
+              text(fill: color.accent, translations.at("previous_balance", default: "Previous balance")),
+              align(right, text(weight: "regular", format_amount(previous_balance))),
+            )
+          }
+          if carried_forward < 0 {
+            (
+              text(fill: color.accent, translations.at("credited_to_balance", default: "Credited to your balance")),
+              align(right, text(weight: "regular", format_amount(-carried_forward))),
+            )
+          }
+          (
             text(weight: "medium", size: 12pt, fill: color.heading, translations.amount_due),
             align(right, text(weight: "medium", size: 12pt, fill: color.heading, format_amount(amount_due))),
           )
+          if carried {
+            (
+              text(fill: color.accent, translations.at("carried_forward", default: "Collected with your next invoice")),
+              [],
+            )
+          }
         } else {
           (
             text(weight: "medium", size: 12pt, fill: color.heading, translations.total_due),

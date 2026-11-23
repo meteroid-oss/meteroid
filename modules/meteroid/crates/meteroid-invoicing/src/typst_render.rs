@@ -512,6 +512,8 @@ typst_dict_struct! {
         pub tax_amount: TypstDecimal,
         pub total_amount: TypstDecimal,
         pub prepaid_amount: TypstDecimal,
+        pub previous_balance: TypstDecimal,
+        pub carried_forward: TypstDecimal,
         pub amount_due: TypstDecimal,
         pub currency_code: String,
         pub currency_symbol: String,
@@ -767,6 +769,9 @@ impl TryFrom<&Invoice> for TypstInvoiceContent {
             "total_due" => invoice_l10n.total_due().into_value(),
             "total" => invoice_l10n.total().into_value(),
             "credits_applied" => invoice_l10n.credits_applied().into_value(),
+            "previous_balance" => invoice_l10n.previous_balance().into_value(),
+            "carried_forward" => invoice_l10n.carried_forward().into_value(),
+            "credited_to_balance" => invoice_l10n.credited_to_balance().into_value(),
             "prepaid_credit_tax_note" => invoice_l10n.prepaid_credit_tax_note().into_value(),
             "legal_info" => invoice_l10n.legal_info().into_value(),
             "payment_status" => invoice_l10n.payment_status().into_value(),
@@ -900,10 +905,15 @@ impl TryFrom<&Invoice> for TypstInvoiceContent {
         );
         let prepaid_amount =
             format::money(&Price::from_decimal(prepaid, invoice.metadata.currency))?;
+        let previous_balance = *invoice.metadata.previous_balance.amount();
+        let carried_forward = *invoice.metadata.carried_forward.amount();
         let amount_due = format::money(&Price::from_decimal(
-            *invoice.metadata.total_amount.amount() - prepaid,
+            *invoice.metadata.total_amount.amount() - prepaid + previous_balance
+                - carried_forward.min(Decimal::ZERO),
             invoice.metadata.currency,
         ))?;
+        let previous_balance = format::money(&invoice.metadata.previous_balance)?;
+        let carried_forward = format::money(&invoice.metadata.carried_forward)?;
 
         // On a tax-inclusive document the summary is in quoted figures too: the subtotal
         // is what the lines show, the discount and promotional credit are what separate it
@@ -961,6 +971,8 @@ impl TryFrom<&Invoice> for TypstInvoiceContent {
             tax_amount,
             total_amount,
             prepaid_amount,
+            previous_balance,
+            carried_forward,
             amount_due,
             currency_code,
             currency_symbol: currency_symbol.to_string(),

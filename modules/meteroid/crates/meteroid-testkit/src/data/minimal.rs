@@ -122,6 +122,7 @@ pub async fn run_minimal_seed(pool: &PgPool) {
             portal_auto_top_up_enabled: false,
             portal_budgets_enabled: false,
             require_billing_information: false,
+            min_charge_amount: None,
             contact_name: None,
             contact_phone: None,
             contact_email: None,

@@ -55,12 +55,14 @@ invoice-number = Rechnungsnummer
 invoice-date = Rechnungsdatum
 amount-due = Fälliger Betrag
 amount-paid = Gezahlter Betrag
+amount-carried = Übertragen
 credit-note-number = Nummer der Rechnungskorrektur
 amount-credited = Gutgeschriebener Betrag
 quote-number = Angebotsnummer
 valid-until = Gültig bis
 # $date = a long localized date, under the headline amount.
 due-on = Fällig am { $date }
+collected-with-next-invoice = Wird mit Ihrer nächsten Rechnung eingezogen
 
 ## Status badges, next to the headline amount
 status-paid = Bezahlt
@@ -75,6 +77,7 @@ invoice-paid-plan = Diese Zahlung betrifft Ihr Abonnement { $plan }.
 
 ## Buttons
 view-and-pay = Ansehen und bezahlen
+view-invoice = Rechnung ansehen
 pay-invoice = Rechnung bezahlen
 confirm-payment = Zahlung bestätigen
 update-payment-method = Zahlungsmethode aktualisieren und bezahlen

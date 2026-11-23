@@ -49,6 +49,7 @@ import {
   visibleFooterLocales,
 } from '@/features/settings/utils/footerTranslations'
 import { useZodForm } from '@/hooks/useZodForm'
+import { majorToMinorUnit, minorToMajorUnit } from '@/lib/utils/numbers'
 import {
   listInvoicingEntities,
   updateInvoicingEntity,
@@ -67,6 +68,10 @@ const invoiceDetailsSchema = z.object({
     .optional(),
   logoAttachmentId: z.string().optional(),
   requireBillingInformation: z.boolean().optional(),
+  minChargeAmount: z
+    .string()
+    .regex(/^(\d+([.,]\d+)?)?$/, 'Must be a positive amount, or empty')
+    .optional(),
   invoicingLanguage: z.string().optional(),
   einvoicingFormat: z.string().optional(),
 })
@@ -194,6 +199,12 @@ export const InvoiceTab = () => {
         ),
         logoAttachmentId: currentEntity.logoAttachmentId || '',
         requireBillingInformation: currentEntity.requireBillingInformation ?? false,
+        minChargeAmount:
+          currentEntity.minChargeAmount === undefined
+            ? ''
+            : String(
+                minorToMajorUnit(currentEntity.minChargeAmount, currentEntity.accountingCurrency)
+              ),
         invoicingLanguage: invoiceLanguageFromStored(currentEntity.invoicingLanguage),
         einvoicingFormat: einvoicingFormatFromStored(currentEntity.einvoicingFormat),
       })
@@ -226,6 +237,14 @@ export const InvoiceTab = () => {
         logoAttachmentId: values.logoAttachmentId,
         netTerms: values.netTerms,
         requireBillingInformation: values.requireBillingInformation,
+        minChargeAmount: {
+          amount: values.minChargeAmount
+            ? majorToMinorUnit(
+                Number(values.minChargeAmount.replace(',', '.')),
+                currentEntity?.accountingCurrency ?? 'EUR'
+              )
+            : undefined,
+        },
         invoicingLanguage: invoiceLanguageForPatch(values.invoicingLanguage),
         einvoicingFormat: einvoicingFormatForPatch(values.einvoicingFormat),
       },
@@ -287,6 +306,15 @@ export const InvoiceTab = () => {
                   label="Net terms (days)"
                   type="number"
                   placeholder="30"
+                />
+                <InputFormField
+                  name="minChargeAmount"
+                  control={methods.control}
+                  label={`Minimum charge (${currentEntity?.accountingCurrency ?? ''})`}
+                  inputMode="decimal"
+                  placeholder="Payment provider minimum"
+                  containerClassName="sm:col-span-2"
+                  description="An amount due below it is not collected but carried forward to the customer's next invoice. Converted for invoices in other currencies. Your payment providers' minimum (e.g. 0.50 EUR on Stripe) always applies when it is higher."
                 />
                 <div className="sm:col-span-2 space-y-1.5">
                   <InvoiceLanguageSelect

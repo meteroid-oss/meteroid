@@ -333,6 +333,7 @@ pub struct InvoiceReminderStepView {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum NotEligibleReason {
     NotPayable,
+    BelowProviderMinimum,
     NoDueDate,
     NoPdf,
     ConsolidatedChild,

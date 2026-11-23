@@ -151,7 +151,7 @@ pub struct SubLine {
 /// A priced line, before the caller gives it its period, fee and metric.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PricedLine {
-    pub total: u64,
+    pub total: i64,
     pub quantity: Option<Decimal>,
     pub unit_price: Option<Decimal>,
     pub is_prorated: bool,
@@ -190,7 +190,7 @@ impl PricedLine {
         PricedLine {
             quantity: None,
             unit_price: None,
-            total: total_cents,
+            total: total_cents as i64,
             is_prorated: proration_factor.is_some_and(|f| !f.is_whole()),
             sublines,
             dimensions: None,
@@ -227,7 +227,7 @@ pub fn simple_prorated(
             Decimal::ZERO
         } else {
             let divisor = Decimal::from(10u64.pow(precision as u32));
-            Decimal::from(total_cents as i64) / divisor / quantity
+            Decimal::from(total_cents) / divisor / quantity
         }
     } else {
         *rate
@@ -236,7 +236,7 @@ pub fn simple_prorated(
     Ok(PricedLine {
         quantity: Some(*quantity),
         unit_price: Some(unit_price),
-        total: total_cents,
+        total: total_cents as i64,
         is_prorated: proration_factor.is_some_and(|f| !f.is_whole()),
         sublines: Vec::new(),
         dimensions: None,
@@ -261,7 +261,7 @@ pub fn credit_pack(
         _ => *rate,
     };
     Ok(PricedLine {
-        total: u64::try_from(total.max(0)).map_err(|_| PricingError::OutOfRange)?,
+        total: total.max(0),
         quantity: Some(units),
         unit_price: Some(unit_price),
         is_prorated: share.is_some_and(|share| !share.is_whole()),
@@ -376,7 +376,7 @@ mod tests {
         let sublines = vec![subline("a", 1_000), subline("b", 2_345), subline("c", 777)];
         let line = PricedLine::from_usage_sublines(sublines, None);
         let sum: i64 = line.sublines.iter().map(|s| s.total).sum();
-        assert_eq!(line.total as i64, sum);
+        assert_eq!(line.total, sum);
     }
 
     #[test]
@@ -391,7 +391,7 @@ mod tests {
         let line = PricedLine::from_usage_sublines(sublines, Some(DayFraction::new(37, 100)));
         let sum: i64 = line.sublines.iter().map(|s| s.total).sum();
         assert_eq!(
-            line.total as i64, sum,
+            line.total, sum,
             "line.total ({}) != Σ sublines.total ({})",
             line.total, sum
         );
@@ -402,7 +402,7 @@ mod tests {
         let sublines = vec![subline("a", 1_000), subline("b", 2_345)];
         let line = PricedLine::from_usage_sublines(sublines, Some(DayFraction::WHOLE));
         let sum: i64 = line.sublines.iter().map(|s| s.total).sum();
-        assert_eq!(line.total as i64, sum);
+        assert_eq!(line.total, sum);
     }
 
     #[test]

@@ -56,6 +56,12 @@ pub struct Invoice {
     /// `applied_credits`, which settles part of the `total` after tax.
     #[serde(default)]
     pub promotional_credits: i64,
+    /// Debts carried in from earlier invoices (amounts due below the payment providers' minimum
+    /// charge, never collected on their own) less the one this invoice carried to a later
+    /// invoice, in minor units. Included in `amount_due`:
+    /// `amount_due = total + carried_balance - applied_credits - paid`.
+    #[serde(default)]
+    pub carried_balance: i64,
     pub coupons: Vec<CouponLineItem>,
     pub invoice_type: InvoiceType,
     /// Set on a corrective invoice: the cancelled invoice this one replaces
@@ -403,6 +409,8 @@ pub enum InvoicePaymentStatus {
     Paid,
     Errored,
     Processing,
+    /// Below the minimum charge: owed on the customer's next invoice and paid with it.
+    Carried,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

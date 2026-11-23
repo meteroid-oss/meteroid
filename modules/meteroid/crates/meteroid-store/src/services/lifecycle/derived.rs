@@ -572,6 +572,21 @@ impl Services {
                 _ => {}
             }
         }
+        if let Some(ended) = step
+            .transitions
+            .iter()
+            .find_map(|transition| match transition {
+                Transition::Status {
+                    to: Status::Cancelled | Status::Completed,
+                    at,
+                    ..
+                } => Some(*at),
+                _ => None,
+            })
+        {
+            self.reopen_stranded_debts_tx(conn, &row, ended, now)
+                .await?;
+        }
         let activated = step.transitions.iter().any(|transition| {
             matches!(
                 transition,
@@ -1001,6 +1016,40 @@ impl Services {
             .and_then(|ending| ending.reason);
         self.emit_subscription_cancelled_tx(conn, row.tenant_id, row.id, reason)
             .await
+    }
+
+    /// The debts carried to an invoice that will never come reopen on the invoices that carried
+    /// them, after the ending's own documents took what they could.
+    async fn reopen_stranded_debts_tx(
+        &self,
+        conn: &mut PgConn,
+        row: &SubscriptionRow,
+        ended: DateTime<Utc>,
+        now: DateTime<Utc>,
+    ) -> StoreResult<()> {
+        let lock = db(SubscriptionRow::lock_customer_of(conn, row.id).await)?;
+        let reopened = crate::services::invoices::carry_forward::reopen_stranded_debts_tx(
+            conn,
+            &lock,
+            &row.currency,
+            ended.date_naive(),
+        )
+        .await?;
+        for invoice_id in reopened {
+            self.store
+                .internal
+                .on_invoice_reopened(
+                    conn,
+                    row.tenant_id,
+                    invoice_id,
+                    false,
+                    true,
+                    crate::services::payment_reminders::sweep::ReopenedReminders::Restart,
+                    now.naive_utc(),
+                )
+                .await?;
+        }
+        Ok(())
     }
 
     /// A fixed term's completion: its `Ended` event and churn, and the outbox.

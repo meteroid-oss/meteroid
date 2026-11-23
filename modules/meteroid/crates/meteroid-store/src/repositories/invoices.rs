@@ -31,6 +31,7 @@ use diesel_models::credit_notes::CreditNoteRow;
 use diesel_models::customers::CustomerRow;
 use diesel_models::enums::{MrrMovementType, SubscriptionEventType, SubscriptionStatusEnum};
 use diesel_models::extend::connection_metadata;
+use diesel_models::invoice_carry_forward::InvoiceCarryForwardRow;
 use diesel_models::invoices::{InvoiceRow, InvoiceRowNew};
 use diesel_models::stored_object::StoredObjectRowNew;
 use diesel_models::subscriptions::SubscriptionRow;
@@ -159,6 +160,13 @@ pub trait InvoiceInterface {
         tenant_id: TenantId,
         parent_invoice_id: InvoiceId,
     ) -> StoreResult<Option<InvoiceId>>;
+
+    /// The balances the invoice carried to a later invoice or took from earlier ones.
+    async fn list_carry_links(
+        &self,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+    ) -> StoreResult<Vec<domain::InvoiceCarryLink>>;
 
     /// Batch form of [`Self::find_child_invoice_id`], keyed by parent invoice id. Parents
     /// without a correction are absent from the map.
@@ -442,6 +450,22 @@ impl InvoiceInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?
             .ok_or_else(|| StoreError::InvalidArgument("Invoice not found".to_string()).into())
             .and_then(std::convert::TryInto::try_into)
+    }
+
+    async fn list_carry_links(
+        &self,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+    ) -> StoreResult<Vec<domain::InvoiceCarryLink>> {
+        let mut conn = self.get_conn().await?;
+        Ok(
+            InvoiceCarryForwardRow::list_links(&mut conn, tenant_id, invoice_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        )
     }
 
     async fn find_child_invoice_id(
@@ -1027,6 +1051,29 @@ impl InvoiceInterface for Store {
                         }
                     }
                 }
+
+                // 2c. A debt this invoice carried forward goes with it while no later invoice
+                // took it; one that did is billed there, so that invoice is voided first. Debts
+                // it took are carried on to the next invoice.
+                if let Some(carried) =
+                    InvoiceCarryForwardRow::find_by_source(conn, tenant_id, id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?
+                {
+                    if carried.applied_invoice_id.is_some() {
+                        bail!(StoreError::InvalidArgument(
+                            "This invoice's amount due was carried to a later invoice; void that \
+                             invoice first"
+                                .to_string()
+                        ));
+                    }
+                    InvoiceCarryForwardRow::delete_pending_by_source(conn, lock, id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                }
+                InvoiceCarryForwardRow::release_applied(conn, lock, id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
                 let voided_coupons = invoice.coupons.clone();
                 let voided_currency = invoice.currency.clone();

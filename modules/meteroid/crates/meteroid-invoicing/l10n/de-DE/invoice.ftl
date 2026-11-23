@@ -23,6 +23,9 @@ subtotal = Zwischensumme
 total-due = Gesamtbetrag
 total = Gesamt
 credits-applied = Angerechnetes Guthaben
+previous-balance = Vorheriger Saldo
+carried-forward = Wird mit Ihrer nächsten Rechnung eingezogen
+credited-to-balance = Ihrem Guthaben gutgeschrieben
 prepaid-credit-tax-note = Die Steuer auf vorausbezahltes Guthaben wird bei dessen Verwendung berechnet.
 legal-info = Rechtliche Hinweise
 exchange-rate-info = Wechselkurs am {$date}: {$equality} | Umgerechneter Gesamtbetrag = {$amount_converted}

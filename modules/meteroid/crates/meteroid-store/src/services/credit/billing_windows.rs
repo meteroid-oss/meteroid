@@ -391,9 +391,8 @@ pub fn price_window_groups(
         } => capacity_overage_lines(*included, overage_rate, &usage.data, window.precision)?,
     };
     lines.iter().try_fold(0_i64, |total, line| {
-        i64::try_from(line.total)
-            .ok()
-            .and_then(|amount| total.checked_add(amount))
+        total
+            .checked_add(line.total)
             .ok_or_else(|| invalid("pending usage exceeds the supported range"))
     })
 }

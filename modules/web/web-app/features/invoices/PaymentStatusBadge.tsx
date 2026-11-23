@@ -41,6 +41,7 @@ export const PaymentStatusBadge = ({ status, transactions, settledByCreditNotes 
     ))
     .with(InvoicePaymentStatus.PAID, () => <Badge variant="success">Paid</Badge>)
     .with(InvoicePaymentStatus.PROCESSING, () => <Badge variant="warning">Processing</Badge>)
+    .with(InvoicePaymentStatus.CARRIED, () => <Badge variant="secondary">Carried forward</Badge>)
     .with(InvoicePaymentStatus.ERRORED, () => <Badge variant="destructive">Errored</Badge>)
     .otherwise(() => <Badge variant="destructive">Unknown</Badge>)
 }

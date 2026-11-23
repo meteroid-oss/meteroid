@@ -155,6 +155,10 @@ pub struct InvoicingEntity {
     pub contact_email: Option<String>,
     /// Checkout completes only for customers with complete billing information.
     pub require_billing_information: bool,
+    /// Amounts due below it are carried to the next invoice instead of being collected, in
+    /// minor units of the entity currency, converted for invoices in other currencies. Raises the
+    /// payment providers' minimum, never lowers it.
+    pub min_charge_amount: Option<i64>,
 }
 
 #[cfg(test)]
@@ -299,6 +303,8 @@ pub struct InvoicingEntityPatch {
     #[map(~.map(blank_to_none))]
     pub contact_email: Option<Option<String>>,
     pub require_billing_information: Option<bool>,
+    /// Outer `None` leaves it untouched; `Some(None)` clears it.
+    pub min_charge_amount: Option<Option<i64>>,
 }
 
 #[derive(Clone, Debug, o2o, Default)]

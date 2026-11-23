@@ -22,6 +22,8 @@ enum InvoicePaymentStatus {
   ERRORED = 3;
   // Accepted by the provider, awaiting settlement (async direct debit).
   PROCESSING = 4;
+  // Below the minimum charge: owed on the customer's next invoice and paid with it.
+  CARRIED = 5;
 }
 
 message Invoice {
@@ -173,6 +175,26 @@ message DetailedInvoice {
   // A voided recurring invoice of the period its subscription is in, which no live invoice bills
   // yet: RegenerateInvoice can bill that period again. Set by GetInvoice only.
   bool regenerable = 69;
+  // Not collected here but carried to a later invoice: an amount due below the minimum charge
+  // (positive), or a negative total credited to the customer's balance (negative). Set by
+  // GetInvoice only.
+  int64 carried_forward = 70;
+  // Debts carried in from earlier invoices, owed after tax on top of `total`. Set by GetInvoice
+  // only.
+  int64 previous_balance = 71;
+  // The balances this invoice carried out or took in. Set by GetInvoice only.
+  repeated CarriedBalance carried_balances = 72;
+  // `previous_balance` less a debt carried out, included in `amount_due`:
+  // amount_due = total + carried_balance - applied_credits - paid.
+  int64 carried_balance = 73;
+}
+
+message CarriedBalance {
+  // Carried out to `invoice_id` (unset while no later invoice took it), else taken in from it.
+  bool outgoing = 1;
+  int64 amount = 2;
+  optional string invoice_id = 3;
+  optional string invoice_number = 4;
 }
 
 enum EInvoicingStatus {

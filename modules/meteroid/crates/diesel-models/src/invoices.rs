@@ -100,6 +100,17 @@ pub struct InvoiceRow {
     pub next_payment_attempt_at: Option<NaiveDateTime>,
     /// Closed by an operator deleting the draft: its lines forgive what they billed (R-124).
     pub waived_at: Option<NaiveDateTime>,
+    /// Debts carried in from earlier invoices less the debt carried to a later one, owed on top
+    /// of the total. The parts are `invoice_carry_forward` rows.
+    pub carried_balance: i64,
+}
+
+impl InvoiceRow {
+    /// What the invoice asks before credit and payments: its total, plus debts carried in, less
+    /// a debt it carried out.
+    pub fn payable(&self) -> i64 {
+        self.total + self.carried_balance
+    }
 }
 
 /// Freezes the resolved identity onto an invoice at finalization, so the issued document keeps

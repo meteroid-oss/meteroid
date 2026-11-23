@@ -332,13 +332,31 @@ const CHECKS: &[(&str, &str)] = &[
                 OR i.amount_due < 0 OR i.applied_credits < 0 OR i.promotional_credits < 0)",
     ),
     (
-        "I2 applied credit and amount due never exceed the total",
-        "SELECT format('%s invoice %s: total %s, applied %s, due %s', i.status, i.id, i.total,
+        "I2 applied credit never exceeds the total, nor the amount due what the invoice asks",
+        "SELECT format('%s invoice %s: total %s, carried %s, applied %s, due %s',
+                       i.status, i.id, i.total, i.carried_balance,
                        i.applied_credits, i.amount_due) AS message
          FROM invoice i
          WHERE i.tenant_id = $1 AND i.status IN ('FINALIZED', 'UNCOLLECTIBLE')
-           AND (i.amount_due > greatest(0, i.total - i.applied_credits)
+           AND (i.amount_due > greatest(0, i.total + i.carried_balance - i.applied_credits)
                 OR i.applied_credits > greatest(0, i.total))",
+    ),
+    (
+        "I31 an invoice's carried balance is the debts it took less the debt it carried",
+        "WITH took AS (
+             SELECT applied_invoice_id AS id, sum(amount) AS amount FROM invoice_carry_forward
+             WHERE tenant_id = $1 AND applied_invoice_id IS NOT NULL GROUP BY applied_invoice_id),
+         carried AS (
+             SELECT source_invoice_id AS id, sum(amount) AS amount FROM invoice_carry_forward
+             WHERE tenant_id = $1 GROUP BY source_invoice_id)
+         SELECT format('%s invoice %s: carried balance %s, took %s, carried %s',
+                       i.status, i.id, i.carried_balance, coalesce(t.amount, 0),
+                       coalesce(c.amount, 0)) AS message
+         FROM invoice i
+         LEFT JOIN took t ON t.id = i.id
+         LEFT JOIN carried c ON c.id = i.id
+         WHERE i.tenant_id = $1 AND i.status IN ('FINALIZED', 'UNCOLLECTIBLE')
+           AND i.carried_balance <> coalesce(t.amount, 0) - coalesce(c.amount, 0)",
     ),
     // R26 (owing nothing ⇒ paid) is reached by the orchestration that follows the PDF, which a
     // test need not run; scenarios assert it after running it.
@@ -792,7 +810,7 @@ pub async fn invoice_account_violations(conn: &mut PgConn, tenant_id: TenantId) 
     use diesel_models::enums::InvoicePaymentStatus;
     use diesel_models::invoices::InvoiceRow;
     use diesel_models::payments::PaymentTransactionRow;
-    use meteroid_store::repositories::invoice_account::{account_of, payment_status};
+    use meteroid_store::repositories::invoice_account::{account_of, carry_tx, payment_status};
 
     let ids: Vec<Uuid> = diesel::sql_query(
         "SELECT id FROM invoice WHERE tenant_id = $1 AND status IN ('FINALIZED', 'UNCOLLECTIBLE')
@@ -820,7 +838,8 @@ pub async fn invoice_account_violations(conn: &mut PgConn, tenant_id: TenantId) 
         let notes = CreditNoteRow::list_by_invoice_id(conn, tenant_id, id)
             .await
             .expect("invoice credit notes");
-        let state = account_of(&invoice, &payments, &notes).state();
+        let carry = carry_tx(conn, &invoice).await.expect("invoice carry");
+        let state = account_of(&invoice, &payments, &notes, carry).state();
         let status = payment_status(state.status);
         let before_r26 = invoice.payment_status == InvoicePaymentStatus::Unpaid
             && invoice.amount_due == 0

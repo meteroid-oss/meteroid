@@ -36,6 +36,7 @@ export type PaymentAvailability =
         | 'draft_invoice'
         | 'closed'
         | 'pending_payment'
+        | 'carried'
       displayTransactions?: boolean
     }
   | {
@@ -166,6 +167,15 @@ export function getInvoicePaymentAvailability(config: {
       type: 'readonly',
       reason: 'closed',
       displayTransactions: hasTransactions,
+    }
+  }
+
+  // Below the minimum charge: collected with the customer's next invoice, never on its own.
+  if (paymentStatus === InvoicePaymentStatus.CARRIED) {
+    return {
+      type: 'readonly',
+      reason: 'carried',
+      displayTransactions: false,
     }
   }
 

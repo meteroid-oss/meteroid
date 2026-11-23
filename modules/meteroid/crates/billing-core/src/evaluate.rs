@@ -1730,6 +1730,11 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                     .collect(),
             };
             for rate in self.pricer.usage(&segment, &window, reads)? {
+                // Credits are drawn, never given back: usage netting negative in a credit unit
+                // bills nothing.
+                if rate.amount < 0 && matches!(rate.denomination, Denomination::CreditUnit(_)) {
+                    continue;
+                }
                 let Some(piece) = group.iter().find(|piece| piece.row.lineage == rate.fee) else {
                     continue;
                 };

@@ -16992,6 +16992,11 @@
             "format": "date",
             "description": "The period/moment this invoice is about — the subscription period start, or the invoice's\nown date for manual/one-off. Stable and always present, distinct from `invoice_date` (the\nemission date). Shown as \"Invoice date\"."
           },
+          "carried_balance": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Debts carried in from earlier invoices (amounts due below the payment providers' minimum\ncharge, never collected on their own) less the one this invoice carried to a later\ninvoice, in minor units. Included in `amount_due`:\n`amount_due = total + carried_balance - applied_credits - paid`."
+          },
           "child_invoice_id": {
             "oneOf": [
               {
@@ -17620,7 +17625,8 @@
           "PARTIALLY_PAID",
           "PAID",
           "ERRORED",
-          "PROCESSING"
+          "PROCESSING",
+          "CARRIED"
         ]
       },
       "InvoiceStatus": {

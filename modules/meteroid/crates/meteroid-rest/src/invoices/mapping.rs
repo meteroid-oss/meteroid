@@ -52,6 +52,7 @@ pub fn domain_to_rest(
         customer_details: map_customer_details_to_rest(d.customer_details),
         applied_credits: d.applied_credits,
         promotional_credits: d.promotional_credits,
+        carried_balance: d.carried_balance,
         coupons: d.coupons.into_iter().map(map_coupon_to_rest).collect(),
         invoice_type: map_invoice_type_to_rest(d.invoice_type),
         parent_invoice_id: d.parent_invoice_id,
@@ -199,6 +200,7 @@ fn map_payment_status_to_rest(status: domain::enums::InvoicePaymentStatus) -> In
         domain::enums::InvoicePaymentStatus::Paid => InvoicePaymentStatus::Paid,
         domain::enums::InvoicePaymentStatus::Errored => InvoicePaymentStatus::Errored,
         domain::enums::InvoicePaymentStatus::Processing => InvoicePaymentStatus::Processing,
+        domain::enums::InvoicePaymentStatus::Carried => InvoicePaymentStatus::Carried,
     }
 }
 

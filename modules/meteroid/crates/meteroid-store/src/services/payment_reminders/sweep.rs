@@ -11,6 +11,7 @@ use crate::domain::{Customer, Invoice};
 use crate::errors::StoreError;
 use crate::repositories::CustomerEmailsInterface;
 use crate::services::customer_emails::SkipReason;
+use crate::services::invoices::carry_forward::below_provider_minimum_tx;
 use crate::services::payment_reminders::audience::{compile, evaluate_audience};
 use crate::services::payment_reminders::schedule::{
     EnrollmentPlan, ExecutionPlan, anchor_date, fire_time, plan_enrollment, plan_execution,
@@ -294,6 +295,11 @@ impl StoreInternal {
             .map_err(Into::<Report<StoreError>>::into)?;
         if customer.payment_reminders_opt_out {
             return Err(failed("The customer opted out of payment reminders"));
+        }
+        if below_provider_minimum_tx(conn, invoice).await? {
+            return Err(failed(
+                "The amount due is below the payment provider's minimum charge",
+            ));
         }
         let (Some(due_at), Some(finalized_at)) = (invoice.due_at, invoice.finalized_at) else {
             return Err(failed("The invoice has no due date"));
@@ -1162,6 +1168,7 @@ impl Services {
                         || invoice.pdf_document_id.is_none()
                         || invoice.due_at.is_none()
                         || invoice.finalized_at.is_none()
+                        || below_provider_minimum_tx(conn, &invoice).await?
                     {
                         return Ok(None);
                     }

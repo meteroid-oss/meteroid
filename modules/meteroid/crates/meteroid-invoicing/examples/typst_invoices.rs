@@ -161,6 +161,8 @@ fn create_test_invoice() -> Invoice {
             promotional_credit: Money::from_major(0, eur),
             quoted_promotional_credit: None,
             prepaid_amount: Money::from_major(0, eur),
+            previous_balance: Money::from_major(0, eur),
+            carried_forward: Money::from_major(0, eur),
             purchase_order: Some("Order #210".to_string()),
             parent_invoice_number: None,
             parent_invoice_date: None,

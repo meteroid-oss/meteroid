@@ -1709,6 +1709,7 @@ diesel::table! {
         finalize_after -> Nullable<Timestamp>,
         next_payment_attempt_at -> Nullable<Timestamp>,
         waived_at -> Nullable<Timestamp>,
+        carried_balance -> Int8,
     }
 }
 
@@ -1724,6 +1725,21 @@ diesel::table! {
         definition -> Jsonb,
         created_at -> Timestamp,
         updated_at -> Nullable<Timestamp>,
+    }
+}
+
+diesel::table! {
+    invoice_carry_forward (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        customer_id -> Uuid,
+        invoicing_entity_id -> Uuid,
+        currency -> Text,
+        amount -> Int8,
+        source_invoice_id -> Uuid,
+        applied_invoice_id -> Nullable<Uuid>,
+        applied_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
     }
 }
 
@@ -1808,6 +1824,7 @@ diesel::table! {
         portal_auto_top_up_enabled -> Bool,
         portal_budgets_enabled -> Bool,
         require_billing_information -> Bool,
+        min_charge_amount -> Nullable<Int8>,
     }
 }
 
@@ -3541,6 +3558,9 @@ diesel::joinable!(invoice -> invoicing_entity (invoicing_entity_id));
 diesel::joinable!(invoice -> plan_version (plan_version_id));
 diesel::joinable!(invoice -> tenant (tenant_id));
 diesel::joinable!(invoice_annex_template -> tenant (tenant_id));
+diesel::joinable!(invoice_carry_forward -> customer (customer_id));
+diesel::joinable!(invoice_carry_forward -> invoicing_entity (invoicing_entity_id));
+diesel::joinable!(invoice_carry_forward -> tenant (tenant_id));
 diesel::joinable!(invoice_payment_reminder -> invoice (invoice_id));
 diesel::joinable!(invoice_payment_reminder -> payment_reminder_sequence (sequence_id));
 diesel::joinable!(invoice_payment_reminder -> tenant (tenant_id));

@@ -23,6 +23,9 @@ subtotal = Subtotal
 total-due = Total a pagar
 total = Total
 credits-applied = Crédito aplicado
+previous-balance = Saldo anterior
+carried-forward = Se cobrará con su próxima factura
+credited-to-balance = Abonado a su saldo
 prepaid-credit-tax-note = El impuesto sobre el crédito prepagado se cobra cuando se utiliza el crédito.
 legal-info = Información legal
 exchange-rate-info = Tipo de cambio a {$date}: {$equality} | Importe total convertido = {$amount_converted}

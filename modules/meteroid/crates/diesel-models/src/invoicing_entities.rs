@@ -61,6 +61,7 @@ pub struct InvoicingEntityRow {
     pub portal_auto_top_up_enabled: bool,
     pub portal_budgets_enabled: bool,
     pub require_billing_information: bool,
+    pub min_charge_amount: Option<i64>,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -105,6 +106,7 @@ pub struct InvoicingEntityRowPatch {
     pub contact_phone: Option<Option<String>>,
     pub contact_email: Option<Option<String>>,
     pub require_billing_information: Option<bool>,
+    pub min_charge_amount: Option<Option<i64>>,
 }
 
 #[derive(Debug, AsChangeset)]

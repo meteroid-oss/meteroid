@@ -504,7 +504,7 @@ mod unit_conversion_tests {
 
     /// A usage line as the breakdown tests read it.
     struct InvoiceLineInner {
-        total: u64,
+        total: i64,
         group_by_dimensions: Option<HashMap<String, String>>,
         usage_breakdown: Option<UsageBreakdown>,
     }
@@ -616,7 +616,7 @@ mod unit_conversion_tests {
                 usage_lines(&model, metric.id, &invoiced.data, &period, 2, |_| None)
                     .unwrap()
                     .iter()
-                    .map(|line| line.total as i64)
+                    .map(|line| line.total)
                     .sum();
 
             let window = PlannedWindow {
@@ -681,7 +681,7 @@ mod unit_conversion_tests {
         breakdown
             .items
             .iter()
-            .zip(breakdown.allocate(line.total as i64))
+            .zip(breakdown.allocate(line.total))
             .map(|(item, amount)| (item.value.as_deref(), item.quantity, amount))
             .collect()
     }

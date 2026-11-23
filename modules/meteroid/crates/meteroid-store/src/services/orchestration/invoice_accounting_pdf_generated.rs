@@ -39,6 +39,15 @@ impl Services {
                 .find_map(|child| child.subscription_id),
         };
 
+        // Below the minimum charge: collected with the next invoice, never on its own.
+        if invoice.payment_status == InvoicePaymentStatus::Carried {
+            if !self.invoice_delivery_held(tenant_id, invoice.id).await? {
+                self.enqueue_invoice_email(tenant_id, invoice.id, EmailKind::InvoiceReady)
+                    .await?;
+            }
+            return Ok(());
+        }
+
         // Nothing to collect (100% coupon, downgrade credit, fully covered by credit): paid now,
         // whatever the invoice bills, so it can be credited or refunded like any paid invoice.
         if invoice.amount_due <= 0 && invoice.payment_status != InvoicePaymentStatus::Paid {
@@ -95,6 +104,13 @@ impl Services {
                 return Ok(());
             }
 
+            // Too small for the provider to charge: sent, never charged.
+            if self.below_provider_minimum(tenant_id, invoice.id).await? {
+                self.enqueue_invoice_email(tenant_id, invoice.id, EmailKind::InvoiceReady)
+                    .await?;
+                return Ok(());
+            }
+
             match (
                 subscription_payment_method,
                 subscription.charge_automatically,
@@ -118,6 +134,19 @@ impl Services {
                 .await?;
         }
         Ok(())
+    }
+
+    async fn below_provider_minimum(
+        &self,
+        tenant_id: TenantId,
+        invoice_id: common_domain::ids::InvoiceId,
+    ) -> StoreResult<bool> {
+        let mut conn = self.store.get_conn().await?;
+        let invoice = InvoiceRow::find_by_id(&mut conn, tenant_id, invoice_id)
+            .await
+            .map_err(Into::<error_stack::Report<crate::errors::StoreError>>::into)?;
+        crate::services::invoices::carry_forward::below_provider_minimum_tx(&mut conn, &invoice)
+            .await
     }
 
     /// A one-off invoice without subscription (credit sold "send an invoice") is paid from its

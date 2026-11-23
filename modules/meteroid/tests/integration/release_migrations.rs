@@ -73,10 +73,13 @@ async fn release_migrations_revert_exactly_and_reapply_identically() -> TestResu
         "enum StoredObjectKindEnum 12 QUOTE_ATTACHMENT",
     ];
     // Appended after the type's own labels, whatever their count.
-    let final_invoice = |l: &str| l.starts_with("enum InvoiceType ") && l.ends_with(" FINAL");
+    let final_invoice = |l: &str| {
+        (l.starts_with("enum InvoiceType ") && l.ends_with(" FINAL"))
+            || (l.starts_with("enum InvoicePaymentStatus ") && l.ends_with(" CARRIED"))
+    };
     let reverted = catalog(&client).await;
     assert!(kept.iter().all(|value| reverted.iter().any(|l| l == value)));
-    assert!(reverted.iter().any(|l| final_invoice(l)));
+    assert_eq!(reverted.iter().filter(|l| final_invoice(l)).count(), 2);
     assert_eq!(
         reverted
             .into_iter()

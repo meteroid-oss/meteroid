@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use common_utils::decimals::{round_billable_quantity, round_quantity};
-use common_utils::integers::{ToNonNegativeU64, only_positive, only_positive_decimal};
+use common_utils::integers::{only_positive, only_positive_decimal};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 
@@ -149,8 +149,10 @@ pub fn usage_lines(
             for grouped_usage in usage {
                 let usage_units = round_quantity(grouped_usage.value, qty_scale);
 
-                // Skip zero usage
-                if usage_units <= Decimal::ZERO {
+                // Per-unit usage nets negative (e.g. a share of revenue net of credit notes): the
+                // line credits the invoice. Every other model bills only positive usage.
+                let signed = matches!(model, UsageModel::PerUnit { .. });
+                if usage_units.is_zero() || (usage_units.is_sign_negative() && !signed) {
                     continue;
                 }
 
@@ -158,7 +160,16 @@ pub fn usage_lines(
                     UsageModel::PerUnit { rate } => {
                         let effective_rate =
                             unit_price_override(&grouped_usage.dimensions).unwrap_or(*rate);
-                        simple_prorated(&effective_rate, &usage_units, None, precision)?
+                        let total = to_minor(
+                            effective_rate
+                                .checked_mul(usage_units)
+                                .ok_or(PricingError::OutOfRange)?,
+                            precision,
+                        )?;
+                        PricedLine {
+                            total,
+                            ..simple_prorated(&effective_rate, &usage_units, None, precision)?
+                        }
                     }
                     UsageModel::Tiered { tiers, .. } => {
                         fees::tiered(usage_units, tiers, precision)?
@@ -237,7 +248,7 @@ pub fn capacity_overage_lines(
             lines.push(PricedLine {
                 quantity: None,
                 unit_price: None,
-                total: overage_total.to_non_negative_u64(),
+                total: overage_total.max(0),
                 is_prorated: false,
                 sublines: vec![SubLine {
                     name: "Overage".to_string(),
@@ -258,7 +269,7 @@ mod tests {
     use super::*;
     use rust_decimal_macros::dec;
 
-    fn overage_total(rate: Decimal, included: u64, used: Decimal, precision: u8) -> (i64, u64) {
+    fn overage_total(rate: Decimal, included: u64, used: Decimal, precision: u8) -> (i64, i64) {
         let usage = [GroupedUsage {
             value: used,
             dimensions: HashMap::new(),
@@ -267,6 +278,32 @@ mod tests {
             capacity_overage_lines(Decimal::from(included), &rate, &usage, precision).unwrap();
         assert_eq!(lines.len(), 1);
         (lines[0].sublines[0].total, lines[0].total)
+    }
+
+    #[test]
+    fn per_unit_usage_netting_negative_credits_the_invoice() {
+        let usage = [GroupedUsage {
+            value: dec!(-12_000),
+            dimensions: HashMap::new(),
+        }];
+        let price = |model: UsageModel| -> Vec<i64> {
+            usage_lines(&model, &usage, 2, |_| None)
+                .unwrap()
+                .iter()
+                .map(|line| line.total)
+                .collect()
+        };
+        assert_eq!(
+            price(UsageModel::PerUnit { rate: dec!(0.005) }),
+            vec![-6_000]
+        );
+        assert!(
+            price(UsageModel::Package {
+                block_size: 100,
+                rate: dec!(1)
+            })
+            .is_empty()
+        );
     }
 
     #[test]

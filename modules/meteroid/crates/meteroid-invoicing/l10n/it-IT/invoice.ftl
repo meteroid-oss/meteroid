@@ -23,6 +23,9 @@ subtotal = Subtotale
 total-due = Totale dovuto
 total = Totale
 credits-applied = Credito applicato
+previous-balance = Saldo precedente
+carried-forward = Addebitato con la sua prossima fattura
+credited-to-balance = Accreditato sul suo saldo
 prepaid-credit-tax-note = L'imposta sul credito prepagato viene addebitata al momento del suo utilizzo.
 legal-info = Informazioni legali
 exchange-rate-info = Tasso di cambio al {$date}: {$equality} | Importo totale convertito = {$amount_converted}

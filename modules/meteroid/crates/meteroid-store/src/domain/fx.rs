@@ -69,6 +69,16 @@ impl FxTable {
         converted.is_finite().then_some(converted as i64)
     }
 
+    /// Like [`Self::convert`], rounded up: a converted floor is never below the original's value.
+    pub fn convert_up(&self, amount_minor: i64, currency: &str) -> Option<i64> {
+        if currency == self.target {
+            return Some(amount_minor);
+        }
+        let scaled = amount_minor as f64 * self.factor(currency)?;
+        let converted = ((scaled * 1e6).round() / 1e6).ceil();
+        converted.is_finite().then_some(converted as i64)
+    }
+
     /// Sum of per-currency amounts; currencies without a rate are left out.
     pub fn convert_sum<'a>(&self, amounts: impl IntoIterator<Item = (&'a str, i64)>) -> i64 {
         amounts
@@ -121,5 +131,17 @@ mod tests {
         let bare = FxTable::from_usd_rates("CHF", &rates);
         assert_eq!(bare.as_arrays(), (vec!["CHF".to_string()], vec![1.0]));
         assert_eq!(FxTable::identity("EUR").convert(5, "USD"), None);
+    }
+
+    #[test]
+    fn a_floor_converts_rounded_up_without_float_noise() {
+        let rates = BTreeMap::from([("EUR".to_string(), 0.8), ("GBP".to_string(), 0.75)]);
+        let usd = FxTable::from_usd_rates("USD", &rates);
+        assert_eq!(usd.convert_up(50, "EUR"), Some(63));
+        assert_eq!(usd.convert_up(100, "EUR"), Some(125));
+        let gbp = FxTable::from_usd_rates("GBP", &rates);
+        assert_eq!(gbp.convert(10, "EUR"), Some(9));
+        assert_eq!(gbp.convert_up(10, "EUR"), Some(10), "9.375 rounds up");
+        assert_eq!(usd.convert_up(110, "USD"), Some(110));
     }
 }

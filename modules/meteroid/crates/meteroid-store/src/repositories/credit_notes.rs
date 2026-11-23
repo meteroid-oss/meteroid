@@ -548,6 +548,15 @@ async fn apply_credit_note_to_invoice_tx(
     if voids_invoice {
         return Ok(());
     }
+    if credit_note.debt_cancelled_amount_cents > 0 {
+        cancel_carried_debt_tx(
+            conn,
+            tenant_id,
+            credit_note.invoice_id,
+            credit_note.debt_cancelled_amount_cents,
+        )
+        .await?;
+    }
     let settled = invoice_account::settle_tx(
         conn,
         tenant_id,
@@ -685,13 +694,57 @@ async fn account_tx(
     invoice_account::load_tx(conn, &row).await
 }
 
-/// Debt is cancelled only on an invoice nothing paid, by credit or cash, nor is collecting.
+/// Debt is cancelled only on an invoice nothing paid, by credit or cash, nor is collecting; or
+/// whose debt is carried to a later invoice (R-129).
 fn change_note_kind(state: &State) -> CreditType {
-    if state.in_flight == 0 && state.credit + state.cash <= 0 && state.due > 0 {
+    let owes = state.due > 0 || state.status == billing_core::settlement::PaymentStatus::Carried;
+    if state.in_flight == 0 && state.credit + state.cash <= 0 && owes {
         CreditType::DebtCancellation
     } else {
         CreditType::CreditToBalance
     }
+}
+
+/// A debt cancellation on an invoice that carried its debt cancels it where it stands: on the
+/// pending debt, or on the unpaid invoice that took it, whose amount due falls with it (R-129).
+async fn cancel_carried_debt_tx(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    invoice_id: InvoiceId,
+    debt_cancelled: i64,
+) -> StoreResult<()> {
+    use diesel_models::invoice_carry_forward::InvoiceCarryForwardRow;
+    let row = InvoiceRow::find_by_id(conn, tenant_id, invoice_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    let carry = invoice_account::carry_tx(conn, &row).await?;
+    if carry.carried_paid {
+        return Ok(());
+    }
+    let cancelled = debt_cancelled.min(carry.carried);
+    if cancelled <= 0 {
+        return Ok(());
+    }
+    let lock = InvoiceRow::lock_customer_of(conn, tenant_id, invoice_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    InvoiceCarryForwardRow::cancel_debt(conn, &lock, invoice_id, cancelled)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    InvoiceRow::adjust_carried_balance(conn, invoice_id, tenant_id, cancelled)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    if let Some(later) = InvoiceCarryForwardRow::find_by_source(conn, tenant_id, invoice_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .and_then(|carried| carried.applied_invoice_id)
+    {
+        InvoiceRow::adjust_carried_balance(conn, later, tenant_id, -cancelled)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        invoice_account::settle_tx(conn, tenant_id, later, None).await?;
+    }
+    Ok(())
 }
 
 /// The note a change issues on `invoice`: to the balance once any of it was collected, paid by
@@ -947,7 +1000,8 @@ pub(crate) async fn create_user_credit_note_tx(
     let state = account.state();
     match params.credit_type {
         CreditType::DebtCancellation => {
-            if state.due <= 0 {
+            // A carried debt is owed on a later invoice and cancelled here (R-129).
+            if state.due <= 0 && state.status != billing_core::settlement::PaymentStatus::Carried {
                 bail!(StoreError::InvalidArgument(
                     "DebtCancellation credit notes can only be created for invoices with an outstanding balance".to_string()
                 ));
@@ -1905,6 +1959,20 @@ impl CreditNoteInterface for Store {
                     .await?
                     .void_note(credit_note_row.id.as_uuid())
                     .map_err(refused_note_void)?;
+                if credit_note_row.debt_cancelled_amount_cents > 0
+                    && diesel_models::invoice_carry_forward::InvoiceCarryForwardRow::find_by_source(
+                        conn,
+                        tenant_id,
+                        credit_note_row.invoice_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?
+                    .is_some()
+                {
+                    bail!(StoreError::InvalidArgument(
+                        "this credit note cancelled a debt carried to a later invoice and cannot be voided".to_string()
+                    ));
+                }
                 diesel_models::query::credit_inputs::bump_customer(conn, &lock).await?;
 
                 // 3. Take back the credit it returned, void the credit note, then settle the

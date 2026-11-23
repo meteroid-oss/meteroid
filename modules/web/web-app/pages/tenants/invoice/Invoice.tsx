@@ -1471,7 +1471,77 @@ export const InvoiceSummaryLines: React.FC<{ invoice: DetailedInvoice }> = ({ in
           }
         />
       )}
+
+      <CarriedBalanceLines invoice={invoice} />
     </div>
+  )
+}
+
+const CarriedBalanceLines: React.FC<{ invoice: DetailedInvoice }> = ({ invoice }) => {
+  const basePath = useBasePath()
+  const previousBalance = Number(invoice.previousBalance) || 0
+  const carriedForward = Number(invoice.carriedForward) || 0
+  const incoming = invoice.carriedBalances.filter(balance => !balance.outgoing)
+  const outgoing = invoice.carriedBalances.find(balance => balance.outgoing)
+
+  const invoiceLink = (id?: string, number?: string) =>
+    id ? (
+      <Link to={`${basePath}/invoices/${id}`} className="underline hover:text-foreground">
+        {number ?? 'invoice'}
+      </Link>
+    ) : null
+
+  return (
+    <>
+      {previousBalance > 0 && (
+        <FlexDetails
+          title={
+            <span>
+              Previous balance
+              {incoming.length > 0 && (
+                <span className="ml-1.5 text-[11px] text-muted-foreground">
+                  carried from{' '}
+                  {incoming.map((balance, index) => (
+                    <span key={balance.invoiceId ?? index}>
+                      {index > 0 && ', '}
+                      {invoiceLink(balance.invoiceId, balance.invoiceNumber)}
+                    </span>
+                  ))}
+                </span>
+              )}
+            </span>
+          }
+          value={formatCurrency(previousBalance, invoice.currency)}
+        />
+      )}
+      {carriedForward > 0 && (
+        <FlexDetails
+          title={
+            <span>
+              Carried forward
+              <span className="ml-1.5 text-[11px] text-muted-foreground">
+                {outgoing?.invoiceId ? (
+                  <>to {invoiceLink(outgoing.invoiceId, outgoing.invoiceNumber)}</>
+                ) : (
+                  'below the minimum charge, billed on the next invoice'
+                )}
+              </span>
+            </span>
+          }
+          value={`-${formatCurrency(carriedForward, invoice.currency)}`}
+        />
+      )}
+      {carriedForward < 0 && (
+        <FlexDetails
+          title="Credited to customer balance"
+          value={
+            <span className="text-success">
+              {formatCurrency(-carriedForward, invoice.currency)}
+            </span>
+          }
+        />
+      )}
+    </>
   )
 }
 

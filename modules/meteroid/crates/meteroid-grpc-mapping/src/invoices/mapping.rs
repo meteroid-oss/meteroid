@@ -61,6 +61,7 @@ pub mod invoices {
                     InvoicePaymentStatus::Processing => {
                         domain::enums::InvoicePaymentStatus::Processing
                     }
+                    InvoicePaymentStatus::Carried => domain::enums::InvoicePaymentStatus::Carried,
                 })
         })
     }
@@ -76,6 +77,7 @@ pub mod invoices {
             domain::enums::InvoicePaymentStatus::Errored => InvoicePaymentStatus::Errored,
             domain::enums::InvoicePaymentStatus::Unpaid => InvoicePaymentStatus::Unpaid,
             domain::enums::InvoicePaymentStatus::Processing => InvoicePaymentStatus::Processing,
+            domain::enums::InvoicePaymentStatus::Carried => InvoicePaymentStatus::Carried,
         }
     }
 
@@ -466,6 +468,10 @@ pub mod invoices {
             quoted_discount,
             quoted_promotional_credits,
             payment_disputed_at: invoice.payment_disputed_at.as_proto(),
+            carried_forward: 0,
+            previous_balance: 0,
+            carried_balances: Vec::new(),
+            carried_balance: invoice.carried_balance,
             annexes: domain_annexes_to_server(invoice.annexes),
             // Set by GetInvoice and the portal (read the invoice's notes and payments).
             settled_by_credit_notes: false,

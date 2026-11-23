@@ -12,6 +12,7 @@ interface ReadonlyPaymentViewProps {
     | 'draft_invoice'
     | 'closed'
     | 'pending_payment'
+    | 'carried'
     | 'view_only'
   title?: string
   message?: string
@@ -108,6 +109,13 @@ function getReasonConfig(reason: ReadonlyPaymentViewProps['reason']) {
       title: 'Invoice Closed',
       message:
         'This billing period settled with nothing to bill, so no payment is required.',
+    },
+    carried: {
+      icon: <Info className="h-6 w-6" />,
+      iconColor: 'text-gray-500',
+      title: 'Collected With Your Next Invoice',
+      message:
+        'This amount is below the minimum that can be charged on its own, so it will be collected with your next invoice.',
     },
     view_only: {
       icon: <Info className="h-6 w-6" />,

@@ -52,6 +52,8 @@
   total_excl_tax: inputs.at("total_excl_tax", default: none),
   promotional_credit: inputs.at("promotional_credit", default: 0),
   prepaid_amount: inputs.at("prepaid_amount", default: 0),
+  previous_balance: inputs.at("previous_balance", default: 0),
+  carried_forward: inputs.at("carried_forward", default: 0),
   prepaid_credit_purchase: inputs.at("prepaid_credit_purchase", default: false),
   amount_due: inputs.at("amount_due", default: none),
 )

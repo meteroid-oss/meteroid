@@ -55,12 +55,14 @@ invoice-number = Factuurnummer
 invoice-date = Factuurdatum
 amount-due = Te betalen bedrag
 amount-paid = Betaald bedrag
+amount-carried = Overgedragen
 credit-note-number = Creditnotanummer
 amount-credited = Gecrediteerd bedrag
 quote-number = Offertenummer
 valid-until = Geldig tot
 # $date = a long localized date, under the headline amount.
 due-on = Te betalen vóór { $date }
+collected-with-next-invoice = Geïnd met uw volgende factuur
 
 ## Status badges, next to the headline amount
 status-paid = Betaald
@@ -75,6 +77,7 @@ invoice-paid-plan = Deze betaling betreft uw abonnement { $plan }.
 
 ## Buttons
 view-and-pay = Bekijken en betalen
+view-invoice = Factuur bekijken
 pay-invoice = Factuur betalen
 confirm-payment = Betaling bevestigen
 update-payment-method = Betaalmethode bijwerken en betalen

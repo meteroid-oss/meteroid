@@ -141,7 +141,7 @@ pub fn volume(
     Ok(PricedLine {
         quantity: Some(usage_units),
         unit_price: None,
-        total: total.to_non_negative_u64(),
+        total: total.max(0),
         is_prorated: false,
         sublines: vec![SubLine {
             name: "Volume".to_string(),
@@ -189,7 +189,7 @@ pub fn tiered(
     Ok(PricedLine {
         quantity: Some(usage_units),
         unit_price: None,
-        total: to_minor(subtotal, precision)?.to_non_negative_u64(),
+        total: to_minor(subtotal, precision)?.max(0),
         is_prorated: false,
         sublines: sub_lines,
         dimensions: None,

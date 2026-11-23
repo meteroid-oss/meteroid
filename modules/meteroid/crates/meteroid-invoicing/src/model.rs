@@ -224,6 +224,12 @@ pub struct InvoiceMetadata {
     /// Already settled at issuance — customer credit applied to this invoice (BT-113).
     /// The amount due (BT-115) is `total_amount - prepaid_amount`.
     pub prepaid_amount: Price,
+    /// Debts carried in from earlier invoices, owed on top of the total. Not part of this
+    /// invoice's legal amounts: the e-invoice leaves it out.
+    pub previous_balance: Price,
+    /// Carried to a later invoice instead of collected: an amount due below the minimum charge
+    /// (positive), or a negative total credited to the customer's balance (negative).
+    pub carried_forward: Price,
     pub currency: &'static iso::Currency,
     pub due_date: chrono::NaiveDate,
     pub memo: Option<String>,

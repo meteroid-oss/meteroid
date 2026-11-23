@@ -55,12 +55,14 @@ invoice-number = Invoice number
 invoice-date = Invoice date
 amount-due = Amount due
 amount-paid = Amount paid
+amount-carried = Carried forward
 credit-note-number = Credit note number
 amount-credited = Amount credited
 quote-number = Quote number
 valid-until = Valid until
 # $date = a long localized date, under the headline amount.
 due-on = Due { $date }
+collected-with-next-invoice = Collected with your next invoice
 
 ## Status badges, next to the headline amount
 status-paid = Paid
@@ -75,6 +77,7 @@ invoice-paid-plan = This payment is for your { $plan } subscription.
 
 ## Buttons
 view-and-pay = View and pay
+view-invoice = View invoice
 pay-invoice = Pay invoice
 confirm-payment = Confirm payment
 update-payment-method = Update payment method and pay

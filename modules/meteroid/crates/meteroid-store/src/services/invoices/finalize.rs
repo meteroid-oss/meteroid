@@ -27,6 +27,7 @@ use diesel_models::applied_coupons::{AppliedCouponDetailedRow, AppliedCouponRow}
 use diesel_models::customer_credit::CustomerCreditAccountRow;
 use diesel_models::customers::CustomerRow;
 use diesel_models::enums::CreditExhaustedRuleEnum;
+use diesel_models::invoice_carry_forward::InvoiceCarryForwardRow;
 use diesel_models::invoices::{InvoiceRow, InvoiceRowIdentityPatch, InvoiceRowLinesPatch};
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::lock::CustomerLock;
@@ -531,7 +532,8 @@ impl Services {
 
             let will_close = refreshed_lines_empty
                 && invoice.invoice_type.bills_subscription_usage()
-                && may_close_empty_recurring;
+                && may_close_empty_recurring
+                && !super::carry_forward::takes_stranded_debts_tx(conn, &invoice).await?;
             let mut past_cap = Vec::new();
             if !will_close {
                 self.apply_customer_credit_tx(
@@ -548,6 +550,15 @@ impl Services {
                 }
             }
 
+            let carry_dates = super::carry_forward::CarryDates {
+                issued_on: issue.issued_on.map_or(invoice.invoice_date, |day| {
+                    invoice.dates_if_issued_on(day).0
+                }),
+                billed_through: super::carry_forward::billed_through(
+                    patch.line_items.iter().map(|line| line.end_date),
+                    invoice.invoice_date,
+                ),
+            };
             let row_patch: InvoiceRowLinesPatch = patch.try_into()?;
 
             row_patch
@@ -594,10 +605,22 @@ impl Services {
                 return Ok(closed);
             }
 
-            // A negative total (e.g. a downgrade adjustment) is owed to the customer as credit in
-            // the invoice currency.
-            if row_patch.total < 0 {
-                let owed = row_patch.total.checked_neg().ok_or_else(|| {
+            // Debts carried from earlier invoices are owed here; a small amount due is carried on.
+            let balances = Box::pin(super::carry_forward::carry_balances_tx(
+                conn,
+                lock,
+                &invoice,
+                row_patch.total,
+                row_patch.amount_due,
+                carry_dates,
+                issue.credit_at,
+            ))
+            .await?;
+
+            // A negative total (e.g. a downgrade adjustment, negative usage) is never refunded: what
+            // it leaves after the carried debts is owed to the customer as credit in its currency.
+            if balances.carried_forward < 0 {
+                let owed = balances.carried_forward.checked_neg().ok_or_else(|| {
                     Report::new(StoreError::InvalidArgument(
                         "negative invoice total overflow".into(),
                     ))
@@ -1027,6 +1050,21 @@ impl Services {
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
+
+        // An invoice that carried its debt out reads Carried from its account once issued (R-129).
+        if InvoiceCarryForwardRow::find_by_source(tx, invoice.tenant_id, invoice.id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .is_some()
+        {
+            crate::repositories::invoice_account::settle_tx(
+                tx,
+                invoice.tenant_id,
+                invoice.id,
+                None,
+            )
+            .await?;
+        }
 
         InvoicingEntityRow::update_invoicing_entity_number(
             tx,

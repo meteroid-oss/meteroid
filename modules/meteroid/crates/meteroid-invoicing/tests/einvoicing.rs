@@ -79,6 +79,8 @@ fn domestic_invoice() -> Invoice {
             promotional_credit: Money::from_major(0, eur),
             quoted_promotional_credit: None,
             prepaid_amount: Money::from_major(0, eur),
+            previous_balance: Money::from_major(0, eur),
+            carried_forward: Money::from_major(0, eur),
             currency: eur,
             due_date: NaiveDate::from_ymd_opt(2026, 5, 1).unwrap(),
             memo: Some("Merci de votre confiance".to_string()),

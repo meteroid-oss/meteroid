@@ -1065,7 +1065,7 @@ fn by_row<'a>(
         let full = fixed_shown(&row.fee.fee, row.fee.instances, None, None, precision)?;
         let amount = Term {
             fee: charge.key.fee.clone(),
-            full: i64::try_from(full.total).ok()?,
+            full: full.total,
             period: charge.nominal,
             from,
             until,
@@ -1117,7 +1117,7 @@ pub(super) fn nominals(
                     None,
                     precision,
                 )
-                .and_then(|seat| i64::try_from(seat.total).ok()),
+                .map(|seat| seat.total),
                 _ => None,
             };
             Some((
@@ -1125,7 +1125,7 @@ pub(super) fn nominals(
                 (charge.key.from, charge.key.until),
                 billing_core::minimum::Nominal {
                     period: charge.nominal,
-                    full: i64::try_from(full.total).ok()?,
+                    full: full.total,
                     base: 0,
                 },
                 seat,
@@ -1329,7 +1329,7 @@ pub(super) fn render(
                     charge.share,
                     precision,
                 )
-                .filter(|line| i64::try_from(line.total).ok() == Some(amount))
+                .filter(|line| line.total == amount)
             } else {
                 None
             };
