@@ -1875,6 +1875,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    issued_license_ephemeral_activation (issued_license_id, instance_id) {
+        issued_license_id -> Uuid,
+        instance_id -> Text,
+        activated_at -> Timestamp,
+        expires_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     license_signing_key (id) {
         id -> Uuid,
         tenant_id -> Uuid,
@@ -3572,6 +3581,7 @@ diesel::joinable!(invoicing_entity_email_settings -> tenant (tenant_id));
 diesel::joinable!(issued_license -> customer (customer_id));
 diesel::joinable!(issued_license -> subscription (subscription_id));
 diesel::joinable!(issued_license -> tenant (tenant_id));
+diesel::joinable!(issued_license_ephemeral_activation -> issued_license (issued_license_id));
 diesel::joinable!(license_signing_key -> tenant (tenant_id));
 diesel::joinable!(licensing_endpoint -> tenant (tenant_id));
 diesel::joinable!(metric_target -> tenant (tenant_id));

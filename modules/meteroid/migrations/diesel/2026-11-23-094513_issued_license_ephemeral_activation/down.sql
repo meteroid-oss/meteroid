@@ -1,0 +1,1 @@
+DROP TABLE issued_license_ephemeral_activation;

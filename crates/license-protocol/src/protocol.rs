@@ -71,7 +71,7 @@ pub struct LicenseResponse {
     /// The signed license JWT.
     pub license: String,
     /// Replaces the refresh token used for this call. Absent for an ephemeral license, which
-    /// is activated again instead of refreshed.
+    /// is not renewed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<String>,
 }
