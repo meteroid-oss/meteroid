@@ -507,9 +507,14 @@ pub async fn ensure_production_tenant_allowed(
         .filter(|t| t.environment == TenantEnvironmentEnum::Production && t.archived_at.is_none())
         .count();
     if count >= limit as usize {
-        return Err(tonic::Status::resource_exhausted(format!(
-            "This organization can hold up to {limit} Production tenant(s)"
-        )));
+        return Err(tonic::Status::resource_exhausted(
+            if store.instance.is_non_production() {
+                "This instance's license is for non-production use: it allows no Production tenant"
+                    .to_string()
+            } else {
+                format!("This organization can hold up to {limit} Production tenant(s)")
+            },
+        ));
     }
     Ok(())
 }

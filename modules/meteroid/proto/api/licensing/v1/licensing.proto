@@ -50,6 +50,11 @@ message GetLicenseStatusResponse {
   // Another copy of this installation (a clone, or the original of a restored backup) refreshes
   // the license, so this one isn't renewed.
   bool held_by_another_copy = 13;
+  // The license is for dev/staging use: the instance may hold no Production tenant.
+  bool non_production = 14;
+  // A non-archived Production tenant exists on this instance: the non-production license's
+  // entitlements are off (free tier) until it is archived or moved to another environment.
+  bool suspended_by_production_tenant = 15;
 }
 
 message ActivateLicenseRequest {

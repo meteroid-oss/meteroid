@@ -32,6 +32,8 @@ message License {
   optional OtherCopy other_copy = 15;
   // Ephemeral: each activation of the reusable code gets a license of this many hours.
   optional uint32 ephemeral_hours = 16;
+  // Signed into the license as is.
+  map<string, string> metadata = 17;
 }
 
 message OtherCopy {

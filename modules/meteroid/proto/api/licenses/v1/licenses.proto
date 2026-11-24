@@ -39,6 +39,10 @@ message IssueLicenseRequest {
   // installation gets one license of this many hours (1-24), never renewed. Not with offline or
   // validity_days.
   optional uint32 ephemeral_hours = 6;
+  // Signed into the license as is: at most 20 entries, keys of 1-64 characters among a-z, 0-9,
+  // '_', '.' and '-', values up to 256 characters. Reserved: `environment` takes only
+  // `non_production`, a dev/staging license a Meteroid instance runs without Production tenant.
+  map<string, string> metadata = 7;
 }
 
 message IssueLicenseResponse {

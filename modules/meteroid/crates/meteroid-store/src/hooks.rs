@@ -78,6 +78,11 @@ pub trait InstanceEdition: Send + Sync + 'static {
         false
     }
 
+    /// Licensed for dev/staging use only: no Production tenant.
+    fn is_non_production(&self) -> bool {
+        false
+    }
+
     /// Lets the edition reach its own state (e.g. the license) from a `Store`.
     fn as_any(&self) -> &dyn Any;
 }

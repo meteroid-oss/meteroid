@@ -1871,6 +1871,7 @@ diesel::table! {
         contender_url -> Nullable<Text>,
         stats_reported_through -> Nullable<Date>,
         ephemeral_hours -> Nullable<Int4>,
+        metadata -> Jsonb,
     }
 }
 
