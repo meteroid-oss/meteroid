@@ -33,8 +33,9 @@ import {
   invoiceLanguageIsUnsafeGuess,
 } from '@/components/InvoiceLanguageSelect'
 import { InlineLoading } from '@/components/Loading'
-import { Slot } from '@/edition'
+import { Slot, useModule } from '@/edition'
 import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
+import { PlanLockChip } from '@/features/settings/components/PlanLockChip'
 import {
   SettingsFieldGrid,
   SettingsRow,
@@ -48,6 +49,7 @@ import {
   toByLocale,
   visibleFooterLocales,
 } from '@/features/settings/utils/footerTranslations'
+import { entitlementCodes, useEntitlement } from '@/hooks/useEntitlement'
 import { useZodForm } from '@/hooks/useZodForm'
 import { majorToMinorUnit, minorToMajorUnit } from '@/lib/utils/numbers'
 import {
@@ -55,7 +57,7 @@ import {
   updateInvoicingEntity,
 } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
 
-const invoiceDetailsSchema = z.object({
+const invoiceDetailsFields = z.object({
   invoiceNumberPattern: z.string().optional(),
   creditNoteNumberPattern: z
     .string()
@@ -68,13 +70,19 @@ const invoiceDetailsSchema = z.object({
     .optional(),
   logoAttachmentId: z.string().optional(),
   requireBillingInformation: z.boolean().optional(),
+  minChargeEnabled: z.boolean().optional(),
   minChargeAmount: z
     .string()
-    .regex(/^(\d+([.,]\d+)?)?$/, 'Must be a positive amount, or empty')
+    .regex(/^(\d+([.,]\d+)?)?$/, 'Must be a positive amount')
     .optional(),
   invoicingLanguage: z.string().optional(),
   einvoicingFormat: z.string().optional(),
 })
+
+const invoiceDetailsSchema = invoiceDetailsFields.refine(
+  values => !values.minChargeEnabled || !!values.minChargeAmount,
+  { path: ['minChargeAmount'], message: 'Enter an amount' }
+)
 
 type InvoiceForm = z.infer<typeof invoiceDetailsSchema>
 
@@ -114,6 +122,12 @@ export const InvoiceTab = () => {
     control: methods.control,
     name: 'requireBillingInformation',
   })
+
+  const minChargeEnabled = useWatch({ control: methods.control, name: 'minChargeEnabled' })
+  const minChargeEntitled = useEntitlement(entitlementCodes.MINIMUM_COMMITMENTS)
+  // Shipped with the commitments module; elsewhere shown only to clear a stored minimum.
+  const commitmentsShipped = useModule('commitments') !== undefined
+  const minChargeShown = commitmentsShipped || currentEntity?.minChargeAmount !== undefined
 
   const einvoicingFormat = useWatch({ control: methods.control, name: 'einvoicingFormat' })
   // Every language edits `footerTranslations[locale]`, so no text sits in a slot
@@ -199,6 +213,7 @@ export const InvoiceTab = () => {
         ),
         logoAttachmentId: currentEntity.logoAttachmentId || '',
         requireBillingInformation: currentEntity.requireBillingInformation ?? false,
+        minChargeEnabled: currentEntity.minChargeAmount !== undefined,
         minChargeAmount:
           currentEntity.minChargeAmount === undefined
             ? ''
@@ -238,12 +253,13 @@ export const InvoiceTab = () => {
         netTerms: values.netTerms,
         requireBillingInformation: values.requireBillingInformation,
         minChargeAmount: {
-          amount: values.minChargeAmount
-            ? majorToMinorUnit(
-                Number(values.minChargeAmount.replace(',', '.')),
-                currentEntity?.accountingCurrency ?? 'EUR'
-              )
-            : undefined,
+          amount:
+            values.minChargeEnabled && values.minChargeAmount
+              ? majorToMinorUnit(
+                  Number(values.minChargeAmount.replace(',', '.')),
+                  currentEntity?.accountingCurrency ?? 'EUR'
+                )
+              : undefined,
         },
         invoicingLanguage: invoiceLanguageForPatch(values.invoicingLanguage),
         einvoicingFormat: einvoicingFormatForPatch(values.einvoicingFormat),
@@ -307,15 +323,6 @@ export const InvoiceTab = () => {
                   type="number"
                   placeholder="30"
                 />
-                <InputFormField
-                  name="minChargeAmount"
-                  control={methods.control}
-                  label={`Minimum charge (${currentEntity?.accountingCurrency ?? ''})`}
-                  inputMode="decimal"
-                  placeholder="Payment provider minimum"
-                  containerClassName="sm:col-span-2"
-                  description="An amount due below it is not collected but carried forward to the customer's next invoice. Converted for invoices in other currencies. Your payment providers' minimum (e.g. 0.50 EUR on Stripe) always applies when it is higher."
-                />
                 <div className="sm:col-span-2 space-y-1.5">
                   <InvoiceLanguageSelect
                     name="invoicingLanguage"
@@ -358,6 +365,40 @@ export const InvoiceTab = () => {
                     }
                   />
                 </SettingsRow>
+                {minChargeShown && (
+                  <SettingsRow
+                    title={
+                      <>
+                        Minimum charge
+                        {commitmentsShipped && !minChargeEntitled && <PlanLockChip />}
+                      </>
+                    }
+                    description="Amounts due below it are carried to the customer's next invoice instead of being charged. Payment provider minimums always apply."
+                  >
+                    {minChargeEnabled && (
+                      <InputFormField
+                        name="minChargeAmount"
+                        control={methods.control}
+                        inputMode="decimal"
+                        placeholder="1.00"
+                        disabled={!minChargeEntitled}
+                        containerClassName="w-28"
+                        rightText={currentEntity?.accountingCurrency}
+                      />
+                    )}
+                    <Switch
+                      checked={minChargeEnabled ?? false}
+                      // Turning it off stays open without the plan: it only clears the setting.
+                      disabled={!minChargeEntitled && !minChargeEnabled}
+                      onCheckedChange={v =>
+                        methods.setValue('minChargeEnabled', v, {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        })
+                      }
+                    />
+                  </SettingsRow>
+                )}
               </SettingsRowGroup>
             </div>
           </SettingsSection>

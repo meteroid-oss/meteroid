@@ -2,7 +2,9 @@ use bytes::Bytes;
 use common_domain::ids::{BankAccountId, ConnectorId, InvoicingEntityId};
 use common_grpc::middleware::server::auth::RequestExt;
 use image::ImageFormat;
-use meteroid_app::features::{PORTAL_THEMING_NOT_IN_PLAN, ensure_change_allowed, gates};
+use meteroid_app::features::{
+    MINIMUM_COMMITMENTS_NOT_IN_PLAN, PORTAL_THEMING_NOT_IN_PLAN, ensure_change_allowed, gates,
+};
 use meteroid_grpc::meteroid::api::invoicingentities::v1::{
     GetInvoicingEntityProvidersRequest, GetInvoicingEntityProvidersResponse,
     GetInvoicingEntityRequest, GetInvoicingEntityResponse, ListInvoicingEntitiesRequest,
@@ -108,6 +110,23 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
                 gates::PORTAL_THEMING,
                 changes_theme,
                 PORTAL_THEMING_NOT_IN_PLAN,
+            )
+            .await?;
+        }
+
+        // A minimum charge is set or changed under the commitments gate; clearing it stays open.
+        if let Some(Some(minimum)) = patch.min_charge_amount {
+            let stored = self
+                .store
+                .get_invoicing_entity(tenant, Some(id))
+                .await
+                .map_err(Into::<InvoicingEntitiesApiError>::into)?;
+            ensure_change_allowed(
+                self.feature_resolver.as_ref(),
+                organization,
+                gates::MINIMUM_COMMITMENTS,
+                stored.min_charge_amount != Some(minimum),
+                MINIMUM_COMMITMENTS_NOT_IN_PLAN,
             )
             .await?;
         }

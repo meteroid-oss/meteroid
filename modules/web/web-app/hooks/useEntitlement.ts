@@ -20,6 +20,7 @@ export const entitlementCodes = {
   PORTAL_EMBEDDING: 'portal_embedding',
   EMAIL_CUSTOMIZATION: 'email_customization',
   QUOTES_FULL: 'quotes_full',
+  MINIMUM_COMMITMENTS: 'minimum_commitments',
 } as const
 
 /**
