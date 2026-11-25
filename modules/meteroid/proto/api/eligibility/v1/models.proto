@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package meteroid.api.eligibility.v1;
+
+// Which customers may get a plan or redeem a coupon. Live: never versioned, never a price.
+// Every condition set must hold; an empty rule lets anyone in.
+message Eligibility {
+  reserved 1, 3, 4, 6;
+  reserved "hidden", "email_domains", "invitation_code", "approval_required";
+  // ISO 3166-1 alpha-2 of the customer's billing address; empty: any country.
+  repeated string countries = 2;
+  // Each listed custom property of the customer must hold one of its values.
+  repeated PropertyMatch properties = 5;
+}
+
+message PropertyMatch {
+  string key = 1;
+  repeated string values = 2;
+}

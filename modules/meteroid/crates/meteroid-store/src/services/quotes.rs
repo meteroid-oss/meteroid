@@ -137,6 +137,10 @@ pub(super) fn build_subscription_from_quote(
 
     Ok(CreateSubscriptionFromQuote {
         subscription: subscription_new,
+        option: quote
+            .plan_option
+            .clone()
+            .map(crate::domain::plan_options::PlanOptionRef::Alias),
         components,
         add_ons,
         coupon_ids,

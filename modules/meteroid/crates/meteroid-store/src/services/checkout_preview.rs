@@ -17,6 +17,9 @@ use crate::repositories::plans::PlansInterface;
 use crate::repositories::price_components::PriceComponentInterface;
 use crate::services::Services;
 use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
+use crate::services::subscriptions::currency::{
+    SubscriptionCurrency, asked_cadences, plan_options_of,
+};
 use crate::services::subscriptions::utils::billing_period_of;
 use crate::store::PgConn;
 use crate::utils::periods::calculate_advance_period_range;
@@ -65,7 +68,7 @@ impl Services {
             ))
         })?;
 
-        let price_components = self
+        let mut price_components = self
             .store
             .list_price_components_with_conn(
                 conn,
@@ -73,11 +76,23 @@ impl Services {
                 tenant_id,
             )
             .await?;
-
         let customer = self
             .store
             .find_customer_by_id_with_conn(conn, session.customer_id, tenant_id)
             .await?;
+        let sold_in = SubscriptionCurrency::for_new_subscription(
+            &customer.currency,
+            &plan_version.currency,
+            &plan_version.options,
+            &price_components,
+            session.option_ref().as_ref(),
+            &asked_cadences(session.components.as_ref()),
+        )?;
+        sold_in.price_components(&mut price_components, |component| {
+            replaced(session.components.as_ref(), component)
+        })?;
+        let currency = sold_in.currency.clone();
+        let plan_option = sold_in.option.clone();
 
         let invoicing_entity_providers = InvoicingEntityProvidersRow::resolve_providers_by_id(
             conn,
@@ -139,7 +154,13 @@ impl Services {
         )?;
 
         let subscription_add_ons = self
-            .build_preview_add_ons(conn, tenant_id, session.add_ons.as_ref())
+            .build_preview_add_ons(
+                conn,
+                tenant_id,
+                session.add_ons.as_ref(),
+                &sold_in,
+                shortest_period(&subscription_components),
+            )
             .await?;
 
         // The cadence creating the subscription settles on.
@@ -208,7 +229,6 @@ impl Services {
             None
         };
 
-        let currency = plan_version.currency.clone();
         let version = plan_version.version as u32;
 
         let virtual_subscription = Subscription {
@@ -227,6 +247,7 @@ impl Services {
             plan_name: plan_with_version.plan.name.clone(),
             plan_description: plan_with_version.plan.description.clone(),
             plan_version_id: session.subscription_plan_version_id()?,
+            plan_option_id: plan_option.as_ref().map(|option| option.id),
             version,
             created_at: common_clock::now().naive_utc(),
             net_terms,
@@ -261,6 +282,7 @@ impl Services {
         };
 
         let mut applied_coupons = Vec::new();
+        let add_on_ids: Vec<AddOnId> = subscription_add_ons.iter().map(|a| a.add_on_id).collect();
 
         // The same coupons, by the same precedence, as `resolve_coupon_ids_for_checkout_tx` gives
         // the payment, checked as it checks them: a coupon it would refuse is refused here too.
@@ -268,8 +290,14 @@ impl Services {
             if let Some(code) = super::checkout_coupon_code(session, coupon_code.map(str::to_owned))
             {
                 applied_coupons.push(
-                    self.build_preview_coupon(conn, tenant_id, &code, &virtual_subscription)
-                        .await?,
+                    self.build_preview_coupon(
+                        conn,
+                        tenant_id,
+                        &code,
+                        &virtual_subscription,
+                        &add_on_ids,
+                    )
+                    .await?,
                 );
             }
         } else {
@@ -280,6 +308,7 @@ impl Services {
                         tenant_id,
                         *coupon_id,
                         &virtual_subscription,
+                        &add_on_ids,
                     )
                     .await?,
                 );
@@ -314,6 +343,7 @@ impl Services {
                 pending_events: Vec::new(),
                 entitlements: Vec::new(),
                 minimum,
+                plan_option,
             },
             billing_start_date,
         ))
@@ -333,10 +363,39 @@ impl Services {
     ) -> StoreResult<(ComputedInvoiceContent, SubscriptionDetails)> {
         let sub = &create.subscription;
 
-        let price_components = self
+        let mut price_components = self
             .store
             .list_price_components_with_conn(conn, sub.plan_version_id, tenant_id)
             .await?;
+        let version_currency =
+            diesel_models::plan_versions::PlanVersionRow::find_by_id_and_tenant_id(
+                conn,
+                sub.plan_version_id,
+                tenant_id,
+            )
+            .await?
+            .currency;
+        let customer_currency =
+            diesel_models::customers::CustomerRow::find_by_id(conn, &sub.customer_id, &tenant_id)
+                .await?
+                .currency;
+        let options = plan_options_of(conn, tenant_id, &[sub.plan_version_id])
+            .await?
+            .remove(&sub.plan_version_id)
+            .unwrap_or_default();
+        let sold_in = SubscriptionCurrency::for_new_subscription(
+            &customer_currency,
+            &version_currency,
+            &options,
+            &price_components,
+            create.option.as_ref(),
+            &asked_cadences(create.price_components.as_ref()),
+        )?;
+        sold_in.price_components(&mut price_components, |component| {
+            replaced(create.price_components.as_ref(), component)
+        })?;
+        let offer_currency = Some(sold_in.currency.clone());
+        let plan_option = sold_in.option.clone();
 
         let product_ids: Vec<ProductId> = price_components
             .iter()
@@ -385,7 +444,13 @@ impl Services {
         )?;
 
         let subscription_add_ons = self
-            .build_preview_add_ons(conn, tenant_id, create.add_ons.as_ref())
+            .build_preview_add_ons(
+                conn,
+                tenant_id,
+                create.add_ons.as_ref(),
+                &sold_in,
+                shortest_period(&subscription_components),
+            )
             .await?;
 
         self.preview_first_invoice(
@@ -393,6 +458,8 @@ impl Services {
             tenant_id,
             PreviewedSubscription {
                 subscription: sub,
+                offer_currency,
+                plan_option,
                 components: subscription_components,
                 add_ons: subscription_add_ons,
                 minimum_override: create.minimum_override.as_ref(),
@@ -459,6 +526,8 @@ impl Services {
             tenant_id,
             PreviewedSubscription {
                 subscription: &create.subscription,
+                offer_currency: None,
+                plan_option: None,
                 components,
                 add_ons,
                 minimum_override: create.minimum_override.as_ref(),
@@ -477,6 +546,8 @@ impl Services {
     ) -> StoreResult<(ComputedInvoiceContent, SubscriptionDetails)> {
         let PreviewedSubscription {
             subscription: sub,
+            offer_currency,
+            plan_option,
             components: subscription_components,
             add_ons: subscription_add_ons,
             minimum_override,
@@ -540,7 +611,7 @@ impl Services {
         let current_period_start = range.start;
         let current_period_end = Some(range.end);
 
-        let currency = plan_version.currency.clone();
+        let currency = offer_currency.unwrap_or_else(|| plan_version.currency.clone());
         let version = plan_version.version as u32;
         let subscription_id = SubscriptionId::new();
 
@@ -584,6 +655,7 @@ impl Services {
             plan_name: plan_with_version.plan.name.clone(),
             plan_description: plan_with_version.plan.description.clone(),
             plan_version_id: sub.plan_version_id,
+            plan_option_id: plan_option.as_ref().map(|option| option.id),
             version,
             created_at: common_clock::now().naive_utc(),
             net_terms,
@@ -619,9 +691,16 @@ impl Services {
         };
 
         let mut applied_coupons = Vec::new();
+        let add_on_ids: Vec<AddOnId> = subscription_add_ons.iter().map(|a| a.add_on_id).collect();
         for coupon_id in coupon_ids {
             if let Ok(preview_coupon) = self
-                .build_preview_coupon_by_id(conn, tenant_id, coupon_id, &virtual_subscription)
+                .build_preview_coupon_by_id(
+                    conn,
+                    tenant_id,
+                    coupon_id,
+                    &virtual_subscription,
+                    &add_on_ids,
+                )
                 .await
             {
                 applied_coupons.push(preview_coupon);
@@ -644,6 +723,7 @@ impl Services {
                 pending_events: Vec::new(),
                 entitlements: Vec::new(),
                 minimum,
+                plan_option,
             },
             sub.billing_start_date.unwrap_or(contract_start),
         );
@@ -699,7 +779,23 @@ impl Services {
         for pc in price_components {
             let component_id = pc.id;
 
-            if remove.contains(&component_id) {
+            if remove.contains(&component_id)
+                || (pc.is_included_only() && !resolved_custom.overrides.contains_key(&component_id))
+            {
+                continue;
+            }
+
+            // An override comes first, as at creation: a seat count sent beside it applies to
+            // the custom price, not to the plan's.
+            if let Some(resolved_override) = resolved_custom.overrides.get(&component_id) {
+                let mut component = self.resolved_to_subscription_component(resolved_override);
+                if let Some(param) = parameterized
+                    .iter()
+                    .find(|p| p.component_id == component_id)
+                {
+                    component.fee.apply_parameters(&param.parameters);
+                }
+                processed_components.push(component);
                 continue;
             }
 
@@ -730,12 +826,6 @@ impl Services {
                     lineage_id: None,
                     added_by_amendment: false,
                 });
-                continue;
-            }
-
-            if let Some(resolved_override) = resolved_custom.overrides.get(&component_id) {
-                processed_components
-                    .push(self.resolved_to_subscription_component(resolved_override));
                 continue;
             }
 
@@ -819,9 +909,15 @@ impl Services {
                     )))
                 })?;
 
-                let (fee, period) =
-                    resolve_fee_read_only(conn, &product.fee_structure, &ov.price_entry, tenant_id)
-                        .await?;
+                let (fee, period) = resolve_fee_read_only(
+                    conn,
+                    &product.fee_structure,
+                    &ov.price_entry,
+                    tenant_id,
+                    Some(product_id),
+                    None,
+                )
+                .await?;
 
                 overrides.insert(
                     ov.component_id,
@@ -860,9 +956,15 @@ impl Services {
                     )));
                 }
 
-                let (fee, period) =
-                    resolve_fee_read_only(conn, &fee_structure, &extra.price_entry, tenant_id)
-                        .await?;
+                let (fee, period) = resolve_fee_read_only(
+                    conn,
+                    &fee_structure,
+                    &extra.price_entry,
+                    tenant_id,
+                    extra.product_ref.existing_product_id(),
+                    None,
+                )
+                .await?;
 
                 extras.push(ResolvedCustomComponent {
                     name: extra.name.clone(),
@@ -878,12 +980,14 @@ impl Services {
         Ok(ResolvedCustomComponents { overrides, extras })
     }
 
-    /// Builds add-ons from session.add_ons if present.
+    /// Builds add-ons from session.add_ons if present, each at its price in `sold_in` on `term`.
     async fn build_preview_add_ons(
         &self,
         conn: &mut PgConn,
         tenant_id: TenantId,
         add_ons: Option<&CreateSubscriptionAddOns>,
+        sold_in: &SubscriptionCurrency,
+        term: Option<crate::domain::enums::BillingPeriodEnum>,
     ) -> StoreResult<Vec<SubscriptionAddOn>> {
         let Some(create_add_ons) = add_ons else {
             return Ok(Vec::new());
@@ -917,7 +1021,7 @@ impl Services {
         };
 
         let ao_price_ids: Vec<common_domain::ids::PriceId> =
-            add_ons.iter().map(|a| a.price_id).collect();
+            add_ons.iter().flat_map(|a| a.price_ids()).collect();
         let ao_prices_map: HashMap<common_domain::ids::PriceId, crate::domain::prices::Price> =
             if ao_price_ids.is_empty() {
                 HashMap::new()
@@ -954,14 +1058,15 @@ impl Services {
                     )))
                 })?;
 
-            let resolved = add_on
-                .resolve_customized(
-                    &ao_products_map,
-                    &ao_prices_map,
-                    &units,
-                    &create_ao.customization,
-                )
-                .map_err(Report::new)?;
+            let resolved = crate::services::subscriptions::utils::resolve_add_on_sold_in(
+                add_on,
+                &ao_products_map,
+                &ao_prices_map,
+                &units,
+                &create_ao.customization,
+                sold_in,
+                term,
+            )?;
 
             result.push(SubscriptionAddOn {
                 id: SubscriptionAddOnId::new(),
@@ -991,6 +1096,7 @@ impl Services {
         tenant_id: TenantId,
         code: &str,
         subscription: &Subscription,
+        add_on_ids: &[AddOnId],
     ) -> StoreResult<AppliedCouponDetailed> {
         let coupon = self
             .checkout_coupon_by_code_tx(conn, tenant_id, code)
@@ -999,9 +1105,23 @@ impl Services {
         coupon
             .validate_for_use_with_message(&subscription.currency)
             .map_err(|msg| Report::new(StoreError::InvalidArgument(msg)))?;
+        refuse_out_of_scope(&coupon, subscription, add_on_ids)?;
         ensure_not_redeemed_by(conn, &coupon, subscription.customer_id).await?;
+        crate::repositories::coupons::refuse_ineligible(
+            conn,
+            tenant_id,
+            std::slice::from_ref(&coupon),
+            subscription.customer_id,
+        )
+        .await?;
 
-        Ok(Self::create_preview_applied_coupon(coupon, subscription))
+        let effective_from =
+            crate::services::subscriptions::coupon_months_from_tx(conn, subscription).await?;
+        Ok(Self::create_preview_applied_coupon(
+            coupon,
+            subscription,
+            effective_from,
+        ))
     }
 
     /// A code the customer typed at checkout, priced on `subscription` with the checks the payment
@@ -1011,9 +1131,10 @@ impl Services {
         tenant_id: TenantId,
         code: &str,
         subscription: &Subscription,
+        add_on_ids: &[AddOnId],
     ) -> StoreResult<AppliedCouponDetailed> {
         let mut conn = self.store.get_conn().await?;
-        self.build_preview_coupon(&mut conn, tenant_id, code, subscription)
+        self.build_preview_coupon(&mut conn, tenant_id, code, subscription, add_on_ids)
             .await
     }
 
@@ -1024,6 +1145,7 @@ impl Services {
         tenant_id: TenantId,
         coupon_id: common_domain::ids::CouponId,
         subscription: &Subscription,
+        add_on_ids: &[AddOnId],
     ) -> StoreResult<AppliedCouponDetailed> {
         use crate::repositories::coupons::CouponInterface;
 
@@ -1035,15 +1157,31 @@ impl Services {
         coupon
             .validate_for_use_with_message(&subscription.currency)
             .map_err(|msg| Report::new(StoreError::InvalidArgument(msg)))?;
+        refuse_out_of_scope(&coupon, subscription, add_on_ids)?;
         ensure_not_redeemed_by(conn, &coupon, subscription.customer_id).await?;
+        crate::repositories::coupons::refuse_ineligible(
+            conn,
+            tenant_id,
+            std::slice::from_ref(&coupon),
+            subscription.customer_id,
+        )
+        .await?;
 
-        Ok(Self::create_preview_applied_coupon(coupon, subscription))
+        let effective_from =
+            crate::services::subscriptions::coupon_months_from_tx(conn, subscription).await?;
+        Ok(Self::create_preview_applied_coupon(
+            coupon,
+            subscription,
+            effective_from,
+        ))
     }
 
-    /// Creates a preview AppliedCouponDetailed (not persisted) for invoice computation.
+    /// Creates a preview AppliedCouponDetailed (not persisted) for invoice computation, its months
+    /// counted from `effective_from` as the redemption will record them.
     fn create_preview_applied_coupon(
         coupon: crate::domain::Coupon,
         subscription: &Subscription,
+        effective_from: NaiveDate,
     ) -> AppliedCouponDetailed {
         let now = common_clock::now().naive_utc();
 
@@ -1057,6 +1195,7 @@ impl Services {
             applied_count: Some(0),
             last_applied_at: None,
             created_at: now,
+            effective_from,
         };
 
         AppliedCouponDetailed {
@@ -1064,6 +1203,22 @@ impl Services {
             applied_coupon: preview_applied,
         }
     }
+}
+
+/// Refused as the completion refuses it: a coupon scoped to other plans and add-ons than these,
+/// so the preview never shows a discount the payment would not give.
+fn refuse_out_of_scope(
+    coupon: &crate::domain::Coupon,
+    subscription: &Subscription,
+    add_on_ids: &[AddOnId],
+) -> StoreResult<()> {
+    if coupon.applies_to(Some(subscription.plan_id), add_on_ids) {
+        return Ok(());
+    }
+    Err(Report::new(StoreError::InvalidArgument(format!(
+        "Coupon {} cannot be applied to this plan",
+        coupon.code
+    ))))
 }
 
 /// The once-per-customer rule `lock_and_validate_coupons_for_checkout` applies at payment.
@@ -1117,6 +1272,10 @@ fn trial_and_billing_start(
 /// A subscription about to be created, its lines resolved.
 struct PreviewedSubscription<'a> {
     subscription: &'a SubscriptionNew,
+    /// The customer's; none: its plan version's.
+    offer_currency: Option<String>,
+    /// The plan option bought.
+    plan_option: Option<crate::domain::plan_options::PlanOption>,
     components: Vec<SubscriptionComponent>,
     add_ons: Vec<SubscriptionAddOn>,
     minimum_override: Option<&'a (i64, CreateMinimumScope)>,
@@ -1162,4 +1321,29 @@ fn rows_from(mut details: SubscriptionDetails, from: NaiveDate) -> SubscriptionD
         add_on.effective_from = from;
     }
     details
+}
+
+/// The cadence a request asks for `component`, if any.
+/// Whether the request removes or overrides `component`: then it sells none of its prices.
+fn replaced(
+    components: Option<&CreateSubscriptionComponents>,
+    component: &common_domain::ids::PriceComponentId,
+) -> bool {
+    components.is_some_and(|c| {
+        c.remove_components.contains(component)
+            || c.overridden_components
+                .iter()
+                .any(|o| o.component_id == *component)
+    })
+}
+
+/// The term add-ons join a new subscription on, as its creation reads it: the shortest
+/// recurring period of its charges (`currency::add_on_term`).
+fn shortest_period(
+    components: &[SubscriptionComponent],
+) -> Option<crate::domain::enums::BillingPeriodEnum> {
+    components
+        .iter()
+        .filter_map(|c| c.period.as_billing_period_opt())
+        .min()
 }

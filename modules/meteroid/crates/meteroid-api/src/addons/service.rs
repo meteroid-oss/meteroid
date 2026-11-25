@@ -3,7 +3,7 @@ use crate::addons::error::AddOnApiError;
 use crate::addons::mapping::addons::{AddOnWrapper, PlanVersionAddOnWrapper};
 use crate::entitlements::mapping::entitlement_spec_from_proto;
 use crate::pricecomponents::mapping::components::{
-    price_entries_from_proto, product_ref_from_proto,
+    price_entries_from_proto, price_inputs_from_proto, product_ref_from_proto,
 };
 use common_domain::ids::{AddOnId, PlanVersionId, PriceId, ProductFamilyId};
 use common_grpc::middleware::server::auth::RequestExt;
@@ -17,8 +17,9 @@ use meteroid_grpc::meteroid::api::addons::v1::{
     RemoveAddOnRequest, RemoveAddOnResponse,
 };
 use meteroid_grpc_mapping::utils::PaginationExt;
-use meteroid_store::domain::add_ons::AddOnPatch;
+use meteroid_store::domain::add_ons::{AddOnPatch, AddOnPriceChange};
 use meteroid_store::domain::plan_version_add_ons::PlanVersionAddOnNew;
+use meteroid_store::domain::price_components::PriceEntry;
 use meteroid_store::repositories::add_ons::AddOnInterface;
 use meteroid_store::repositories::plan_version_add_ons::PlanVersionAddOnInterface;
 use meteroid_store::repositories::product_families::ProductFamilyInterface;
@@ -88,11 +89,17 @@ impl AddOnsService for AddOnsServiceComponents {
             product_ref.creates_credit_product(),
         )
         .await?;
-        let price_entries = price_entries_from_proto(req.price.into_iter().collect())?;
-        let price_entry = price_entries
-            .into_iter()
-            .next()
-            .ok_or_else(|| Status::invalid_argument("price is required"))?;
+        let price_entries: Vec<PriceEntry> = if req.prices.is_empty() {
+            price_entries_from_proto(req.price.into_iter().collect())?
+        } else {
+            price_inputs_from_proto(req.prices)?
+                .into_iter()
+                .map(PriceEntry::New)
+                .collect()
+        };
+        if price_entries.is_empty() {
+            return Err(Status::invalid_argument("price is required"));
+        }
 
         let pf_id = match req.product_family_local_id.filter(|s| !s.is_empty()) {
             Some(id) => ProductFamilyId::from_proto(id)?,
@@ -113,10 +120,10 @@ impl AddOnsService for AddOnsServiceComponents {
 
         let added = self
             .store
-            .create_add_on_from_ref(
+            .create_add_on_with_prices(
                 req.name,
                 product_ref,
-                price_entry,
+                price_entries,
                 req.description,
                 req.self_serviceable,
                 req.max_instances_per_subscription,
@@ -185,9 +192,13 @@ impl AddOnsService for AddOnsServiceComponents {
 
         let add_on_id = AddOnId::from_proto(&req.add_on_id)?;
 
-        let price_entry = if let Some(entry) = req.price {
-            let entries = price_entries_from_proto(vec![entry])?;
-            entries.into_iter().next()
+        let price_change = if !req.prices.is_empty() {
+            Some(AddOnPriceChange::All(price_inputs_from_proto(req.prices)?))
+        } else if let Some(entry) = req.price {
+            price_entries_from_proto(vec![entry])?
+                .into_iter()
+                .next()
+                .map(AddOnPriceChange::One)
         } else {
             None
         };
@@ -213,7 +224,7 @@ impl AddOnsService for AddOnsServiceComponents {
 
         let edited = self
             .store
-            .update_add_on(actor_typed, patch, price_entry)
+            .update_add_on_with_prices(actor_typed, patch, price_change)
             .await
             .map(|x| AddOnWrapper::from(x).0)
             .map_err(Into::<AddOnApiError>::into)?;

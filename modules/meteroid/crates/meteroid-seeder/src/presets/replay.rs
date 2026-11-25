@@ -616,6 +616,7 @@ impl<'r, 'a> Replayer<'r, 'a> {
             } => Some(PaymentMethodsConfig::external()),
         };
         let subscription = CreateSubscription {
+            option: None,
             subscription: SubscriptionNew {
                 customer_id: self.accounts[index].customer_id,
                 plan_version_id: plan.version.id,

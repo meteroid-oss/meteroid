@@ -58,6 +58,7 @@ async fn test_add_ons_basic() {
             max_instances_per_subscription: Some(3),
             product_family_local_id: None,
             entitlements: vec![],
+            prices: vec![],
         })
         .await
         .unwrap()
@@ -119,6 +120,7 @@ async fn test_add_ons_basic() {
             description: Some("Updated description".into()),
             self_serviceable: Some(false),
             max_instances_per_subscription: None,
+            prices: vec![],
         })
         .await
         .unwrap()
@@ -248,6 +250,7 @@ async fn test_add_on_skips_archived_feature_entitlement() {
             self_serviceable: true,
             max_instances_per_subscription: None,
             product_family_local_id: None,
+            prices: vec![],
             entitlements: vec![EntitlementSpec {
                 feature_id: feature.id.clone(),
                 value: Some(EntitlementValue {

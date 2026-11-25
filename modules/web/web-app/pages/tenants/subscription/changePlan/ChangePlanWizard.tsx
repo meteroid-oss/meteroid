@@ -34,6 +34,7 @@ export const ChangePlanWizard = () => {
         currentPlanVersionId: subscription.planVersionId,
         currentPlanName: subscription.planName,
         currency: subscription.currency,
+        currentOption: subscriptionQuery.data?.planOption?.alias,
       }))
     }
   }, [subscription?.id])

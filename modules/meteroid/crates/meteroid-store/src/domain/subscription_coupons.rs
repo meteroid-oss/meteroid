@@ -1,6 +1,6 @@
 use crate::domain::coupons::Coupon;
 use crate::errors::StoreErrorReport;
-use chrono::NaiveDateTime;
+use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{AppliedCouponId, CouponId, CustomerId, PlanId, SubscriptionId};
 use diesel_models::applied_coupons::{
     AppliedCouponDetailedRow, AppliedCouponForDisplayRow, AppliedCouponRow,
@@ -22,7 +22,12 @@ pub struct CreateSubscriptionCoupons {
 #[derive(Debug, Clone, Serialize, Deserialize, o2o)]
 #[from_owned(AppliedCouponRow)]
 #[owned_into(AppliedCouponRow)]
-#[ghosts(effective_from: @.created_at.date())]
+#[ghosts(
+    fixed_amount: {None},
+    fixed_currency: {None},
+    add_on_ids: {None},
+    duration_months: {None}
+)]
 pub struct AppliedCoupon {
     pub id: AppliedCouponId,
     pub coupon_id: CouponId,
@@ -33,6 +38,8 @@ pub struct AppliedCoupon {
     pub applied_count: Option<i32>,
     pub last_applied_at: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
+    /// The first paid period's start when redeemed: a coupon lasting months counts them from it.
+    pub effective_from: NaiveDate,
 }
 
 #[derive(Debug, Clone, o2o)]
@@ -68,6 +75,19 @@ impl AppliedCouponDetailed {
             && !self.reached_recurring_limit()
     }
 
+    /// Whether it discounts a line of the service period starting on `period_start`: always, but
+    /// for a coupon lasting months, past which none is (R-089).
+    pub fn covers(&self, period_start: NaiveDate) -> bool {
+        self.lasts_until().is_none_or(|end| period_start < end)
+    }
+
+    /// The day a coupon lasting months ends on this subscription: its first paid period's start
+    /// plus the months it was redeemed for.
+    pub fn lasts_until(&self) -> Option<NaiveDate> {
+        self.coupon.lasts_until(self.applied_coupon.effective_from)
+    }
+
+    /// Invoices are counted only by coupons made before durations in months.
     fn reached_recurring_limit(&self) -> bool {
         self.coupon
             .recurring_value
@@ -79,7 +99,16 @@ impl TryInto<AppliedCouponDetailed> for AppliedCouponDetailedRow {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<AppliedCouponDetailed, Self::Error> {
-        let coupon: Coupon = self.coupon.try_into()?;
+        let row = &self.applied_coupon;
+        let fixed = row.fixed_currency.clone().zip(row.fixed_amount);
+        let add_on_ids = row
+            .add_on_ids
+            .clone()
+            .map(|ids| ids.into_iter().flatten().collect());
+        let duration_months = row.duration_months;
+        let mut coupon = TryInto::<Coupon>::try_into(self.coupon)?.as_redeemed(fixed, add_on_ids);
+        // The months it was redeemed for: an edit of the coupon reaches only later redemptions.
+        coupon.duration_months = duration_months;
         let applied_coupon: AppliedCoupon = self.applied_coupon.into();
 
         Ok(AppliedCouponDetailed {

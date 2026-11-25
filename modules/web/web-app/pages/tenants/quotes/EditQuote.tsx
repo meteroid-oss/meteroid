@@ -13,11 +13,14 @@ import { CreateQuote } from './CreateQuote'
 export const EditQuote = () => {
   const { quoteId } = useTypedParams<{ quoteId: string }>()
   const basePath = useBasePath()
-  const { quote, planComponents } = useQuoteFormSource(quoteId)
+  const { quote, planComponents, planOptions, planOptionsReady } = useQuoteFormSource(quoteId)
 
   const seed = useMemo(
-    () => (quote && planComponents ? quoteToFormSeed(quote, planComponents) : undefined),
-    [quote, planComponents]
+    () =>
+      quote && planComponents && planOptionsReady
+        ? quoteToFormSeed(quote, planComponents, planOptions)
+        : undefined,
+    [quote, planComponents, planOptions, planOptionsReady]
   )
 
   if (quote && !isQuoteEditable(quote)) {

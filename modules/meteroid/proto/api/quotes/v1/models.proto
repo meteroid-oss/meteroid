@@ -301,8 +301,11 @@ message QuoteCouponTerms {
   string code = 1;
   optional string description = 2;
   meteroid.api.coupons.v1.CouponDiscount discount = 3;
-  // Billing periods the discount applies to; absent: every period.
+  // Billing periods the discount applies to, for coupons made before `duration_months`; neither:
+  // every period.
   optional uint32 recurring_value = 4;
+  // Months the discount applies to from the subscription's start: periods starting within them.
+  optional uint32 duration_months = 5;
 }
 
 message QuoteSignature {
@@ -390,6 +393,8 @@ message CreateQuote {
   optional string hubspot_deal_id = 41;
   // Absent: every action allowed.
   optional QuoteCustomerActions customer_actions = 42;
+  // The plan option quoted, by alias or id; unset: the plan's default option sold in `currency`.
+  optional string option = 43;
 }
 
 // Unsaved editor state. `payload` is the web editor's JSON, opaque to the server.

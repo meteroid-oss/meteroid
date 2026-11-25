@@ -45,11 +45,14 @@ pub fn on_large_stacks<F: Future<Output = ()>>(test: impl FnOnce() -> F + Send +
     if let Some(name) = name {
         thread = thread.name(name);
     }
+    let clock = common_clock::test::scope();
     let outcome = thread
         .spawn(move || {
+            common_clock::test::enter(clock.clone());
             tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(4)
                 .thread_stack_size(STACK)
+                .on_thread_start(move || common_clock::test::enter(clock.clone()))
                 .enable_all()
                 .build()
                 .expect("the test runtime")

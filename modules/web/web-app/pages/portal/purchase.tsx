@@ -1,6 +1,6 @@
 import { Code, ConnectError } from '@connectrpc/connect'
 import { useMutation } from '@connectrpc/connect-query'
-import { Form, cn } from '@md/ui'
+import { Form, InputFormField, cn } from '@md/ui'
 import { AlertCircle, Loader2, Server } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWatch } from 'react-hook-form'
@@ -10,7 +10,9 @@ import { z } from 'zod'
 import { CheckoutThemePane } from '@/features/checkout/CheckoutThemePane'
 import { resolveCheckoutTheme } from '@/features/checkout/resolveCheckoutTheme'
 import { BillingInfoFields } from '@/features/customers/components/BillingInfoForm'
+import { unitIsCurrency } from '@/features/plans/charges/kinds'
 import { solveAltcha } from '@/features/purchase/pow'
+import { levelWords } from '@/features/subscriptions/capacityLevels'
 import {
   formatSubscriptionFee,
   formatSubscriptionFeeBillingPeriod,
@@ -24,7 +26,8 @@ import {
 import { BuyerType, TaxIdCollection } from '@/rpc/portal/purchase/v1/purchase_pb'
 import { useForceTheme } from 'providers/ThemeProvider'
 
-import type { PurchaseOffer } from '@/rpc/portal/purchase/v1/purchase_pb'
+import type { SubscriptionFee } from '@/rpc/api/subscriptions/v1/models_pb'
+import type { OfferComponent, PurchaseOffer } from '@/rpc/portal/purchase/v1/purchase_pb'
 
 const optionalText = (max: number) => z.string().trim().max(max).optional()
 
@@ -48,6 +51,7 @@ const purchaseSchema = (
       zipCode: optionalText(200),
       vatNumber: optionalText(64),
       legalNumber: optionalText(64),
+      couponCode: optionalText(64),
     })
     .superRefine((values, ctx) => {
       const required: [keyof typeof values, string][] =
@@ -146,12 +150,99 @@ const useProofOfWork = (challenge: string) => {
   return { solution, wait }
 }
 
+const promotes = (offer: PurchaseOffer) => offer.allowCouponCodes || !!offer.couponCode
+
 const taxNote = (offer: PurchaseOffer) =>
   offer.taxInclusive
-    ? `All prices incl. tax.${offer.allowCouponCodes ? ' Promotion codes are applied at the next step.' : ''}`
-    : `All prices excl. tax. ${offer.allowCouponCodes ? 'Tax and promotion codes are' : 'Tax is'} applied at the next step.`
+    ? `All prices incl. tax.${promotes(offer) ? ' Discounts show at the next step.' : ''}`
+    : `All prices excl. tax. ${promotes(offer) ? 'Tax and discounts are' : 'Tax is'} applied at the next step.`
 
-const OfferSummary = ({ offer }: { offer: PurchaseOffer }) => (
+/** The plan's rule leaves the buyer out: say so, and what they can do about it. */
+const ineligibleMessage = (reason: string) =>
+  `${reason.replace(/\.$/, '')}. If you think you qualify, check the country you entered, or contact the seller.`
+
+/** The level picked per usage-levels charge, by the charge's index in the offer. */
+type PickedLevels = Record<number, bigint>
+
+const levelOf = (fee?: SubscriptionFee) =>
+  fee?.fee.case === 'capacity'
+    ? { included: fee.fee.value.included, rate: fee.fee.value.rate }
+    : undefined
+
+/** The fee a charge starts on: at the level picked, else as the offer prices it (its lowest). */
+const pickedFee = (component: OfferComponent, picked?: bigint) =>
+  (picked !== undefined
+    ? component.levels.find(fee => levelOf(fee)?.included === picked)
+    : undefined) ?? component.fee
+
+/**
+ * The levels a link opened with `?capacity=<units>` starts on: each usage-levels charge sold at
+ * that level, as a pricing card's button passes the level its visitor picked (`signupParams`).
+ */
+const levelsFromLink = (offer: PurchaseOffer, asked: string | null): PickedLevels => {
+  if (!asked || !/^\d+$/.test(asked)) return {}
+  const included = BigInt(asked)
+  return Object.fromEntries(
+    offer.components.flatMap((component, i): [number, bigint][] =>
+      component.levels.some(fee => levelOf(fee)?.included === included) ? [[i, included]] : []
+    )
+  )
+}
+
+/** A usage-levels charge's levels, worded as the portal's level change words them. */
+const LevelChoices = ({
+  component,
+  currency,
+  picked,
+  onPick,
+}: {
+  component: OfferComponent
+  currency: string
+  picked?: bigint
+  onPick: (included: bigint) => void
+}) => {
+  const unit = {
+    money: unitIsCurrency({ plural: component.unit ?? null }, currency),
+    plural: component.unit,
+  }
+  const chosen = levelOf(pickedFee(component, picked))?.included
+  return (
+    <div className="mt-2 space-y-1.5" role="radiogroup" aria-label={`${component.name} level`}>
+      {component.levels.map(fee => {
+        const level = levelOf(fee)
+        if (!level) return null
+        const selected = level.included === chosen
+        return (
+          <button
+            key={level.included.toString()}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            onClick={() => onPick(level.included)}
+            className={cn(
+              'w-full rounded-md border px-3 py-2 text-left text-xs transition-colors',
+              selected
+                ? 'border-foreground bg-background font-medium'
+                : 'border-border bg-transparent text-muted-foreground hover:bg-background'
+            )}
+          >
+            {levelWords(level, currency, component.period, unit)}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+const OfferSummary = ({
+  offer,
+  levels,
+  onPickLevel,
+}: {
+  offer: PurchaseOffer
+  levels: PickedLevels
+  onPickLevel: (component: number, included: bigint) => void
+}) => (
   <div className="text-sm">
     <div className="items-center mb-6 flex">
       {offer.sellerLogoUrl && (
@@ -168,6 +259,7 @@ const OfferSummary = ({ offer }: { offer: PurchaseOffer }) => (
       <h1 className="text-base font-normal mb-1 text-muted-foreground">
         Subscribe to {offer.planName}
       </h1>
+      {offer.optionName && <div className="text-sm font-medium">{offer.optionName}</div>}
       {offer.trialDays ? (
         <div className="mt-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
           {offer.trialDays} day trial
@@ -180,7 +272,7 @@ const OfferSummary = ({ offer }: { offer: PurchaseOffer }) => (
 
     <div className="py-4 space-y-4">
       {offer.components.map((component, i) => {
-        const pricing = formatSubscriptionFee(component.fee, offer.currency)
+        const pricing = formatSubscriptionFee(pickedFee(component, levels[i]), offer.currency)
         const sublabel = [
           pricing.details && !pricing.redundantDetails ? pricing.details : undefined,
           formatSubscriptionFeeBillingPeriod(component.period),
@@ -196,6 +288,14 @@ const OfferSummary = ({ offer }: { offer: PurchaseOffer }) => (
                 <pre className="mt-0.5 text-[11px] text-muted-foreground font-mono whitespace-pre leading-tight">
                   {pricing.breakdown}
                 </pre>
+              )}
+              {component.levels.length > 1 && (
+                <LevelChoices
+                  component={component}
+                  currency={offer.currency}
+                  picked={levels[i]}
+                  onPick={included => onPickLevel(i, included)}
+                />
               )}
             </div>
             <div className="font-medium text-right">{pricing.amount}</div>
@@ -227,11 +327,13 @@ const PurchaseForm = ({
   offer,
   token,
   licenseRequest,
+  levels,
   onChallengeSpent,
 }: {
   offer: PurchaseOffer
   token: string
   licenseRequest?: string
+  levels: PickedLevels
   onChallengeSpent: () => void
 }) => {
   const [attemptId] = useState(() => attemptIdFor(token))
@@ -239,6 +341,8 @@ const PurchaseForm = ({
   const [verifying, setVerifying] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [redirecting, setRedirecting] = useState(false)
+  // Folded like main's page, where codes are entered at checkout; open when the link has one.
+  const [couponOpen, setCouponOpen] = useState(() => !!offer.couponCode)
 
   const buyerTypes = (offer.buyerTypes.length ? offer.buyerTypes : [BuyerType.COMPANY]).map(t =>
     t === BuyerType.INDIVIDUAL ? 'INDIVIDUAL' : 'COMPANY'
@@ -271,6 +375,7 @@ const PurchaseForm = ({
       zipCode: '',
       vatNumber: '',
       legalNumber: '',
+      couponCode: offer.couponCode ?? '',
     },
     mode: 'onSubmit',
     reValidateMode: 'onChange',
@@ -308,7 +413,25 @@ const PurchaseForm = ({
         powSolution,
         attemptId,
         licenseRequest,
+        couponCode: offer.allowCouponCodes ? blankToUndefined(values.couponCode) : undefined,
+        levels: Object.entries(levels).flatMap(([index, included]) => {
+          const component = offer.components[Number(index)]
+          return component ? [{ productId: component.productId, included }] : []
+        }),
       })
+      // Refused for what the buyer entered: answered next to it. The challenge is spent.
+      if (!res.checkoutUrl) {
+        if (res.couponCodeError && offer.allowCouponCodes) {
+          setCouponOpen(true)
+          methods.setError('couponCode', { message: res.couponCodeError })
+        } else if (res.ineligible) {
+          setSubmitError(ineligibleMessage(res.ineligible))
+        } else {
+          setSubmitError(res.couponCodeError ?? 'Please check the information you entered.')
+        }
+        onChallengeSpent()
+        return
+      }
       setRedirecting(true)
       window.location.href = res.checkoutUrl
     } catch (error) {
@@ -362,6 +485,36 @@ const PurchaseForm = ({
           autofill
         />
 
+        {offer.allowCouponCodes && couponOpen ? (
+          <InputFormField
+            name="couponCode"
+            label="Coupon code"
+            labelClassName="font-normal text-xs"
+            className="text-xs focus-visible:shadow-none"
+            control={methods.control}
+            autoComplete="off"
+          />
+        ) : offer.allowCouponCodes ? (
+          <button
+            type="button"
+            onClick={() => setCouponOpen(true)}
+            className="text-xs underline-offset-2 hover:underline"
+            style={{ color: 'var(--mtp-text-3)' }}
+          >
+            Have a coupon code?
+          </button>
+        ) : (
+          offer.couponCode && (
+            <p className="text-xs" style={{ color: 'var(--mtp-text-3)' }}>
+              Coupon{' '}
+              <span className="font-mono" style={{ color: 'var(--mtp-text)' }}>
+                {offer.couponCode}
+              </span>{' '}
+              is applied to this purchase.
+            </p>
+          )
+        )}
+
         {submitError && (
           <div
             role="alert"
@@ -409,6 +562,13 @@ export const PortalPurchase = () => {
     { enabled: !!token, retry: false, refetchOnWindowFocus: false }
   )
   const offer = offerQuery.data?.offer
+  // The level picked per usage-levels charge; the link's `capacity` until the buyer picks.
+  const [pickedLevels, setPickedLevels] = useState<PickedLevels | null>(null)
+  const askedLevel = searchParams.get('capacity')
+  const levels = useMemo(
+    () => pickedLevels ?? (offer ? levelsFromLink(offer, askedLevel) : {}),
+    [pickedLevels, offer, askedLevel]
+  )
 
   const themeConfig = useMemo(
     () =>
@@ -461,7 +621,13 @@ export const PortalPurchase = () => {
     <div className="w-full flex flex-col lg:flex-row min-h-screen lg:h-screen lg:overflow-hidden">
       <div className="flex flex-col bg-background-gray gap-5 w-full lg:w-3/5 px-5 py-6 lg:px-10 lg:py-12 xl:px-20 xl:pt-16 xl:pb-20 border-b lg:border-b-0 lg:border-r border-border-regular lg:h-screen lg:overflow-auto">
         <div className="w-full max-w-[500px] mx-auto">
-          <OfferSummary offer={offer} />
+          <OfferSummary
+            offer={offer}
+            levels={levels}
+            onPickLevel={(component, included) =>
+              setPickedLevels({ ...levels, [component]: included })
+            }
+          />
         </div>
       </div>
       <CheckoutThemePane
@@ -473,6 +639,7 @@ export const PortalPurchase = () => {
             offer={offer}
             token={token}
             licenseRequest={licenseRequest}
+            levels={levels}
             onChallengeSpent={() => void offerQuery.refetch()}
           />
         </div>

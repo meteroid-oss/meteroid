@@ -2,7 +2,6 @@ import { Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } 
 import { useEffect, useRef, useState } from 'react'
 
 import { useDebouncedCallback } from '@/hooks/useDebounce'
-import { formatCadence } from '@/lib/mapping/prices'
 import { formatCurrencyNoRounding, formatUsage } from '@/lib/utils/numbers'
 
 import type {
@@ -10,16 +9,9 @@ import type {
   ConfigurableComponent,
 } from '@/pages/tenants/subscription/changePlan/componentChoices'
 
-const capacityLabel = (
-  { component, choice }: ConfigurableComponent,
-  included: bigint,
-  currency: string
-) => {
+const capacityLabel = ({ component }: ConfigurableComponent, included: bigint, currency: string) => {
   const price = component.prices.find(
-    p =>
-      p.pricing.case === 'capacityPricing' &&
-      p.pricing.value.included === included &&
-      (choice.billingPeriod === undefined || p.cadence === choice.billingPeriod)
+    p => p.pricing.case === 'capacityPricing' && p.pricing.value.included === included
   )
   const amount =
     price?.pricing.case === 'capacityPricing' && !price.creditUnit
@@ -91,27 +83,10 @@ export const ComponentChoiceControls = ({
   slotUnit?: string
   onChange: (choice: ComponentChoice) => void
 }) => {
-  const { cadences, capacities, slot, choice } = configurable
+  const { capacities, slot, choice } = configurable
 
   return (
     <div className="mt-2 flex flex-wrap items-center gap-2">
-      {cadences.length > 0 && (
-        <Select
-          value={String(choice.billingPeriod)}
-          onValueChange={v => onChange({ billingPeriod: Number(v) })}
-        >
-          <SelectTrigger className="h-8 w-auto text-xs" aria-label="Billing cadence">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {cadences.map(c => (
-              <SelectItem key={c} value={String(c)}>
-                {formatCadence(c)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
       {capacities.length > 0 && (
         <Select
           value={String(choice.committedCapacity)}

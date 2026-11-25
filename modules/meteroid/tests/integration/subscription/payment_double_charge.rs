@@ -61,6 +61,7 @@ async fn test_selfserve_double_completion_charges_once(#[future] test_env: TestE
             tenant_id: TENANT_ID,
             customer_id: CUST_UBER_ID,
             plan_version_id: PLAN_VERSION_1_LEETCODE_ID, // $35/month, no trial
+            option: None,
             billing_start_date: Some(NaiveDate::from_ymd_opt(2024, 3, 1).unwrap()),
             billing_day_anchor: Some(1),
             net_terms: None,
@@ -419,6 +420,7 @@ fn self_serve_session(tenant_customer: common_domain::ids::CustomerId) -> Create
         tenant_id: TENANT_ID,
         customer_id: tenant_customer,
         plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
+        option: None,
         billing_start_date: Some(NaiveDate::from_ymd_opt(2024, 3, 1).unwrap()),
         billing_day_anchor: Some(1),
         net_terms: None,
@@ -1059,7 +1061,9 @@ async fn seats_with(
                 cadence,
                 currency: "EUR".to_string(),
                 pricing: Pricing::Slot {
-                    unit_rate: rust_decimal::Decimal::new(1000, 2),
+                    model: meteroid_store::domain::price_components::RatingModel::PerUnit {
+                        rate: rust_decimal::Decimal::new(1000, 2),
+                    },
                     min_slots: None,
                     max_slots,
                 },

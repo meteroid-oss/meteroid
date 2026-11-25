@@ -2,12 +2,14 @@ pub(in crate::services) mod activate;
 pub(in crate::services) mod amendment;
 pub(crate) mod cadence;
 pub(in crate::services) mod cancel;
+pub(crate) mod currency;
 mod effective_plan;
 mod minimum;
 mod mrr;
 
 pub(in crate::services) mod insert;
 mod late_pack;
+pub(in crate::services) mod levels;
 pub mod payment_resolution;
 pub(in crate::services) mod plan_change;
 pub(in crate::services) mod plan_change_credit;
@@ -59,6 +61,46 @@ pub(crate) async fn billing_from_tx(
         .checked_add_signed(chrono::Duration::days(i64::from(days)))
         .map(|end| first_switch.map_or(end, |(_, switched_on)| end.min(switched_on)))
         .map_or(billing_start, |end| end.max(billing_start)))
+}
+
+/// The first paid period's start of a subscription billing from `billing_from` (a free trial's
+/// end, else its billing start), in `current_period_start` now: a coupon lasting months redeemed
+/// now counts them from it, so one redeemed once billing counts from the period it is in (R-089).
+pub(crate) fn coupon_months_from(
+    billing_from: chrono::NaiveDate,
+    current_period_start: chrono::NaiveDate,
+) -> chrono::NaiveDate {
+    billing_from.max(current_period_start)
+}
+
+/// [`coupon_months_from`] of a stored subscription: what a redemption on it records, and the
+/// checkout preview prices with.
+pub(crate) async fn coupon_months_from_tx(
+    conn: &mut crate::store::PgConn,
+    subscription: &crate::domain::Subscription,
+) -> crate::StoreResult<chrono::NaiveDate> {
+    let billing_from = billing_from_tx(conn, subscription).await?;
+    Ok(coupon_months_from(
+        billing_from,
+        subscription.current_period_start,
+    ))
+}
+
+/// [`coupon_months_from_tx`] of the subscription `subscription_id`.
+pub(crate) async fn coupon_months_from_id_tx(
+    conn: &mut crate::store::PgConn,
+    tenant_id: common_domain::ids::TenantId,
+    subscription_id: common_domain::ids::SubscriptionId,
+) -> crate::StoreResult<chrono::NaiveDate> {
+    let subscription: crate::domain::Subscription =
+        diesel_models::subscriptions::SubscriptionRow::get_subscription_by_id(
+            conn,
+            &tenant_id,
+            subscription_id,
+        )
+        .await?
+        .try_into()?;
+    coupon_months_from_tx(conn, &subscription).await
 }
 
 /// Whether the subscription's trial is free as its trial fact records it, from the plan version

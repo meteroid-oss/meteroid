@@ -78,7 +78,8 @@ export function useQuotePreviewLines({
         price.pricing.case === 'usagePricing' &&
         !price.creditUnit &&
         price.pricing.value.model.case &&
-        price.pricing.value.model.case !== 'matrix' &&
+        price.pricing.value.model.case !== 'dimensionRates' &&
+        price.pricing.value.model.case !== 'rateCard' &&
         quantity &&
         quantity.trim() !== ''
       ) {
@@ -122,9 +123,10 @@ export function useQuotePreviewLines({
         ]
       })
 
+    // A seat count kept beside a custom price is the override's line, below.
     const configured = parameterized.flatMap(c => {
       const pc = planComponents.find(pc => pc.id === c.componentId)
-      if (!pc) return []
+      if (!pc || overridden.some(o => o.componentId === pc.id)) return []
       const price = getPrice(pc)
       if (!price) return []
       return [
@@ -145,7 +147,11 @@ export function useQuotePreviewLines({
         c.componentId,
         c.name,
         formDataToPrice(c.feeType, c.formData as Record<string, unknown>, currency),
-        exampleFor({ componentId: c.componentId })
+        exampleFor({ componentId: c.componentId }),
+        {
+          initialSlotCount: parameterized.find(p => p.componentId === c.componentId)
+            ?.initialSlotCount,
+        }
       )
     )
 
@@ -292,6 +298,7 @@ export function buildPreviewQuote({
         description: coupon.description.trim() || undefined,
         discount: coupon.discount,
         recurringValue: coupon.recurringValue,
+        durationMonths: coupon.durationMonths,
       }),
     ]
   })

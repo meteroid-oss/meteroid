@@ -7,7 +7,7 @@ use crate::customers::mapping::customer::{
 use crate::customers::mapping::summary as summary_mapping;
 use common_domain::ids::{
     AliasOr, BaseId, ConnectedAccountId, ConnectorId, CustomerConnectionId, CustomerId,
-    InvoicingEntityId, OrganizationId, TenantId, UserId,
+    InvoicingEntityId, OrganizationId, ProductFamilyId, ProductId, TenantId, UserId,
 };
 use common_domain::rbac::{Permission, RolePermissions};
 use common_grpc::middleware::server::auth::RequestExt;
@@ -100,8 +100,20 @@ impl CustomersService for CustomerServiceComponents {
         let tenant_id = request.tenant()?;
         let actor_typed = request.actor_typed()?;
 
+        let request = request.into_inner();
+        let signup = request.subscribe_to_signup_plan;
+        let signup_family = ProductFamilyId::from_proto_opt(request.signup_product_family_id)?;
+        let signup_levels = request
+            .signup_levels
+            .into_iter()
+            .map(|level| {
+                Ok(meteroid_store::domain::usage_levels::ChosenLevel {
+                    product_id: ProductId::from_proto_opt(level.product_id)?,
+                    included: level.included,
+                })
+            })
+            .collect::<Result<Vec<_>, Status>>()?;
         let inner = request
-            .into_inner()
             .data
             .ok_or(CustomerApiError::MissingArgument("no data".into()))?;
 
@@ -159,11 +171,39 @@ impl CustomersService for CustomerServiceComponents {
             preferred_locales: validated_locales(inner.preferred_locales)?,
         };
 
-        let customer = self
-            .store
-            .insert_customer(actor_typed, customer_new, tenant_id)
-            .await
-            .and_then(ServerCustomerBriefWrapper::try_from)
+        // The sign-up plan is resolved before the customer exists: a wrong setting creates nothing.
+        let signup_offer = if signup {
+            meteroid_app::features::ensure_portal_self_service(
+                self.feature_resolver.as_ref(),
+                &self.store,
+                tenant_id,
+            )
+            .await?;
+            let currency = customer_new.currency.clone();
+            Some(
+                self.service
+                    .signup_offer_at_levels(tenant_id, signup_family, &currency, &signup_levels)
+                    .await
+                    .map_err(Into::<CustomerApiError>::into)?,
+            )
+        } else {
+            None
+        };
+
+        let created = match signup_offer {
+            Some(offer) => {
+                self.service
+                    .create_customer_on_signup(actor_typed, tenant_id, customer_new, offer)
+                    .await
+            }
+            None => {
+                self.store
+                    .insert_customer(actor_typed, customer_new, tenant_id)
+                    .await
+            }
+        }
+        .map_err(Into::<CustomerApiError>::into)?;
+        let customer = ServerCustomerBriefWrapper::try_from(created)
             .map(|v| v.0)
             .map_err(Into::<CustomerApiError>::into)?;
 

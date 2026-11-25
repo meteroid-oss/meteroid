@@ -12,6 +12,8 @@ type Props = {
   /** Opens the section and keeps it open while true, e.g. on a validation error inside. */
   forceOpen?: boolean
   label?: string
+  /** What the folded fields hold, shown beside the label while closed. */
+  summary?: ReactNode
   className?: string
   children: ReactNode
 }
@@ -21,6 +23,7 @@ export const AdvancedSection = ({
   defaultOpen = false,
   forceOpen = false,
   label = 'Advanced settings',
+  summary,
   className,
   children,
 }: Props) => {
@@ -31,10 +34,17 @@ export const AdvancedSection = ({
     <Collapsible open={open} onOpenChange={setOpen} className={className}>
       <CollapsibleTrigger
         type="button"
-        className="flex items-center gap-1 text-[13px] font-medium text-muted-foreground hover:text-foreground"
+        className="flex w-full min-w-0 items-center gap-1 text-left text-[13px] font-medium text-muted-foreground hover:text-foreground"
       >
-        <ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
-        {label}
+        <ChevronRight
+          className={cn('size-3.5 shrink-0 transition-transform', open && 'rotate-90')}
+        />
+        <span className="shrink-0 whitespace-nowrap">{label}</span>
+        {!open && summary && (
+          <span className="ml-1 min-w-0 truncate font-normal text-muted-foreground" title={typeof summary === 'string' ? summary : undefined}>
+            {summary}
+          </span>
+        )}
       </CollapsibleTrigger>
       <CollapsibleContent className="space-y-4 pt-3">{children}</CollapsibleContent>
     </Collapsible>

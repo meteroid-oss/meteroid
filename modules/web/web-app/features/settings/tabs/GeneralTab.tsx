@@ -19,6 +19,7 @@ import { InlineLoading } from '@/components/Loading'
 import { Slot } from '@/edition'
 import { DeliveryModeBadge } from '@/features/customer-emails/DeliveryView'
 import { DangerZone } from '@/features/settings/DangerZone'
+import { ProductLinesSection } from '@/features/settings/components/ProductLinesSection'
 import {
   SettingsFieldGrid,
   SettingsRow,
@@ -295,6 +296,7 @@ export const GeneralTab = () => {
           </SettingsSection>
         </form>
       </Form>
+      <ProductLinesSection />
       <DangerZone />
     </div>
   )

@@ -1,13 +1,16 @@
 use crate::StoreResult;
 use crate::domain::custom_property_definitions::{
-    CustomPropertyDefinition, CustomPropertyMode, validate_and_normalize,
+    CustomPropertyDefinition, CustomPropertyDefinitionNew, CustomPropertyMode,
+    validate_and_normalize,
 };
 use crate::domain::enums::CustomPropertyEntityType;
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store, StoreInternal};
 use cached::{Cached, TimedSizedCache};
-use common_domain::ids::{CustomPropertyDefinitionId, TenantId};
-use diesel_models::custom_property_definitions::CustomPropertyDefinitionRow;
+use common_domain::ids::{BaseId, CustomPropertyDefinitionId, TenantId};
+use diesel_models::custom_property_definitions::{
+    CustomPropertyDefinitionRow, CustomPropertyDefinitionRowNew,
+};
 use error_stack::Report;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -66,6 +69,46 @@ impl CustomPropertyDefinitionsInterface for Store {
 }
 
 impl Store {
+    /// Defines a custom property, as a sandbox preset seeds one; the definitions users write go
+    /// through the custom-properties module.
+    pub async fn insert_custom_property_definition(
+        &self,
+        new: CustomPropertyDefinitionNew,
+    ) -> StoreResult<CustomPropertyDefinition> {
+        let valid_key = !new.key.is_empty()
+            && new
+                .key
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if !valid_key {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "custom property key may only contain letters, digits and underscores".to_owned(),
+            )));
+        }
+        let (tenant_id, entity_type) = (new.tenant_id, new.entity_type);
+        let row = CustomPropertyDefinitionRowNew {
+            id: CustomPropertyDefinitionId::new(),
+            tenant_id,
+            entity_type: entity_type.into(),
+            key: new.key,
+            name: new.name,
+            description: new.description,
+            property_type: new.property_type.into(),
+            config: (&new.config).try_into()?,
+            required: new.required,
+            default_value: new.default_value,
+            display_order: new.display_order,
+        };
+        let mut conn = self.get_conn().await?;
+        let created: CustomPropertyDefinition = row
+            .insert(&mut conn)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .try_into()?;
+        self.custom_property_definitions_changed(tenant_id, entity_type);
+        Ok(created)
+    }
+
     /// Call after writing a definition, so this store's validation stops using the cached set.
     pub fn custom_property_definitions_changed(
         &self,

@@ -64,6 +64,7 @@ async fn test_subscription_create() {
         .create_subscription(tonic::Request::new(
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(api::subscriptions::v1::CreateSubscription {
+                    option: None,
                     plan_version_id: plan_version_id.clone(),
                     start_date: now.as_proto(),
                     billing_day_anchor: Some(1),
@@ -94,6 +95,7 @@ async fn test_subscription_create() {
         .create_subscription(tonic::Request::new(
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(api::subscriptions::v1::CreateSubscription {
+                    option: None,
                     plan_version_id: plan_version_id.clone(),
                     start_date: now.as_proto(),
                     billing_day_anchor: Some(1),
@@ -124,6 +126,7 @@ async fn test_subscription_create() {
         .create_subscription(tonic::Request::new(
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(api::subscriptions::v1::CreateSubscription {
+                    option: None,
                     plan_version_id: plan_version_id.clone(),
                     start_date: now.as_proto(),
                     billing_day_anchor: Some(1),
@@ -228,6 +231,7 @@ async fn test_subscription_cancel() {
         .create_subscription(tonic::Request::new(
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(api::subscriptions::v1::CreateSubscription {
+                    option: None,
                     plan_version_id: plan_version_id.clone(),
                     start_date: now.as_proto(),
                     billing_day_anchor: Some(1),
@@ -461,6 +465,7 @@ async fn test_subscription_create_invoice_seats() {
         .create_subscription(tonic::Request::new(
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(api::subscriptions::v1::CreateSubscription {
+                    option: None,
                     plan_version_id: plan_version_id.clone(),
                     start_date: start.as_proto(),
                     billing_day_anchor: Some(10),
@@ -572,6 +577,7 @@ async fn test_subscription_create_invoice_rate() {
         .create_subscription(tonic::Request::new(
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(api::subscriptions::v1::CreateSubscription {
+                    option: None,
                     plan_version_id: plan_version_id.clone(),
                     start_date: start.as_proto(),
                     billing_day_anchor: Some(1),
@@ -601,6 +607,7 @@ async fn test_subscription_create_invoice_rate() {
         .create_subscription(tonic::Request::new(
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(api::subscriptions::v1::CreateSubscription {
+                    option: None,
                     plan_version_id: plan_version_id.clone(),
                     start_date: start.as_proto(),
                     billing_day_anchor: Some(1),
@@ -630,6 +637,7 @@ async fn test_subscription_create_invoice_rate() {
         .create_subscription(tonic::Request::new(
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(api::subscriptions::v1::CreateSubscription {
+                    option: None,
                     plan_version_id: plan_version_id.clone(),
                     start_date: start.as_proto(),
                     billing_day_anchor: Some(1),
@@ -658,6 +666,7 @@ async fn test_subscription_create_invoice_rate() {
         .create_subscription(tonic::Request::new(
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(api::subscriptions::v1::CreateSubscription {
+                    option: None,
                     plan_version_id: plan_version_id.clone(),
                     start_date: start.as_proto(),
                     billing_day_anchor: Some(30),
@@ -798,6 +807,7 @@ async fn test_subscription_create_invoice_usage() {
         .create_subscription(tonic::Request::new(
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(api::subscriptions::v1::CreateSubscription {
+                    option: None,
                     plan_version_id: plan_version_id.clone(),
                     start_date: start.as_proto(),
                     billing_day_anchor: Some(10),

@@ -354,6 +354,9 @@ pub async fn start_api_server_with_incoming(
             store.clone(),
             feature_resolver.clone(),
         ))
+        .add_service(api::quantities::service(store.clone()))
+        .add_service(api::ratecards::service(store.clone()))
+        .add_service(api::pricingpage::service(store.clone()))
         .add_service(api::portal::wallets::service(
             store.clone(),
             services.clone(),

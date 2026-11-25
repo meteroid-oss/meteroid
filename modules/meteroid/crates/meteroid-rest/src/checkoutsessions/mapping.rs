@@ -17,6 +17,7 @@ pub fn domain_to_rest(
         id: session.id,
         customer_id: session.customer_id,
         plan_version_id,
+        option: session.option,
         coupon_code: session.coupon_code,
         billing_start_date: session.billing_start_date,
         billing_day_anchor: session.billing_day_anchor.map(|a| a as i32),

@@ -429,6 +429,15 @@ impl CreditRecomputeMarkRow {
                      UNION
                      SELECT subscription_id, product_id FROM subscription_add_on
                      WHERE effective_to IS NULL
+                     UNION
+                     SELECT s2.id, pc.product_id FROM subscription s2
+                     JOIN price_component pc ON pc.plan_version_id = s2.plan_version_id
+                     WHERE pc.legacy_fee IS NULL
+                       AND NOT EXISTS (SELECT 1 FROM plan_component_price pcp
+                                       WHERE pcp.plan_component_id = pc.id)
+                       AND NOT EXISTS (SELECT 1 FROM subscription_excluded_component x
+                                       WHERE x.subscription_id = s2.id
+                                         AND x.price_component_id = pc.id)
                  ) sp ON sp.subscription_id = s.id AND sp.product_id = $2
                  WHERE s.tenant_id = $1
                    AND s.status IN ('ACTIVE', 'TRIAL_ACTIVE')"

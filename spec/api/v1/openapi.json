@@ -8684,6 +8684,359 @@
         ]
       }
     },
+    "/api/v1/rate-cards": {
+      "get": {
+        "tags": [
+          "Rate cards"
+        ],
+        "summary": "List rate cards",
+        "description": "The tenant's rate cards by code, archived ones left out: the rates of a metric's usage by\nits dimensions (model, token type), that usage prices name.\n\nBeta: the request and response shapes of this endpoint may change before general availability.",
+        "operationId": "list_rate_cards",
+        "parameters": [
+          {
+            "name": "metric_id",
+            "in": "query",
+            "description": "Only the cards that rate this metric.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/BillableMetricId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The tenant's rate cards",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateCardListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-beta": true
+      },
+      "post": {
+        "tags": [
+          "Rate cards"
+        ],
+        "summary": "Create a rate card",
+        "description": "A card rates one metric that adds up (a sum or a count, without a matrix) by one to four\ndimensions. A `MONEY` card holds a rate per currency for each key, a price rated in its\ncurrency's rates; a `CREDIT_UNIT` card rates in its credit unit. Set its rates with\n`PATCH /api/v1/rate-cards/{id_or_code}/rates`.\n\nBeta: the request and response shapes of this endpoint may change before general availability.",
+        "operationId": "create_rate_card",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RateCardCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateCard"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The metric or the credit unit is not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A rate card with this code already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-beta": true
+      }
+    },
+    "/api/v1/rate-cards/{id_or_code}": {
+      "get": {
+        "tags": [
+          "Rate cards"
+        ],
+        "summary": "Get a rate card",
+        "description": "The card with the rate of each key and currency in force on `at` (today by default), and\nthe changes scheduled after it.\n\nBeta: the request and response shapes of this endpoint may change before general availability.",
+        "operationId": "get_rate_card",
+        "parameters": [
+          {
+            "name": "id_or_code",
+            "in": "path",
+            "description": "Rate card ID or code",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "at",
+            "in": "query",
+            "description": "The day the rates are read on (YYYY-MM-DD); today when absent.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The rate card and its rates",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateCardWithRates"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-beta": true
+      }
+    },
+    "/api/v1/rate-cards/{id_or_code}/rates": {
+      "patch": {
+        "tags": [
+          "Rate cards"
+        ],
+        "summary": "Set a rate card's rates",
+        "description": "Changes only the keys and currencies listed: sets their rates and removes keys, the whole\nbatch from `effective_from` (today by default). Keys not listed keep their rates.\nEntries are never edited: a change is a new rate from its day, a removal ends the key in a\ncurrency from its day (usage it rated falls to the next key matching it, or is unmatched),\nand earlier days keep their rates. A key's first rate in a currency may start on a past day\nunless another key rated its usage since; a change or a removal starts today or later. A\nrepeated batch changes nothing.\n\nBeta: the request and response shapes of this endpoint may change before general availability.",
+        "operationId": "set_rate_card_rates",
+        "parameters": [
+          {
+            "name": "id_or_code",
+            "in": "path",
+            "description": "Rate card ID or code",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RateCardRatesSetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "What the batch did, and the card as of its day",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateCardRatesSetResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request: the batch is refused as a whole",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-beta": true
+      }
+    },
     "/api/v1/subscriptions": {
       "get": {
         "tags": [
@@ -12309,6 +12662,13 @@
             ],
             "format": "int32"
           },
+          "option": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The alias of the plan option bought."
+          },
           "payment_methods_config": {
             "oneOf": [
               {
@@ -12632,6 +12992,14 @@
           "discount": {
             "$ref": "#/components/schemas/CouponDiscount"
           },
+          "duration_months": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Applies to billing periods starting within this many months of the first paid period: one\nwhose service period (not invoice date) starts before that start plus these months. A free\ntrial counts none; redemptions keep theirs. Neither this nor `recurring_value`: forever."
+          },
           "expires_at": {
             "type": [
               "string",
@@ -12653,7 +13021,8 @@
               "integer",
               "null"
             ],
-            "format": "int32"
+            "format": "int32",
+            "description": "Invoices it discounts on a subscription, for coupons made before `duration_months`."
           },
           "redemption_count": {
             "type": "integer",
@@ -12758,6 +13127,14 @@
           "discount": {
             "$ref": "#/components/schemas/CouponDiscount"
           },
+          "duration_months": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Applies to billing periods starting within this many months of the first paid period;\nneither this nor `recurring_value`: forever."
+          },
           "expires_at": {
             "type": [
               "string",
@@ -12770,7 +13147,8 @@
               "integer",
               "null"
             ],
-            "format": "int32"
+            "format": "int32",
+            "description": "Invoices it discounts on a subscription, for coupons made before `duration_months`."
           },
           "redemption_limit": {
             "type": [
@@ -12980,6 +13358,13 @@
             ],
             "format": "int32"
           },
+          "option": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The plan option bought, by alias (e.g. `annual`, as the plan names it) or id; one the plan\nsells in the customer's currency, else refused with 400. Defaults to the plan's default\noption sold in that currency."
+          },
           "payment_methods_config": {
             "oneOf": [
               {
@@ -13047,6 +13432,14 @@
           "discount": {
             "$ref": "#/components/schemas/CouponDiscount"
           },
+          "duration_months": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "1 to 120: applies to billing periods starting within this many months of the first paid\nperiod (see `Coupon.duration_months`). Not with `recurring_value`."
+          },
           "expires_at": {
             "type": [
               "string",
@@ -13065,7 +13458,8 @@
               "integer",
               "null"
             ],
-            "format": "int32"
+            "format": "int32",
+            "description": "Invoices it discounts on a subscription. Not with `duration_months`."
           },
           "redemption_limit": {
             "type": [
@@ -15540,6 +15934,16 @@
               }
             ]
           },
+          "signup_product_family_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subscribe_to_signup_plan": {
+            "type": "boolean",
+            "description": "Subscribes the customer to the sign-up plan of `signup_product_family_id`, or of the only\nproduct line that has one. Needs the customer portal's self-service."
+          },
           "vat_number": {
             "type": [
               "string",
@@ -16106,6 +16510,71 @@
           "UNCONFIRMED"
         ]
       },
+      "DimensionRate": {
+        "type": "object",
+        "required": [
+          "key",
+          "rate"
+        ],
+        "properties": {
+          "key": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "A pattern per dimension: a value, a prefix ending in `*`, or `*`."
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rate": {
+            "type": "string",
+            "format": "decimal",
+            "description": "Per `unit_size` units."
+          }
+        }
+      },
+      "DimensionRatesPlanPricing": {
+        "type": "object",
+        "description": "Usage rated by its dimensions at rates the price holds, matched as a rate card's keys are:\nthe most specific key wins. Rates a matrix can hold are returned as MATRIX.",
+        "required": [
+          "dimensions",
+          "rates",
+          "type"
+        ],
+        "properties": {
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "In the order that decides between keys equally specific on an earlier one."
+          },
+          "on_unmatched": {
+            "$ref": "#/components/schemas/RateCardUnmatched"
+          },
+          "rates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DimensionRate"
+            }
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "DIMENSION_RATES"
+            ]
+          },
+          "unit_size": {
+            "type": "string",
+            "format": "decimal",
+            "description": "Rates are per this many units of the metric (1000000: per 1M tokens); 1 when absent."
+          }
+        }
+      },
       "DoubleSegmentationMatrix": {
         "type": "object",
         "required": [
@@ -16554,6 +17023,17 @@
           "cadence": {
             "$ref": "#/components/schemas/BillingPeriodEnum"
           },
+          "model": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PlanUsagePricingModel",
+                "description": "Per unit, tiered, volume or package pricing of `quantity`; `unit_price` × `quantity` when\nabsent. When set, `unit_price` is ignored on input."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "quantity": {
             "type": "integer",
             "format": "int32",
@@ -16567,7 +17047,8 @@
           },
           "unit_price": {
             "type": "string",
-            "format": "decimal"
+            "format": "decimal",
+            "description": "The price of each unit, or of the first tier or package when `model` prices the quantity."
           }
         }
       },
@@ -17906,6 +18387,7 @@
       },
       "MatrixPlanPricing": {
         "type": "object",
+        "description": "Rates by dimension a matrix can hold: per unit, one or two dimensions, each key of exact\nvalues, `*` only as the second for a cell of one dimension. Returned for such rates, as before\nDIMENSION_RATES; other rates are returned as DIMENSION_RATES. Deprecated as input: read as\nDIMENSION_RATES of exact values.",
         "required": [
           "rates",
           "type"
@@ -17927,6 +18409,7 @@
       },
       "MatrixPricing": {
         "type": "object",
+        "description": "Rates by dimension a matrix can hold: per unit, one or two dimensions, each key of exact\nvalues, `*` only as the second for a cell of one dimension. Returned for such rates, as before\nDIMENSION_RATES; other rates are returned as DIMENSION_RATES. Deprecated as input: read as\nDIMENSION_RATES of exact values.",
         "required": [
           "rates",
           "type"
@@ -18854,6 +19337,17 @@
           "type"
         ],
         "properties": {
+          "model": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UsagePricingModel",
+                "description": "Tiered, volume or package pricing of the quantity; `rate` per unit when absent."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "quantity": {
             "type": "integer",
             "format": "int32",
@@ -18894,6 +19388,17 @@
           "type"
         ],
         "properties": {
+          "model": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PlanUsagePricingModel",
+                "description": "Per unit, tiered, volume or package pricing of `quantity`; `unit_price` × `quantity` when\nabsent. When set, `unit_price` is ignored on input."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "quantity": {
             "type": "integer",
             "format": "int32",
@@ -18907,7 +19412,8 @@
           },
           "unit_price": {
             "type": "string",
-            "format": "decimal"
+            "format": "decimal",
+            "description": "The price of each unit, or of the first tier or package when `model` prices the quantity."
           }
         }
       },
@@ -19447,6 +19953,13 @@
             "type": "integer",
             "format": "int32"
           },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanOption"
+            },
+            "description": "What a buyer picks when buying the plan, e.g. \"Annual\"; the first is the default. Pass an\noption's `alias` as `option` when creating a subscription or a checkout session."
+          },
           "period_start_day": {
             "type": [
               "integer",
@@ -19647,6 +20160,38 @@
           }
         }
       },
+      "PlanOption": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "alias",
+          "hidden"
+        ],
+        "properties": {
+          "alias": {
+            "type": "string",
+            "description": "The option's handle in the API, kept across plan versions (e.g. `annual`)."
+          },
+          "hidden": {
+            "type": "boolean",
+            "description": "Not on the pricing page or in the portal; still sold when named."
+          },
+          "id": {
+            "$ref": "#/components/schemas/PlanOptionId"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "PlanOptionId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "opt_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
       "PlanStatusEnum": {
         "type": "string",
         "title": "PlanStatus",
@@ -19682,14 +20227,22 @@
           },
           {
             "$ref": "#/components/schemas/MatrixPlanPricing"
+          },
+          {
+            "$ref": "#/components/schemas/RateCardPlanPricing"
+          },
+          {
+            "$ref": "#/components/schemas/DimensionRatesPlanPricing"
           }
         ],
         "discriminator": {
           "propertyName": "type",
           "mapping": {
+            "DIMENSION_RATES": "#/components/schemas/DimensionRatesPlanPricing",
             "MATRIX": "#/components/schemas/MatrixPlanPricing",
             "PACKAGE": "#/components/schemas/PackagePlanPricing",
             "PER_UNIT": "#/components/schemas/PerUnitPlanPricing",
+            "RATE_CARD": "#/components/schemas/RateCardPlanPricing",
             "TIERED": "#/components/schemas/TieredPlanPricing",
             "VOLUME": "#/components/schemas/VolumePlanPricing"
           }
@@ -19921,6 +20474,13 @@
           "catalog": {
             "type": "boolean"
           },
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The color token of its icon."
+          },
           "created_at": {
             "type": "string",
             "format": "date-time"
@@ -19936,6 +20496,13 @@
           },
           "fee_type": {
             "$ref": "#/components/schemas/ProductFeeTypeEnum"
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The icon the dashboard draws the product with, a lucide name."
           },
           "id": {
             "$ref": "#/components/schemas/ProductId"
@@ -20273,6 +20840,447 @@
           "quo_7n42DGM5Tflk9n8mt7Fhc7"
         ]
       },
+      "RateCard": {
+        "type": "object",
+        "description": "The rates of a metric's usage by its dimensions (such as model and token type), independent\nof the plans that price it: a usage price names a card and a multiplier.",
+        "required": [
+          "id",
+          "code",
+          "name",
+          "metric_id",
+          "dimensions",
+          "denomination",
+          "unit_size",
+          "on_unmatched",
+          "created_at"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "credit_unit_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Set when `denomination` is `CREDIT_UNIT`."
+          },
+          "denomination": {
+            "$ref": "#/components/schemas/RateCardDenomination"
+          },
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The dimensions a key has a pattern for, in the order that decides between keys equally\nspecific on an earlier one."
+          },
+          "id": {
+            "type": "string",
+            "description": "The card's id (`rc_…`)."
+          },
+          "metric_id": {
+            "type": "string",
+            "description": "The metric the card rates: a sum or a count, without a matrix."
+          },
+          "name": {
+            "type": "string"
+          },
+          "on_unmatched": {
+            "$ref": "#/components/schemas/RateCardUnmatched"
+          },
+          "unit_size": {
+            "type": "string",
+            "format": "decimal",
+            "description": "Rates are per this many units of the metric, as a decimal string (\"1000000\": per 1M\ntokens)."
+          }
+        }
+      },
+      "RateCardCreateRequest": {
+        "type": "object",
+        "description": "A new rate card. Its rates are set with `PATCH /api/v1/rate-cards/{id_or_code}/rates`.",
+        "required": [
+          "code",
+          "name",
+          "metric_id",
+          "dimensions",
+          "denomination"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Unique in the tenant, 1 to 64 characters."
+          },
+          "credit_unit_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required when `denomination` is `CREDIT_UNIT`, refused otherwise."
+          },
+          "denomination": {
+            "$ref": "#/components/schemas/RateCardDenomination"
+          },
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "One to four distinct event properties, e.g. `[\"model\", \"token_type\"]`."
+          },
+          "metric_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "on_unmatched": {
+            "$ref": "#/components/schemas/RateCardUnmatched"
+          },
+          "unit_size": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal",
+            "description": "Positive decimal string; \"1\" when absent."
+          }
+        },
+        "additionalProperties": false
+      },
+      "RateCardDenomination": {
+        "type": "string",
+        "description": "What a card's rates count.",
+        "enum": [
+          "MONEY",
+          "CREDIT_UNIT"
+        ]
+      },
+      "RateCardKeyRemove": {
+        "type": "object",
+        "description": "A key no longer rated in a currency.",
+        "required": [
+          "key"
+        ],
+        "properties": {
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "ISO 4217 code: required on a money card, refused on a credit unit card."
+          },
+          "key": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "RateCardListResponse": {
+        "type": "object",
+        "description": "The tenant's rate cards, by code, archived ones left out.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RateCard"
+            }
+          }
+        }
+      },
+      "RateCardPlanPricing": {
+        "type": "object",
+        "required": [
+          "rate_card_id",
+          "type"
+        ],
+        "properties": {
+          "multiplier": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal"
+          },
+          "rate_card_id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "RATE_CARD"
+            ]
+          }
+        }
+      },
+      "RateCardPricing": {
+        "type": "object",
+        "description": "Usage rated by a rate card's entries in force each day, each rate scaled by `multiplier`.",
+        "required": [
+          "rate_card_id",
+          "type"
+        ],
+        "properties": {
+          "multiplier": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal"
+          },
+          "rate_card_id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "RATE_CARD"
+            ]
+          }
+        }
+      },
+      "RateCardRate": {
+        "type": "object",
+        "description": "A key's rate in a currency, in force from `effective_from`.",
+        "required": [
+          "key",
+          "any_other",
+          "rate",
+          "effective_from"
+        ],
+        "properties": {
+          "any_other": {
+            "type": "boolean",
+            "description": "The key is `*` on every dimension: it rates what no other key does."
+          },
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "ISO 4217 code; absent on a credit unit card."
+          },
+          "effective_from": {
+            "type": "string",
+            "format": "date"
+          },
+          "key": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "A pattern per dimension of the card: a value, a prefix ending in `*` (`anthropic/*`), or\n`*` for any value, a missing one included."
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rate": {
+            "type": "string",
+            "format": "decimal",
+            "description": "Per `unit_size` units, in `currency` (or the card's credit unit), as a decimal string."
+          }
+        }
+      },
+      "RateCardRateSet": {
+        "type": "object",
+        "description": "A key's rate in a currency.",
+        "required": [
+          "key",
+          "rate"
+        ],
+        "properties": {
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "ISO 4217 code: required on a money card, refused on a credit unit card."
+          },
+          "key": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "A pattern per dimension of the card: a value, a prefix ending in `*`, or `*`. A key of\n`*` on every dimension is the \"Any other\" rate."
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rate": {
+            "type": "string",
+            "format": "decimal",
+            "description": "Non-negative decimal string, per `unit_size` units."
+          }
+        },
+        "additionalProperties": false
+      },
+      "RateCardRatesSetRequest": {
+        "type": "object",
+        "description": "Rates set and keys removed together, all from `effective_from`.",
+        "properties": {
+          "effective_from": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "The day the whole batch takes effect (YYYY-MM-DD); today when absent."
+          },
+          "rates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RateCardRateSet"
+            }
+          },
+          "remove": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RateCardKeyRemove"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "RateCardRatesSetResponse": {
+        "type": "object",
+        "description": "What the batch did, then the card as of the batch's day.",
+        "required": [
+          "inserted",
+          "removed",
+          "unchanged",
+          "replaced",
+          "rate_card"
+        ],
+        "properties": {
+          "inserted": {
+            "type": "integer",
+            "description": "Rates added.",
+            "minimum": 0
+          },
+          "rate_card": {
+            "$ref": "#/components/schemas/RateCardWithRates"
+          },
+          "removed": {
+            "type": "integer",
+            "description": "Keys removed.",
+            "minimum": 0
+          },
+          "replaced": {
+            "type": "integer",
+            "description": "Scheduled changes replaced or withdrawn.",
+            "minimum": 0
+          },
+          "unchanged": {
+            "type": "integer",
+            "description": "Rates and removals already in force: a repeated sync changes nothing.",
+            "minimum": 0
+          }
+        }
+      },
+      "RateCardScheduledChange": {
+        "type": "object",
+        "description": "A change taking effect after `at`: a key's new rate, or its removal (`rate` null).",
+        "required": [
+          "key",
+          "any_other",
+          "effective_from"
+        ],
+        "properties": {
+          "any_other": {
+            "type": "boolean"
+          },
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effective_from": {
+            "type": "string",
+            "format": "date"
+          },
+          "key": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal",
+            "description": "Absent: the key is removed in `currency` from `effective_from`."
+          }
+        }
+      },
+      "RateCardUnmatched": {
+        "type": "string",
+        "description": "What usage no key rates does.",
+        "enum": [
+          "HOLD",
+          "IGNORE"
+        ]
+      },
+      "RateCardWithRates": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/RateCard"
+          },
+          {
+            "type": "object",
+            "required": [
+              "at",
+              "rates",
+              "scheduled"
+            ],
+            "properties": {
+              "at": {
+                "type": "string",
+                "format": "date"
+              },
+              "rates": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/RateCardRate"
+                },
+                "description": "By key, then currency; removed keys left out."
+              },
+              "scheduled": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/RateCardScheduledChange"
+                },
+                "description": "By day, then key."
+              }
+            }
+          }
+        ],
+        "description": "A card with its rates in force on `at`, and the changes scheduled after it."
+      },
       "RateFee": {
         "type": "object",
         "required": [
@@ -20388,6 +21396,17 @@
         "properties": {
           "billing_type": {
             "$ref": "#/components/schemas/BillingTypeEnum"
+          },
+          "model": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UsagePricingModel",
+                "description": "Tiered, volume or package pricing of the quantity; `rate` per unit when absent."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "quantity": {
             "type": "integer",
@@ -20894,6 +21913,17 @@
             "format": "int32",
             "minimum": 0
           },
+          "model": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UsagePricingModel",
+                "description": "Tiered, volume or package pricing of the seat count; per seat at `unit_rate` when absent."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "type": {
             "type": "string",
             "enum": [
@@ -20905,7 +21935,8 @@
           },
           "unit_rate": {
             "type": "string",
-            "format": "decimal"
+            "format": "decimal",
+            "description": "The price of each seat, or of the first tier or package when `model` prices the count."
           }
         }
       },
@@ -21194,6 +22225,17 @@
           "plan_name": {
             "type": "string"
           },
+          "plan_option_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PlanOptionId",
+                "description": "The plan option it bought; absent for a subscription made before plan options."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "plan_version": {
             "type": "integer",
             "format": "int32",
@@ -21440,6 +22482,14 @@
           "discount": {
             "$ref": "#/components/schemas/CouponDiscount"
           },
+          "duration_months": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Applies to billing periods starting within this many months of the first paid period, as\nredeemed; neither this nor `recurring_value`: forever."
+          },
           "expires_at": {
             "type": [
               "string",
@@ -21534,6 +22584,10 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          },
+          "option": {
+            "type": "string",
+            "description": "The plan option bought, by its alias (e.g. `annual`, as the plan names it) or id; one sold\nin the customer's currency. Omitted: the plan's default option sold in that currency, or\nthe option whose prices bill on the `billing_period`s given in `price_components`."
           },
           "payment_methods_config": {
             "$ref": "#/components/schemas/PaymentMethodsConfig",
@@ -21782,6 +22836,17 @@
           },
           "plan_name": {
             "type": "string"
+          },
+          "plan_option_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PlanOptionId",
+                "description": "The plan option it bought; absent for a subscription made before plan options."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "plan_version": {
             "type": "integer",
@@ -22768,6 +23833,10 @@
       "UpdateCouponRequest": {
         "type": "object",
         "properties": {
+          "clear_duration_months": {
+            "type": "boolean",
+            "description": "Makes it last forever instead of a number of months. Not with `duration_months`."
+          },
           "description": {
             "type": [
               "string",
@@ -22783,6 +23852,14 @@
                 "type": "null"
               }
             ]
+          },
+          "duration_months": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "1 to 120: applies to billing periods starting within this many months of the first paid\nperiod (see `Coupon.duration_months`). Not on a coupon counting invoices or a credit.\nExisting redemptions keep the months they were made with."
           },
           "plan_ids": {
             "type": [
@@ -23227,7 +24304,9 @@
           "TIERED",
           "VOLUME",
           "PACKAGE",
-          "MATRIX"
+          "MATRIX",
+          "RATE_CARD",
+          "DIMENSION_RATES"
         ]
       },
       "UsagePlanFee": {
@@ -23302,14 +24381,22 @@
           },
           {
             "$ref": "#/components/schemas/MatrixPricing"
+          },
+          {
+            "$ref": "#/components/schemas/RateCardPricing"
+          },
+          {
+            "$ref": "#/components/schemas/DimensionRatesPlanPricing"
           }
         ],
         "discriminator": {
           "propertyName": "type",
           "mapping": {
+            "DIMENSION_RATES": "#/components/schemas/DimensionRatesPlanPricing",
             "MATRIX": "#/components/schemas/MatrixPricing",
             "PACKAGE": "#/components/schemas/PackagePricing",
             "PER_UNIT": "#/components/schemas/PerUnitPricing",
+            "RATE_CARD": "#/components/schemas/RateCardPricing",
             "TIERED": "#/components/schemas/TieredPricing",
             "VOLUME": "#/components/schemas/VolumePricing"
           }
@@ -24433,6 +25520,11 @@
       "name": "Products"
     },
     {
+      "name": "Rate cards",
+      "description": "Beta: may change before general availability. The rates of a metric's usage by its dimensions (model, token type), a rate per currency for each key, that usage prices name with a multiplier.",
+      "x-beta": true
+    },
+    {
       "name": "Subscriptions"
     },
     {
@@ -24592,7 +25684,7 @@
                   "percentage": "20"
                 },
                 "redemption_limit": 100,
-                "recurring_value": 3,
+                "duration_months": 3,
                 "reusable": false,
                 "disabled": false,
                 "created_at": "1970-01-01T00:00:00.000Z",
@@ -24634,7 +25726,7 @@
                   "percentage": "20"
                 },
                 "redemption_limit": 100,
-                "recurring_value": 3,
+                "duration_months": 3,
                 "reusable": false,
                 "disabled": false,
                 "created_at": "1970-01-01T00:00:00.000Z",
@@ -24676,7 +25768,7 @@
                   "percentage": "20"
                 },
                 "redemption_limit": 100,
-                "recurring_value": 3,
+                "duration_months": 3,
                 "reusable": false,
                 "disabled": false,
                 "created_at": "1970-01-01T00:00:00.000Z",

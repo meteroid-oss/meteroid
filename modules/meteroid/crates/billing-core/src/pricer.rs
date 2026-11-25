@@ -132,6 +132,14 @@ pub trait Pricer<F> {
         true
     }
 
+    /// Whether the usage of `later`, a row replacing `earlier` within a period, still counts
+    /// against `earlier`'s allowance, the period priced once (R-097); else each part of the period
+    /// prices its usage against its own row's allowance, prorated by its days (R-135). Read only
+    /// for a fee not priced per part.
+    fn shares_allowance(&self, _earlier: &F, _later: &F) -> bool {
+        true
+    }
+
     /// What each fee of `segment` bills that is not usage: one rate per fee and kind.
     fn rates(&self, segment: &Segment<'_, F>) -> Result<Vec<Rate>, PricingError>;
 

@@ -5,6 +5,7 @@ import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
 import {
   formatSubscriptionFee,
   formatSubscriptionFeeBillingPeriod,
+  slotFeeIsFree,
 } from '@/features/subscriptions/utils/fees'
 import { QuoteAddOn, QuoteDisplayOptions } from '@/rpc/api/quotes/v1/models_pb'
 import { SubscriptionFee, SubscriptionFeeBillingPeriod } from '@/rpc/api/subscriptions/v1/models_pb'
@@ -50,7 +51,8 @@ export const isZeroFee = (fee?: SubscriptionFee): boolean => {
     case 'capacity':
       return isZero(f.value.rate) && isZero(f.value.overageRate)
     case 'slot':
-      return isZero(f.value.unitRate)
+      // A model's first rate (seats included) is no reason to call the seats free.
+      return slotFeeIsFree(f.value)
     default:
       return false
   }

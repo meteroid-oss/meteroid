@@ -40,6 +40,10 @@ pub struct BillableMetric {
     /// The events of the customer the metric counts when read for a subscription.
     #[ghost({crate::domain::usage_attribution::UsageScope::default()})]
     pub usage_scope: crate::domain::usage_attribution::UsageScope,
+    /// The dimensions the rate cards rating this metric read its usage by, grouped without
+    /// filtering on their values.
+    #[ghost({Vec::new()})]
+    pub rated_dimensions: Vec<String>,
 }
 
 /// What metering aggregates for a metric: a saved billable metric, or a draft from the editor.
@@ -80,14 +84,17 @@ impl MetricDefinition {
     pub fn complete_segmentation_matrix(&self) -> Option<&SegmentationMatrix> {
         self.segmentation_matrix
             .as_ref()
-            .filter(|matrix| match matrix {
-                SegmentationMatrix::Single(dimension) => !dimension.values.is_empty(),
-                SegmentationMatrix::Double {
-                    dimension1,
-                    dimension2,
-                } => !dimension1.values.is_empty() && !dimension2.values.is_empty(),
-                SegmentationMatrix::Linked { values, .. } => !values.is_empty(),
-            })
+            .filter(|matrix| matrix.is_complete())
+    }
+}
+
+impl BillableMetric {
+    /// The matrix as a filter, once every dimension lists values: values are optional, a
+    /// dimension declared without them filters nothing.
+    pub fn complete_segmentation_matrix(&self) -> Option<&SegmentationMatrix> {
+        self.segmentation_matrix
+            .as_ref()
+            .filter(|matrix| matrix.is_complete())
     }
 }
 
@@ -114,6 +121,18 @@ pub enum SegmentationMatrix {
 json_value_serde!(SegmentationMatrix);
 
 impl SegmentationMatrix {
+    /// Whether every dimension lists values.
+    pub fn is_complete(&self) -> bool {
+        match self {
+            SegmentationMatrix::Single(dimension) => !dimension.values.is_empty(),
+            SegmentationMatrix::Double {
+                dimension1,
+                dimension2,
+            } => !dimension1.values.is_empty() && !dimension2.values.is_empty(),
+            SegmentationMatrix::Linked { values, .. } => !values.is_empty(),
+        }
+    }
+
     pub fn keys(&self) -> Vec<&str> {
         match self {
             SegmentationMatrix::Single(dimension) => vec![dimension.key.as_str()],

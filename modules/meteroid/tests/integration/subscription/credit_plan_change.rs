@@ -69,7 +69,9 @@ pub(super) async fn large(env: &TestEnv) {
         LARGE,
         ProductRef::Existing(PRODUCT_SEATS_ID),
         Pricing::Slot {
-            unit_rate: dec!(50),
+            model: meteroid_store::domain::price_components::RatingModel::PerUnit {
+                rate: dec!(50),
+            },
             min_slots: None,
             max_slots: None,
         },
@@ -2437,8 +2439,10 @@ async fn a_deferred_seat_credit_reads_the_seats_billed(#[future] test_env: TestE
         let mut conn = env.conn().await;
         diesel::sql_query(
             "INSERT INTO slot_transaction \
-             (id, subscription_id, delta, prev_active_slots, effective_at, transaction_at, unit, status) \
-             SELECT gen_random_uuid(), subscription_id, 9, 1, '2024-01-20', '2024-01-20', unit, status \
+             (id, subscription_id, delta, prev_active_slots, effective_at, transaction_at, unit, status, \
+              managed_quantity_id) \
+             SELECT gen_random_uuid(), subscription_id, 9, 1, '2024-01-20', '2024-01-20', unit, status, \
+              managed_quantity_id \
              FROM slot_transaction WHERE subscription_id = $1 LIMIT 1",
         )
         .bind::<diesel::sql_types::Uuid, _>(sub_id.as_uuid())
@@ -4613,7 +4617,9 @@ async fn a_deferred_seat_credit_reads_the_seats_before_the_new_plan_s(#[future] 
             },
         },
         Pricing::Slot {
-            unit_rate: dec!(50),
+            model: meteroid_store::domain::price_components::RatingModel::PerUnit {
+                rate: dec!(50),
+            },
             min_slots: Some(3),
             max_slots: None,
         },
@@ -4625,8 +4631,10 @@ async fn a_deferred_seat_credit_reads_the_seats_before_the_new_plan_s(#[future] 
         let mut conn = env.conn().await;
         diesel::sql_query(
             "INSERT INTO slot_transaction \
-             (id, subscription_id, delta, prev_active_slots, effective_at, transaction_at, unit, status) \
-             SELECT gen_random_uuid(), subscription_id, 9, 1, '2024-01-20', '2024-01-20', unit, status \
+             (id, subscription_id, delta, prev_active_slots, effective_at, transaction_at, unit, status, \
+              managed_quantity_id) \
+             SELECT gen_random_uuid(), subscription_id, 9, 1, '2024-01-20', '2024-01-20', unit, status, \
+              managed_quantity_id \
              FROM slot_transaction WHERE subscription_id = $1 LIMIT 1",
         )
         .bind::<diesel::sql_types::Uuid, _>(sub_id.as_uuid())

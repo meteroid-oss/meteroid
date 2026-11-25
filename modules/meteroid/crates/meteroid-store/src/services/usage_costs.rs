@@ -21,7 +21,7 @@ use crate::services::clients::usage::{
 use crate::services::credit::billing_windows::{PlannedWindow, price_window_groups, windows_at};
 use crate::services::entitlements::USAGE_FETCH_CONCURRENCY;
 use crate::services::invoice_lines::component::{
-    PinnedPrices, is_usage_based_line, matrix_cell_matches, rounds_converted_units, unrounded_units,
+    PinnedPrices, is_usage_based_line, rated_weight, rounds_converted_units, unrounded_units,
 };
 use crate::services::invoice_lines::invoice_lines::{BilledSpan, MeteredFee};
 use crate::services::invoices::upcoming::upcoming_invoice_details_on;
@@ -116,7 +116,8 @@ fn segmentation_admits(metric: &BillableMetric, properties: &HashMap<String, Str
             .get(key)
             .is_some_and(|value| values.iter().any(|allowed| allowed == value))
     };
-    match &metric.segmentation_matrix {
+    // A dimension declared without values filters nothing, as metering reads it.
+    match metric.complete_segmentation_matrix() {
         None => true,
         Some(SegmentationMatrix::Single(dimension)) => has(&dimension.key, &dimension.values),
         Some(SegmentationMatrix::Double {
@@ -193,10 +194,17 @@ fn event_cost(
                 .unwrap_or(*rate);
             rate * quantity
         }
-        UsagePricingModel::Matrix { rates } => rates
-            .iter()
-            .find(|rate| matrix_cell_matches(rate, &event.properties))
-            .map_or(Decimal::ZERO, |rate| rate.per_unit_price * quantity),
+        UsagePricingModel::DimensionRates(rates) => {
+            let own;
+            let card = match &window.card {
+                Some(card) => card,
+                None => {
+                    own = rates.card_rates();
+                    &own
+                }
+            };
+            rated_weight(card, &event.properties, quantity).unwrap_or(Decimal::ZERO)
+        }
         _ => return None,
     };
     Some(cost_in(window, amount))
@@ -861,7 +869,9 @@ impl ServicesEdge {
 
         let linear = matches!(
             &window.fee,
-            MeteredFee::Usage(UsagePricingModel::PerUnit { .. } | UsagePricingModel::Matrix { .. })
+            MeteredFee::Usage(
+                UsagePricingModel::PerUnit { .. } | UsagePricingModel::DimensionRates(_)
+            )
         ) && !rounds_converted_units(metric);
         // Priced like the invoice: per-unit money usage netting negative credits, other models
         // and credit units bill positive usage only.
@@ -1541,6 +1551,7 @@ mod tests {
             product_family_id: ProductFamilyId::new(),
             product_id: None,
             usage_scope: Default::default(),
+            rated_dimensions: Vec::new(),
         }
     }
 
@@ -1565,6 +1576,7 @@ mod tests {
             currency: "USD".to_owned(),
             precision: 2,
             overage: None,
+            card: None,
         }
     }
 

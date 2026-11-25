@@ -43,7 +43,10 @@ pub enum UsageModel {
     Tiered,
     Volume,
     Package,
-    Matrix,
+    /// Rates by dimension the price holds; a matrix product reads as one.
+    #[serde(alias = "Matrix")]
+    DimensionRates,
+    RateCard,
 }
 
 impl From<&UsagePricingModel> for UsageModel {
@@ -53,7 +56,8 @@ impl From<&UsagePricingModel> for UsageModel {
             UsagePricingModel::Tiered { .. } => UsageModel::Tiered,
             UsagePricingModel::Volume { .. } => UsageModel::Volume,
             UsagePricingModel::Package { .. } => UsageModel::Package,
-            UsagePricingModel::Matrix { .. } => UsageModel::Matrix,
+            UsagePricingModel::DimensionRates(_) => UsageModel::DimensionRates,
+            UsagePricingModel::RateCard { .. } => UsageModel::RateCard,
         }
     }
 }
@@ -84,7 +88,11 @@ pub enum Pricing {
         rate: Decimal,
     },
     Slot {
-        unit_rate: Decimal,
+        #[serde(
+            alias = "unit_rate",
+            deserialize_with = "super::price_components::RatingModel::rate_or_model"
+        )]
+        model: super::price_components::RatingModel,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         min_slots: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -99,10 +107,16 @@ pub enum Pricing {
     ExtraRecurring {
         unit_price: Decimal,
         quantity: u32,
+        /// Prices `quantity` instead of `unit_price` (per unit, tiered, volume, package).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<super::price_components::RatingModel>,
     },
     OneTime {
         unit_price: Decimal,
         quantity: u32,
+        /// Prices `quantity` instead of `unit_price` (per unit, tiered, volume, package).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<super::price_components::RatingModel>,
     },
     Credit {
         unit_price: Decimal,
@@ -135,6 +149,29 @@ impl Pricing {
             Pricing::Credit { .. } => "credit pack",
         }
     }
+
+    /// Whether this price can bill anything; a fee's quantity is not read, erring towards
+    /// charging.
+    pub fn charges(&self) -> bool {
+        let positive = |amount: &Decimal| *amount > Decimal::ZERO;
+        match self {
+            Pricing::Rate { rate } => positive(rate),
+            Pricing::Slot { model, .. } => model.charges(),
+            Pricing::Capacity {
+                rate, overage_rate, ..
+            } => positive(rate) || positive(overage_rate),
+            Pricing::Usage(model) => model.charges(),
+            Pricing::ExtraRecurring {
+                unit_price, model, ..
+            }
+            | Pricing::OneTime {
+                unit_price, model, ..
+            } => model
+                .as_ref()
+                .map_or(positive(unit_price), |model| model.charges()),
+            Pricing::Credit { unit_price, .. } => positive(unit_price),
+        }
+    }
 }
 
 /// Refuses a credit pack that cannot fund an exact amount: the granted credit must be a whole,
@@ -143,6 +180,16 @@ impl Pricing {
 pub fn validate_pricing(pricing: &Pricing, currency: &str) -> Result<(), StoreError> {
     if let Pricing::Usage(model) = pricing {
         return validate_usage_model(model);
+    }
+    if let Pricing::Slot { model, .. }
+    | Pricing::ExtraRecurring {
+        model: Some(model), ..
+    }
+    | Pricing::OneTime {
+        model: Some(model), ..
+    } = pricing
+    {
+        return validate_usage_model(&model.as_usage_model());
     }
     let Pricing::Credit {
         unit_price,
@@ -171,13 +218,26 @@ pub fn validate_pricing(pricing: &Pricing, currency: &str) -> Result<(), StoreEr
 }
 
 /// Refuses a usage price no quantity can be billed under, as the pricer would: a package of no
-/// units, or two tiers starting on the same unit.
+/// units, two tiers starting on the same unit, rates by dimension it could not resolve.
 fn validate_usage_model(model: &UsagePricingModel) -> Result<(), StoreError> {
     let invalid = |message: &str| Err(StoreError::InvalidArgument(message.to_owned()));
     match model {
         UsagePricingModel::Package { block_size: 0, .. } => {
             invalid("a package must hold at least one unit")
         }
+        UsagePricingModel::Tiered {
+            block_size: Some(2..),
+            ..
+        }
+        | UsagePricingModel::Volume {
+            block_size: Some(2..),
+            ..
+        } => invalid("tiers price units one by one: use a package for blocks"),
+        UsagePricingModel::RateCard {
+            multiplier: Some(multiplier),
+            ..
+        } if *multiplier <= Decimal::ZERO => invalid("a rate card's multiplier is positive"),
+        UsagePricingModel::DimensionRates(rates) => rates.validate(),
         UsagePricingModel::Tiered { tiers, .. } | UsagePricingModel::Volume { tiers, .. } => {
             let mut starts: Vec<u64> = tiers.iter().map(|tier| tier.first_unit).collect();
             starts.sort_unstable();
@@ -388,7 +448,8 @@ impl TryFrom<PriceRow> for Price {
 }
 
 // -----------------------------------------------------------------------
-// Matrix mutation types
+// Bulk rate mutation types: keys added to or removed from every price of a product rated by
+// dimension, one value per dimension.
 // -----------------------------------------------------------------------
 
 use super::price_components::MatrixDimension;
@@ -410,12 +471,12 @@ pub struct MatrixRowAdd {
     pub per_unit_prices: HashMap<String, rust_decimal::Decimal>,
 }
 
-/// Update: add/remove dimension combinations across all matrix prices for a product.
+/// Update: add/remove dimension combinations across all prices rated by dimension of a product.
 #[derive(Clone, Debug)]
 pub struct MatrixPriceUpdate {
-    /// Rows to add to all matrix prices, each with per-currency prices.
+    /// Rows to add to all prices, each with per-currency prices.
     pub add_rows: Vec<MatrixRowAdd>,
-    /// Dimension combinations to remove from all matrix prices.
+    /// Dimension combinations to remove from all prices.
     pub remove_rows: Vec<MatrixDimensionKey>,
     /// The day the new rates take over, today or later; today when None (R-097).
     pub effective_on: Option<chrono::NaiveDate>,
@@ -501,6 +562,14 @@ pub fn resolve_subscription_fee(
     Ok(fee)
 }
 
+/// Refuses a pricing that cannot price a fee of `structure`'s type.
+pub fn validate_pricing_fits(
+    structure: &FeeStructure,
+    pricing: &Pricing,
+) -> Result<(), StoreError> {
+    resolve_fee_shape(structure, pricing, None).map(|_| ())
+}
+
 fn resolve_fee_shape(
     structure: &FeeStructure,
     pricing: &Pricing,
@@ -513,7 +582,7 @@ fn resolve_fee_shape(
         (
             FeeStructure::Slot { unit_name, .. },
             Pricing::Slot {
-                unit_rate,
+                model,
                 min_slots,
                 max_slots,
             },
@@ -523,7 +592,7 @@ fn resolve_fee_shape(
                 .unwrap_or_else(|| min_slots.unwrap_or(0));
             Ok(SubscriptionFee::Slot {
                 unit: unit_name.clone(),
-                unit_rate: *unit_rate,
+                model: model.clone(),
                 min_slots: *min_slots,
                 max_slots: *max_slots,
                 initial_slots,
@@ -555,21 +624,25 @@ fn resolve_fee_shape(
             Pricing::ExtraRecurring {
                 unit_price,
                 quantity,
+                model,
             },
         ) => Ok(SubscriptionFee::Recurring {
             rate: *unit_price,
             quantity: *quantity,
             billing_type: billing_type.clone(),
+            model: model.clone(),
         }),
         (
             FeeStructure::OneTime {},
             Pricing::OneTime {
                 unit_price,
                 quantity,
+                model,
             },
         ) => Ok(SubscriptionFee::OneTime {
             rate: *unit_price,
             quantity: *quantity,
+            model: model.clone(),
         }),
         (
             FeeStructure::Credit {},
@@ -659,7 +732,7 @@ pub fn extract_pricing(fee: &FeeType) -> Vec<(BillingPeriodEnum, Pricing)> {
                 (
                     tr.term,
                     Pricing::Slot {
-                        unit_rate: tr.price,
+                        model: super::price_components::RatingModel::PerUnit { rate: tr.price },
                         min_slots: *minimum_count,
                         max_slots: *quota,
                     },
@@ -703,6 +776,7 @@ pub fn extract_pricing(fee: &FeeType) -> Vec<(BillingPeriodEnum, Pricing)> {
                 Pricing::ExtraRecurring {
                     unit_price: *unit_price,
                     quantity: *quantity,
+                    model: None,
                 },
             )]
         }
@@ -716,6 +790,7 @@ pub fn extract_pricing(fee: &FeeType) -> Vec<(BillingPeriodEnum, Pricing)> {
                 Pricing::OneTime {
                     unit_price: *unit_price,
                     quantity: *quantity,
+                    model: None,
                 },
             )]
         }
@@ -989,7 +1064,7 @@ mod tests {
             downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
         };
         let pricing = Pricing::Slot {
-            unit_rate: dec!(10.00),
+            model: crate::domain::price_components::RatingModel::PerUnit { rate: dec!(10.00) },
             min_slots: Some(1),
             max_slots: Some(100),
         };
@@ -997,13 +1072,13 @@ mod tests {
         match fee {
             SubscriptionFee::Slot {
                 unit,
-                unit_rate,
+                model,
                 min_slots,
                 max_slots,
                 initial_slots,
             } => {
                 assert_eq!(unit, "seat");
-                assert_eq!(unit_rate, dec!(10.00));
+                assert_eq!(model.per_unit_rate(), Some(dec!(10.00)));
                 assert_eq!(min_slots, Some(1));
                 assert_eq!(max_slots, Some(100));
                 assert_eq!(initial_slots, 1); // defaults to min_slots
@@ -1020,7 +1095,7 @@ mod tests {
             downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
         };
         let pricing = Pricing::Slot {
-            unit_rate: dec!(10.00),
+            model: crate::domain::price_components::RatingModel::PerUnit { rate: dec!(10.00) },
             min_slots: Some(1),
             max_slots: Some(100),
         };
@@ -1099,6 +1174,7 @@ mod tests {
         let pricing = Pricing::ExtraRecurring {
             unit_price: dec!(25.00),
             quantity: 2,
+            model: None,
         };
         let fee = resolve_subscription_fee(&structure, &pricing, None, &no_units(), None).unwrap();
         match fee {
@@ -1106,6 +1182,7 @@ mod tests {
                 rate,
                 quantity,
                 billing_type,
+                ..
             } => {
                 assert_eq!(rate, dec!(25.00));
                 assert_eq!(quantity, 2);
@@ -1121,10 +1198,11 @@ mod tests {
         let pricing = Pricing::OneTime {
             unit_price: dec!(100.00),
             quantity: 1,
+            model: None,
         };
         let fee = resolve_subscription_fee(&structure, &pricing, None, &no_units(), None).unwrap();
         match fee {
-            SubscriptionFee::OneTime { rate, quantity } => {
+            SubscriptionFee::OneTime { rate, quantity, .. } => {
                 assert_eq!(rate, dec!(100.00));
                 assert_eq!(quantity, 1);
             }
@@ -1136,7 +1214,7 @@ mod tests {
     fn test_resolve_mismatch_errors() {
         let structure = FeeStructure::Rate {};
         let pricing = Pricing::Slot {
-            unit_rate: dec!(10.0),
+            model: crate::domain::price_components::RatingModel::PerUnit { rate: dec!(10.0) },
             min_slots: None,
             max_slots: None,
         };
@@ -1300,11 +1378,11 @@ mod tests {
         assert_eq!(prices.len(), 1);
         match &prices[0].1 {
             Pricing::Slot {
-                unit_rate,
+                model,
                 min_slots,
                 max_slots,
             } => {
-                assert_eq!(*unit_rate, dec!(5.00));
+                assert_eq!(model.per_unit_rate(), Some(dec!(5.00)));
                 assert_eq!(*min_slots, Some(1));
                 assert_eq!(*max_slots, Some(10));
             }
@@ -1351,6 +1429,7 @@ mod tests {
             Pricing::OneTime {
                 unit_price,
                 quantity,
+                ..
             } => {
                 assert_eq!(*unit_price, dec!(100.00));
                 assert_eq!(*quantity, 1);
@@ -1381,7 +1460,7 @@ mod tests {
             },
             FeeStructure::Usage {
                 metric_id: BillableMetricId::default(),
-                model: UsageModel::Matrix,
+                model: UsageModel::DimensionRates,
             },
             FeeStructure::ExtraRecurring {
                 billing_type: BillingType::Advance,
@@ -1408,7 +1487,7 @@ mod tests {
         let pricings = vec![
             Pricing::Rate { rate: dec!(9.99) },
             Pricing::Slot {
-                unit_rate: dec!(10.00),
+                model: crate::domain::price_components::RatingModel::PerUnit { rate: dec!(10.00) },
                 min_slots: Some(1),
                 max_slots: None,
             },
@@ -1427,23 +1506,19 @@ mod tests {
                 }],
                 block_size: Some(100),
             }),
-            Pricing::Usage(UsagePricingModel::Matrix {
-                rates: vec![MatrixRow {
-                    dimension1: MatrixDimension {
-                        key: "model".to_string(),
-                        value: "gpt-4".to_string(),
-                    },
-                    dimension2: None,
-                    per_unit_price: dec!(0.03),
-                }],
-            }),
+            Pricing::Usage(UsagePricingModel::DimensionRates(model_rates(&[(
+                "gpt-4",
+                dec!(0.03),
+            )]))),
             Pricing::ExtraRecurring {
                 unit_price: dec!(25.00),
                 quantity: 2,
+                model: None,
             },
             Pricing::OneTime {
                 unit_price: dec!(100.00),
                 quantity: 1,
+                model: None,
             },
         ];
 
@@ -1457,34 +1532,36 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Matrix-specific extract tests
+    // Rates by dimension extract tests
     // -----------------------------------------------------------------------
 
+    fn model_rates(rates: &[(&str, Decimal)]) -> crate::domain::price_components::DimensionRates {
+        crate::domain::price_components::DimensionRates {
+            dimensions: vec!["model".to_string()],
+            rates: rates
+                .iter()
+                .map(
+                    |(model, rate)| crate::domain::price_components::DimensionRate {
+                        key: vec![(*model).to_string()],
+                        rate: *rate,
+                        label: None,
+                    },
+                )
+                .collect(),
+            unit_size: Decimal::ONE,
+            on_unmatched: Default::default(),
+        }
+    }
+
     #[test]
-    fn test_extract_fee_structure_matrix() {
+    fn test_extract_fee_structure_dimension_rates() {
         let mid = BillableMetricId::default();
         let fee = FeeType::Usage {
             metric_id: mid,
-            pricing: UsagePricingModel::Matrix {
-                rates: vec![
-                    MatrixRow {
-                        dimension1: MatrixDimension {
-                            key: "model".to_string(),
-                            value: "gpt-4".to_string(),
-                        },
-                        dimension2: None,
-                        per_unit_price: dec!(0.03),
-                    },
-                    MatrixRow {
-                        dimension1: MatrixDimension {
-                            key: "model".to_string(),
-                            value: "gpt-3.5".to_string(),
-                        },
-                        dimension2: None,
-                        per_unit_price: dec!(0.01),
-                    },
-                ],
-            },
+            pricing: UsagePricingModel::DimensionRates(model_rates(&[
+                ("gpt-4", dec!(0.03)),
+                ("gpt-3.5", dec!(0.01)),
+            ])),
             cadence: BillingPeriodEnum::Monthly,
         };
 
@@ -1493,30 +1570,18 @@ mod tests {
         match fs {
             FeeStructure::Usage { metric_id, model } => {
                 assert_eq!(metric_id, mid);
-                assert!(matches!(model, UsageModel::Matrix));
+                assert!(matches!(model, UsageModel::DimensionRates));
             }
             _ => panic!("Expected Usage"),
         }
     }
 
     #[test]
-    fn test_extract_pricing_matrix() {
+    fn test_extract_pricing_dimension_rates() {
         let mid = BillableMetricId::default();
         let fee = FeeType::Usage {
             metric_id: mid,
-            pricing: UsagePricingModel::Matrix {
-                rates: vec![MatrixRow {
-                    dimension1: MatrixDimension {
-                        key: "model".to_string(),
-                        value: "gpt-4".to_string(),
-                    },
-                    dimension2: Some(MatrixDimension {
-                        key: "region".to_string(),
-                        value: "us".to_string(),
-                    }),
-                    per_unit_price: dec!(0.05),
-                }],
-            },
+            pricing: UsagePricingModel::DimensionRates(model_rates(&[("gpt-4", dec!(0.05))])),
             cadence: BillingPeriodEnum::Monthly,
         };
 
@@ -1524,48 +1589,38 @@ mod tests {
         assert_eq!(prices.len(), 1);
         assert_eq!(prices[0].0, BillingPeriodEnum::Monthly);
         match &prices[0].1 {
-            Pricing::Usage(UsagePricingModel::Matrix { rates }) => {
-                assert_eq!(rates.len(), 1);
-                assert_eq!(rates[0].per_unit_price, dec!(0.05));
-                assert_eq!(rates[0].dimension1.key, "model");
-                assert_eq!(rates[0].dimension1.value, "gpt-4");
-                let d2 = rates[0].dimension2.as_ref().unwrap();
-                assert_eq!(d2.key, "region");
-                assert_eq!(d2.value, "us");
+            Pricing::Usage(UsagePricingModel::DimensionRates(rates)) => {
+                assert_eq!(rates.rates.len(), 1);
+                assert_eq!(rates.rates[0].rate, dec!(0.05));
+                assert_eq!(rates.rates[0].key, vec!["gpt-4".to_string()]);
             }
-            _ => panic!("Expected Matrix"),
+            _ => panic!("Expected DimensionRates"),
         }
     }
 
     #[test]
-    fn test_resolve_matrix_usage() {
+    fn test_resolve_dimension_rates_usage() {
         let mid = BillableMetricId::default();
         let structure = FeeStructure::Usage {
             metric_id: mid,
-            model: UsageModel::Matrix,
+            model: UsageModel::DimensionRates,
         };
-        let pricing = Pricing::Usage(UsagePricingModel::Matrix {
-            rates: vec![MatrixRow {
-                dimension1: MatrixDimension {
-                    key: "model".to_string(),
-                    value: "gpt-4".to_string(),
-                },
-                dimension2: None,
-                per_unit_price: dec!(0.03),
-            }],
-        });
+        let pricing = Pricing::Usage(UsagePricingModel::DimensionRates(model_rates(&[(
+            "gpt-4",
+            dec!(0.03),
+        )])));
         let fee = resolve_subscription_fee(&structure, &pricing, None, &no_units(), None).unwrap();
         match fee {
             SubscriptionFee::Usage {
                 metric_id,
-                model: UsagePricingModel::Matrix { rates },
+                model: UsagePricingModel::DimensionRates(rates),
                 ..
             } => {
                 assert_eq!(metric_id, mid);
-                assert_eq!(rates.len(), 1);
-                assert_eq!(rates[0].per_unit_price, dec!(0.03));
+                assert_eq!(rates.rates.len(), 1);
+                assert_eq!(rates.rates[0].rate, dec!(0.03));
             }
-            _ => panic!("Expected Usage/Matrix"),
+            _ => panic!("Expected Usage/DimensionRates"),
         }
     }
 
@@ -1578,7 +1633,7 @@ mod tests {
             "dimension_values": {"model": ["gpt-4", "gpt-3.5"]}
         });
         let model: UsageModel = serde_json::from_value(old_json).unwrap();
-        assert!(matches!(model, UsageModel::Matrix));
+        assert!(matches!(model, UsageModel::DimensionRates));
     }
 
     #[test]
@@ -1633,6 +1688,33 @@ mod tests {
         );
     }
 
+    /// A block size on tiers was accepted and never billed: tiers of more than one unit per block
+    /// are refused, a package prices blocks.
+    /// Rules: R-107
+    #[test]
+    fn tiers_with_a_block_size_are_refused() {
+        let tiers = vec![TierRow {
+            first_unit: 0,
+            rate: dec!(1),
+            flat_fee: None,
+            flat_cap: None,
+        }];
+        for (block_size, ok) in [(None, true), (Some(1), true), (Some(10), false)] {
+            for pricing in [
+                Pricing::Usage(UsagePricingModel::Tiered {
+                    tiers: tiers.clone(),
+                    block_size,
+                }),
+                Pricing::Usage(UsagePricingModel::Volume {
+                    tiers: tiers.clone(),
+                    block_size,
+                }),
+            ] {
+                assert_eq!(validate_pricing(&pricing, "EUR").is_ok(), ok, "{pricing:?}");
+            }
+        }
+    }
+
     /// A package of no units, or two tiers starting on the same unit, prices no quantity: refused
     /// when the price is saved, as the pricer refuses it.
     /// Rules: R-107
@@ -1672,6 +1754,61 @@ mod tests {
                     "{pricing:?}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn a_fixed_quantity_model_is_validated_as_a_seat_model() {
+        let tier = |first_unit| TierRow {
+            first_unit,
+            rate: dec!(1),
+            flat_fee: None,
+            flat_cap: None,
+        };
+        fn recurring(model: RatingModel) -> Pricing {
+            Pricing::ExtraRecurring {
+                unit_price: dec!(0),
+                quantity: 10,
+                model: Some(model),
+            }
+        }
+        fn one_time(model: RatingModel) -> Pricing {
+            Pricing::OneTime {
+                unit_price: dec!(0),
+                quantity: 10,
+                model: Some(model),
+            }
+        }
+        let builds: [fn(RatingModel) -> Pricing; 2] = [recurring, one_time];
+        for pricing in builds {
+            assert!(
+                validate_pricing(
+                    &pricing(RatingModel::Tiered {
+                        tiers: vec![tier(0), tier(5)]
+                    }),
+                    "EUR"
+                )
+                .is_ok()
+            );
+            assert!(
+                validate_pricing(
+                    &pricing(RatingModel::Volume {
+                        tiers: vec![tier(0), tier(0)]
+                    }),
+                    "EUR"
+                )
+                .is_err()
+            );
+            assert!(
+                validate_pricing(
+                    &pricing(RatingModel::Package {
+                        block_size: 0,
+                        rate: dec!(5)
+                    }),
+                    "EUR"
+                )
+                .is_err()
+            );
         }
     }
 

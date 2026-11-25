@@ -11,6 +11,7 @@ import {
   rawQuantity,
   unitPlural,
 } from '@/features/billing/metrics/units'
+import { priceWords } from '@/features/plans/canvas/billingWords'
 import { PriceComponentProperties } from '@/features/plans/pricecomponents/components/PriceComponentProperty'
 import {
   cadenceAdverb,
@@ -27,6 +28,8 @@ import {
 import { formatPrice } from '@/features/plans/pricecomponents/utils'
 import { CreditRateOptionalContext, useCreditUnit } from '@/features/pricing/CreditUnitPriceFields'
 import { creditValue, effectiveCreditRate, packCreditPrice } from '@/features/pricing/creditValue'
+import { cardRatesLabelOfMultiplier } from '@/features/productCatalog/ratecards/markup'
+import { unitSizeLabel } from '@/features/productCatalog/ratecards/rateTable'
 import { formatCadence } from '@/lib/mapping/prices'
 import { CreditPackExpiry_Unit } from '@/rpc/api/prices/v1/models_pb'
 
@@ -35,8 +38,8 @@ import type {
   CreditPricing,
   Price,
   UsagePricing,
-  UsagePricing_MatrixPricing,
-  UsagePricing_MatrixPricing_MatrixRow,
+  UsagePricing_DimensionRatesPricing,
+  UsagePricing_DimensionRatesPricing_DimensionRate,
   UsagePricing_TieredAndVolumePricing,
 } from '@/rpc/api/prices/v1/models_pb'
 import type { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
@@ -122,9 +125,16 @@ export const PricingDetailsView = ({
         </>
       )
     case 'extraRecurringPricing':
-      return <SimpleUnitPriceTable unitPrice={pricing.value.unitPrice} currency={currency} />
     case 'oneTimePricing':
-      return <SimpleUnitPriceTable unitPrice={pricing.value.unitPrice} currency={currency} />
+      return pricing.value.model ? (
+        <UsagePricingDetail
+          pricing={pricing.value.model}
+          denomination={denomination}
+          usageUnit={undefined}
+        />
+      ) : (
+        <SimpleUnitPriceTable unitPrice={pricing.value.unitPrice} currency={currency} />
+      )
     case 'creditPricing':
       return (
         <CreditPackDetails pricing={pricing.value} cadence={price.cadence} currency={currency} />
@@ -343,7 +353,7 @@ const RatePricingTable = ({ prices, currency }: { prices: Price[]; currency: str
   return (
     <SimpleTable
       columns={[
-        { header: 'Term', accessorKey: 'term' },
+        { header: 'Billed', accessorKey: 'term' },
         {
           id: 'price',
           header: () => <RightAligned>Price</RightAligned>,
@@ -370,16 +380,21 @@ const SlotPricingTable = ({
   const data = prices.map(p => ({
     term: formatCadence(p.cadence),
     unitRate: p.pricing.case === 'slotPricing' ? p.pricing.value.unitRate : undefined,
+    // A slot model (seats included, tiers) reads in words; unitRate alone is its first tier.
+    words: p.pricing.case === 'slotPricing' && p.pricing.value.model ? priceWords(p) : undefined,
   }))
   return (
     <SimpleTable
       columns={[
-        { header: 'Term', accessorKey: 'term' },
+        { header: 'Billed', accessorKey: 'term' },
         {
           id: 'price',
           header: () => <RightAligned>Price per {unitName?.toLowerCase() || 'slot'}</RightAligned>,
           cell: ({ row }) => (
-            <RightAligned>{row.original.unitRate ? money(row.original.unitRate) : '-'}</RightAligned>
+            <RightAligned>
+              {row.original.words ??
+                (row.original.unitRate ? money(row.original.unitRate) : '-')}
+            </RightAligned>
           ),
         },
       ]}
@@ -415,7 +430,7 @@ const CapacityPricingTable = ({
   return (
     <SimpleTable
       columns={[
-        { header: 'Term', accessorKey: 'term' },
+        { header: 'Billed', accessorKey: 'term' },
         {
           header: 'Included',
           accessorFn: row =>
@@ -465,6 +480,7 @@ const UsagePricingDetail = ({
           data={model.value}
           denomination={denomination}
           usageUnit={usageUnit}
+          volume={model.case === 'volume'}
         />
       )
     case 'package': {
@@ -481,8 +497,15 @@ const UsagePricingDetail = ({
         />
       )
     }
-    case 'matrix':
-      return <MatrixTable data={model.value} denomination={denomination} per={per} />
+    case 'dimensionRates':
+      return <DimensionRatesTable data={model.value} denomination={denomination} per={per} />
+    case 'rateCard':
+      return (
+        <p className="text-sm text-muted-foreground">
+          By dimension, at a rate card&rsquo;s rates
+          {model.value.multiplier ? `, ${cardRatesLabelOfMultiplier(model.value.multiplier)}` : ''}
+        </p>
+      )
     default:
       return null
   }
@@ -500,10 +523,13 @@ const TieredVolumeTable = ({
   data,
   denomination,
   usageUnit,
+  volume = false,
 }: {
   data: UsagePricing_TieredAndVolumePricing
   denomination: Denomination
   usageUnit: MetricUnit | undefined
+  /** A volume tier prices totals below the next tier's start, which that tier prices. */
+  volume?: boolean
 }) => {
   const rows: TierRowDisplay[] = data.rows.map((row, idx) => ({
     firstUnit: row.firstUnit,
@@ -520,7 +546,7 @@ const TieredVolumeTable = ({
   const columns: ColumnDef<TierRowDisplay>[] = [
     { header: `From (${unitPlural(usageUnit)})`, accessorFn: row => units(row.firstUnit) },
     {
-      header: `To (${unitPlural(usageUnit)})`,
+      header: `${volume ? 'Below' : 'To'} (${unitPlural(usageUnit)})`,
       accessorFn: row => (row.lastUnit != null ? units(row.lastUnit) : '∞'),
     },
     ...amountColumns<TierRowDisplay>(row => row.unitPrice, formatPerUnit(usageUnit), denomination),
@@ -551,44 +577,35 @@ const TieredVolumeTable = ({
   return <SimpleTable columns={columns} data={rows} />
 }
 
-const MatrixTable = ({
+/** A rate per key, a column per dimension: `*` reads as any value. */
+const DimensionRatesTable = ({
   data,
   denomination,
   per,
 }: {
-  data: UsagePricing_MatrixPricing
+  data: UsagePricing_DimensionRatesPricing
   denomination: Denomination
   per: string
 }) => {
-  const first = data.rows[0]
-  const dimensionColumns: ColumnDef<UsagePricing_MatrixPricing_MatrixRow>[] = [
-    {
-      id: 'dimension1',
-      header: first?.dimension1 ? humanizeKey(first.dimension1.key) : 'Dimension',
-      accessorFn: row => row.dimension1?.value ?? '',
-    },
-    ...(first?.dimension2
-      ? [
-          {
-            id: 'dimension2',
-            header: humanizeKey(first.dimension2.key),
-            accessorFn: (row: UsagePricing_MatrixPricing_MatrixRow) => row.dimension2?.value ?? '',
-          },
-        ]
-      : []),
-  ]
+  const dimensionColumns: ColumnDef<UsagePricing_DimensionRatesPricing_DimensionRate>[] =
+    data.dimensions.map((dimension, i) => ({
+      id: `dimension${i}`,
+      header: humanizeKey(dimension),
+      accessorFn: row => (row.key[i] === '*' || !row.key[i] ? 'Any' : row.key[i]),
+    }))
+  const size = data.unitSize && data.unitSize !== '1' ? unitSizeLabel(data.unitSize) : per
 
   return (
     <SimpleTable
       columns={[
         ...dimensionColumns,
-        ...amountColumns<UsagePricing_MatrixPricing_MatrixRow>(
-          row => row.perUnitPrice,
-          per,
+        ...amountColumns<UsagePricing_DimensionRatesPricing_DimensionRate>(
+          row => row.rate,
+          size,
           denomination
         ),
       ]}
-      data={data.rows}
+      data={data.rates}
     />
   )
 }

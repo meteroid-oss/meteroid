@@ -27,3 +27,11 @@ pub fn default_scenario() -> scenarios::domain::Scenario {
 pub fn ai_credits_scenario() -> scenarios::domain::Scenario {
     scenarios::ai_credits::ai_credits_scenario()
 }
+
+/// "Acme Analytics", a product-analytics SaaS selling one ladder of plans in USD, EUR and BRL,
+/// with two coupons, an LLM rate card and a sales-led Enterprise plan; its customers subscribe
+/// in their own currency. The `CURRENCIES_AND_COUPONS` sandbox preset.
+pub fn currencies_scenario() -> scenarios::domain::Scenario {
+    let now = chrono::Utc::now().naive_utc().date();
+    scenarios::currencies::currencies_scenario(now)
+}

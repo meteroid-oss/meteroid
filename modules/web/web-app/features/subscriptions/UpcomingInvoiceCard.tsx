@@ -213,17 +213,20 @@ const LineItemRow = ({
   hideUsageDetails = false,
 }: LineItemRowProps) => {
   const [showUsage, setShowUsage] = useState(false)
-  const [showSubLines, setShowSubLines] = useState(false)
+  // A fee's few tiers or packs (seats, a fixed quantity) show open; usage tiers on request.
+  const [showSubLines, setShowSubLines] = useState(!line.metricId)
   // When usage details are hidden (preview without a subscription), treat metered lines like
   // any other line: no drill-down toggle, normal row borders.
   const hasMetric = Boolean(line.metricId) && !hideUsageDetails
   const hasSubLines = line.subLineItems.length > 0
+  // A line priced by tiers or packs still shows its quantity; its sublines show the rates.
+  const showQuantity = !hasSubLines || Boolean(line.quantity)
 
   return (
     <>
       {/* Component header row */}
       <tr className={!isLast && !hasSubLines && !hasMetric ? 'border-b border-border/50' : ''}>
-        <td className="px-4 pt-2 pb-1 text-sm" colSpan={hasSubLines ? 3 : 1}>
+        <td className="px-4 pt-2 pb-1 text-sm" colSpan={showQuantity ? 1 : 3}>
           <div className="flex items-center gap-1.5">
             <span className="font-medium text-foreground">{line.name}</span>
             {line.isProrated && (
@@ -242,13 +245,17 @@ const LineItemRow = ({
           )}
           {line.creditUnit && <NamedCreditUnitUsageNote credit={line.creditUnit} />}
         </td>
-        {!hasSubLines && (
+        {showQuantity && (
           <>
             <td className="px-4 pt-2 pb-1 text-sm text-right text-muted-foreground tabular-nums">
               {line.quantity ?? '-'}
             </td>
             <td className="px-4 pt-2 pb-1 text-sm text-right text-muted-foreground tabular-nums">
-              {line.unitPrice ? formatCurrencyNoRounding(line.unitPrice, currency) : '-'}
+              {line.unitPrice
+                ? formatCurrencyNoRounding(line.unitPrice, currency)
+                : hasSubLines
+                  ? ''
+                  : '-'}
             </td>
           </>
         )}
@@ -269,7 +276,9 @@ const LineItemRow = ({
                 <ChevronDown
                   className={`h-3 w-3 transition-transform ${showSubLines ? '' : '-rotate-90'}`}
                 />
-                {showSubLines ? 'Hide breakdown' : `${line.subLineItems.length} line items`}
+                {showSubLines
+                  ? 'Hide breakdown'
+                  : `${line.subLineItems.length} line ${line.subLineItems.length === 1 ? 'item' : 'items'}`}
               </button>
             </td>
           </tr>
@@ -283,7 +292,7 @@ const LineItemRow = ({
                   colSpan={2}
                   className="px-4 py-0.5 text-[12px] text-right text-muted-foreground/70 tabular-nums"
                 >
-                  {sub.quantity && sub.unitPrice
+                  {sub.quantity && sub.unitPrice && Number(sub.unitPrice) !== 0
                     ? `${sub.quantity} × ${formatCurrencyNoRounding(sub.unitPrice, currency)}`
                     : ''}
                 </td>

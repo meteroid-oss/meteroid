@@ -11,15 +11,41 @@ import { ArchiveIcon, ArchiveRestoreIcon, MoreVerticalIcon } from 'lucide-react'
 import { FC, useMemo } from 'react'
 
 import { Gate } from '@/components/Gate'
-import { LocalId } from '@/components/LocalId'
 import { StandardTable } from '@/components/table/StandardTable'
+import { countsWords, priceWords } from '@/features/plans/canvas/billingWords'
+import { feeTypeToHuman } from '@/features/plans/pricecomponents/utils'
+import { protoFeeTypeToComponentFeeType } from '@/features/pricing/formData'
+import { ProductIcon } from '@/features/productCatalog/items/ProductIcon'
 import { useProductArchive } from '@/features/productCatalog/items/useProductArchive'
-import { feeTypeLabel } from '@/lib/mapping/prices'
-import { FeeType } from '@/rpc/api/prices/v1/models_pb'
+import { env } from '@/lib/env'
 import { ProductMeta } from '@/rpc/api/products/v1/models_pb'
-import { parseAndFormatDate } from '@/utils/date'
 
+import type { ChargeContext } from '@/features/plans/canvas/billingWords'
 import type { OnChangeFn } from '@tanstack/react-table'
+
+const contextOf = (product: ProductMeta): ChargeContext => ({
+  product,
+  metric: product.metricName ? { name: product.metricName } : undefined,
+})
+
+/** What it charges, in the plan editor's words: "Flat fee", "Usage of Tokens", "Per seat". */
+const chargesWords = (product: ProductMeta) => {
+  const ctx = contextOf(product)
+  const [price] = product.latestPrices
+  if (price) return countsWords(price, ctx)
+  if (product.feeType === undefined) return ''
+  const kind = protoFeeTypeToComponentFeeType(product.feeType)
+  if ((kind === 'usage' || kind === 'capacity') && product.metricName) {
+    return `Usage of ${product.metricName}`
+  }
+  return feeTypeToHuman(kind)
+}
+
+/** Its latest price in each currency: "$99 / month · €89 / month". */
+const pricesWords = (product: ProductMeta) =>
+  product.latestPrices.map(price => priceWords(price, contextOf(product))).join(' · ')
+
+const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? '' : 's'}`
 
 interface ProductsTableProps {
   data: ProductMeta[]
@@ -51,47 +77,68 @@ export const ProductsTable: FC<ProductsTableProps> = ({
         enableSorting: true,
         cell: ({ row }) => (
           <button
-            className="text-left cursor-pointer"
+            className="flex min-w-0 cursor-pointer items-center gap-3 text-left"
             onClick={() => onProductClick?.(row.original)}
           >
-            <span className="font-medium">{row.original.name}</span>
-            {row.original.description && (
-              <span className="block text-xs text-muted-foreground truncate max-w-xs">
-                {row.original.description}
+            <ProductIcon icon={row.original.icon} color={row.original.color} />
+            <span className="min-w-0">
+              <span className="flex items-baseline gap-2">
+                <span className="font-medium">{row.original.name}</span>
+                {/* Faded in, its room kept: the columns don't move on hover. */}
+                <span className="font-mono text-[11px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                  {row.original.localId}
+                </span>
               </span>
-            )}
+              {row.original.description && (
+                <span className="block max-w-xs truncate text-xs text-muted-foreground">
+                  {row.original.description}
+                </span>
+              )}
+            </span>
           </button>
         ),
       },
       {
-        header: 'Fee Type',
-        cell: ({ row }) => {
-          const ft = row.original.feeType
-          if (ft === undefined) return null
-          return<>{feeTypeLabel(ft as FeeType)}</>
-        },
+        header: 'Charges',
         enableSorting: false,
-      },
-      {
-        header: 'API Handle',
-        id: 'localId',
-        cell: ({ row }) => <LocalId localId={row.original.localId} className="max-w-16" />,
-        enableSorting: false,
-      },
-      {
-        id: 'created_at',
-        header: 'Created',
-        enableSorting: true,
         cell: ({ row }) => {
-          const ts = row.original.createdAt
-          if (!ts) return null
+          const prices = pricesWords(row.original)
           return (
-            <span className=" text-muted-foreground">
-              {parseAndFormatDate(ts)}
+            <span className="block min-w-0">
+              <span className="block">{chargesWords(row.original)}</span>
+              {prices && (
+                <span className="block max-w-sm truncate text-xs text-muted-foreground" title={prices}>
+                  {prices}
+                </span>
+              )}
             </span>
           )
         },
       },
+      {
+        header: 'Plans',
+        enableSorting: false,
+        cell: ({ row }) => (
+          <span className="text-muted-foreground">
+            {row.original.planCount
+              ? `In ${plural(row.original.planCount, 'plan')}`
+              : 'In no plan'}
+          </span>
+        ),
+      },
+      ...(env.entitlementsEnabled
+        ? [
+            {
+              header: 'Features',
+              enableSorting: false,
+              cell: ({ row }) => (
+                <span className="text-muted-foreground">
+                  {row.original.featureCount ? plural(row.original.featureCount, 'feature') : '—'}
+                </span>
+              ),
+            } satisfies ColumnDef<ProductMeta>,
+          ]
+        : []),
       {
         header: 'Status',
         enableSorting: false,
@@ -148,6 +195,7 @@ export const ProductsTable: FC<ProductsTableProps> = ({
       setPagination={setPagination}
       totalCount={totalCount}
       isLoading={isLoading}
+      rowClassName={() => 'group'}
     />
   )
 }

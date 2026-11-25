@@ -141,6 +141,7 @@ async fn period_content(
         .insert_subscription(
             Actor::System,
             CreateSubscription {
+                option: None,
                 subscription: SubscriptionNew {
                     customer_id,
                     plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
@@ -576,6 +577,8 @@ async fn an_exemption_never_lands_on_a_rated_row_paid_whole_by_promotion() -> Te
                 fee_type: None,
                 fee_structure: None,
                 tax_category_id: Some(Some(nontaxable.id)),
+                icon: None,
+                color: None,
             },
         )
         .await

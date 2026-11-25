@@ -49,10 +49,11 @@ pub mod quote_totals;
 mod quotes;
 pub mod sandbox_replay;
 pub(crate) mod served_usage;
+pub mod signup;
 #[cfg(all(feature = "test-faults", debug_assertions))]
 pub mod step_faults;
 pub mod subscription_receivables;
-mod subscriptions;
+pub(crate) mod subscriptions;
 mod unattributed_usage;
 pub(crate) mod usage_controls_support;
 pub mod usage_costs;
@@ -175,7 +176,7 @@ impl ServicesEdge {
         tenant_id: common_domain::ids::TenantId,
         subscription_id: common_domain::ids::SubscriptionId,
         price_component_id: common_domain::ids::PriceComponentId,
-        delta: i32,
+        change: impl Into<crate::domain::managed_quantities::SeatChange>,
         billing_mode: SlotUpgradeBillingMode,
         actor: Actor,
     ) -> StoreResult<UpdateSlotsResult> {
@@ -184,7 +185,7 @@ impl ServicesEdge {
                 tenant_id,
                 subscription_id,
                 price_component_id,
-                delta,
+                change.into(),
                 billing_mode,
                 actor,
                 None,
@@ -410,7 +411,7 @@ impl ServicesEdge {
         tenant_id: common_domain::ids::TenantId,
         subscription_id: common_domain::ids::SubscriptionId,
         price_component_id: common_domain::ids::PriceComponentId,
-        delta: i32,
+        change: impl Into<crate::domain::managed_quantities::SeatChange>,
         billing_mode: SlotUpgradeBillingMode,
         at_ts: Option<chrono::NaiveDateTime>,
     ) -> StoreResult<UpdateSlotsResult> {
@@ -419,7 +420,7 @@ impl ServicesEdge {
                 tenant_id,
                 subscription_id,
                 price_component_id,
-                delta,
+                change.into(),
                 billing_mode,
                 Actor::System,
                 at_ts,
@@ -533,46 +534,43 @@ impl Services {
         // Lock coupons with FOR UPDATE to prevent concurrent modifications
         let coupon_rows = CouponRow::list_by_ids_for_update(conn, coupon_ids, &tenant_id).await?;
 
-        // Convert to domain objects and validate
-        let mut coupons = Vec::with_capacity(coupon_rows.len());
-        for row in coupon_rows {
-            let coupon: Coupon = row.try_into()?;
-
+        let coupons = crate::repositories::coupons::coupons_with_scope(conn, coupon_rows).await?;
+        for coupon in &coupons {
             // Validate coupon can be used (expired, archived, disabled, redemption limit, currency)
             coupon
                 .validate_for_use_with_message(subscription_currency)
                 .map_err(|msg| Report::new(StoreError::InvalidArgument(msg)))?;
-
-            coupons.push(coupon);
         }
 
-        let restricted =
-            diesel_models::coupon_plans::CouponPlanRow::list_by_coupon_ids(conn, coupon_ids)
-                .await?;
-        if restricted.values().any(|plans| !plans.is_empty()) {
-            let plan_id = match plan_version_id {
-                Some(version_id) => {
-                    diesel_models::plan_versions::PlanVersionRow::get_plan_ids_by_version_ids(
-                        conn,
-                        &[version_id],
-                    )
-                    .await?
-                    .remove(&version_id)
-                }
-                None => None,
-            };
-            for coupon in &coupons {
-                if let Some(plans) = restricted.get(&coupon.id)
-                    && !plans.is_empty()
-                    && !plan_id.is_some_and(|plan_id| plans.contains(&plan_id))
-                {
-                    return Err(Report::new(StoreError::InvalidArgument(format!(
-                        "Coupon {} cannot be applied to this plan",
-                        coupon.code
-                    ))));
-                }
+        let plan_id = match plan_version_id {
+            Some(version_id) => {
+                diesel_models::plan_versions::PlanVersionRow::get_plan_ids_by_version_ids(
+                    conn,
+                    &[version_id],
+                )
+                .await?
+                .remove(&version_id)
             }
-        }
+            None => None,
+        };
+        let add_on_ids = if coupons.iter().any(|c| !c.add_on_ids.is_empty()) {
+            checkout_add_on_ids(conn, tenant_id, subscription_id, checkout_session_id).await?
+        } else {
+            vec![]
+        };
+        crate::repositories::coupons::refuse_unredeemable(
+            conn,
+            tenant_id,
+            &coupons,
+            &crate::repositories::coupons::Redemption {
+                customer_id,
+                currency: subscription_currency,
+                plan_id,
+                add_on_ids: &add_on_ids,
+            },
+            common_clock::now().naive_utc(),
+        )
+        .await?;
 
         if let Some(subscription_id) = subscription_id {
             let applied =
@@ -669,4 +667,33 @@ pub(crate) fn checkout_coupon_code(
     coupon_code_override
         .or_else(|| session.coupon_code.clone())
         .filter(|code| !code.trim().is_empty())
+}
+
+/// The add-ons a checkout subscribes to: the subscription's when it exists, else the session's.
+async fn checkout_add_on_ids(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription_id: Option<SubscriptionId>,
+    checkout_session_id: Option<common_domain::ids::CheckoutSessionId>,
+) -> StoreResult<Vec<common_domain::ids::AddOnId>> {
+    use diesel_models::checkout_sessions::CheckoutSessionRow;
+    use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
+    if let Some(subscription_id) = subscription_id {
+        let rows =
+            SubscriptionAddOnRow::list_all_by_subscriptions(conn, tenant_id, &[subscription_id])
+                .await?;
+        return Ok(rows.into_iter().map(|row| row.add_on_id).collect());
+    }
+    let Some(session_id) = checkout_session_id else {
+        return Ok(vec![]);
+    };
+    let add_ons = CheckoutSessionRow::find_by_id(conn, tenant_id, session_id)
+        .await?
+        .and_then(|session| session.add_ons)
+        .and_then(|value| {
+            serde_json::from_value::<crate::domain::CreateSubscriptionAddOns>(value).ok()
+        });
+    Ok(add_ons
+        .map(|add_ons| add_ons.add_ons.into_iter().map(|a| a.add_on_id).collect())
+        .unwrap_or_default())
 }

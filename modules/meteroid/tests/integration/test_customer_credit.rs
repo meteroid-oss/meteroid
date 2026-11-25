@@ -1573,6 +1573,8 @@ async fn credit_pack_plan(setup: &MeteroidSetup) -> TestResult<common_domain::id
                 .expect("fee structure serializes"),
                 catalog: true,
                 tax_category_id: None,
+                icon: None,
+                color: None,
             }
             .insert(tx)
             .await?;
@@ -1607,6 +1609,7 @@ async fn a_plan_pack_funds_its_credit_when_paid_and_included_credit_when_invoice
         .insert_subscription(
             Actor::System,
             CreateSubscription {
+                option: None,
                 subscription: SubscriptionNew {
                     customer_id: CUST_UBER_ID,
                     plan_version_id,

@@ -1,5 +1,5 @@
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
-use common_domain::ids::{BaseId, SlotTransactionId, SubscriptionId};
+use common_domain::ids::{BaseId, ManagedQuantityId, SlotTransactionId, SubscriptionId};
 use diesel_models::slot_transactions::SlotTransactionRow;
 use o2o::o2o;
 
@@ -24,11 +24,14 @@ pub struct SlotTransaction {
     #[into(~.into())]
     pub status: SlotTransactionStatusEnum,
     pub invoice_id: Option<InvoiceId>,
+    pub managed_quantity_id: ManagedQuantityId,
+    pub removal_waits_for_renewal: bool,
 }
 
+#[derive(Debug)]
 pub struct SlotTransactionNewInternal {
     pub id: SlotTransactionId,
-    // TODO product will be more pertinent (addon & sub compo)
+    /// The code of the managed quantity the seats count.
     pub unit: String,
     pub delta: i32,
     pub prev_active_slots: i32,
@@ -53,21 +56,6 @@ impl SlotTransactionNewInternal {
                 transaction_at: effective_date.and_time(NaiveTime::MIN),
             }),
             _ => None,
-        }
-    }
-
-    /// Convert into a row ready for insertion.
-    pub fn into_row(self, subscription_id: SubscriptionId) -> SlotTransactionRow {
-        SlotTransactionRow {
-            id: self.id,
-            subscription_id,
-            delta: self.delta,
-            prev_active_slots: self.prev_active_slots,
-            effective_at: self.effective_at,
-            transaction_at: self.transaction_at,
-            unit: self.unit,
-            status: diesel_models::enums::SlotTransactionStatusEnum::Active,
-            invoice_id: None,
         }
     }
 }
@@ -102,7 +90,6 @@ pub struct UpdateSlotsResult {
 
 pub struct SlotForTransaction {
     pub unit: String,
-    pub unit_rate: Decimal,
     pub min_slots: Option<u32>,
     pub max_slots: Option<u32>,
 }

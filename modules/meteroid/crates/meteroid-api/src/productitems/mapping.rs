@@ -4,7 +4,10 @@ pub mod products {
 
     use common_domain::ids::BillableMetricId;
     use meteroid_grpc::meteroid::api::prices::v1 as prices_proto;
-    use meteroid_grpc::meteroid::api::products::v1::{Product, ProductMeta, ProductWithPrice};
+    use meteroid_grpc::meteroid::api::products::v1::{
+        ListProductUsageResponse, Product, ProductAddOnUsage, ProductMeta, ProductPlanUsage,
+        ProductWithPrice,
+    };
     use meteroid_store::domain;
     use meteroid_store::domain::ProductWithLatestPrice;
     use meteroid_store::domain::enums::FeeTypeEnum;
@@ -27,6 +30,8 @@ pub mod products {
                 catalog: product.catalog,
                 tax_category_id: product.tax_category_id.map(|id| id.as_proto()),
                 archived_at: product.archived_at.as_proto(),
+                icon: product.icon,
+                color: product.color,
             })
         }
     }
@@ -43,7 +48,69 @@ pub mod products {
                 created_at: product.created_at.as_proto(),
                 catalog: product.catalog,
                 archived_at: product.archived_at.as_proto(),
+                icon: product.icon,
+                color: product.color,
+                latest_prices: vec![],
+                feature_count: 0,
+                plan_count: 0,
+                metric_name: None,
+                fee_structure: Some(fee_structure_to_proto(product.fee_structure)),
             })
+        }
+    }
+
+    /// A catalog list row: the product with what the list says of it.
+    pub fn product_list_row(
+        product: domain::Product,
+        facts: Option<domain::ProductListFacts>,
+        metric_name: Option<String>,
+    ) -> ProductMeta {
+        let facts = facts.unwrap_or_default();
+        ProductMeta {
+            latest_prices: facts
+                .latest_prices
+                .into_iter()
+                .map(|p| PriceWrapper::from(p).0)
+                .collect(),
+            feature_count: u32::try_from(facts.feature_count).unwrap_or(u32::MAX),
+            plan_count: u32::try_from(facts.plan_count).unwrap_or(u32::MAX),
+            metric_name,
+            ..ProductMetaWrapper::from(product).0
+        }
+    }
+
+    pub fn product_usage_to_proto(usage: domain::ProductUsage) -> ListProductUsageResponse {
+        use crate::plans::mapping::plans::plan_option_to_proto;
+        use crate::pricecomponents::mapping::components::domain_to_api;
+
+        ListProductUsageResponse {
+            plans: usage
+                .plans
+                .into_iter()
+                .map(|plan| ProductPlanUsage {
+                    plan_id: plan.plan_id.as_proto(),
+                    plan_name: plan.plan_name,
+                    plan_version_id: plan.plan_version_id.as_proto(),
+                    version: u32::try_from(plan.version).unwrap_or_default(),
+                    is_draft: plan.is_draft,
+                    options: plan.options.iter().map(plan_option_to_proto).collect(),
+                    currencies: plan.currencies,
+                    components: plan.components.into_iter().map(domain_to_api).collect(),
+                })
+                .collect(),
+            add_ons: usage
+                .add_ons
+                .into_iter()
+                .map(|add_on| ProductAddOnUsage {
+                    prices: add_on
+                        .catalog_prices()
+                        .into_iter()
+                        .map(|p| PriceWrapper::from(p).0)
+                        .collect(),
+                    add_on_id: add_on.id.as_proto(),
+                    name: add_on.name,
+                })
+                .collect(),
         }
     }
 
@@ -154,7 +221,8 @@ pub mod products {
             UsageModel::Tiered => prices_proto::fee_structure::UsageModel::Tiered,
             UsageModel::Volume => prices_proto::fee_structure::UsageModel::Volume,
             UsageModel::Package => prices_proto::fee_structure::UsageModel::Package,
-            UsageModel::Matrix => prices_proto::fee_structure::UsageModel::Matrix,
+            UsageModel::DimensionRates => prices_proto::fee_structure::UsageModel::DimensionRates,
+            UsageModel::RateCard => prices_proto::fee_structure::UsageModel::RateCard,
         }
     }
 
@@ -164,7 +232,12 @@ pub mod products {
             Ok(prices_proto::fee_structure::UsageModel::Tiered) => Ok(UsageModel::Tiered),
             Ok(prices_proto::fee_structure::UsageModel::Volume) => Ok(UsageModel::Volume),
             Ok(prices_proto::fee_structure::UsageModel::Package) => Ok(UsageModel::Package),
-            Ok(prices_proto::fee_structure::UsageModel::Matrix) => Ok(UsageModel::Matrix),
+            // Deprecated: a matrix product is rated by dimension.
+            Ok(
+                prices_proto::fee_structure::UsageModel::Matrix
+                | prices_proto::fee_structure::UsageModel::DimensionRates,
+            ) => Ok(UsageModel::DimensionRates),
+            Ok(prices_proto::fee_structure::UsageModel::RateCard) => Ok(UsageModel::RateCard),
             Err(_) => Err(Status::invalid_argument(format!(
                 "Invalid usage model value: {value}"
             ))),

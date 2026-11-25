@@ -6,7 +6,7 @@ use common_domain::ids::{
     CustomerId, PlanVersionId, PriceComponentId, PriceId, ProductId, ScheduledEventId,
     SubscriptionAddOnId,
 };
-use common_domain::ids::{PlanId, string_serde_opt, string_serde_vec_opt};
+use common_domain::ids::{PlanId, PlanOptionId, string_serde_opt, string_serde_vec_opt};
 use common_domain::ids::{SubscriptionId, string_serde};
 use meteroid_rest_common::datetime::ApiDateTime;
 use meteroid_rest_common::model::{BillingPeriodEnum, PaginatedRequest, PaginationResponse};
@@ -159,6 +159,13 @@ pub struct Subscription {
     #[serde(with = "string_serde")]
     pub plan_version_id: PlanVersionId,
     pub plan_version: u32,
+    /// The plan option it bought; absent for a subscription made before plan options.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        default,
+        with = "string_serde_opt"
+    )]
+    pub plan_option_id: Option<PlanOptionId>,
     pub status: SubscriptionStatusEnum,
     /// When the subscription contract starts (benefits apply from this date)
     pub start_date: NaiveDate,
@@ -235,6 +242,10 @@ pub struct Coupon {
     pub expires_at: Option<ApiDateTime>,
     pub redemption_limit: Option<i32>,
     pub recurring_value: Option<i32>,
+    /// Applies to billing periods starting within this many months of the first paid period, as
+    /// redeemed; neither this nor `recurring_value`: forever.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_months: Option<i32>,
     pub reusable: bool,
     pub disabled: bool,
 }
@@ -333,6 +344,13 @@ pub struct SubscriptionDetails {
     /// day without service. `end_date` is not affected by a scheduled cancellation.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub scheduled_cancellation_date: Option<NaiveDate>,
+    /// The plan option it bought; absent for a subscription made before plan options.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        default,
+        with = "string_serde_opt"
+    )]
+    pub plan_option_id: Option<PlanOptionId>,
 }
 
 #[derive(Clone, Copy, ToSchema, Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -416,6 +434,11 @@ pub struct SubscriptionCreateRequest {
     /// no usage filter of the customer's other subscriptions matches.
     #[schema(nullable = false)]
     pub usage_filter: Option<UsageFilter>,
+    /// The plan option bought, by its alias (e.g. `annual`, as the plan names it) or id; one sold
+    /// in the customer's currency. Omitted: the plan's default option sold in that currency, or
+    /// the option whose prices bill on the `billing_period`s given in `price_components`.
+    #[schema(nullable = false)]
+    pub option: Option<String>,
 }
 
 #[derive(o2o, Clone, ToSchema, Serialize, Deserialize, Debug)]
@@ -514,6 +537,9 @@ pub struct OneTimeFee {
     #[schema(value_type = String, format = "decimal")]
     pub rate: rust_decimal::Decimal,
     pub quantity: u32,
+    /// Tiered, volume or package pricing of the quantity; `rate` per unit when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<UsagePricingModel>,
 }
 
 /// A credit pack: charged like a fixed fee, it grants `credit_amount` × `quantity` of credit once
@@ -577,6 +603,9 @@ pub struct RecurringFee {
     pub rate: rust_decimal::Decimal,
     pub quantity: u32,
     pub billing_type: BillingTypeEnum,
+    /// Tiered, volume or package pricing of the quantity; `rate` per unit when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<UsagePricingModel>,
 }
 
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
@@ -629,11 +658,15 @@ impl From<meteroid_store::domain::credit_units::FeeCreditUnit> for FeeCreditUnit
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
 pub struct SlotFee {
     pub unit: String,
+    /// The price of each seat, or of the first tier or package when `model` prices the count.
     #[schema(value_type = String, format = "decimal")]
     pub unit_rate: rust_decimal::Decimal,
     pub min_slots: Option<u32>,
     pub max_slots: Option<u32>,
     pub initial_slots: u32,
+    /// Tiered, volume or package pricing of the seat count; per seat at `unit_rate` when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<UsagePricingModel>,
 }
 
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
@@ -673,17 +706,25 @@ impl From<meteroid_store::domain::subscription_components::SubscriptionFee> for 
         use meteroid_store::domain::subscription_components::SubscriptionFee as DomainFee;
         match fee {
             DomainFee::Rate { rate } => SubscriptionFee::Rate(RateFee { rate }),
-            DomainFee::OneTime { rate, quantity } => {
-                SubscriptionFee::OneTime(OneTimeFee { rate, quantity })
-            }
+            DomainFee::OneTime {
+                rate,
+                quantity,
+                model,
+            } => SubscriptionFee::OneTime(OneTimeFee {
+                rate,
+                quantity,
+                model: model.map(|model| model.as_usage_model().into()),
+            }),
             DomainFee::Recurring {
                 rate,
                 quantity,
                 billing_type,
+                model,
             } => SubscriptionFee::Recurring(RecurringFee {
                 rate,
                 quantity,
                 billing_type: billing_type.into(),
+                model: model.map(|model| model.as_usage_model().into()),
             }),
             DomainFee::Capacity {
                 rate,
@@ -700,13 +741,17 @@ impl From<meteroid_store::domain::subscription_components::SubscriptionFee> for 
             }),
             DomainFee::Slot {
                 unit,
-                unit_rate,
+                model,
                 min_slots,
                 max_slots,
                 initial_slots,
             } => SubscriptionFee::Slot(SlotFee {
                 unit,
-                unit_rate,
+                unit_rate: model.headline_rate(),
+                model: model
+                    .per_unit_rate()
+                    .is_none()
+                    .then(|| model.as_usage_model().into()),
                 min_slots,
                 max_slots,
                 initial_slots,
@@ -743,19 +788,35 @@ impl From<meteroid_store::domain::subscription_components::SubscriptionFee> for 
     }
 }
 
-impl From<SubscriptionFee> for meteroid_store::domain::subscription_components::SubscriptionFee {
-    fn from(fee: SubscriptionFee) -> Self {
+/// A model a count can be priced by; any other is a 400, never billed per unit instead.
+fn fixed_quantity_model_from_rest(
+    model: Option<UsagePricingModel>,
+) -> Result<
+    Option<meteroid_store::domain::price_components::RatingModel>,
+    meteroid_app::errors::RestApiError,
+> {
+    model
+        .map(|model| crate::plans::mapping::rating_model_from_rest(model.into()))
+        .transpose()
+}
+
+impl TryFrom<SubscriptionFee> for meteroid_store::domain::subscription_components::SubscriptionFee {
+    type Error = meteroid_app::errors::RestApiError;
+
+    fn try_from(fee: SubscriptionFee) -> Result<Self, Self::Error> {
         use meteroid_store::domain::subscription_components::SubscriptionFee as DomainFee;
-        match fee {
+        Ok(match fee {
             SubscriptionFee::Rate(f) => DomainFee::Rate { rate: f.rate },
             SubscriptionFee::OneTime(f) => DomainFee::OneTime {
                 rate: f.rate,
                 quantity: f.quantity,
+                model: fixed_quantity_model_from_rest(f.model)?,
             },
             SubscriptionFee::Recurring(f) => DomainFee::Recurring {
                 rate: f.rate,
                 quantity: f.quantity,
                 billing_type: f.billing_type.into(),
+                model: fixed_quantity_model_from_rest(f.model)?,
             },
             SubscriptionFee::Capacity(f) => DomainFee::Capacity {
                 rate: f.rate,
@@ -766,7 +827,11 @@ impl From<SubscriptionFee> for meteroid_store::domain::subscription_components::
             },
             SubscriptionFee::Slot(f) => DomainFee::Slot {
                 unit: f.unit,
-                unit_rate: f.unit_rate,
+                model: fixed_quantity_model_from_rest(f.model)?.unwrap_or(
+                    meteroid_store::domain::price_components::RatingModel::PerUnit {
+                        rate: f.unit_rate,
+                    },
+                ),
                 min_slots: f.min_slots,
                 max_slots: f.max_slots,
                 initial_slots: f.initial_slots,
@@ -794,13 +859,14 @@ impl From<SubscriptionFee> for meteroid_store::domain::subscription_components::
                 rollover: None,
                 once: f.once,
             },
-        }
+        })
     }
 }
 
 // Pricing row types are shared with the plans API — re-exported so both surfaces emit a single
-// `TierRow` / `MatrixRow` / `MatrixDimension` OpenAPI schema instead of colliding definitions.
-pub use crate::plans::model::{MatrixRow, TierRow};
+// `TierRow` / `MatrixRow` / `MatrixDimension` / `DimensionRatesPlanPricing` OpenAPI schema
+// instead of colliding definitions.
+pub use crate::plans::model::{DimensionRatesPlanPricing, MatrixRow, TierRow};
 
 #[derive(o2o, Clone, ToSchema, Serialize, Deserialize, Debug)]
 #[map_owned(meteroid_store::domain::enums::BillingType)]
@@ -835,9 +901,23 @@ pub struct PackagePricing {
     pub rate: rust_decimal::Decimal,
 }
 
+/// Rates by dimension a matrix can hold: per unit, one or two dimensions, each key of exact
+/// values, `*` only as the second for a cell of one dimension. Returned for such rates, as before
+/// DIMENSION_RATES; other rates are returned as DIMENSION_RATES. Deprecated as input: read as
+/// DIMENSION_RATES of exact values.
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
 pub struct MatrixPricing {
     pub rates: Vec<MatrixRow>,
+}
+
+/// Usage rated by a rate card's entries in force each day, each rate scaled by `multiplier`.
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct RateCardPricing {
+    #[serde(with = "string_serde")]
+    #[schema(value_type = String)]
+    pub rate_card_id: common_domain::ids::RateCardId,
+    #[schema(value_type = Option<String>, format = "decimal")]
+    pub multiplier: Option<rust_decimal::Decimal>,
 }
 
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
@@ -853,6 +933,10 @@ pub enum UsagePricingModel {
     Package(PackagePricing),
     #[serde(rename = "MATRIX")]
     Matrix(MatrixPricing),
+    #[serde(rename = "RATE_CARD")]
+    RateCard(RateCardPricing),
+    #[serde(rename = "DIMENSION_RATES")]
+    DimensionRates(DimensionRatesPlanPricing),
 }
 
 impl From<meteroid_store::domain::price_components::UsagePricingModel> for UsagePricingModel {
@@ -871,8 +955,21 @@ impl From<meteroid_store::domain::price_components::UsagePricingModel> for Usage
             DomainModel::Package { block_size, rate } => {
                 UsagePricingModel::Package(PackagePricing { block_size, rate })
             }
-            DomainModel::Matrix { rates } => UsagePricingModel::Matrix(MatrixPricing {
-                rates: rates.into_iter().map(|r| r.into()).collect(),
+            // Rates a matrix can hold are returned as one, as before rates by dimension.
+            DomainModel::DimensionRates(rates) => {
+                match crate::plans::model::MatrixPlanPricing::from_domain(&rates) {
+                    Some(matrix) => UsagePricingModel::Matrix(MatrixPricing {
+                        rates: matrix.rates,
+                    }),
+                    None => UsagePricingModel::DimensionRates(rates.into()),
+                }
+            }
+            DomainModel::RateCard {
+                rate_card_id,
+                multiplier,
+            } => UsagePricingModel::RateCard(RateCardPricing {
+                rate_card_id,
+                multiplier,
             }),
         }
     }
@@ -895,21 +992,21 @@ impl From<UsagePricingModel> for meteroid_store::domain::price_components::Usage
                 block_size: p.block_size,
                 rate: p.rate,
             },
-            UsagePricingModel::Matrix(p) => DomainModel::Matrix {
-                rates: p.rates.into_iter().map(|r| r.into()).collect(),
+            UsagePricingModel::Matrix(p) => DomainModel::DimensionRates(
+                crate::plans::model::MatrixPlanPricing { rates: p.rates }.to_domain(),
+            ),
+            UsagePricingModel::DimensionRates(p) => DomainModel::DimensionRates(p.into()),
+            UsagePricingModel::RateCard(p) => DomainModel::RateCard {
+                rate_card_id: p.rate_card_id,
+                multiplier: p.multiplier,
             },
         }
     }
 }
 
+// Read-only: components are written through plans, overrides and amendments.
 #[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]
-#[owned_into(meteroid_store::domain::subscription_components::SubscriptionComponentNewInternal)]
 #[from_owned(meteroid_store::domain::subscription_components::SubscriptionComponent)]
-#[ghosts(
-    is_override: {@.price_component_id.is_some()},
-    price_id: {None},
-    effective_from: {common_clock::now().naive_utc().date()},
-)]
 pub struct SubscriptionComponent {
     #[serde(default, with = "string_serde_opt")]
     pub price_component_id: Option<PriceComponentId>,
@@ -1076,7 +1173,9 @@ impl From<Pricing> for meteroid_store::domain::prices::Pricing {
         match val {
             Pricing::Rate(r) => meteroid_store::domain::prices::Pricing::Rate { rate: r.rate },
             Pricing::Slot(s) => meteroid_store::domain::prices::Pricing::Slot {
-                unit_rate: s.unit_rate,
+                model: meteroid_store::domain::price_components::RatingModel::PerUnit {
+                    rate: s.unit_rate,
+                },
                 min_slots: s.min_slots,
                 max_slots: s.max_slots,
             },
@@ -1089,10 +1188,12 @@ impl From<Pricing> for meteroid_store::domain::prices::Pricing {
             Pricing::ExtraRecurring(e) => meteroid_store::domain::prices::Pricing::ExtraRecurring {
                 unit_price: e.unit_price,
                 quantity: e.quantity,
+                model: None,
             },
             Pricing::OneTime(o) => meteroid_store::domain::prices::Pricing::OneTime {
                 unit_price: o.unit_price,
                 quantity: o.quantity,
+                model: None,
             },
         }
     }
@@ -1269,4 +1370,50 @@ pub struct SubscriptionUpdateRequest {
 #[derive(ToSchema, Serialize, Deserialize)]
 pub struct SubscriptionUpdateResponse {
     pub subscription: SubscriptionDetails,
+}
+
+#[cfg(test)]
+mod fee_model_tests {
+    use super::*;
+    use meteroid_store::domain::subscription_components::SubscriptionFee as DomainFee;
+
+    fn recurring(model: UsagePricingModel) -> SubscriptionFee {
+        SubscriptionFee::Recurring(RecurringFee {
+            rate: rust_decimal::Decimal::from(25),
+            quantity: 25,
+            billing_type: BillingTypeEnum::Advance,
+            model: Some(model),
+        })
+    }
+
+    #[test]
+    fn a_model_a_count_cannot_take_is_refused_not_billed_per_unit() {
+        let matrix = recurring(UsagePricingModel::Matrix(MatrixPricing { rates: vec![] }));
+        assert!(DomainFee::try_from(matrix).is_err());
+        let blocks = recurring(UsagePricingModel::Volume(VolumePricing {
+            tiers: vec![],
+            block_size: Some(10),
+        }));
+        assert!(DomainFee::try_from(blocks).is_err());
+    }
+
+    #[test]
+    fn a_package_is_kept() {
+        let package = recurring(UsagePricingModel::Package(PackagePricing {
+            block_size: 10,
+            rate: rust_decimal::Decimal::from(30),
+        }));
+        assert!(matches!(
+            DomainFee::try_from(package),
+            Ok(DomainFee::Recurring {
+                model: Some(
+                    meteroid_store::domain::price_components::RatingModel::Package {
+                        block_size: 10,
+                        ..
+                    }
+                ),
+                ..
+            })
+        ));
+    }
 }

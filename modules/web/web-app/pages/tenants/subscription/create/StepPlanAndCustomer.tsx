@@ -1,5 +1,5 @@
 import { skipToken } from '@connectrpc/connect-query'
-import { Button, Form, GenericFormField } from '@ui/components'
+import { Button, Form, GenericFormField, Label } from '@ui/components'
 import { useAtom } from 'jotai'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
@@ -14,10 +14,13 @@ import { SubscribablePlanVersionSelect } from '@/features/plans/SubscribablePlan
 import {
   CreateSubscriptionPriceComponents
 } from '@/features/subscriptions/pricecomponents/CreateSubscriptionPriceComponents'
+import { OptionSelect } from '@/features/subscriptions/pricecomponents/OptionSelect'
+import { pricingTransitions } from '@/features/subscriptions/pricecomponents/PriceComponentsLogic'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
 import { createSubscriptionAtom } from '@/pages/tenants/subscription/create/state'
+import { useSubscriptionSale } from '@/pages/tenants/subscription/create/useSubscriptionSale'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 import { listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
 import { ListCouponRequest_CouponFilter } from '@/rpc/api/coupons/v1/coupons_pb'
@@ -51,6 +54,7 @@ export const StepPlanAndCustomer = () => {
     if (prevPlanVersionId.current && planVersionId !== prevPlanVersionId.current) {
       setState(prev => ({
         ...prev,
+        option: undefined,
         components: { parameterized: [], overridden: [], extra: [], removed: [] },
         netTerms: undefined,
       }))
@@ -83,6 +87,7 @@ export const StepPlanAndCustomer = () => {
     { localId: planVersionId! },
     { enabled: !!planVersionId }
   )
+  const sale = useSubscriptionSale({ planVersionId, customerId, option: state.option })
 
   const selectedPlanId = planQuery.data?.plan?.plan?.id
 
@@ -154,6 +159,22 @@ export const StepPlanAndCustomer = () => {
                 <SubscribablePlanVersionSelect value={field.value} onChange={field.onChange}/>
               )}
             />
+            {planVersionId && sale.options.length > 1 && (
+              <div className="grid gap-2 md:grid-cols-12 items-center">
+                <Label className="col-span-4 text-xs font-normal text-muted-foreground">
+                  Option
+                </Label>
+                <div className="col-span-8">
+                  <OptionSelect
+                    options={sale.options}
+                    value={sale.option}
+                    onChange={handle =>
+                      setState(prev => pricingTransitions.changeOption(prev, handle))
+                    }
+                  />
+                </div>
+              </div>
+            )}
             <GenericFormField
               control={methods.control}
               layout="horizontal"
@@ -183,10 +204,11 @@ export const StepPlanAndCustomer = () => {
                   </AlertDescription>
                 </Alert>
               </div> */}
-              {planQuery.data?.plan?.version?.currency && (
+              {sale.currency && sale.components && (
                 <CreateSubscriptionPriceComponents
+                  planComponents={sale.components}
+                  currency={sale.currency}
                   planVersionId={planVersionId}
-                  currency={planQuery.data.plan.version.currency}
                   onValidationChange={(valid, errors) => {
                     setIsValid(valid)
                     setValidationErrors(errors)
@@ -235,7 +257,7 @@ export const StepPlanAndCustomer = () => {
                 }
                 availableCoupons={availableCoupons}
                 isCouponAvailable={isCouponAvailableForPlan}
-                currency={planQuery.data?.plan?.version?.currency}
+                currency={sale.currency}
               />
             </PageSection>
 

@@ -1,19 +1,20 @@
-import { create, type MessageInitShape } from '@bufbuild/protobuf';
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
+import { create, type MessageInitShape } from '@bufbuild/protobuf'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
   Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   Skeleton,
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
+  cn,
 } from '@md/ui'
 import { keepPreviousData, useQueryClient } from '@tanstack/react-query'
-import { CirclePower, Pencil, Plus } from 'lucide-react'
+import { MoreHorizontal, Plus } from 'lucide-react'
 import { useState } from 'react'
 
+import { Gate } from '@/components/Gate'
 import { EntityEntitlementDialog } from '@/features/entitlements/EntityEntitlementDialog'
-import { entitlementTooltip } from '@/features/entitlements/entitlementTooltips'
 import { FeatureCreateSheet } from '@/features/entitlements/features/FeatureCreateSheet'
 import { entitlementValueLabel, meteredValueToWrite } from '@/features/entitlements/utils'
 import { useQuery } from '@/lib/connectrpc'
@@ -28,18 +29,23 @@ import {
   EntitlementValueSchema,
   Feature,
   FeatureStatus,
-} from '@/rpc/api/entitlements/v1/models_pb';
+} from '@/rpc/api/entitlements/v1/models_pb'
 
-
-interface ProductFeatureRowProps {
-  feature: Feature
+/** "Included", "Off", "10,000 per billing period": a default value as the plan page reads one. */
+const valueText = (value: Entitlement['value'] | undefined): string => {
+  const v = value?.value
+  if (v?.case === 'booleanValue') return v.value.enabled ? 'Included' : 'Off'
+  if (v?.case === 'meteredValue' && !v.value.enabled) return `${entitlementValueLabel(v)} · off`
+  return entitlementValueLabel(v)
 }
 
-const ProductFeatureRow = ({ feature }: ProductFeatureRowProps) => {
+const ProductFeatureRow = ({ feature }: { feature: Feature }) => {
   const queryClient = useQueryClient()
   const [editOpen, setEditOpen] = useState(false)
 
-  const featureEntity = { EntityId: { case: 'featureId' as const, value: feature.id } } as EntitlementEntity
+  const featureEntity = {
+    EntityId: { case: 'featureId' as const, value: feature.id },
+  } as EntitlementEntity
 
   const entitlementQuery = useQuery(listEntitlementsByEntity, { entity: featureEntity })
   const existing: Entitlement | undefined = entitlementQuery.data?.entitlements?.[0]
@@ -47,10 +53,12 @@ const ProductFeatureRow = ({ feature }: ProductFeatureRowProps) => {
   const isBoolean = feature.featureType?.Inner?.case === 'boolean'
 
   const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-      schema: listEntitlementsByEntity.parent,
-      cardinality: undefined
-    }) })
+    queryClient.invalidateQueries({
+      queryKey: createConnectQueryKey({
+        schema: listEntitlementsByEntity.parent,
+        cardinality: undefined,
+      }),
+    })
 
   const updateMutation = useMutation(updateEntitlement, { onSuccess: invalidate })
 
@@ -73,101 +81,116 @@ const ProductFeatureRow = ({ feature }: ProductFeatureRowProps) => {
   const isDisabled =
     (currentValue?.case === 'booleanValue' && !currentValue.value.enabled) ||
     (currentValue?.case === 'meteredValue' && !currentValue.value.enabled)
+  const canToggle = !!existing && (isBoolean || isMetered)
 
   return (
-    <TooltipProvider>
-      <>
-        <div className="flex items-center justify-between px-3 py-2 text-sm">
-          <span className="font-medium">{feature.name}</span>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            {entitlementQuery.isLoading ? (
-              <span>...</span>
-            ) : (
-              <span>{existing ? entitlementValueLabel(existing.value?.value) : 'No default'}</span>
-            )}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="p-1 hover:bg-muted rounded"
-                  onClick={() => setEditOpen(true)}
-                >
-                  <Pencil size={12} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{entitlementTooltip('product', 'override')}</TooltipContent>
-            </Tooltip>
-            {existing && (isBoolean || isMetered) && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    className="p-1 hover:bg-muted rounded"
-                    onClick={handleToggleDisable}
-                    disabled={updateMutation.isPending}
-                  >
-                    {isDisabled
-                      ? <CirclePower size={12} className="text-destructive" />
-                      : <CirclePower size={12} className="text-primary" />}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{entitlementTooltip('product', isDisabled ? 'enable' : 'disable')}</TooltipContent>
-              </Tooltip>
-            )}
-          </div>
-        </div>
-
-        {editOpen && (
-          <EntityEntitlementDialog
-            entity={featureEntity}
-            existing={existing}
-            featureId={feature.id}
-            featureIsMetered={isMetered}
-            onClose={() => setEditOpen(false)}
-          />
+    <>
+      <div
+        className={cn(
+          'grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_2rem] items-center gap-x-4 px-4 py-2.5 text-sm',
+          isDisabled && 'opacity-60'
         )}
-      </>
-    </TooltipProvider>
-  )
-}
+      >
+        <span className="min-w-0 truncate font-medium">{feature.name}</span>
+        <span className="min-w-0 truncate">
+          {entitlementQuery.isLoading ? (
+            <Skeleton className="h-4 w-20" />
+          ) : existing ? (
+            <span className="font-semibold tabular-nums">{valueText(existing.value)}</span>
+          ) : (
+            <span className="text-muted-foreground">No default</span>
+          )}
+        </span>
+        <span className="flex justify-end">
+          <Gate perm="catalog:manage">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  disabled={updateMutation.isPending}
+                  aria-label={`${feature.name} actions`}
+                >
+                  <MoreHorizontal size={14} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => setEditOpen(true)}>
+                  {existing ? 'Change the default value' : 'Set a default value'}
+                </DropdownMenuItem>
+                {canToggle && (
+                  <DropdownMenuItem onSelect={handleToggleDisable}>
+                    {isDisabled ? 'Turn on by default' : 'Turn off by default'}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </Gate>
+        </span>
+      </div>
 
-interface Props {
-  productId: string
+      {editOpen && (
+        <EntityEntitlementDialog
+          entity={featureEntity}
+          existing={existing}
+          featureId={feature.id}
+          featureIsMetered={isMetered}
+          onClose={() => setEditOpen(false)}
+        />
+      )}
+    </>
+  )
 }
 
 const PAGE_SIZE = 100
 
-export const ProductEntitlementsSection = ({ productId }: Props) => {
+/** The product's features with the value each grants by default, as the plan page lists them. */
+export const ProductEntitlementsSection = ({ productId }: { productId: string }) => {
   const queryClient = useQueryClient()
   const [addOpen, setAddOpen] = useState(false)
   const [shown, setShown] = useState(PAGE_SIZE)
 
-  const featuresQuery = useQuery(listFeatures, {
-    productId,
-    pagination: { page: 0, perPage: shown },
-    statuses: [FeatureStatus.ACTIVE, FeatureStatus.DISABLED],
-  }, { placeholderData: keepPreviousData })
+  const featuresQuery = useQuery(
+    listFeatures,
+    {
+      productId,
+      pagination: { page: 0, perPage: shown },
+      statuses: [FeatureStatus.ACTIVE, FeatureStatus.DISABLED],
+    },
+    { placeholderData: keepPreviousData }
+  )
   const features = featuresQuery.data?.features ?? []
   const total = featuresQuery.data?.paginationMeta?.totalItems ?? 0
 
   const invalidateFeatures = () =>
-    queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-      schema: listFeatures.parent,
-      cardinality: undefined
-    }) })
+    queryClient.invalidateQueries({
+      queryKey: createConnectQueryKey({
+        schema: listFeatures.parent,
+        cardinality: undefined,
+      }),
+    })
 
   return (
-    <div>
-      <div className="flex justify-end mb-3">
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          hasIcon
-          onClick={() => setAddOpen(true)}
-        >
-          <Plus size={12} /> Add
-        </Button>
+    <section className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <h3 className="text-sm font-semibold">Entitlements</h3>
+          <span className="text-xs text-muted-foreground">
+            What every plan selling it grants, unless the plan sets its own
+          </span>
+        </div>
+        <Gate perm="catalog:manage">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            hasIcon
+            onClick={() => setAddOpen(true)}
+          >
+            <Plus size={12} /> Entitlement
+          </Button>
+        </Gate>
       </div>
 
       {featuresQuery.isLoading ? (
@@ -178,14 +201,14 @@ export const ProductEntitlementsSection = ({ productId }: Props) => {
       ) : features.length === 0 ? (
         <p className="text-sm text-muted-foreground">No features linked to this product.</p>
       ) : (
-        <div className="border rounded-md divide-y">
+        <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
           {features.map(f => (
             <ProductFeatureRow key={f.id} feature={f} />
           ))}
         </div>
       )}
       {total > features.length && (
-        <div className="flex justify-center mt-2">
+        <div className="flex justify-center">
           <Button
             type="button"
             size="sm"
@@ -207,6 +230,6 @@ export const ProductEntitlementsSection = ({ productId }: Props) => {
           }}
         />
       )}
-    </div>
+    </section>
   )
 }

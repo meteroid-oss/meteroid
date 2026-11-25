@@ -1,5 +1,6 @@
-import { useMutation, useQuery } from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation, useQuery } from '@connectrpc/connect-query'
 import { DialogDescription, DialogTitle, Input, Label, Modal } from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
 import { InfoIcon, Loader2, TrendingDown, TrendingUp } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -53,11 +54,18 @@ export const UpdateSlotModal = ({
     },
     {
       enabled: delta !== 0,
+      // Priced against the seats held now: a preview read before the last change is stale.
+      staleTime: 0,
+      gcTime: 0,
     }
   )
+  const queryClient = useQueryClient()
 
   const updateMutation = useMutation(updateSlots, {
     onSuccess: data => {
+      void queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({ schema: previewSlotUpdate, cardinality: undefined }),
+      })
       const action = delta > 0 ? 'upgraded' : 'downgraded'
       toast.success(`Successfully ${action} ${unit} count to ${data.currentValue}`)
       onSuccess?.(data.currentValue)
@@ -87,15 +95,17 @@ export const UpdateSlotModal = ({
     }
 
     try {
+      // Nothing to pay: the seats are added at once.
       const billingModeEnum =
-        billingMode === 'optimistic'
+        billingMode === 'optimistic' || !owes
           ? SlotUpgradeBillingMode.SLOT_OPTIMISTIC
           : SlotUpgradeBillingMode.SLOT_ON_INVOICE_PAID
 
       await updateMutation.mutateAsync({
         subscriptionId,
         priceComponentId,
-        delta,
+        delta: 0,
+        target: newSlots,
         billingMode: billingModeEnum,
       })
     } catch (error) {
@@ -103,6 +113,8 @@ export const UpdateSlotModal = ({
     }
   }
 
+  // Tiered seats carry no single rate: amounts come from the preview only.
+  const perUnit = unitRate !== ''
   const unitRateNum = Number(unitRate)
 
   const preview = previewQuery.data
@@ -113,6 +125,8 @@ export const UpdateSlotModal = ({
     ? Math.abs(Number(preview.fullPeriodAmount))
     : Math.abs(delta) * unitRateNum
   const daysRemaining = preview?.daysRemaining ?? 0
+  // Unknown until previewed: asked how to collect only when something is due.
+  const owes = !preview || proratedAmount > 0
 
   const newTotalCost = newSlots * unitRateNum
 
@@ -122,8 +136,8 @@ export const UpdateSlotModal = ({
         <>
           <DialogTitle className="text-base font-semibold">Update {unit} count</DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground mt-1">
-            Current: {currentSlots} {unit}(s) • {formatCurrencyNoRounding(unitRateNum, currency)}{' '}
-            per {unit}
+            Current: {currentSlots} {unit}(s)
+            {perUnit && <> • {formatCurrencyNoRounding(unitRateNum, currency)} per {unit}</>}
           </DialogDescription>
         </>
       }
@@ -191,15 +205,17 @@ export const UpdateSlotModal = ({
                     )}
                   </div>
 
-                  <div className="text-xs text-muted-foreground border-t border-border pt-2">
-                    New monthly total: {formatCurrencyNoRounding(newTotalCost, currency)}
-                  </div>
+                  {perUnit && (
+                    <div className="text-xs text-muted-foreground border-t border-border pt-2">
+                      New monthly total: {formatCurrencyNoRounding(newTotalCost, currency)}
+                    </div>
+                  )}
                 </>
               )}
             </div>
           )}
 
-          {isUpgrade && (
+          {isUpgrade && owes && (
             <div>
               <Label className="text-sm font-medium mb-2 block">Billing & Activation</Label>
               <div className="space-y-2">

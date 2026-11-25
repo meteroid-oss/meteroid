@@ -33,6 +33,7 @@ const ROUTE_FOR: Record<string, string | null> = {
   feature: 'features',
   coupon: 'coupons',
   billable_metric: 'billable-metrics',
+  rate_card: null,
   payment_transaction: null,
   api_token: null,
   user: null,
@@ -125,6 +126,8 @@ function defaultLabel(entityType: string, entityId: string): string {
       return 'Coupon'
     case 'billable_metric':
       return 'Billable metric'
+    case 'rate_card':
+      return 'Rate card'
     default:
       return entityId
   }

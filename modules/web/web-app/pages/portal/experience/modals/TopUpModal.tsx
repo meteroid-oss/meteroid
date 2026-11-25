@@ -27,11 +27,12 @@ import {
 } from '@/rpc/portal/wallets/v1/wallets-PortalWalletsService_connectquery'
 import { TopUpQuoteSchema, TopUpStatus } from '@/rpc/portal/wallets/v1/wallets_pb'
 
+import { Contact } from '../Contact'
 import { usePortalNav } from '../context'
 import { pmLabel } from '../format'
 import { useInvalidatePortal } from '../hooks'
 import { Modal, ModalCloseButton, PButton } from '../primitives'
-import { contactName, roundCreditPresets, topUpSettlesCopy } from '../screens/creditCopy'
+import { roundCreditPresets, topUpSettlesCopy } from '../screens/creditCopy'
 import { customerError, errorStyle, fieldStyle, labelStyle } from '../walletFormat'
 
 import {
@@ -538,7 +539,11 @@ export const TopUpModal = ({
         <div style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 16 }}>
           <p style={{ fontSize: 13, margin: 0 }}>
             {creditUnit?.pluralName} cannot be bought here at the moment. Contact{' '}
-            {contactName(overview.invoicingEntityName)} to add more.
+            <Contact
+              name={overview.invoicingEntityName}
+              email={overview.invoicingEntityContactEmail}
+            />{' '}
+            to add more.
           </p>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <PButton onClick={onClose}>Close</PButton>

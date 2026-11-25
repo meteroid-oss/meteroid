@@ -27,6 +27,7 @@ use meteroid_grpc::meteroid::api::listviews::v1::list_views_service_client::List
 use meteroid_grpc::meteroid::api::organizations::v1::organizations_service_client::OrganizationsServiceClient;
 use meteroid_grpc::meteroid::api::paymentreminders::v1::payment_reminders_service_client::PaymentRemindersServiceClient;
 use meteroid_grpc::meteroid::api::plans::v1::plans_service_client::PlansServiceClient;
+use meteroid_grpc::meteroid::api::pricingpage::v1::pricing_page_service_client::PricingPageServiceClient;
 use meteroid_grpc::meteroid::api::productfamilies::v1::product_families_service_client::ProductFamiliesServiceClient;
 use meteroid_grpc::meteroid::api::products::v1::products_service_client::ProductsServiceClient;
 use meteroid_grpc::meteroid::api::quoteanalytics::v1::quote_analytics_service_client::QuoteAnalyticsServiceClient;
@@ -35,6 +36,7 @@ use meteroid_grpc::meteroid::api::quotecomments::v1::quote_comments_service_clie
 use meteroid_grpc::meteroid::api::quotes::v1::quote_documents_service_client::QuoteDocumentsServiceClient;
 use meteroid_grpc::meteroid::api::quotes::v1::quotes_service_client::QuotesServiceClient;
 use meteroid_grpc::meteroid::api::quotetemplates::v1::quote_templates_service_client::QuoteTemplatesServiceClient;
+use meteroid_grpc::meteroid::api::ratecards::v1::rate_cards_service_client::RateCardsServiceClient;
 use meteroid_grpc::meteroid::api::schedules::v1::schedules_service_client::SchedulesServiceClient;
 use meteroid_grpc::meteroid::api::signals::v1::signals_service_client::SignalsServiceClient;
 use meteroid_grpc::meteroid::api::stats::v1::stats_service_client::StatsServiceClient;
@@ -57,6 +59,8 @@ pub struct AllClients {
     pub connectors: ConnectorsServiceClient<TestLayeredClientService>,
     pub coupons: CouponsServiceClient<TestLayeredClientService>,
     pub credit_units: CreditUnitsServiceClient<TestLayeredClientService>,
+    pub rate_cards: RateCardsServiceClient<TestLayeredClientService>,
+    pub pricing_page: PricingPageServiceClient<TestLayeredClientService>,
     pub customers: CustomersServiceClient<TestLayeredClientService>,
     pub customer_emails: CustomerEmailsServiceClient<TestLayeredClientService>,
     pub metrics: BillableMetricsServiceClient<TestLayeredClientService>,
@@ -108,6 +112,8 @@ impl AllClients {
             connectors: ConnectorsServiceClient::new(service.clone()),
             coupons: CouponsServiceClient::new(service.clone()),
             credit_units: CreditUnitsServiceClient::new(service.clone()),
+            rate_cards: RateCardsServiceClient::new(service.clone()),
+            pricing_page: PricingPageServiceClient::new(service.clone()),
             customers: CustomersServiceClient::new(service.clone()),
             customer_emails: CustomerEmailsServiceClient::new(service.clone()),
             metrics: BillableMetricsServiceClient::new(service.clone()),

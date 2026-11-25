@@ -29,6 +29,7 @@ pub enum EntityType {
     Plan,
     Product,
     Quote,
+    RateCard,
     Subscription,
     Tenant,
     User,
@@ -53,6 +54,7 @@ impl EntityType {
             Self::Plan => PlanId::from(raw).as_base62(),
             Self::Product => ProductId::from(raw).as_base62(),
             Self::Quote => QuoteId::from(raw).as_base62(),
+            Self::RateCard => RateCardId::from(raw).as_base62(),
             Self::Subscription => SubscriptionId::from(raw).as_base62(),
             Self::Tenant => TenantId::from(raw).as_base62(),
             Self::ApiToken => common_domain::ids::ApiTokenId::from(raw).as_base62(),
@@ -75,6 +77,7 @@ impl EntityType {
                 | Self::Plan
                 | Self::Product
                 | Self::Quote
+                | Self::RateCard
                 | Self::Subscription
         )
     }
@@ -123,6 +126,9 @@ impl EntityType {
                 .map(|i| i.as_uuid())
                 .map_err(|e| e.to_string()),
             Self::Quote => QuoteId::from_str(raw)
+                .map(|i| i.as_uuid())
+                .map_err(|e| e.to_string()),
+            Self::RateCard => RateCardId::from_str(raw)
                 .map(|i| i.as_uuid())
                 .map_err(|e| e.to_string()),
             Self::Subscription => SubscriptionId::from_str(raw)
@@ -281,6 +287,15 @@ pub enum ActivityType {
     #[strum(serialize = "coupon.archived")]
     #[serde(rename = "coupon.archived")]
     CouponArchived,
+
+    #[strum(serialize = "rate_card.created")]
+    #[serde(rename = "rate_card.created")]
+    RateCardCreated,
+    /// A batch of rates and removals: `metadata` is a
+    /// [`crate::domain::rate_cards::RateCardRatesChanged`].
+    #[strum(serialize = "rate_card.rates_changed")]
+    #[serde(rename = "rate_card.rates_changed")]
+    RateCardRatesChanged,
 
     #[strum(serialize = "add_on.created")]
     #[serde(rename = "add_on.created")]

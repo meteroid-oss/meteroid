@@ -1308,6 +1308,7 @@ fn every_component_maps_to_an_engine_valid_price() {
         product_family_id: ProductFamilyId::new(),
         product_id: None,
         usage_scope: Default::default(),
+        rated_dimensions: Vec::new(),
     };
     let units = HashMap::from([(CREDITS.to_string(), CreditUnitId::new())]);
     let mut once = vec![];

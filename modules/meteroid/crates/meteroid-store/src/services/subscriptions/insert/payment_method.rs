@@ -1,12 +1,13 @@
 use crate::domain::enums::PlanTypeEnum;
 use crate::domain::subscriptions::OnlineMethodsConfig;
 use crate::domain::{
-    Customer, InvoicingEntityProviderSensitive, PaymentMethodsConfig,
-    SubscriptionActivationCondition, SubscriptionNew,
+    InvoicingEntityProviderSensitive, PaymentMethodsConfig, SubscriptionActivationCondition,
+    charges_nothing,
 };
 use crate::errors::StoreError;
 
 use super::context::SubscriptionCreationContext;
+use super::process::DetailedSubscription;
 use crate::{StoreResult, services::Services};
 use error_stack::Report;
 
@@ -15,10 +16,10 @@ impl Services {
     /// Connection creation happens on-demand at checkout time.
     pub(crate) fn setup_payment_provider(
         &self,
-        subscription: &SubscriptionNew,
-        customer: &Customer,
+        detailed: &DetailedSubscription,
         context: &SubscriptionCreationContext,
     ) -> StoreResult<PaymentSetupResult> {
+        let (subscription, customer) = (&detailed.subscription, &detailed.customer);
         let plan = context
             .plans
             .iter()
@@ -29,7 +30,17 @@ impl Services {
                 ))
             })?;
 
-        if plan.plan_type == PlanTypeEnum::Free {
+        // Priced at nothing, a plan is free whatever its type, unless the subscription adds a
+        // charge. A version without components (or a quote, which loads none) has no entry.
+        let plan_components = context
+            .price_components_by_plan_version
+            .get(&subscription.plan_version_id)
+            .map_or(&[][..], Vec::as_slice);
+        let plan_minimum = context
+            .minimums_by_plan_version
+            .contains_key(&subscription.plan_version_id);
+        let free = charges_nothing(plan_components) && !detailed.charges(plan_minimum);
+        if plan.plan_type == PlanTypeEnum::Free || free {
             return Ok(PaymentSetupResult::external());
         }
 

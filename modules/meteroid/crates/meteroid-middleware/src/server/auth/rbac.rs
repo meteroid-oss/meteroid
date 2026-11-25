@@ -138,6 +138,10 @@ pub fn method_auth(sm: &GrpcServiceMethod) -> Option<RouteAuth> {
         | "CouponsService"
         | "SchedulesService"
         | "BillableMetricsService"
+        | "ManagedQuantitiesService"
+        | "RateCardsService"
+        | "PricingPageService"
+        | "SelfServeJourneyService"
         | "EntitlementsService"
         | "PurchaseLinksService" => rw(method, CatalogRead, CatalogManage),
 

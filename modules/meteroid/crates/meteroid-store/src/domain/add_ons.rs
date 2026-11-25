@@ -1,7 +1,8 @@
 use crate::domain::credit_units::CreditUnitsById;
 use crate::domain::entitlements::Entitlement;
-use crate::domain::enums::{FeeTypeEnum, SubscriptionFeeBillingPeriod};
-use crate::domain::price_components::{ComponentParameters, PriceEntry, ResolvedFee};
+use crate::domain::enums::{BillingPeriodEnum, FeeTypeEnum, SubscriptionFeeBillingPeriod};
+use crate::domain::price_cells::{cadence_free, cell, single_cadence};
+use crate::domain::price_components::{ComponentParameters, PriceEntry, PriceInput, ResolvedFee};
 use crate::domain::prices;
 use crate::domain::prices::FeeStructure;
 use crate::domain::subscription_add_ons::{
@@ -31,7 +32,12 @@ pub struct AddOn {
     // Eagerly loaded
     pub fee_type: Option<FeeTypeEnum>,
     pub fee_structure: Option<FeeStructure>,
+    /// Its product's icon and color.
+    pub product_icon: Option<String>,
+    pub product_color: Option<String>,
     pub price: Option<Price>,
+    /// Every price of the add-on, one per currency and billing period; `price_id` is the first.
+    pub prices: Vec<Price>,
     pub entitlements: Vec<Entitlement>,
 }
 
@@ -51,13 +57,84 @@ impl From<AddOnRow> for AddOn {
             archived_at: row.archived_at,
             fee_type: None,
             fee_structure: None,
+            product_icon: None,
+            product_color: None,
             price: None,
+            prices: vec![],
             entitlements: vec![],
         }
     }
 }
 
 impl AddOn {
+    /// Every price of the add-on; one not loaded with its prices has its first only.
+    pub fn catalog_prices(&self) -> Vec<Price> {
+        if self.prices.is_empty() {
+            self.price.iter().cloned().collect()
+        } else {
+            self.prices.clone()
+        }
+    }
+
+    /// The ids of every price of the add-on, its first included.
+    pub fn price_ids(&self) -> Vec<PriceId> {
+        let mut ids: Vec<PriceId> = self.prices.iter().map(|p| p.id).collect();
+        if !ids.contains(&self.price_id) {
+            ids.insert(0, self.price_id);
+        }
+        ids
+    }
+
+    /// The add-on as sold in `currency` on `term`: at its price there on the term, or on its one
+    /// cadence when it has a single one across currencies (as a plan charge). Refused when it has
+    /// none: "<add-on> has no price in <currency>".
+    pub fn in_currency(
+        &self,
+        currency: &str,
+        term: Option<BillingPeriodEnum>,
+    ) -> Result<AddOn, StoreError> {
+        let prices = self.catalog_prices();
+        if prices.is_empty() {
+            return Ok(self.clone());
+        }
+        let currency = currency.trim().to_ascii_uppercase();
+        let every = cell(&prices, &currency, None);
+        if every.is_empty() {
+            return Err(StoreError::InvalidArgument(format!(
+                "{} has no price in {currency}",
+                self.name
+            )));
+        }
+        let candidates = match term {
+            None => every,
+            Some(term) => {
+                let on_term = cell(&prices, &currency, Some(term));
+                if !on_term.is_empty() {
+                    on_term
+                } else if let Some(own) = single_cadence(&prices, &currency) {
+                    cell(&prices, &currency, Some(own))
+                } else {
+                    return Err(StoreError::InvalidArgument(format!(
+                        "{} has no price in {currency} for {term:?}",
+                        self.name
+                    )));
+                }
+            }
+        };
+        // Its first price when it is of the cell, so a legacy add-on bills as it always did.
+        let chosen = candidates
+            .iter()
+            .find(|p| p.id == self.price_id)
+            .or_else(|| candidates.iter().min_by_key(|p| p.cadence))
+            .map(|p| (*p).clone());
+        let mut priced = self.clone();
+        if let Some(price) = chosen {
+            priced.price_id = price.id;
+            priced.price = Some(price);
+        }
+        Ok(priced)
+    }
+
     /// Centralized resolution — uses the linked product + price to resolve fee.
     pub fn resolve_subscription_fee(
         &self,
@@ -72,12 +149,15 @@ impl AddOn {
                 self.product_id, self.id
             ))
         })?;
-        let price = prices.get(&self.price_id).ok_or_else(|| {
-            StoreError::InvalidArgument(format!(
-                "Price {} not found for add-on {}",
-                self.price_id, self.id
-            ))
-        })?;
+        let price = prices
+            .get(&self.price_id)
+            .or_else(|| self.prices.iter().find(|p| p.id == self.price_id))
+            .ok_or_else(|| {
+                StoreError::InvalidArgument(format!(
+                    "Price {} not found for add-on {}",
+                    self.price_id, self.id
+                ))
+            })?;
 
         let fee_structure = &product.fee_structure;
 
@@ -246,6 +326,39 @@ impl From<AddOnNew> for AddOnRowNew {
     }
 }
 
+/// How an edit reprices an add-on.
+#[derive(Debug, Clone)]
+pub enum AddOnPriceChange {
+    /// Replaces the price of its cell, as an add-on of one price was edited.
+    One(PriceEntry),
+    /// Every price of the add-on, one per currency and period; those left out are unlinked.
+    All(Vec<PriceInput>),
+}
+
+/// Whether two prices are of one cell: one currency, on one cadence or either of none.
+pub fn same_cell(a: &Price, b: &Price) -> bool {
+    a.currency.eq_ignore_ascii_case(&b.currency)
+        && (a.cadence == b.cadence || cadence_free(&a.pricing) || cadence_free(&b.pricing))
+}
+
+/// An add-on has one price per currency and billing period.
+pub fn ensure_one_price_per_cell(name: &str, prices: &[Price]) -> Result<(), StoreError> {
+    for (idx, a) in prices.iter().enumerate() {
+        if let Some(b) = prices[idx + 1..].iter().find(|b| same_cell(a, b)) {
+            return Err(StoreError::InvalidArgument(format!(
+                "{name} has two prices in {} for {:?}",
+                a.currency.to_ascii_uppercase(),
+                if cadence_free(&a.pricing) {
+                    b.cadence
+                } else {
+                    a.cadence
+                }
+            )));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 pub struct AddOnPatch {
     pub id: AddOnId,
@@ -268,5 +381,122 @@ impl AddOnPatch {
             max_instances_per_subscription: self.max_instances_per_subscription,
             updated_at: common_clock::now().naive_utc(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_decimal::Decimal;
+
+    fn price(currency: &str, cadence: BillingPeriodEnum, rate: i64) -> Price {
+        Price {
+            id: PriceId::new(),
+            product_id: ProductId::default(),
+            cadence,
+            currency: currency.to_owned(),
+            pricing: prices::Pricing::Rate {
+                rate: Decimal::from(rate),
+            },
+            tenant_id: TenantId::default(),
+            created_at: NaiveDateTime::default(),
+            archived_at: None,
+            catalog: true,
+            credit_unit: None,
+        }
+    }
+
+    fn add_on(prices: Vec<Price>) -> AddOn {
+        AddOn {
+            id: AddOnId::new(),
+            name: "Support".to_owned(),
+            tenant_id: TenantId::default(),
+            created_at: NaiveDateTime::default(),
+            updated_at: NaiveDateTime::default(),
+            product_id: ProductId::default(),
+            price_id: prices[0].id,
+            description: None,
+            self_serviceable: true,
+            max_instances_per_subscription: None,
+            archived_at: None,
+            fee_type: None,
+            fee_structure: None,
+            product_icon: None,
+            product_color: None,
+            price: Some(prices[0].clone()),
+            prices,
+            entitlements: vec![],
+        }
+    }
+
+    #[test]
+    fn an_add_on_is_sold_at_its_price_in_the_currency_on_the_term() {
+        let support = add_on(vec![
+            price("USD", BillingPeriodEnum::Monthly, 10),
+            price("EUR", BillingPeriodEnum::Monthly, 9),
+            price("EUR", BillingPeriodEnum::Annual, 90),
+        ]);
+        let yearly = support
+            .in_currency("eur", Some(BillingPeriodEnum::Annual))
+            .expect("EUR annual");
+        assert_eq!(yearly.price_id, support.prices[2].id);
+        assert_eq!(yearly.price.map(|p| p.id), Some(support.prices[2].id));
+        let monthly = support
+            .in_currency("EUR", None)
+            .expect("EUR, the shortest cadence");
+        assert_eq!(monthly.price_id, support.prices[1].id);
+        assert_eq!(
+            support.in_currency("USD", None).expect("USD").price_id,
+            support.price_id,
+            "its first price when of the cell"
+        );
+    }
+
+    #[test]
+    fn an_add_on_without_a_price_in_the_currency_is_refused() {
+        let support = add_on(vec![
+            price("USD", BillingPeriodEnum::Monthly, 10),
+            price("USD", BillingPeriodEnum::Annual, 100),
+        ]);
+        let err = support
+            .in_currency("EUR", Some(BillingPeriodEnum::Monthly))
+            .expect_err("no EUR price");
+        assert!(
+            err.to_string().contains("Support has no price in EUR"),
+            "{err}"
+        );
+        let err = support
+            .in_currency("USD", Some(BillingPeriodEnum::Quarterly))
+            .expect_err("priced per term, none quarterly");
+        assert!(
+            err.to_string()
+                .contains("Support has no price in USD for Quarterly")
+        );
+    }
+
+    #[test]
+    fn an_add_on_of_one_cadence_bills_on_it_under_every_term() {
+        let support = add_on(vec![
+            price("USD", BillingPeriodEnum::Monthly, 10),
+            price("EUR", BillingPeriodEnum::Monthly, 9),
+        ]);
+        let annual = support
+            .in_currency("EUR", Some(BillingPeriodEnum::Annual))
+            .expect("its monthly price");
+        assert_eq!(annual.price_id, support.prices[1].id);
+    }
+
+    #[test]
+    fn two_prices_in_one_cell_are_refused() {
+        let prices = vec![
+            price("EUR", BillingPeriodEnum::Monthly, 9),
+            price("eur", BillingPeriodEnum::Monthly, 10),
+        ];
+        assert!(ensure_one_price_per_cell("Support", &prices).is_err());
+        let prices = vec![
+            price("EUR", BillingPeriodEnum::Monthly, 9),
+            price("EUR", BillingPeriodEnum::Annual, 90),
+        ];
+        assert!(ensure_one_price_per_cell("Support", &prices).is_ok());
     }
 }

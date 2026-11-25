@@ -8,6 +8,7 @@ use chrono::NaiveTime;
 use common_domain::ids::SlotTransactionId;
 use common_domain::ids::{BaseId, InvoiceId, SubscriptionId, TenantId};
 use diesel_models::lock::CustomerLock;
+use diesel_models::managed_quantities::ManagedQuantityRow;
 use diesel_models::slot_transactions::SlotTransactionRow;
 use diesel_models::subscriptions::SubscriptionRow;
 use meteroid_store_macros::with_conn_delegate;
@@ -43,6 +44,9 @@ pub trait SubscriptionSlotsInterface {
 }
 
 impl Store {
+    /// A change of `delta` seats: in force at `ts` (at most the period's end), or from the
+    /// period's end when `deferred`. Only a deferred removal waits for the renewal (R-108).
+    #[allow(clippy::too_many_arguments)]
     pub async fn add_slot_transaction_tx(
         &self,
         conn: &mut PgConn,
@@ -52,6 +56,7 @@ impl Store {
         delta: i32,
         slot: &SlotForTransaction,
         ts: Option<chrono::NaiveDateTime>,
+        deferred: bool,
     ) -> StoreResult<SlotTransactionRow> {
         self.add_slot_transaction_tx_internal(
             conn,
@@ -63,6 +68,7 @@ impl Store {
             slot,
             ts,
             SlotTransactionStatusEnum::Active,
+            deferred,
         )
         .await
     }
@@ -88,6 +94,7 @@ impl Store {
             slot,
             at_ts,
             SlotTransactionStatusEnum::Pending,
+            false,
         )
         .await
     }
@@ -103,17 +110,15 @@ impl Store {
         slot: &SlotForTransaction,
         ts: Option<chrono::NaiveDateTime>,
         status: SlotTransactionStatusEnum,
+        deferred: bool,
     ) -> StoreResult<SlotTransactionRow> {
         let now = ts.unwrap_or(common_clock::now().naive_utc());
         let period_end = current_period_end.and_time(NaiveTime::MIN); // TODO MAX => change after the inclusive period update
 
-        // Determine effective_at based on upgrade/downgrade
-        let effective_at = if delta > 0 {
-            // Upgrade: immediate (limited to current_period_end in case of backfilling)
-            now.min(period_end)
-        } else {
-            // Downgrade: defer to next billing period
+        let effective_at = if deferred {
             period_end
+        } else {
+            now.min(period_end)
         };
 
         let current_slots = SlotTransactionRow::fetch_by_subscription_id_and_unit_locked(
@@ -139,7 +144,25 @@ impl Store {
             0
         };
         validate_slot_limits(slot, delta, current_slots + pending)?;
+        // A change waiting for the renewal moves the count from there: the bounds hold there too.
+        if effective_at < period_end {
+            let at_renewal = SlotTransactionRow::fetch_by_subscription_id_and_unit_locked(
+                conn,
+                lock,
+                subscription_id,
+                slot.unit.clone(),
+                Some(period_end),
+            )
+            .await?
+            .current_active_slots;
+            validate_slot_limits(slot, delta, at_renewal + pending)?;
+        }
 
+        let managed_quantity_id =
+            ManagedQuantityRow::ensure_codes(conn, lock.tenant_id(), &[slot.unit.as_str()])
+                .await?
+                .remove(&slot.unit)
+                .ok_or_else(|| StoreError::ValueNotFound(format!("quantity {}", slot.unit)))?;
         let transaction = SlotTransactionRow {
             id: SlotTransactionId::new(),
             subscription_id,
@@ -150,6 +173,8 @@ impl Store {
             unit: slot.unit.clone(),
             status: status.into(),
             invoice_id,
+            managed_quantity_id,
+            removal_waits_for_renewal: delta < 0 && deferred,
         };
 
         let transaction = transaction.insert(conn).await?;
@@ -279,4 +304,46 @@ pub fn validate_slot_limits(
     }
 
     Ok(())
+}
+
+/// The ledger rows of new seat transactions, each counting the managed quantity of its unit.
+pub(crate) async fn ledger_rows<'a>(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    transactions: impl IntoIterator<
+        Item = &'a (
+            SubscriptionId,
+            crate::domain::slot_transactions::SlotTransactionNewInternal,
+        ),
+    >,
+) -> StoreResult<Vec<SlotTransactionRow>> {
+    let transactions: Vec<_> = transactions.into_iter().collect();
+    let mut codes: Vec<&str> = transactions
+        .iter()
+        .map(|(_, tx)| tx.unit.as_str())
+        .collect();
+    codes.sort_unstable();
+    codes.dedup();
+    let ids = ManagedQuantityRow::ensure_codes(conn, tenant_id, &codes).await?;
+    transactions
+        .into_iter()
+        .map(|(subscription_id, tx)| {
+            let quantity = *ids
+                .get(&tx.unit)
+                .ok_or_else(|| StoreError::ValueNotFound(format!("quantity {}", tx.unit)))?;
+            Ok(SlotTransactionRow {
+                id: tx.id,
+                subscription_id: *subscription_id,
+                delta: tx.delta,
+                prev_active_slots: tx.prev_active_slots,
+                effective_at: tx.effective_at,
+                transaction_at: tx.transaction_at,
+                unit: tx.unit.clone(),
+                status: SlotTransactionStatusEnum::Active.into(),
+                invoice_id: None,
+                managed_quantity_id: quantity,
+                removal_waits_for_renewal: true,
+            })
+        })
+        .collect()
 }

@@ -10,6 +10,8 @@ import {
 } from '@/components/table/TableToolbarSlot'
 import { useBasePath } from '@/hooks/useBasePath'
 
+import { ListWithPanel } from './SidePanel'
+
 export interface Crumb {
   label: ReactNode
   to?: string
@@ -218,6 +220,8 @@ interface ListPageLayoutProps extends ListPageHeaderProps {
   children: ReactNode
   /** Render children directly without the card surface (e.g. empty states). */
   noCard?: boolean
+  /** The selected row, open beside the list (see {@link ListWithPanel}). */
+  panel?: ReactNode
   className?: string
 }
 
@@ -235,6 +239,7 @@ export const ListPageLayout = ({
   toolbarTrailing,
   children,
   noCard,
+  panel,
   className,
 }: ListPageLayoutProps) => {
   return (
@@ -252,13 +257,15 @@ export const ListPageLayout = ({
         tabs={tabs}
         actions={actions}
       />
-      {noCard ? (
-        children
-      ) : (
-        <TableCard footer={footer} toolbar={toolbar} toolbarTrailing={toolbarTrailing}>
-          {children}
-        </TableCard>
-      )}
+      <ListWithPanel panel={panel}>
+        {noCard ? (
+          children
+        ) : (
+          <TableCard footer={footer} toolbar={toolbar} toolbarTrailing={toolbarTrailing}>
+            {children}
+          </TableCard>
+        )}
+      </ListWithPanel>
     </div>
   )
 }

@@ -201,6 +201,7 @@ impl SubscriptionInterface for Store {
             pending_events: vec![],
             entitlements: vec![],
             minimum: None,
+            plan_option: None,
         })
     }
 
@@ -1072,6 +1073,7 @@ impl Store {
             .collect::<Result<Vec<_>, _>>()?;
 
         let minimum = load_subscription_minimum_on(conn, subscription.id, day).await?;
+        let plan_option = plan_option_of(conn, &subscription).await?;
 
         Ok(SubscriptionDetails {
             subscription,
@@ -1088,8 +1090,31 @@ impl Store {
             pending_events,
             entitlements,
             minimum,
+            plan_option,
         })
     }
+}
+
+/// The plan option `subscription` bought, while its version still has it.
+pub(crate) async fn plan_option_of(
+    conn: &mut PgConn,
+    subscription: &Subscription,
+) -> StoreResult<Option<crate::domain::plan_options::PlanOption>> {
+    let Some(id) = subscription.plan_option_id else {
+        return Ok(None);
+    };
+    Ok(
+        diesel_models::plan_version_options::PlanVersionOptionRow::list_by_plan_version_id(
+            conn,
+            subscription.tenant_id,
+            subscription.plan_version_id,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .into_iter()
+        .find(|row| row.id == id)
+        .map(Into::into),
+    )
 }
 
 /// The prices `price_ids` name, each as its lineage prices today (R-097), and the products.

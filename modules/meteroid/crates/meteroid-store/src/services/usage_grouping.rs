@@ -31,12 +31,19 @@ pub fn dimensions_of(key: &str) -> HashMap<String, String> {
     serde_json::from_str(key).unwrap_or_default()
 }
 
-/// The dimensions a metric's usage is always broken down by: its matrix and its group key.
-pub fn metric_dimensions(metric: &BillableMetric) -> BTreeSet<String> {
+/// The dimensions a metric's usage is broken down by for its own pricing: matrix and group key.
+pub fn own_dimensions(metric: &BillableMetric) -> BTreeSet<String> {
     dimension_set(
         metric.segmentation_matrix.as_ref(),
         metric.usage_group_key.as_deref(),
     )
+}
+
+/// The dimensions a metric's usage is always broken down by: its own, and its rate cards'.
+pub fn metric_dimensions(metric: &BillableMetric) -> BTreeSet<String> {
+    let mut dimensions = own_dimensions(metric);
+    dimensions.extend(metric.rated_dimensions.iter().cloned());
+    dimensions
 }
 
 fn dimension_set(

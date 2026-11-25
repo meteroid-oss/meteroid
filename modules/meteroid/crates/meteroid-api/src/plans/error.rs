@@ -11,6 +11,10 @@ pub enum PlanApiError {
     #[code(InvalidArgument)]
     InvalidArgument(String),
 
+    #[error("Not found: {0}")]
+    #[code(NotFound)]
+    NotFound(String),
+
     #[error("Store error: {0}")]
     #[code(Internal)]
     StoreError(String, #[source] Box<dyn Error>),
@@ -18,8 +22,13 @@ pub enum PlanApiError {
 
 impl From<Report<StoreError>> for PlanApiError {
     fn from(value: Report<StoreError>) -> Self {
-        if let StoreError::InvalidArgument(message) = value.current_context() {
-            return PlanApiError::InvalidArgument(message.clone());
+        match value.current_context() {
+            StoreError::InvalidArgument(message) => {
+                return PlanApiError::InvalidArgument(message.clone());
+            }
+            // A version a plan doesn't have (a draft already published, an active one not yet).
+            StoreError::ValueNotFound(message) => return PlanApiError::NotFound(message.clone()),
+            _ => {}
         }
         let err = Box::new(value.into_error());
         PlanApiError::StoreError("Error in plan service".to_string(), err)

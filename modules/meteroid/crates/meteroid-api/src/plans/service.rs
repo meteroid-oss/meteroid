@@ -3,24 +3,28 @@ use crate::entitlements::mapping::entitlement_spec_from_proto;
 use crate::plans::error::PlanApiError;
 use crate::plans::mapping::plans::{
     ListPlanVersionWrapper, PlanOverviewWrapper, PlanStatusWrapper, PlanTypeWrapper,
-    PlanVersionWrapper, PlanWithVersionWrapper,
+    PlanVersionWrapper, PlanWithVersionWrapper, plan_option_to_proto,
 };
-use common_domain::ids::{PlanId, PlanVersionId, ProductFamilyId};
+use common_domain::ids::{PlanId, PlanOptionId, PlanVersionId, ProductFamilyId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_app::features::{gates, minimum_commitments_open, minimum_commitments_refused};
 use meteroid_grpc::meteroid::api::plans::v1::get_plan_with_version_request::Filter;
 use meteroid_grpc::meteroid::api::plans::v1::{
     ArchivePlanRequest, ArchivePlanResponse, ClearPlanMinimumCommitmentRequest,
     ClearPlanMinimumCommitmentResponse, CopyVersionToDraftRequest, CopyVersionToDraftResponse,
-    CreateDraftPlanRequest, CreateDraftPlanResponse, DiscardDraftVersionRequest,
-    DiscardDraftVersionResponse, GetPlanOverviewRequest, GetPlanOverviewResponse,
-    GetPlanParametersRequest, GetPlanParametersResponse, GetPlanWithVersionByVersionIdRequest,
+    CreateDraftPlanRequest, CreateDraftPlanResponse, CreatePlanOptionRequest,
+    CreatePlanOptionResponse, DiscardDraftVersionRequest, DiscardDraftVersionResponse,
+    GetPlanOverviewRequest, GetPlanOverviewResponse, GetPlanParametersRequest,
+    GetPlanParametersResponse, GetPlanWithVersionByVersionIdRequest,
     GetPlanWithVersionByVersionIdResponse, GetPlanWithVersionRequest, GetPlanWithVersionResponse,
     ListPlanVersionByIdRequest, ListPlanVersionByIdResponse, ListPlansRequest, ListPlansResponse,
-    PublishPlanVersionRequest, PublishPlanVersionResponse, SetPlanMinimumCommitmentRequest,
-    SetPlanMinimumCommitmentResponse, UnarchivePlanRequest, UnarchivePlanResponse,
-    UpdateDraftPlanOverviewRequest, UpdateDraftPlanOverviewResponse, UpdatePlanTrialRequest,
-    UpdatePlanTrialResponse, UpdatePublishedPlanOverviewRequest,
+    PublishPlanVersionRequest, PublishPlanVersionResponse, RemovePlanOptionRequest,
+    RemovePlanOptionResponse, ReorderPlanOptionsRequest, ReorderPlanOptionsResponse,
+    SetPlanEligibilityRequest, SetPlanEligibilityResponse, SetPlanMinimumCommitmentRequest,
+    SetPlanMinimumCommitmentResponse, SetSelfServeLadderRequest, SetSelfServeLadderResponse,
+    UnarchivePlanRequest, UnarchivePlanResponse, UpdateDraftPlanOverviewRequest,
+    UpdateDraftPlanOverviewResponse, UpdatePlanOptionRequest, UpdatePlanOptionResponse,
+    UpdatePlanTrialRequest, UpdatePlanTrialResponse, UpdatePublishedPlanOverviewRequest,
     UpdatePublishedPlanOverviewResponse, plans_service_server::PlansService,
 };
 use meteroid_grpc_mapping::utils::PaginationExt;
@@ -29,8 +33,9 @@ use meteroid_store::domain::{
     PlanAndVersionPatch, PlanFilters, PlanPatch, PlanVersionFilter, PlanVersionPatch, TrialPatch,
 };
 use meteroid_store::errors::StoreError;
+use meteroid_store::repositories::PlanOptionInterface;
 use meteroid_store::repositories::plans::PlansInterfaceAuto;
-use meteroid_store::repositories::{PlansInterface, ProductFamilyInterface};
+use meteroid_store::repositories::{EligibilityInterface, PlansInterface, ProductFamilyInterface};
 use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]
@@ -78,7 +83,8 @@ impl PlansService for PlanServiceComponents {
                 trial: None,
                 period_start_day: None,
                 net_terms: 0,
-                currency: Some(req.currency),
+                // Blank: the tenant's currency.
+                currency: Some(req.currency).filter(|c| !c.trim().is_empty()),
                 billing_cycles: None,
                 entitlements,
                 tax_inclusive: req.tax_inclusive,
@@ -279,7 +285,8 @@ impl PlansService for PlanServiceComponents {
                     version: PlanVersionPatch {
                         id: plan_version_id,
                         tenant_id,
-                        currency: Some(req.currency),
+                        // Blank leaves it: the editor no longer sets it.
+                        currency: Some(req.currency).filter(|c| !c.trim().is_empty()),
                         net_terms: Some(req.net_terms as i32),
                         tax_inclusive: Some(req.tax_inclusive),
                         credit_exhausted_rule,
@@ -596,5 +603,148 @@ impl PlansService for PlanServiceComponents {
             .await
             .map_err(Into::<PlanApiError>::into)?;
         Ok(Response::new(ClearPlanMinimumCommitmentResponse {}))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn set_self_serve_ladder(
+        &self,
+        request: Request<SetSelfServeLadderRequest>,
+    ) -> Result<Response<SetSelfServeLadderResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
+        let req = request.into_inner();
+
+        let product_family_id = if req.product_family_local_id.eq_ignore_ascii_case("default") {
+            self.store
+                .find_default_product_family(tenant_id)
+                .await
+                .map_err(Into::<PlanApiError>::into)?
+                .id
+        } else {
+            ProductFamilyId::from_proto(&req.product_family_local_id)?
+        };
+        let plan_ids = req
+            .plan_ids
+            .iter()
+            .map(PlanId::from_proto)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        self.store
+            .set_self_serve_ladder(actor, tenant_id, product_family_id, plan_ids)
+            .await
+            .map_err(Into::<PlanApiError>::into)?;
+
+        Ok(Response::new(SetSelfServeLadderResponse {}))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn set_plan_eligibility(
+        &self,
+        request: Request<SetPlanEligibilityRequest>,
+    ) -> Result<Response<SetPlanEligibilityResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
+        let req = request.into_inner();
+
+        let plan_id = PlanId::from_proto(&req.plan_id)?;
+        let rule = req
+            .eligibility
+            .map(crate::eligibility::from_proto)
+            .unwrap_or_default();
+
+        let stored = self
+            .store
+            .set_plan_eligibility(actor, tenant_id, plan_id, rule)
+            .await
+            .map_err(Into::<PlanApiError>::into)?;
+
+        Ok(Response::new(SetPlanEligibilityResponse {
+            eligibility: Some(crate::eligibility::to_proto(stored.unwrap_or_default())),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn create_plan_option(
+        &self,
+        request: Request<CreatePlanOptionRequest>,
+    ) -> Result<Response<CreatePlanOptionResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let plan_version_id = PlanVersionId::from_proto(&req.plan_version_id)?;
+        let copy_from = PlanOptionId::from_proto_opt(req.copy_from_option_id)?;
+
+        let option = self
+            .store
+            .create_plan_option(tenant_id, plan_version_id, req.name, req.alias, copy_from)
+            .await
+            .map_err(Into::<PlanApiError>::into)?;
+
+        Ok(Response::new(CreatePlanOptionResponse {
+            option: Some(plan_option_to_proto(&option)),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn update_plan_option(
+        &self,
+        request: Request<UpdatePlanOptionRequest>,
+    ) -> Result<Response<UpdatePlanOptionResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let option_id = PlanOptionId::from_proto(&req.option_id)?;
+        let option = self
+            .store
+            .update_plan_option(tenant_id, option_id, req.name, req.alias, req.hidden)
+            .await
+            .map_err(Into::<PlanApiError>::into)?;
+
+        Ok(Response::new(UpdatePlanOptionResponse {
+            option: Some(plan_option_to_proto(&option)),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn remove_plan_option(
+        &self,
+        request: Request<RemovePlanOptionRequest>,
+    ) -> Result<Response<RemovePlanOptionResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let option_id = PlanOptionId::from_proto(&req.option_id)?;
+        self.store
+            .remove_plan_option(tenant_id, option_id)
+            .await
+            .map_err(Into::<PlanApiError>::into)?;
+
+        Ok(Response::new(RemovePlanOptionResponse {}))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn reorder_plan_options(
+        &self,
+        request: Request<ReorderPlanOptionsRequest>,
+    ) -> Result<Response<ReorderPlanOptionsResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let plan_version_id = PlanVersionId::from_proto(&req.plan_version_id)?;
+        let ids = req
+            .option_ids
+            .iter()
+            .map(PlanOptionId::from_proto)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let options = self
+            .store
+            .reorder_plan_options(tenant_id, plan_version_id, ids)
+            .await
+            .map_err(Into::<PlanApiError>::into)?;
+
+        Ok(Response::new(ReorderPlanOptionsResponse {
+            options: options.iter().map(plan_option_to_proto).collect(),
+        }))
     }
 }

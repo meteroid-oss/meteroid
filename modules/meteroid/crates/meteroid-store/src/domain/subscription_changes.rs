@@ -2,10 +2,27 @@ use crate::domain::enums::SubscriptionFeeBillingPeriod;
 use crate::domain::subscription_components::SubscriptionFee;
 use chrono::NaiveDate;
 use common_domain::ids::{
-    CreditNoteId, InvoiceId, PriceComponentId, ProductId, SubscriptionAddOnId,
+    CreditNoteId, InvoiceId, PlanVersionId, PriceComponentId, ProductId, SubscriptionAddOnId,
     SubscriptionPriceComponentId,
 };
 use serde::{Deserialize, Serialize};
+
+/// What a plan change moves to: an option of a plan version, in the subscription's currency.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlanTarget {
+    pub version: PlanVersionId,
+    /// None: the subscription's option alias when the target version has it, else the default.
+    pub option: Option<crate::domain::plan_options::PlanOptionRef>,
+}
+
+impl From<PlanVersionId> for PlanTarget {
+    fn from(version: PlanVersionId) -> Self {
+        PlanTarget {
+            version,
+            option: None,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PlanChangeMode {

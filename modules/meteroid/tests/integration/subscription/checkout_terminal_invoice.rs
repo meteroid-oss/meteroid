@@ -45,6 +45,7 @@ async fn create_activation_session(
             tenant_id: TENANT_ID,
             customer_id: sub.customer_id,
             plan_version_id: sub.plan_version_id,
+            option: None,
             billing_start_date: sub.billing_start_date,
             billing_day_anchor: Some(sub.billing_day_anchor),
             net_terms: Some(sub.net_terms),

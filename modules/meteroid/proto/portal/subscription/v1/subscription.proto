@@ -73,6 +73,8 @@ message SubscriptionDetails {
   // customer to contact their account manager instead of purchasing.
   bool online_payment_enabled = 11;
   optional PlanPrice plan_price = 12;
+  // The name of the plan option it bought ("Annual").
+  optional string option_name = 13;
 }
 
 // The recurring price of a plan, from its price components (never MRR). Usage is billed on top.
@@ -159,6 +161,25 @@ message AvailablePlan {
   bool is_current = 6;
   optional ComponentFee headline_fee = 7;
   optional PlanPrice price = 8;
+  reserved 9;
+  reserved "variants";
+  // The options it is offered in, in the subscription's currency, each priced. Empty: not offered.
+  repeated AvailableOption options = 10;
+}
+
+// An option of a plan priced in the subscription's currency.
+message AvailableOption {
+  // The plan option's id.
+  string id = 1;
+  // As the plan names it, e.g. "Annual".
+  string name = 2;
+  reserved 3, 6, 7, 8;
+  reserved "cadence", "price_book_id", "price_book_name", "term";
+  PlanPrice price = 4;
+  // The subscription's own.
+  bool is_current = 5;
+  string currency = 9;
+  string alias = 10;
 }
 
 message ComponentFee {
@@ -199,25 +220,71 @@ message GetSubscriptionDetailsResponse {
 
 message ListAvailablePlansRequest {
   string subscription_id = 1;
+  reserved 2;
+  reserved "offer_code";
 }
 
 message ListAvailablePlansResponse {
   repeated AvailablePlan plans = 1;
+  // The customer may switch option (another option of the same plan is offered).
+  bool period_switch = 2;
+  // The customer may schedule a downgrade; else the portal points to the account team.
+  bool self_serve_downgrade = 3;
+  reserved 4;
+  reserved "price_book_name";
 }
 
 message PreviewPlanChangeRequest {
   string subscription_id = 1;
   string new_plan_version_id = 2;
+  reserved 3, 4, 5;
+  reserved "plan_variant_id", "term", "offer_code";
+  // The option to move to, by id or alias; unset: the subscription's own when the plan has it,
+  // else its default. The currency is always the subscription's.
+  optional string option = 6;
+  // The level picked for each usage-levels charge of the plan moved to; a charge left out lands
+  // on the level the preview reports (PlanChangeLevels).
+  repeated LevelChoice levels = 7;
+}
+
+// A level picked for a usage-levels charge of the plan moved to.
+message LevelChoice {
+  // PlanChangeLevels.component_id.
+  string component_id = 1;
+  // The units of the level: CapacityLevel.included.
+  uint64 included = 2;
+}
+
+// A usage-levels charge of the plan moved to, sold at several levels, and the level the change
+// lands it on: the one picked, else the one held when the plan sells it, else the next level up,
+// else the highest; the lowest for a charge the subscription does not have.
+message PlanChangeLevels {
+  // The plan's price component.
+  string component_id = 1;
+  string name = 2;
+  // What its metric counts (plural), as AdjustableComponent.unit.
+  optional string unit = 3;
+  // Fewest units first; `current` marks the level the change lands on.
+  repeated CapacityLevel levels = 4;
+  // The units of the level held now; unset when the subscription does not have this charge.
+  optional uint64 held = 5;
 }
 
 message PreviewPlanChangeResponse {
   PlanChangePreview preview = 1;
   string new_plan_name = 2;
+  // The usage-levels charges of the plan moved to that offer a choice of level.
+  repeated PlanChangeLevels levels = 3;
 }
 
 message ConfirmPlanChangeRequest {
   string subscription_id = 1;
   string new_plan_version_id = 2;
+  reserved 3, 4, 5;
+  reserved "plan_variant_id", "term", "offer_code";
+  optional string option = 6;
+  // As PreviewPlanChangeRequest.levels.
+  repeated LevelChoice levels = 7;
 }
 
 message ConfirmPlanChangeResponse {
@@ -358,9 +425,22 @@ message AdjustableComponent {
   int64 current = 4;
   optional int64 min = 5;
   optional int64 max = 6;
-  optional string unit = 7;
+  optional string unit = 7; // seats: the seat's name; capacity: what its metric counts (plural)
   string currency = 8;
   ComponentFee unit_fee = 9; // reuse existing ComponentFee
+  // A usage-levels charge ("capacity"): the levels of its plan it may move to, fewest units
+  // first. Empty when the plan sells it at a single level.
+  repeated CapacityLevel levels = 10;
+}
+
+// A level of a usage-levels charge: `included` units for `fee`, overage above them.
+message CapacityLevel {
+  string price_id = 1;
+  uint64 included = 2;
+  ComponentFee fee = 3;
+  string overage_rate = 4;
+  // The level the subscription is on.
+  bool current = 5;
 }
 
 message ListAdjustableComponentsRequest {
@@ -371,6 +451,9 @@ message ListAdjustableComponentsResponse {
   repeated AdjustableComponent components = 1;
   bool can_self_serve = 2;
   bool allow_downgrade = 3;
+  // The customer may move a usage-levels charge to a lower level (at the end of the period);
+  // else only higher levels are theirs to pick, the account team arranging the others.
+  bool level_downgrade = 4;
 }
 
 enum AdjustmentStatus {
@@ -446,6 +529,31 @@ message PreviewSeatsResponse {
   QuantityChangePreview preview = 1;
 }
 
+// Move a usage-levels charge to another level of its plan: a higher level applies at once,
+// prorated; a lower one at the end of the period.
+message PreviewLevelChangeRequest {
+  string subscription_id = 1;
+  string component_id = 2; // price_component_id, as AdjustableComponent.component_id
+  string price_id = 3; // CapacityLevel.price_id
+}
+
+message PreviewLevelChangeResponse {
+  QuantityChangePreview preview = 1;
+}
+
+message ChangeLevelRequest {
+  string subscription_id = 1;
+  string component_id = 2;
+  string price_id = 3;
+}
+
+message ChangeLevelResponse {
+  AdjustmentStatus status = 1;
+  optional string effective_date = 2;
+  optional string scheduled_event_id = 3;
+  optional string adjustment_invoice_id = 4;
+}
+
 service PortalSubscriptionService {
   rpc GetSubscriptionDetails(GetSubscriptionDetailsRequest) returns (GetSubscriptionDetailsResponse);
   rpc ListAvailablePlans(ListAvailablePlansRequest) returns (ListAvailablePlansResponse);
@@ -462,4 +570,6 @@ service PortalSubscriptionService {
   rpc UpdateSeats(UpdateSeatsRequest) returns (UpdateSeatsResponse);
   rpc PreviewAddOnQuantity(PreviewAddOnQuantityRequest) returns (PreviewAddOnQuantityResponse);
   rpc PreviewSeats(PreviewSeatsRequest) returns (PreviewSeatsResponse);
+  rpc PreviewLevelChange(PreviewLevelChangeRequest) returns (PreviewLevelChangeResponse);
+  rpc ChangeLevel(ChangeLevelRequest) returns (ChangeLevelResponse);
 }

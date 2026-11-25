@@ -14,10 +14,10 @@ import type { Price } from '@/rpc/api/prices/v1/models_pb'
 export type PaymentMethodsConfigType = 'online' | 'bankTransfer' | 'external'
 
 // Component configuration types
+// A plan charge's cadence is its option's (`CreateSubscriptionState.option`), not chosen per charge.
 export interface ComponentParameterization {
   componentId: string
   initialSlotCount?: number
-  billingPeriod?: BillingPeriod
   committedCapacity?: bigint
 }
 
@@ -52,8 +52,8 @@ export interface CreateSubscriptionCoupon {
 }
 
 /**
- * The prices a subscription or quote will bill: the plan's components minus the removed ones, with
- * overrides applied and the chosen billing period, plus extra components and the add-ons' prices.
+ * The prices a subscription or quote will bill: the plan's components (as bought in its option, see
+ * `inOption`) minus the removed ones, with overrides applied, plus extras and the add-ons' prices.
  */
 export const effectiveSubscriptionPrices = (
   planComponents: PriceComponent[],
@@ -76,15 +76,14 @@ export const effectiveSubscriptionPrices = (
     .flatMap(pc => {
       const override = components.overridden.find(o => o.componentId === pc.id)
       if (override) return fromForm(override)
-      // The one price the server resolves (`select_price`): narrowed by the chosen cadence and
-      // capacity; still ambiguous, the component is not resolvable yet and counts for nothing.
+      // The one price the server resolves (`select_price`): narrowed by the chosen capacity;
+      // still ambiguous, the component is not resolvable yet and counts for nothing.
       const params = components.parameterized.find(p => p.componentId === pc.id)
       const candidates = pc.prices.filter(
         p =>
-          (params?.billingPeriod === undefined || p.cadence === params.billingPeriod) &&
-          (params?.committedCapacity === undefined ||
-            p.pricing.case !== 'capacityPricing' ||
-            p.pricing.value.included === params.committedCapacity)
+          params?.committedCapacity === undefined ||
+          p.pricing.case !== 'capacityPricing' ||
+          p.pricing.value.included === params.committedCapacity
       )
       return candidates.length === 1 ? candidates : []
     })
@@ -99,6 +98,8 @@ export interface CreateSubscriptionState {
   // Basic info
   customerId?: string
   planVersionId?: string
+  // The plan option bought (its alias); unset: the default one sold in the customer's currency.
+  option?: string
 
   // Timing & billing
   startDate: Date
@@ -147,6 +148,7 @@ export interface CreateSubscriptionState {
 export const createSubscriptionAtom = atomWithReset<CreateSubscriptionState>({
   customerId: undefined,
   planVersionId: undefined,
+  option: undefined,
 
   startDate: new Date(),
   endDate: undefined,

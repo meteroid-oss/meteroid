@@ -18,6 +18,15 @@ message CreateProductFamilyResponse {
   ProductFamily product_family = 1;
 }
 
+message UpdateProductFamilyRequest {
+  string id = 1;
+  string name = 2;
+}
+
+message UpdateProductFamilyResponse {
+  ProductFamily product_family = 1;
+}
+
 message GetProductFamilyByLocalIdRequest {
   string local_id = 1;
 }
@@ -30,4 +39,5 @@ service ProductFamiliesService {
   rpc ListProductFamilies(ListProductFamiliesRequest) returns (ListProductFamiliesResponse) {}
   rpc CreateProductFamily(CreateProductFamilyRequest) returns (CreateProductFamilyResponse) {}
   rpc GetProductFamilyByLocalId(GetProductFamilyByLocalIdRequest) returns (GetProductFamilyByLocalIdResponse) {}
+  rpc UpdateProductFamily(UpdateProductFamilyRequest) returns (UpdateProductFamilyResponse) {}
 }

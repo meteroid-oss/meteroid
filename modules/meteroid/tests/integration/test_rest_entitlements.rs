@@ -2339,3 +2339,128 @@ async fn test_rest_unarchive_by_code() {
         reqwest::StatusCode::NOT_FOUND
     );
 }
+
+/// Usage priced by dimension at rates a matrix can hold reads back as MATRIX, as it did before
+/// rates by dimension; rates no matrix holds read back as DIMENSION_RATES.
+#[tokio::test]
+async fn test_rest_plan_returns_matrix_shaped_rates_as_matrix() {
+    let f = start_rest_fixture("rest-plan-matrix").await;
+    let usage = |name: &str, pricing: Value| {
+        json!({
+            "name": name,
+            "fee": {
+                "type": "USAGE",
+                "metric_id": METRIC_BANDWIDTH.as_base62(),
+                "pricing": pricing,
+                "cadence": "MONTHLY"
+            }
+        })
+    };
+    let created = json_or_panic(
+        f.post("/api/v1/plans")
+            .json(&json!({
+                "name": "Matrix Back Compat",
+                "product_family_id": crate::data::ids::PRODUCT_FAMILY_ID.as_base62(),
+                "plan_type": "STANDARD",
+                "status": "ACTIVE",
+                "currency": "EUR",
+                "components": [
+                    usage("Regions", json!({
+                        "type": "MATRIX",
+                        "rates": [
+                            {
+                                "dimension1": {"key": "region", "value": "eu"},
+                                "dimension2": {"key": "tier", "value": "gold"},
+                                "per_unit_price": "0.20"
+                            },
+                            {
+                                "dimension1": {"key": "region", "value": "us"},
+                                "dimension2": null,
+                                "per_unit_price": "0.10"
+                            }
+                        ]
+                    })),
+                    usage("Models", json!({
+                        "type": "DIMENSION_RATES",
+                        "dimensions": ["model"],
+                        "rates": [{"key": ["gpt-4"], "rate": "3"}]
+                    })),
+                    usage("Tokens", json!({
+                        "type": "DIMENSION_RATES",
+                        "dimensions": ["model", "token_type"],
+                        "rates": [{"key": ["gpt-*", "*"], "rate": "2.50"}],
+                        "unit_size": "1000000"
+                    }))
+                ]
+            }))
+            .send()
+            .await
+            .unwrap(),
+        reqwest::StatusCode::CREATED,
+    )
+    .await;
+    let plan_id = created["id"].as_str().unwrap().to_string();
+    let plan = json_or_panic(
+        f.get(&format!("/api/v1/plans/{plan_id}"))
+            .send()
+            .await
+            .unwrap(),
+        reqwest::StatusCode::OK,
+    )
+    .await;
+    let pricing = |name: &str| {
+        plan["price_components"]
+            .as_array()
+            .expect("the plan's components")
+            .iter()
+            .find(|component| component["name"] == name)
+            .unwrap_or_else(|| panic!("no component {name} in {plan}"))["fee"]["pricing"]
+            .clone()
+    };
+    // Each cell as (dimension1, dimension2, per unit price).
+    let cells = |pricing: &Value| -> Vec<(Value, Value, rust_decimal::Decimal)> {
+        pricing["rates"]
+            .as_array()
+            .expect("the matrix's cells")
+            .iter()
+            .map(|row| {
+                (
+                    row["dimension1"].clone(),
+                    row["dimension2"].clone(),
+                    row["per_unit_price"].as_str().unwrap().parse().unwrap(),
+                )
+            })
+            .collect()
+    };
+
+    let regions = pricing("Regions");
+    assert_eq!(regions["type"], "MATRIX", "{regions}");
+    assert_eq!(
+        cells(&regions),
+        vec![
+            (
+                json!({"key": "region", "value": "eu"}),
+                json!({"key": "tier", "value": "gold"}),
+                dec!(0.20)
+            ),
+            (
+                json!({"key": "region", "value": "us"}),
+                Value::Null,
+                dec!(0.10)
+            ),
+        ]
+    );
+    let models = pricing("Models");
+    assert_eq!(models["type"], "MATRIX", "{models}");
+    assert_eq!(
+        cells(&models),
+        vec![(
+            json!({"key": "model", "value": "gpt-4"}),
+            Value::Null,
+            dec!(3)
+        )]
+    );
+    let tokens = pricing("Tokens");
+    assert_eq!(tokens["type"], "DIMENSION_RATES", "{tokens}");
+    assert_eq!(tokens["dimensions"], json!(["model", "token_type"]));
+}

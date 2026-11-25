@@ -5,7 +5,13 @@ import { type ReactNode } from 'react'
 import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
 import { SubscriptionMinimumCommitment } from '@/features/subscriptions/SubscriptionMinimumCommitment'
 import { SubscriptionSectionCard } from '@/features/subscriptions/SubscriptionSectionCard'
-import { feeBillingPeriod, formatSubscriptionFee } from '@/features/subscriptions/utils/fees'
+import {
+  billedSlots,
+  feeBillingPeriod,
+  formatSubscriptionFee,
+  slotFeeTotal,
+  slotFeeWords,
+} from '@/features/subscriptions/utils/fees'
 import { useQuery } from '@/lib/connectrpc'
 import { formatCurrencyNoRounding } from '@/lib/utils/numbers'
 import { SubscriptionFeeBillingPeriod } from '@/rpc/api/subscriptions/v1/models_pb'
@@ -71,15 +77,18 @@ export const SubscriptionFeeDetail = ({
     return <span className="text-sm text-muted-foreground">-</span>
   }
   if (fee.fee.case === 'slot' && currentSlots !== undefined && !isLoadingSlots) {
-    const unitRate = Number(fee.fee.value.unitRate)
+    const slot = fee.fee.value
+    const seats = billedSlots(slot, currentSlots)
+    // A model prices the count (seats included, tiers, packs): read in words, never one rate.
+    const priced = slot.model?.model.case
+      ? `${seats} ${slot.unit}(s) · ${slotFeeWords(slot, currency)}`
+      : `${formatCurrencyNoRounding(Number(slot.unitRate || 0), currency)} × ${seats} ${slot.unit}(s)`
     return (
       <div className="space-y-0.5">
         <div className="text-foreground tabular-nums">
-          {formatCurrencyNoRounding(currentSlots * unitRate, currency)}
+          {formatCurrencyNoRounding(slotFeeTotal(slot, currentSlots).toString(), currency)}
         </div>
-        <div className="text-xs text-muted-foreground">
-          {formatCurrencyNoRounding(unitRate, currency)} × {currentSlots} {fee.fee.value.unit}(s)
-        </div>
+        <div className="text-xs text-muted-foreground">{priced}</div>
       </div>
     )
   }

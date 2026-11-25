@@ -33,11 +33,13 @@ use meteroid_grpc::meteroid::api::quotes::v1::{
 use meteroid_grpc_mapping::utils::PaginationExt;
 use meteroid_store::domain::add_ons::AddOn;
 use meteroid_store::domain::customer_emails::EmailKind;
+use meteroid_store::domain::price_cells::{OptionPricing, resolve_option, sold_options};
 use meteroid_store::domain::quote_drafts::{QuoteDraftSave, QuoteDraftSaveOutcome};
 use meteroid_store::domain::quotes::{QuoteAddOnNew, QuoteCouponNew, UnsavedQuote};
 use meteroid_store::domain::{CreateSubscriptionAddOns, CreateSubscriptionComponents};
 use meteroid_store::domain::{PriceComponent, quotes::QuotePriceComponentNew};
 use meteroid_store::repositories::CreditUnitsInterface;
+use meteroid_store::repositories::PlanOptionInterface;
 use meteroid_store::repositories::QuotesInterface;
 use meteroid_store::repositories::customer_emails::CustomerEmailsInterface;
 use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
@@ -1197,6 +1199,7 @@ impl QuoteServiceComponents {
         let customer_actions = quote.customer_actions.take();
         let customer_id = CustomerId::from_proto(&quote.customer_id)?;
         let plan_version_id = PlanVersionId::from_proto(&quote.plan_version_id)?;
+        let asked_option = crate::plans::mapping::plans::option_ref_from_proto(quote.option.take());
 
         // Parsed with the create-time parser so inline new-product extras (by name) survive to
         // conversion, where the created subscription's `minimum_override` resolves them.
@@ -1236,6 +1239,8 @@ impl QuoteServiceComponents {
         let requested_net_terms = quote.net_terms;
 
         let mut quote_new = meteroid_store::domain::quotes::QuoteNew {
+            // Set once the components are priced in an option, below.
+            plan_option: None,
             id: quote_id,
             status: meteroid_store::domain::enums::QuoteStatusEnum::Draft,
             tenant_id,
@@ -1329,13 +1334,50 @@ impl QuoteServiceComponents {
         let mut creates_credit_product = false;
         // Process quote components (fetch plan price components + products + prices first)
         let mut quote_components = if let Some(components) = quote.components {
-            let price_components = self
+            // A quote is priced in its currency, as its subscription will be.
+            let mut price_components = self
                 .store
                 .list_price_components(plan_version_id, tenant_id)
                 .await
                 .map_err(Into::<QuoteApiError>::into)?;
-
             let create_components = create_subscription_components_from_grpc(components)?;
+            // Priced in one option of the plan: the one asked, else the first sold in the currency.
+            let options = self
+                .store
+                .list_plan_options(tenant_id, plan_version_id)
+                .await
+                .map_err(Into::<QuoteApiError>::into)?;
+            let option = match &asked_option {
+                Some(asked) => resolve_option(&options, Some(asked)),
+                None => {
+                    match sold_options(&options, &price_components, &quote_new.currency).first() {
+                        Some(option) => Ok(*option),
+                        None => resolve_option(&options, None),
+                    }
+                }
+            }
+            .map_err(|e| Status::invalid_argument(e.current_context().to_string()))?;
+            quote_new.plan_option = Some(option.alias.clone());
+            let pricing = OptionPricing::new(option.id, &quote_new.currency);
+            // As a subscription's creation does: a removed or overridden component sells nothing.
+            for component in &mut price_components {
+                let replaced = create_components.remove_components.contains(&component.id)
+                    || create_components
+                        .overridden_components
+                        .iter()
+                        .any(|o| o.component_id == component.id);
+                if replaced {
+                    continue;
+                }
+                // Never taken for an included product only for lack of a price in the cell.
+                if !component.prices.is_empty() && pricing.prices(component).is_empty() {
+                    return Err(Status::invalid_argument(format!(
+                        "{} has no price in {} for {}",
+                        component.name, quote_new.currency, option.name
+                    )));
+                }
+                pricing.narrow(std::slice::from_mut(component));
+            }
             creates_credit_product = create_components
                 .extra_components
                 .iter()
@@ -1489,7 +1531,7 @@ impl QuoteServiceComponents {
 
                 // Collect product_ids and price_ids from add-ons for fee resolution
                 let product_ids: Vec<ProductId> = add_ons.iter().map(|a| a.product_id).collect();
-                let price_ids: Vec<PriceId> = add_ons.iter().map(|a| a.price_id).collect();
+                let price_ids: Vec<PriceId> = add_ons.iter().flat_map(|a| a.price_ids()).collect();
 
                 let products = self
                     .store
@@ -1525,6 +1567,11 @@ impl QuoteServiceComponents {
                     .await
                     .map_err(Into::<QuoteApiError>::into)?;
 
+                // Quoted on the plan's term: the shortest recurring period of its charges.
+                let term = quote_components
+                    .iter()
+                    .filter_map(|c| c.period.as_billing_period_opt())
+                    .min();
                 process_quote_add_ons(
                     &create_add_ons,
                     &add_ons,
@@ -1534,6 +1581,7 @@ impl QuoteServiceComponents {
                     quote_id,
                     plan_with_version.plan.product_family_id,
                     &plan_version.currency,
+                    term,
                 )?
             } else {
                 (vec![], vec![])
@@ -1613,8 +1661,16 @@ fn process_quote_components(
 
     let mut processed_components = Vec::new();
 
-    // Process parameterized components
+    // Process parameterized components. An overridden one is priced by its override below,
+    // which takes the parameters (the seat count), as a subscription's creation does.
     for parameterized in &components.parameterized_components {
+        if components
+            .overridden_components
+            .iter()
+            .any(|o| o.component_id == parameterized.component_id)
+        {
+            continue;
+        }
         if let Some(price_component) = price_components
             .iter()
             .find(|pc| pc.id == parameterized.component_id)
@@ -1666,13 +1722,20 @@ fn process_quote_components(
                 ))
             })?;
 
-            let (fee, period) = resolve_fee_from_entry(
+            let (mut fee, period) = resolve_fee_from_entry(
                 &product.fee_structure,
                 &overridden.price_entry,
                 prices,
                 units,
             )
             .map_err(|e| Status::internal(format!("Failed to resolve override fee: {e}")))?;
+            if let Some(parameterized) = components
+                .parameterized_components
+                .iter()
+                .find(|p| p.component_id == overridden.component_id)
+            {
+                fee.apply_parameters(&parameterized.parameters);
+            }
 
             processed_components.push(QuotePriceComponentNew {
                 name: overridden.name.clone(),
@@ -1794,6 +1857,7 @@ fn process_quote_add_ons(
     quote_id: QuoteId,
     product_family_id: common_domain::ids::ProductFamilyId,
     currency: &str,
+    term: Option<meteroid_store::domain::enums::BillingPeriodEnum>,
 ) -> Result<
     (
         Vec<QuoteAddOnNew>,
@@ -1802,6 +1866,7 @@ fn process_quote_add_ons(
     Status,
 > {
     use meteroid_store::domain::price_components::{PriceEntry, ProductRef};
+    use meteroid_store::domain::subscription_add_ons::SubscriptionAddOnCustomization;
     use meteroid_store::services::PendingMaterialization;
 
     let mut processed_add_ons = Vec::new();
@@ -1813,6 +1878,18 @@ fn process_quote_add_ons(
             .find(|x| x.id == cs_ao.add_on_id)
             .ok_or_else(|| Status::not_found(format!("Add-on {} not found", cs_ao.add_on_id)))?;
 
+        // Quoted at its price in the quote's currency on its term (the one asked, else the
+        // plan's); a price override keeps its own.
+        let add_on = match &cs_ao.customization {
+            SubscriptionAddOnCustomization::PriceOverride { .. } => add_on.clone(),
+            SubscriptionAddOnCustomization::Parameterization(param) => add_on
+                .in_currency(currency, param.billing_period.or(term))
+                .map_err(|e| Status::invalid_argument(e.to_string()))?,
+            SubscriptionAddOnCustomization::None => add_on
+                .in_currency(currency, term)
+                .map_err(|e| Status::invalid_argument(e.to_string()))?,
+        };
+        let add_on = &add_on;
         let resolved = add_on
             .resolve_customized(products, prices, units, &cs_ao.customization)
             .map_err(|e| Status::internal(format!("Failed to resolve add-on fee: {e}")))?;

@@ -4,6 +4,7 @@ use chrono::NaiveDate;
 use common_domain::actor::Actor;
 use common_domain::ids::{CouponId, CustomerId, PlanVersionId, SubscriptionId};
 use meteroid_store::Services;
+use meteroid_store::domain::plan_options::PlanOptionRef;
 use meteroid_store::domain::subscriptions::PaymentMethodsConfig;
 use meteroid_store::domain::{
     CreateSubscription, CreateSubscriptionCoupon, CreateSubscriptionCoupons,
@@ -29,6 +30,7 @@ pub struct SubscriptionBuilder {
     net_terms: Option<u32>,
     auto_advance_invoices: bool,
     billing_day_anchor: Option<u16>,
+    option: Option<PlanOptionRef>,
 }
 
 impl Default for SubscriptionBuilder {
@@ -48,6 +50,7 @@ impl Default for SubscriptionBuilder {
             net_terms: None,
             auto_advance_invoices: true,
             billing_day_anchor: None,
+            option: None,
         }
     }
 }
@@ -185,6 +188,12 @@ impl SubscriptionBuilder {
         self
     }
 
+    /// Buy the plan option of `alias`; unset: the plan's default.
+    pub fn option(mut self, alias: &str) -> Self {
+        self.option = Some(PlanOptionRef::Alias(alias.to_owned()));
+        self
+    }
+
     /// Create the subscription using the provided services.
     pub async fn create(self, services: &Services) -> SubscriptionId {
         services
@@ -209,6 +218,7 @@ impl SubscriptionBuilder {
         };
 
         CreateSubscription {
+            option: self.option,
             subscription: SubscriptionNew {
                 customer_id: self.customer_id,
                 plan_version_id: self.plan_version_id,

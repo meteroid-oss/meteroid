@@ -109,7 +109,8 @@ fn passes_filters(metric: &BillableMetric, group: &GroupedUsageData) -> bool {
     })
 }
 
-/// The dimensions a read is broken down by: the metric's own, and the requested one.
+/// The dimensions a read is broken down by: the metric's own, those its rates key, and the
+/// requested one.
 fn projected(
     metric: &BillableMetric,
     group_by: Option<&str>,
@@ -120,6 +121,7 @@ fn projected(
     };
     let mut kept = vec![extra];
     kept.extend(metric.usage_group_key.as_deref());
+    kept.extend(metric.rated_dimensions.iter().map(String::as_str));
     match metric.segmentation_matrix.as_ref() {
         None => {}
         Some(SegmentationMatrix::Single(dimension)) => kept.push(&dimension.key),
@@ -422,6 +424,7 @@ async fn subscribe_with(
         .insert_subscription(
             Actor::System,
             CreateSubscription {
+                option: None,
                 subscription: SubscriptionNew {
                     customer_id,
                     plan_version_id,

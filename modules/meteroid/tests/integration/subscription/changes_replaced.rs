@@ -186,6 +186,7 @@ async fn a_one_time_fee_added_leaves_a_scheduled_amendment_standing(#[future] te
                             pricing: Pricing::OneTime {
                                 unit_price: Decimal::new(9900, 2),
                                 quantity: 1,
+                                model: None,
                             },
                             credit_unit: None,
                         }),

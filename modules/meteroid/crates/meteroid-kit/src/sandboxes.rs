@@ -61,6 +61,7 @@ impl Sandboxes for SeededSandboxes {
         let scenario = match preset {
             SandboxPreset::Default => presets::default_scenario(),
             SandboxPreset::AiCredits => presets::ai_credits_scenario(),
+            SandboxPreset::CurrenciesAndCoupons => presets::currencies_scenario(),
         };
         let tenant = presets::run_preset(
             &self.store,

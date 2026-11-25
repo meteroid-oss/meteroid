@@ -34,6 +34,7 @@ impl From<Report<StoreError>> for PortalSubscriptionApiError {
         match err {
             StoreError::InvalidArgument(msg) => Self::InvalidArgument(msg.clone()),
             StoreError::ValueNotFound(msg) => Self::NotFound(msg.clone()),
+            StoreError::FailedPrecondition(msg) => Self::FailedPrecondition(msg.clone()),
             _ => Self::StoreError(Box::new(value.into_error())),
         }
     }

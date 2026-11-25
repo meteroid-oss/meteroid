@@ -17,6 +17,13 @@ use super::mapping::{
     allowed_buyer_types_from_server, domain_to_server, tax_id_collection_from_server,
 };
 
+/// A plan option alias; blank means the plan's default option.
+fn option_alias(value: Option<String>) -> Option<String> {
+    value
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
 /// Empty strings from the UI mean "no URL".
 fn optional_url(value: Option<String>) -> Option<String> {
     value
@@ -72,6 +79,8 @@ impl PurchaseLinksService for PurchaseLinksServiceComponents {
                 require_billing_address: req.require_billing_address.unwrap_or(true),
                 tax_id_collection,
                 allowed_buyer_types,
+                option: option_alias(req.option),
+                coupon_code: req.coupon_code,
             })
             .await
             .map_err(Into::<PurchaseLinkApiError>::into)?;
@@ -105,6 +114,8 @@ impl PurchaseLinksService for PurchaseLinksServiceComponents {
                     require_billing_address: req.require_billing_address.unwrap_or(true),
                     tax_id_collection,
                     allowed_buyer_types,
+                    option: option_alias(req.option),
+                    coupon_code: req.coupon_code,
                 },
             )
             .await

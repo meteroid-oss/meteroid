@@ -2,7 +2,6 @@ import Decimal from 'decimal.js'
 import { z } from 'zod'
 
 import { currencyPrecision } from '@/lib/data/currency-precision'
-import { FeeType , FeeStructure_UsageModel } from '@/rpc/api/prices/v1/models_pb'
 
 const isValidNumber = (str: string) => !isNaN(parseFloat(str)) && isFinite(parseFloat(str))
 const isPrecise = (str: string, precision: number) => {
@@ -32,13 +31,21 @@ export const RatePricingSchema = z.object({
 })
 export type RatePricingData = z.infer<typeof RatePricingSchema>
 
-// Slot — price per unit/seat
+// Slot — the seat count priced per seat, or through tiers or packages
+export const SeatModel = z.enum(['per_unit', 'tiered', 'volume', 'package'])
+export type SeatModel = z.infer<typeof SeatModel>
+
 export const SlotPricingSchema = z.object({
-  unitRate: pricePrecision2,
+  seatModel: SeatModel.default('per_unit'),
+  unitRate: z.string().optional(),
+  rows: z.array(z.any()).optional(),
+  packagePrice: z.string().optional(),
+  blockSize: z.coerce.number().optional(),
   minSlots: z.coerce.number().int().positive().optional(),
   maxSlots: z.coerce.number().int().positive().optional(),
 })
 export type SlotPricingData = z.infer<typeof SlotPricingSchema>
+
 
 // Capacity — committed capacity with overage
 export const CapacityPricingSchema = z.object({
@@ -87,10 +94,6 @@ export const TieredPricingSchema = z
   })
 export type TieredPricingData = z.infer<typeof TieredPricingSchema>
 
-// Usage - Volume (same shape as tiered)
-export const VolumePricingSchema = TieredPricingSchema
-export type VolumePricingData = z.infer<typeof VolumePricingSchema>
-
 // Usage - Package
 export const PackagePricingSchema = z.object({
   packagePrice: pricePrecision8,
@@ -98,27 +101,88 @@ export const PackagePricingSchema = z.object({
 })
 export type PackagePricingData = z.infer<typeof PackagePricingSchema>
 
-// Usage - Matrix dimension
-export const MatrixDimensionSchema = z.object({
-  key: z.string(),
-  value: z.string(),
+// Usage - rated by a rate card. `markup` is in percent ("-20": 20% off),
+// stored as the price's multiplier (0.8) by the proto mapping.
+export const RateCardPricingSchema = z.object({
+  rateCardId: z.string().min(1, 'Choose a rate card'),
+  markup: z
+    .string()
+    .optional()
+    .refine(v => !v?.trim() || /^-?\d+(\.\d+)?$/.test(v.trim()), 'A percentage, such as 20 or -20')
+    .refine(v => !v?.trim() || Number(v) >= -100, 'At most 100% off'),
 })
+export type RateCardPricingData = z.infer<typeof RateCardPricingSchema>
 
-export const MatrixRowSchema = z.object({
-  perUnitPrice: pricePrecision8,
-  dimension1: MatrixDimensionSchema,
-  dimension2: MatrixDimensionSchema.optional(),
+// Usage - rates by dimension held by the price ("Rates in this plan"): one pattern per dimension
+// (a value, a prefix ending in `*`, or `*`) and its rate per `unitSize` units. The most specific
+// key wins, as on a rate card.
+export const DimensionRateRowSchema = z.object({
+  key: z.array(z.string()),
+  rate: z.string(),
+  label: z.string().optional(),
 })
+export type DimensionRateRow = z.infer<typeof DimensionRateRowSchema>
 
-export const MatrixPricingSchema = z.object({
-  rows: z.array(MatrixRowSchema).min(1, 'At least 1 matrix row required'),
-})
-export type MatrixPricingData = z.infer<typeof MatrixPricingSchema>
+export const DimensionRatesPricingSchema = z
+  .object({
+    dimensions: z
+      .array(z.string())
+      .min(1, 'Name at least one dimension')
+      .max(4, 'At most 4 dimensions'),
+    keyRates: z.array(DimensionRateRowSchema).min(1, 'Add at least one rate'),
+    unitSize: z.string().default('1'),
+    onUnmatched: z.enum(['hold', 'ignore']).default('hold'),
+  })
+  .superRefine((data, ctx) => {
+    const names = data.dimensions.map(d => d.trim())
+    names.forEach((name, i) => {
+      if (!name) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['dimensions', i], message: 'Name it' })
+      } else if (names.indexOf(name) !== i) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['dimensions', i], message: 'Named twice' })
+      }
+    })
+    if (!(Number(data.unitSize || '1') > 0)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['unitSize'], message: 'Must be positive' })
+    }
+    const seen = new Set<string>()
+    data.keyRates.forEach((row, i) => {
+      const key = data.dimensions.map((_, d) => row.key[d]?.trim() || '*').join('\u0001')
+      if (seen.has(key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['keyRates', i, 'rate'],
+          message: 'This row already exists',
+        })
+      }
+      seen.add(key)
+      if (!pricePrecision8.safeParse(row.rate).success || Number(row.rate) < 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['keyRates', i, 'rate'],
+          message: 'Enter a rate',
+        })
+      }
+    })
+  })
+export type DimensionRatesPricingData = z.infer<typeof DimensionRatesPricingSchema>
+
+// A fixed count priced per unit (unit price × quantity), or through tiers or packages.
+export const QuantityModel = z.enum(['per_unit', 'tiered', 'volume', 'package'])
+export type QuantityModel = z.infer<typeof QuantityModel>
+
+const QuantityModelShape = {
+  quantityModel: QuantityModel.optional(),
+  rows: z.array(z.any()).optional(),
+  packagePrice: z.string().optional(),
+  blockSize: z.coerce.number().optional(),
+}
 
 // Extra Recurring
 export const ExtraRecurringPricingSchema = z.object({
   unitPrice: pricePrecision2,
   quantity: z.coerce.number().int().positive(),
+  ...QuantityModelShape,
 })
 export type ExtraRecurringPricingData = z.infer<typeof ExtraRecurringPricingSchema>
 
@@ -126,6 +190,7 @@ export type ExtraRecurringPricingData = z.infer<typeof ExtraRecurringPricingSche
 export const OneTimePricingSchema = z.object({
   unitPrice: pricePrecision2,
   quantity: z.coerce.number().int().positive(),
+  ...QuantityModelShape,
 })
 export type OneTimePricingData = z.infer<typeof OneTimePricingSchema>
 
@@ -274,61 +339,11 @@ export type PricingType =
   | 'tiered'
   | 'volume'
   | 'package'
-  | 'matrix'
+  | 'dimensionRates'
+  | 'rateCard'
   | 'extraRecurring'
   | 'oneTime'
   | 'credit'
-
-// Schema lookup
-export const pricingSchemas: Record<PricingType, z.ZodType> = {
-  rate: RatePricingSchema,
-  slot: SlotPricingSchema,
-  capacity: CapacityPricingSchema,
-  perUnit: PerUnitPricingSchema,
-  tiered: TieredPricingSchema,
-  volume: VolumePricingSchema,
-  package: PackagePricingSchema,
-  matrix: MatrixPricingSchema,
-  extraRecurring: ExtraRecurringPricingSchema,
-  oneTime: OneTimePricingSchema,
-  credit: CreditPricingSchema.superRefine(refineCreditPricing),
-}
-
-// Map proto enums to PricingType
-export function toPricingType(
-  feeType: FeeType,
-  usageModel?: FeeStructure_UsageModel
-): PricingType {
-  switch (feeType) {
-    case FeeType.RATE:
-      return 'rate'
-    case FeeType.SLOT:
-      return 'slot'
-    case FeeType.CAPACITY:
-      return 'capacity'
-    case FeeType.USAGE:
-      switch (usageModel) {
-        case FeeStructure_UsageModel.PER_UNIT:
-          return 'perUnit'
-        case FeeStructure_UsageModel.TIERED:
-          return 'tiered'
-        case FeeStructure_UsageModel.VOLUME:
-          return 'volume'
-        case FeeStructure_UsageModel.PACKAGE:
-          return 'package'
-        case FeeStructure_UsageModel.MATRIX:
-          return 'matrix'
-        default:
-          return 'perUnit'
-      }
-    case FeeType.EXTRA_RECURRING:
-      return 'extraRecurring'
-    case FeeType.ONE_TIME:
-      return 'oneTime'
-    case FeeType.CREDIT:
-      return 'credit'
-  }
-}
 
 // Default values per pricing type
 export function pricingDefaults(pricingType: PricingType): Record<string, unknown> {
@@ -351,12 +366,14 @@ export function pricingDefaults(pricingType: PricingType): Record<string, unknow
       }
     case 'package':
       return { packagePrice: '0.00000000', blockSize: 1 }
-    case 'matrix':
-      return { rows: [] }
+    case 'dimensionRates':
+      return { dimensions: [], keyRates: [], unitSize: '1', onUnmatched: 'hold' }
+    case 'rateCard':
+      return { rateCardId: '', markup: '' }
     case 'extraRecurring':
-      return { unitPrice: '0.00', quantity: 1 }
+      return { unitPrice: '0.00', quantity: 1, quantityModel: 'per_unit' }
     case 'oneTime':
-      return { unitPrice: '0.00', quantity: 1 }
+      return { unitPrice: '0.00', quantity: 1, quantityModel: 'per_unit' }
     case 'credit':
       return {
         unitPrice: '0.00',

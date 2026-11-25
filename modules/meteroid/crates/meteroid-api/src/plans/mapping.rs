@@ -10,11 +10,40 @@ pub mod plans {
         PlanStatus, PlanType, PlanVersion, PlanWithVersion, TrialConfig, credit_exhausted_rule,
     };
     use meteroid_grpc::meteroid::api::plans::v1::{
-        ListPlanVersion, PlanOverview, plan_billing_configuration as billing_config_grpc,
+        ListPlanVersion, PlanOption, PlanOverview, PricedOption,
+        plan_billing_configuration as billing_config_grpc,
     };
     use meteroid_store::domain;
     use meteroid_store::domain::enums::{PlanStatusEnum, PlanTypeEnum};
     use meteroid_store::domain::plan_minimums::{MinimumScope, PlanMinimum};
+
+    pub fn plan_option_to_proto(option: &domain::plan_options::PlanOption) -> PlanOption {
+        PlanOption {
+            id: option.id.as_proto(),
+            name: option.name.clone(),
+            alias: option.alias.clone(),
+            position: option.position,
+            hidden: option.hidden,
+        }
+    }
+
+    /// An option asked by an integrator: its id when the text parses as one, else its alias.
+    /// Blank or unset: none asked (the default option).
+    pub fn option_ref_from_proto(
+        value: Option<String>,
+    ) -> Option<domain::plan_options::PlanOptionRef> {
+        use domain::plan_options::PlanOptionRef;
+        let value = value?.trim().to_string();
+        if value.is_empty() {
+            return None;
+        }
+        Some(
+            match value.parse::<common_domain::ids::AliasOr<common_domain::ids::PlanOptionId>>() {
+                Ok(common_domain::ids::AliasOr::Id(id)) => PlanOptionRef::Id(id),
+                _ => PlanOptionRef::Alias(value),
+            },
+        )
+    }
 
     pub fn minimum_commitment_to_proto(min: &PlanMinimum) -> MinimumCommitment {
         build_minimum_commitment_proto(min.amount_subunit, &min.scope)
@@ -202,6 +231,7 @@ pub mod plans {
                     .credit_exhausted_rule
                     .as_ref()
                     .map(credit_exhausted_rule_to_proto),
+                options: value.options.iter().map(plan_option_to_proto).collect(),
             })
         }
     }
@@ -262,6 +292,7 @@ pub mod plans {
                     draft_version_id: value.plan.draft_version_id.map(|x| x.as_proto()),
                     self_service_rank: value.plan.self_service_rank,
                     issues_license: value.plan.issues_license,
+                    eligibility: value.plan.eligibility.map(crate::eligibility::to_proto),
                 }),
                 version: Some(PlanVersionWrapper::from(value.version).0),
             })
@@ -282,6 +313,7 @@ pub mod plans {
                     draft_version_id: value.plan.draft_version_id.map(|x| x.as_proto()),
                     self_service_rank: value.plan.self_service_rank,
                     issues_license: value.plan.issues_license,
+                    eligibility: value.plan.eligibility.map(crate::eligibility::to_proto),
                 }),
                 version: value.version.map(|v| PlanVersionWrapper::from(v).0),
             })
@@ -351,6 +383,27 @@ pub mod plans {
                 subscription_count: value.subscription_count.map_or(0, |x| x as u32),
                 self_service_rank: value.self_service_rank,
                 issues_license: value.issues_license,
+                priced_options: value
+                    .priced_options
+                    .into_iter()
+                    .map(|priced| PricedOption {
+                        currency: priced.currency,
+                        option_id: priced.option_id.as_proto(),
+                        amount: priced.amount.map(|amount| amount.to_string()),
+                        period: priced.period.map(|period| {
+                            crate::domain_mapping::billing_period::to_proto(period).into()
+                        }),
+                        has_usage: priced.has_usage,
+                        from_lowest: priced.from_lowest,
+                        unit: priced.unit.clone(),
+                    })
+                    .collect(),
+                eligibility: value.eligibility.map(crate::eligibility::to_proto),
+                options: value.options.iter().map(plan_option_to_proto).collect(),
+                sales_led: value.pricing_sales_led,
+                hide_price: value.pricing_hide_price,
+                mrr: value.mrr.map(|mrr| mrr.to_string()),
+                free: value.free,
             })
         }
     }

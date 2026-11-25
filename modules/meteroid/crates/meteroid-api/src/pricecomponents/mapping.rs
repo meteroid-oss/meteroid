@@ -12,6 +12,14 @@ pub mod components {
     use tonic::Status;
 
     pub fn domain_to_api(comp: domain::PriceComponent) -> api::PriceComponent {
+        let option_prices = comp
+            .option_prices
+            .iter()
+            .map(|link| api::OptionPrice {
+                option_id: link.option_id.as_proto(),
+                price_id: link.price_id.as_proto(),
+            })
+            .collect();
         let prices = if !comp.prices.is_empty() {
             // V2: real prices
             comp.prices
@@ -44,6 +52,7 @@ pub mod components {
             name: comp.name.to_string(),
             product_id: comp.product_id.map(|p| p.as_proto()),
             prices,
+            option_prices,
         }
     }
 
@@ -101,7 +110,7 @@ pub mod components {
         inputs.into_iter().map(price_input_from_proto).collect()
     }
 
-    fn price_input_from_proto(pi: api::PriceInput) -> Result<PriceInput, Status> {
+    pub fn price_input_from_proto(pi: api::PriceInput) -> Result<PriceInput, Status> {
         let cadence = cadence_from_proto(pi.cadence)?;
         let pricing = pricing_from_proto(pi.pricing)?;
         Ok(PriceInput {

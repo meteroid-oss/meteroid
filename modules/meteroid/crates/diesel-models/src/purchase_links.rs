@@ -26,6 +26,8 @@ pub struct PurchaseLinkRow {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub archived_at: Option<NaiveDateTime>,
+    pub plan_option: Option<String>,
+    pub promotion_code: Option<String>,
 }
 
 #[derive(Debug, Insertable)]
@@ -43,6 +45,8 @@ pub struct PurchaseLinkRowNew {
     pub require_billing_address: bool,
     pub tax_id_collection: TaxIdCollectionEnum,
     pub only_buyer_type: Option<CustomerTypeEnum>,
+    pub plan_option: Option<String>,
+    pub promotion_code: Option<String>,
 }
 
 /// Full replacement of the editable fields; `None` URLs clear them.
@@ -56,6 +60,8 @@ pub struct PurchaseLinkRowUpdate {
     pub require_billing_address: bool,
     pub tax_id_collection: TaxIdCollectionEnum,
     pub only_buyer_type: Option<CustomerTypeEnum>,
+    pub plan_option: Option<String>,
+    pub promotion_code: Option<String>,
 }
 
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable)]

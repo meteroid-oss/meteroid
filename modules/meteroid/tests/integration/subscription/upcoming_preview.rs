@@ -28,6 +28,7 @@ use meteroid_store::domain::UsagePricingModel;
 /// The customer on usage at €1.00 a unit only (the plan's fee removed).
 fn usage_request(start: NaiveDate, trial_duration: Option<u32>) -> CreateSubscription {
     CreateSubscription {
+        option: None,
         subscription: SubscriptionNew {
             customer_id: CUST_UBER_ID,
             plan_version_id: PLAN_VERSION_1_LEETCODE_ID,

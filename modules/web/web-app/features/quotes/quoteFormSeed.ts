@@ -3,9 +3,11 @@ import { parseISO } from 'date-fns'
 import { customAlphabet } from 'nanoid'
 
 import { parseCustomProperties } from '@/features/customproperties/CustomPropertiesFields'
-import { buildDefaults } from '@/features/plans/pricecomponents/ProductPricingForm'
+import { hasTerm, optionCell } from '@/features/plans/currencies/priceCells'
 import { feeTypeFromPrice } from '@/features/pricing'
+import { buildDefaults } from '@/features/pricing/formData'
 import { emptyQuoteV2State, quoteToV2State } from '@/features/quotes/editor/quoteV2'
+import { byPosition, optionHandle } from '@/features/subscriptions/pricecomponents/planOption'
 import {
   ComponentOverride,
   ComponentParameterization,
@@ -25,7 +27,7 @@ import type {
   PriceComponentsState,
   UsageExampleEntry,
 } from '@/features/subscriptions/pricecomponents/PriceComponentsLogic'
-import type { MinimumCommitment } from '@/rpc/api/plans/v1/models_pb'
+import type { MinimumCommitment, PlanOption } from '@/rpc/api/plans/v1/models_pb'
 import type { PriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
 import type { Price } from '@/rpc/api/prices/v1/models_pb'
 import type { DetailedQuote, QuoteComponent } from '@/rpc/api/quotes/v1/models_pb'
@@ -64,6 +66,7 @@ export function subscriptionFeeToPrice(
             unitRate: fee.fee.value.unitRate,
             minSlots: fee.fee.value.minSlots,
             maxSlots: fee.fee.value.maxSlots,
+            model: fee.fee.value.model,
           },
         },
       })
@@ -89,7 +92,11 @@ export function subscriptionFeeToPrice(
         cadence,
         pricing: {
           case: 'extraRecurringPricing',
-          value: { unitPrice: fee.fee.value.rate, quantity: fee.fee.value.quantity },
+          value: {
+            unitPrice: fee.fee.value.rate,
+            quantity: fee.fee.value.quantity,
+            model: fee.fee.value.model,
+          },
         },
       })
     case 'oneTime':
@@ -97,7 +104,11 @@ export function subscriptionFeeToPrice(
         cadence,
         pricing: {
           case: 'oneTimePricing',
-          value: { unitPrice: fee.fee.value.rate, quantity: fee.fee.value.quantity },
+          value: {
+            unitPrice: fee.fee.value.rate,
+            quantity: fee.fee.value.quantity,
+            model: fee.fee.value.model,
+          },
         },
       })
     default:
@@ -138,20 +149,49 @@ const toParameterization = (
   const param: ComponentParameterization = { componentId: planComponent.id }
 
   if (fee?.case === 'slot') param.initialSlotCount = fee.value.initialSlots
-  if (fee?.case === 'capacity' && planComponent.prices.length > 1) {
+  // Levels, not prices: each option prices the same level apart.
+  const levels = new Set(
+    planComponent.prices.flatMap(p =>
+      p.pricing.case === 'capacityPricing' ? [p.pricing.value.included] : []
+    )
+  )
+  if (fee?.case === 'capacity' && levels.size > 1) {
     param.committedCapacity = fee.value.included
-  }
-  if (new Set(planComponent.prices.map(p => p.cadence)).size > 1) {
-    param.billingPeriod = toBillingPeriod(component.period)
   }
 
   const { componentId: _, ...values } = param
   return Object.values(values).some(v => v !== undefined) ? param : undefined
 }
 
+/**
+ * A quote read back names no option: the one whose cells bill its plan lines on their stored
+ * periods, else none (the editor then shows the default one sold in the quote's currency).
+ */
+const quotedOption = (
+  quote: DetailedQuote,
+  planComponents: PriceComponent[],
+  options: PlanOption[]
+): string | undefined => {
+  const currency = quote.quote?.currency
+  if (!currency || options.length < 2) return undefined
+  const lines = quote.components.flatMap(c => {
+    const planComponent = planComponents.find(pc => pc.id === c.priceComponentId)
+    return planComponent && !c.isOverride && c.period !== SubscriptionFeeBillingPeriod.ONE_TIME
+      ? [{ planComponent, cadence: toBillingPeriod(c.period) }]
+      : []
+  })
+  const match = byPosition(options).find(option =>
+    lines.every(({ planComponent, cadence }) =>
+      optionCell(planComponent, option.id, currency).some(p => !hasTerm(p) || p.cadence === cadence)
+    )
+  )
+  return match && optionHandle(match)
+}
+
 export function quoteToPriceComponentsState(
   quote: DetailedQuote,
-  planComponents: PriceComponent[]
+  planComponents: PriceComponent[],
+  options: PlanOption[] = []
 ): PriceComponentsState {
   const parameterized: ComponentParameterization[] = []
   const overridden: ComponentOverride[] = []
@@ -182,6 +222,13 @@ export function quoteToPriceComponentsState(
         formData: buildDefaults(feeType, price, true),
         productId: component.productId,
       })
+      // A custom seat price keeps its seat count beside it, as the editor sets it.
+      if (listFee?.fee.case === 'slot') {
+        parameterized.push({
+          componentId: planComponent.id,
+          initialSlotCount: listFee.fee.value.initialSlots,
+        })
+      }
     } else if (planComponent) {
       const param = toParameterization(component, planComponent)
       if (param) parameterized.push(param)
@@ -199,6 +246,7 @@ export function quoteToPriceComponentsState(
   const keptIds = new Set(quote.components.map(c => c.priceComponentId).filter(Boolean))
 
   return {
+    option: quotedOption(quote, planComponents, options),
     components: {
       removed: planComponents.filter(pc => !keptIds.has(pc.id)).map(pc => pc.id),
       parameterized,
@@ -276,11 +324,12 @@ export interface QuoteFormSeed {
 
 export function quoteToFormSeed(
   quote: DetailedQuote,
-  planComponents: PriceComponent[]
+  planComponents: PriceComponent[],
+  options: PlanOption[] = []
 ): QuoteFormSeed {
   return {
     values: quoteToFormValues(quote),
-    priceComponents: quoteToPriceComponentsState(quote, planComponents),
+    priceComponents: quoteToPriceComponentsState(quote, planComponents, options),
     addOns: quote.addOns.map(a => ({ addOnId: a.addOnId, quantity: a.quantity })),
     coupons: quote.coupons.map(c => ({ couponId: c.couponId })),
     minimumCommitment: quote.minimumCommitment,
@@ -297,9 +346,9 @@ export function quoteToFormSeed(
 export function quoteToTemplateSeed(
   quote: DetailedQuote,
   planComponents: PriceComponent[],
-  options: { customerId: string; planVersionIsActive: boolean }
+  options: { customerId: string; planVersionIsActive: boolean; planOptions?: PlanOption[] }
 ): QuoteFormSeed {
-  const seed = quoteToFormSeed(quote, planComponents)
+  const seed = quoteToFormSeed(quote, planComponents, options.planOptions)
   const values = {
     ...seed.values,
     quote_number: generateQuoteNumber(),

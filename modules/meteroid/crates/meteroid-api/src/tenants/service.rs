@@ -31,7 +31,7 @@ fn ensure_sandbox_preset_entitled(
     resolved: &ResolvedEntitlements,
 ) -> Result<(), Status> {
     match preset {
-        SandboxPreset::Default => Ok(()),
+        SandboxPreset::Default | SandboxPreset::CurrenciesAndCoupons => Ok(()),
         SandboxPreset::AiCredits if resolved.is_enabled(gates::ADMIN_SANDBOXES) => Ok(()),
         SandboxPreset::AiCredits => Err(Status::permission_denied(
             "This sandbox example is not enabled for this organization.",
@@ -412,6 +412,9 @@ mod tests {
     fn exploratory_sandboxes_need_the_gate() {
         let unflagged = ResolvedEntitlements::with_enabled(&[]);
         assert!(ensure_sandbox_preset_entitled(SandboxPreset::Default, &unflagged).is_ok());
+        assert!(
+            ensure_sandbox_preset_entitled(SandboxPreset::CurrenciesAndCoupons, &unflagged).is_ok()
+        );
         assert!(ensure_sandbox_preset_entitled(SandboxPreset::AiCredits, &unflagged).is_err());
         assert!(
             ensure_sandbox_preset_entitled(

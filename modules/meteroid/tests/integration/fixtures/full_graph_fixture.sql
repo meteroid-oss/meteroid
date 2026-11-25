@@ -47,9 +47,11 @@ INSERT INTO coupon(id,code,description,tenant_id,discount,reusable) VALUES ('100
 INSERT INTO plan(id,name,tenant_id,product_family_id,plan_type,status) VALUES ('10000000-0000-0000-0000-000000000008','PL','10000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-000000000005','STANDARD','ACTIVE');
 INSERT INTO plan_version(id,is_draft_version,plan_id,tenant_id,net_terms,currency) VALUES ('10000000-0000-0000-0000-000000000009',false,'10000000-0000-0000-0000-000000000008','10000000-0000-0000-0000-000000000002',30,'USD');
 INSERT INTO price_component(id,name,plan_version_id,product_id,billable_metric_id) VALUES ('10000000-0000-0000-0000-000000000010','PC','10000000-0000-0000-0000-000000000009','10000000-0000-0000-0000-000000000006','10000000-0000-0000-0000-000000000015');
-INSERT INTO plan_component_price(plan_component_id,price_id) VALUES ('10000000-0000-0000-0000-000000000010','10000000-0000-0000-0000-00000000000f');
+INSERT INTO plan_version_option(id,tenant_id,plan_version_id,name,alias,position) VALUES ('10000000-0000-0000-0000-0000000000e9','10000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-000000000009','Standard','standard',0);
+INSERT INTO plan_component_price(plan_component_id,price_id,option_id) VALUES ('10000000-0000-0000-0000-000000000010','10000000-0000-0000-0000-00000000000f','10000000-0000-0000-0000-0000000000e9');
 INSERT INTO coupon_plan(coupon_id,plan_id) VALUES ('10000000-0000-0000-0000-00000000000d','10000000-0000-0000-0000-000000000008');
 INSERT INTO add_on(id,name,tenant_id,product_id,price_id) VALUES ('10000000-0000-0000-0000-000000000011','AO','10000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-000000000006','10000000-0000-0000-0000-00000000000f');
+INSERT INTO coupon_add_on(coupon_id,add_on_id) VALUES ('10000000-0000-0000-0000-00000000000d','10000000-0000-0000-0000-000000000011');
 INSERT INTO plan_version_add_on(id,plan_version_id,add_on_id,price_id,tenant_id) VALUES (gen_random_uuid(),'10000000-0000-0000-0000-000000000009','10000000-0000-0000-0000-000000000011','10000000-0000-0000-0000-00000000000f','10000000-0000-0000-0000-000000000002');
 INSERT INTO invoice_annex_template(id,tenant_id,name,kind,definition) VALUES ('10000000-0000-0000-0000-00000000001c','10000000-0000-0000-0000-000000000002','A','STATIC_TEXT','{}');
 INSERT INTO plan_version_annex_template(plan_version_id,annex_template_id,tenant_id) VALUES ('10000000-0000-0000-0000-000000000009','10000000-0000-0000-0000-00000000001c','10000000-0000-0000-0000-000000000002');
@@ -68,7 +70,8 @@ INSERT INTO subscription_add_on(id,name,subscription_id,add_on_id,product_id,pri
 INSERT INTO subscription_adjustment(subscription_id,kind,amount_subunit,includes_all_components, created_at) VALUES ('10000000-0000-0000-0000-00000000000a','MINIMUM',1,true, now());
 INSERT INTO subscription_adjustment_component(subscription_id,kind,product_id) VALUES ('10000000-0000-0000-0000-00000000000a','MINIMUM','10000000-0000-0000-0000-000000000006');
 INSERT INTO subscription_change(id,tenant_id,subscription_id,kind,effective_at,change,source,created_at,updated_at) VALUES (gen_random_uuid(),'10000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-00000000000a','AMENDMENT',now(),'{}','x',now(),now());
-INSERT INTO slot_transaction(id,subscription_id,delta,prev_active_slots,effective_at) VALUES (gen_random_uuid(),'10000000-0000-0000-0000-00000000000a',1,0,now());
+INSERT INTO managed_quantity(id,tenant_id,code,name) VALUES ('10000000-0000-0000-0000-0000000000f3','10000000-0000-0000-0000-000000000002','seats','seats');
+INSERT INTO slot_transaction(id,subscription_id,delta,prev_active_slots,effective_at,managed_quantity_id) VALUES (gen_random_uuid(),'10000000-0000-0000-0000-00000000000a',1,0,now(),'10000000-0000-0000-0000-0000000000f3');
 INSERT INTO subscription_plan_window(id,tenant_id,subscription_id,plan_version_id,from_date,cadence,cadence_origin,created_at) VALUES ('10000000-0000-0000-0000-0000000000f2','10000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-00000000000a','10000000-0000-0000-0000-000000000009',CURRENT_DATE,'MONTHLY',CURRENT_DATE,now());
 INSERT INTO subscription_plan_window_origin_pending(window_id) VALUES ('10000000-0000-0000-0000-0000000000f2');
 INSERT INTO subscription_trial(subscription_id,tenant_id,from_date,until_date,free,created_at) VALUES ('10000000-0000-0000-0000-00000000000a','10000000-0000-0000-0000-000000000002',CURRENT_DATE,CURRENT_DATE,true,now());

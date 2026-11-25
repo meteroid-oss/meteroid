@@ -1,4 +1,5 @@
 import type { MinimumComponentOption } from '@/features/billing/minimumCommitment'
+import type { PlanExtra } from '@/features/plans/MoreForPlan'
 import type { Denomination } from '@/features/plans/creditRule'
 import type { AttachmentState } from '@/features/quotes/editor/quoteV2'
 import type { PortalCreditValues } from '@/features/settings/components/portalCreditForm'
@@ -49,6 +50,11 @@ export interface EventDetailActionsContext {
 
 export interface PlanVersionContext {
   planVersionId: string
+}
+
+/** One of the plan's optional sections, as a card of "More for this plan"; none when it doesn't apply. */
+export interface PlanDetailExtra {
+  useExtra: (ctx: { planVersionId?: string }) => PlanExtra | undefined
 }
 
 export interface InvoicingEntityCreateContext {
@@ -299,6 +305,8 @@ export interface PlanCreditRuleContext {
 
 export interface PlanMinimumCommitmentContext {
   planVersion: PlanVersion
+  /** Opened on its own (a popover): a draft starts in the form, and saving or cancelling calls it. */
+  onDone?: () => void
 }
 
 /** The minimum of a subscription or quote being created: the form keeps it and sends it. */
@@ -508,6 +516,8 @@ export interface ComponentSlots {
   'quoteDetail.approvalAction': QuoteDetailContext
   /** In the signers card of an accepted quote, after the signed PDF: the certificate's details. */
   'quoteDetail.certificate': QuoteDetailContext
+  /** In the Plans list header, before New plan; for members managing the catalog. */
+  'plans.listActions': Record<never, never>
   /** Above the quote list: pending approvals. */
   'quoteList.aside': Record<never, never>
   /** In the quote list header, before New Quote. */
@@ -572,6 +582,8 @@ export type Slots = {
   'walletList.columns': WalletListColumn
   /** Entries of the Wallets list's status filter, after the core ones. */
   'walletList.filters': WalletListFilter
+  /** Cards of the plan's "More for this plan", after the core ones. */
+  'planDetail.extras': PlanDetailExtra
 } & { [K in keyof ComponentSlots]: ComponentType<ComponentSlots[K]> }
 
 export interface WebModule {

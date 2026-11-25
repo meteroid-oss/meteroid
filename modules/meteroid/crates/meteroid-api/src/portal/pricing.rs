@@ -16,7 +16,9 @@ use meteroid_store::domain::plans::FullPlan;
 use meteroid_store::domain::portal_credit::PortalPlanInputs;
 use meteroid_store::domain::portal_credit::apply_discounts;
 use meteroid_store::domain::price_components::UsagePricingModel;
-use meteroid_store::domain::price_components::{CreditExpiry, CreditRollover};
+use meteroid_store::domain::price_components::{
+    CreditExpiry, CreditRollover, fixed_quantity_amount,
+};
 use meteroid_store::domain::prices::FeeStructure;
 use meteroid_store::domain::prices::Pricing;
 use meteroid_store::domain::subscription_components::SubscriptionFee;
@@ -120,15 +122,18 @@ impl UsageCollector {
             .unwrap_or(1);
         let (rates, block) = match model {
             UsagePricingModel::PerUnit { rate } => (vec![*rate], 1),
-            UsagePricingModel::Tiered { tiers, block_size }
-            | UsagePricingModel::Volume { tiers, block_size } => (
-                tiers.iter().map(|tier| tier.rate).collect(),
-                block_size.unwrap_or(1).max(1),
-            ),
-            UsagePricingModel::Package { block_size, rate } => (vec![*rate], (*block_size).max(1)),
-            UsagePricingModel::Matrix { rates } => {
-                (rates.iter().map(|row| row.per_unit_price).collect(), 1)
+            UsagePricingModel::Tiered { tiers, .. } | UsagePricingModel::Volume { tiers, .. } => {
+                (tiers.iter().map(|tier| tier.rate).collect(), 1)
             }
+            UsagePricingModel::Package { block_size, rate } => (vec![*rate], (*block_size).max(1)),
+            UsagePricingModel::DimensionRates(rates) => (
+                rates.rates.iter().map(|rate| rate.rate).collect(),
+                // Rates per 1M units read per 1M.
+                rust_decimal::prelude::ToPrimitive::to_u64(&rates.unit_size)
+                    .filter(|size| *size > 0)
+                    .unwrap_or(1),
+            ),
+            UsagePricingModel::RateCard { .. } => (Vec::new(), 1),
         };
         self.rates.extend(rates);
         self.metrics.insert(metric_id);
@@ -308,17 +313,23 @@ pub fn subscription_plan_price(
         let cadence = component.period;
         match &component.fee {
             SubscriptionFee::Rate { rate } => builder.add(cadence, *rate),
-            SubscriptionFee::Recurring { rate, quantity, .. } => {
-                builder.add(cadence, rate * Decimal::from(*quantity))
-            }
+            SubscriptionFee::Recurring {
+                rate,
+                quantity,
+                model,
+                ..
+            } => builder.add(
+                cadence,
+                fixed_quantity_amount(*rate, Decimal::from(*quantity), model.as_ref()),
+            ),
             SubscriptionFee::Slot {
                 unit,
-                unit_rate,
+                model,
                 initial_slots,
                 ..
             } => {
                 let seats = inputs.slots.get(unit).copied().unwrap_or(*initial_slots);
-                builder.add(cadence, unit_rate * Decimal::from(seats));
+                builder.add(cadence, model.exact_amount(Decimal::from(seats)));
             }
             SubscriptionFee::Capacity { rate, .. } => {
                 builder.usage_based = true;
@@ -379,12 +390,10 @@ fn add_plan_pricing(
     match pricing {
         Pricing::Rate { rate } => builder.add(cadence, *rate),
         Pricing::Slot {
-            unit_rate,
-            min_slots,
-            ..
+            model, min_slots, ..
         } => builder.add(
             cadence,
-            unit_rate * Decimal::from(min_slots.unwrap_or(1).max(1)),
+            model.exact_amount(Decimal::from(min_slots.unwrap_or(1).max(1))),
         ),
         Pricing::Capacity { rate, .. } => {
             builder.usage_based = true;
@@ -393,7 +402,11 @@ fn add_plan_pricing(
         Pricing::ExtraRecurring {
             unit_price,
             quantity,
-        } => builder.add(cadence, unit_price * Decimal::from(*quantity)),
+            model,
+        } => builder.add(
+            cadence,
+            fixed_quantity_amount(*unit_price, Decimal::from(*quantity), model.as_ref()),
+        ),
         Pricing::Credit { once: true, .. } => {}
         Pricing::Credit {
             unit_price,

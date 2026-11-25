@@ -15,6 +15,8 @@ pub fn product_to_rest(product: domain::Product) -> Product {
         catalog: product.catalog,
         created_at: product.created_at.into(),
         archived_at: product.archived_at.map(Into::into),
+        icon: product.icon,
+        color: product.color,
     }
 }
 

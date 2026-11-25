@@ -156,6 +156,8 @@ impl PurchaseLinkRow {
                 pl::require_billing_address.eq(update.require_billing_address),
                 pl::tax_id_collection.eq(update.tax_id_collection),
                 pl::only_buyer_type.eq(update.only_buyer_type),
+                pl::plan_option.eq(update.plan_option),
+                pl::promotion_code.eq(update.promotion_code),
                 pl::updated_at.eq(common_clock::wall().naive_utc()),
             ))
             .returning(PurchaseLinkRow::as_returning())

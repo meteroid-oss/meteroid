@@ -134,6 +134,9 @@ pub enum ScheduledEventData {
         #[serde(default)]
         source_plan_version_id: Option<PlanVersionId>,
         new_plan_version_id: PlanVersionId,
+        /// The option of the new version the subscription bills from the change.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        new_plan_option_id: Option<common_domain::ids::PlanOptionId>,
         component_mappings: Vec<ComponentMapping>,
     },
     /// A manual/sales-led amendment at the end of the current period, its component and add-on

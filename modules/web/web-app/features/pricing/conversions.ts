@@ -62,7 +62,7 @@ const creditPricedTypes: PricingType[] = [
   'tiered',
   'volume',
   'package',
-  'matrix',
+  'dimensionRates',
 ]
 
 /** The credit unit a usage or capacity price is expressed in, from its form data. */
@@ -133,8 +133,13 @@ export function toPricingTypeFromFeeType(
         return 'volume'
       case 'package':
         return 'package'
+      // A matrix is rates by dimension; kept for form data cached before.
+      case 'dimension_rates':
+      case 'dimensionRates':
       case 'matrix':
-        return 'matrix'
+        return 'dimensionRates'
+      case 'rate_card':
+        return 'rateCard'
       default:
         return 'perUnit'
     }
@@ -203,7 +208,8 @@ export function buildPriceInputs(
     pricingType === 'tiered' ||
     pricingType === 'volume' ||
     pricingType === 'package' ||
-    pricingType === 'matrix' ||
+    pricingType === 'dimensionRates' ||
+    pricingType === 'rateCard' ||
     pricingType === 'extraRecurring' ||
     pricingType === 'credit'
   ) {
@@ -267,7 +273,9 @@ export function buildFeeStructure(
         tiered: FeeStructure_UsageModel.TIERED,
         volume: FeeStructure_UsageModel.VOLUME,
         package: FeeStructure_UsageModel.PACKAGE,
-        matrix: FeeStructure_UsageModel.MATRIX,
+        dimension_rates: FeeStructure_UsageModel.DIMENSION_RATES,
+        matrix: FeeStructure_UsageModel.DIMENSION_RATES,
+        rate_card: FeeStructure_UsageModel.RATE_CARD,
       }
       return create(FeeStructureSchema, {
         structure: {

@@ -1,7 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use common_utils::decimals::{round_billable_quantity, round_quantity};
-use common_utils::integers::{only_positive, only_positive_decimal};
+use common_utils::integers::only_positive_decimal;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 
@@ -9,18 +9,6 @@ use super::{
     GroupedUsage, PricedLine, PricingError, SubLine, SubLineAttributes, UsageModel, fees,
     simple_prorated, to_minor,
 };
-
-/// Whether usage carrying `dimensions` falls in the matrix cell of `dimension1` (and
-/// `dimension2`), each a key and its value.
-pub fn cell_matches(
-    dimension1: (&str, &str),
-    dimension2: Option<(&str, &str)>,
-    dimensions: &HashMap<String, String>,
-) -> bool {
-    let carries =
-        |(key, value): (&str, &str)| dimensions.get(key).map(String::as_str) == Some(value);
-    carries(dimension1) && dimension2.is_none_or(carries)
-}
 
 /// The lines a usage fee bills for the usage of one window; shared by the invoice and the live
 /// credit projection so both price identically. `unit_price_override` is the per-group unit price
@@ -33,113 +21,7 @@ pub fn usage_lines(
 ) -> Result<Vec<PricedLine>, PricingError> {
     let mut lines: Vec<PricedLine> = vec![];
     match model {
-        UsageModel::Matrix { rates } => {
-            // First, identify matrix dimension keys
-            let mut matrix_dimension_keys = HashSet::new();
-            for rate in rates {
-                matrix_dimension_keys.insert(&rate.dimension1.key);
-                if let Some(dimension2) = &rate.dimension2 {
-                    matrix_dimension_keys.insert(&dimension2.key);
-                }
-            }
-
-            // Group usage data by non-matrix dimensions (usage_group_key dimensions)
-            let mut groups: HashMap<String, (HashMap<String, String>, Vec<&GroupedUsage>)> =
-                HashMap::new();
-
-            for grouped_usage in usage {
-                let group_dimensions: HashMap<String, String> = grouped_usage
-                    .dimensions
-                    .iter()
-                    .filter(|(key, _)| !matrix_dimension_keys.contains(key))
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
-
-                // Create a stable string key for grouping
-                let mut sorted_group_keys: Vec<_> = group_dimensions.iter().collect();
-                sorted_group_keys.sort_by_key(|(k, _)| *k);
-                let group_key = sorted_group_keys
-                    .iter()
-                    .map(|(k, v)| format!("{k}:{v}"))
-                    .collect::<Vec<_>>()
-                    .join("|");
-
-                groups
-                    .entry(group_key)
-                    .or_insert_with(|| (group_dimensions.clone(), Vec::new()))
-                    .1
-                    .push(grouped_usage);
-            }
-
-            // Create one line item per group with matrix sublines
-            for (_, (group_dimensions, group_usage_data)) in groups {
-                let mut sublines = vec![];
-
-                for rate in rates {
-                    // Find usage data that matches this matrix rate within this group
-                    let matching_usage = group_usage_data
-                        .iter()
-                        .find(|usage_data| rate.matches(&usage_data.dimensions));
-
-                    if let Some(usage_data) = matching_usage {
-                        let quantity = round_billable_quantity(
-                            usage_data.value,
-                            rate.per_unit_price,
-                            precision,
-                        );
-
-                        if quantity > Decimal::ZERO {
-                            let price_total = rate.per_unit_price * quantity;
-
-                            let price_cents = only_positive(to_minor(price_total, precision)?);
-
-                            if price_cents > 0 {
-                                // we concat rate.dimension1.value and rate.dimension2.value (if defined), separated by a comma
-                                let name = format!(
-                                    "{}{}",
-                                    rate.dimension1.value,
-                                    rate.dimension2
-                                        .as_ref()
-                                        .map(|d| format!(",{}", d.value))
-                                        .unwrap_or_default()
-                                );
-                                sublines.push(SubLine {
-                                    name,
-                                    total: price_cents as i64,
-                                    quantity,
-                                    unit_price: rate.per_unit_price,
-                                    attributes: Some(SubLineAttributes::Matrix {
-                                        dimension1_key: rate.dimension1.key.clone(),
-                                        dimension1_value: rate.dimension1.value.clone(),
-                                        dimension2_key: rate
-                                            .dimension2
-                                            .as_ref()
-                                            .map(|d| d.key.clone()),
-                                        dimension2_value: rate
-                                            .dimension2
-                                            .as_ref()
-                                            .map(|d| d.value.clone()),
-                                    }),
-                                });
-                            }
-                        }
-                    }
-                }
-
-                // Only create a line item if there are sublines for this group
-                if !sublines.is_empty() {
-                    let mut line = PricedLine::from_usage_sublines(sublines, None);
-
-                    line.dimensions = if group_dimensions.is_empty() {
-                        None
-                    } else {
-                        Some(group_dimensions)
-                    };
-
-                    lines.push(line);
-                }
-            }
-        }
+        UsageModel::RateCard(card) => lines.extend(rated_lines(card, usage, precision)?),
         model => {
             // Round so aggregation float noise (e.g. a summed 5524.098500000001)
             // never reaches the invoice.
@@ -171,36 +53,7 @@ pub fn usage_lines(
                             ..simple_prorated(&effective_rate, &usage_units, None, precision)?
                         }
                     }
-                    UsageModel::Tiered { tiers, .. } => {
-                        fees::tiered(usage_units, tiers, precision)?
-                    }
-                    UsageModel::Volume { tiers, .. } => {
-                        fees::volume(usage_units, tiers, precision)?
-                    }
-                    UsageModel::Package { block_size, rate } => {
-                        if *block_size == 0 {
-                            return Err(PricingError::InvalidPrice);
-                        }
-                        // TODO we want some additional data in the frontend to display that "x$ per 20", total usage and block usage
-                        let package_size_decimal = Decimal::from(*block_size);
-                        let total_packages = (usage_units / package_size_decimal).ceil();
-
-                        let price_total = total_packages * *rate;
-
-                        PricedLine::from_usage_sublines(
-                            vec![SubLine {
-                                name: "Package".to_string(),
-                                total: to_minor(price_total, precision)?,
-                                quantity: total_packages,
-                                unit_price: *rate,
-                                attributes: Some(SubLineAttributes::Package {
-                                    raw_usage: usage_units,
-                                }),
-                            }],
-                            None,
-                        )
-                    }
-                    UsageModel::Matrix { .. } => unreachable!(),
+                    _ => quantity_line(model, usage_units, precision)?,
                 };
                 // Store group_by dimensions for later use in line name generation
                 line.dimensions = Some(grouped_usage.dimensions.clone());
@@ -209,6 +62,134 @@ pub fn usage_lines(
         }
     }
     Ok(lines)
+}
+
+/// The lines of usage rated by dimension (a card's entries on `card.on`, or a price's own
+/// rates): one per group of the dimensions the rates do not key, a subline per row its entry
+/// rates, each line rounded once (R-130, R-132, R-136).
+fn rated_lines(
+    card: &super::CardRates,
+    usage: &[GroupedUsage],
+    precision: u8,
+) -> Result<Vec<PricedLine>, PricingError> {
+    use std::collections::BTreeMap;
+    if card.unit_size <= Decimal::ZERO {
+        return Err(PricingError::InvalidPrice);
+    }
+    let on = card.on;
+    let mut groups: BTreeMap<BTreeMap<String, String>, Vec<(SubLine, Decimal)>> = BTreeMap::new();
+    for row in usage {
+        let dimensions: BTreeMap<String, String> = row
+            .dimensions
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        let group: BTreeMap<String, String> = dimensions
+            .iter()
+            .filter(|(key, _)| !card.dimensions.contains(key))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        let Some(card_rate) =
+            crate::rate_card::resolve(&card.dimensions, &card.entries, &dimensions, on)
+        else {
+            if card.ignore_unrated || row.value.is_zero() {
+                continue;
+            }
+            return Err(PricingError::Unrated);
+        };
+        let scaled = card_rate
+            .checked_mul(card.multiplier)
+            .ok_or(PricingError::OutOfRange)?;
+        let rate = if card.unit_size == Decimal::ONE {
+            scaled
+        } else {
+            scaled
+                .checked_div(card.unit_size)
+                .ok_or(PricingError::OutOfRange)?
+        };
+        let quantity = round_billable_quantity(row.value, rate, precision);
+        // Divided last: a rate per 1M units is exact on the quantity, never on a rounded unit rate.
+        let exact = scaled
+            .checked_mul(quantity)
+            .and_then(|amount| amount.checked_div(card.unit_size))
+            .ok_or(PricingError::OutOfRange)?;
+        if quantity <= Decimal::ZERO || exact <= Decimal::ZERO {
+            continue;
+        }
+        let name = card
+            .dimensions
+            .iter()
+            .filter_map(|key| dimensions.get(key).cloned())
+            .collect::<Vec<_>>()
+            .join(",");
+        let subline = SubLine {
+            name,
+            total: 0,
+            quantity,
+            unit_price: rate,
+            attributes: keyed_values(&card.dimensions, &dimensions),
+        };
+        groups.entry(group).or_default().push((subline, exact));
+    }
+    let mut lines = Vec::new();
+    for (group, sublines) in groups {
+        let mut line = PricedLine::from_exact_sublines(sublines, precision)?;
+        if line.total > 0 {
+            line.dimensions = (!group.is_empty()).then(|| group.into_iter().collect());
+            lines.push(line);
+        }
+    }
+    Ok(lines)
+}
+
+/// The values a subline of rates keyed by one or two `keys` is the usage of; none past two.
+fn keyed_values(
+    keys: &[String],
+    dimensions: &std::collections::BTreeMap<String, String>,
+) -> Option<SubLineAttributes> {
+    let (first, second) = match keys {
+        [first] => (first, None),
+        [first, second] => (first, Some(second)),
+        _ => return None,
+    };
+    let second = second.and_then(|key| dimensions.get(key).map(|value| (key, value)));
+    Some(SubLineAttributes::Matrix {
+        dimension1_key: first.clone(),
+        dimension1_value: dimensions.get(first)?.clone(),
+        dimension2_key: second.map(|(key, _)| key.clone()),
+        dimension2_value: second.map(|(_, value)| value.clone()),
+    })
+}
+
+/// What `units` of one quantity cost under `model`: a subline per tier or package reached. Rates
+/// by dimension price dimensions, never one quantity.
+pub fn quantity_line(
+    model: &UsageModel,
+    units: Decimal,
+    precision: u8,
+) -> Result<PricedLine, PricingError> {
+    match model {
+        UsageModel::PerUnit { rate } => simple_prorated(rate, &units, None, precision),
+        UsageModel::Tiered { tiers, .. } => fees::tiered(units, tiers, precision),
+        UsageModel::Volume { tiers, .. } => fees::volume(units, tiers, precision),
+        UsageModel::Package { block_size, rate } => {
+            if *block_size == 0 {
+                return Err(PricingError::InvalidPrice);
+            }
+            let packages = (units / Decimal::from(*block_size)).ceil();
+            Ok(PricedLine::from_usage_sublines(
+                vec![SubLine {
+                    name: "Package".to_string(),
+                    total: to_minor(packages * *rate, precision)?,
+                    quantity: packages,
+                    unit_price: *rate,
+                    attributes: Some(SubLineAttributes::Package { raw_usage: units }),
+                }],
+                None,
+            ))
+        }
+        UsageModel::RateCard(_) => Err(PricingError::InvalidPrice),
+    }
 }
 
 /// The overage lines of a capacity fee for the usage of one window, past `included` units.
@@ -384,6 +365,135 @@ mod tests {
                 "{model:?}"
             );
         }
+    }
+
+    /// Rates a price holds for `cells` models, one unit of each used.
+    fn own_rates_of(cells: usize, rate: Decimal) -> (UsageModel, Vec<GroupedUsage>) {
+        use crate::rate_card::{Entry, Pattern};
+        let model = UsageModel::RateCard(super::super::CardRates {
+            dimensions: vec!["model".to_string()],
+            entries: (0..cells)
+                .map(|i| Entry {
+                    key: vec![Pattern::Exact(format!("m{i}"))],
+                    effective_from: chrono::NaiveDate::MIN,
+                    rate: Some(rate),
+                })
+                .collect(),
+            unit_size: Decimal::ONE,
+            multiplier: Decimal::ONE,
+            ignore_unrated: true,
+            on: chrono::NaiveDate::MIN,
+        });
+        let usage = (0..cells)
+            .map(|i| GroupedUsage {
+                value: dec!(1),
+                dimensions: HashMap::from([("model".to_string(), format!("m{i}"))]),
+            })
+            .collect();
+        (model, usage)
+    }
+
+    /// 300 keys of one unit at $0.004 bill $1.20 and at $0.006 $1.80, where rounding each key
+    /// billed $0.00 and $3.00. The sublines add up to the line.
+    /// Rules: R-130
+    #[test]
+    fn rates_by_dimension_are_rounded_once_over_their_keys() {
+        for (price, total) in [(dec!(0.004), 120), (dec!(0.006), 180)] {
+            let (model, usage) = own_rates_of(300, price);
+            let lines = usage_lines(&model, &usage, 2, |_| None).unwrap();
+            assert_eq!(lines.len(), 1);
+            assert_eq!(lines[0].total, total);
+            assert_eq!(lines[0].sublines.len(), 300);
+            let sum: i64 = lines[0].sublines.iter().map(|s| s.total).sum();
+            assert_eq!(sum, total);
+        }
+    }
+
+    /// Rates whose keys come to less than a minor unit bill no line.
+    /// Rules: R-130
+    #[test]
+    fn rates_below_a_minor_unit_bill_nothing() {
+        let (model, usage) = own_rates_of(1, dec!(0.004));
+        assert!(usage_lines(&model, &usage, 2, |_| None).unwrap().is_empty());
+    }
+
+    /// A subline of one or two keyed dimensions names their values, as a matrix cell's did.
+    #[test]
+    fn a_subline_names_the_values_its_rate_keys() {
+        let usage = [row("a/x", "p1", dec!(1000000))];
+        let lines = usage_lines(&UsageModel::RateCard(card(false)), &usage, 2, |_| None).unwrap();
+        assert_eq!(
+            lines[0].sublines[0].attributes,
+            Some(SubLineAttributes::Matrix {
+                dimension1_key: "model".to_string(),
+                dimension1_value: "a/x".to_string(),
+                dimension2_key: Some("token_type".to_string()),
+                dimension2_value: Some("input".to_string()),
+            })
+        );
+    }
+
+    fn card(ignore_unrated: bool) -> super::super::CardRates {
+        use crate::rate_card::{Entry, Pattern};
+        let entry = |model: &str, rate| Entry {
+            key: vec![Pattern::parse(model), Pattern::parse("input")],
+            effective_from: chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            rate: Some(rate),
+        };
+        super::super::CardRates {
+            dimensions: vec!["model".into(), "token_type".into()],
+            entries: vec![entry("a/*", dec!(3)), entry("b", dec!(10))],
+            unit_size: dec!(1000000),
+            multiplier: dec!(0.8),
+            ignore_unrated,
+            on: chrono::NaiveDate::from_ymd_opt(2026, 6, 1).unwrap(),
+        }
+    }
+
+    fn row(model: &str, project: &str, value: Decimal) -> GroupedUsage {
+        GroupedUsage {
+            value,
+            dimensions: HashMap::from([
+                ("model".to_string(), model.to_string()),
+                ("token_type".to_string(), "input".to_string()),
+                ("project".to_string(), project.to_string()),
+            ]),
+        }
+    }
+
+    /// 1M tokens of a/x at 3 and 1M of b at 10 per 1M, 20% off: 2.40 + 8.00 in one project's
+    /// line, rounded once; another project bills its own line.
+    /// Rules: R-132
+    #[test]
+    fn rate_card_usage_is_rated_by_entry_per_group_and_rounded_once() {
+        let usage = [
+            row("a/x", "p1", dec!(1000000)),
+            row("b", "p1", dec!(1000000)),
+            row("b", "p2", dec!(1)),
+        ];
+        let lines = usage_lines(&UsageModel::RateCard(card(false)), &usage, 2, |_| None).unwrap();
+        let p1 = lines
+            .iter()
+            .find(|l| l.dimensions.as_ref().unwrap()["project"] == "p1")
+            .unwrap();
+        assert_eq!(p1.total, 1040);
+        assert_eq!(p1.sublines.len(), 2);
+        assert_eq!(lines.len(), 1, "p2's 0.000008 is below a minor unit");
+    }
+
+    /// Rules: R-132
+    #[test]
+    fn unrated_usage_holds_unless_the_card_ignores_it() {
+        let usage = [row("c", "p1", dec!(10))];
+        assert_eq!(
+            usage_lines(&UsageModel::RateCard(card(false)), &usage, 2, |_| None),
+            Err(PricingError::Unrated)
+        );
+        assert!(
+            usage_lines(&UsageModel::RateCard(card(true)), &usage, 2, |_| None)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

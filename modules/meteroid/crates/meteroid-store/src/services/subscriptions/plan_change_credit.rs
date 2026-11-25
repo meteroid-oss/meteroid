@@ -1329,7 +1329,8 @@ impl Services {
         &self,
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
-        new_plan_version_id: common_domain::ids::PlanVersionId,
+        target: impl Into<crate::domain::subscription_changes::PlanTarget>,
+        component_params: &[crate::domain::subscription_components::ComponentParameterization],
         change_date: NaiveDate,
     ) -> StoreResult<Option<UsageReads>> {
         let mut conn = self.store.get_conn().await?;
@@ -1338,8 +1339,8 @@ impl Services {
                 &mut conn,
                 subscription_id,
                 tenant_id,
-                new_plan_version_id,
-                &[],
+                target,
+                component_params,
                 change_date,
             )
             .await?;

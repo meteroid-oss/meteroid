@@ -16,6 +16,10 @@ pub enum SubscriptionApiError {
     #[code(InvalidArgument)]
     MissingArgument(String),
 
+    #[error("{0}")]
+    #[code(FailedPrecondition)]
+    FailedPrecondition(String),
+
     #[error("Failed to retrieve the subscription details: {0}")]
     #[code(Internal)]
     SubscriptionDetailsError(String, #[source] anyhow::Error),
@@ -36,6 +40,7 @@ impl From<Report<StoreError>> for SubscriptionApiError {
         match err {
             StoreError::InvalidArgument(msg) => Self::InvalidArgument(msg.clone()),
             StoreError::ValueNotFound(msg) => Self::InvalidArgument(msg.clone()),
+            StoreError::FailedPrecondition(msg) => Self::FailedPrecondition(msg.clone()),
             StoreError::DuplicateValue { entity, key } => {
                 let msg = match key {
                     Some(k) => format!("{} with key '{}' already exists", entity, k),

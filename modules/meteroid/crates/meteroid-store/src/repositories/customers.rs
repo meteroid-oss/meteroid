@@ -452,70 +452,13 @@ impl CustomersInterface for Store {
         customer: CustomerNew,
         tenant_id: TenantId,
     ) -> StoreResult<Customer> {
-        let mut conn = self.get_conn().await?;
-        let tenant = TenantRow::find_by_id(&mut conn, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-        validate_customer_currency(&customer.currency, &tenant.available_currencies)?;
-        customer.validate_b2c()?;
-
-        if let Some(ref ca_id) = customer.connected_account_id {
-            let ca_org_id = connected_account_platform_org(&mut conn, *ca_id)
-                .await
-                .ok()
-                .flatten()
-                .ok_or_else(|| {
-                    Report::new(StoreError::ValueNotFound(
-                        "Connected account not found".into(),
-                    ))
-                })?;
-            if ca_org_id != tenant.organization_id {
-                return Err(Report::new(StoreError::InvalidArgument(
-                    "Connected account does not belong to this organization".into(),
-                )));
-            }
-        }
-
-        let invoicing_entity = self
-            .get_invoicing_entity(tenant_id, customer.invoicing_entity_id)
-            .await?;
-
-        let vat_number_format_valid = customer.is_valid_vat_number_format();
-
-        let customer: CustomerRowNew = CustomerNewWrapper {
-            inner: customer,
-            invoicing_entity_id: invoicing_entity.id,
-            tenant_id,
-            vat_number_format_valid,
-        }
-        .try_into()?;
-
+        let customer = self.prepare_customer(customer, tenant_id).await?;
         let res: Customer = self
             .transaction(|conn| {
                 let actor = &actor;
                 async move {
-                    let mut customer = customer;
-                    customer.custom_properties = self
-                        .internal
-                        .validate_and_normalize_custom_properties(
-                            conn,
-                            tenant_id,
-                            CustomPropertyEntityType::Customer,
-                            &customer.custom_properties,
-                            &serde_json::json!({}),
-                            CustomPropertyMode::Replace,
-                        )
-                        .await?;
-                    let new_customer: Customer = customer.insert(conn).await?.try_into()?;
-                    self.internal
-                        .record_outbox_batch_tx(
-                            conn,
-                            tenant_id,
-                            actor,
-                            vec![OutboxEvent::customer_created(new_customer.clone().into())],
-                        )
-                        .await?;
-                    Ok(new_customer)
+                    self.insert_customer_tx(conn, actor, tenant_id, customer)
+                        .await
                 }
                 .scope_boxed()
             })
@@ -1604,6 +1547,87 @@ async fn bump_written_customers(
         .wallet_price_changed(conn, &locks, common_clock::now())
         .await?;
     Ok(credit_inputs::bump_customers(conn, &locks).await?)
+}
+
+impl Store {
+    /// A new customer validated and ready to insert.
+    pub(crate) async fn prepare_customer(
+        &self,
+        customer: CustomerNew,
+        tenant_id: TenantId,
+    ) -> StoreResult<CustomerRowNew> {
+        let mut conn = self.get_conn().await?;
+        let tenant = TenantRow::find_by_id(&mut conn, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        validate_customer_currency(&customer.currency, &tenant.available_currencies)?;
+        customer.validate_b2c()?;
+
+        if let Some(ref ca_id) = customer.connected_account_id {
+            let ca_org_id = connected_account_platform_org(&mut conn, *ca_id)
+                .await
+                .ok()
+                .flatten()
+                .ok_or_else(|| {
+                    Report::new(StoreError::ValueNotFound(
+                        "Connected account not found".into(),
+                    ))
+                })?;
+            if ca_org_id != tenant.organization_id {
+                return Err(Report::new(StoreError::InvalidArgument(
+                    "Connected account does not belong to this organization".into(),
+                )));
+            }
+        }
+
+        let invoicing_entity = self
+            .get_invoicing_entity(tenant_id, customer.invoicing_entity_id)
+            .await?;
+
+        let vat_number_format_valid = customer.is_valid_vat_number_format();
+
+        let customer: CustomerRowNew = CustomerNewWrapper {
+            inner: customer,
+            invoicing_entity_id: invoicing_entity.id,
+            tenant_id,
+            vat_number_format_valid,
+        }
+        .try_into()?;
+        Ok(customer)
+    }
+
+    /// Inserts a prepared customer and its outbox event in `conn`'s transaction; the caller
+    /// publishes `Event::customer_created` once committed.
+    pub(crate) async fn insert_customer_tx(
+        &self,
+        conn: &mut PgConn,
+        actor: &Actor,
+        tenant_id: TenantId,
+        customer: CustomerRowNew,
+    ) -> StoreResult<Customer> {
+        let mut customer = customer;
+        customer.custom_properties = self
+            .internal
+            .validate_and_normalize_custom_properties(
+                conn,
+                tenant_id,
+                CustomPropertyEntityType::Customer,
+                &customer.custom_properties,
+                &serde_json::json!({}),
+                CustomPropertyMode::Replace,
+            )
+            .await?;
+        let new_customer: Customer = customer.insert(conn).await?.try_into()?;
+        self.internal
+            .record_outbox_batch_tx(
+                conn,
+                tenant_id,
+                actor,
+                vec![OutboxEvent::customer_created(new_customer.clone().into())],
+            )
+            .await?;
+        Ok(new_customer)
+    }
 }
 
 #[cfg(test)]

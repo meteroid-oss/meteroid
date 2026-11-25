@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package meteroid.api.coupons.v1;
 
+import "api/eligibility/v1/models.proto";
+
 import "google/protobuf/timestamp.proto";
 
 message Coupon {
@@ -20,6 +22,14 @@ message Coupon {
   optional int32 recurring_value = 13;
   bool reusable = 14;
   repeated string plan_ids = 15;
+  // Add-ons the discount also applies to; empty with plan_ids empty: everything.
+  repeated string add_on_ids = 16;
+  // Who may redeem it; unset: anyone with the code.
+  optional meteroid.api.eligibility.v1.Eligibility eligibility = 17;
+  optional string valid_from = 18;
+  // Billing periods starting within this many months of the first paid period. Unset with
+  // recurring_value set: the first invoices, as older coupons count; neither: forever.
+  optional int32 duration_months = 19;
 }
 
 message CouponDiscount {
@@ -35,6 +45,13 @@ message CouponDiscount {
   message FixedDiscount {
     string amount = 1;
     string currency = 2;
+    // The same discount in other currencies; a subscription in a currency with no amount here
+    // (nor `currency`) cannot redeem the coupon.
+    repeated CurrencyAmount amounts = 3;
+  }
+  message CurrencyAmount {
+    string currency = 1;
+    string amount = 2;
   }
   // Promotional credit added to the customer's wallet when the subscription it is redeemed on
   // starts. It never discounts an invoice; a customer redeems it at most once.

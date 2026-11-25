@@ -22,6 +22,10 @@ types:
     - meteroid.api.domains.v1.DomainsService
     - meteroid.api.creditnotes.v1.CreditNotesService
     - meteroid.api.creditunits.v1.CreditUnitsService
+    - meteroid.api.quantities.v1.ManagedQuantitiesService
+    - meteroid.api.ratecards.v1.RateCardsService
+    - meteroid.api.pricingpage.v1.PricingPageService
+    - meteroid.api.selfserve.v1.SelfServeJourneyService
     - meteroid.api.events.v1.EventsService
     - meteroid.api.eventinsights.v1.EventInsightsService
     - meteroid.api.features.v1.FeaturesService

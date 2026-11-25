@@ -60,6 +60,8 @@ modules/meteroid/crates/diesel-models/src/query/tenants.rs::TenantRow::find_by_i
 modules/meteroid/crates/diesel-models/src/query/organization_members.rs::OrganizationMemberRow::lock_membership | standalone | organization membership
 modules/meteroid/crates/diesel-models/src/query/organization_members.rs::OrganizationMemberRow::list_by_user_for_update | standalone | a user's memberships, on user deletion
 modules/meteroid/crates/diesel-models/src/query/plan_versions.rs::PlanVersionRow::select_for_update_by_id_and_tenant | standalone | plan minimum edits and price component changes serialize with publishing
+modules/meteroid/crates/diesel-models/src/query/plans.rs::PlanRow::lock_by_product_family | standalone | a product line's plans in id order, so two ladder rewrites run one after the other
+modules/meteroid/crates/diesel-models/src/query/rate_cards.rs::RateCardRow::find_for_update | standalone | a rate card, so writes of its entries (and of its terms) are serial
 modules/meteroid/crates/diesel-models/src/query/credit_units.rs::CreditUnitRow::lock_by_id | standalone | credit unit price edits
 modules/meteroid/crates/diesel-models/src/query/quotes.rs::QuoteRow::find_by_id_for_update | standalone | draft quote edit
 modules/meteroid/crates/diesel-models/src/query/entity_activity.rs::EntityActivityRow::find_by_id_for_update | standalone | activity entry of an email sent again

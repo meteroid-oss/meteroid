@@ -4,6 +4,7 @@ package meteroid.api.plans.v1;
 
 import "api/entitlements/v1/models.proto";
 import "api/plans/v1/models.proto";
+import "api/eligibility/v1/models.proto";
 import "common/v1/pagination.proto";
 
 import "google/protobuf/empty.proto";
@@ -100,6 +101,7 @@ message UpdatePublishedPlanOverviewRequest {
   string plan_version_id = 2;
   string name = 3;
   optional string description = 4;
+  // Unset leaves the rank unchanged; 0 takes the plan off the ladder.
   optional int32 self_service_rank = 5;
   optional bool issues_license = 6;
 }
@@ -188,6 +190,64 @@ message ClearPlanMinimumCommitmentRequest {
 }
 message ClearPlanMinimumCommitmentResponse {}
 
+// The product line's self-serve ladder, rewritten as a whole: the listed plans are ranked 1..n in
+// that order, every other plan of the product line leaves the ladder.
+message SetSelfServeLadderRequest {
+  string product_family_local_id = 1;
+  repeated string plan_ids = 2;
+}
+message SetSelfServeLadderResponse {}
+
+message SetPlanEligibilityRequest {
+  string plan_id = 1;
+  // An empty rule lets anyone in.
+  meteroid.api.eligibility.v1.Eligibility eligibility = 2;
+}
+message SetPlanEligibilityResponse {
+  meteroid.api.eligibility.v1.Eligibility eligibility = 1;
+}
+
+// Plan options: draft versions only.
+message CreatePlanOptionRequest {
+  string plan_version_id = 1;
+  string name = 2;
+  // Unset: derived from the name.
+  optional string alias = 3;
+  // The option whose prices the new one starts with (the same prices, not copies); unset: the
+  // default option.
+  optional string copy_from_option_id = 4;
+}
+message CreatePlanOptionResponse {
+  PlanOption option = 1;
+}
+
+// Unset fields are left unchanged.
+message UpdatePlanOptionRequest {
+  string option_id = 1;
+  optional string name = 2;
+  optional string alias = 3;
+  // Refused for the default option, and for the last one shown.
+  optional bool hidden = 4;
+}
+message UpdatePlanOptionResponse {
+  PlanOption option = 1;
+}
+
+// Refused for the version's last option.
+message RemovePlanOptionRequest {
+  string option_id = 1;
+}
+message RemovePlanOptionResponse {}
+
+// Every option of the version, in their new order.
+message ReorderPlanOptionsRequest {
+  string plan_version_id = 1;
+  repeated string option_ids = 2;
+}
+message ReorderPlanOptionsResponse {
+  repeated PlanOption options = 1;
+}
+
 service PlansService {
   rpc GetPlanOverview(GetPlanOverviewRequest) returns (GetPlanOverviewResponse) {}
   rpc GetPlanWithVersion(GetPlanWithVersionRequest) returns (GetPlanWithVersionResponse) {}
@@ -211,4 +271,13 @@ service PlansService {
 
   rpc SetPlanMinimumCommitment(SetPlanMinimumCommitmentRequest) returns (SetPlanMinimumCommitmentResponse) {}
   rpc ClearPlanMinimumCommitment(ClearPlanMinimumCommitmentRequest) returns (ClearPlanMinimumCommitmentResponse) {}
+
+  rpc SetSelfServeLadder(SetSelfServeLadderRequest) returns (SetSelfServeLadderResponse) {}
+  // Live: who may see or get the plan; never makes a version.
+  rpc SetPlanEligibility(SetPlanEligibilityRequest) returns (SetPlanEligibilityResponse) {}
+
+  rpc CreatePlanOption(CreatePlanOptionRequest) returns (CreatePlanOptionResponse) {}
+  rpc UpdatePlanOption(UpdatePlanOptionRequest) returns (UpdatePlanOptionResponse) {}
+  rpc RemovePlanOption(RemovePlanOptionRequest) returns (RemovePlanOptionResponse) {}
+  rpc ReorderPlanOptions(ReorderPlanOptionsRequest) returns (ReorderPlanOptionsResponse) {}
 }

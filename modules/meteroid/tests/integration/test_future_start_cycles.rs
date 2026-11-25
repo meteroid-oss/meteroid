@@ -549,6 +549,7 @@ async fn replay_entry_points_refuse_a_tenant_that_is_not_a_sandbox() {
         assert!(error.contains("only a sandbox"), "{error}");
     };
     let subscription = CreateSubscription {
+        option: None,
         subscription: SubscriptionNew {
             customer_id: CUST_UBER_ID,
             plan_version_id: PLAN_VERSION_USAGE_ID,

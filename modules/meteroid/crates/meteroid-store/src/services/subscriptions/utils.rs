@@ -10,6 +10,7 @@ use crate::domain::{
 };
 use crate::errors::StoreError;
 use crate::hooks::CreditControlHooks;
+use crate::services::subscriptions::currency::SubscriptionCurrency;
 use crate::services::subscriptions::insert::context::ResolvedCustomComponents;
 use crate::store::PgConn;
 use chrono::NaiveDate;
@@ -20,21 +21,22 @@ use error_stack::Report;
 use itertools::Itertools;
 use std::collections::HashMap;
 
-use crate::domain::add_ons::AddOn;
+use crate::domain::add_ons::{AddOn, ResolvedAddOn};
 use crate::domain::coupons::{Coupon, CouponCreditRedemption, CouponDiscount};
 use crate::domain::outbox_event::{OutboxEvent, SubscriptionEvent, SubscriptionUpdateType};
+use crate::domain::subscription_add_ons::SubscriptionAddOnCustomization;
 use diesel_models::DbResult;
 use diesel_models::applied_coupons::{AppliedCouponRow, AppliedCouponRowNew};
-use diesel_models::coupon_plans::CouponPlanRow;
 use diesel_models::coupons::CouponRow;
 use diesel_models::plan_versions::PlanVersionRow;
+use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
 use diesel_models::subscriptions::{SubscriptionRow, SubscriptionRowNew};
 use rust_decimal::prelude::*;
 
 use crate::services::Services;
 use crate::utils::periods::calculate_advance_period_range;
 use common_domain::ids::{
-    AppliedCouponId, BaseId, CouponId, PlanVersionId, SubscriptionId, TenantId,
+    AddOnId, AppliedCouponId, BaseId, CouponId, PlanVersionId, SubscriptionId, TenantId,
 };
 use diesel_models::plans::PlanRow;
 
@@ -95,8 +97,20 @@ pub(crate) fn fee_period_total_cents(fee: &SubscriptionFee, precision: u8) -> i6
         SubscriptionFee::Rate { rate } => {
             total_cents = rate.to_subunit_opt(precision).unwrap_or(0);
         }
-        SubscriptionFee::Recurring { quantity, rate, .. }
-        | SubscriptionFee::Credit {
+        SubscriptionFee::Recurring {
+            quantity,
+            rate,
+            model,
+            ..
+        } => {
+            total_cents = crate::domain::price_components::fixed_quantity_minor(
+                *rate,
+                Decimal::from(*quantity),
+                model.as_ref(),
+                precision,
+            );
+        }
+        SubscriptionFee::Credit {
             quantity,
             rate,
             once: false,
@@ -110,11 +124,10 @@ pub(crate) fn fee_period_total_cents(fee: &SubscriptionFee, precision: u8) -> i6
         }
         SubscriptionFee::Slot {
             initial_slots,
-            unit_rate,
+            model,
             ..
         } => {
-            total_cents =
-                i64::from(*initial_slots) * unit_rate.to_subunit_opt(precision).unwrap_or(0);
+            total_cents = model.period_total_minor(u64::from(*initial_slots), precision);
         }
         SubscriptionFee::OneTime { .. }
         | SubscriptionFee::Usage { .. }
@@ -476,12 +489,24 @@ pub(crate) fn scale_fee(fee: &SubscriptionFee, quantity: i32) -> SubscriptionFee
     let q = Decimal::from(quantity.max(0));
     match fee {
         SubscriptionFee::Rate { rate } => SubscriptionFee::Rate { rate: rate * q },
+        // A model prices each instance's quantity: its amounts scale, its quantity stays.
         SubscriptionFee::OneTime {
             rate,
             quantity: inner_qty,
+            model: Some(model),
+        } => SubscriptionFee::OneTime {
+            rate: *rate,
+            quantity: *inner_qty,
+            model: Some(model.scaled(q)),
+        },
+        SubscriptionFee::OneTime {
+            rate,
+            quantity: inner_qty,
+            model: None,
         } => SubscriptionFee::OneTime {
             rate: *rate,
             quantity: inner_qty * quantity.max(0) as u32,
+            model: None,
         },
         SubscriptionFee::Credit {
             rate,
@@ -504,10 +529,12 @@ pub(crate) fn scale_fee(fee: &SubscriptionFee, quantity: i32) -> SubscriptionFee
             rate,
             quantity: inner_qty,
             billing_type,
+            model,
         } => SubscriptionFee::Recurring {
             rate: rate * q,
             quantity: *inner_qty,
             billing_type: billing_type.clone(),
+            model: model.as_ref().map(|model| model.scaled(q)),
         },
         SubscriptionFee::Capacity {
             rate,
@@ -524,13 +551,13 @@ pub(crate) fn scale_fee(fee: &SubscriptionFee, quantity: i32) -> SubscriptionFee
         },
         SubscriptionFee::Slot {
             unit,
-            unit_rate,
+            model,
             min_slots,
             max_slots,
             initial_slots,
         } => SubscriptionFee::Slot {
             unit: unit.clone(),
-            unit_rate: *unit_rate,
+            model: model.clone(),
             min_slots: *min_slots,
             max_slots: *max_slots,
             initial_slots: initial_slots * quantity.max(0) as u32,
@@ -546,7 +573,8 @@ pub fn process_create_subscription_add_ons(
     prices: &HashMap<common_domain::ids::PriceId, crate::domain::prices::Price>,
     units: &crate::domain::credit_units::CreditUnitsById,
     product_family_id: ProductFamilyId,
-    currency: &str,
+    sold_in: &SubscriptionCurrency,
+    term: Option<BillingPeriodEnum>,
     effective_from: chrono::NaiveDate,
 ) -> Result<
     (
@@ -557,6 +585,7 @@ pub fn process_create_subscription_add_ons(
 > {
     let mut processed_add_ons = Vec::new();
     let mut pending_materializations = Vec::new();
+    let currency = sold_in.currency.as_str();
 
     if let Some(create) = create {
         for cs_ao in &create.add_ons {
@@ -580,9 +609,15 @@ pub fn process_create_subscription_add_ons(
                 ))));
             }
 
-            let resolved = add_on
-                .resolve_customized(products, prices, units, &cs_ao.customization)
-                .map_err(Report::new)?;
+            let resolved = resolve_add_on_sold_in(
+                add_on,
+                products,
+                prices,
+                units,
+                &cs_ao.customization,
+                sold_in,
+                term,
+            )?;
 
             let idx = processed_add_ons.len();
 
@@ -616,10 +651,82 @@ pub fn process_create_subscription_add_ons(
     Ok((processed_add_ons, pending_materializations))
 }
 
+/// `add_on` as a subscription sold in `sold_in` on `term` buys it: at its catalog price in that
+/// currency, on the cadence its parameters ask else the term; refused when it has none there. A
+/// price override keeps its own price, in that currency only.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn resolve_add_on_sold_in(
+    add_on: &AddOn,
+    products: &HashMap<common_domain::ids::ProductId, crate::domain::Product>,
+    prices: &HashMap<common_domain::ids::PriceId, crate::domain::prices::Price>,
+    units: &crate::domain::credit_units::CreditUnitsById,
+    customization: &SubscriptionAddOnCustomization,
+    sold_in: &SubscriptionCurrency,
+    term: Option<BillingPeriodEnum>,
+) -> StoreResult<ResolvedAddOn> {
+    let priced = match customization {
+        SubscriptionAddOnCustomization::PriceOverride { .. } => add_on.clone(),
+        SubscriptionAddOnCustomization::Parameterization(param) => add_on
+            .in_currency(&sold_in.currency, param.billing_period.or(term))
+            .map_err(Report::new)?,
+        SubscriptionAddOnCustomization::None => add_on
+            .in_currency(&sold_in.currency, term)
+            .map_err(Report::new)?,
+    };
+    let resolved = priced
+        .resolve_customized(products, prices, units, customization)
+        .map_err(Report::new)?;
+    check_add_on_price(&priced, resolved.price_id, prices, sold_in)?;
+    Ok(resolved)
+}
+
+/// An add-on, at its catalog price or one the request chose, is sold only in the subscription's
+/// currency.
+pub(crate) fn check_add_on_price(
+    add_on: &AddOn,
+    price_id: Option<common_domain::ids::PriceId>,
+    prices: &HashMap<common_domain::ids::PriceId, crate::domain::prices::Price>,
+    sold_in: &SubscriptionCurrency,
+) -> StoreResult<()> {
+    let Some(price) = price_id.and_then(|id| {
+        prices
+            .get(&id)
+            .or_else(|| add_on.prices.iter().find(|p| p.id == id))
+    }) else {
+        return Ok(());
+    };
+    if price.id == add_on.price_id || add_on.prices.iter().any(|p| p.id == price.id) {
+        return sold_in.accept_add_on(&add_on.name, price);
+    }
+    if !price.currency.eq_ignore_ascii_case(&sold_in.currency) {
+        return Err(Report::new(StoreError::InvalidArgument(format!(
+            "add-on {} is priced in {}, the subscription in {}",
+            add_on.name, price.currency, sold_in.currency
+        ))));
+    }
+    Ok(())
+}
+
+/// The coupons a subscription is created with; `trial_is_free` its plan version's, so a free
+/// trial counts none of a coupon's months.
 pub fn process_create_subscription_coupons(
     subscription: &SubscriptionRowNew,
+    trial_is_free: bool,
     coupons: &[Coupon],
 ) -> Result<Vec<AppliedCouponRowNew>, Report<StoreError>> {
+    let billing_start = subscription
+        .billing_start_date
+        .unwrap_or(subscription.start_date);
+    let billing_from = subscription
+        .trial_duration
+        .and_then(|days| u64::try_from(days).ok())
+        .filter(|days| trial_is_free && *days > 0)
+        .and_then(|days| billing_start.checked_add_days(chrono::Days::new(days)))
+        .unwrap_or(billing_start);
+    let effective_from = crate::services::subscriptions::coupon_months_from(
+        billing_from,
+        subscription.current_period_start,
+    );
     let processed_coupons = coupons
         .iter()
         .unique_by(|x| x.id)
@@ -632,7 +739,7 @@ pub fn process_create_subscription_coupons(
             applied_amount: None,
             applied_count: None,
             last_applied_at: None,
-            effective_from: subscription.start_date,
+            effective_from,
         })
         .collect();
 
@@ -675,6 +782,14 @@ pub(crate) async fn apply_coupons_at(
     )
     .await
     .map_err(Into::<Report<StoreError>>::into)?;
+    refuse_unredeemable_at(
+        tx_conn,
+        subscription_coupons,
+        subscriptions,
+        tenant_id,
+        at.naive_utc(),
+    )
+    .await?;
     apply_coupons_internal(tx_conn, controls, subscription_coupons, tenant_id, at).await
 }
 
@@ -742,6 +857,15 @@ async fn record_coupon_redemptions(
     redeemed_at: chrono::NaiveDateTime,
 ) -> DbResult<()> {
     AppliedCouponRow::insert_batch(tx_conn, subscription_coupons.to_vec()).await?;
+    // Each bills its fixed amount and add-on scope as they are now, whatever edits follow.
+    AppliedCouponRow::snapshot_terms(
+        tx_conn,
+        &subscription_coupons
+            .iter()
+            .map(|c| c.id)
+            .collect::<Vec<_>>(),
+    )
+    .await?;
 
     CouponRow::update_last_redemption_at(
         tx_conn,
@@ -761,6 +885,74 @@ async fn record_coupon_redemptions(
         CouponRow::inc_redemption_count(tx_conn, coupon_id, subscriptions_count as i32).await?;
     }
 
+    Ok(())
+}
+
+/// Refuses a coupon its subscription cannot take at `now`: not valid yet, no amount in its
+/// currency, out of its plan and add-on scope, or a customer its rule leaves out. The
+/// subscription's add-ons are inserted already.
+async fn refuse_unredeemable_at(
+    tx_conn: &mut PgConn,
+    subscription_coupons: &[&AppliedCouponRowNew],
+    subscriptions: &[CreatedSubscription],
+    tenant_id: TenantId,
+    now: chrono::NaiveDateTime,
+) -> StoreResult<()> {
+    if subscription_coupons.is_empty() {
+        return Ok(());
+    }
+    let coupon_ids: Vec<CouponId> = subscription_coupons
+        .iter()
+        .map(|x| x.coupon_id)
+        .unique()
+        .collect();
+    let rows = CouponRow::list_by_ids(tx_conn, &coupon_ids, &tenant_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    let coupons = crate::repositories::coupons::coupons_with_scope(tx_conn, rows).await?;
+    let plan_version_ids: Vec<PlanVersionId> =
+        subscriptions.iter().map(|s| s.plan_version_id).collect();
+    let plan_of_version = PlanVersionRow::get_plan_ids_by_version_ids(tx_conn, &plan_version_ids)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    let subscription_ids: Vec<SubscriptionId> = subscriptions.iter().map(|s| s.id).collect();
+    let add_ons =
+        SubscriptionAddOnRow::list_all_by_subscriptions(tx_conn, tenant_id, &subscription_ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+    for subscription in subscriptions {
+        let redeemed: Vec<Coupon> = coupons
+            .iter()
+            .filter(|coupon| {
+                subscription_coupons
+                    .iter()
+                    .any(|x| x.coupon_id == coupon.id && x.subscription_id == subscription.id)
+            })
+            .cloned()
+            .collect();
+        if redeemed.is_empty() {
+            continue;
+        }
+        let add_on_ids: Vec<AddOnId> = add_ons
+            .iter()
+            .filter(|row| row.subscription_id == subscription.id)
+            .map(|row| row.add_on_id)
+            .collect();
+        crate::repositories::coupons::refuse_unredeemable(
+            tx_conn,
+            tenant_id,
+            &redeemed,
+            &crate::repositories::coupons::Redemption {
+                customer_id: subscription.customer_id,
+                currency: &subscription.currency,
+                plan_id: plan_of_version.get(&subscription.plan_version_id).copied(),
+                add_on_ids: &add_on_ids,
+            },
+            now,
+        )
+        .await?;
+    }
     Ok(())
 }
 
@@ -785,15 +977,6 @@ async fn validate_coupons_at(
 
     let coupons = CouponRow::list_by_ids_for_update(tx_conn, &coupons_ids, &tenant_id).await?;
 
-    // Fetch plan restrictions for coupons
-    let coupon_plan_restrictions = CouponPlanRow::list_by_coupon_ids(tx_conn, &coupons_ids).await?;
-
-    // Fetch plan_ids for all plan_version_ids in subscriptions
-    let plan_version_ids: Vec<PlanVersionId> =
-        subscriptions.iter().map(|s| s.plan_version_id).collect();
-    let plan_version_to_plan =
-        PlanVersionRow::get_plan_ids_by_version_ids(tx_conn, &plan_version_ids).await?;
-
     for coupon in &coupons {
         let applied_coupon = subscription_coupons
             .iter()
@@ -803,7 +986,7 @@ async fn validate_coupons_at(
                 coupon.code
             ))))?;
 
-        let subscription = subscriptions
+        subscriptions
             .iter()
             .find(|x| x.id == applied_coupon.subscription_id)
             .ok_or(Report::new(DatabaseError::ValidationError(format!(
@@ -837,45 +1020,7 @@ async fn validate_coupons_at(
             .into());
         }
 
-        // TEMPORARY CHECK: currency is the same as in subscription
-        let discount: CouponDiscount =
-            serde_json::from_value(coupon.discount.clone()).map_err(|_| {
-                Report::new(DatabaseError::ValidationError(format!(
-                    "Discount serde error for coupon {}",
-                    &coupon.code
-                )))
-            })?;
-
-        if discount
-            .currency()
-            .is_some_and(|x| x != subscription.currency)
-        {
-            return Err(Report::new(DatabaseError::ValidationError(format!(
-                "coupon {} currency does not match subscription currency",
-                coupon.code
-            )))
-            .into());
-        }
-
-        // check plan restrictions
-        if let Some(allowed_plans) = coupon_plan_restrictions.get(&coupon.id)
-            && !allowed_plans.is_empty()
-        {
-            let plan_id = plan_version_to_plan
-                .get(&subscription.plan_version_id)
-                .ok_or(Report::new(DatabaseError::ValidationError(format!(
-                    "Plan not found for subscription {}",
-                    subscription.id
-                ))))?;
-
-            if !allowed_plans.contains(plan_id) {
-                return Err(Report::new(DatabaseError::ValidationError(format!(
-                    "coupon {} cannot be applied to this plan",
-                    coupon.code
-                )))
-                .into());
-            }
-        }
+        // Currency, scope, valid_from and eligibility: `refuse_unredeemable_at`.
     }
 
     // check if the coupon has reached its redemption limit
@@ -995,7 +1140,7 @@ pub fn process_create_subscription_components(
     units: &crate::domain::credit_units::CreditUnitsById,
     resolved: &ResolvedCustomComponents,
     product_family_id: ProductFamilyId,
-    currency: &str,
+    sold_in: &SubscriptionCurrency,
     effective_from: NaiveDate,
 ) -> Result<
     (
@@ -1016,8 +1161,16 @@ pub fn process_create_subscription_components(
     let binding = vec![];
     let plan_price_components = map.get(&sub.plan_version_id).unwrap_or(&binding);
 
+    let currency = sold_in.currency.as_str();
     for c in plan_price_components {
         let component_id = c.id;
+        let mut in_currency = c.clone();
+        if !remove_components.contains(&component_id)
+            && !resolved.overrides.contains_key(&component_id)
+        {
+            in_currency.prices = sold_in.cell(c)?;
+        }
+        let c = &in_currency;
 
         // Check overridden_components first (pre-resolved in gather phase).
         // If there's also a parameterization for this component, apply its parameters
@@ -1051,6 +1204,10 @@ pub fn process_create_subscription_components(
                     currency: currency.to_string(),
                 });
             }
+            continue;
+        }
+
+        if c.is_included_only() {
             continue;
         }
 
@@ -1461,7 +1618,9 @@ mod mrr_rounding_tests {
             calculate_mrr(
                 &SubscriptionFee::Slot {
                     unit: "seat".to_string(),
-                    unit_rate: dec!(100.05),
+                    model: crate::domain::price_components::RatingModel::PerUnit {
+                        rate: dec!(100.05)
+                    },
                     min_slots: None,
                     max_slots: None,
                     initial_slots: 5,
@@ -1655,7 +1814,8 @@ mod credit_pack_mrr_tests {
             calculate_mrr(
                 &SubscriptionFee::OneTime {
                     rate: dec!(100),
-                    quantity: 1
+                    quantity: 1,
+                    model: None,
                 },
                 &SubscriptionFeeBillingPeriod::OneTime,
                 2

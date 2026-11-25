@@ -1,22 +1,16 @@
 import {
   Button,
   Form,
-  GenericFormField,
   InputFormField,
-  Label,
-  RadioGroup,
-  RadioGroupItem,
   SelectFormField,
   SelectItem,
   TextareaFormField,
 } from '@md/ui'
 import { customAlphabet } from 'nanoid'
 import { FC, useEffect } from 'react'
-import { ControllerRenderProps, FieldPath, FieldValues, useController } from 'react-hook-form'
 import { z } from 'zod'
 
-import { CurrencySelect } from '@/components/CurrencySelect'
-import { Methods, useZodForm } from '@/hooks/useZodForm'
+import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { createPlanSchema } from '@/lib/schemas/plans'
 import { listProductFamilies } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
@@ -57,10 +51,7 @@ export const DetailsForm: FC<Props> = ({ onCancel, onNext, defaultValues, submit
   )
   const methods = useZodForm({
     schema: createPlanSchema,
-    defaultValues: {
-      planType: 'STANDARD',
-      ...defaultValues,
-    },
+    defaultValues,
     mode: 'onChange',
   })
 
@@ -114,15 +105,6 @@ export const DetailsForm: FC<Props> = ({ onCancel, onNext, defaultValues, submit
               />
             )}
 
-            <CurrencySelect
-              name="currency"
-              label="Currency"
-              control={methods.control}
-              required
-              layout="horizontal"
-              className="max-w-[320px]"
-            />
-
             {/* TODO */}
             <div className="hidden">
               <div className="w-full border-b "></div>
@@ -135,16 +117,6 @@ export const DetailsForm: FC<Props> = ({ onCancel, onNext, defaultValues, submit
                 layout="horizontal"
               />
             </div>
-            <div className="w-full border-b border-border "></div>
-            <GenericFormField
-              name="planType"
-              label="Plan type"
-              layout="horizontal"
-              control={methods.control}
-              render={({ className, field }) => (
-                <PlanTypeFormItem methods={methods} field={field} className={className} />
-              )}
-            />
           </div>
 
           <div className="flex justify-end w-full items-center space-x-3">
@@ -161,84 +133,3 @@ export const DetailsForm: FC<Props> = ({ onCancel, onNext, defaultValues, submit
     </Form>
   )
 }
-
-const PlanTypeFormItem = <
-  TFieldValues extends FieldValues = FieldValues,
-  TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>,
->({
-  methods,
-  className,
-}: {
-  field: ControllerRenderProps<TFieldValues, TName>
-  methods: Methods<typeof createPlanSchema>
-  className: string
-}) => {
-  const { field } = useController({ name: 'planType', control: methods.control })
-  return (
-    <RadioGroup
-      defaultValue="STANDARD"
-      name={field.name}
-      onValueChange={field.onChange}
-      value={field.value}
-      className={className}
-    >
-      <div className="flex items-center space-x-4 h-14">
-        <div>
-          <RadioGroupItem value="STANDARD" id="r2" />
-        </div>
-        <Label htmlFor="r2">
-          <PlanTypeCard
-            title="Standard"
-            desc={
-              <>
-                Standard plans are meant to be subscribed by your customers in a <b>self-serve</b>{' '}
-                or scalable manner.
-              </>
-            }
-          />
-        </Label>
-      </div>
-      <div className="flex items-center space-x-4  h-14">
-        <div>
-          <RadioGroupItem value="FREE" id="r1" />
-        </div>
-        <Label htmlFor="r1">
-          <PlanTypeCard
-            title="Free / Freemium "
-            desc="Free plans cannot include paid components, but can give access to some features."
-          />
-        </Label>
-      </div>
-
-      <div className="flex items-center space-x-4  h-14">
-        <div>
-          <RadioGroupItem value="CUSTOM" id="r3" className="aspect-square h-4 w-4" />
-        </div>
-        <Label htmlFor="r3">
-          <PlanTypeCard
-            title="Custom "
-            desc={
-              <>
-                Custom plans allows to generate quotes and to be extended per customer or customer
-                groups. They are meant to be used in <b>sales-led</b> opportunities.
-              </>
-            }
-          />
-        </Label>
-      </div>
-    </RadioGroup>
-  )
-}
-
-interface PlanTypeCardProps {
-  title: string
-  desc: React.ReactNode
-}
-const PlanTypeCard: FC<PlanTypeCardProps> = ({ title, desc }) => (
-  <>
-    <div className="flex flex-col ">
-      <div className="text-sm font-medium text-foreground">{title}</div>
-      <div className="text-xs text-muted-foreground">{desc}</div>
-    </div>
-  </>
-)

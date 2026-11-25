@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use crate::domain::coupons::{Coupon, CouponDiscount};
 use crate::domain::customers::Address;
 use crate::domain::plan_minimums::MinimumScope;
-use crate::domain::price_components::UsagePricingModel;
+use crate::domain::price_components::{RatingModel, UsagePricingModel};
 use crate::domain::quotes::{
     DetailedQuote, QuoteAttachment, QuoteCountersigner, QuoteDisplayOptions, QuoteSection,
     RecipientDetails,
@@ -72,8 +72,12 @@ pub struct QuoteDocumentCoupon {
     pub code: String,
     pub description: Option<String>,
     pub discount: CouponDiscount,
-    /// Billing periods the discount applies to; `None`: every period.
+    /// Billing periods the discount applies to; neither this nor `duration_months`: every period.
     pub recurring_value: Option<i32>,
+    /// Billing periods starting within this many months of the first paid period. Skipped when
+    /// none, so a document recorded before keeps its hash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_months: Option<i32>,
 }
 
 impl From<&Coupon> for QuoteDocumentCoupon {
@@ -84,6 +88,7 @@ impl From<&Coupon> for QuoteDocumentCoupon {
             description: (!description.is_empty()).then(|| description.to_string()),
             discount: coupon.discount.clone(),
             recurring_value: coupon.recurring_value,
+            duration_months: coupon.duration_months,
         }
     }
 }
@@ -204,7 +209,8 @@ pub fn max_discount_percent(quote: &DetailedQuote, coupons: &[Coupon]) -> Option
 }
 
 /// The fee with every price taken down by `percent`, rounded half away from zero. Flat amounts
-/// round to the currency's precision; unit rates keep two more decimals than they had.
+/// (packages, tier flat fees and caps) round to the currency's precision; unit rates, tier rates
+/// included, keep two more decimals than they had.
 pub fn discount_fee(fee: &SubscriptionFee, percent: Decimal, precision: u32) -> SubscriptionFee {
     let factor = (Decimal::ONE_HUNDRED - percent) / Decimal::ONE_HUNDRED;
     let half_up = |d: Decimal, dp: u32| {
@@ -214,19 +220,37 @@ pub fn discount_fee(fee: &SubscriptionFee, percent: Decimal, precision: u32) -> 
     let flat = |d: &Decimal| half_up(d * factor, precision);
     let unit = |d: &Decimal| half_up(d * factor, d.scale().max(precision) + 2);
 
+    let discount_model = |model: &mut RatingModel| match model {
+        RatingModel::PerUnit { rate } => *rate = unit(rate),
+        RatingModel::Package { rate, .. } => *rate = flat(rate),
+        RatingModel::Tiered { tiers } | RatingModel::Volume { tiers } => {
+            for tier in tiers {
+                tier.rate = unit(&tier.rate);
+                tier.flat_fee = tier.flat_fee.as_ref().map(flat);
+                tier.flat_cap = tier.flat_cap.as_ref().map(flat);
+            }
+        }
+    };
+
     let mut fee = fee.clone();
     match &mut fee {
-        SubscriptionFee::Rate { rate }
-        | SubscriptionFee::OneTime { rate, .. }
-        | SubscriptionFee::Recurring { rate, .. }
-        | SubscriptionFee::Credit { rate, .. } => *rate = flat(rate),
+        SubscriptionFee::OneTime { rate, model, .. }
+        | SubscriptionFee::Recurring { rate, model, .. } => match model {
+            // The rate only heads a modelled fee: it follows the discounted model.
+            Some(model) => {
+                discount_model(model);
+                *rate = model.headline_rate();
+            }
+            None => *rate = flat(rate),
+        },
+        SubscriptionFee::Rate { rate } | SubscriptionFee::Credit { rate, .. } => *rate = flat(rate),
         SubscriptionFee::Capacity {
             rate, overage_rate, ..
         } => {
             *rate = flat(rate);
             *overage_rate = unit(overage_rate);
         }
-        SubscriptionFee::Slot { unit_rate, .. } => *unit_rate = flat(unit_rate),
+        SubscriptionFee::Slot { model, .. } => discount_model(model),
         SubscriptionFee::Usage { model, .. } => match model {
             UsagePricingModel::PerUnit { rate } => *rate = unit(rate),
             UsagePricingModel::Package { rate, .. } => *rate = flat(rate),
@@ -237,10 +261,13 @@ pub fn discount_fee(fee: &SubscriptionFee, percent: Decimal, precision: u32) -> 
                     tier.flat_cap = tier.flat_cap.as_ref().map(flat);
                 }
             }
-            UsagePricingModel::Matrix { rates } => {
-                for row in rates {
-                    row.per_unit_price = unit(&row.per_unit_price);
+            UsagePricingModel::DimensionRates(rates) => {
+                for rate in &mut rates.rates {
+                    rate.rate = unit(&rate.rate);
                 }
+            }
+            UsagePricingModel::RateCard { multiplier, .. } => {
+                *multiplier = Some(unit(&multiplier.unwrap_or(Decimal::ONE)));
             }
         },
     }
@@ -303,6 +330,7 @@ mod tests {
             description: None,
             discount: CouponDiscount::Percentage(dec!(20)),
             recurring_value: Some(3),
+            duration_months: None,
         };
         let with_terms = document(vec![terms.clone()]);
         assert_ne!(with_terms.hash(), document(vec![]).hash());
@@ -334,6 +362,34 @@ mod tests {
         with_other_msa.attachments = vec![file("bb")];
         assert_ne!(with_msa.hash(), without.hash());
         assert_ne!(with_msa.hash(), with_other_msa.hash());
+    }
+
+    #[test]
+    fn a_coupons_months_are_part_of_its_terms_and_absent_before() {
+        let counted = QuoteDocumentCoupon {
+            code: "YC26".to_string(),
+            description: None,
+            discount: CouponDiscount::Percentage(dec!(50)),
+            recurring_value: None,
+            duration_months: None,
+        };
+        let json = serde_json::to_value(&counted).unwrap();
+        assert!(
+            json.get("duration_months").is_none(),
+            "an older document's hash holds"
+        );
+
+        let year = QuoteDocumentCoupon {
+            duration_months: Some(12),
+            ..counted.clone()
+        };
+        assert_ne!(
+            document(vec![year.clone()]).hash(),
+            document(vec![counted]).hash()
+        );
+        let read: QuoteDocumentCoupon =
+            serde_json::from_value(serde_json::to_value(&year).unwrap()).unwrap();
+        assert_eq!(read, year);
     }
 
     #[test]
@@ -369,11 +425,66 @@ mod tests {
     }
 
     #[test]
+    fn a_tier_rate_keeps_its_precision() {
+        let tier = |first_unit: u64, rate: Decimal| crate::domain::price_components::TierRow {
+            first_unit,
+            rate,
+            flat_fee: None,
+            flat_cap: None,
+        };
+        let fee = discount_fee(
+            &SubscriptionFee::Recurring {
+                rate: dec!(0.045),
+                quantity: 1000,
+                billing_type: crate::domain::enums::BillingType::Advance,
+                model: Some(RatingModel::Tiered {
+                    tiers: vec![tier(0, dec!(0.045)), tier(500, dec!(0.03))],
+                }),
+            },
+            dec!(10),
+            2,
+        );
+        match fee {
+            SubscriptionFee::Recurring {
+                rate,
+                model: Some(RatingModel::Tiered { tiers }),
+                ..
+            } => {
+                assert_eq!(tiers[0].rate, dec!(0.0405));
+                assert_eq!(tiers[1].rate, dec!(0.027));
+                assert_eq!(rate, dec!(0.0405));
+            }
+            _ => panic!("still a tiered recurring fee"),
+        }
+    }
+
+    #[test]
+    fn a_package_rate_rounds_to_the_currency() {
+        let fee = discount_fee(
+            &SubscriptionFee::OneTime {
+                rate: dec!(30),
+                quantity: 25,
+                model: Some(RatingModel::Package {
+                    block_size: 10,
+                    rate: dec!(30.05),
+                }),
+            },
+            dec!(50),
+            2,
+        );
+        assert!(matches!(
+            fee,
+            SubscriptionFee::OneTime { model: Some(RatingModel::Package { rate, .. }), .. }
+                if rate == dec!(15.03)
+        ));
+    }
+
+    #[test]
     fn a_full_discount_makes_the_line_free() {
         let fee = discount_fee(
             &SubscriptionFee::Slot {
                 unit: "seat".into(),
-                unit_rate: dec!(25),
+                model: crate::domain::price_components::RatingModel::PerUnit { rate: dec!(25) },
                 min_slots: None,
                 max_slots: None,
                 initial_slots: 3,
@@ -381,6 +492,6 @@ mod tests {
             dec!(100),
             2,
         );
-        assert!(matches!(fee, SubscriptionFee::Slot { unit_rate, .. } if unit_rate.is_zero()));
+        assert!(matches!(fee, SubscriptionFee::Slot { model, .. } if !model.charges()));
     }
 }

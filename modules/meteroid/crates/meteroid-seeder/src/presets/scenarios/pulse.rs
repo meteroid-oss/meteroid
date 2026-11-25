@@ -117,6 +117,7 @@ pub fn pulse_scenario(now: NaiveDate) -> Scenario {
             BillingMetricAggregateEnum::Sum,
             "value",
         )],
+        rate_cards: vec![],
         features: vec![FeatureSpec {
             code: AI_ACTIONS.to_string(),
             name: "AI Assist Actions".to_string(),
@@ -124,6 +125,7 @@ pub fn pulse_scenario(now: NaiveDate) -> Scenario {
                 metric_code: AI_ACTIONS.to_string(),
                 unlimited_by_default: false,
             },
+            product: None,
         }],
         plans: vec![
             // Starter: pure per-seat, for small teams.
@@ -174,6 +176,8 @@ pub fn pulse_scenario(now: NaiveDate) -> Scenario {
             currency: CURRENCY,
             expires_after_days: 90,
         }],
+        coupons: vec![],
+        customer_properties: vec![],
         reporting_currency: None,
     }
 }
@@ -485,6 +489,7 @@ mod tests {
                     metric_code: AI_ACTIONS.to_string(),
                     unlimited_by_default: false,
                 },
+                product: None,
             }]
         );
         let limit = |plan_name: &str| plan(plan_name).entitlement(AI_ACTIONS).cloned();

@@ -128,6 +128,42 @@ impl SlotTransactionRow {
             .into_db_result()
     }
 
+    /// Withdraws the changes of `unit`'s seats waiting to take effect after `after` (a renewal's
+    /// removal or increase); seat counts set by a scheduled change stay.
+    pub async fn delete_waiting_changes(
+        conn: &mut PgConn,
+        lock: &CustomerLock,
+        subscription_uid: SubscriptionId,
+        unit: &str,
+        after: NaiveDateTime,
+    ) -> DbResult<usize> {
+        use crate::enums::SlotTransactionStatusEnum;
+        use crate::schema::{slot_transaction, subscription};
+        use diesel::prelude::*;
+        use diesel_async::RunQueryDsl;
+
+        lock.on(conn);
+        let query = diesel::delete(
+            slot_transaction::table
+                .filter(slot_transaction::subscription_id.eq(subscription_uid))
+                .filter(slot_transaction::unit.eq(unit))
+                .filter(slot_transaction::status.eq(SlotTransactionStatusEnum::Active))
+                .filter(slot_transaction::delta.ne(0))
+                .filter(slot_transaction::effective_at.gt(after))
+                .filter(diesel::dsl::exists(
+                    subscription::table
+                        .filter(subscription::id.eq(slot_transaction::subscription_id))
+                        .filter(subscription::tenant_id.eq(lock.tenant_id())),
+                )),
+        );
+        crate::debug_sql(&query);
+        query
+            .execute(conn)
+            .await
+            .attach("Error while withdrawing waiting seat changes")
+            .into_db_result()
+    }
+
     /// Seats of `unit` bought but not active yet (their payment is in flight): the maximum counts
     /// them, or concurrent purchases could each pass it.
     pub async fn pending_upgrades(

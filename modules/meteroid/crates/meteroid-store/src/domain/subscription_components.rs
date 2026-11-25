@@ -237,7 +237,6 @@ pub struct SubscriptionComponentNewInternal {
     pub effective_from: chrono::NaiveDate,
 }
 
-// TODO golden tests
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum SubscriptionFee {
     Rate {
@@ -246,6 +245,9 @@ pub enum SubscriptionFee {
     OneTime {
         rate: rust_decimal::Decimal,
         quantity: u32,
+        /// Prices `quantity` instead of `rate`; see `fixed_quantity_amount`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<crate::domain::price_components::RatingModel>,
     },
     /// A credit pack: charged like an advance fee (`rate` × `quantity`), it funds
     /// `credit_amount` × `quantity` of invoice credit once paid. See `FeeType::Credit`.
@@ -269,6 +271,9 @@ pub enum SubscriptionFee {
         rate: rust_decimal::Decimal,
         quantity: u32,
         billing_type: BillingType,
+        /// Prices `quantity` instead of `rate`; see `fixed_quantity_amount`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<crate::domain::price_components::RatingModel>,
     },
     Capacity {
         rate: rust_decimal::Decimal,
@@ -281,7 +286,11 @@ pub enum SubscriptionFee {
     },
     Slot {
         unit: String,
-        unit_rate: rust_decimal::Decimal,
+        #[serde(
+            alias = "unit_rate",
+            deserialize_with = "crate::domain::price_components::RatingModel::rate_or_model"
+        )]
+        model: crate::domain::price_components::RatingModel,
         min_slots: Option<u32>,
         max_slots: Option<u32>,
         initial_slots: u32,
@@ -298,7 +307,83 @@ pub enum SubscriptionFee {
 
 json_value_serde!(SubscriptionFee);
 
+// Stored on every subscription component: each shape ever written must still read.
+golden::golden!(SubscriptionFee, {
+    "rate" => SubscriptionFee::Rate {
+        rate: rust_decimal::Decimal::new(100, 2),
+    },
+    "one_time" => SubscriptionFee::OneTime {
+        rate: rust_decimal::Decimal::new(100, 2),
+        quantity: 1,
+        model: None,
+    },
+    "credit" => SubscriptionFee::Credit {
+        rate: rust_decimal::Decimal::new(100, 2),
+        quantity: 1,
+        credit_amount: rust_decimal::Decimal::new(1000, 2),
+        expiry: None,
+        credit_unit: None,
+        rollover: None,
+        once: false,
+    },
+    "recurring" => SubscriptionFee::Recurring {
+        rate: rust_decimal::Decimal::new(100, 2),
+        quantity: 1,
+        billing_type: BillingType::Advance,
+        model: None,
+    },
+    "capacity" => SubscriptionFee::Capacity {
+        rate: rust_decimal::Decimal::new(100, 2),
+        included: 100,
+        overage_rate: rust_decimal::Decimal::new(10, 2),
+        metric_id: uuid::Uuid::nil().into(),
+        credit_unit: None,
+    },
+    "slot" => SubscriptionFee::Slot {
+        unit: "seat".to_string(),
+        model: crate::domain::price_components::RatingModel::PerUnit {
+            rate: rust_decimal::Decimal::new(1000, 2),
+        },
+        min_slots: None,
+        max_slots: None,
+        initial_slots: 3,
+    },
+    "usage" => SubscriptionFee::Usage {
+        metric_id: uuid::Uuid::nil().into(),
+        model: UsagePricingModel::PerUnit {
+            rate: rust_decimal::Decimal::new(100, 2),
+        },
+        credit_unit: None,
+    },
+});
+
 impl SubscriptionFee {
+    /// Whether the fee can bill anything, whatever the usage or the seats bought.
+    pub fn charges(&self) -> bool {
+        use crate::domain::price_components::fixed_quantity_charges;
+        let positive = |amount: &rust_decimal::Decimal| *amount > rust_decimal::Decimal::ZERO;
+        match self {
+            SubscriptionFee::Rate { rate } => positive(rate),
+            SubscriptionFee::OneTime {
+                rate,
+                quantity,
+                model,
+            }
+            | SubscriptionFee::Recurring {
+                rate,
+                quantity,
+                model,
+                ..
+            } => fixed_quantity_charges(*rate, *quantity, model.as_ref()),
+            SubscriptionFee::Credit { rate, quantity, .. } => positive(rate) && *quantity > 0,
+            SubscriptionFee::Capacity {
+                rate, overage_rate, ..
+            } => positive(rate) || positive(overage_rate),
+            SubscriptionFee::Slot { model, .. } => model.charges(),
+            SubscriptionFee::Usage { model, .. } => model.charges(),
+        }
+    }
+
     /// Whether the fee sells credit for a price, as opposed to including it at no charge.
     pub fn sells_credit(&self) -> bool {
         matches!(self, SubscriptionFee::Credit { rate, .. } if *rate > rust_decimal::Decimal::ZERO)
@@ -391,7 +476,15 @@ impl SubscriptionFee {
         use rust_decimal::Decimal;
         match self {
             SubscriptionFee::Rate { rate } => *rate > Decimal::ZERO,
-            SubscriptionFee::OneTime { rate, quantity } => *rate > Decimal::ZERO && *quantity > 0,
+            SubscriptionFee::OneTime {
+                rate,
+                quantity,
+                model,
+            } => crate::domain::price_components::fixed_quantity_charges(
+                *rate,
+                *quantity,
+                model.as_ref(),
+            ),
             SubscriptionFee::Credit { rate, quantity, .. } => {
                 *rate > Decimal::ZERO && *quantity > 0
             }
@@ -399,17 +492,21 @@ impl SubscriptionFee {
                 rate,
                 quantity,
                 billing_type,
+                model,
             } => {
                 matches!(billing_type, BillingType::Advance)
-                    && *rate > Decimal::ZERO
-                    && *quantity > 0
+                    && crate::domain::price_components::fixed_quantity_charges(
+                        *rate,
+                        *quantity,
+                        model.as_ref(),
+                    )
             }
             SubscriptionFee::Capacity { rate, .. } => *rate > Decimal::ZERO,
             SubscriptionFee::Slot {
-                unit_rate,
+                model,
                 initial_slots,
                 ..
-            } => *unit_rate > Decimal::ZERO && *initial_slots > 0,
+            } => model.charges() && *initial_slots > 0,
             SubscriptionFee::Usage { .. } => false,
         }
     }
@@ -426,5 +523,34 @@ impl SubscriptionFee {
                     ..
                 }
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::price_components::RatingModel;
+    use rust_decimal_macros::dec;
+
+    /// A seat fee as stored before rating models, a bare `unit_rate`, reads as per unit.
+    #[test]
+    fn a_seat_fee_stored_with_a_unit_rate_reads_as_per_unit() {
+        let fee: SubscriptionFee = serde_json::from_str(
+            r#"{"Slot":{"unit":"seat","unit_rate":"10.00","min_slots":null,"max_slots":null,"initial_slots":3}}"#,
+        )
+        .unwrap();
+        let SubscriptionFee::Slot {
+            unit,
+            model,
+            min_slots,
+            max_slots,
+            initial_slots,
+        } = fee
+        else {
+            panic!("a seat fee");
+        };
+        assert_eq!(unit, "seat");
+        assert!(matches!(model, RatingModel::PerUnit { rate } if rate == dec!(10.00)));
+        assert_eq!((min_slots, max_slots, initial_slots), (None, None, 3));
     }
 }

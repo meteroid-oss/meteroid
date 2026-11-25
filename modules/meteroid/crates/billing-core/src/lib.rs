@@ -18,6 +18,7 @@ pub mod minimum;
 pub mod pricer;
 pub mod pricing;
 pub mod proration;
+pub mod rate_card;
 pub mod reconcile;
 pub mod rounding;
 pub mod settlement;

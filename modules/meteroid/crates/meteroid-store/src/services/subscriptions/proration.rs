@@ -24,22 +24,25 @@ pub fn component_advance_amount_cents(
             rate,
             quantity,
             billing_type,
+            model,
         } => {
             use crate::domain::enums::BillingType;
             match billing_type {
-                BillingType::Advance => {
-                    let total = *rate * rust_decimal::Decimal::from(*quantity);
-                    total.to_subunit_opt(precision).unwrap_or(0)
-                }
+                BillingType::Advance => crate::domain::price_components::fixed_quantity_minor(
+                    *rate,
+                    Decimal::from(*quantity),
+                    model.as_ref(),
+                    precision,
+                ),
                 BillingType::Arrears => 0,
             }
         }
         SubscriptionFee::Capacity { rate, .. } => rate.to_subunit_opt(precision).unwrap_or(0),
         SubscriptionFee::Slot {
             initial_slots,
-            unit_rate,
+            model,
             ..
-        } => i64::from(*initial_slots) * unit_rate.to_subunit_opt(precision).unwrap_or(0),
+        } => model.period_total_minor(u64::from(*initial_slots), precision),
         // A pack is never prorated on a plan change: an adjustment line funds no credit, so
         // prorating would charge without a grant or refund a charge whose credit was granted.
         SubscriptionFee::Credit { .. }
@@ -159,7 +162,8 @@ fn pack_denomination(fee: &SubscriptionFee) -> Option<String> {
 /// the fixed fees in total, then per credit denomination the packs' fees, the credit of the packs
 /// tied to the period and their rollover cap, and the billing period's length. Any decrease, a
 /// credit denomination removed, or a shorter period is a downgrade, even beside an increase;
-/// otherwise any increase is an upgrade. Usage prices are not compared.
+/// otherwise any increase is an upgrade. A longer period (monthly to annual) counts as an
+/// increase of the fixed fees, whatever its discount per month. Usage prices are not compared.
 pub fn detect_change_direction(
     matched: &[MatchedComponent],
     added: &[AddedComponent],
@@ -172,12 +176,18 @@ pub fn detect_change_direction(
     // A fixed fee compares by what it bills a period, in advance or in arrears.
     let fee = |fee: &SubscriptionFee, period: &SubscriptionFeeBillingPeriod| {
         let amount = match fee {
-            SubscriptionFee::Recurring { rate, quantity, .. }
-                if !matches!(period, SubscriptionFeeBillingPeriod::OneTime) =>
-            {
-                (*rate * Decimal::from(*quantity))
-                    .to_subunit_opt(precision)
-                    .unwrap_or(0)
+            SubscriptionFee::Recurring {
+                rate,
+                quantity,
+                model,
+                ..
+            } if !matches!(period, SubscriptionFeeBillingPeriod::OneTime) => {
+                crate::domain::price_components::fixed_quantity_minor(
+                    *rate,
+                    Decimal::from(*quantity),
+                    model.as_ref(),
+                    precision,
+                )
             }
             _ => component_advance_amount_cents(fee, period, precision),
         };
@@ -241,7 +251,13 @@ pub fn detect_change_direction(
             .map(|m| (&m.new_fee, &m.new_period))
             .chain(added.iter().map(|a| (&a.fee, &a.period))),
     );
-    outcomes.push(new_fixed.cmp(&old_fixed));
+    // A longer billing period commits the customer to more, whatever its discount per month.
+    let longer = matches!((old_period, new_period), (Some(old), Some(new)) if new > old);
+    outcomes.push(if longer {
+        Ordering::Greater
+    } else {
+        new_fixed.cmp(&old_fixed)
+    });
     for (key, old) in &old_packs {
         match new_packs.get(key) {
             None => outcomes.push(Ordering::Less),
@@ -449,7 +465,9 @@ mod tests {
     fn slot_fee(slots: u32, rate: i64) -> SubscriptionFee {
         SubscriptionFee::Slot {
             unit: "seat".to_string(),
-            unit_rate: Decimal::new(rate, 0),
+            model: crate::domain::price_components::RatingModel::PerUnit {
+                rate: Decimal::new(rate, 0),
+            },
             min_slots: None,
             max_slots: None,
             initial_slots: slots,
@@ -534,6 +552,7 @@ mod tests {
             rate: Decimal::new(cents, 2),
             quantity: 1,
             billing_type: BillingType::Arrears,
+            model: None,
         };
         let matched = |from: i64, to: i64| MatchedComponent {
             product_id: product_id(),
@@ -553,6 +572,39 @@ mod tests {
         );
         assert_eq!(
             detect_change_direction(&[matched(5_000, 3_000)], &[], &[], 2),
+            ChangeDirection::Downgrade
+        );
+    }
+
+    #[test]
+    fn a_longer_period_is_an_upgrade_despite_its_discount() {
+        let annual = SubscriptionFeeBillingPeriod::Annual;
+        let matched = MatchedComponent {
+            product_id: product_id(),
+            current_name: "Platform".to_string(),
+            current_fee: rate_fee(9_900),
+            current_period: monthly(),
+            new_name: "Platform".to_string(),
+            new_fee: rate_fee(95_000),
+            new_period: annual,
+            current_net_key: None,
+            billed_component_id: None,
+            price_component_id: None,
+        };
+        assert_eq!(
+            detect_change_direction(std::slice::from_ref(&matched), &[], &[], 2),
+            ChangeDirection::Upgrade
+        );
+        // Back to monthly: a shorter period.
+        let back = MatchedComponent {
+            current_fee: rate_fee(95_000),
+            current_period: annual,
+            new_fee: rate_fee(9_900),
+            new_period: monthly(),
+            ..matched
+        };
+        assert_eq!(
+            detect_change_direction(&[back], &[], &[], 2),
             ChangeDirection::Downgrade
         );
     }
@@ -676,6 +728,7 @@ mod tests {
                 rate: dec!(10),
                 quantity: 5,
                 billing_type: BillingType::Advance,
+                model: None,
             }),
             dec!(5)
         );
@@ -683,6 +736,7 @@ mod tests {
             fee_instance_count(&SubscriptionFee::OneTime {
                 rate: dec!(10),
                 quantity: 2,
+                model: None,
             }),
             dec!(2)
         );

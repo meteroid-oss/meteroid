@@ -108,6 +108,7 @@ export const StepConfirm = () => {
           newPlanVersionId: state.targetPlanVersionId,
           applyMode: state.applyMode,
           parameterizedComponents,
+          option: state.option,
         },
         {
           onSuccess: data => {
@@ -189,6 +190,7 @@ export const StepConfirm = () => {
         newPlanVersionId: state.targetPlanVersionId,
         applyMode: state.applyMode,
         parameterizedComponents,
+        option: state.option,
       })
 
       if (isImmediate) {

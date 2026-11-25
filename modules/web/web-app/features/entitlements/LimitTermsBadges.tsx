@@ -39,6 +39,14 @@ const specThresholds = (text: string | undefined): number[] => {
 }
 
 /** What a metered limit does once reached, and the property it applies per; nothing otherwise. */
+/** The terms as lower-case words for a line of text: "soft limit", "alerts at 80%". */
+export const limitTermsLabels = (terms?: LimitTerms): string[] =>
+  terms
+    ? [limitBehaviorLabel(terms), limitGroupLabel(terms), limitAlertsLabel(terms)]
+        .filter((label): label is string => !!label)
+        .map(label => label.charAt(0).toLowerCase() + label.slice(1))
+    : []
+
 export const LimitTermsBadges = ({ terms }: { terms?: LimitTerms }) => {
   if (!terms) return null
   const behavior = limitBehaviorLabel(terms)

@@ -57,6 +57,7 @@ async fn test_minimum_shortfall_full_period() {
         .insert_subscription(
             common_domain::actor::Actor::System,
             CreateSubscription {
+                option: None,
                 subscription: SubscriptionNew {
                     customer_id: CUST_UBER_ID,
                     plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
@@ -160,6 +161,7 @@ async fn test_minimum_not_applied_when_usage_meets_floor() {
         .insert_subscription(
             common_domain::actor::Actor::System,
             CreateSubscription {
+                option: None,
                 subscription: SubscriptionNew {
                     customer_id: CUST_UBER_ID,
                     plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
@@ -248,6 +250,7 @@ async fn test_plan_edit_does_not_change_existing_subscription_minimum() {
         .insert_subscription(
             common_domain::actor::Actor::System,
             CreateSubscription {
+                option: None,
                 subscription: SubscriptionNew {
                     customer_id: CUST_UBER_ID,
                     plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
@@ -649,6 +652,7 @@ async fn test_minimum_floor_measured_on_spend_net_of_coupons() {
         .insert_subscription(
             common_domain::actor::Actor::System,
             CreateSubscription {
+                option: None,
                 subscription: SubscriptionNew {
                     customer_id: CUST_UBER_ID,
                     plan_version_id: PLAN_VERSION_1_LEETCODE_ID,

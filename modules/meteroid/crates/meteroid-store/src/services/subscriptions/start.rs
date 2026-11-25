@@ -185,11 +185,7 @@ impl crate::services::ServicesEdge {
                     let details = services.build_subscription_details(&batch, &context)?;
                     let mut processed = Vec::with_capacity(details.len());
                     for sub in details {
-                        let payment = services.setup_payment_provider(
-                            &sub.subscription,
-                            &sub.customer,
-                            &context,
-                        )?;
+                        let payment = services.setup_payment_provider(&sub, &context)?;
                         let mut one = services
                             .process_subscription(&sub, &payment, &context, tenant_id, None)?;
                         one.defer_start()?;

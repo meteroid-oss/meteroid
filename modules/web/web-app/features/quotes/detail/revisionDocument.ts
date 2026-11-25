@@ -116,6 +116,7 @@ const formatCouponDiscount = (variant: string | undefined, raw: unknown): string
 const parseCoupon = (coupon: Json): RevisionCoupon => {
   const [variant, raw] = Object.entries(obj(coupon.discount))[0] ?? []
   const periods = typeof coupon.recurring_value === 'number' ? coupon.recurring_value : undefined
+  const months = typeof coupon.duration_months === 'number' ? coupon.duration_months : undefined
   return {
     code: str(coupon.code) ?? '',
     description: str(coupon.description),
@@ -123,11 +124,13 @@ const parseCoupon = (coupon: Json): RevisionCoupon => {
     duration:
       variant === 'Credit'
         ? undefined
-        : periods === undefined
-          ? 'Forever'
-          : periods === 1
-            ? 'Once'
-            : `First ${periods} billing periods`,
+        : months !== undefined
+          ? `For ${months} ${months === 1 ? 'month' : 'months'}`
+          : periods === undefined
+            ? 'Forever'
+            : periods === 1
+              ? 'Once'
+              : `First ${periods} billing periods`,
   }
 }
 

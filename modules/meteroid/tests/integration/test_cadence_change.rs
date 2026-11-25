@@ -1380,8 +1380,10 @@ async fn a_repair_bills_each_skipped_month_with_its_own_capacity_and_seats() {
             let at = on.and_time(chrono::NaiveTime::MIN);
             diesel::sql_query(
                 "INSERT INTO slot_transaction (id, subscription_id, delta, prev_active_slots, \
-                 effective_at, transaction_at, unit, status) \
-                 VALUES ($1, $2, 0, $3, $4, $4, $5, 'ACTIVE')",
+                 effective_at, transaction_at, unit, status, managed_quantity_id) \
+                 SELECT $1, $2, 0, $3, $4, $4, $5, 'ACTIVE', q.id \
+                 FROM managed_quantity q JOIN subscription s ON s.tenant_id = q.tenant_id \
+                 WHERE s.id = $2 AND q.code = $5",
             )
             .bind::<diesel::sql_types::Uuid, _>(uuid::Uuid::now_v7())
             .bind::<diesel::sql_types::Uuid, _>(sub_id)
@@ -2107,6 +2109,7 @@ async fn a_one_time_add_on_bought_with_a_change_of_cadence_bills() {
                 pricing: Pricing::OneTime {
                     unit_price: dec!(50),
                     quantity: 1,
+                    model: None,
                 },
                 credit_unit: None,
             }),
@@ -2384,6 +2387,7 @@ async fn a_cancellation_at_a_monthly_end_gives_back_the_rest_of_a_year_billed_in
                             pricing: Pricing::ExtraRecurring {
                                 unit_price: dec!(29),
                                 quantity: 1,
+                                model: None,
                             },
                             credit_unit: None,
                         }),
@@ -2465,6 +2469,7 @@ async fn a_change_at_a_monthly_end_gives_back_the_rest_of_a_year_billed_in_advan
                             pricing: Pricing::ExtraRecurring {
                                 unit_price: dec!(29),
                                 quantity: 1,
+                                model: None,
                             },
                             credit_unit: None,
                         }),
@@ -2558,6 +2563,7 @@ async fn a_change_at_a_monthly_end_gives_back_a_year_billed_on_a_draft_once_it_i
                             pricing: Pricing::ExtraRecurring {
                                 unit_price: dec!(29),
                                 quantity: 1,
+                                model: None,
                             },
                             credit_unit: None,
                         }),
@@ -3082,6 +3088,7 @@ async fn an_arrears_fee_amended_then_cancelled_bills_each_row_its_tiled_part() {
                             pricing: Pricing::ExtraRecurring {
                                 unit_price: dec!(9.99),
                                 quantity: 1,
+                                model: None,
                             },
                             credit_unit: None,
                         }),
@@ -3192,6 +3199,7 @@ async fn a_plan_change_settled_again_takes_back_nothing_later_changes_settled() 
                             pricing: Pricing::ExtraRecurring {
                                 unit_price: dec!(49.99),
                                 quantity: 1,
+                                model: None,
                             },
                             credit_unit: None,
                         }),
@@ -3354,6 +3362,7 @@ async fn a_voided_one_time_fee_is_owed_no_more_when_its_renewal_is_finalized() {
                             pricing: Pricing::OneTime {
                                 unit_price: dec!(15),
                                 quantity: 1,
+                                model: None,
                             },
                             credit_unit: None,
                         }),
@@ -3457,6 +3466,7 @@ async fn a_draft_finalized_after_a_change_ending_a_one_time_fee_is_credited() {
                             pricing: Pricing::OneTime {
                                 unit_price: dec!(15),
                                 quantity: 1,
+                                model: None,
                             },
                             credit_unit: None,
                         }),
@@ -3715,6 +3725,7 @@ async fn a_months_line_never_bills_the_year_an_amendment_puts_it_in() {
                             Pricing::ExtraRecurring {
                                 unit_price: dec!(9.99),
                                 quantity: 1,
+                                model: None,
                             },
                         ),
                         yearly(
@@ -4736,6 +4747,7 @@ async fn a_one_time_fee_ended_on_its_day_by_a_plan_change_stays_billed() {
                     pricing: Pricing::OneTime {
                         unit_price: dec!(15),
                         quantity: 1,
+                        model: None,
                     },
                     credit_unit: None,
                 }),
@@ -5041,6 +5053,7 @@ async fn a_one_time_fee_added_on_the_day_a_cancellation_ends_from_is_given_back(
                     pricing: Pricing::OneTime {
                         unit_price: dec!(99),
                         quantity: 1,
+                        model: None,
                     },
                     credit_unit: None,
                 }),
@@ -5153,6 +5166,7 @@ async fn a_yearly_fee_after_a_stub_bills_its_first_full_year() {
                                 pricing: Pricing::ExtraRecurring {
                                     unit_price: dec!(29),
                                     quantity: 1,
+                                    model: None,
                                 },
                                 credit_unit: None,
                             }),

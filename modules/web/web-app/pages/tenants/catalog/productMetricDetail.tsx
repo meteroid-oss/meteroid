@@ -34,6 +34,7 @@ import { EntityActivityTimeline } from '@/features/activity/EntityActivityTimeli
 import { BillableMetricStatusBadge } from '@/features/productCatalog/metrics/BillableMetricStatusBadge'
 import { MetricCustomersCard } from '@/features/productCatalog/metrics/MetricCustomersCard'
 import { MetricPreview } from '@/features/productCatalog/metrics/MetricPreview'
+import { MetricRateCards } from '@/features/productCatalog/ratecards/MetricRateCards'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { copyToClipboard } from '@/lib/helpers'
@@ -281,6 +282,24 @@ export const ProductMetricDetail = () => {
             filters={data.filters}
             usageGroupKey={data.usageGroupKey}
             exploreLinkKey={`bm:${data.id}`}
+          />
+        </div>
+
+        <div className="bg-card rounded-lg shadow-sm p-6 mb-6">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-md font-medium text-foreground">Rate cards</h3>
+          </div>
+          <MetricRateCards
+            metricId={data.id}
+            blockedReason={
+              isArchived
+                ? "Archived metrics can't get new rate cards."
+                : data.segmentationMatrix?.matrix?.case ||
+                    (aggregationType !== Aggregation_AggregationType.SUM &&
+                      aggregationType !== Aggregation_AggregationType.COUNT)
+                  ? 'Only a sum or a count without a matrix can be rated by a card.'
+                  : undefined
+            }
           />
         </div>
 

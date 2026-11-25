@@ -113,6 +113,8 @@ async fn test_minimum_commitment_mrr_matches_the_taxed_invoice(
                     fee_type: None,
                     fee_structure: None,
                     tax_category_id: Some(Some(category.id)),
+                    icon: None,
+                    color: None,
                 },
             )
             .await
@@ -393,6 +395,8 @@ async fn test_manual_resolver_nets_mrr_by_the_line_level_tax() {
                     fee_type: None,
                     fee_structure: None,
                     tax_category_id: Some(Some(digital_services.id)),
+                    icon: None,
+                    color: None,
                 },
             )
             .await
@@ -523,6 +527,8 @@ async fn test_mixed_periods_and_rates_blend_over_the_monthly_shares() {
                     fee_type: None,
                     fee_structure: None,
                     tax_category_id: Some(Some(category)),
+                    icon: None,
+                    color: None,
                 },
             )
             .await
@@ -1637,6 +1643,8 @@ async fn seed_inclusive_plan(env: &TestEnv, name: &str, with_fee: bool) -> PlanV
             fee_structure: serde_json::to_value(&fee_structure).unwrap(),
             catalog: true,
             tax_category_id: None,
+            icon: None,
+            color: None,
         }
         .insert(&mut conn)
         .await

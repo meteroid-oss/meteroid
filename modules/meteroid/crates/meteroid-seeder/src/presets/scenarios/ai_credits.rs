@@ -22,8 +22,9 @@ use chrono::Duration;
 use meteroid_store::domain::credit_exhausted::{CreditExhaustedRule, UsageAtZero};
 use meteroid_store::domain::enums::TaxResolverEnum;
 use meteroid_store::domain::price_components::{
-    CreditExpiry, CreditRollover, MatrixDimension, MatrixRow, UsagePricingModel,
+    CreditExpiry, CreditRollover, DimensionRate, DimensionRates, UsagePricingModel,
 };
+use meteroid_store::domain::rate_cards::RateCardUnmatched;
 use meteroid_store::domain::{
     BillingMetricAggregateEnum, BillingPeriodEnum, CustomerTaxRate, Dimension, PlanTypeEnum,
     SegmentationMatrix, UnitConversionRoundingEnum,
@@ -72,20 +73,22 @@ fn model_usage(prices: [Decimal; 3], credit_unit: Option<UnitPricing>) -> PriceC
     let rates = MODELS
         .iter()
         .zip(prices)
-        .map(|(model, price)| MatrixRow {
-            dimension1: MatrixDimension {
-                key: MODEL_PROPERTY.to_string(),
-                value: (*model).to_string(),
-            },
-            dimension2: None,
-            per_unit_price: price,
+        .map(|(model, price)| DimensionRate {
+            key: vec![(*model).to_string()],
+            rate: price,
+            label: None,
         })
         .collect();
     PriceComponent {
         name: "Model usage".to_string(),
         fee: FeeType::Usage {
             metric_code: TOKENS_METRIC.to_string(),
-            pricing: UsagePricingModel::Matrix { rates },
+            pricing: UsagePricingModel::DimensionRates(DimensionRates {
+                dimensions: vec![MODEL_PROPERTY.to_string()],
+                rates,
+                unit_size: Decimal::ONE,
+                on_unmatched: RateCardUnmatched::Ignore,
+            }),
             cadence: BillingPeriodEnum::Monthly,
             credit_unit,
         },
@@ -234,6 +237,7 @@ pub fn ai_credits_scenario() -> Scenario {
     Scenario {
         name: "Halyard AI".to_string(),
         metrics: vec![tokens],
+        rate_cards: vec![],
         features: vec![
             FeatureSpec {
                 code: TOKENS_FEATURE.to_string(),
@@ -242,6 +246,7 @@ pub fn ai_credits_scenario() -> Scenario {
                     metric_code: TOKENS_METRIC.to_string(),
                     unlimited_by_default: true,
                 },
+                product: None,
             },
             FeatureSpec {
                 code: MAX_MODEL_FEATURE.to_string(),
@@ -249,6 +254,7 @@ pub fn ai_credits_scenario() -> Scenario {
                 kind: FeatureKind::Boolean {
                     default_enabled: true,
                 },
+                product: None,
             },
         ],
         plans: plans(),
@@ -274,6 +280,8 @@ pub fn ai_credits_scenario() -> Scenario {
             currency: USD,
             expires_after_days: 25,
         }],
+        coupons: vec![],
+        customer_properties: vec![],
         reporting_currency: Some(USD.to_string()),
     }
 }

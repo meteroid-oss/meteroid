@@ -1,6 +1,8 @@
 use crate::domain::add_ons::AddOn;
 use crate::domain::coupons::Coupon;
 use crate::domain::credit_units::CreditUnitsById;
+use crate::domain::plan_options::PlanOption;
+use crate::domain::price_components::OptionPrice;
 use crate::domain::prices::{self, LegacyPricingData, extract_legacy_pricing};
 use crate::domain::{
     CreateSubscription, CreateSubscriptionFromQuote, Customer, InvoicingEntityProviderSensitive,
@@ -10,6 +12,9 @@ use crate::errors::StoreError;
 use crate::repositories::credit_units::load_credit_units;
 use crate::services::invoice_lines::invoice_lines::build_tax_engine;
 use crate::services::invoice_lines::tax_inputs::customer_for_tax;
+use crate::services::subscriptions::currency::{
+    SubscriptionCurrency, add_on_term, asked_cadences, plan_options_of,
+};
 use crate::services::subscriptions::utils::{
     blended_inclusive_rate, calculate_mrr, calculate_subscription_mrr_with_floor,
     creation_minimum_for_mrr, extract_billing_period, fee_period_total_cents, fee_tax_product,
@@ -132,6 +137,8 @@ pub struct SubscriptionCreationContext {
     pub minimums_by_plan_version: HashMap<PlanVersionId, crate::domain::plan_minimums::PlanMinimum>,
     /// The tax the quoted prices carry, by batch position. See [`Services::resolve_tax_inclusive_rates`].
     pub tax_inclusive_rates: Vec<Option<Decimal>>,
+    /// The currency and plan option each subscription is sold in, by batch position.
+    pub currencies: Vec<SubscriptionCurrency>,
 }
 
 impl SubscriptionCreationContext {
@@ -189,7 +196,8 @@ impl Services {
         };
 
         // Load prices referenced by add-ons
-        let addon_price_ids: Vec<PriceId> = add_ons.iter().map(|a| a.price_id).unique().collect();
+        let addon_price_ids: Vec<PriceId> =
+            add_ons.iter().flat_map(AddOn::price_ids).unique().collect();
         let addon_prices_by_id = if addon_price_ids.is_empty() {
             HashMap::new()
         } else {
@@ -229,6 +237,8 @@ impl Services {
         let minimums_by_plan_version =
             load_plan_minimums_by_version(conn, &plan_version_ids).await?;
 
+        let options = plan_options_of(conn, tenant_id, &plan_version_ids).await?;
+        let currencies = currencies_of(batch, &customers, &plans, &price_components, &options)?;
         // Resolved here rather than in the (synchronous) processing step: it needs the
         // invoicing entity and the tax engine, and this is the last async point before the
         // rows are built.
@@ -248,6 +258,7 @@ impl Services {
                     &add_ons,
                     &resolved_custom_components,
                     &minimums_by_plan_version,
+                    &currencies[idx],
                 )
             })
             .collect::<StoreResult<Vec<_>>>()?;
@@ -268,6 +279,7 @@ impl Services {
             resolved_custom_components,
             minimums_by_plan_version,
             tax_inclusive_rates,
+            currencies,
         })
     }
 
@@ -337,6 +349,8 @@ impl Services {
 
         // Load v2 prices via plan_component_price join
         let mut prices_by_component: HashMap<PriceComponentId, Vec<Price>> = HashMap::new();
+        let mut option_prices_by_component: HashMap<PriceComponentId, Vec<OptionPrice>> =
+            HashMap::new();
         if !all_component_ids.is_empty() {
             let pcp_rows = PlanComponentPriceRow::list_by_component_ids(conn, &all_component_ids)
                 .await
@@ -358,10 +372,20 @@ impl Services {
 
                 for pcp in &pcp_rows {
                     if let Some(price) = prices_by_id.get(&pcp.price_id) {
-                        prices_by_component
+                        option_prices_by_component
                             .entry(pcp.plan_component_id)
                             .or_default()
-                            .push(price.clone());
+                            .push(OptionPrice {
+                                option_id: pcp.option_id,
+                                price_id: pcp.price_id,
+                            });
+                        // A price the same in several options is one price.
+                        let prices = prices_by_component
+                            .entry(pcp.plan_component_id)
+                            .or_default();
+                        if !prices.iter().any(|p| p.id == price.id) {
+                            prices.push(price.clone());
+                        }
                     }
                 }
             }
@@ -414,6 +438,9 @@ impl Services {
                 if let Some(prices) = prices_by_component.remove(&id) {
                     comp.prices = prices;
                 }
+                if let Some(links) = option_prices_by_component.remove(&id) {
+                    comp.option_prices = links;
+                }
                 if let Some(legacy) = legacy_by_component.remove(&id) {
                     comp.legacy_pricing = Some(legacy);
                 }
@@ -439,10 +466,11 @@ impl Services {
             .unique()
             .collect();
 
-        AddOnRow::list_by_ids(conn, &add_on_ids, tenant_id)
+        let rows = AddOnRow::list_by_ids(conn, &add_on_ids, tenant_id)
             .await
-            .map_err(Into::<Report<StoreError>>::into)
-            .map(|x| x.into_iter().map(Into::into).collect())
+            .map_err(Into::<Report<StoreError>>::into)?;
+        // With every price, so each subscription takes the add-on in its own currency.
+        crate::repositories::add_ons::enrich_add_ons(conn, rows, *tenant_id).await
     }
 
     async fn get_coupons(
@@ -676,6 +704,17 @@ impl Services {
         let minimums_by_plan_version =
             load_plan_minimums_by_version(conn, &plan_version_ids).await?;
 
+        // A quote is priced in its plan's currency.
+        let quoted_currency = plans
+            .iter()
+            .find(|p| p.version_id == params.subscription.plan_version_id)
+            .map(|p| p.currency.clone())
+            .ok_or_else(|| {
+                Report::new(StoreError::ValueNotFound("Plan id not found".to_string()))
+            })?;
+        let option = quoted_option(conn, tenant_id, params).await?;
+        let currency = SubscriptionCurrency::with_option(&quoted_currency, option);
+
         // A quote arrives with its components and add-ons already resolved, so the quoted
         // lines are read straight off them. See `resolve_tax_inclusive_rates`.
         let quoted = plans
@@ -725,6 +764,7 @@ impl Services {
             }],
             minimums_by_plan_version,
             tax_inclusive_rates,
+            currencies: vec![currency],
         })
     }
 
@@ -786,6 +826,8 @@ impl Services {
                         &product.fee_structure,
                         &ov.price_entry,
                         tenant_id,
+                        Some(product_id),
+                        None,
                     )
                     .await?;
 
@@ -830,9 +872,15 @@ impl Services {
                         )));
                     }
 
-                    let (fee, period) =
-                        resolve_fee_read_only(conn, &fee_structure, &extra.price_entry, tenant_id)
-                            .await?;
+                    let (fee, period) = resolve_fee_read_only(
+                        conn,
+                        &fee_structure,
+                        &extra.price_entry,
+                        tenant_id,
+                        extra.product_ref.existing_product_id(),
+                        None,
+                    )
+                    .await?;
 
                     extras.push(ResolvedCustomComponent {
                         name: extra.name.clone(),
@@ -923,7 +971,9 @@ fn request_credit_unit_ids(params: &CreateSubscription) -> Vec<CreditUnitId> {
 }
 
 /// Compute (SubscriptionFee, period) from FeeStructure + PriceEntry
-/// For PriceEntry::Existing, loads the Price (read-only SELECT).
+/// For PriceEntry::Existing, loads the Price (read-only SELECT): it must be a price of `product_id`,
+/// the product whose `fee_structure` it is read with, and in `currency` when given. A price of
+/// another product would be read with a structure that is not its own.
 /// For PriceEntry::New, extracts Pricing directly from the payload.
 /// No rows are created.
 pub(crate) async fn resolve_fee_read_only(
@@ -931,6 +981,8 @@ pub(crate) async fn resolve_fee_read_only(
     fee_structure: &crate::domain::prices::FeeStructure,
     price_entry: &crate::domain::price_components::PriceEntry,
     tenant_id: TenantId,
+    product_id: Option<ProductId>,
+    currency: Option<&str>,
 ) -> StoreResult<(
     crate::domain::SubscriptionFee,
     crate::domain::enums::SubscriptionFeeBillingPeriod,
@@ -941,6 +993,20 @@ pub(crate) async fn resolve_fee_read_only(
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
             let price = Price::try_from(price_row)?;
+            if product_id != Some(price.product_id) {
+                return Err(Report::new(StoreError::InvalidArgument(format!(
+                    "Price {} is not a price of this component's product",
+                    price_id
+                ))));
+            }
+            if let Some(currency) = currency
+                && !price.currency.eq_ignore_ascii_case(currency)
+            {
+                return Err(Report::new(StoreError::InvalidArgument(format!(
+                    "Price {} is in {}, the subscription is billed in {}",
+                    price_id, price.currency, currency
+                ))));
+            }
             let units = load_credit_units(conn, tenant_id, price.credit_unit_ids()).await?;
             let fee = prices::resolve_subscription_fee(
                 fee_structure,
@@ -1047,6 +1113,7 @@ fn quoted_subscription<'a>(
     add_ons: &[AddOn],
     resolved_custom_components: &[ResolvedCustomComponents],
     minimums_by_plan_version: &HashMap<PlanVersionId, crate::domain::plan_minimums::PlanMinimum>,
+    sold_in: &'a SubscriptionCurrency,
 ) -> StoreResult<Option<QuotedSubscription<'a>>> {
     let sub = &params.subscription;
 
@@ -1079,7 +1146,7 @@ fn quoted_subscription<'a>(
         credit_units,
         resolved,
         plan.product_family_id,
-        &plan.currency,
+        sold_in,
         effective_from,
     )?;
     let (add_ons, _) = process_create_subscription_add_ons(
@@ -1089,7 +1156,8 @@ fn quoted_subscription<'a>(
         addon_prices_by_id,
         credit_units,
         plan.product_family_id,
-        &plan.currency,
+        sold_in,
+        add_on_term(None, &components),
         effective_from,
     )?;
 
@@ -1102,8 +1170,8 @@ fn quoted_subscription<'a>(
 
     Ok(Some(QuotedSubscription {
         customer,
-        currency: &plan.currency,
-        lines: quoted_lines(&components, &add_ons, &plan.currency, minimum.as_ref()),
+        currency: &sold_in.currency,
+        lines: quoted_lines(&components, &add_ons, &sold_in.currency, minimum.as_ref()),
         date: effective_from,
     }))
 }
@@ -1173,6 +1241,87 @@ fn quoted_lines(
     }
 
     lines
+}
+
+/// The option a quote sold: the one it names, else the first whose cells hold every plan price
+/// it quotes, else the version's default.
+async fn quoted_option(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    params: &CreateSubscriptionFromQuote,
+) -> StoreResult<Option<PlanOption>> {
+    let version = params.subscription.plan_version_id;
+    let options = plan_options_of(conn, tenant_id, &[version])
+        .await?
+        .remove(&version)
+        .unwrap_or_default();
+    if let Some(asked) = params.option.as_ref() {
+        return Ok(options.iter().find(|option| asked.matches(option)).cloned());
+    }
+    let quoted: Vec<(PriceComponentId, PriceId)> = params
+        .components
+        .iter()
+        .filter(|c| !c.is_override)
+        .filter_map(|c| c.price_component_id.zip(c.price_id))
+        .collect();
+    if options.len() < 2 || quoted.is_empty() {
+        return Ok(options.into_iter().next());
+    }
+    let component_ids: Vec<PriceComponentId> = quoted.iter().map(|(c, _)| *c).unique().collect();
+    let links = PlanComponentPriceRow::list_by_component_ids(conn, &component_ids)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    let holds = |option: &PlanOption| {
+        quoted.iter().all(|(component, price)| {
+            links.iter().any(|link| {
+                link.option_id == option.id
+                    && link.plan_component_id == *component
+                    && link.price_id == *price
+            })
+        })
+    };
+    let found = options.iter().position(holds).unwrap_or(0);
+    Ok(options.into_iter().nth(found))
+}
+
+/// The currency and option each subscription of `batch` is sold in (`for_new_subscription`).
+fn currencies_of(
+    batch: &[CreateSubscription],
+    customers: &[Customer],
+    plans: &[PlanForSubscription],
+    price_components: &HashMap<PlanVersionId, Vec<PriceComponent>>,
+    options: &HashMap<PlanVersionId, Vec<PlanOption>>,
+) -> StoreResult<Vec<SubscriptionCurrency>> {
+    batch
+        .iter()
+        .map(|create| {
+            let sub = &create.subscription;
+            let plan = plans
+                .iter()
+                .find(|p| p.version_id == sub.plan_version_id)
+                .ok_or_else(|| {
+                    Report::new(StoreError::ValueNotFound("Plan id not found".to_string()))
+                })?;
+            let customer = customers
+                .iter()
+                .find(|c| c.id == sub.customer_id)
+                .ok_or_else(|| Report::new(StoreError::InsertError).attach("Customer not found"))?;
+            SubscriptionCurrency::for_new_subscription(
+                &customer.currency,
+                &plan.currency,
+                options
+                    .get(&sub.plan_version_id)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default(),
+                price_components
+                    .get(&sub.plan_version_id)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default(),
+                create.option.as_ref(),
+                &asked_cadences(create.price_components.as_ref()),
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@ use crate::portal::subscription::error::PortalSubscriptionApiError;
 use crate::portal::wallets::mapping::credit_unit_label;
 use common_domain::ids::{AddOnId, BillableMetricId, CreditUnitId, PlanVersionId, SubscriptionId};
 use common_grpc::middleware::server::auth::RequestExt;
+use error_stack::Report;
 use meteroid_app::conversions::ProtoConv;
 use meteroid_app::features::ensure_portal_self_service;
 use meteroid_grpc::meteroid::api::prices::v1 as prices_proto;
@@ -12,14 +13,22 @@ use meteroid_grpc::meteroid::portal::subscription::v1::*;
 use meteroid_store::domain::enums::{
     BillingPeriodEnum, ScheduledEventTypeEnum, SubscriptionFeeBillingPeriod,
 };
+use meteroid_store::domain::plan_options::{PlanOption, PlanOptionRef};
 use meteroid_store::domain::plans::FullPlan;
+use meteroid_store::domain::price_cells::{
+    OptionPricing, cadence_free, resolve_option, sold_options,
+};
 use meteroid_store::domain::prices::Pricing;
 use meteroid_store::domain::subscription_changes::{
-    ChangeDirection as DomainChangeDirection, PlanChangeMode,
+    ChangeDirection as DomainChangeDirection, PlanChangeMode, PlanTarget,
 };
-use meteroid_store::domain::subscription_components::{SubscriptionComponent, SubscriptionFee};
+use meteroid_store::domain::subscription_components::{
+    ComponentParameterization, SubscriptionComponent, SubscriptionFee,
+};
+use meteroid_store::domain::usage_levels::{LevelPick, plan_change_levels};
 use meteroid_store::repositories::CreditUnitsInterface;
 use meteroid_store::repositories::PlansInterface;
+use meteroid_store::repositories::ProductFamilyJourneysInterface;
 use meteroid_store::repositories::add_ons::AddOnInterface;
 use meteroid_store::repositories::add_ons::AddOnInterfaceAuto;
 use meteroid_store::repositories::plan_version_add_ons::PlanVersionAddOnInterface;
@@ -64,11 +73,21 @@ fn map_sub_billing_period(period: &SubscriptionFeeBillingPeriod) -> i32 {
 }
 
 fn map_fee(fee: &SubscriptionFee, period: &SubscriptionFeeBillingPeriod) -> ComponentFee {
+    use meteroid_store::domain::price_components::fixed_quantity_amount;
     let (fee_type, amount, unit) = match fee {
         SubscriptionFee::Rate { rate } => (prices_proto::FeeType::Rate, rate.to_string(), None),
-        SubscriptionFee::OneTime { rate, quantity, .. } => (
+        SubscriptionFee::OneTime {
+            rate,
+            quantity,
+            model,
+        } => (
             prices_proto::FeeType::OneTime,
-            (rate * rust_decimal::Decimal::from(*quantity)).to_string(),
+            fixed_quantity_amount(
+                *rate,
+                rust_decimal::Decimal::from(*quantity),
+                model.as_ref(),
+            )
+            .to_string(),
             None,
         ),
         SubscriptionFee::Credit { rate, quantity, .. } => (
@@ -76,19 +95,27 @@ fn map_fee(fee: &SubscriptionFee, period: &SubscriptionFeeBillingPeriod) -> Comp
             (rate * rust_decimal::Decimal::from(*quantity)).to_string(),
             None,
         ),
-        SubscriptionFee::Recurring { rate, quantity, .. } => (
+        SubscriptionFee::Recurring {
+            rate,
+            quantity,
+            model,
+            ..
+        } => (
             prices_proto::FeeType::ExtraRecurring,
-            (rate * rust_decimal::Decimal::from(*quantity)).to_string(),
+            fixed_quantity_amount(
+                *rate,
+                rust_decimal::Decimal::from(*quantity),
+                model.as_ref(),
+            )
+            .to_string(),
             None,
         ),
         SubscriptionFee::Capacity { rate, .. } => {
             (prices_proto::FeeType::Capacity, rate.to_string(), None)
         }
-        SubscriptionFee::Slot {
-            unit_rate, unit, ..
-        } => (
+        SubscriptionFee::Slot { model, unit, .. } => (
             prices_proto::FeeType::Slot,
-            unit_rate.to_string(),
+            model.headline_rate().to_string(),
             Some(unit.clone()),
         ),
         SubscriptionFee::Usage { .. } => (prices_proto::FeeType::Usage, String::new(), None),
@@ -338,7 +365,7 @@ fn pick_plan_headline_fee(
             {
                 let (fee_type, amount, unit) = match &price.pricing {
                     Pricing::Rate { rate } => (prices_proto::FeeType::Rate, rate.to_string(), None),
-                    Pricing::Slot { unit_rate, .. } => {
+                    Pricing::Slot { model, .. } => {
                         // Try to get unit name from product
                         let unit_name = component
                             .product_id
@@ -346,7 +373,7 @@ fn pick_plan_headline_fee(
                             .map(|p| p.name.clone());
                         (
                             prices_proto::FeeType::Slot,
-                            unit_rate.to_string(),
+                            model.headline_rate().to_string(),
                             unit_name,
                         )
                     }
@@ -377,7 +404,7 @@ fn pick_plan_headline_fee(
                         Pricing::Rate { rate } => {
                             (prices_proto::FeeType::Rate, rate.to_string(), None)
                         }
-                        Pricing::Slot { unit_rate, .. } => {
+                        Pricing::Slot { model, .. } => {
                             let unit_name = match &legacy.fee_structure {
                                 meteroid_store::domain::prices::FeeStructure::Slot {
                                     unit_name,
@@ -387,7 +414,7 @@ fn pick_plan_headline_fee(
                             };
                             (
                                 prices_proto::FeeType::Slot,
-                                unit_rate.to_string(),
+                                model.headline_rate().to_string(),
                                 unit_name,
                             )
                         }
@@ -542,6 +569,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             }),
             online_payment_enabled,
             plan_price: Some(plan_price),
+            option_name: details.plan_option.as_ref().map(|o| o.name.clone()),
         };
 
         Ok(Response::new(GetSubscriptionDetailsResponse {
@@ -589,6 +617,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                     plan.plan.product_family_id,
                     &details.subscription.currency,
                     details.subscription.plan_id,
+                    false,
                 )
                 .await
                 .map_err(Into::<PortalSubscriptionApiError>::into)?
@@ -596,36 +625,21 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             Vec::new()
         };
 
-        let currency = &details.subscription.currency;
+        let offer = self
+            .customer_offer(tenant_id, &details, plan.plan.product_family_id)
+            .await?;
 
         // Build available plans list — include the current plan too if it has a rank
         let mut plans: Vec<AvailablePlan> = Vec::new();
 
         if let Some(rank) = plan.plan.self_service_rank {
-            let units = self.plan_credit_units(tenant_id, &plan).await?;
-            let headline_fee = pick_plan_headline_fee(&plan, currency, &units);
-            let metrics = self
-                .services
-                .portal_billable_metrics(tenant_id, &crate::portal::pricing::plan_metric_ids(&plan))
-                .await
-                .map_err(Into::<PortalSubscriptionApiError>::into)?;
-            let price = crate::portal::pricing::plan_price(
-                &plan,
-                currency,
-                details.subscription.period,
-                &units,
-                &metrics,
-            )?;
-            plans.push(AvailablePlan {
-                plan_id: plan.plan.id.as_proto(),
-                plan_version_id: details.subscription.plan_version_id.as_proto(),
-                plan_name: plan.plan.name.clone(),
-                description: plan.plan.description.clone(),
-                self_service_rank: rank,
-                is_current: true,
-                headline_fee,
-                price: Some(price),
-            });
+            let version_id = details.subscription.plan_version_id;
+            if let Some(available) = self
+                .available_plan(tenant_id, &details, &offer, plan, version_id, rank, true)
+                .await?
+            {
+                plans.push(available);
+            }
         }
 
         for sp in self_service_plans {
@@ -638,40 +652,29 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                 )
                 .await
                 .map_err(Into::<PortalSubscriptionApiError>::into)?;
-
-            let units = self.plan_credit_units(tenant_id, &full_plan).await?;
-            let headline_fee = pick_plan_headline_fee(&full_plan, currency, &units);
-            let metrics = self
-                .services
-                .portal_billable_metrics(
+            if let Some(available) = self
+                .available_plan(
                     tenant_id,
-                    &crate::portal::pricing::plan_metric_ids(&full_plan),
+                    &details,
+                    &offer,
+                    full_plan,
+                    sp.plan_version_id,
+                    sp.self_service_rank,
+                    false,
                 )
-                .await
-                .map_err(Into::<PortalSubscriptionApiError>::into)?;
-            let price = crate::portal::pricing::plan_price(
-                &full_plan,
-                currency,
-                details.subscription.period,
-                &units,
-                &metrics,
-            )?;
-
-            plans.push(AvailablePlan {
-                plan_id: sp.plan_id.as_proto(),
-                plan_version_id: sp.plan_version_id.as_proto(),
-                plan_name: sp.plan_name,
-                description: sp.description,
-                self_service_rank: sp.self_service_rank,
-                is_current: false,
-                headline_fee,
-                price: Some(price),
-            });
+                .await?
+            {
+                plans.push(available);
+            }
         }
 
         plans.sort_by_key(|p| p.self_service_rank);
 
-        Ok(Response::new(ListAvailablePlansResponse { plans }))
+        Ok(Response::new(ListAvailablePlansResponse {
+            plans,
+            period_switch: offer.journey.period_switch,
+            self_serve_downgrade: offer.journey.self_serve_downgrade,
+        }))
     }
 
     #[tracing::instrument(skip_all, fields(subscription_id = %request.get_ref().subscription_id))]
@@ -697,8 +700,16 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             return Err(PortalSubscriptionApiError::Unauthorized.into());
         }
 
-        self.ensure_self_service_plan_change(tenant_id, &details, new_plan_version_id)
+        let (target, _, cells) = self
+            .self_service_target(tenant_id, &details, new_plan_version_id, inner.option)
             .await?;
+        let picks = plan_change_levels(
+            &details.price_components,
+            &cells,
+            &level_choices(&inner.levels)?,
+        )
+        .map_err(|e| PortalSubscriptionApiError::from(Report::new(e)))?;
+        let component_params: Vec<_> = picks.iter().map(LevelPick::parameterization).collect();
 
         // Get target plan name
         let target_plan = self
@@ -713,8 +724,8 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             .preview_plan_change(
                 subscription_id,
                 tenant_id,
-                new_plan_version_id,
-                vec![],
+                target.clone(),
+                component_params.clone(),
                 None,
             )
             .await
@@ -726,8 +737,8 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                 .preview_plan_change(
                     subscription_id,
                     tenant_id,
-                    new_plan_version_id,
-                    vec![],
+                    target,
+                    component_params,
                     Some(PlanChangeMode::Immediate),
                 )
                 .await
@@ -774,6 +785,10 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                 .await?;
         }
 
+        let levels = self
+            .plan_change_levels_proto(tenant_id, &details, &picks, &result.preview)
+            .await?;
+
         Ok(Response::new(PreviewPlanChangeResponse {
             preview: Some(PlanChangePreview {
                 effective_date: result.preview.effective_date.as_proto(),
@@ -782,6 +797,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                 proration,
             }),
             new_plan_name: target_plan.plan.name,
+            levels,
         }))
     }
 
@@ -810,8 +826,18 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             return Err(PortalSubscriptionApiError::Unauthorized.into());
         }
 
-        self.ensure_self_service_plan_change(tenant_id, &details, new_plan_version_id)
+        let (target, offer, cells) = self
+            .self_service_target(tenant_id, &details, new_plan_version_id, inner.option)
             .await?;
+        let component_params: Vec<_> = plan_change_levels(
+            &details.price_components,
+            &cells,
+            &level_choices(&inner.levels)?,
+        )
+        .map_err(|e| PortalSubscriptionApiError::from(Report::new(e)))?
+        .iter()
+        .map(LevelPick::parameterization)
+        .collect();
 
         // Detect direction to determine mode
         let preview_result = self
@@ -819,14 +845,25 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             .preview_plan_change(
                 subscription_id,
                 tenant_id,
-                new_plan_version_id,
-                vec![],
+                target.clone(),
+                component_params.clone(),
                 None,
             )
             .await
             .map_err(Into::<PortalSubscriptionApiError>::into)?;
 
         let direction = preview_result.change_direction;
+        // Another option of the plan they are on is never a downgrade to arrange.
+        let period_switch = offer.period_switch;
+        if direction == DomainChangeDirection::Downgrade
+            && !period_switch
+            && !offer.journey.self_serve_downgrade
+        {
+            return Err(PortalSubscriptionApiError::FailedPrecondition(
+                "Downgrades are arranged with our team: please contact us".to_string(),
+            )
+            .into());
+        }
 
         match direction {
             DomainChangeDirection::Upgrade if applies_now(&preview_result) => {
@@ -836,7 +873,8 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                         tenant_id,
                         delegated,
                         subscription_id,
-                        new_plan_version_id,
+                        target,
+                        component_params,
                         &details,
                         direction,
                     )
@@ -849,8 +887,8 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                             common_domain::actor::Actor::Customer { id: customer_id },
                             subscription_id,
                             tenant_id,
-                            new_plan_version_id,
-                            vec![],
+                            target,
+                            component_params,
                         )
                         .await
                         .map_err(Into::<PortalSubscriptionApiError>::into)?;
@@ -876,8 +914,8 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                         common_domain::actor::Actor::Customer { id: customer_id },
                         subscription_id,
                         tenant_id,
-                        new_plan_version_id,
-                        vec![],
+                        target,
+                        component_params,
                     )
                     .await
                     .map_err(Into::<PortalSubscriptionApiError>::into)?;
@@ -1085,8 +1123,8 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
         let mut products_map = HashMap::new();
         let mut prices_map = HashMap::new();
         for addon in &add_ons {
-            if let Some(price) = &addon.price {
-                prices_map.insert(addon.price_id, price.clone());
+            for price in addon.catalog_prices() {
+                prices_map.insert(price.id, price);
             }
             if let Some(fee_structure) = &addon.fee_structure {
                 products_map.insert(
@@ -1108,6 +1146,8 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                         fee_structure: fee_structure.clone(),
                         catalog: false,
                         tax_category_id: None,
+                        icon: None,
+                        color: None,
                     },
                 );
             }
@@ -1157,6 +1197,13 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                 continue;
             }
 
+            // Offered only at a price in the subscription's currency, on its term.
+            let Ok(addon) = addon.in_currency(
+                &details.subscription.currency,
+                Some(details.subscription.period),
+            ) else {
+                continue;
+            };
             let resolved =
                 match addon.resolve_subscription_fee(&products_map, &prices_map, &units, None) {
                     Ok(r) => r,
@@ -1249,6 +1296,18 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             )
             .into());
         }
+
+        let addon = addon
+            .in_currency(
+                &details.subscription.currency,
+                Some(details.subscription.period),
+            )
+            .map_err(|e| match e {
+                meteroid_store::errors::StoreError::InvalidArgument(message) => {
+                    PortalSubscriptionApiError::InvalidArgument(message)
+                }
+                other => PortalSubscriptionApiError::InvalidArgument(other.to_string()),
+            })?;
 
         let max_instances = pva
             .max_instances_per_subscription
@@ -1404,6 +1463,22 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
         }
 
         let can_self_serve = self.can_self_serve(tenant_id, &details).await?;
+        // A lower level is the customer's to pick when their journey lets them downgrade.
+        let level_downgrade = can_self_serve
+            && match self.self_service_plan(tenant_id, &details).await? {
+                Ok(plan) => {
+                    self.customer_offer(tenant_id, &details, plan.product_family_id)
+                        .await?
+                        .journey
+                        .self_serve_downgrade
+                }
+                Err(_) => false,
+            };
+        let mut levels = self
+            .services
+            .list_capacity_levels(tenant_id, subscription_id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
 
         let currency = details.subscription.currency.clone();
 
@@ -1439,12 +1514,29 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                         unit: Some(unit.clone()),
                         currency: currency.clone(),
                         unit_fee: Some(map_fee(&component.fee, &component.period)),
+                        levels: vec![],
                     });
                 }
-                SubscriptionFee::Capacity { included, .. } => {
-                    // Capacity adjustment is listed for the UI but not yet
-                    // self-serviceable (see UpdateSeats). Surface current committed
-                    // capacity so a stepper can render.
+                SubscriptionFee::Capacity {
+                    included,
+                    metric_id,
+                    ..
+                } => {
+                    // What its units count, as its metric names them.
+                    let unit = details
+                        .metrics
+                        .iter()
+                        .find(|metric| metric.id == *metric_id)
+                        .and_then(|metric| metric.unit_plural.clone());
+                    // Its levels, when the plan sells several: the customer moves between them
+                    // with ChangeLevel (R-135).
+                    let cell = levels
+                        .iter()
+                        .position(|l| l.subscription_component_id == component.id)
+                        .map(|i| levels.swap_remove(i))
+                        .filter(|cell| cell.levels.len() > 1)
+                        .map(|cell| cell.levels)
+                        .unwrap_or_default();
                     components.push(AdjustableComponent {
                         component_id: price_component_id.as_proto(),
                         name: component.name.clone(),
@@ -1452,9 +1544,22 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                         current: *included as i64,
                         min: None,
                         max: None,
-                        unit: None,
+                        unit,
                         currency: currency.clone(),
                         unit_fee: Some(map_fee(&component.fee, &component.period)),
+                        levels: cell
+                            .iter()
+                            .map(|level| CapacityLevel {
+                                price_id: level.price_id.as_proto(),
+                                included: level.included,
+                                fee: Some(map_fee(
+                                    &level_fee(&component.fee, level),
+                                    &component.period,
+                                )),
+                                overage_rate: level.overage_rate.to_string(),
+                                current: level.current,
+                            })
+                            .collect(),
                     });
                 }
                 _ => continue,
@@ -1465,7 +1570,14 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             tenant_id,
             components
                 .iter_mut()
-                .filter_map(|component| component.unit_fee.as_mut())
+                .flat_map(|component| {
+                    component.unit_fee.as_mut().into_iter().chain(
+                        component
+                            .levels
+                            .iter_mut()
+                            .filter_map(|level| level.fee.as_mut()),
+                    )
+                })
                 .collect(),
         )
         .await?;
@@ -1476,6 +1588,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             // Reserved for a future per-plan policy flag; downgrades are always
             // allowed (deferred to period end) for now.
             allow_downgrade: true,
+            level_downgrade,
         }))
     }
 
@@ -1681,8 +1794,8 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                 ..
             } => (unit.clone(), *min_slots, *max_slots),
             SubscriptionFee::Capacity { .. } => {
-                return Err(PortalSubscriptionApiError::FailedPrecondition(
-                    "Capacity adjustment is not available for self-service".to_string(),
+                return Err(PortalSubscriptionApiError::InvalidArgument(
+                    "A usage-levels charge changes level, not quantity".to_string(),
                 )
                 .into());
             }
@@ -1948,8 +2061,8 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
         let unit = match &component.fee {
             SubscriptionFee::Slot { unit, .. } => unit.clone(),
             SubscriptionFee::Capacity { .. } => {
-                return Err(PortalSubscriptionApiError::FailedPrecondition(
-                    "Capacity adjustment is not available for self-service".to_string(),
+                return Err(PortalSubscriptionApiError::InvalidArgument(
+                    "A usage-levels charge changes level, not quantity".to_string(),
                 )
                 .into());
             }
@@ -1991,9 +2104,325 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             preview: Some(map_slot_quantity_preview(&preview, currency)),
         }))
     }
+
+    #[tracing::instrument(skip_all, fields(subscription_id = %request.get_ref().subscription_id))]
+    async fn preview_level_change(
+        &self,
+        request: Request<PreviewLevelChangeRequest>,
+    ) -> Result<Response<PreviewLevelChangeResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let customer_id = request.portal_resource()?.customer()?;
+        let inner = request.into_inner();
+
+        let subscription_id = SubscriptionId::from_proto(&inner.subscription_id)?;
+        let details = self
+            .store
+            .get_subscription_details(tenant_id, subscription_id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+        if details.subscription.customer_id != customer_id {
+            return Err(PortalSubscriptionApiError::Unauthorized.into());
+        }
+
+        let target = self
+            .level_target(tenant_id, &details, &inner.component_id, &inner.price_id)
+            .await?;
+        let preview = self
+            .services
+            .preview_capacity_level_change(
+                tenant_id,
+                subscription_id,
+                target.subscription_component_id,
+                target.price_id,
+            )
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        let immediate = preview.apply_mode == PlanChangeMode::Immediate;
+        Ok(Response::new(PreviewLevelChangeResponse {
+            preview: Some(map_amendment_quantity_preview(
+                &preview.preview,
+                immediate,
+                preview.effective_date,
+                details.subscription.currency.clone(),
+            )),
+        }))
+    }
+
+    #[tracing::instrument(skip_all, fields(subscription_id = %request.get_ref().subscription_id))]
+    async fn change_level(
+        &self,
+        request: Request<ChangeLevelRequest>,
+    ) -> Result<Response<ChangeLevelResponse>, Status> {
+        use meteroid_store::domain::subscription_amendment::LevelChangeOutcome;
+
+        let tenant_id = request.tenant()?;
+        let customer_id = request.portal_resource()?.customer()?;
+        let inner = request.into_inner();
+
+        let subscription_id = SubscriptionId::from_proto(&inner.subscription_id)?;
+        let details = self
+            .store
+            .get_subscription_details(tenant_id, subscription_id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+        if details.subscription.customer_id != customer_id {
+            return Err(PortalSubscriptionApiError::Unauthorized.into());
+        }
+
+        let target = self
+            .level_target(tenant_id, &details, &inner.component_id, &inner.price_id)
+            .await?;
+        // A higher level is billed now, prorated, on the adjustment invoice collected as the
+        // subscription's are; a lower one is scheduled for the period's end (R-135).
+        let outcome = self
+            .services
+            .change_capacity_level(
+                common_domain::actor::Actor::Customer { id: customer_id },
+                tenant_id,
+                subscription_id,
+                target.subscription_component_id,
+                target.price_id,
+            )
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        Ok(Response::new(match outcome {
+            LevelChangeOutcome::Applied(result) => ChangeLevelResponse {
+                status: AdjustmentStatus::AdjustmentCompleted.into(),
+                effective_date: Some(result.effective_date.as_proto()),
+                scheduled_event_id: None,
+                adjustment_invoice_id: result.adjustment_invoice_id.map(|id| id.to_string()),
+            },
+            LevelChangeOutcome::Scheduled(event) => ChangeLevelResponse {
+                status: AdjustmentStatus::AdjustmentScheduled.into(),
+                effective_date: Some(event.scheduled_time.date().as_proto()),
+                scheduled_event_id: Some(event.id.to_string()),
+                adjustment_invoice_id: None,
+            },
+        }))
+    }
+}
+
+/// A usage-levels charge's fee at `level`: its current fee, repriced.
+fn level_fee(
+    current: &SubscriptionFee,
+    level: &meteroid_store::domain::subscription_amendment::CapacityLevel,
+) -> SubscriptionFee {
+    match current {
+        SubscriptionFee::Capacity {
+            metric_id,
+            credit_unit,
+            ..
+        } => SubscriptionFee::Capacity {
+            rate: level.rate,
+            included: level.included,
+            overage_rate: level.overage_rate,
+            metric_id: *metric_id,
+            credit_unit: credit_unit.clone(),
+        },
+        other => other.clone(),
+    }
+}
+
+/// The levels a customer picked for the usage-levels charges of the plan they move to.
+fn level_choices(
+    levels: &[LevelChoice],
+) -> Result<Vec<(common_domain::ids::PriceComponentId, u64)>, Status> {
+    levels
+        .iter()
+        .map(|level| {
+            Ok((
+                common_domain::ids::PriceComponentId::from_proto(&level.component_id)?,
+                level.included,
+            ))
+        })
+        .collect()
+}
+
+/// The units of the level the subscription holds of `component`'s product; none when it does not
+/// have that charge.
+fn held_level(
+    current: &[SubscriptionComponent],
+    component: &meteroid_store::domain::price_components::PriceComponent,
+) -> Option<u64> {
+    let product = component.product_id?;
+    current
+        .iter()
+        .filter(|c| c.product_id == Some(product))
+        .find_map(|c| match c.fee {
+            SubscriptionFee::Capacity { included, .. } => Some(included),
+            _ => None,
+        })
+}
+
+/// The level a customer asked their usage-levels charge to move to.
+struct LevelTarget {
+    subscription_component_id: common_domain::ids::SubscriptionPriceComponentId,
+    price_id: common_domain::ids::PriceId,
 }
 
 impl PortalSubscriptionServiceComponents {
+    /// The level `price_id` of the charge `component_id` (its plan component), when the customer
+    /// may move to it: their plan is self-serve (a sales-led plan is the account team's), and a
+    /// lower level only when their journey lets them downgrade.
+    async fn level_target(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        details: &meteroid_store::domain::SubscriptionDetails,
+        component_id: &str,
+        price_id: &str,
+    ) -> Result<LevelTarget, Status> {
+        use common_domain::ids::{PriceComponentId, PriceId};
+
+        let price_component_id = PriceComponentId::from_proto(component_id)?;
+        let price_id = PriceId::from_proto(price_id)?;
+
+        ensure_portal_self_service(self.feature_resolver.as_ref(), &self.store, tenant_id).await?;
+        let plan = self
+            .self_service_plan(tenant_id, details)
+            .await?
+            .map_err(|refusal| {
+                Status::from(PortalSubscriptionApiError::FailedPrecondition(
+                    match refusal {
+                        SelfServiceRefusal::SalesLed => refusal.message(),
+                        _ => "This subscription cannot change level right now",
+                    }
+                    .to_string(),
+                ))
+            })?;
+
+        let cell = self
+            .services
+            .list_capacity_levels(tenant_id, details.subscription.id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?
+            .into_iter()
+            .find(|cell| cell.price_component_id == price_component_id)
+            .ok_or_else(|| {
+                PortalSubscriptionApiError::NotFound(format!(
+                    "Component {} has no levels on this subscription",
+                    price_component_id
+                ))
+            })?;
+        let level = cell
+            .levels
+            .iter()
+            .find(|level| level.price_id == price_id)
+            .ok_or_else(|| {
+                PortalSubscriptionApiError::InvalidArgument(
+                    "This level is not available to you".to_string(),
+                )
+            })?;
+        if level.included < cell.included {
+            let journey = self
+                .customer_offer(tenant_id, details, plan.product_family_id)
+                .await?
+                .journey;
+            if !journey.self_serve_downgrade {
+                return Err(PortalSubscriptionApiError::FailedPrecondition(
+                    "Lower levels are arranged with our team: please contact us".to_string(),
+                )
+                .into());
+            }
+        }
+        Ok(LevelTarget {
+            subscription_component_id: cell.subscription_component_id,
+            price_id,
+        })
+    }
+
+    /// The usage-levels charges of the plan a change moves to, each with its levels and the one
+    /// the change lands on.
+    async fn plan_change_levels_proto(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        details: &meteroid_store::domain::SubscriptionDetails,
+        picks: &[LevelPick<'_>],
+        preview: &meteroid_store::domain::subscription_changes::PlanChangePreview,
+    ) -> Result<Vec<PlanChangeLevels>, Status> {
+        use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
+
+        if picks.is_empty() {
+            return Ok(Vec::new());
+        }
+        // What its units count: the metric of its fee as the change prices it.
+        let metric_of = |pick: &LevelPick<'_>| {
+            preview
+                .matched
+                .iter()
+                .find(|m| pick.component.product_id == Some(m.product_id))
+                .map(|m| &m.new_fee)
+                .or_else(|| {
+                    preview
+                        .added
+                        .iter()
+                        .find(|a| a.name == pick.component.name)
+                        .map(|a| &a.fee)
+                })
+                .and_then(|fee| match fee {
+                    SubscriptionFee::Capacity { metric_id, .. } => Some(*metric_id),
+                    _ => None,
+                })
+        };
+        let missing: Vec<BillableMetricId> = picks
+            .iter()
+            .filter_map(metric_of)
+            .filter(|id| !details.metrics.iter().any(|m| m.id == *id))
+            .collect();
+        let fetched = if missing.is_empty() {
+            Vec::new()
+        } else {
+            self.store
+                .find_billable_metrics_by_ids(&missing, tenant_id)
+                .await
+                .map_err(Into::<PortalSubscriptionApiError>::into)?
+        };
+        let unit_of = |id: BillableMetricId| {
+            details
+                .metrics
+                .iter()
+                .chain(fetched.iter())
+                .find(|m| m.id == id)
+                .and_then(|m| m.unit_plural.clone())
+        };
+        Ok(picks
+            .iter()
+            .map(|pick| PlanChangeLevels {
+                component_id: pick.component.id.as_proto(),
+                name: pick.component.name.clone(),
+                unit: metric_of(pick).and_then(unit_of),
+                levels: pick
+                    .levels
+                    .iter()
+                    .filter_map(|price| match &price.pricing {
+                        Pricing::Capacity {
+                            rate,
+                            included,
+                            overage_rate,
+                        } => Some(CapacityLevel {
+                            price_id: price.id.as_proto(),
+                            included: *included,
+                            fee: Some(ComponentFee {
+                                fee_type: prices_proto::FeeType::Capacity.into(),
+                                amount: rate.to_string(),
+                                cadence: map_billing_period(&price.cadence),
+                                unit: None,
+                                credit_unit: None,
+                                credit_unit_label: None,
+                                credit_amount: None,
+                            }),
+                            overage_rate: overage_rate.to_string(),
+                            current: *included == pick.included,
+                        }),
+                        _ => None,
+                    })
+                    .collect(),
+                held: held_level(&details.price_components, pick.component),
+            })
+            .collect())
+    }
+
     /// Whether the subscription has online payment configured.
     fn has_online_payment_config(
         &self,
@@ -2029,14 +2458,23 @@ impl PortalSubscriptionServiceComponents {
         Ok(self.self_service_plan(tenant_id, details).await?.is_ok())
     }
 
-    /// The target must be the active version of a plan the portal offers next to the current one
-    /// (`list_available_plans`): hidden, custom and other families' plans stay operator-only.
-    async fn ensure_self_service_plan_change(
+    /// What a customer's plan change moves to: a self-serve plan of the family sold in their
+    /// currency, or another option of their own plan, always an option offered to them. Returns
+    /// the offer read for it, and the target's components narrowed to the cells it lands on.
+    async fn self_service_target(
         &self,
         tenant_id: common_domain::ids::TenantId,
         details: &meteroid_store::domain::SubscriptionDetails,
         new_plan_version_id: PlanVersionId,
-    ) -> Result<(), Status> {
+        asked_option: Option<String>,
+    ) -> Result<
+        (
+            PlanTarget,
+            CustomerOffer,
+            Vec<meteroid_store::domain::price_components::PriceComponent>,
+        ),
+        Status,
+    > {
         let plan = self
             .self_service_plan(tenant_id, details)
             .await?
@@ -2045,28 +2483,222 @@ impl PortalSubscriptionServiceComponents {
                     refusal.message().to_string(),
                 ))
             })?;
+        let mut offer = self
+            .customer_offer(tenant_id, details, plan.product_family_id)
+            .await?;
+        let asked = crate::plans::mapping::plans::option_ref_from_proto(asked_option);
 
-        let offered = self
+        let same_version = new_plan_version_id == details.subscription.plan_version_id;
+        if !same_version {
+            let offered = self
+                .store
+                .list_self_service_plans(
+                    tenant_id,
+                    plan.product_family_id,
+                    &details.subscription.currency,
+                    plan.id,
+                    false,
+                )
+                .await
+                .map_err(Into::<PortalSubscriptionApiError>::into)?;
+            let Some(target) = offered
+                .iter()
+                .find(|p| p.plan_version_id == new_plan_version_id)
+            else {
+                return Err(PortalSubscriptionApiError::InvalidArgument(
+                    "This plan is not available to switch to".to_string(),
+                )
+                .into());
+            };
+            let target = self
+                .store
+                .get_plan(
+                    target.plan_id,
+                    tenant_id,
+                    meteroid_store::domain::PlanVersionFilter::Active,
+                )
+                .await
+                .map_err(Into::<PortalSubscriptionApiError>::into)?;
+            if let Err(refusal) = admits(target.plan.eligibility.as_ref(), details) {
+                return Err(PortalSubscriptionApiError::FailedPrecondition(refusal).into());
+            }
+        }
+
+        // The option the change lands on is always one offered to the customer in their
+        // currency: the one asked, else their own, never one priced elsewhere.
+        let components = {
+            use meteroid_store::repositories::price_components::PriceComponentInterfaceAuto;
+            self.store
+                .list_price_components(new_plan_version_id, tenant_id)
+                .await
+                .map_err(Into::<PortalSubscriptionApiError>::into)?
+        };
+        let options = self
             .store
-            .list_self_service_plans(
+            .get_plan_by_version_id(new_plan_version_id, tenant_id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?
+            .version
+            .map(|version| version.options)
+            .unwrap_or_default();
+        let current = current_alias(details);
+        let offered = offered_options(&offer, current, same_version, &options, &components);
+        let option = match &asked {
+            Some(asked) => {
+                let option = resolve_option(&options, Some(asked)).map_err(|_| {
+                    Status::from(PortalSubscriptionApiError::InvalidArgument(
+                        "This option is not available to you".to_string(),
+                    ))
+                })?;
+                offered.iter().copied().find(|o| o.id == option.id)
+            }
+            None => kept_option(&offered, current),
+        };
+        let Some(option) = option else {
+            return Err(PortalSubscriptionApiError::InvalidArgument(
+                if offered.is_empty() || asked.is_none() {
+                    "This plan is not available to you"
+                } else {
+                    "This option is not available to you"
+                }
+                .to_string(),
+            )
+            .into());
+        };
+        let switches = current != Some(option.alias.as_str());
+        if same_version && !switches {
+            return Err(PortalSubscriptionApiError::InvalidArgument(
+                "This is your current plan".to_string(),
+            )
+            .into());
+        }
+        // A move to another option of the plan they are on.
+        offer.period_switch = same_version && switches;
+        let mut cells = components;
+        pricing_of(option, &offer.currency).narrow(&mut cells);
+        Ok((
+            PlanTarget {
+                version: new_plan_version_id,
+                // By alias: a plan-change checkout keeps it as text.
+                option: Some(PlanOptionRef::Alias(option.alias.clone())),
+            },
+            offer,
+            cells,
+        ))
+    }
+
+    /// The customer's journey rules, and their subscription's currency plans are priced in.
+    async fn customer_offer(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        details: &meteroid_store::domain::SubscriptionDetails,
+        product_family_id: common_domain::ids::ProductFamilyId,
+    ) -> Result<CustomerOffer, Status> {
+        let journey = self
+            .store
+            .get_product_family_journey(tenant_id, product_family_id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+        Ok(CustomerOffer {
+            journey,
+            currency: details.subscription.currency.clone(),
+            period_switch: false,
+        })
+    }
+
+    /// `catalog` as the customer may move to it: a price per option offered in their currency.
+    /// None when it is not offered, except their current plan, then priced as they pay it.
+    #[allow(clippy::too_many_arguments)]
+    async fn available_plan(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        details: &meteroid_store::domain::SubscriptionDetails,
+        offer: &CustomerOffer,
+        catalog: FullPlan,
+        plan_version_id: PlanVersionId,
+        rank: i32,
+        is_current: bool,
+    ) -> Result<Option<AvailablePlan>, Status> {
+        let period = details.subscription.period;
+        let currency = offer.currency.clone();
+        let current = current_alias(details);
+        let offered: Vec<PlanOption> = offered_options(
+            offer,
+            current,
+            is_current,
+            &catalog.version.options,
+            &catalog.price_components,
+        )
+        .into_iter()
+        .cloned()
+        .collect();
+        let eligible = admits(catalog.plan.eligibility.as_ref(), details).is_ok();
+        if (offered.is_empty() || !eligible) && !is_current {
+            return Ok(None);
+        }
+        let metrics = self
+            .services
+            .portal_billable_metrics(
                 tenant_id,
-                plan.product_family_id,
-                &details.subscription.currency,
-                plan.id,
+                &crate::portal::pricing::plan_metric_ids(&catalog),
             )
             .await
             .map_err(Into::<PortalSubscriptionApiError>::into)?;
 
-        if !offered
-            .iter()
-            .any(|p| p.plan_version_id == new_plan_version_id)
-        {
-            return Err(PortalSubscriptionApiError::InvalidArgument(
-                "This plan is not available to switch to".to_string(),
-            )
-            .into());
+        let mut options = Vec::with_capacity(offered.len());
+        for option in &offered {
+            let mut priced = catalog.clone();
+            pricing_of(option, &currency).narrow(&mut priced.price_components);
+            let units = self.plan_credit_units(tenant_id, &priced).await?;
+            let price = crate::portal::pricing::plan_price(
+                &priced,
+                &currency,
+                headline_cadence(&priced.price_components, period),
+                &units,
+                &metrics,
+            )?;
+            options.push(AvailableOption {
+                id: option.id.as_proto(),
+                name: option.name.clone(),
+                alias: option.alias.clone(),
+                price: Some(price),
+                is_current: is_current && current == Some(option.alias.as_str()),
+                currency: currency.clone(),
+            });
         }
-        Ok(())
+
+        // The plan's own price: in their option when offered, else its first; a current plan not
+        // offered in their currency is priced as they pay it.
+        let offered_refs: Vec<&PlanOption> = offered.iter().collect();
+        let shown: Option<PlanOption> = kept_option(&offered_refs, current)
+            .or_else(|| {
+                current.and_then(|alias| catalog.version.options.iter().find(|o| o.alias == alias))
+            })
+            .cloned();
+        let mut plan = catalog;
+        if let Some(shown) = &shown {
+            pricing_of(shown, &currency).narrow(&mut plan.price_components);
+        }
+        let units = self.plan_credit_units(tenant_id, &plan).await?;
+        let headline_fee = pick_plan_headline_fee(&plan, &currency, &units);
+        let price = crate::portal::pricing::plan_price(
+            &plan,
+            &currency,
+            headline_cadence(&plan.price_components, period),
+            &units,
+            &metrics,
+        )?;
+        Ok(Some(AvailablePlan {
+            plan_id: plan.plan.id.as_proto(),
+            plan_version_id: plan_version_id.as_proto(),
+            plan_name: plan.plan.name.clone(),
+            description: plan.plan.description.clone(),
+            self_service_rank: rank,
+            is_current,
+            headline_fee,
+            price: Some(price),
+            options,
+        }))
     }
 
     /// The subscription's plan when the customer may self-serve it, else why not.
@@ -2097,7 +2729,8 @@ impl PortalSubscriptionServiceComponents {
             return Ok(Err(SelfServiceRefusal::PendingChange));
         }
 
-        // Sales-led/custom plans (no self-service rank) are managed by the account team.
+        // Sales-led/custom plans (no self-service rank, or sold by contacting sales) are managed
+        // by the account team.
         let plan = self
             .store
             .get_plan(
@@ -2108,11 +2741,13 @@ impl PortalSubscriptionServiceComponents {
             .await
             .map_err(Into::<PortalSubscriptionApiError>::into)?;
 
-        Ok(if plan.plan.self_service_rank.is_some() {
-            Ok(plan.plan)
-        } else {
-            Err(SelfServiceRefusal::SalesLed)
-        })
+        Ok(
+            if plan.plan.self_service_rank.is_some() && !plan.plan.pricing_sales_led {
+                Ok(plan.plan)
+            } else {
+                Err(SelfServiceRefusal::SalesLed)
+            },
+        )
     }
 
     /// Creates a checkout session for add-on purchase and returns the appropriate response.
@@ -2164,6 +2799,7 @@ impl PortalSubscriptionServiceComponents {
             change_date: Some(common_clock::now().date_naive()),
             success_url: None,
             cancel_url: None,
+            option: None,
         };
 
         let session = self
@@ -2291,6 +2927,8 @@ impl PortalSubscriptionServiceComponents {
                     fee_structure: fee_structure.clone(),
                     catalog: false,
                     tax_category_id: None,
+                    icon: None,
+                    color: None,
                 },
             );
         }
@@ -2313,21 +2951,24 @@ impl PortalSubscriptionServiceComponents {
     }
 
     /// Creates a checkout session for plan change and returns the appropriate response.
+    #[allow(clippy::too_many_arguments)]
     async fn create_plan_change_checkout_response(
         &self,
         tenant_id: common_domain::ids::TenantId,
         delegated: bool,
         subscription_id: SubscriptionId,
-        new_plan_version_id: PlanVersionId,
+        target: PlanTarget,
+        component_params: Vec<ComponentParameterization>,
         details: &meteroid_store::domain::SubscriptionDetails,
         direction: DomainChangeDirection,
     ) -> Result<Response<ConfirmPlanChangeResponse>, tonic::Status> {
         let session = self
             .services
-            .create_plan_change_checkout_session(
+            .create_plan_change_checkout_session_with(
                 tenant_id,
                 subscription_id,
-                new_plan_version_id,
+                target,
+                component_params,
                 details.subscription.customer_id,
                 details.subscription.payment_methods_config.clone(),
                 common_clock::now().date_naive(),
@@ -2352,6 +2993,79 @@ impl PortalSubscriptionServiceComponents {
             checkout_token: Some(token),
         }))
     }
+}
+
+/// What a customer may move to: their family's journey and their currency's prices.
+struct CustomerOffer {
+    journey: meteroid_store::domain::product_family_journeys::ProductFamilyJourney,
+    /// The subscription's currency: a plan change keeps it.
+    currency: String,
+    /// Whether the change resolved moves to another option of the same plan.
+    period_switch: bool,
+}
+
+/// The alias of the option the subscription bought; none for one made before options.
+fn current_alias(details: &meteroid_store::domain::SubscriptionDetails) -> Option<&str> {
+    details
+        .plan_option
+        .as_ref()
+        .map(|option| option.alias.as_str())
+}
+
+fn pricing_of(option: &PlanOption, currency: &str) -> OptionPricing {
+    OptionPricing::new(option.id, currency)
+}
+
+/// The options of a plan offered in the customer's currency: every one sold there when they may
+/// switch, else only the one a change keeps them on. Empty: not offered. A hidden option never
+/// is, but the one they are on of their own plan (`own`).
+fn offered_options<'a>(
+    offer: &CustomerOffer,
+    current: Option<&str>,
+    own: bool,
+    options: &'a [PlanOption],
+    components: &[meteroid_store::domain::price_components::PriceComponent],
+) -> Vec<&'a PlanOption> {
+    let mut sold = sold_options(options, components, &offer.currency);
+    sold.retain(|o| !o.hidden || (own && current == Some(o.alias.as_str())));
+    if offer.journey.period_switch {
+        return sold;
+    }
+    kept_option(&sold, current).into_iter().collect()
+}
+
+/// The option a change lands on when none is asked: the customer's own alias, else the first.
+fn kept_option<'a>(offered: &[&'a PlanOption], current: Option<&str>) -> Option<&'a PlanOption> {
+    current
+        .and_then(|alias| offered.iter().copied().find(|o| o.alias == alias))
+        .or_else(|| offered.first().copied())
+}
+
+/// The period a plan's price reads on: the shortest its fixed recurring fees bill on, else the
+/// subscription's.
+fn headline_cadence(
+    components: &[meteroid_store::domain::price_components::PriceComponent],
+    fallback: BillingPeriodEnum,
+) -> BillingPeriodEnum {
+    components
+        .iter()
+        .flat_map(|c| c.prices.iter())
+        .filter(|p| !cadence_free(&p.pricing))
+        .map(|p| p.cadence)
+        .min()
+        .unwrap_or(fallback)
+}
+
+/// Whether the customer may get a plan of `rule` by themselves.
+fn admits(
+    rule: Option<&meteroid_store::domain::eligibility::Eligibility>,
+    details: &meteroid_store::domain::SubscriptionDetails,
+) -> Result<(), String> {
+    let Some(rule) = rule else {
+        return Ok(());
+    };
+    let facts = meteroid_store::domain::eligibility::CustomerFacts::of(&details.customer);
+    meteroid_store::domain::eligibility::check(rule, &facts).map_err(|e| e.message())
 }
 
 #[cfg(test)]

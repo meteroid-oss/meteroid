@@ -47,9 +47,44 @@ message ListPriceComponentResponse {
 message EmptyResponse {
 }
 
+// One price of a charge, set in the cell (option, currency) of each listed option. Draft
+// versions only. A cell's previous prices leave it (never edited in place: a published version
+// may bill them).
+message SetComponentPriceRequest {
+  string price_component_id = 1;
+  reserved 2;
+  reserved "price_book_id";
+  // Its currency names the cell; its cadence is how it bills.
+  PriceInput price = 3;
+  // Empty: every option of the version.
+  repeated string option_ids = 4;
+  // The whole cell instead of `price` (ignored when set): one price, or a capacity charge's
+  // levels, one per commitment, in one currency and on one cadence. Every price the cell held
+  // leaves it. With `price` alone, a capacity price replaces only the level of its commitment.
+  repeated PriceInput prices = 5;
+}
+message SetComponentPriceResponse {
+  PriceComponent component = 1;
+}
+
+// Empties the cell (option, currency) of each listed option: the charge has no price there.
+message ClearComponentPriceRequest {
+  string price_component_id = 1;
+  reserved 2, 3;
+  reserved "price_book_id", "cadence";
+  string currency = 4;
+  // Empty: every option of the version.
+  repeated string option_ids = 5;
+}
+message ClearComponentPriceResponse {
+  PriceComponent component = 1;
+}
+
 service PriceComponentsService {
   rpc ListPriceComponents(ListPriceComponentRequest) returns (ListPriceComponentResponse) {}
   rpc CreatePriceComponent(CreatePriceComponentRequest) returns (CreatePriceComponentResponse) {}
   rpc EditPriceComponent(EditPriceComponentRequest) returns (EditPriceComponentResponse) {}
   rpc RemovePriceComponent(RemovePriceComponentRequest) returns (EmptyResponse) {}
+  rpc SetComponentPrice(SetComponentPriceRequest) returns (SetComponentPriceResponse) {}
+  rpc ClearComponentPrice(ClearComponentPriceRequest) returns (ClearComponentPriceResponse) {}
 }

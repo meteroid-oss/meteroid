@@ -245,6 +245,7 @@ async fn test_migration_rejects_future_start_date(#[future] test_env: TestEnv) {
         .insert_subscription(
             common_domain::actor::Actor::System,
             meteroid_store::domain::CreateSubscription {
+                option: None,
                 subscription: meteroid_store::domain::SubscriptionNew {
                     customer_id: CUST_UBER_ID,
                     plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
@@ -296,6 +297,7 @@ async fn test_migration_rejects_manual_activation(#[future] test_env: TestEnv) {
         .insert_subscription(
             common_domain::actor::Actor::System,
             meteroid_store::domain::CreateSubscription {
+                option: None,
                 subscription: meteroid_store::domain::SubscriptionNew {
                     customer_id: CUST_UBER_ID,
                     plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
@@ -347,6 +349,7 @@ async fn test_migration_rejects_on_checkout_activation(#[future] test_env: TestE
         .insert_subscription(
             common_domain::actor::Actor::System,
             meteroid_store::domain::CreateSubscription {
+                option: None,
                 subscription: meteroid_store::domain::SubscriptionNew {
                     customer_id: CUST_UBER_ID,
                     plan_version_id: PLAN_VERSION_1_LEETCODE_ID,

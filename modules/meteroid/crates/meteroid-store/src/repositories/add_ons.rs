@@ -1,9 +1,13 @@
-use crate::domain::add_ons::{AddOn, AddOnNew, AddOnPatch};
+use crate::domain::add_ons::{
+    AddOn, AddOnNew, AddOnPatch, AddOnPriceChange, ensure_one_price_per_cell, same_cell,
+};
 use crate::domain::entitlements::{Entitlement, EntitlementSpec};
 use crate::domain::entity_activity::Actor;
 use crate::domain::enums::FeeTypeEnum;
 use crate::domain::outbox_event::OutboxEvent;
-use crate::domain::price_components::{PriceComponentNewInternal, PriceEntry, ProductRef};
+use crate::domain::price_components::{
+    PriceComponentNewInternal, PriceEntry, PriceInput, ProductRef,
+};
 use crate::domain::{PaginatedVec, PaginationRequest, Price};
 use crate::errors::StoreError;
 use crate::repositories::entitlements::insert_entitlement_specs;
@@ -11,9 +15,10 @@ use crate::repositories::price_components::resolve_component_internal;
 use crate::store::PgConn;
 use crate::{Store, StoreResult};
 use common_domain::ids::{
-    AddOnId, BaseId, EntitlementEntityId, PlanVersionId, ProductFamilyId, TenantId,
+    AddOnId, BaseId, EntitlementEntityId, PlanVersionId, PriceId, ProductFamilyId, ProductId,
+    TenantId,
 };
-use diesel_models::add_ons::{AddOnRow, AddOnRowNew, AddOnRowPatch};
+use diesel_models::add_ons::{AddOnPriceRow, AddOnRow, AddOnRowNew, AddOnRowPatch};
 use diesel_models::entitlements::EntitlementRow;
 use diesel_models::prices::PriceRow;
 use diesel_models::products::ProductRow;
@@ -60,11 +65,35 @@ pub trait AddOnInterface {
         entitlements: Vec<EntitlementSpec>,
     ) -> StoreResult<AddOn>;
 
+    /// `create_add_on_from_ref` with a price per currency and billing period, the first one its
+    /// `price_id`.
+    #[allow(clippy::too_many_arguments)]
+    async fn create_add_on_with_prices(
+        &self,
+        name: String,
+        product_ref: ProductRef,
+        prices: Vec<PriceEntry>,
+        description: Option<String>,
+        self_serviceable: bool,
+        max_instances_per_subscription: Option<i32>,
+        tenant_id: TenantId,
+        product_family_id: ProductFamilyId,
+        entitlements: Vec<EntitlementSpec>,
+    ) -> StoreResult<AddOn>;
+
+    /// Edits an add-on; `price_entry` replaces the price of its cell.
     async fn update_add_on(
         &self,
         actor: Actor,
         patch: AddOnPatch,
         price_entry: Option<PriceEntry>,
+    ) -> StoreResult<AddOn>;
+
+    async fn update_add_on_with_prices(
+        &self,
+        actor: Actor,
+        patch: AddOnPatch,
+        prices: Option<AddOnPriceChange>,
     ) -> StoreResult<AddOn>;
 
     async fn archive_add_on(
@@ -76,7 +105,7 @@ pub trait AddOnInterface {
     async fn unarchive_add_on(&self, id: AddOnId, tenant_id: TenantId) -> StoreResult<()>;
 }
 
-/// Eagerly load fee_type and price for a list of add-on rows
+/// Eagerly load fee_type and prices for a list of add-on rows
 pub(crate) async fn enrich_add_ons(
     conn: &mut crate::store::PgConn,
     rows: Vec<AddOnRow>,
@@ -88,24 +117,25 @@ pub(crate) async fn enrich_add_ons(
         return Ok(vec![]);
     }
 
-    let (product_ids, price_ids): (Vec<_>, Vec<_>) =
-        rows.iter().map(|r| (r.product_id, r.price_id)).unzip();
+    let product_ids: Vec<ProductId> = rows.iter().map(|r| r.product_id).collect();
+    let add_on_ids: Vec<AddOnId> = rows.iter().map(|r| r.id).collect();
+
+    let mut linked = AddOnPriceRow::list_by_add_on_ids(conn, &add_on_ids)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    let price_ids: Vec<PriceId> = rows
+        .iter()
+        .map(|r| r.price_id)
+        .chain(linked.values().flatten().copied())
+        .collect();
 
     let product_rows = ProductRow::list_by_ids(conn, &product_ids, tenant_id)
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
     let products: HashMap<_, _> = product_rows.into_iter().map(|p| (p.id, p)).collect();
 
-    let price_rows = PriceRow::list_by_ids(conn, &price_ids, tenant_id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-    let prices: HashMap<_, _> = price_rows
-        .into_iter()
-        .map(|r| {
-            let id = r.id;
-            Price::try_from(r).map(|p| (id, p))
-        })
-        .collect::<Result<HashMap<_, _>, _>>()?;
+    let prices = load_prices(conn, &price_ids, tenant_id).await?;
+    let prices: HashMap<PriceId, Price> = prices.into_iter().map(|p| (p.id, p)).collect();
 
     let add_on_entities: Vec<EntitlementEntityId> = rows
         .iter()
@@ -129,18 +159,287 @@ pub(crate) async fn enrich_add_ons(
             let fee_type: Option<FeeTypeEnum> = product.map(|p| p.fee_type.clone().into());
             let fee_structure =
                 product.and_then(|p| serde_json::from_value(p.fee_structure.clone()).ok());
+            let product_icon = product.and_then(|p| p.icon.clone());
+            let product_color = product.and_then(|p| p.color.clone());
             let price = prices.get(&row.price_id).cloned();
+            let mut own: Vec<Price> = linked
+                .remove(&row.id)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|id| *id != row.price_id)
+                .filter_map(|id| prices.get(&id).cloned())
+                .collect();
+            own.sort_by(|a, b| (&a.currency, a.cadence).cmp(&(&b.currency, b.cadence)));
+            // Its first price leads, as `price` reads it.
+            let all: Vec<Price> = price.iter().cloned().chain(own).collect();
             let entitlements = entitlements_by_entity.remove(&*row.id).unwrap_or_default();
             let mut addon: AddOn = row.into();
             addon.fee_type = fee_type;
             addon.fee_structure = fee_structure;
+            addon.product_icon = product_icon;
+            addon.product_color = product_color;
             addon.price = price;
+            addon.prices = all;
             addon.entitlements = entitlements;
             addon
         })
         .collect();
 
     Ok(add_ons)
+}
+
+async fn load_prices(
+    conn: &mut PgConn,
+    ids: &[PriceId],
+    tenant_id: TenantId,
+) -> StoreResult<Vec<Price>> {
+    if ids.is_empty() {
+        return Ok(vec![]);
+    }
+    PriceRow::list_by_ids(conn, ids, tenant_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .into_iter()
+        .map(Price::try_from)
+        .collect()
+}
+
+/// The prices `entries` give an add-on, under `product_ref` (created by the first entry when
+/// new), each validated in its own currency.
+async fn resolve_add_on_prices(
+    conn: &mut PgConn,
+    name: &str,
+    product_ref: ProductRef,
+    entries: Vec<PriceEntry>,
+    tenant_id: TenantId,
+    product_family_id: ProductFamilyId,
+) -> StoreResult<(ProductId, Vec<PriceId>)> {
+    if entries.is_empty() {
+        return Err(Report::new(StoreError::InvalidArgument(
+            "At least one price entry is required".into(),
+        )));
+    }
+    let mut product_ref = product_ref;
+    let mut product_id = None;
+    let mut price_ids = Vec::new();
+    for entry in entries {
+        let currency = match &entry {
+            PriceEntry::New(input) => input.currency.clone(),
+            PriceEntry::Existing(pid) => {
+                PriceRow::find_by_id_and_tenant_id(conn, *pid, tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?
+                    .currency
+            }
+        };
+        let internal = PriceComponentNewInternal {
+            name: name.to_owned(),
+            product_ref: product_ref.clone(),
+            prices: vec![entry],
+        };
+        let (resolved_product, ids) = resolve_component_internal(
+            conn,
+            &internal,
+            tenant_id,
+            product_family_id,
+            &currency,
+            true,
+        )
+        .await?;
+        product_ref = ProductRef::Existing(resolved_product);
+        product_id = Some(resolved_product);
+        price_ids.extend(ids);
+    }
+    let product_id = product_id.ok_or_else(|| {
+        Report::new(StoreError::InvalidArgument(
+            "No price resolved for add-on".into(),
+        ))
+    })?;
+    Ok((product_id, price_ids))
+}
+
+/// A new catalog price of `product_id`, validated as a charge's.
+async fn insert_add_on_price(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    product_id: ProductId,
+    input: PriceInput,
+) -> StoreResult<PriceId> {
+    crate::domain::prices::validate_pricing(&input.pricing, &input.currency)?;
+    crate::domain::prices::validate_price_credit_unit(&input.pricing, input.credit_unit.as_ref())?;
+    crate::repositories::price_components::ensure_credit_units_usable(
+        conn,
+        tenant_id,
+        input.credit_unit.iter().map(|unit| unit.unit_id),
+    )
+    .await?;
+    crate::services::credit::unit_wallets::ensure_credit_packs_usable(
+        conn,
+        tenant_id,
+        &input.currency,
+        [&input.pricing],
+    )
+    .await?;
+    crate::repositories::price_components::ensure_product_dimension_rates_add_up(
+        conn,
+        tenant_id,
+        product_id,
+        [&input.pricing],
+    )
+    .await?;
+    let pricing_json = serde_json::to_value(&input.pricing).map_err(|e| {
+        Report::new(StoreError::SerdeError(
+            "Failed to serialize pricing".to_string(),
+            e,
+        ))
+    })?;
+
+    let price_row = diesel_models::prices::PriceRowNew {
+        id: PriceId::new(),
+        product_id,
+        cadence: input.cadence.into(),
+        currency: input.currency,
+        pricing: pricing_json,
+        tenant_id,
+        catalog: true,
+        credit_unit_id: input.credit_unit.as_ref().map(|unit| unit.unit_id),
+        credit_unit_rate: input.credit_unit.as_ref().map(|unit| unit.rate),
+    }
+    .insert(conn)
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?;
+
+    Ok(price_row.id)
+}
+
+/// Whether `price` already is what `input` asks: kept rather than priced anew.
+fn same_price(price: &Price, input: &PriceInput) -> bool {
+    price.currency.eq_ignore_ascii_case(input.currency.trim())
+        && price.cadence == input.cadence
+        && price.credit_unit == input.credit_unit
+        && price.archived_at.is_none()
+        && serde_json::to_value(&price.pricing).ok() == serde_json::to_value(&input.pricing).ok()
+}
+
+/// Links `price_ids`, every price of `add_on_id`, once checked one per cell.
+async fn link_add_on_prices(
+    conn: &mut PgConn,
+    add_on_id: AddOnId,
+    name: &str,
+    price_ids: &[PriceId],
+    tenant_id: TenantId,
+) -> StoreResult<()> {
+    let prices = load_prices(conn, price_ids, tenant_id).await?;
+    ensure_one_price_per_cell(name, &prices)?;
+    let rows: Vec<AddOnPriceRow> = price_ids
+        .iter()
+        .map(|price_id| AddOnPriceRow {
+            add_on_id,
+            price_id: *price_id,
+        })
+        .collect();
+    AddOnPriceRow::insert_batch(conn, &rows)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    Ok(())
+}
+
+/// Leaves `add_on` with the prices `change` asks, linked, and returns its first. A price left
+/// unchanged keeps its id; one no longer sold stays a price row, as subscriptions bill it.
+async fn reprice_add_on(
+    conn: &mut PgConn,
+    add_on: &AddOnRow,
+    change: AddOnPriceChange,
+    tenant_id: TenantId,
+) -> StoreResult<PriceId> {
+    let mut current_ids = AddOnPriceRow::list_by_add_on_ids(conn, &[add_on.id])
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .remove(&add_on.id)
+        .unwrap_or_default();
+    if !current_ids.contains(&add_on.price_id) {
+        current_ids.insert(0, add_on.price_id);
+    }
+    let current = load_prices(conn, &current_ids, tenant_id).await?;
+
+    let (mut kept, first) = match change {
+        AddOnPriceChange::All(inputs) => {
+            if inputs.is_empty() {
+                return Err(Report::new(StoreError::InvalidArgument(format!(
+                    "{} needs at least one price",
+                    add_on.name
+                ))));
+            }
+            let mut ids = Vec::with_capacity(inputs.len());
+            for input in inputs {
+                let id = match current.iter().find(|p| same_price(p, &input)) {
+                    Some(price) => price.id,
+                    None => insert_add_on_price(conn, tenant_id, add_on.product_id, input).await?,
+                };
+                ids.push(id);
+            }
+            let first = if ids.contains(&add_on.price_id) {
+                add_on.price_id
+            } else {
+                ids[0]
+            };
+            (ids, first)
+        }
+        AddOnPriceChange::One(entry) => {
+            let price_id = match entry {
+                PriceEntry::Existing(pid) => {
+                    let row = PriceRow::find_by_id_and_tenant_id(conn, pid, tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                    if row.product_id != add_on.product_id {
+                        return Err(Report::new(StoreError::InvalidArgument(format!(
+                            "Price {} belongs to product {}, not {}",
+                            pid, row.product_id, add_on.product_id
+                        ))));
+                    }
+                    pid
+                }
+                PriceEntry::New(input) => {
+                    insert_add_on_price(conn, tenant_id, add_on.product_id, input).await?
+                }
+            };
+            let price = load_prices(conn, &[price_id], tenant_id)
+                .await?
+                .pop()
+                .ok_or_else(|| Report::new(StoreError::ValueNotFound("price".into())))?;
+            // It replaces the price of its cell; a single-price add-on's, of its currency, on any.
+            let first_price = current.iter().find(|p| p.id == add_on.price_id);
+            let replaced = current
+                .iter()
+                .find(|p| same_cell(p, &price))
+                .or(first_price.filter(|p| p.currency.eq_ignore_ascii_case(&price.currency)))
+                .ok_or_else(|| {
+                    Report::new(StoreError::InvalidArgument(format!(
+                        "Price currency '{}' does not match add-on currency '{}'",
+                        price.currency,
+                        first_price.map(|p| p.currency.as_str()).unwrap_or_default()
+                    )))
+                })?;
+            let ids: Vec<PriceId> = current
+                .iter()
+                .map(|p| if p.id == replaced.id { price.id } else { p.id })
+                .collect();
+            let first = if replaced.id == add_on.price_id {
+                price.id
+            } else {
+                add_on.price_id
+            };
+            (ids, first)
+        }
+    };
+    kept.sort();
+    kept.dedup();
+
+    AddOnPriceRow::delete_except(conn, add_on.id, &kept)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    link_add_on_prices(conn, add_on.id, &add_on.name, &kept, tenant_id).await?;
+    Ok(first)
 }
 
 #[async_trait::async_trait]
@@ -230,6 +529,7 @@ impl AddOnInterface for Store {
                     .insert(conn)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
+                link_add_on_prices(conn, row.id, &row.name, &[row.price_id], tenant_id).await?;
 
                 let mut enriched = enrich_add_ons(conn, vec![row], tenant_id).await?;
                 let mut addon = enriched.pop().ok_or_else(|| {
@@ -275,40 +575,45 @@ impl AddOnInterface for Store {
         product_family_id: ProductFamilyId,
         entitlements: Vec<EntitlementSpec>,
     ) -> StoreResult<AddOn> {
-        let internal = PriceComponentNewInternal {
-            name: name.clone(),
+        self.create_add_on_with_prices(
+            name,
             product_ref,
-            prices: vec![price_entry],
-        };
+            vec![price_entry],
+            description,
+            self_serviceable,
+            max_instances_per_subscription,
+            tenant_id,
+            product_family_id,
+            entitlements,
+        )
+        .await
+    }
 
+    #[allow(clippy::too_many_arguments)]
+    async fn create_add_on_with_prices(
+        &self,
+        name: String,
+        product_ref: ProductRef,
+        prices: Vec<PriceEntry>,
+        description: Option<String>,
+        self_serviceable: bool,
+        max_instances_per_subscription: Option<i32>,
+        tenant_id: TenantId,
+        product_family_id: ProductFamilyId,
+        entitlements: Vec<EntitlementSpec>,
+    ) -> StoreResult<AddOn> {
         self.transaction(|conn| {
             async move {
-                let currency = match &internal.prices.first() {
-                    Some(PriceEntry::New(input)) => input.currency.clone(),
-                    Some(PriceEntry::Existing(pid)) => {
-                        PriceRow::find_by_id_and_tenant_id(conn, *pid, tenant_id)
-                            .await
-                            .map_err(Into::<Report<StoreError>>::into)?
-                            .currency
-                    }
-                    None => {
-                        return Err(Report::new(StoreError::InvalidArgument(
-                            "At least one price entry is required".into(),
-                        )));
-                    }
-                };
-
-                let (product_id, price_ids) = resolve_component_internal(
+                let (product_id, price_ids) = resolve_add_on_prices(
                     conn,
-                    &internal,
+                    &name,
+                    product_ref,
+                    prices,
                     tenant_id,
                     product_family_id,
-                    &currency,
-                    true,
                 )
                 .await?;
-
-                let price_id = price_ids.into_iter().next().ok_or_else(|| {
+                let price_id = *price_ids.first().ok_or_else(|| {
                     Report::new(StoreError::InvalidArgument(
                         "No price resolved for add-on".into(),
                     ))
@@ -329,6 +634,7 @@ impl AddOnInterface for Store {
                     .insert(conn)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
+                link_add_on_prices(conn, row.id, &row.name, &price_ids, tenant_id).await?;
 
                 let mut enriched = enrich_add_ons(conn, vec![row], tenant_id).await?;
                 let mut addon = enriched.pop().ok_or_else(|| {
@@ -358,6 +664,16 @@ impl AddOnInterface for Store {
         patch: AddOnPatch,
         price_entry: Option<PriceEntry>,
     ) -> StoreResult<AddOn> {
+        self.update_add_on_with_prices(actor, patch, price_entry.map(AddOnPriceChange::One))
+            .await
+    }
+
+    async fn update_add_on_with_prices(
+        &self,
+        actor: Actor,
+        patch: AddOnPatch,
+        prices: Option<AddOnPriceChange>,
+    ) -> StoreResult<AddOn> {
         let tenant_id = patch.tenant_id;
         let add_on_id = patch.id;
 
@@ -368,89 +684,9 @@ impl AddOnInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
-                let existing_price =
-                    PriceRow::find_by_id_and_tenant_id(conn, existing.price_id, tenant_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-
-                let new_price_id = if let Some(entry) = price_entry {
-                    match entry {
-                        PriceEntry::Existing(pid) => {
-                            let price_row =
-                                PriceRow::find_by_id_and_tenant_id(conn, pid, tenant_id)
-                                    .await
-                                    .map_err(Into::<Report<StoreError>>::into)?;
-                            if price_row.product_id != existing.product_id {
-                                return Err(Report::new(StoreError::InvalidArgument(format!(
-                                    "Price {} belongs to product {}, not {}",
-                                    pid, price_row.product_id, existing.product_id
-                                ))));
-                            }
-                            if price_row.currency != existing_price.currency {
-                                return Err(Report::new(StoreError::InvalidArgument(format!(
-                                    "Price {} currency '{}' does not match add-on currency '{}'",
-                                    pid, price_row.currency, existing_price.currency
-                                ))));
-                            }
-                            Some(pid)
-                        }
-                        PriceEntry::New(input) => {
-                            if input.currency != existing_price.currency {
-                                return Err(Report::new(StoreError::InvalidArgument(format!(
-                                    "Price currency '{}' does not match add-on currency '{}'",
-                                    input.currency, existing_price.currency
-                                ))));
-                            }
-
-                            crate::domain::prices::validate_pricing(
-                                &input.pricing,
-                                &input.currency,
-                            )?;
-                            crate::domain::prices::validate_price_credit_unit(
-                                &input.pricing,
-                                input.credit_unit.as_ref(),
-                            )?;
-                            crate::repositories::price_components::ensure_credit_units_usable(
-                                conn,
-                                tenant_id,
-                                input.credit_unit.iter().map(|unit| unit.unit_id),
-                            )
-                            .await?;
-                            crate::services::credit::unit_wallets::ensure_credit_packs_usable(
-                                conn,
-                                tenant_id,
-                                &input.currency,
-                                [&input.pricing],
-                            )
-                            .await?;
-                            let pricing_json =
-                                serde_json::to_value(&input.pricing).map_err(|e| {
-                                    Report::new(StoreError::SerdeError(
-                                        "Failed to serialize pricing".to_string(),
-                                        e,
-                                    ))
-                                })?;
-
-                            let price_row = diesel_models::prices::PriceRowNew {
-                                id: common_domain::ids::PriceId::new(),
-                                product_id: existing.product_id,
-                                cadence: input.cadence.into(),
-                                currency: input.currency,
-                                pricing: pricing_json,
-                                tenant_id,
-                                catalog: true,
-                                credit_unit_id: input.credit_unit.as_ref().map(|unit| unit.unit_id),
-                                credit_unit_rate: input.credit_unit.as_ref().map(|unit| unit.rate),
-                            }
-                            .insert(conn)
-                            .await
-                            .map_err(Into::<Report<StoreError>>::into)?;
-
-                            Some(price_row.id)
-                        }
-                    }
-                } else {
-                    None
+                let new_price_id = match prices {
+                    Some(change) => Some(reprice_add_on(conn, &existing, change, tenant_id).await?),
+                    None => None,
                 };
 
                 let row_patch: AddOnRowPatch = patch.into_row_patch(new_price_id);

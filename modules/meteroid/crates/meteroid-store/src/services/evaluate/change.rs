@@ -205,11 +205,12 @@ fn touched(facts: &Facts<StoreFee>, change: &Change) -> BTreeSet<Fee> {
     }
 }
 
-/// Seats of a slot fee bought on a change's day and not paid yet: evaluated as held from it.
+/// Seats of a slot fee bought on a change's day and not paid yet, or removed at once when
+/// negative: evaluated as held from it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::services) struct Bought {
     pub lineage: Fee,
-    pub seats: u64,
+    pub seats: i64,
 }
 
 /// What a change is evaluated with beyond the facts written: seats it buys, not written yet, and
@@ -237,7 +238,7 @@ fn with_bought(facts: &mut Facts<StoreFee>, bought: &Bought, on: NaiveDate) {
         id: SlotTransactionId::new(),
         lineage: bought.lineage.clone(),
         at: on,
-        quantity: held.saturating_add(bought.seats),
+        quantity: held.saturating_add_signed(bought.seats),
         removed_at_renewal,
     });
 }
@@ -1473,6 +1474,8 @@ mod tests {
                 instances: Decimal::ONE,
                 conversion: UnitConversion::default(),
                 pinned: BTreeMap::new(),
+                rate_card: None,
+                folded_dimensions: Vec::new(),
             },
         }
     }
@@ -1737,7 +1740,9 @@ mod tests {
         let mut slot = row(n, n * 10, rate, from, None);
         slot.fee.fee = SubscriptionFee::Slot {
             unit: "Seats".to_owned(),
-            unit_rate: Decimal::from(rate),
+            model: crate::domain::price_components::RatingModel::PerUnit {
+                rate: Decimal::from(rate),
+            },
             min_slots: None,
             max_slots: None,
             initial_slots: 1,
@@ -1766,7 +1771,7 @@ mod tests {
     ) -> Option<SeatPurchase> {
         let bought = Bought {
             lineage: lineage(n),
-            seats: added,
+            seats: i64::try_from(added).unwrap_or(i64::MAX),
         };
         with_bought(&mut facts, &bought, on);
         let change = Change::of_rows(on, GiveBack::LatestFirst, "seats");

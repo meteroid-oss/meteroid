@@ -12,6 +12,43 @@ use error_stack::ResultExt;
 use rust_decimal::Decimal;
 use std::collections::HashSet;
 
+/// What `snapshot_terms` records (`$1`: the applied coupons); the migrations adding the columns
+/// backfilled them the same way.
+const SNAPSHOT_TERMS: &str = "
+    UPDATE applied_coupon ac
+    SET fixed_amount = t.amount,
+        fixed_currency = CASE WHEN t.amount IS NULL THEN NULL ELSE t.currency END,
+        add_on_ids = t.add_on_ids,
+        duration_months = t.duration_months
+    FROM (
+        SELECT a.id,
+               s.currency,
+               c.duration_months,
+               CASE
+                   WHEN c.discount -> 'Fixed' IS NULL THEN NULL
+                   WHEN c.discount -> 'Fixed' ->> 'currency' = s.currency
+                       THEN (c.discount -> 'Fixed' ->> 'amount')::numeric
+                   ELSE (c.fixed_amounts ->> s.currency)::numeric
+               END AS amount,
+               CASE
+                   WHEN EXISTS (SELECT 1 FROM coupon_add_on ca WHERE ca.coupon_id = c.id)
+                       AND NOT EXISTS (
+                           SELECT 1 FROM coupon_plan cp
+                           JOIN plan_version pv ON pv.plan_id = cp.plan_id
+                           WHERE cp.coupon_id = c.id AND pv.id = s.plan_version_id
+                       )
+                       THEN ARRAY(
+                           SELECT ca.add_on_id FROM coupon_add_on ca
+                           WHERE ca.coupon_id = c.id ORDER BY ca.add_on_id
+                       )
+               END AS add_on_ids
+        FROM applied_coupon a
+        JOIN coupon c ON c.id = a.coupon_id
+        JOIN subscription s ON s.id = a.subscription_id
+        WHERE a.id = ANY($1)
+    ) t
+    WHERE ac.id = t.id";
+
 impl AppliedCouponRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<AppliedCouponRow> {
         use crate::schema::applied_coupon::dsl as ac;
@@ -73,6 +110,52 @@ impl AppliedCouponRow {
             .get_results(conn)
             .await
             .attach("Error while inserting AppliedCoupon batch")
+            .into_db_result()
+    }
+
+    /// Records on each of `ids`, just redeemed, what it bills from then on: a fixed discount's
+    /// amount in its subscription's currency, the add-ons it alone discounts when the coupon is
+    /// scoped to add-ons and the subscription's plan is not in its scope, and the months it lasts.
+    pub async fn snapshot_terms(conn: &mut PgConn, ids: &[AppliedCouponId]) -> DbResult<()> {
+        use diesel::sql_types::{Array, Uuid};
+
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let ids: Vec<uuid::Uuid> = ids
+            .iter()
+            .map(common_domain::ids::BaseId::as_uuid)
+            .collect();
+        diesel::sql_query(SNAPSHOT_TERMS)
+            .bind::<Array<Uuid>, _>(ids)
+            .execute(conn)
+            .await
+            .attach("Error while recording the terms of applied coupons")
+            .into_db_result()?;
+        Ok(())
+    }
+
+    /// The currencies of the subscriptions on which `coupon_id` is actively redeemed.
+    pub async fn active_currencies_of_coupon(
+        conn: &mut PgConn,
+        coupon_id: CouponId,
+    ) -> DbResult<Vec<String>> {
+        use crate::schema::applied_coupon::dsl as ac_dsl;
+        use crate::schema::subscription::dsl as s_dsl;
+
+        let query = ac_dsl::applied_coupon
+            .inner_join(s_dsl::subscription.on(s_dsl::id.eq(ac_dsl::subscription_id)))
+            .filter(ac_dsl::coupon_id.eq(coupon_id))
+            .filter(ac_dsl::is_active.eq(true))
+            .select(s_dsl::currency)
+            .distinct();
+
+        crate::debug_sql(&query);
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while listing the currencies a coupon is redeemed in")
             .into_db_result()
     }
 

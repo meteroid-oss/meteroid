@@ -3,8 +3,12 @@ import { couponDiscountLabel } from '@/features/productCatalog/coupons/discountL
 import type { QuoteCouponTerms } from '@/rpc/api/quotes/v1/models_pb'
 
 /** How long the discount lasts; a promotional credit has no duration. */
-export const couponDurationLabel = (terms: QuoteCouponTerms): string | undefined => {
+export const couponDurationLabel = (
+  terms: Pick<QuoteCouponTerms, 'discount' | 'recurringValue' | 'durationMonths'>
+): string | undefined => {
   if (terms.discount?.discountType.case === 'credit') return undefined
+  const months = terms.durationMonths
+  if (months) return `for ${months} ${months === 1 ? 'month' : 'months'}`
   const periods = terms.recurringValue
   if (periods === undefined) return 'forever'
   return periods === 1 ? 'once' : `first ${periods} billing periods`

@@ -195,6 +195,37 @@ impl PriceRow {
             .into_db_result()
     }
 
+    /// The latest price of each product in each of its currencies.
+    pub async fn latest_per_currency_by_product_ids(
+        conn: &mut PgConn,
+        product_ids: &[ProductId],
+        tenant_id: TenantId,
+    ) -> DbResult<Vec<PriceRow>> {
+        use crate::schema::price::dsl as p_dsl;
+        use diesel_async::RunQueryDsl;
+
+        if product_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let query = p_dsl::price
+            .filter(p_dsl::product_id.eq_any(product_ids))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .filter(p_dsl::archived_at.is_null())
+            .filter(p_dsl::supersedes.is_null())
+            .distinct_on((p_dsl::product_id, p_dsl::currency))
+            .order((p_dsl::product_id, p_dsl::currency, p_dsl::created_at.desc()))
+            .select(PriceRow::as_select());
+
+        crate::debug_sql(&query);
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while listing latest prices per currency by product ids")
+            .into_db_result()
+    }
+
     /// The successors of lineage roots `roots`, by root then first day then insertion (R-097).
     pub async fn successors_of(
         conn: &mut PgConn,

@@ -8,7 +8,7 @@ use axum::response::IntoResponse;
 use common_domain::ids::CouponId;
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
-use meteroid_store::domain::coupons::{CouponNew, CouponPatch, CouponStatusPatch};
+use meteroid_store::domain::coupons::{CouponNew, CouponPatch, CouponStatusPatch, CouponTerms};
 use meteroid_store::repositories::coupons::CouponInterface;
 use meteroid_store::repositories::coupons::CouponInterfaceAuto;
 
@@ -61,6 +61,7 @@ pub async fn list_coupons(
             request.search.clone(),
             filter,
             Some(order_by),
+            None,
         )
         .await
         .map_err(|e| {
@@ -136,7 +137,7 @@ pub async fn create_coupon(
 
     let coupon = app_state
         .store
-        .create_coupon(
+        .create_coupon_with_terms(
             authorized_state.as_actor(),
             CouponNew {
                 code: payload.code,
@@ -148,6 +149,10 @@ pub async fn create_coupon(
                 recurring_value: payload.recurring_value,
                 reusable: payload.reusable,
                 plan_ids: payload.plan_ids,
+            },
+            CouponTerms {
+                duration_months: payload.duration_months,
+                ..Default::default()
             },
         )
         .await
@@ -188,6 +193,15 @@ pub async fn update_coupon(
         .as_ref()
         .map(mapping::rest_discount_to_domain)
         .transpose()?;
+    let duration_months = match (payload.clear_duration_months, payload.duration_months) {
+        (true, Some(_)) => {
+            return Err(RestApiError::InvalidInput(
+                "a coupon lasts forever or a number of months, not both".to_owned(),
+            ));
+        }
+        (true, None) => Some(None),
+        (false, months) => months.map(Some),
+    };
 
     let coupon = app_state
         .store
@@ -199,6 +213,12 @@ pub async fn update_coupon(
                 description: payload.description,
                 discount,
                 plan_ids: payload.plan_ids,
+                add_on_ids: None,
+                eligibility: None,
+                valid_from: None,
+                expires_at: None,
+                fixed_amounts: None,
+                duration_months,
             },
         )
         .await

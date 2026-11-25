@@ -4,17 +4,36 @@
 //! - Fixed amount and percentage coupons
 //! - Coupon with free and paid trials
 //! - recurring_value limiting coupon to N billing cycles
+//! - duration_months limiting coupon to the periods starting within N months of the first paid
+//!   period, as redeemed
 //! - Plan restrictions
 //! - Multi-cycle billing with coupons
 
-use chrono::NaiveDate;
+use std::sync::Arc;
+
+use chrono::{NaiveDate, NaiveTime};
+use common_domain::ids::{
+    BaseId, PlanId, PlanVersionId, PriceComponentId, PriceId, SubscriptionId,
+};
+use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
+use meteroid_store::clients::usage::{
+    GroupedUsageData, MockUsageDataParams, MutableMockUsageClient, UsageData,
+};
+use meteroid_store::domain::UsagePeriod;
+use meteroid_store::domain::price_components::UsagePricingModel;
 use meteroid_store::services::CheckoutPaymentOutcome;
 use rstest::rstest;
 use rust_decimal::Decimal;
 
 use crate::data::ids::*;
-use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env};
-use meteroid_store::domain::coupons::{CouponDiscount, CouponNew};
+use crate::data::plans::{PlanSeed, SeedComp};
+use crate::harness::{
+    InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env,
+    test_env_with_seed_and_usage,
+};
+use crate::meteroid_it::container::SeedLevel;
+use meteroid_store::domain::coupons::{CouponDiscount, CouponNew, CouponTerms};
+use meteroid_store::repositories::coupons::CouponInterface;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
 
 // =============================================================================
@@ -305,6 +324,317 @@ async fn test_coupon_no_recurring_limit_applies_forever(#[future] test_env: Test
     }
 }
 
+/// "20% off for 12 months" on a monthly plan: the twelve invoices of periods starting within the
+/// year after its redemption, never the thirteenth. Rules: R-089
+#[rstest]
+#[tokio::test]
+async fn test_coupon_lasting_months_discounts_the_periods_within_them(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let coupon_id = env
+        .store()
+        .create_coupon_with_terms(
+            common_domain::actor::Actor::System,
+            CouponNew {
+                code: "YEAR20".to_string(),
+                description: "20% off for 12 months".to_string(),
+                tenant_id: TENANT_ID,
+                discount: CouponDiscount::Percentage(Decimal::from(20)),
+                expires_at: None,
+                redemption_limit: None,
+                recurring_value: None,
+                reusable: false,
+                plan_ids: vec![],
+            },
+            CouponTerms {
+                duration_months: Some(12),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("coupon")
+        .id;
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID) // €49/month
+        .start_date(start_date)
+        .on_start()
+        .no_trial()
+        .coupon(coupon_id)
+        .create(env.services())
+        .await;
+
+    env.run_outbox_and_orchestration().await;
+    for _ in 0..13 {
+        env.process_cycles().await;
+        env.run_outbox_and_orchestration().await;
+    }
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(14);
+    for i in 0..14 {
+        let (discount, total, coupons) = if i < 12 { (980, 3920, 1) } else { (0, 4900, 0) };
+        invoices
+            .assert()
+            .invoice_at(i)
+            .with_context(format!("R-089: month {i}"))
+            .has_discount(discount)
+            .has_total(total)
+            .has_coupons_count(coupons);
+    }
+}
+
+/// Each invoice billing something, as the service period its lines charge (the earliest start)
+/// and what its coupons took off, in date order.
+async fn charged_periods(env: &TestEnv, sub_id: SubscriptionId) -> Vec<(NaiveDate, i64)> {
+    let mut invoices = env.get_invoices(sub_id).await;
+    invoices.retain(|invoice| invoice.subtotal > 0);
+    invoices.sort_by_key(|invoice| invoice.invoice_date);
+    invoices
+        .iter()
+        .map(|invoice| {
+            let start = invoice.line_items.iter().map(|line| line.start_date).min();
+            (start.expect("a line"), invoice.discount)
+        })
+        .collect()
+}
+
+/// Asserts the periods starting before `until` alone are discounted `discount`, `count` of them,
+/// from `first` on.
+fn assert_discounted_until(
+    periods: &[(NaiveDate, i64)],
+    first: NaiveDate,
+    until: NaiveDate,
+    discount: i64,
+    count: usize,
+) {
+    assert_eq!(periods.first().map(|p| p.0), Some(first), "{periods:?}");
+    assert!(periods.iter().any(|p| p.0 >= until), "{periods:?}");
+    for (start, taken) in periods {
+        let expected = if *start < until { discount } else { 0 };
+        assert_eq!(*taken, expected, "R-089: the period from {start}");
+    }
+    let discounted = periods.iter().filter(|p| p.1 > 0).count();
+    assert_eq!(discounted, count, "R-089: {periods:?}");
+}
+
+/// "20% off for 12 months" on usage billed in arrears alone: each invoice is dated a month after
+/// the period it charges, and the twelve periods of 2024 are discounted, never the thirteenth.
+/// Rules: R-089
+#[tokio::test]
+async fn test_coupon_lasting_months_on_arrears_usage_discounts_twelve_periods() {
+    let usage = MutableMockUsageClient::new();
+    let env = test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(usage.clone())).await;
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    for month in 0..18 {
+        let from = start_date + chrono::Months::new(month);
+        let (start, end) = (
+            from.and_time(NaiveTime::MIN),
+            (from + chrono::Months::new(1)).and_time(NaiveTime::MIN),
+        );
+        // 1000 units at 0.01: 10.00 a month.
+        usage.set_usage(
+            MockUsageDataParams {
+                metric_id: METRIC_BANDWIDTH,
+                period_start: start,
+                period_end: end,
+            },
+            UsageData {
+                data: vec![GroupedUsageData {
+                    value: Decimal::from(1_000),
+                    dimensions: std::collections::HashMap::new(),
+                }],
+                period: UsagePeriod { start, end },
+            },
+        );
+    }
+    let plan = PlanVersionId::new();
+    PlanSeed::new(PlanId::new(), "Pay as you go", plan)
+        .components(vec![SeedComp::usage(
+            PriceComponentId::new(),
+            "Bandwidth",
+            PRODUCT_BANDWIDTH_ID,
+            METRIC_BANDWIDTH,
+            PriceId::new(),
+            DieselBillingPeriodEnum::Monthly,
+            UsagePricingModel::PerUnit {
+                rate: Decimal::new(1, 2),
+            },
+        )])
+        .seed(&mut env.conn().await)
+        .await
+        .unwrap();
+    let coupon_id = env.create_months_coupon("USAGE20", 20, 12).await;
+
+    let sub_id = subscription()
+        .plan_version(plan)
+        .start_date(start_date)
+        .on_start()
+        .no_trial()
+        .coupon(coupon_id)
+        .create(env.services())
+        .await;
+    for _ in 0..15 {
+        env.process_cycles().await;
+        env.run_outbox_and_orchestration().await;
+    }
+
+    assert_discounted_until(
+        &charged_periods(&env, sub_id).await,
+        start_date,
+        NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+        200,
+        12,
+    );
+}
+
+/// A one-month free trial, then "20% off for 12 months": the trial counts none of the months, so
+/// the twelve paid periods from February are discounted, not February 2025's.
+/// Rules: R-089
+#[rstest]
+#[tokio::test]
+async fn test_coupon_lasting_months_counts_from_the_first_paid_period(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let coupon_id = env.create_months_coupon("TRIAL12", 20, 12).await;
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID) // €49/month, free trial
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .trial_days(31)
+        .coupon(coupon_id)
+        .create(env.services())
+        .await;
+    env.get_subscription(sub_id)
+        .await
+        .assert()
+        .is_trial_active();
+    for _ in 0..14 {
+        env.process_cycles().await;
+        env.run_outbox_and_orchestration().await;
+    }
+
+    assert_discounted_until(
+        &charged_periods(&env, sub_id).await,
+        NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
+        NaiveDate::from_ymd_opt(2025, 2, 1).unwrap(),
+        980,
+        12,
+    );
+}
+
+/// "20% off for 3 months" redeemed on June 15th on a subscription billing since January: its
+/// months count from June's period, so July's and August's invoices are discounted (June's was
+/// billed before), September's not. Rules: R-089
+#[rstest]
+#[tokio::test]
+async fn test_coupon_redeemed_mid_way_counts_from_its_first_period(#[future] test_env: TestEnv) {
+    use chrono::TimeZone;
+
+    let env = test_env.await;
+    env.set_now(chrono::Utc.with_ymd_and_hms(2024, 6, 15, 12, 0, 0).unwrap());
+    let coupon_id = env.create_months_coupon("MIDWAY3", 20, 3).await;
+
+    // Billing since January, brought in mid-June with the coupon.
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID) // €49/month
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .skip_past_invoices()
+        .coupon(coupon_id)
+        .create(env.services())
+        .await;
+    let details = env
+        .store()
+        .get_subscription_details(TENANT_ID, sub_id)
+        .await
+        .expect("subscription details");
+    assert_eq!(
+        details.applied_coupons[0].applied_coupon.effective_from,
+        NaiveDate::from_ymd_opt(2024, 6, 1).unwrap(),
+        "R-089: counted from the period it was redeemed in"
+    );
+
+    env.run_until(NaiveDate::from_ymd_opt(2024, 10, 15).unwrap())
+        .await;
+
+    assert_discounted_until(
+        &charged_periods(&env, sub_id).await,
+        NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
+        NaiveDate::from_ymd_opt(2024, 9, 1).unwrap(),
+        980,
+        2,
+    );
+}
+
+/// "20% off for 3 months" made 12 after a redemption: that redemption keeps its 3 invoices; one
+/// made after the edit lasts 12, and making the coupon last forever changes neither.
+/// Rules: R-089
+#[rstest]
+#[tokio::test]
+async fn test_editing_a_coupons_months_leaves_its_redemptions_as_they_are(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    let coupon_id = env.create_months_coupon("EDIT3", 20, 3).await;
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+
+    let first = subscription()
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID) // €49/month
+        .start_date(start_date)
+        .on_start()
+        .no_trial()
+        .coupon(coupon_id)
+        .create(env.services())
+        .await;
+    env.set_coupon_months(coupon_id, Some(12)).await;
+    // The coupon is single-use per customer: the second redemption is another customer's.
+    let second = subscription()
+        .customer(CUST_SPOTIFY_ID)
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID)
+        .start_date(start_date)
+        .on_start()
+        .no_trial()
+        .coupon(coupon_id)
+        .create(env.services())
+        .await;
+    env.set_coupon_months(coupon_id, None).await;
+
+    for _ in 0..5 {
+        env.process_cycles().await;
+        env.run_outbox_and_orchestration().await;
+    }
+
+    let april = NaiveDate::from_ymd_opt(2024, 4, 1).unwrap();
+    assert_discounted_until(
+        &charged_periods(&env, first).await,
+        start_date,
+        april,
+        980,
+        3,
+    );
+    let second_periods = charged_periods(&env, second).await;
+    assert_eq!(second_periods.len(), 6, "{second_periods:?}");
+    assert!(
+        second_periods.iter().all(|p| p.1 == 980),
+        "R-089: {second_periods:?}"
+    );
+    for (sub_id, months) in [(first, 3), (second, 12)] {
+        let details = env
+            .store()
+            .get_subscription_details(TENANT_ID, sub_id)
+            .await
+            .expect("subscription details");
+        assert_eq!(
+            details.applied_coupons[0].coupon.duration_months,
+            Some(months),
+            "R-089: as redeemed"
+        );
+    }
+}
+
 /// A €10 fixed coupon lasting 2 invoices takes €10 off each of them, never one €10 spread
 /// over both; the third bills in full.
 /// Rules: R-089
@@ -430,6 +760,7 @@ async fn test_plan_restricted_coupon_rejected(#[future] test_env: TestEnv) {
         .insert_subscription(
             common_domain::actor::Actor::System,
             meteroid_store::domain::CreateSubscription {
+                option: None,
                 subscription: meteroid_store::domain::SubscriptionNew {
                     customer_id: CUST_UBER_ID,
                     plan_version_id: PLAN_VERSION_PAID_FREE_TRIAL_ID, // Not in allowed list
@@ -646,6 +977,7 @@ async fn test_expired_coupon_rejected(#[future] test_env: TestEnv) {
         .insert_subscription(
             common_domain::actor::Actor::System,
             meteroid_store::domain::CreateSubscription {
+                option: None,
                 subscription: meteroid_store::domain::SubscriptionNew {
                     customer_id: CUST_UBER_ID,
                     plan_version_id: PLAN_VERSION_PAID_FREE_TRIAL_ID,
@@ -712,6 +1044,7 @@ async fn test_disabled_coupon_rejected(#[future] test_env: TestEnv) {
         .insert_subscription(
             common_domain::actor::Actor::System,
             meteroid_store::domain::CreateSubscription {
+                option: None,
                 subscription: meteroid_store::domain::SubscriptionNew {
                     customer_id: CUST_UBER_ID,
                     plan_version_id: PLAN_VERSION_PAID_FREE_TRIAL_ID,
@@ -773,6 +1106,7 @@ async fn test_archived_coupon_rejected(#[future] test_env: TestEnv) {
         .insert_subscription(
             common_domain::actor::Actor::System,
             meteroid_store::domain::CreateSubscription {
+                option: None,
                 subscription: meteroid_store::domain::SubscriptionNew {
                     customer_id: CUST_UBER_ID,
                     plan_version_id: PLAN_VERSION_PAID_FREE_TRIAL_ID,
@@ -847,6 +1181,7 @@ async fn test_non_reusable_coupon_same_customer_rejected(#[future] test_env: Tes
         .insert_subscription(
             common_domain::actor::Actor::System,
             meteroid_store::domain::CreateSubscription {
+                option: None,
                 subscription: meteroid_store::domain::SubscriptionNew {
                     customer_id: CUST_UBER_ID,                   // Same customer
                     plan_version_id: PLAN_VERSION_PAID_TRIAL_ID, // Different plan
@@ -1021,6 +1356,7 @@ async fn test_redemption_limit_reached(#[future] test_env: TestEnv) {
         .insert_subscription(
             common_domain::actor::Actor::System,
             meteroid_store::domain::CreateSubscription {
+                option: None,
                 subscription: meteroid_store::domain::SubscriptionNew {
                     customer_id: CUST_COMODO_ID,
                     plan_version_id: PLAN_VERSION_PAID_FREE_TRIAL_ID,
@@ -1089,6 +1425,7 @@ async fn test_currency_mismatch_rejected(#[future] test_env: TestEnv) {
         .insert_subscription(
             common_domain::actor::Actor::System,
             meteroid_store::domain::CreateSubscription {
+                option: None,
                 subscription: meteroid_store::domain::SubscriptionNew {
                     customer_id: CUST_UBER_ID,
                     plan_version_id: PLAN_VERSION_PAID_FREE_TRIAL_ID,
@@ -1291,6 +1628,7 @@ async fn test_multiple_coupons_one_fails_plan_restriction(#[future] test_env: Te
         .insert_subscription(
             common_domain::actor::Actor::System,
             meteroid_store::domain::CreateSubscription {
+                option: None,
                 subscription: meteroid_store::domain::SubscriptionNew {
                     customer_id: CUST_UBER_ID,
                     plan_version_id: PLAN_VERSION_PAID_FREE_TRIAL_ID, // Not PLAN_PAID_TRIAL_ID!

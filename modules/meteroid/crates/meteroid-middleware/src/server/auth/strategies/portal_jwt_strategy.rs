@@ -43,6 +43,7 @@ const CUSTOMER_READ_METHODS: &[(&str, &[&str])] = &[
             "ListAdjustableComponents",
             "PreviewAddOnQuantity",
             "PreviewSeats",
+            "PreviewLevelChange",
         ],
     ),
     (

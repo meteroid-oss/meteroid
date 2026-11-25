@@ -101,6 +101,7 @@ async fn test_credit_note_partial_credits() {
         .insert_subscription(
             common_domain::actor::Actor::System,
             CreateSubscription {
+                option: None,
                 subscription: SubscriptionNew {
                     customer_id,
                     plan_version_id,
@@ -524,6 +525,7 @@ async fn test_credit_note_race_condition() {
         .insert_subscription(
             common_domain::actor::Actor::System,
             CreateSubscription {
+                option: None,
                 subscription: SubscriptionNew {
                     customer_id,
                     plan_version_id,
@@ -700,6 +702,7 @@ async fn test_credit_note_refund_with_applied_credits() {
         .insert_subscription(
             common_domain::actor::Actor::System,
             CreateSubscription {
+                option: None,
                 subscription: SubscriptionNew {
                     customer_id,
                     plan_version_id,
@@ -987,6 +990,7 @@ async fn test_credit_note_partial_amounts() {
         .insert_subscription(
             common_domain::actor::Actor::System,
             CreateSubscription {
+                option: None,
                 subscription: SubscriptionNew {
                     customer_id,
                     plan_version_id,
@@ -1317,6 +1321,7 @@ async fn setup_unpaid_invoice_with_credit(
         .insert_subscription(
             common_domain::actor::Actor::System,
             CreateSubscription {
+                option: None,
                 subscription: SubscriptionNew {
                     customer_id,
                     plan_version_id,
@@ -2220,6 +2225,8 @@ async fn create_plan_with_4_components(
                 .unwrap(),
                 catalog: true,
                 tax_category_id: None,
+                icon: None,
+                color: None,
             }
             .insert(tx)
             .await?;

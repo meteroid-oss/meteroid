@@ -126,6 +126,7 @@ async fn a_published_plan_version_refuses_every_edit_of_its_components(
             .update_price_component_with_prices(
                 seats,
                 vec![monthly_price(100)],
+                vec![],
                 TENANT_ID,
                 PLAN_VERSION_PRO_ID,
             )
@@ -185,6 +186,8 @@ async fn a_priced_product_refuses_another_fee_structure(#[future] test_env: Test
         fee_type: None,
         fee_structure,
         tax_category_id: None,
+        icon: None,
+        color: None,
     };
     let platform = store
         .find_product_by_id(PRODUCT_PLATFORM_FEE_ID, TENANT_ID)
@@ -234,6 +237,8 @@ async fn a_priced_product_refuses_another_fee_structure(#[future] test_env: Test
                 fee_structure: FeeStructure::Rate {},
                 catalog: true,
                 tax_category_id: None,
+                icon: None,
+                color: None,
             },
         )
         .await

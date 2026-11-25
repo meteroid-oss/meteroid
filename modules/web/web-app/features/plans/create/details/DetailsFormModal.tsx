@@ -88,7 +88,6 @@ const BasicDetailedForm = ({ plan, version }: Props) => {
       planName: plan.name,
       netTerms: version.netTerms,
       taxInclusive: version.taxInclusive,
-      selfServiceRank: plan?.selfServiceRank ?? undefined,
       creditRule: chosen ? creditRuleKey(chosen.kind) : defaultRule,
       creditCaps: {},
       issuesLicense: plan.issuesLicense,
@@ -184,7 +183,6 @@ const BasicDetailedForm = ({ plan, version }: Props) => {
         description: data.description,
         planId: plan.id,
         planVersionId: version.id,
-        selfServiceRank: data.selfServiceRank || 0,
         issuesLicense: data.issuesLicense !== plan.issuesLicense ? data.issuesLicense : undefined,
       })
     }
@@ -214,17 +212,6 @@ const BasicDetailedForm = ({ plan, version }: Props) => {
               control={methods.control}
               placeholder="This plan gives access to ..."
             />
-            {!isDraft && (
-              <InputFormField
-                name="selfServiceRank"
-                label="Self-service rank"
-                control={methods.control}
-                type="number"
-                placeholder="Not set"
-                min={0}
-                step={1}
-              />
-            )}
             {/* Without the license issuer the switch only lets an existing setting be turned off. */}
             {!isDraft && (hasLicenseIssuer || plan.issuesLicense) && (
               <div className="flex items-start gap-2">

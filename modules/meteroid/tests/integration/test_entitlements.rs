@@ -491,6 +491,7 @@ async fn test_get_effective_entitlements() {
         .clone()
         .create_subscription(tonic::Request::new(sub_api::CreateSubscriptionRequest {
             subscription: Some(sub_api::CreateSubscription {
+                option: None,
                 plan_version_id: (*ids::PLAN_VERSION_NOTION_ID).to_string(),
                 start_date: now.as_proto(),
                 billing_day_anchor: Some(1),
@@ -1118,6 +1119,7 @@ async fn test_kill_switch_suppresses_feature_resolution() {
         .clone()
         .create_subscription(tonic::Request::new(sub_api::CreateSubscriptionRequest {
             subscription: Some(sub_api::CreateSubscription {
+                option: None,
                 plan_version_id: (*ids::PLAN_VERSION_NOTION_ID).to_string(),
                 start_date: now.as_proto(),
                 billing_day_anchor: Some(1),
@@ -1240,6 +1242,7 @@ async fn test_feature_archive_and_restore_lifecycle() {
         .clone()
         .create_subscription(tonic::Request::new(sub_api::CreateSubscriptionRequest {
             subscription: Some(sub_api::CreateSubscription {
+                option: None,
                 plan_version_id: (*ids::PLAN_VERSION_NOTION_ID).to_string(),
                 start_date: now.as_proto(),
                 billing_day_anchor: Some(1),
@@ -1351,6 +1354,7 @@ async fn test_feature_archive_and_restore_lifecycle() {
             client
                 .create_subscription(tonic::Request::new(sub_api::CreateSubscriptionRequest {
                     subscription: Some(sub_api::CreateSubscription {
+                        option: None,
                         plan_version_id: (*ids::PLAN_VERSION_NOTION_ID).to_string(),
                         start_date: now.as_proto(),
                         billing_day_anchor: Some(1),
@@ -1562,6 +1566,7 @@ async fn test_subscription_override_beats_plan_grant() {
         .clone()
         .create_subscription(tonic::Request::new(sub_api::CreateSubscriptionRequest {
             subscription: Some(sub_api::CreateSubscription {
+                option: None,
                 plan_version_id: (*ids::PLAN_VERSION_NOTION_ID).to_string(),
                 start_date: now.as_proto(),
                 billing_day_anchor: Some(1),
@@ -1680,6 +1685,7 @@ async fn test_feature_baseline_entitlement_lowest_priority() {
         .clone()
         .create_subscription(tonic::Request::new(sub_api::CreateSubscriptionRequest {
             subscription: Some(sub_api::CreateSubscription {
+                option: None,
                 plan_version_id: (*ids::PLAN_VERSION_NOTION_ID).to_string(),
                 start_date: now.as_proto(),
                 billing_day_anchor: Some(1),
@@ -1965,6 +1971,7 @@ async fn test_inline_subscription_entitlement_creation() {
         .clone()
         .create_subscription(tonic::Request::new(sub_api::CreateSubscriptionRequest {
             subscription: Some(sub_api::CreateSubscription {
+                option: None,
                 plan_version_id: (*ids::PLAN_VERSION_NOTION_ID).to_string(),
                 start_date: now.as_proto(),
                 billing_day_anchor: Some(1),
@@ -2056,6 +2063,7 @@ async fn test_disabled_entitlement_resolved_and_overrideable() {
         .clone()
         .create_subscription(tonic::Request::new(sub_api::CreateSubscriptionRequest {
             subscription: Some(sub_api::CreateSubscription {
+                option: None,
                 plan_version_id: (*ids::PLAN_VERSION_NOTION_ID).to_string(),
                 start_date: now.as_proto(),
                 billing_day_anchor: Some(1),
@@ -2367,6 +2375,7 @@ async fn test_resolved_entitlements_for_subscription_includes_chain() {
         .clone()
         .create_subscription(tonic::Request::new(sub_api::CreateSubscriptionRequest {
             subscription: Some(sub_api::CreateSubscription {
+                option: None,
                 plan_version_id: (*ids::PLAN_VERSION_NOTION_ID).to_string(),
                 start_date: now.as_proto(),
                 billing_day_anchor: Some(1),
@@ -2529,6 +2538,7 @@ async fn test_resolved_entitlements_for_addon_includes_product_features() {
             max_instances_per_subscription: None,
             product_family_local_id: None,
             entitlements: vec![],
+            prices: vec![],
         })
         .await
         .unwrap()
@@ -2741,6 +2751,7 @@ async fn test_batch_create_entitlements_skips_existing() {
         .clone()
         .create_subscription(tonic::Request::new(sub_api::CreateSubscriptionRequest {
             subscription: Some(sub_api::CreateSubscription {
+                option: None,
                 plan_version_id: (*ids::PLAN_VERSION_NOTION_ID).to_string(),
                 start_date: now.as_proto(),
                 billing_day_anchor: Some(1),
@@ -2874,6 +2885,7 @@ async fn test_product_grouping_in_effective_entitlements() {
         .clone()
         .create_subscription(tonic::Request::new(sub_api::CreateSubscriptionRequest {
             subscription: Some(sub_api::CreateSubscription {
+                option: None,
                 plan_version_id: (*ids::PLAN_VERSION_STARTER_ID).to_string(),
                 start_date: now.as_proto(),
                 billing_day_anchor: Some(1),
@@ -3106,6 +3118,7 @@ async fn make_single_instance_add_on(
             max_instances_per_subscription: max_instances,
             product_family_local_id: None,
             entitlements: vec![],
+            prices: vec![],
         })
         .await
         .unwrap()
@@ -3193,6 +3206,7 @@ async fn test_plan_version_overrides_addon_entitlement() {
         .clone()
         .create_subscription(tonic::Request::new(sub_api::CreateSubscriptionRequest {
             subscription: Some(sub_api::CreateSubscription {
+                option: None,
                 plan_version_id: (*ids::PLAN_VERSION_NOTION_ID).to_string(),
                 start_date: now.as_proto(),
                 billing_day_anchor: Some(1),
@@ -3347,6 +3361,7 @@ async fn test_same_priority_addons_take_permissive_max() {
         .clone()
         .create_subscription(tonic::Request::new(sub_api::CreateSubscriptionRequest {
             subscription: Some(sub_api::CreateSubscription {
+                option: None,
                 plan_version_id: (*ids::PLAN_VERSION_NOTION_ID).to_string(),
                 start_date: now.as_proto(),
                 billing_day_anchor: Some(1),
@@ -3672,6 +3687,7 @@ async fn test_customer_force_overrides_subscription() {
         .clone()
         .create_subscription(tonic::Request::new(sub_api::CreateSubscriptionRequest {
             subscription: Some(sub_api::CreateSubscription {
+                option: None,
                 plan_version_id: (*ids::PLAN_VERSION_NOTION_ID).to_string(),
                 start_date: now.as_proto(),
                 billing_day_anchor: Some(1),
@@ -4114,6 +4130,7 @@ async fn test_feature_status_contract_for_new_entities() {
             client
                 .create_subscription(tonic::Request::new(sub_api::CreateSubscriptionRequest {
                     subscription: Some(sub_api::CreateSubscription {
+                        option: None,
                         plan_version_id: ids::PLAN_VERSION_NOTION_ID.as_proto(),
                         start_date: chrono::Utc::now().date_naive().as_proto(),
                         billing_day_anchor: Some(1),
@@ -4281,6 +4298,7 @@ async fn test_feature_status_contract_for_new_entities() {
                 max_instances_per_subscription: None,
                 product_family_local_id: None,
                 entitlements: spec(),
+                prices: vec![],
             })
             .await
             .unwrap_or_else(|e| panic!("{label}: add-on with a body grant: {e:?}"))

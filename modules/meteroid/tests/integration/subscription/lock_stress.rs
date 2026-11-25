@@ -508,6 +508,7 @@ async fn prepare(env: &TestEnv, iteration: usize) -> Race {
             tenant_id: TENANT_ID,
             customer_id,
             plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
+            option: None,
             billing_start_date: Some(today),
             billing_day_anchor: Some(today.day() as i16),
             net_terms: None,

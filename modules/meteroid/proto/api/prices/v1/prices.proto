@@ -13,9 +13,9 @@ message ListPricesByProductResponse {
   repeated Price prices = 1;
 }
 
-// Matrix mutation messages
-// These endpoints manage which dimension combinations exist across all matrix prices,
-// with per-currency pricing for added rows.
+// Bulk rate mutation messages
+// These endpoints manage which dimension combinations (one exact value per dimension) exist
+// across all prices of a product rated by dimension, with per-currency pricing for added rows.
 
 message MatrixDimensionKey {
   UsagePricing.MatrixPricing.MatrixDimension dimension1 = 1;
@@ -88,7 +88,7 @@ message PreviewPriceResponse {
 message PreviewPriceResult {
   string key = 1;
   // Computed amount as a decimal string in major units. Absent when the model
-  // cannot be priced from a single quantity (e.g. matrix pricing).
+  // cannot be priced from a single quantity (e.g. rates by dimension).
   optional string amount = 2;
 }
 

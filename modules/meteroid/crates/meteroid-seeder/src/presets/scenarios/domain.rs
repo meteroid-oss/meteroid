@@ -2,16 +2,18 @@ use meteroid_store::domain::credit_exhausted::CreditExhaustedRule;
 use std::collections::HashMap;
 
 use chrono::NaiveDate;
-use common_domain::ids::CreditUnitId;
+use common_domain::ids::{CreditUnitId, RateCardId};
 use educe::Educe;
 use meteroid_store::StoreResult;
 use meteroid_store::domain::credit_units::PriceCreditUnit;
+use meteroid_store::domain::eligibility::Eligibility;
 use meteroid_store::domain::enums::TaxResolverEnum;
 use meteroid_store::domain::price_components::{CreditExpiry, CreditRollover};
 use meteroid_store::domain::{
     Address, BillingMetricAggregateEnum, BillingPeriodEnum, BillingType, CapacityThreshold,
-    CustomerTaxRate, DowngradePolicy, PlanTypeEnum, Pricing, SegmentationMatrix, ShippingAddress,
-    TermRate, UnitConversionRoundingEnum, UpgradePolicy, UsagePricingModel,
+    CustomerTaxRate, DowngradePolicy, PlanTypeEnum, Pricing, RatingModel, SegmentationMatrix,
+    ShippingAddress, TermRate, TierRow, UnitConversionRoundingEnum, UpgradePolicy,
+    UsagePricingModel,
 };
 use meteroid_store::errors::StoreError;
 use rust_decimal::Decimal;
@@ -22,6 +24,8 @@ use super::timeline::{Event, History};
 pub struct Scenario {
     pub name: String, // will be the tenant name
     pub metrics: Vec<BillableMetric>,
+    /// Rate cards on the metrics, which plans price usage by, referenced by code.
+    pub rate_cards: Vec<RateCardSpec>,
     /// Metered features plans reference by code in their entitlements.
     pub features: Vec<FeatureSpec>,
     pub plans: Vec<Plan>,
@@ -37,8 +41,62 @@ pub struct Scenario {
     pub credit_units: Vec<CreditUnitSpec>,
     /// Promotion codes customers redeem for promotional credit, referenced by code.
     pub promo_codes: Vec<PromoCodeSpec>,
+    /// Discounts on plans, applied to the subscriptions that name them by code.
+    pub coupons: Vec<CouponSpec>,
+    /// The customer custom properties customers hold, defined before them.
+    pub customer_properties: Vec<CustomerPropertySpec>,
     /// Currency the tenant reports in; `None` keeps the tenant's default.
     pub reporting_currency: Option<String>,
+}
+
+/// A plan's prices in another currency than its own, each component matched to the plan's by
+/// name: the cells of that currency.
+#[derive(Clone)]
+pub struct CurrencyPrices {
+    pub currency: &'static str,
+    pub components: Vec<PriceComponent>,
+}
+
+/// A plan's copy on a pricing page.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PricingPageCopy {
+    pub tagline: &'static str,
+    pub popular: bool,
+    pub highlights: Vec<HighlightSpec>,
+    pub cta_label: Option<&'static str>,
+    /// Sold by contacting sales at `contact_url`: on the page, never self-serve.
+    pub sales_led: bool,
+    pub hide_price: bool,
+    pub contact_url: Option<&'static str>,
+}
+
+/// A line of a plan's card: text, or a feature by code, shown with its value on the plan.
+#[derive(Clone, Debug, PartialEq)]
+pub enum HighlightSpec {
+    Text(&'static str),
+    Feature(&'static str),
+}
+
+/// A money rate card on one of the scenario's metrics, each key's rates in force from
+/// `effective_from`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RateCardSpec {
+    pub code: &'static str,
+    pub name: &'static str,
+    pub metric_code: &'static str,
+    pub dimensions: Vec<&'static str>,
+    /// Rates are per this many units of the metric.
+    pub unit_size: Decimal,
+    pub effective_from: NaiveDate,
+    pub rates: Vec<RateSpec>,
+}
+
+/// A key of a rate card, a pattern per dimension (`*`: any value), and its rate by currency.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RateSpec {
+    pub key: Vec<&'static str>,
+    pub label: Option<&'static str>,
+    pub rates: Vec<(&'static str, Decimal)>,
 }
 
 /// A credit-based scenario: one metered metric whose usage draws the customers' wallets down.
@@ -66,6 +124,30 @@ pub struct PromoCodeSpec {
     pub amount: Decimal,
     pub currency: &'static str,
     pub expires_after_days: u32,
+}
+
+/// A customer custom property: one of `options`, or free text when there are none.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CustomerPropertySpec {
+    pub key: &'static str,
+    pub name: &'static str,
+    pub options: Vec<&'static str>,
+}
+
+/// A percentage off the plans named, redeemed with `code` by who `eligibility` lets in.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CouponSpec {
+    pub code: &'static str,
+    pub name: &'static str,
+    pub percent_off: Decimal,
+    /// Plan names; empty: every plan.
+    pub plans: Vec<&'static str>,
+    /// Months it discounts each subscription from redemption; `None`: forever.
+    pub months: Option<u32>,
+    pub eligibility: Option<Eligibility>,
+    pub valid_from: Option<NaiveDate>,
+    pub expires_on: Option<NaiveDate>,
+    pub redemption_limit: Option<u32>,
 }
 
 /// How a saved card behaves on the mock payment gateway.
@@ -160,6 +242,14 @@ pub struct Plan {
     pub self_service_rank: Option<i32>,
     /// What usage does once the credit runs out; unset takes the default of the components.
     pub credit_exhausted_rule: Option<CreditExhaustedRule>,
+    /// Prices in other currencies; the components' own are in the plan's currency.
+    pub currency_prices: Vec<CurrencyPrices>,
+    pub pricing_page: Option<PricingPageCopy>,
+    /// One option per cadence, named after it ("Annual", alias `annual`): a charge priced on
+    /// several bills on the option's. Empty: the one default option.
+    pub cadence_options: Vec<BillingPeriodEnum>,
+    /// Who may get it; `None`: anyone.
+    pub eligibility: Option<Eligibility>,
 }
 
 /// How a plan's invoices are collected.
@@ -207,7 +297,96 @@ impl Plan {
             minimum: None,
             self_service_rank: None,
             credit_exhausted_rule: None,
+            currency_prices: vec![],
+            pricing_page: None,
+            cadence_options: vec![],
+            eligibility: None,
         }
+    }
+
+    pub fn with_currency_prices(
+        mut self,
+        currency: &'static str,
+        components: Vec<PriceComponent>,
+    ) -> Self {
+        self.currency_prices.push(CurrencyPrices {
+            currency,
+            components,
+        });
+        self
+    }
+
+    pub fn with_pricing_page(
+        mut self,
+        tagline: &'static str,
+        popular: bool,
+        highlights: Vec<HighlightSpec>,
+    ) -> Self {
+        self.pricing_page = Some(PricingPageCopy {
+            tagline,
+            popular,
+            highlights,
+            ..Default::default()
+        });
+        self
+    }
+
+    /// Sold by contacting sales at `contact_url`, its button reading `cta`.
+    pub fn sold_by_sales(
+        mut self,
+        cta: &'static str,
+        contact_url: &'static str,
+        hide_price: bool,
+    ) -> Self {
+        let page = self.pricing_page.get_or_insert_with(Default::default);
+        page.cta_label = Some(cta);
+        page.sales_led = true;
+        page.hide_price = hide_price;
+        page.contact_url = Some(contact_url);
+        self
+    }
+
+    pub fn with_eligibility(mut self, eligibility: Eligibility) -> Self {
+        self.eligibility = Some(eligibility);
+        self
+    }
+
+    /// Each charge rated by a scenario rate card, priced by the card created for its code.
+    pub fn resolve_rate_cards(&mut self, ids: &HashMap<String, RateCardId>) -> StoreResult<()> {
+        let components = self
+            .components
+            .iter_mut()
+            .chain(
+                self.currency_prices
+                    .iter_mut()
+                    .flat_map(|prices| prices.components.iter_mut()),
+            )
+            .chain(self.revision.iter_mut().flatten());
+        for component in components {
+            let FeeType::RateCard {
+                metric_code,
+                rate_card,
+                multiplier,
+                cadence,
+            } = &component.fee
+            else {
+                continue;
+            };
+            let rate_card_id = ids.get(rate_card).copied().ok_or_else(|| {
+                StoreError::ValueNotFound(format!("Rate card was not found {rate_card}"))
+            })?;
+            let priced = FeeType::Usage {
+                metric_code: metric_code.clone(),
+                pricing: UsagePricingModel::RateCard {
+                    rate_card_id,
+                    multiplier: *multiplier,
+                },
+                cadence: *cadence,
+                credit_unit: None,
+            };
+            component.fee = priced;
+        }
+        Ok(())
     }
 
     pub fn with_credit_exhausted_rule(mut self, rule: CreditExhaustedRule) -> Self {
@@ -274,6 +453,11 @@ impl Plan {
         self
     }
 
+    pub fn with_cadence_options(mut self, cadences: &[BillingPeriodEnum]) -> Self {
+        self.cadence_options = cadences.to_vec();
+        self
+    }
+
     pub fn with_self_service_rank(mut self, rank: i32) -> Self {
         self.self_service_rank = Some(rank);
         self
@@ -291,6 +475,8 @@ pub struct FeatureSpec {
     pub code: String,
     pub name: String,
     pub kind: FeatureKind,
+    /// The product it belongs to, by name: only plans selling it get it. `None`: every plan.
+    pub product: Option<&'static str>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -303,13 +489,15 @@ pub enum FeatureKind {
     },
     /// An on/off capability; `default_enabled` holds for every plan that does not set it.
     Boolean { default_enabled: bool },
+    /// A number every plan in its scope gets, such as the seats included.
+    Number { default: Decimal },
 }
 
 impl FeatureSpec {
     pub fn metric_code(&self) -> Option<&str> {
         match &self.kind {
             FeatureKind::Metered { metric_code, .. } => Some(metric_code),
-            FeatureKind::Boolean { .. } => None,
+            FeatureKind::Boolean { .. } | FeatureKind::Number { .. } => None,
         }
     }
 }
@@ -365,6 +553,23 @@ pub struct BillableMetric {
     pub usage_group_key: Option<String>,
     /// How one unit and many units of the metric read, e.g. "token" / "tokens".
     pub unit_label: Option<UnitLabel>,
+    /// What the sandbox's generated events carry; `None`: the default sample.
+    pub usage: Option<UsageSample>,
+}
+
+/// Generated events valued in whole units within `[min, max]`, each carrying every property.
+#[derive(Clone, Debug, PartialEq)]
+pub struct UsageSample {
+    pub min: u64,
+    pub max: u64,
+    pub properties: Vec<EventProperty>,
+}
+
+/// An event property and its values, each drawn as often as its weight says.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EventProperty {
+    pub key: &'static str,
+    pub values: Vec<(&'static str, u32)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -388,6 +593,11 @@ pub struct Subscription {
     pub minimum: Option<MinimumSpec>,
     /// Prices replacing the plan's for this subscription, matched to its components by name.
     pub overrides: Vec<PriceComponent>,
+    /// The alias of the plan option it buys; none: the plan's default. It bills in its
+    /// customer's currency.
+    pub option: Option<&'static str>,
+    /// Codes of the scenario coupons applied to it.
+    pub coupons: Vec<&'static str>,
 }
 
 /// A subscription-level minimum commitment, scoped to one product when named.
@@ -409,7 +619,19 @@ impl Subscription {
             add_ons: vec![],
             minimum: None,
             overrides: vec![],
+            option: None,
+            coupons: vec![],
         }
+    }
+
+    pub fn on_option(mut self, alias: &'static str) -> Self {
+        self.option = Some(alias);
+        self
+    }
+
+    pub fn with_coupon(mut self, code: &'static str) -> Self {
+        self.coupons.push(code);
+        self
     }
 
     /// A subscription that churned on `end_date`.
@@ -499,6 +721,8 @@ pub struct Customer {
     pub credit: Vec<Event>,
     /// Sales tax charged on the customer's invoices, through the Manual tax resolver.
     pub tax_rates: Vec<CustomerTaxRate>,
+    /// Custom properties as the customer holds them, keyed by property; null: none.
+    pub custom_properties: serde_json::Value,
 }
 
 /// How a customer's synthetic usage is generated. Every profile other than `Generated`
@@ -587,6 +811,8 @@ pub enum FeeType {
         downgrade_policy: DowngradePolicy,
         minimum_count: Option<u32>,
         quota: Option<u32>,
+        /// Seats free of charge before each one is billed at its rate.
+        included: Option<u32>,
     },
     Capacity {
         metric_code: String,
@@ -599,6 +825,14 @@ pub enum FeeType {
         pricing: UsagePricingModel,
         cadence: BillingPeriodEnum,
         credit_unit: Option<UnitPricing>,
+    },
+    /// Usage rated by the scenario rate card of code `rate_card`, each rate scaled by
+    /// `multiplier`; the runner prices it by the card once created.
+    RateCard {
+        metric_code: String,
+        rate_card: String,
+        multiplier: Option<Decimal>,
+        cadence: BillingPeriodEnum,
     },
     ExtraRecurring {
         unit_price: Decimal,
@@ -625,6 +859,26 @@ pub enum FeeType {
     },
 }
 
+/// The first `included` units free, each one past them at `rate`.
+pub fn included_then(included: u32, rate: Decimal) -> RatingModel {
+    RatingModel::Tiered {
+        tiers: vec![
+            TierRow {
+                first_unit: 0,
+                rate: Decimal::ZERO,
+                flat_fee: None,
+                flat_cap: None,
+            },
+            TierRow {
+                first_unit: u64::from(included),
+                rate,
+                flat_fee: None,
+                flat_cap: None,
+            },
+        ],
+    }
+}
+
 /// Usage priced in a credit unit, each credit worth `rate` of the plan currency as overage.
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnitPricing {
@@ -636,7 +890,9 @@ impl FeeType {
     pub fn metric_code(&self) -> Option<String> {
         match self {
             FeeType::Capacity { metric_code, .. } => Some(metric_code.clone()),
-            FeeType::Usage { metric_code, .. } => Some(metric_code.clone()),
+            FeeType::Usage { metric_code, .. } | FeeType::RateCard { metric_code, .. } => {
+                Some(metric_code.clone())
+            }
             _ => None,
         }
     }
@@ -676,6 +932,7 @@ impl PriceComponent {
                 downgrade_policy,
                 minimum_count,
                 quota,
+                ..
             } => meteroid_store::domain::FeeType::Slot {
                 rates: rates.clone(),
                 slot_unit_name: slot_unit_name.clone(),
@@ -712,6 +969,12 @@ impl PriceComponent {
                     pricing: pricing.clone(),
                     cadence: *cadence,
                 }
+            }
+            FeeType::RateCard { rate_card, .. } => {
+                return Err(StoreError::ValueNotFound(format!(
+                    "Rate card {rate_card} is not created yet"
+                ))
+                .into());
             }
             FeeType::ExtraRecurring {
                 unit_price,
@@ -770,6 +1033,20 @@ impl PriceComponent {
                 {
                     *credit_unit_id = granted_in;
                     *price_rollover = *rollover;
+                }
+            }
+        }
+        // The legacy fee prices every seat: the free ones are a first tier at zero.
+        if let FeeType::Slot {
+            included: Some(included),
+            ..
+        } = &self.fee
+        {
+            for (_, pricing) in &mut pricing_list {
+                if let Pricing::Slot { model, .. } = pricing
+                    && let Some(rate) = model.per_unit_rate()
+                {
+                    *model = included_then(*included, rate);
                 }
             }
         }

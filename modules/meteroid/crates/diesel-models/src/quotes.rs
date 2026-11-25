@@ -78,6 +78,8 @@ pub struct QuoteRow {
     pub allow_change_requests: bool,
     pub allow_decline: bool,
     pub last_sent_at: Option<NaiveDateTime>,
+    /// The plan option sold, by alias.
+    pub plan_option: Option<String>,
 }
 
 #[derive(Insertable, Debug)]
@@ -129,6 +131,7 @@ pub struct QuoteRowNew {
     pub allow_questions: bool,
     pub allow_change_requests: bool,
     pub allow_decline: bool,
+    pub plan_option: Option<String>,
 }
 
 #[derive(Debug, AsChangeset, Default)]
@@ -222,6 +225,7 @@ pub struct QuoteRowReplace {
     pub allow_questions: bool,
     pub allow_change_requests: bool,
     pub allow_decline: bool,
+    pub plan_option: Option<String>,
 }
 
 impl From<QuoteRowNew> for QuoteRowReplace {
@@ -265,6 +269,7 @@ impl From<QuoteRowNew> for QuoteRowReplace {
             allow_questions: row.allow_questions,
             allow_change_requests: row.allow_change_requests,
             allow_decline: row.allow_decline,
+            plan_option: row.plan_option,
         }
     }
 }

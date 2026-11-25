@@ -12,7 +12,7 @@ import type { ComponentFeeType } from '@/features/pricing'
 
 /**
  * Override the price of an existing live subscription component.
- * `formData` is produced by ProductPricingForm for the given `feeType`,
+ * `formData` is compiled by the charge form (ChargeForm) for the given `feeType`,
  * and is converted to a single PriceEntry when building the request.
  */
 export interface EditComponentDraft {
@@ -20,6 +20,16 @@ export interface EditComponentDraft {
   name?: string
   feeType: ComponentFeeType
   formData: Record<string, unknown>
+  /** A move to another level of a usage-levels charge: sent as that level's price. */
+  level?: LevelDraft
+}
+
+/** A level of the charge's plan cell (ListCapacityLevels), and the units it includes now. */
+export interface LevelDraft {
+  priceId: string
+  included: bigint
+  rate: string
+  fromIncluded: bigint
 }
 
 /**

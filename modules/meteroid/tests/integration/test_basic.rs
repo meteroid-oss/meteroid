@@ -112,6 +112,7 @@ async fn test_main() {
                                     api::prices::v1::OneTimePricing {
                                         unit_price: Decimal::new(100, 2).to_string(),
                                         quantity: 1,
+                                        model: None,
                                     },
                                 ),
                             ),
@@ -147,6 +148,9 @@ async fn test_main() {
         .clone()
         .create_customer(tonic::Request::new(
             api::customers::v1::CreateCustomerRequest {
+                subscribe_to_signup_plan: false,
+                signup_product_family_id: None,
+                signup_levels: vec![],
                 data: Some(api::customers::v1::CustomerNew {
                     name: "Customer A".to_string(),
                     customer_type: api::customers::v1::CustomerType::Company as i32,
@@ -186,6 +190,7 @@ async fn test_main() {
         .create_subscription(tonic::Request::new(
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(api::subscriptions::v1::CreateSubscription {
+                    option: None,
                     plan_version_id: plan_version.clone().id,
                     start_date: now.as_proto(),
                     billing_day_anchor: Some(1),

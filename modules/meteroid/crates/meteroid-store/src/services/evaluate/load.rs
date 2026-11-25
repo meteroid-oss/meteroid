@@ -10,8 +10,8 @@ use billing_core::facts::{
 };
 use chrono::{Datelike, NaiveDate};
 use common_domain::ids::{
-    BaseId, BillableMetricId, CustomerId, PriceId, ProductId, SlotTransactionId, SubscriptionId,
-    TenantId,
+    BaseId, BillableMetricId, CustomerId, PriceId, ProductId, RateCardId, SlotTransactionId,
+    SubscriptionId, TenantId,
 };
 use diesel_models::billable_metrics::BillableMetricRow;
 use diesel_models::enums::SlotTransactionStatusEnum;
@@ -36,7 +36,9 @@ use super::pricer::{Resolved, StoreFee, fee_of, pinned_prices};
 use crate::StoreResult;
 use crate::constants::Currencies;
 use crate::domain::Price;
+use crate::domain::UsagePricingModel;
 use crate::domain::enums::BillingPeriodEnum;
+use crate::domain::rate_cards::{RateCard, RateCardEntry, RateCardUnmatched};
 use crate::domain::{
     AppliedCouponDetailed, BillableMetric, LineItem, Subscription, SubscriptionAddOn,
     SubscriptionComponent, SubscriptionDetails, SubscriptionFee,
@@ -48,6 +50,8 @@ use crate::repositories::subscriptions::{
 };
 use crate::services::facts::pending::{MinimumChange, PendingFacts, PlanWindowFact, SeatSeed};
 use crate::store::PgConn;
+use billing_core::pricing::CardRates;
+use diesel_models::rate_cards::{RateCardEntryRow, RateCardRow};
 
 /// A fact the rows do not hold yet: the load fails rather than guess it.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -125,6 +129,22 @@ impl Row {
         match self {
             Row::Component(c) => &c.fee,
             Row::AddOn(a) => &a.fee,
+        }
+    }
+
+    /// The same row over `[from, to)`, a part of its window.
+    fn within(&self, from: NaiveDate, to: Option<NaiveDate>) -> Row {
+        match self {
+            Row::Component(c) => Row::Component(SubscriptionComponent {
+                effective_from: from,
+                effective_to: to,
+                ..c.clone()
+            }),
+            Row::AddOn(a) => Row::AddOn(SubscriptionAddOn {
+                effective_from: from,
+                effective_to: to,
+                ..a.clone()
+            }),
         }
     }
 
@@ -322,13 +342,17 @@ async fn load_facts_of(
         Some(rows) => rows,
         None => fee_rows(conn, tenant_id, subscription_id, as_of, change).await?,
     };
-    let metrics = metrics_of(conn, &subscription, &rows).await?;
+    let rate_cards = Box::pin(rate_cards_of(conn, tenant_id, &rows, currency.code)).await?;
+    let rows = cut_at_rate_changes(rows, &rate_cards);
+    let mut metrics = metrics_of(conn, &subscription, &rows).await?;
+    rated_dimensions(&mut metrics, &rows, &rate_cards);
     let mut fees = Vec::with_capacity(rows.len());
     for row in &rows {
         let fee = row.store_fee(Resolved {
             currency: &currency,
             metrics: &metrics,
             pinned: row.pinned(draft),
+            rate_cards: &rate_cards,
         })?;
         let (from, to) = row.window();
         fees.push(FeeFact {
@@ -414,6 +438,7 @@ pub fn add_on_fact(
         currency: &currency,
         metrics,
         pinned: BTreeMap::new(),
+        rate_cards: &HashMap::new(),
     })?;
     let (from, to) = row.window();
     Ok(FeeFact {
@@ -452,13 +477,23 @@ pub(crate) async fn facts_of_details(
         .map(Row::Component)
         .chain(details.add_ons.iter().cloned().map(Row::AddOn))
         .collect();
-    let metrics = metrics_of(conn, subscription, &rows).await?;
+    let rate_cards = Box::pin(rate_cards_of(
+        conn,
+        subscription.tenant_id,
+        &rows,
+        currency.code,
+    ))
+    .await?;
+    let rows = cut_at_rate_changes(rows, &rate_cards);
+    let mut metrics = metrics_of(conn, subscription, &rows).await?;
+    rated_dimensions(&mut metrics, &rows, &rate_cards);
     let mut fees = Vec::with_capacity(rows.len());
     for row in &rows {
         let fee = row.store_fee(Resolved {
             currency: &currency,
             metrics: &metrics,
             pinned: BTreeMap::new(),
+            rate_cards: &rate_cards,
         })?;
         let (from, to) = row.window();
         fees.push(FeeFact {
@@ -854,6 +889,133 @@ async fn fee_rows(
     Ok(rows)
 }
 
+fn rate_card_of(fee: &SubscriptionFee) -> Option<RateCardId> {
+    match fee {
+        SubscriptionFee::Usage {
+            model: UsagePricingModel::RateCard { rate_card_id, .. },
+            ..
+        } => Some(*rate_card_id),
+        _ => None,
+    }
+}
+
+/// The rate cards the rows' usage prices name, with all their entries in `currency` (R-132).
+async fn rate_cards_of(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    rows: &[Row],
+    currency: &str,
+) -> StoreResult<HashMap<RateCardId, CardRates>> {
+    card_rates(
+        conn,
+        tenant_id,
+        rows.iter().filter_map(|row| rate_card_of(row.fee())),
+        currency,
+    )
+    .await
+}
+
+/// The cards of `ids`, with all their entries in the prices' `currency` (all of a credit card),
+/// rated at a multiplier of one.
+pub(crate) async fn card_rates(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    ids: impl Iterator<Item = RateCardId>,
+    currency: &str,
+) -> StoreResult<HashMap<RateCardId, CardRates>> {
+    let mut cards = HashMap::new();
+    for id in ids {
+        if cards.contains_key(&id) {
+            continue;
+        }
+        let card: RateCard = db(RateCardRow::find(conn, tenant_id, id).await)?
+            .ok_or_else(|| Report::new(StoreError::ValueNotFound(format!("rate card {id}"))))?
+            .try_into()?;
+        let stored: Vec<RateCardEntry> =
+            db(RateCardEntryRow::list_by_card(conn, tenant_id, id).await)?
+                .into_iter()
+                .map(RateCardEntry::from)
+                .collect();
+        let entries = card
+            .entries_in(&stored, currency)
+            .into_iter()
+            .map(|entry| billing_core::rate_card::Entry {
+                key: entry.key.clone(),
+                effective_from: entry.effective_from,
+                rate: entry.rate,
+            })
+            .collect();
+        cards.insert(
+            id,
+            CardRates {
+                dimensions: card.dimensions,
+                entries,
+                unit_size: card.unit_size,
+                multiplier: rust_decimal::Decimal::ONE,
+                ignore_unrated: card.on_unmatched == RateCardUnmatched::Ignore,
+                on: NaiveDate::MIN,
+            },
+        );
+    }
+    Ok(cards)
+}
+
+/// A row priced by a rate card cut at each day one of the card's entries takes over inside it,
+/// so each part is rated by the entries of its first day (R-132).
+fn cut_at_rate_changes(rows: Vec<Row>, cards: &HashMap<RateCardId, CardRates>) -> Vec<Row> {
+    let mut cut = Vec::with_capacity(rows.len());
+    for row in rows {
+        let Some(card) = rate_card_of(row.fee()).and_then(|id| cards.get(&id)) else {
+            cut.push(row);
+            continue;
+        };
+        let (from, to) = row.window();
+        let mut days: Vec<NaiveDate> = card
+            .entries
+            .iter()
+            .map(|entry| entry.effective_from)
+            .filter(|day| *day > from && to.is_none_or(|to| *day < to))
+            .collect();
+        days.sort();
+        days.dedup();
+        let starts: Vec<NaiveDate> = std::iter::once(from).chain(days.iter().copied()).collect();
+        for (i, start) in starts.iter().enumerate() {
+            cut.push(row.within(*start, starts.get(i + 1).copied().or(to)));
+        }
+    }
+    cut
+}
+
+/// Each metric rated by dimension, by a rate card or a price's own rates, is read grouped by
+/// the dimensions they key.
+fn rated_dimensions(
+    metrics: &mut [BillableMetric],
+    rows: &[Row],
+    cards: &HashMap<RateCardId, CardRates>,
+) {
+    for row in rows {
+        let keyed = match row.fee() {
+            SubscriptionFee::Usage {
+                model: UsagePricingModel::DimensionRates(rates),
+                ..
+            } => Some(&rates.dimensions),
+            fee => rate_card_of(fee)
+                .and_then(|id| cards.get(&id))
+                .map(|card| &card.dimensions),
+        };
+        let (Some(keyed), Some(metric_id)) = (keyed, row.fee().metric_id()) else {
+            continue;
+        };
+        if let Some(metric) = metrics.iter_mut().find(|metric| metric.id == metric_id) {
+            for dimension in keyed {
+                if !metric.rated_dimensions.contains(dimension) {
+                    metric.rated_dimensions.push(dimension.clone());
+                }
+            }
+        }
+    }
+}
+
 /// The metrics the rows read, scoped by the subscription's usage attribution (D2).
 async fn metrics_of(
     conn: &mut PgConn,
@@ -903,8 +1065,11 @@ fn seat_steps(rows: &[Row], transactions: &[SlotTransactionRow]) -> Vec<SeatStep
         };
         counts.insert(transaction.unit.as_str(), count);
         let quantity = u64::try_from(count).unwrap_or(0);
-        // A removal is always for the end of its fee's period (`add_slot_transaction_tx`).
-        let removed = u64::try_from(-transaction.delta).unwrap_or(0);
+        let removed = if transaction.removal_waits_for_renewal {
+            u64::try_from(-transaction.delta).unwrap_or(0)
+        } else {
+            0
+        };
         for (_, lineage) in lineages
             .iter()
             .filter(|(unit, _)| *unit == transaction.unit)
@@ -956,6 +1121,7 @@ async fn coupons(
                 .coupon
                 .recurring_value
                 .map(|n| u32::try_from(n).unwrap_or(0)),
+            until: applied.lasts_until(),
         });
     }
     Ok(coupons)

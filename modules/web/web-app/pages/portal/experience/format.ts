@@ -92,6 +92,18 @@ export const date = (iso?: string) => {
   return DATE_ONLY.test(iso) ? DATE_ONLY_FMT.format(d) : DATE_FMT.format(d)
 }
 
+const localToday = () => {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+/** The ISO date is today or earlier; missing counts as now. */
+export const isDue = (iso?: string) => !iso || iso.slice(0, 10) <= localToday()
+
+/** "Applies now" for a date today or earlier, else "Applies on Jul 1, 2026". */
+export const appliesOn = (iso?: string) => (isDue(iso) ? 'Applies now' : `Applies on ${date(iso)}`)
+
 const DATE_TIME_FMT = new Intl.DateTimeFormat('en-US', {
   month: 'short',
   day: 'numeric',

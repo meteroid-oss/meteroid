@@ -34,6 +34,8 @@ message CustomerPortalOverview {
   bool embedding_allowed = 15;
   // Origins the portal may be embedded in even when embedding_allowed is false.
   repeated string embed_origins = 16;
+  // Where the customer reaches the merchant when the portal sends them to "contact us".
+  optional string invoicing_entity_contact_email = 17;
 }
 
 message SubscriptionSummary {

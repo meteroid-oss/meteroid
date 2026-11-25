@@ -1479,9 +1479,15 @@ async fn build_chain_and_products(
                 SubscriptionAddOnRow::list_active_product_ids(conn, &[sid], &tenant_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
+            let included =
+                SubscriptionComponentRow::list_included_product_ids(conn, &[sid], &tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
             Ok(ResolutionScope {
                 chain: build_chain_for_subscription(conn, tenant_id, sid).await?,
-                product_ids: itertools::chain!(comp_prod, addon_prod).unique().collect(),
+                product_ids: itertools::chain!(comp_prod, addon_prod, included)
+                    .unique()
+                    .collect(),
                 include_globals: true,
             })
         }
@@ -1624,12 +1630,63 @@ async fn resolve_for_chain(
 
     let multi_instance_addons = load_multi_instance_addons(conn, tenant_id, chain).await?;
 
-    with_origin_names(
-        conn,
-        tenant_id,
-        resolve(all_entitlements, features_in_play, &multi_instance_addons),
+    let mut resolved = resolve(all_entitlements, features_in_play, &multi_instance_addons);
+    let subscription = chain.iter().find_map(|entity| match entity {
+        EntitlementEntityId::Subscription(id) => Some(*id),
+        _ => None,
+    });
+    if let Some(subscription) = subscription {
+        Box::pin(scale_by_quantities(
+            conn,
+            tenant_id,
+            subscription,
+            &mut resolved,
+        ))
+        .await?;
+    }
+    with_origin_names(conn, tenant_id, resolved).await
+}
+
+/// A limit counted per unit of a managed quantity is the entitlement's times the units the
+/// subscription holds now. Rules: R-133
+async fn scale_by_quantities(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription: SubscriptionId,
+    resolved: &mut [RawResolvedEntitlement],
+) -> StoreResult<()> {
+    let features: Vec<FeatureId> = resolved.iter().map(|r| r.feature.id).collect();
+    let per = diesel_models::query::managed_quantities::feature_limit_quantities(
+        conn, tenant_id, &features,
     )
     .await
+    .map_err(Into::<Report<StoreError>>::into)?;
+    if per.is_empty() {
+        return Ok(());
+    }
+    let now = common_clock::now().naive_utc();
+    for entitlement in resolved.iter_mut() {
+        let Some(code) = per.get(&entitlement.feature.id) else {
+            continue;
+        };
+        if let ResolvedEntitlementValue::Metered {
+            limit: Some(limit), ..
+        } = &mut entitlement.value
+        {
+            let held = diesel_models::slot_transactions::SlotTransactionRow::fetch_active_slots(
+                conn,
+                tenant_id,
+                subscription,
+                code.clone(),
+                now,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .unwrap_or(0);
+            *limit *= rust_decimal::Decimal::from(held.max(0));
+        }
+    }
+    Ok(())
 }
 
 /// Identify add-ons in the chain that are multi-instance (`max_instances_per_subscription` > 1

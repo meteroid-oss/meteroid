@@ -10,6 +10,7 @@ use crate::domain::outbox_event::{
     QuoteConvertedEvent,
 };
 use crate::domain::payment_transactions::{PaymentNextAction, PaymentTransaction};
+use crate::domain::subscription_changes::PlanTarget;
 use crate::domain::subscriptions::PaymentMethodsConfig;
 use crate::domain::{
     CheckoutSession, CreateSubscription, CreateSubscriptionFromQuote, CreatedSubscription,
@@ -792,6 +793,12 @@ impl ServicesEdge {
                 if let Some(coupon) = validated_coupons.into_iter().next() {
                     use crate::services::subscriptions::utils::apply_coupons_without_validation;
 
+                    let effective_from = crate::services::subscriptions::coupon_months_from_id_tx(
+                        conn,
+                        tenant_id,
+                        subscription_id,
+                    )
+                    .await?;
                     let applied_coupon = AppliedCouponRowNew {
                         id: AppliedCouponId::new(),
                         subscription_id,
@@ -801,7 +808,7 @@ impl ServicesEdge {
                         applied_amount: None,
                         applied_count: None,
                         last_applied_at: None,
-                        effective_from: common_clock::now().date_naive(),
+                        effective_from,
                     };
 
                     apply_coupons_without_validation(conn, &*self.store.hooks.credit, &[&applied_coupon], tenant_id).await?;
@@ -1284,9 +1291,7 @@ impl ServicesEdge {
             }
         }
 
-        let payment_result =
-            self.services
-                .setup_payment_provider(&sub.subscription, &sub.customer, &context)?;
+        let payment_result = self.services.setup_payment_provider(&sub, &context)?;
 
         let processed = self.services.process_subscription(
             &sub,
@@ -1393,9 +1398,7 @@ impl ServicesEdge {
 
         let mut results = Vec::new();
         for sub in subscriptions {
-            let result =
-                self.services
-                    .setup_payment_provider(&sub.subscription, &sub.customer, &context)?;
+            let result = self.services.setup_payment_provider(&sub, &context)?;
 
             let processed = self
                 .services
@@ -1463,7 +1466,7 @@ impl ServicesEdge {
         typed_actor: Actor,
         subscription_id: SubscriptionId,
         tenant_id: TenantId,
-        new_plan_version_id: PlanVersionId,
+        new_plan_version_id: impl Into<PlanTarget>,
         component_params: Vec<crate::domain::subscription_components::ComponentParameterization>,
     ) -> StoreResult<crate::domain::scheduled_events::ScheduledEvent> {
         self.services
@@ -1481,7 +1484,7 @@ impl ServicesEdge {
         &self,
         subscription_id: SubscriptionId,
         tenant_id: TenantId,
-        new_plan_version_id: PlanVersionId,
+        new_plan_version_id: impl Into<PlanTarget>,
         component_params: Vec<crate::domain::subscription_components::ComponentParameterization>,
         mode: Option<crate::domain::subscription_changes::PlanChangeMode>,
     ) -> StoreResult<crate::domain::subscription_changes::PlanChangePreviewExtended> {
@@ -1502,9 +1505,30 @@ impl ServicesEdge {
         &self,
         subscription_id: SubscriptionId,
         tenant_id: TenantId,
-        new_plan_version_id: PlanVersionId,
+        target: impl Into<PlanTarget>,
         change_date: NaiveDate,
     ) -> StoreResult<ComputedInvoiceContent> {
+        self.compute_plan_change_checkout_invoice_with(
+            subscription_id,
+            tenant_id,
+            target,
+            &[],
+            change_date,
+        )
+        .await
+    }
+
+    /// `compute_plan_change_checkout_invoice` with the checkout's `component_params` (its levels).
+    pub async fn compute_plan_change_checkout_invoice_with(
+        &self,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        target: impl Into<PlanTarget>,
+        component_params: &[crate::domain::subscription_components::ComponentParameterization],
+        change_date: NaiveDate,
+    ) -> StoreResult<ComputedInvoiceContent> {
+        let target: PlanTarget = target.into();
+        let new_plan_version_id = target.version;
         let mut conn = self.get_conn().await?;
 
         let prepared = self
@@ -1513,8 +1537,8 @@ impl ServicesEdge {
                 &mut conn,
                 subscription_id,
                 tenant_id,
-                new_plan_version_id,
-                &[],
+                target,
+                component_params,
                 change_date,
             )
             .await?;
@@ -1573,7 +1597,7 @@ impl ServicesEdge {
         typed_actor: Actor,
         subscription_id: SubscriptionId,
         tenant_id: TenantId,
-        new_plan_version_id: PlanVersionId,
+        new_plan_version_id: impl Into<PlanTarget>,
         component_params: Vec<crate::domain::subscription_components::ComponentParameterization>,
     ) -> StoreResult<crate::domain::subscription_changes::ImmediatePlanChangeResult> {
         self.services
@@ -1592,7 +1616,7 @@ impl ServicesEdge {
         typed_actor: Actor,
         subscription_id: SubscriptionId,
         tenant_id: TenantId,
-        new_plan_version_id: PlanVersionId,
+        new_plan_version_id: impl Into<PlanTarget>,
         component_params: Vec<crate::domain::subscription_components::ComponentParameterization>,
         change_date: NaiveDate,
     ) -> StoreResult<crate::domain::subscription_changes::ImmediatePlanChangeResult> {
@@ -1687,6 +1711,52 @@ impl ServicesEdge {
     ) -> StoreResult<()> {
         self.services
             .cancel_amendment(actor, subscription_id, tenant_id)
+            .await
+    }
+
+    pub async fn list_capacity_levels(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+    ) -> StoreResult<Vec<crate::domain::subscription_amendment::ComponentLevels>> {
+        self.services
+            .list_capacity_levels(tenant_id, subscription_id)
+            .await
+    }
+
+    pub async fn preview_capacity_level_change(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        subscription_component_id: common_domain::ids::SubscriptionPriceComponentId,
+        price_id: common_domain::ids::PriceId,
+    ) -> StoreResult<crate::domain::subscription_amendment::LevelChangePreview> {
+        self.services
+            .preview_capacity_level_change(
+                tenant_id,
+                subscription_id,
+                subscription_component_id,
+                price_id,
+            )
+            .await
+    }
+
+    pub async fn change_capacity_level(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        subscription_component_id: common_domain::ids::SubscriptionPriceComponentId,
+        price_id: common_domain::ids::PriceId,
+    ) -> StoreResult<crate::domain::subscription_amendment::LevelChangeOutcome> {
+        self.services
+            .change_capacity_level(
+                actor,
+                tenant_id,
+                subscription_id,
+                subscription_component_id,
+                price_id,
+            )
             .await
     }
 
@@ -1799,9 +1869,10 @@ impl ServicesEdge {
         tenant_id: TenantId,
         code: &str,
         subscription: &crate::domain::Subscription,
+        add_on_ids: &[common_domain::ids::AddOnId],
     ) -> StoreResult<crate::domain::AppliedCouponDetailed> {
         self.services
-            .preview_checkout_coupon(tenant_id, code, subscription)
+            .preview_checkout_coupon(tenant_id, code, subscription, add_on_ids)
             .await
     }
 
@@ -1919,7 +1990,32 @@ impl ServicesEdge {
         &self,
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
-        new_plan_version_id: PlanVersionId,
+        target: impl Into<PlanTarget>,
+        customer_id: common_domain::ids::CustomerId,
+        payment_methods_config: Option<PaymentMethodsConfig>,
+        change_date: NaiveDate,
+    ) -> StoreResult<CheckoutSession> {
+        self.create_plan_change_checkout_session_with(
+            tenant_id,
+            subscription_id,
+            target,
+            vec![],
+            customer_id,
+            payment_methods_config,
+            change_date,
+        )
+        .await
+    }
+
+    /// `create_plan_change_checkout_session` moving with `component_params` (the levels picked):
+    /// kept on the checkout, which previews and applies the change with them.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_plan_change_checkout_session_with(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        target: impl Into<PlanTarget>,
+        component_params: Vec<crate::domain::subscription_components::ComponentParameterization>,
         customer_id: common_domain::ids::CustomerId,
         payment_methods_config: Option<PaymentMethodsConfig>,
         change_date: NaiveDate,
@@ -1929,10 +2025,24 @@ impl ServicesEdge {
         };
         use crate::repositories::checkout_sessions::CheckoutSessionsInterface;
 
+        let target = target.into();
+        let option = match target.option.as_ref() {
+            Some(asked) => Some(
+                crate::services::subscriptions::currency::option_alias(
+                    &mut self.get_conn().await?,
+                    tenant_id,
+                    target.version,
+                    asked,
+                )
+                .await?,
+            ),
+            None => None,
+        };
         let session = CreateCheckoutSession {
             tenant_id,
             customer_id,
-            plan_version_id: new_plan_version_id,
+            plan_version_id: target.version,
+            option,
             billing_start_date: None,
             billing_day_anchor: None,
             net_terms: None,
@@ -1944,7 +2054,14 @@ impl ServicesEdge {
             invoice_threshold: None,
             purchase_order: None,
             payment_methods_config,
-            components: None,
+            components: (!component_params.is_empty()).then(|| {
+                crate::domain::subscription_components::CreateSubscriptionComponents {
+                    parameterized_components: component_params,
+                    overridden_components: vec![],
+                    extra_components: vec![],
+                    remove_components: vec![],
+                }
+            }),
             add_ons: None,
             coupon_code: None,
             coupon_ids: vec![],
@@ -2410,7 +2527,16 @@ impl ServicesEdge {
         ) {
             (CheckoutType::PlanChange, Some(subscription_id), Some(plan_version_id), Some(at)) => {
                 self.services
-                    .plan_change_checkout_usage(tenant_id, subscription_id, plan_version_id, at)
+                    .plan_change_checkout_usage(
+                        tenant_id,
+                        subscription_id,
+                        PlanTarget {
+                            version: plan_version_id,
+                            option: session.option_ref(),
+                        },
+                        &session.component_params(),
+                        at,
+                    )
                     .await
                     .unwrap_or_else(|error| {
                         log::warn!("plan change checkout usage not read ahead: {error:?}");
@@ -3487,6 +3613,7 @@ impl ServicesEdge {
             tenant_id,
             customer_id,
             plan_version_id,
+            option: None,
             billing_start_date: None,
             billing_day_anchor: None,
             net_terms: None,
@@ -3750,8 +3877,8 @@ impl ServicesEdge {
                 conn,
                 subscription_id,
                 tenant_id,
-                new_plan_version_id,
-                &[],
+                session.plan_target()?,
+                &session.component_params(),
                 change_date,
             )
             .await?;

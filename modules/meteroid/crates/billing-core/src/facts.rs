@@ -109,13 +109,14 @@ pub struct SeatStep {
     pub removed_at_renewal: u64,
 }
 
-/// From `from` on, for `invoices` invoices (forever when none); the count used is read from the
-/// issued documents, never kept here.
+/// From `from` on, for `invoices` invoices (forever when none), or until `until` for a coupon
+/// lasting months; the count used is read from the issued documents, never kept here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CouponFact {
     pub id: AppliedCouponId,
     pub from: NaiveDate,
     pub invoices: Option<u32>,
+    pub until: Option<NaiveDate>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -319,7 +320,7 @@ impl DatedFact for CouponFact {
     fn window(&self) -> Span {
         Span {
             from: self.from,
-            to: None,
+            to: self.until,
         }
     }
     /// A coupon changes no charge: assembly applies it to the documents.
@@ -473,6 +474,8 @@ impl<F> Facts<F> {
 
     /// The coupons in force on `at`, before their invoice counts.
     pub fn coupons_on(&self, at: NaiveDate) -> impl Iterator<Item = &CouponFact> {
-        self.coupons.iter().filter(move |coupon| coupon.from <= at)
+        self.coupons
+            .iter()
+            .filter(move |coupon| coupon.from <= at && coupon.until.is_none_or(|end| at < end))
     }
 }

@@ -12,6 +12,7 @@ import { liveUpdatingDescription, liveUpdatingLabel } from '@/features/credit/wa
 import { formatCurrency } from '@/lib/utils/numbers'
 import { WalletSchema, WalletStatus } from '@/rpc/portal/wallets/v1/models_pb'
 
+import { Contact } from '../Contact'
 import { RedeemCodeCard } from '../RedeemCodeCard'
 import { usePortalNav } from '../context'
 import { cadenceAdjective, clampPct, money, pmLabel } from '../format'
@@ -43,7 +44,7 @@ import { PortalAlerts } from './AlertBanner'
 import { CreditGroups } from './CreditGroups'
 import { UsageFilterTag } from './UsageFilterTag'
 import { WalletStatement } from './WalletStatement'
-import { contactName, creditPaysLine, roundCreditPresets } from './creditCopy'
+import { creditPaysLine, roundCreditPresets } from './creditCopy'
 
 import type { StatusBadge } from '../format'
 import type { CustomerPaymentMethod } from '@/rpc/api/customers/v1/models_pb'
@@ -502,7 +503,13 @@ export const BalanceScreen = () => {
             hint={
               opening
                 ? `Add credit in ${opening.currency} to pay your invoices with it.`
-                : `You have no account credit at the moment. Contact ${contactName(merchantName)} to add credit.`
+                : (
+                    <>
+                      You have no account credit at the moment. Contact{' '}
+                      <Contact name={merchantName} email={overview.invoicingEntityContactEmail} /> to
+                      add credit.
+                    </>
+                  )
             }
             action={
               opening && (

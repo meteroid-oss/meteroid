@@ -24,17 +24,13 @@ const none = { removed: [], parameterized: [], overridden: [], extra: [] }
 
 describe('effectiveSubscriptionPrices', () => {
   it('takes only the price the server resolves for a component', () => {
-    expect(
-      effectiveSubscriptionPrices(
-        [component],
-        { ...none, parameterized: [{ componentId: 'pc_1', billingPeriod: BillingPeriod.MONTHLY }] },
-        [],
-        'EUR'
-      ).map(p => p.id)
-    ).toEqual(['monthly'])
+    const inOneOption = { ...component, prices: [component.prices[0]] }
+    expect(effectiveSubscriptionPrices([inOneOption], none, [], 'EUR').map(p => p.id)).toEqual([
+      'monthly',
+    ])
   })
 
-  it('counts nothing for a component whose cadence is not chosen yet', () => {
+  it('counts nothing for a component whose price is still ambiguous', () => {
     expect(effectiveSubscriptionPrices([component], none, [], 'EUR')).toEqual([])
   })
 })

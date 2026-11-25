@@ -1,4 +1,4 @@
-import { Button } from '@md/ui'
+import { Button, Label } from '@md/ui'
 import { cn } from '@ui/lib'
 import { useAtom } from 'jotai'
 import { useEffect, useRef, useState } from 'react'
@@ -6,11 +6,29 @@ import { useSearchParams } from 'react-router'
 import { useWizard } from 'react-use-wizard'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
+import { OptionSelect } from '@/features/subscriptions/pricecomponents/OptionSelect'
+import {
+  byPosition,
+  findOption,
+  optionHandle,
+} from '@/features/subscriptions/pricecomponents/planOption'
 import { useQuery } from '@/lib/connectrpc'
 import { changePlanAtom } from '@/pages/tenants/subscription/changePlan/state'
 import { PlanStatus, PlanType } from '@/rpc/api/plans/v1/models_pb'
 import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { PlanChangeApplyMode } from '@/rpc/api/subscriptions/v1/subscriptions_pb'
+
+import type { PlanOverview } from '@/rpc/api/plans/v1/models_pb'
+
+/** The subscription's own option where the target sells it in its currency, else the first sold. */
+const defaultOptionOf = (plan: PlanOverview, currency: string, current?: string) => {
+  const options = byPosition(plan.options)
+  const sold = options.filter(o =>
+    plan.pricedOptions.some(p => p.optionId === o.id && p.currency === currency)
+  )
+  const option = findOption(sold, current) ?? sold[0] ?? options[0]
+  return option && optionHandle(option)
+}
 
 export const StepSelectPlan = () => {
   const { nextStep } = useWizard()
@@ -35,12 +53,14 @@ export const StepSelectPlan = () => {
     return true
   })
 
-  const handleSelect = (versionId: string, planName: string) => {
+  const handleSelect = (plan: PlanOverview) => {
+    const versionId = plan.activeVersion!.id
     setSelectedVersionId(versionId)
     setState(prev => ({
       ...prev,
       targetPlanVersionId: versionId,
-      targetPlanName: planName,
+      targetPlanName: plan.name,
+      option: defaultOptionOf(plan, prev.currency, prev.currentOption),
       preview: undefined,
       componentChoices: {},
       // A new target may forbid an immediate change: its preview starts at the period's end.
@@ -57,10 +77,15 @@ export const StepSelectPlan = () => {
     const target = eligiblePlans.find(plan => plan.activeVersion?.id === preset)
     if (!target) return
     presetApplied.current = true
-    handleSelect(preset, target.name)
+    handleSelect(target)
     nextStep()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preset, state.currentPlanVersionId, eligiblePlans.length])
+
+  const selectedPlan = eligiblePlans.find(plan => plan.activeVersion?.id === selectedVersionId)
+  // The added components' prices and cadence are this option's: their choices start over.
+  const chooseOption = (handle: string) =>
+    setState(prev => ({ ...prev, option: handle, preview: undefined, componentChoices: {} }))
 
   const handleNext = () => {
     if (selectedVersionId) {
@@ -87,7 +112,7 @@ export const StepSelectPlan = () => {
             {eligiblePlans.map(plan => (
               <div
                 key={plan.activeVersion!.id}
-                onClick={() => handleSelect(plan.activeVersion!.id, plan.name)}
+                onClick={() => handleSelect(plan)}
                 className={cn(
                   'cursor-pointer rounded-lg border p-4 transition-colors',
                   selectedVersionId === plan.activeVersion!.id
@@ -104,6 +129,17 @@ export const StepSelectPlan = () => {
                 )}
               </div>
             ))}
+          </div>
+        )}
+        {selectedPlan && selectedPlan.options.length > 1 && (
+          <div className="mt-4 flex max-w-md items-center gap-3">
+            <Label className="text-sm text-muted-foreground">Option</Label>
+            <OptionSelect
+              options={selectedPlan.options}
+              value={findOption(selectedPlan.options, state.option)}
+              onChange={chooseOption}
+              className="w-64"
+            />
           </div>
         )}
       </PageSection>

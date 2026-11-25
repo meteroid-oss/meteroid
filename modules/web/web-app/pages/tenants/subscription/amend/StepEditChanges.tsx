@@ -7,7 +7,11 @@ import {
   DialogHeader,
   DialogTitle,
   Input,
-  Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -18,13 +22,18 @@ import { useMemo, useState } from 'react'
 import { useWizard } from 'react-use-wizard'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
-import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
-import { FeeTypePicker } from '@/features/plans/pricecomponents/FeeTypePicker'
-import { ProductBrowser } from '@/features/plans/pricecomponents/ProductBrowser'
-import { ProductPricingForm } from '@/features/plans/pricecomponents/ProductPricingForm'
+import { termFromFormValue } from '@/features/plans/currencies/priceCells'
+import { useComponentMetric } from '@/features/plans/pricecomponents/componentRefs'
 import { priceSummaryBadges } from '@/features/plans/pricecomponents/utils'
 import { formDataToPrice, protoPricingToFormData } from '@/features/pricing'
-import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
+import { protoFeeTypeToComponentFeeType } from '@/features/pricing/formData'
+import { levelAppliesNow, levelMove, levelWords } from '@/features/subscriptions/capacityLevels'
+import {
+  CustomPriceDialog,
+  FeeDialog,
+  usePlanVersionFamily,
+} from '@/features/subscriptions/pricecomponents/ChargeDialogs'
+import { useLevelUnit } from '@/features/subscriptions/useLevelUnit'
 import {
   formatSubscriptionFee,
   formatSubscriptionFeeBillingPeriod,
@@ -40,18 +49,32 @@ import {
 } from '@/pages/tenants/subscription/amend/state'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 import { listCreditUnits } from '@/rpc/api/creditunits/v1/creditunits-CreditUnitsService_connectquery'
-import { FeeStructure_BillingType, UsagePricingSchema } from '@/rpc/api/prices/v1/models_pb'
+import {
+  FeeStructure_BillingType,
+  OneTimePricingSchema,
+  SlotPricingSchema,
+  UsagePricingSchema,
+} from '@/rpc/api/prices/v1/models_pb'
+import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 import {
   SubscriptionAddOn,
   SubscriptionComponent,
   SubscriptionFee,
   SubscriptionFeeBillingPeriod,
 } from '@/rpc/api/subscriptions/v1/models_pb'
-import { getSubscriptionDetails } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
+import {
+  getSubscriptionDetails,
+  listCapacityLevels,
+} from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
+import { PlanChangeApplyMode } from '@/rpc/api/subscriptions/v1/subscriptions_pb'
 
-import type { StructuralInfo } from '@/features/plans/pricecomponents/ProductPricingForm'
+import type { StoredCharge } from '@/features/plans/charges/ChargeForm'
+import type { ChargeBodyContext } from '@/features/plans/charges/InlineChargeFields'
+import type { ChargeLock } from '@/features/plans/charges/compile'
 import type { ComponentFeeType } from '@/features/pricing'
 import type { CreditUnit } from '@/rpc/api/creditunits/v1/models_pb'
+import type { OneTimePricing } from '@/rpc/api/prices/v1/models_pb'
+import type { ComponentCapacityLevels } from '@/rpc/api/subscriptions/v1/subscriptions_pb'
 
 /**
  * Map a live SubscriptionFee oneof to the ComponentFeeType used by the pricing
@@ -108,7 +131,10 @@ const usageModelProtoToForm: Record<string, string> = {
   tiered: 'tiered',
   volume: 'volume',
   package: 'package',
-  matrix: 'matrix',
+  dimensionRates: 'dimension_rates',
+  // Read by the server as rates by dimension; kept for data cached before.
+  matrix: 'dimension_rates',
+  rateCard: 'rate_card',
 }
 
 const periodToCadence = (
@@ -126,30 +152,43 @@ const periodToCadence = (
   }
 }
 
-/**
- * Structural (non-price) context extracted from a live fee, so the pricing form
- * can display/resolve the metric, usage model, slot unit, etc. when overriding.
- */
-const structuralFromFee = (fee?: SubscriptionFee): StructuralInfo => {
+/** What a live fee lets its custom price be (its product's kind), and its metric or seat unit. */
+const feeCharge = (fee?: SubscriptionFee): { lock: ChargeLock; product: ChargeBodyContext } => {
+  const lock: ChargeLock = { feeType: feeTypeFromSubscriptionFee(fee) }
   switch (fee?.fee.case) {
     case 'capacity':
-      return { metricId: fee.fee.value.metricId }
     case 'usage':
-      return {
-        metricId: fee.fee.value.metricId,
-        usageModel: usageModelProtoToForm[fee.fee.value.model.case ?? ''] ?? 'per_unit',
-      }
+      return { lock, product: { metricId: fee.fee.value.metricId } }
     case 'slot':
-      return { slotUnitName: fee.fee.value.unit }
+      return { lock, product: { slotUnitName: fee.fee.value.unit } }
     case 'recurring':
       return {
-        billingType:
-          fee.fee.value.billingType === FeeStructure_BillingType.ADVANCE ? 'ADVANCE' : 'ARREAR',
+        lock: {
+          ...lock,
+          billingType:
+            fee.fee.value.billingType === FeeStructure_BillingType.ADVANCE ? 'ADVANCE' : 'ARREAR',
+        },
+        product: {},
       }
     default:
-      return {}
+      return { lock, product: {} }
   }
 }
+
+/** A fixed quantity's price, its model kept: "3 × $10", or 3 units on tiers. */
+const fixedQuantityFormData = (value: {
+  rate: string
+  quantity: number
+  model?: OneTimePricing['model']
+}) =>
+  protoPricingToFormData({
+    case: 'oneTimePricing',
+    value: create(OneTimePricingSchema, {
+      unitPrice: value.rate,
+      quantity: value.quantity,
+      model: value.model,
+    }),
+  })?.data ?? { unitPrice: value.rate, quantity: value.quantity }
 
 /** Seed an override price form from a live fee, so its current prices show. */
 export const subscriptionFeeToFormData = (
@@ -162,14 +201,13 @@ export const subscriptionFeeToFormData = (
     case 'rate':
       return { term, rate: f.value.rate }
     case 'oneTime':
-      return { unitPrice: f.value.rate, quantity: f.value.quantity }
+      return fixedQuantityFormData(f.value)
     case 'recurring':
       return {
         term,
         billingType:
           f.value.billingType === FeeStructure_BillingType.ADVANCE ? 'ADVANCE' : 'ARREAR',
-        unitPrice: f.value.rate,
-        quantity: f.value.quantity,
+        ...fixedQuantityFormData(f.value),
       }
     case 'capacity':
       return {
@@ -187,6 +225,16 @@ export const subscriptionFeeToFormData = (
         unitRate: f.value.unitRate,
         minSlots: f.value.minSlots,
         maxSlots: f.value.maxSlots,
+        // Seats priced by tiers or packages: the model's fields and `seatModel`.
+        ...protoPricingToFormData({
+          case: 'slotPricing',
+          value: create(SlotPricingSchema, {
+            unitRate: f.value.unitRate,
+            minSlots: f.value.minSlots,
+            maxSlots: f.value.maxSlots,
+            model: f.value.model,
+          }),
+        })?.data,
         minimumCount: f.value.minSlots ?? 1,
         // Each policy enum currently has a single variant.
         upgradePolicy: 'PRORATED',
@@ -267,6 +315,29 @@ export const StepEditChanges = () => {
 
   const components = subscriptionQuery.data?.priceComponents ?? []
   const addOns = subscriptionQuery.data?.addOns ?? []
+  // Usage-levels charges sold at several levels: each moves to another level of its plan cell.
+  const levelsQuery = useQuery(
+    listCapacityLevels,
+    { subscriptionId: state.subscriptionId },
+    { enabled: Boolean(state.subscriptionId) }
+  )
+  const levelsById = useMemo(
+    () =>
+      new Map(
+        (levelsQuery.data?.components ?? [])
+          .filter(c => c.levels.length > 1)
+          .map(c => [c.subscriptionComponentId, c])
+      ),
+    [levelsQuery.data]
+  )
+  const familyLocalId = usePlanVersionFamily(subscriptionQuery.data?.subscription?.planVersionId)
+  // A new fee starts on the subscription's own cadence.
+  const recurring = components.find(
+    c => c.period !== SubscriptionFeeBillingPeriod.ONE_TIME && c.fee?.fee.case !== 'usage'
+  )
+  const cadence = recurring
+    ? termFromFormValue(periodToCadence(recurring.period))
+    : BillingPeriod.MONTHLY
 
   // Add-on catalog (full org catalog, no plan filter)
   const addOnsCatalogQuery = useQuery(listAddOns, {
@@ -317,6 +388,40 @@ export const StepEditChanges = () => {
       },
     }))
     setOverrideComponent(null)
+  }
+
+  // A higher level applies at once, a lower one at the period's end (R-135): the mode follows.
+  const pickLevel = (
+    component: SubscriptionComponent,
+    cell: ComponentCapacityLevels,
+    priceId: string
+  ) => {
+    const level = cell.levels.find(l => l.priceId === priceId)
+    if (!level) return
+    if (level.current) return clearOverride(component.id)
+    saveOverride({
+      subscriptionComponentId: component.id,
+      name: component.name,
+      feeType: 'capacity',
+      formData: {
+        ...subscriptionFeeToFormData(component.fee, component.period),
+        rate: level.rate,
+        included: Number(level.included),
+        overageRate: level.overageRate,
+      },
+      level: {
+        priceId: level.priceId,
+        included: level.included,
+        rate: level.rate,
+        fromIncluded: cell.included,
+      },
+    })
+    setState(prev => ({
+      ...prev,
+      applyMode: levelAppliesNow(cell.included, level.included)
+        ? PlanChangeApplyMode.IMMEDIATE
+        : PlanChangeApplyMode.END_OF_PERIOD,
+    }))
   }
 
   const clearOverride = (id: string) => {
@@ -504,6 +609,7 @@ export const StepEditChanges = () => {
               {components.map(component => {
                 const edited = editedById.get(component.id)
                 const isRemoved = removedComponentSet.has(component.id)
+                const cell = levelsById.get(component.id)
                 return (
                   <div
                     key={component.id}
@@ -514,14 +620,23 @@ export const StepEditChanges = () => {
                         className={`text-sm font-medium ${isRemoved ? 'line-through text-muted-foreground' : ''}`}
                       >
                         {edited?.name || component.name}
-                        {edited && (
-                          <Badge
-                            variant="outline"
-                            size="sm"
-                            className="ml-2 text-brand border-brand/30"
-                          >
-                            Price overridden
-                          </Badge>
+                        {edited?.level ? (
+                          <LevelBadge
+                            fee={component.fee}
+                            currency={currency}
+                            from={edited.level.fromIncluded}
+                            to={edited.level.included}
+                          />
+                        ) : (
+                          edited && (
+                            <Badge
+                              variant="outline"
+                              size="sm"
+                              className="ml-2 text-brand border-brand/30"
+                            >
+                              Price overridden
+                            </Badge>
+                          )
                         )}
                       </div>
                       <div className="text-xs text-muted-foreground">
@@ -557,6 +672,19 @@ export const StepEditChanges = () => {
                         >
                           Reset
                         </Button>
+                      )}
+                      {cell && !isRemoved && (
+                        <LevelPicker
+                          cell={cell}
+                          fee={component.fee}
+                          period={component.period}
+                          currency={currency}
+                          value={
+                            edited?.level?.priceId ??
+                            (edited ? '' : (cell.levels.find(l => l.current)?.priceId ?? ''))
+                          }
+                          onPick={priceId => pickLevel(component, cell, priceId)}
+                        />
                       )}
                       {!isRemoved && (
                         <OverridePriceButton
@@ -732,7 +860,7 @@ export const StepEditChanges = () => {
                 const cat = catalog.find(c => c.id === added.addOnId)
                 const priceLabel = cat
                   ? priceSummaryBadges(
-                      feeTypeEnumToComponentFeeType(cat.feeType),
+                      protoFeeTypeToComponentFeeType(cat.feeType),
                       cat.price,
                       currency,
                       creditUnits
@@ -825,20 +953,24 @@ export const StepEditChanges = () => {
         />
       )}
 
-      {/* Add ad-hoc component modal */}
+      {/* Add ad-hoc component */}
       {showAddComponent && (
-        <AddComponentModal
+        <FeeDialog
           currency={currency}
+          cadence={cadence}
+          familyLocalId={familyLocalId}
           onClose={() => setShowAddComponent(false)}
-          onAdd={addExtraComponent}
+          onSave={addExtraComponent}
         />
       )}
 
       {/* Edit an added ad-hoc component */}
       {editExtraIndex !== null && state.componentChanges.added[editExtraIndex] && (
-        <EditExtraComponentModal
-          draft={state.componentChanges.added[editExtraIndex]}
+        <FeeDialog
+          fee={state.componentChanges.added[editExtraIndex]}
           currency={currency}
+          cadence={cadence}
+          familyLocalId={familyLocalId}
           onClose={() => setEditExtraIndex(null)}
           onSave={draft => updateExtraComponent(editExtraIndex, draft)}
         />
@@ -858,7 +990,93 @@ export const StepEditChanges = () => {
   )
 }
 
-// --- Override price modal ---
+// --- Usage levels: another level of the plan, in words ---
+
+const LevelPicker = ({
+  cell,
+  fee,
+  period,
+  currency,
+  value,
+  onPick,
+}: {
+  cell: ComponentCapacityLevels
+  fee?: SubscriptionFee
+  period: SubscriptionFeeBillingPeriod
+  currency: string
+  value: string
+  onPick: (priceId: string) => void
+}) => {
+  const unit = useLevelUnit(fee, currency)
+  return (
+    <Select value={value} onValueChange={onPick}>
+      <SelectTrigger className="h-8 w-auto text-xs" aria-label="Level">
+        <SelectValue placeholder="Change level" />
+      </SelectTrigger>
+      <SelectContent>
+        {cell.levels.map(level => (
+          <SelectItem key={level.priceId} value={level.priceId}>
+            {levelWords(level, currency, period, unit)}
+            {level.current ? ' · current' : ''}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+const LevelBadge = ({
+  fee,
+  currency,
+  from,
+  to,
+}: {
+  fee?: SubscriptionFee
+  currency: string
+  from: bigint
+  to: bigint
+}) => {
+  const unit = useLevelUnit(fee, currency)
+  return (
+    <Badge variant="outline" size="sm" className="ml-2 text-brand border-brand/30">
+      Level {levelMove(from, to, currency, unit)}
+    </Badge>
+  )
+}
+
+// --- Custom prices: the plan editor's form, the fee's kind kept ---
+
+/** A live fee's custom price, starting from the fee as billed today. */
+const FeePriceDialog = ({
+  name,
+  fee,
+  period,
+  currency,
+  onClose,
+  onSave,
+}: {
+  name: string
+  fee?: SubscriptionFee
+  period: SubscriptionFeeBillingPeriod
+  currency: string
+  onClose: () => void
+  onSave: (charge: StoredCharge) => void
+}) => {
+  const { lock, product } = feeCharge(fee)
+  const metric = useComponentMetric(product.metricId)
+  return (
+    <CustomPriceDialog
+      name={name}
+      currency={currency}
+      cadence={termFromFormValue(periodToCadence(period))}
+      lock={lock}
+      product={{ ...product, metric }}
+      initial={{ feeType: lock.feeType, formData: subscriptionFeeToFormData(fee, period) ?? {} }}
+      onClose={onClose}
+      onSave={onSave}
+    />
+  )
+}
 
 const OverridePriceModal = ({
   component,
@@ -870,45 +1088,18 @@ const OverridePriceModal = ({
   currency: string
   onClose: () => void
   onSave: (draft: EditComponentDraft) => void
-}) => {
-  const feeType = feeTypeFromSubscriptionFee(component.fee)
-  const initialFormData = subscriptionFeeToFormData(component.fee, component.period)
-  const structuralInfo = structuralFromFee(component.fee)
-  const creditUnits = useCreditUnits()
-
-  return (
-    <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[500px] max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Override price: {component.name}</DialogTitle>
-        </DialogHeader>
-        <p className="text-xs text-muted-foreground">
-          Enter the new price for this component. The current fee is&nbsp;
-          {formatAmendFee(component.fee, currency, creditUnits)}.
-        </p>
-        <ProductPricingForm
-          feeType={feeType}
-          currency={currency}
-          editableStructure={!component.productId}
-          isOverride
-          initialFormData={initialFormData}
-          structuralInfo={structuralInfo}
-          onSubmit={formData =>
-            onSave({
-              subscriptionComponentId: component.id,
-              name: component.name,
-              feeType,
-              formData,
-            })
-          }
-          submitLabel="Save override"
-        />
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// --- Override an existing add-on's price ---
+}) => (
+  <FeePriceDialog
+    name={component.name}
+    fee={component.fee}
+    period={component.period}
+    currency={currency}
+    onClose={onClose}
+    onSave={charge =>
+      onSave({ subscriptionComponentId: component.id, name: component.name, ...charge })
+    }
+  />
+)
 
 const OverrideAddOnPriceModal = ({
   addOn,
@@ -920,204 +1111,16 @@ const OverrideAddOnPriceModal = ({
   currency: string
   onClose: () => void
   onSave: (priceOverride: NonNullable<EditAddOnDraft['priceOverride']>) => void
-}) => {
-  const feeType = feeTypeFromSubscriptionFee(addOn.fee)
-  const initialFormData = subscriptionFeeToFormData(addOn.fee, addOn.period)
-  const structuralInfo = structuralFromFee(addOn.fee)
-  const creditUnits = useCreditUnits()
-
-  return (
-    <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[500px] max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Override price: {addOn.name}</DialogTitle>
-        </DialogHeader>
-        <p className="text-xs text-muted-foreground">
-          Enter the new price for this add-on. The current fee is&nbsp;
-          {formatAmendFee(addOn.fee, currency, creditUnits)}.
-        </p>
-        <ProductPricingForm
-          feeType={feeType}
-          currency={currency}
-          editableStructure={false}
-          isOverride
-          initialFormData={initialFormData}
-          structuralInfo={structuralInfo}
-          onSubmit={formData => onSave({ feeType, formData })}
-          submitLabel="Save override"
-        />
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// --- Edit an added ad-hoc component (name + price) ---
-
-const EditExtraComponentModal = ({
-  draft,
-  currency,
-  onClose,
-  onSave,
-}: {
-  draft: ExtraComponentDraft
-  currency: string
-  onClose: () => void
-  onSave: (draft: ExtraComponentDraft) => void
-}) => {
-  const [name, setName] = useState(draft.name)
-
-  return (
-    <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[500px] max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Edit component</DialogTitle>
-        </DialogHeader>
-        <div>
-          <Label className="text-sm">Component name</Label>
-          <Input className="mt-1" value={name} onChange={e => setName(e.target.value)} autoFocus />
-        </div>
-        <ProductPricingForm
-          feeType={draft.feeType}
-          currency={currency}
-          editableStructure={!draft.productId}
-          initialFormData={draft.formData}
-          structuralInfo={{
-            metricId: draft.formData.metricId as string | undefined,
-            usageModel: draft.formData.usageModel as string | undefined,
-            slotUnitName: draft.formData.slotUnitName as string | undefined,
-            billingType: draft.formData.billingType as string | undefined,
-          }}
-          onSubmit={formData =>
-            onSave({ ...draft, name, formData: { ...draft.formData, ...formData } })
-          }
-          submitLabel="Save changes"
-        />
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// --- Add ad-hoc component modal (product library + custom fee) ---
-
-const AddComponentModal = ({
-  currency,
-  onClose,
-  onAdd,
-}: {
-  currency: string
-  onClose: () => void
-  onAdd: (component: ExtraComponentDraft) => void
-}) => {
-  const [step, setStep] = useState<'choose' | 'identity' | 'feeType' | 'pricing'>('choose')
-  const [name, setName] = useState('')
-  const [feeType, setFeeType] = useState<ComponentFeeType | null>(null)
-
-  const handleProductAdd = ({
-    productId,
-    componentName,
-    formData,
-    feeType: ft,
-  }: {
-    productId: string
-    componentName: string
-    formData: Record<string, unknown>
-    feeType: ComponentFeeType
-  }) => {
-    onAdd({ name: componentName, feeType: ft, formData, productId })
-  }
-
-  const handleCustomSubmit = (formData: Record<string, unknown>) => {
-    if (!feeType) return
-    onAdd({ name, feeType, formData, productId: undefined })
-  }
-
-  return (
-    <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[600px] max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Add component</DialogTitle>
-        </DialogHeader>
-
-        {step === 'choose' && (
-          <div className="space-y-4">
-            <ProductBrowser
-              currency={currency}
-              onAdd={handleProductAdd}
-              submitLabel="Add component"
-            />
-            <div className="border-t pt-3">
-              <Button variant="secondary" onClick={() => setStep('identity')}>
-                Or create a custom fee
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {step === 'identity' && (
-          <div className="space-y-4">
-            <div>
-              <Label className="text-sm">Component name</Label>
-              <Input
-                className="mt-1"
-                placeholder="e.g. Setup fee"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                autoFocus
-              />
-            </div>
-            <div className="flex justify-between">
-              <Button variant="ghost" onClick={() => setStep('choose')}>
-                Back
-              </Button>
-              <Button disabled={name.length === 0} onClick={() => setStep('feeType')}>
-                Next
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {step === 'feeType' && (
-          <div className="space-y-4">
-            <button
-              type="button"
-              onClick={() => setStep('identity')}
-              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-            >
-              Back
-            </button>
-            <div className="text-sm font-medium">{name}</div>
-            <FeeTypePicker
-              onSelect={ft => {
-                setFeeType(ft)
-                setStep('pricing')
-              }}
-            />
-          </div>
-        )}
-
-        {step === 'pricing' && feeType && (
-          <div className="space-y-4">
-            <button
-              type="button"
-              onClick={() => setStep('feeType')}
-              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-            >
-              Back
-            </button>
-            <div className="text-sm font-medium">{name}</div>
-            <ProductPricingForm
-              feeType={feeType}
-              currency={currency}
-              editableStructure
-              onSubmit={handleCustomSubmit}
-              submitLabel="Add component"
-            />
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-  )
-}
+}) => (
+  <FeePriceDialog
+    name={addOn.name}
+    fee={addOn.fee}
+    period={addOn.period}
+    currency={currency}
+    onClose={onClose}
+    onSave={onSave}
+  />
+)
 
 // --- Add add-on picker ---
 

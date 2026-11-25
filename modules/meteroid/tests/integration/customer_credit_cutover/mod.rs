@@ -577,12 +577,15 @@ async fn customers_cannot_be_created_with_a_balance_after_the_upgrade() -> TestR
     assert_eq!(created.get::<_, i64>(0), 1);
 
     revert_through(&url, LEDGER_MIGRATION).await?;
+    // Copied again: the revert dropped the columns later migrations added to customer.
     client
-        .batch_execute(
-            "UPDATE cust_copy SET id = gen_random_uuid(), alias = 'again-' || gen_random_uuid()::text,
+        .batch_execute(&format!(
+            "DROP TABLE cust_copy;
+             CREATE TEMP TABLE cust_copy AS SELECT * FROM customer WHERE id = '{C1}';
+             UPDATE cust_copy SET id = gen_random_uuid(), alias = 'again-' || gen_random_uuid()::text,
                                   balance_value_cents = 250;
-             INSERT INTO customer SELECT * FROM cust_copy",
-        )
+             INSERT INTO customer SELECT * FROM cust_copy"
+        ))
         .await?;
     Ok(())
 }

@@ -1,5 +1,6 @@
 import { create } from '@bufbuild/protobuf';
 
+import { markupToMultiplier, multiplierToMarkup } from '@/features/productCatalog/ratecards/markup';
 import {
   CapacityPricingSchema,
   CreditPackExpiry_Unit,
@@ -9,26 +10,31 @@ import {
   RatePricingSchema,
   SlotPricingSchema,
   UsagePricingSchema,
-  UsagePricing_MatrixPricingSchema,
-  UsagePricing_MatrixPricing_MatrixDimensionSchema,
-  UsagePricing_MatrixPricing_MatrixRowSchema,
+  UsagePricing_DimensionRatesPricingSchema,
+  UsagePricing_DimensionRatesPricing_DimensionRateSchema,
+  UsagePricing_RateCardPricingSchema,
   UsagePricing_PackagePricingSchema,
   UsagePricing_TieredAndVolumePricingSchema,
   UsagePricing_TieredAndVolumePricing_TierRowSchema,
   type Price,
+  type UsagePricing,
+  type UsagePricing_DimensionRatesPricing,
+  type UsagePricing_MatrixPricing,
 } from '@/rpc/api/prices/v1/models_pb';
-
+import { RateCardUnmatched } from '@/rpc/api/ratecards/v1/models_pb';
 
 import {
   packRollsOver,
   type CapacityPricingData,
   type CreditPricingData,
+  type DimensionRatesPricingData,
   type ExtraRecurringPricingData,
-  type MatrixPricingData,
+  type RateCardPricingData,
   type OneTimePricingData,
   type PackagePricingData,
   type PerUnitPricingData,
   type PricingType,
+  type QuantityModel,
   type RatePricingData,
   type SlotPricingData,
   type TieredPricingData,
@@ -52,12 +58,19 @@ export function formDataToProtoPricing(
     }
     case 'slot': {
       const d = data as SlotPricingData
+      const seatModel = d.seatModel ?? 'per_unit'
+      const priced =
+        seatModel === 'per_unit'
+          ? undefined
+          : formDataToProtoPricing(seatModel, data as Record<string, unknown>)
       return {
         case: 'slotPricing',
-        value: create(
-          SlotPricingSchema,
-          { unitRate: d.unitRate, minSlots: d.minSlots, maxSlots: d.maxSlots }
-        ),
+        value: create(SlotPricingSchema, {
+          unitRate: seatModel === 'per_unit' ? d.unitRate : '',
+          minSlots: d.minSlots,
+          maxSlots: d.maxSlots,
+          model: priced?.case === 'usagePricing' ? priced.value : undefined,
+        }),
       };
     }
     case 'capacity': {
@@ -139,24 +152,42 @@ export function formDataToProtoPricing(
         }),
       };
     }
-    case 'matrix': {
-      const d = data as MatrixPricingData
+    case 'dimensionRates': {
+      const d = data as DimensionRatesPricingData
+      const dimensions = d.dimensions.map(dimension => dimension.trim())
       return {
         case: 'usagePricing',
         value: create(UsagePricingSchema, {
           model: {
-            case: 'matrix',
-            value: create(UsagePricing_MatrixPricingSchema, {
-              rows: d.rows.map(
-                r =>
-                  create(UsagePricing_MatrixPricing_MatrixRowSchema, {
-                    perUnitPrice: r.perUnitPrice,
-                    dimension1: create(UsagePricing_MatrixPricing_MatrixDimensionSchema, r.dimension1),
-                    dimension2: r.dimension2
-                      ? create(UsagePricing_MatrixPricing_MatrixDimensionSchema, r.dimension2)
-                      : undefined,
-                  })
+            case: 'dimensionRates',
+            value: create(UsagePricing_DimensionRatesPricingSchema, {
+              dimensions,
+              // A cell left empty matches any value.
+              rates: d.keyRates.map(r =>
+                create(UsagePricing_DimensionRatesPricing_DimensionRateSchema, {
+                  key: dimensions.map((_, i) => r.key[i]?.trim() || '*'),
+                  rate: r.rate,
+                  label: r.label?.trim() || undefined,
+                })
               ),
+              unitSize: d.unitSize?.trim() || '1',
+              onUnmatched:
+                d.onUnmatched === 'ignore' ? RateCardUnmatched.IGNORE : RateCardUnmatched.HOLD,
+            }),
+          },
+        }),
+      };
+    }
+    case 'rateCard': {
+      const d = data as RateCardPricingData
+      return {
+        case: 'usagePricing',
+        value: create(UsagePricingSchema, {
+          model: {
+            case: 'rateCard',
+            value: create(UsagePricing_RateCardPricingSchema, {
+              rateCardId: d.rateCardId,
+              multiplier: markupToMultiplier(d.markup),
             }),
           },
         }),
@@ -164,21 +195,25 @@ export function formDataToProtoPricing(
     }
     case 'extraRecurring': {
       const d = data as ExtraRecurringPricingData
+      const model = quantityModelToProto(data)
       return {
         case: 'extraRecurringPricing',
         value: create(ExtraRecurringPricingSchema, {
-          unitPrice: d.unitPrice,
+          unitPrice: model ? '0' : d.unitPrice,
           quantity: d.quantity,
+          model,
         }),
       };
     }
     case 'oneTime': {
       const d = data as OneTimePricingData
+      const model = quantityModelToProto(data)
       return {
         case: 'oneTimePricing',
         value: create(OneTimePricingSchema, {
-          unitPrice: d.unitPrice,
+          unitPrice: model ? '0' : d.unitPrice,
           quantity: d.quantity,
+          model,
         }),
       };
     }
@@ -229,11 +264,23 @@ export function protoPricingToFormData(pricing: Price['pricing']): {
         pricingType: 'rate',
         data: { rate: pricing.value.rate },
       }
-    case 'slotPricing':
+    case 'slotPricing': {
+      const seats = { minSlots: pricing.value.minSlots, maxSlots: pricing.value.maxSlots }
+      const model = pricing.value.model
+      const priced = model
+        ? protoPricingToFormData({ case: 'usagePricing', value: model })
+        : null
+      if (!priced) {
+        return {
+          pricingType: 'slot',
+          data: { seatModel: 'per_unit', unitRate: pricing.value.unitRate, ...seats },
+        }
+      }
       return {
         pricingType: 'slot',
-        data: { unitRate: pricing.value.unitRate, minSlots: pricing.value.minSlots, maxSlots: pricing.value.maxSlots },
+        data: { seatModel: priced.pricingType, ...priced.data, ...seats },
       }
+    }
     case 'capacityPricing':
       return {
         pricingType: 'capacity',
@@ -283,21 +330,19 @@ export function protoPricingToFormData(pricing: Price['pricing']): {
               blockSize: Number(model.value.blockSize),
             },
           }
-        case 'matrix':
+        case 'rateCard':
           return {
-            pricingType: 'matrix',
+            pricingType: 'rateCard',
             data: {
-              rows: model.value.rows.map(r => ({
-                perUnitPrice: r.perUnitPrice,
-                dimension1: r.dimension1
-                  ? { key: r.dimension1.key, value: r.dimension1.value }
-                  : { key: '', value: '' },
-                dimension2: r.dimension2
-                  ? { key: r.dimension2.key, value: r.dimension2.value }
-                  : undefined,
-              })),
+              rateCardId: model.value.rateCardId,
+              markup: multiplierToMarkup(model.value.multiplier),
             },
           }
+        case 'dimensionRates':
+          return { pricingType: 'dimensionRates', data: dimensionRatesToForm(model.value) }
+        // A matrix is read by the server as rates by dimension; kept for data cached before.
+        case 'matrix':
+          return { pricingType: 'dimensionRates', data: dimensionRatesToForm(matrixAsRates(model.value)) }
         default:
           return null
       }
@@ -306,16 +351,16 @@ export function protoPricingToFormData(pricing: Price['pricing']): {
       return {
         pricingType: 'extraRecurring',
         data: {
-          unitPrice: pricing.value.unitPrice,
           quantity: pricing.value.quantity,
+          ...quantityModelToForm(pricing.value.model, pricing.value.unitPrice),
         },
       }
     case 'oneTimePricing':
       return {
         pricingType: 'oneTime',
         data: {
-          unitPrice: pricing.value.unitPrice,
           quantity: pricing.value.quantity,
+          ...quantityModelToForm(pricing.value.model, pricing.value.unitPrice),
         },
       }
     case 'creditPricing': {
@@ -341,5 +386,60 @@ export function protoPricingToFormData(pricing: Price['pricing']): {
     }
     default:
       return null
+  }
+}
+
+/** The model of a fixed count (extra recurring, one-time); none means unit price × quantity. */
+function quantityModelToProto(data: Record<string, unknown>): UsagePricing | undefined {
+  const model = (data.quantityModel as QuantityModel | undefined) ?? 'per_unit'
+  if (model === 'per_unit') return undefined
+  const priced = formDataToProtoPricing(model, data)
+  return priced.case === 'usagePricing' ? priced.value : undefined
+}
+
+function quantityModelToForm(
+  model: UsagePricing | undefined,
+  unitPrice: string
+): Record<string, unknown> {
+  const priced = model ? protoPricingToFormData({ case: 'usagePricing', value: model }) : null
+  if (!priced) return { quantityModel: 'per_unit', unitPrice }
+  if (priced.pricingType === 'perUnit') {
+    return { quantityModel: 'per_unit', unitPrice: priced.data.unitPrice }
+  }
+  return { quantityModel: priced.pricingType, unitPrice: unitPrice || '0.00', ...priced.data }
+}
+
+function dimensionRatesToForm(rates: Pick<UsagePricing_DimensionRatesPricing, 'dimensions' | 'rates' | 'unitSize' | 'onUnmatched'>) {
+  return {
+    dimensions: [...rates.dimensions],
+    keyRates: rates.rates.map(r => ({ key: [...r.key], rate: r.rate, label: r.label })),
+    unitSize: rates.unitSize || '1',
+    onUnmatched: rates.onUnmatched === RateCardUnmatched.IGNORE ? 'ignore' : 'hold',
+  }
+}
+
+/**
+ * A matrix's cells as rates by dimension, as the server converts it: dimensions in the order they
+ * first appear, `*` where a cell leaves one out, unmatched usage left unbilled.
+ */
+export function matrixAsRates(
+  matrix: Pick<UsagePricing_MatrixPricing, 'rows'>
+): Pick<UsagePricing_DimensionRatesPricing, 'dimensions' | 'rates' | 'unitSize' | 'onUnmatched'> {
+  const cells = (row: UsagePricing_MatrixPricing['rows'][number]) =>
+    [row.dimension1, row.dimension2].filter((d): d is NonNullable<typeof d> => !!d)
+  const dimensions: string[] = []
+  for (const row of matrix.rows) {
+    for (const cell of cells(row)) if (!dimensions.includes(cell.key)) dimensions.push(cell.key)
+  }
+  return {
+    dimensions,
+    rates: matrix.rows.map(row =>
+      create(UsagePricing_DimensionRatesPricing_DimensionRateSchema, {
+        key: dimensions.map(dimension => cells(row).find(c => c.key === dimension)?.value ?? '*'),
+        rate: row.perUnitPrice,
+      })
+    ),
+    unitSize: '1',
+    onUnmatched: RateCardUnmatched.IGNORE,
   }
 }

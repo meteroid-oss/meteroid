@@ -29,9 +29,13 @@ impl PriceInterface for Store {
     ) -> StoreResult<Vec<Price>> {
         let mut conn = self.get_conn().await?;
 
-        let roots = PriceRow::list_by_product_id(&mut conn, product_id, tenant_id)
+        // A price set for one subscription or plan only is not offered from the catalog.
+        let roots: Vec<PriceRow> = PriceRow::list_by_product_id(&mut conn, product_id, tenant_id)
             .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .filter(|root| root.catalog)
+            .collect();
         let ids: Vec<PriceId> = roots.iter().map(|root| root.id).collect();
         let successors = PriceRow::successors_of(&mut conn, &ids, tenant_id)
             .await

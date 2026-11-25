@@ -289,6 +289,21 @@ impl BillingControllerRow {
         .into_db_result()
     }
 
+    /// Retries the tenant's failing customers now: what failed them may be fixed (a rate added).
+    pub async fn retry_failing(conn: &mut PgConn, tenant_id: TenantId) -> DbResult<()> {
+        diesel::sql_query(
+            "UPDATE billing_controller SET next_wake_at = $2, updated_at = $2
+             WHERE tenant_id = $1 AND attempts > 0",
+        )
+        .bind::<sql_types::Uuid, _>(tenant_id)
+        .bind::<sql_types::Timestamptz, _>(common_clock::now())
+        .execute(conn)
+        .await
+        .attach("Error while retrying failing billing controllers")
+        .into_db_result()
+        .map(|_| ())
+    }
+
     /// Wakes the customer by `at` at the latest: a deadline written outside a run, marked as an
     /// input too, so a run ending meanwhile (its wake read before it) runs once more.
     pub async fn wake_by(

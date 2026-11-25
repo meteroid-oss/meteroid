@@ -62,15 +62,19 @@ export const NewQuote = () => {
   const [draftId] = useState(() => searchParams.get('draft') ?? undefined)
   const sourceQuoteId = draftId ? undefined : (searchParams.get('from') ?? undefined)
   const customerId = searchParams.get('customerId')?.trim() ?? ''
-  const { quote, planComponents, planVersionIsActive, isReady, isError } =
+  const { quote, planComponents, planOptions, planVersionIsActive, isReady, isError } =
     useQuoteFormSource(sourceQuoteId)
 
   const seed = useMemo(
     () =>
       isReady && quote && planComponents
-        ? quoteToTemplateSeed(quote, planComponents, { customerId, planVersionIsActive })
+        ? quoteToTemplateSeed(quote, planComponents, {
+            customerId,
+            planVersionIsActive,
+            planOptions,
+          })
         : undefined,
-    [isReady, quote, planComponents, customerId, planVersionIsActive]
+    [isReady, quote, planComponents, planOptions, customerId, planVersionIsActive]
   )
 
   if (draftId) return <ResumedQuote draftId={draftId} />

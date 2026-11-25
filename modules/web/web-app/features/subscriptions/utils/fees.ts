@@ -1,4 +1,7 @@
 
+import { countModelWords, fixedQuantityModelWords } from "@/features/plans/canvas/billingWords"
+import { fixedQuantityTotal } from "@/features/pricing/fixedQuantity"
+import { unitSizeLabel } from "@/features/productCatalog/ratecards/rateTable"
 import { CreditPackExpiry_Unit } from "@/rpc/api/prices/v1/models_pb"
 import {
   SubscriptionFee,
@@ -8,6 +11,9 @@ import {
 import { formatCurrencyNoRounding, formatUsage } from "@/utils/numbers"
 
 import type { CreditUnit } from "@/rpc/api/creditunits/v1/models_pb"
+import type { UsagePricing } from "@/rpc/api/prices/v1/models_pb"
+import type { SubscriptionFee_SlotSubscriptionFee } from "@/rpc/api/subscriptions/v1/models_pb"
+import type Decimal from "decimal.js"
 
 /** The period a fee bills on: a credit granted once at start repeats on none. */
 export const feeBillingPeriod = (
@@ -70,6 +76,66 @@ const usagePricing = (
 const withNote = (text: string | undefined, note: string | undefined) =>
   [text, note].filter(Boolean).join('\n') || undefined
 
+const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
+
+/** A model that prices the count itself (tiers, volume, package), not one rate per unit. */
+const countModel = (model: UsagePricing | undefined) => (model?.model.case ? model : undefined)
+
+type SlotFee = Pick<
+  SubscriptionFee_SlotSubscriptionFee,
+  'unit' | 'unitRate' | 'model' | 'minSlots' | 'maxSlots'
+>
+
+/** The seats a count of `held` bills: within the fee's minimum and maximum, as the engine bills. */
+export const billedSlots = (slot: Pick<SlotFee, 'minSlots' | 'maxSlots'>, held: number) =>
+  Math.min(Math.max(held, slot.minSlots ?? 0), slot.maxSlots ?? Number.POSITIVE_INFINITY)
+
+/** What `held` seats cost a period: their rate each, or their count priced through the model. */
+export const slotFeeTotal = (slot: SlotFee, held: number): Decimal =>
+  fixedQuantityTotal(billedSlots(slot, held), slot.unitRate, countModel(slot.model))
+
+/** Whether no count of seats costs anything: a zero rate, or a model with nothing but zeros. */
+export const slotFeeIsFree = (slot: Pick<SlotFee, 'unitRate' | 'model'>): boolean => {
+  const zero = (amount?: string) => !amount || Number(amount) === 0
+  const model = countModel(slot.model)?.model
+  switch (model?.case) {
+    case undefined:
+      return zero(slot.unitRate)
+    case 'perUnit':
+      return zero(model.value)
+    case 'tiered':
+    case 'volume':
+      return model.value.rows.every(row => zero(row.unitPrice) && zero(row.flatFee))
+    case 'package':
+      return zero(model.value.packagePrice)
+    default:
+      return false
+  }
+}
+
+/** A seat price in words: "$10.00 per seat", or its model's "First 3 free, then $10 per seat". */
+export const slotFeeWords = (slot: SlotFee, currency: string): string => {
+  const model = countModel(slot.model)
+  return model
+    ? capitalized(countModelWords(model, currency, slot.unit))
+    : `${formatCurrencyNoRounding(Number(slot.unitRate || 0), currency)} per ${slot.unit}`
+}
+
+/**
+ * How a fixed quantity is priced, when more than one unit at one price: "3 × $9.99", or its
+ * model's "15 units: first 10 at $10, then $8 each". Undefined for a single unit.
+ */
+export const fixedQuantityDetails = (
+  value: { rate: string; quantity: number; model?: UsagePricing },
+  currency: string
+): string | undefined => {
+  const model = countModel(value.model)
+  if (model) return fixedQuantityModelWords(value.quantity, model, currency)
+  return value.quantity > 1
+    ? `${formatUsage(value.quantity)} × ${formatCurrencyNoRounding(Number(value.rate || 0), currency)}`
+    : undefined
+}
+
 export const formatSubscriptionFee = (
   fee: SubscriptionFee | undefined,
   currency: string,
@@ -104,24 +170,22 @@ export const formatSubscriptionFee = (
 
     case 'oneTime': {
       const oneTimeFee = fee.fee.value
-      const multi = oneTimeFee.quantity > 1
+      const how = fixedQuantityDetails(oneTimeFee, currency)
       return {
         type: 'One-time',
-        details: multi ? `${oneTimeFee.quantity}x @ ${oneTimeFee.rate}` : 'Single payment',
+        details: how ?? 'Single payment',
         amount: formatCurrencyNoRounding(Number(oneTimeFee.total || oneTimeFee.rate), currency),
-        redundantDetails: !multi,
+        redundantDetails: !how,
       }
     }
 
     case 'recurring': {
       const recurringFee = fee.fee.value
       const billingType = recurringFee.billingType === 0 ? 'in arrears' : 'in advance'
+      const how = fixedQuantityDetails(recurringFee, currency)
       return {
         type: 'Recurring',
-        details:
-          recurringFee.quantity > 1
-            ? `${recurringFee.quantity}x @ ${recurringFee.rate} (${billingType})`
-            : `Recurring ${billingType}`,
+        details: how ? `${how} (${billingType})` : `Recurring ${billingType}`,
         amount: formatCurrencyNoRounding(Number(recurringFee.total || recurringFee.rate), currency),
       }
     }
@@ -187,7 +251,7 @@ export const formatSubscriptionFee = (
       return {
         type: 'Slot',
         details: `${formatUsage(slotFee.initialSlots)} ${slotFee.unit}(s)${limitStr}`,
-        amount: `${formatCurrencyNoRounding(Number(slotFee.unitRate), currency)} per ${slotFee.unit}`,
+        amount: slotFeeWords(slotFee, currency),
       }
     }
 
@@ -219,11 +283,12 @@ export const formatSubscriptionFee = (
           const summary = minPrice === maxPrice
             ? `${price(minPrice)} per unit`
             : `${price(minPrice)}–${price(maxPrice)} per unit`
-          // Breakdown: show all tiers
+          // Breakdown: show all tiers, each its own units, the first counted from 1
+          // (billing-core tiered_charges); volume tiers below are read by totals.
           const breakdown = rows.map((row, idx) => {
             const nextRow = rows[idx + 1]
-            const rangeStart = Number(row.firstUnit)
-            const rangeEnd = nextRow ? Number(nextRow.firstUnit) - 1 : '∞'
+            const rangeStart = Number(row.firstUnit) + 1
+            const rangeEnd = nextRow ? Number(nextRow.firstUnit) : '∞'
             const formatted = price(Number(row.unitPrice))
             return `${rangeStart}-${rangeEnd}: ${formatted}`
           }).join('\n')
@@ -274,30 +339,28 @@ export const formatSubscriptionFee = (
           }
         }
 
-        case 'matrix': {
-          const matrix = usageFee.model.value
-          const rows = matrix.rows || []
-          if (rows.length === 0) {
-            return { type: 'Usage', details: 'Matrix', amount: '-' }
+        case 'dimensionRates': {
+          const rates = usageFee.model.value
+          if (rates.rates.length === 0) {
+            return { type: 'Usage', details: 'By dimension', amount: '-' }
           }
+          const per = unitSizeLabel(rates.unitSize)
+          const unit = per === 'per 1' ? 'per unit' : per
           // Summary: show price range
-          const prices = rows.map(r => Number(r.perUnitPrice))
+          const prices = rates.rates.map(r => Number(r.rate))
           const minPrice = Math.min(...prices)
           const maxPrice = Math.max(...prices)
           const summary = minPrice === maxPrice
-            ? `${price(minPrice)} per unit`
-            : `${price(minPrice)}–${price(maxPrice)} per unit`
-          // Breakdown: show all matrix price points
-          const breakdown = rows.map(row => {
-            const dims = [row.dimension1]
-            if (row.dimension2) dims.push(row.dimension2)
-            const dimStr = dims.map(d => d?.value).join(' · ')
-            const formatted = price(Number(row.perUnitPrice))
-            return `${dimStr}: ${formatted}`
+            ? `${price(minPrice)} ${unit}`
+            : `${price(minPrice)}–${price(maxPrice)} ${unit}`
+          // Breakdown: every key and its rate, `*` read as any value
+          const breakdown = rates.rates.map(rate => {
+            const dimStr = rate.key.map(p => (p === '*' ? 'any' : p)).join(' · ')
+            return `${dimStr}: ${price(Number(rate.rate))}`
           }).join('\n')
           return {
             type: 'Usage',
-            details: 'Matrix',
+            details: 'By dimension',
             amount: summary,
             breakdown: withNote(breakdown, rateNote),
           }

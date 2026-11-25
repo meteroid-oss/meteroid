@@ -1,7 +1,7 @@
 use axum::Extension;
 use axum::Json;
 use axum::extract::State;
-use common_domain::ids::{AliasOr, CheckoutSessionId, CustomerId, TenantId};
+use common_domain::ids::{AliasOr, CheckoutSessionId, CustomerId, PlanOptionId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_rest_common::extract::{ApiJson, ApiPath, ApiValid};
 use std::str::FromStr;
@@ -12,9 +12,9 @@ use meteroid_app::errors::RestApiError;
 use meteroid_rest_common::QueryParams;
 use meteroid_rest_common::error::RestErrorResponse;
 use meteroid_store::domain::checkout_sessions::{CheckoutType, CreateCheckoutSession};
-use meteroid_store::repositories::CustomersInterface;
 use meteroid_store::repositories::checkout_sessions::CheckoutSessionsInterface;
 use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
+use meteroid_store::repositories::{CustomersInterface, PlanOptionInterface};
 
 use super::mapping;
 use super::model::{
@@ -67,6 +67,32 @@ pub async fn create_checkout_session(
         }
     };
 
+    // Kept as the option's alias, valid across versions; an id is read as its option's alias.
+    let option = match request
+        .option
+        .as_deref()
+        .map(str::trim)
+        .filter(|option| !option.is_empty())
+    {
+        None => None,
+        Some(asked) => match AliasOr::<PlanOptionId>::from_str(asked) {
+            Ok(AliasOr::Id(id)) => Some(
+                app_state
+                    .store
+                    .list_plan_options(tenant_id, request.plan_version_id)
+                    .await
+                    .map_err(RestApiError::from)?
+                    .into_iter()
+                    .find(|option| option.id == id)
+                    .ok_or_else(|| {
+                        RestApiError::InvalidInput(format!("The plan has no option {asked}"))
+                    })?
+                    .alias,
+            ),
+            _ => Some(asked.to_string()),
+        },
+    };
+
     validate_redirect_url("success_url", request.success_url.as_deref())?;
     validate_redirect_url("cancel_url", request.cancel_url.as_deref())?;
 
@@ -87,6 +113,7 @@ pub async fn create_checkout_session(
         tenant_id,
         customer_id,
         plan_version_id: request.plan_version_id,
+        option,
         billing_start_date: request.billing_start_date,
         billing_day_anchor: request.billing_day_anchor.map(|a| a as i16),
         net_terms: request.net_terms,

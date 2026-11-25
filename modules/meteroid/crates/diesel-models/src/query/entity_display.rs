@@ -122,6 +122,25 @@ pub async fn add_on_names(
         .into_db_result()
 }
 
+pub async fn rate_card_names(
+    conn: &mut PgConn,
+    tenant: TenantId,
+    ids: &[Uuid],
+) -> DbResult<Vec<(Uuid, String)>> {
+    use crate::schema::rate_card::dsl as r;
+    if ids.is_empty() {
+        return Ok(vec![]);
+    }
+    r::rate_card
+        .filter(r::tenant_id.eq(tenant))
+        .filter(r::id.eq_any(ids))
+        .select((r::id, r::name))
+        .load(conn)
+        .await
+        .attach("rate_card_names")
+        .into_db_result()
+}
+
 pub async fn coupon_codes(
     conn: &mut PgConn,
     tenant: TenantId,

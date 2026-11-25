@@ -99,8 +99,11 @@ message ListSubscriptionsResponse {
 message UpdateSlotsRequest {
   string subscription_id = 1;
   string price_component_id = 2;
+  // The seats to add or remove; 0 when `target` is set.
   int32 delta = 3;
   optional SlotUpgradeBillingMode billing_mode = 4;
+  // The seat count to reach instead of a delta: an absolute set, e.g. from a CRM sync.
+  optional uint32 target = 5;
 }
 
 message UpdateSlotsResponse {
@@ -222,6 +225,9 @@ message SchedulePlanChangeRequest {
   string new_plan_version_id = 2;
   repeated PlanChangeComponentParameterization parameterized_components = 3;
   PlanChangeApplyMode apply_mode = 4;
+  // The option of the new version, by alias or id; unset: the subscription's own when the new
+  // version has it, else its default.
+  optional string option = 5;
 }
 
 message SchedulePlanChangeResponse {
@@ -235,6 +241,9 @@ message PreviewPlanChangeRequest {
   string new_plan_version_id = 2;
   repeated PlanChangeComponentParameterization parameterized_components = 3;
   PlanChangeApplyMode apply_mode = 4;
+  // The option of the new version, by alias or id; unset: the subscription's own when the new
+  // version has it, else its default.
+  optional string option = 5;
 }
 
 message PreviewPlanChangeResponse {
@@ -304,7 +313,10 @@ message CancelScheduledEventResponse {}
 
 // --- Manual / sales-led amendments ---
 
-// Override an existing live component's price/fee (keeps the same product).
+// Override an existing live component's price/fee (keeps the same product). An existing price
+// must be one of the component's product, in the subscription's currency; for a usage-levels
+// charge of the plan, one of its levels (ListCapacityLevels), a lower level only at the end of the
+// period.
 message AmendmentEditComponent {
   string subscription_component_id = 1;
   optional string name = 2;
@@ -391,6 +403,39 @@ message CancelAmendmentRequest {
 }
 
 message CancelAmendmentResponse {}
+
+// --- Usage levels ---
+
+message ListCapacityLevelsRequest {
+  string subscription_id = 1;
+}
+
+// A level of a usage-levels charge: a price of its plan cell, in the subscription's option,
+// currency and cadence.
+message CapacityLevel {
+  // An amendment moves to it as `AmendmentEditComponent.price.existing_price_id`.
+  string price_id = 1;
+  uint64 included = 2;
+  string rate = 3;
+  string overage_rate = 4;
+  // The level the subscription bills now.
+  bool current = 5;
+}
+
+message ComponentCapacityLevels {
+  string subscription_component_id = 1;
+  string price_component_id = 2;
+  string name = 3;
+  SubscriptionFeeBillingPeriod period = 4;
+  // The units it includes now.
+  uint64 included = 5;
+  // Fewest units first.
+  repeated CapacityLevel levels = 6;
+}
+
+message ListCapacityLevelsResponse {
+  repeated ComponentCapacityLevels components = 1;
+}
 
 
 message GetUpcomingInvoiceRequest {
@@ -581,6 +626,9 @@ service SubscriptionsService {
   rpc PreviewAmendment(PreviewAmendmentRequest) returns (PreviewAmendmentResponse);
   rpc ApplyAmendment(ApplyAmendmentRequest) returns (ApplyAmendmentResponse);
   rpc CancelAmendment(CancelAmendmentRequest) returns (CancelAmendmentResponse);
+  // The subscription's usage-levels charges and the levels each may move to: a higher one applies
+  // at once, a lower one at the end of the period.
+  rpc ListCapacityLevels(ListCapacityLevelsRequest) returns (ListCapacityLevelsResponse);
   rpc GetUpcomingInvoice(GetUpcomingInvoiceRequest) returns (GetUpcomingInvoiceResponse);
   rpc GetSubscriptionComponentUsage(GetSubscriptionComponentUsageRequest) returns (GetSubscriptionComponentUsageResponse);
   rpc GetSubscriptionUsage(GetSubscriptionUsageRequest) returns (GetSubscriptionUsageResponse);

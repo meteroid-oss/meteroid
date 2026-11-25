@@ -847,6 +847,7 @@ async fn yearly_arrears_billed_after_a_voided_consolidated_renewal(env: &TestEnv
                         pricing: Pricing::ExtraRecurring {
                             unit_price: Decimal::new(36_500, 2),
                             quantity: 1,
+                            model: None,
                         },
                         credit_unit: None,
                     }),

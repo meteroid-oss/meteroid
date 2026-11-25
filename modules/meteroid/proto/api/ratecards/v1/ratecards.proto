@@ -1,0 +1,152 @@
+syntax = "proto3";
+
+package meteroid.api.ratecards.v1;
+
+import "api/activity/v1/activity.proto";
+import "api/ratecards/v1/models.proto";
+
+service RateCardsService {
+  rpc CreateRateCard(CreateRateCardRequest) returns (CreateRateCardResponse) {}
+  rpc ListRateCards(ListRateCardsRequest) returns (ListRateCardsResponse) {}
+  rpc GetRateCard(GetRateCardRequest) returns (GetRateCardResponse) {}
+  // Sets rates and removes keys, the whole batch from one day: a repeated sync changes nothing.
+  // A key's first rate in a currency may start on a past day; a change or a removal starts
+  // today or later, and a removal withdraws the key's rates scheduled from its day on.
+  rpc SetRateCardRates(SetRateCardRatesRequest) returns (SetRateCardRatesResponse) {}
+  // The entry that rates usage carrying `dimensions` on a day, as billing resolves it.
+  rpc LookupRate(LookupRateRequest) returns (LookupRateResponse) {}
+  // The card's change log, latest first: its creation and each batch of rates that changed
+  // anything, with who made it.
+  rpc ListRateCardChanges(ListRateCardChangesRequest) returns (ListRateCardChangesResponse) {}
+}
+
+message CreateRateCardRequest {
+  reserved 5;
+  reserved "currency";
+
+  string code = 1;
+  string name = 2;
+  string metric_id = 3;
+  repeated string dimensions = 4;
+  // Unset: a money card, rated per currency.
+  optional string credit_unit_id = 6;
+  RateCardUnmatched on_unmatched = 7;
+  // Decimal string, positive; 1 when unset.
+  optional string unit_size = 8;
+}
+message CreateRateCardResponse {
+  RateCard card = 1;
+}
+
+message ListRateCardsRequest {
+  // Only the cards that rate this metric.
+  optional string billable_metric_id = 1;
+}
+message ListRateCardsResponse {
+  repeated RateCard cards = 1;
+}
+
+message GetRateCardRequest {
+  string id = 1;
+  // ISO date `rates` are read on; today when unset.
+  optional string at = 2;
+}
+message GetRateCardResponse {
+  RateCard card = 1;
+  // Every entry, past, in force and scheduled, removals included.
+  repeated RateCardEntry entries = 2;
+  // The rate of each key and currency in force on `at`, removed keys left out.
+  repeated RateCardEntry rates = 3;
+}
+
+message SetRateCardRatesRequest {
+  string rate_card_id = 1;
+  // ISO date every rate and removal of the batch takes effect; today when unset.
+  optional string effective_from = 2;
+  repeated RateCardRateInput rates = 3;
+  repeated RateCardKeyRemoval remove = 4;
+}
+message RateCardRateInput {
+  repeated string key = 1;
+  // Required on a money card, unset on a credit card.
+  optional string currency = 2;
+  // Decimal string, per `unit_size` units.
+  string rate = 3;
+  optional string label = 4;
+}
+message RateCardKeyRemoval {
+  repeated string key = 1;
+  // Required on a money card, unset on a credit card.
+  optional string currency = 2;
+}
+message SetRateCardRatesResponse {
+  uint32 inserted = 1;
+  uint32 unchanged = 2;
+  // Scheduled entries replaced or withdrawn.
+  uint32 replaced = 3;
+  uint32 removed = 4;
+}
+
+message LookupRateRequest {
+  string rate_card_id = 1;
+  map<string, string> dimensions = 2;
+  // ISO date; today when unset.
+  optional string on = 3;
+  // The price's currency; required on a money card, unset on a credit card.
+  optional string currency = 4;
+}
+message LookupRateResponse {
+  // Unset when no key matches in the currency: the usage is unrated.
+  optional RateCardEntry entry = 1;
+}
+
+message ListRateCardChangesRequest {
+  string rate_card_id = 1;
+  // `next_cursor` of the previous page.
+  optional string cursor = 2;
+  // 50 when unset, at most 200.
+  optional uint32 limit = 3;
+}
+message ListRateCardChangesResponse {
+  // Latest first.
+  repeated RateCardChange changes = 1;
+  optional string next_cursor = 2;
+}
+
+enum RateCardChangeKind {
+  RATE_CARD_CHANGE_KIND_CREATED = 0;
+  // A batch of rates and removals, all from `effective_from`.
+  RATE_CARD_CHANGE_KIND_RATES_SET = 1;
+}
+
+// A write to a card: who made it, when, and what it changed.
+message RateCardChange {
+  // The id of the change's activity.
+  string id = 1;
+  RateCardChangeKind kind = 2;
+  // When the change was made.
+  string occurred_at = 3;
+  meteroid.api.activity.v1.ActorType actor_type = 4;
+  optional string actor_id = 5;
+  optional string actor_name = 6;
+  // ISO date the batch takes effect; unset on a creation.
+  optional string effective_from = 7;
+  // Each key's rate in a currency before and after the batch.
+  repeated RateCardRateChange rates = 8;
+  // Scheduled entries the batch deleted before their day, as they were: replaced by a rate of
+  // the batch of the same key, currency and day, or withdrawn (by a removal, or a rate back to
+  // the one in force).
+  repeated RateCardEntry withdrawn = 9;
+}
+
+message RateCardRateChange {
+  repeated string key = 1;
+  // Unset on a credit card.
+  optional string currency = 2;
+  // Decimal string: the key's rate the day before. Unset: it had none, a first rate.
+  optional string from_rate = 3;
+  // Decimal string. Unset: the key is removed in the currency from the batch's day.
+  optional string to_rate = 4;
+  // A key of `*` on every dimension: the "Any other" row.
+  bool any_other = 5;
+}

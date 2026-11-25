@@ -53,6 +53,7 @@ const TRANSITIVE_TABLES: &[&str] = &[
     "plan_version_annex_template",
     "schedule",
     "coupon_plan",
+    "coupon_add_on",
     "customer_connection",
     "custom_tax",
     "product_accounting",

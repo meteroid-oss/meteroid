@@ -101,7 +101,7 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
   const currency = subscription?.subscription?.currency || '?'
 
   // Index price components by their plan price_component_id so we can render
-  // pricing terms (rate, included allowance, tiers, matrix) alongside each line.
+  // pricing terms (rate, included allowance, tiers, rates by dimension) alongside each line.
   const componentByPriceComponentId = useMemo(() => {
     const map = new Map<string, SubscriptionComponent>()
     for (const c of subscription?.priceComponents ?? []) {

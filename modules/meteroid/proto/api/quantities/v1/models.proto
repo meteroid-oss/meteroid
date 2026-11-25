@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package meteroid.api.quantities.v1;
+
+// A quantity a subscription holds over time (seats, licences), shared by the fees that bill it.
+// Each subscription holds its own value. `code` is immutable: seats are counted by it.
+message ManagedQuantity {
+  string id = 1;
+  string code = 2;
+  string name = 3;
+  QuantityIncrease on_increase = 4;
+  QuantityDecrease on_decrease = 5;
+  bool archived = 6;
+  // Metered features whose limit counts per unit a subscription holds.
+  repeated string per_unit_feature_ids = 7;
+}
+
+enum QuantityIncrease {
+  // In force at once, billed as the change's billing mode says.
+  QUANTITY_INCREASE_IMMEDIATELY = 0;
+  // In force from the fee's next renewal; nothing is billed now.
+  QUANTITY_INCREASE_NEXT_PERIOD = 1;
+}
+
+enum QuantityDecrease {
+  // Billed until the fee's next renewal.
+  QUANTITY_DECREASE_AT_PERIOD_END = 0;
+  // Out of force at once; its unused time is given back.
+  QUANTITY_DECREASE_IMMEDIATELY = 1;
+}

@@ -1,36 +1,18 @@
 import { createConnectQueryKey, useMutation, useQuery } from '@connectrpc/connect-query';
 import { useQueryClient } from '@tanstack/react-query'
-import {
-  Button,
-  Calendar,
-  CheckboxFormField,
-  FormControl,
-  GenericFormField,
-  InputFormField,
-  MultiSelectFormField,
-  MultiSelectItem,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-  SelectFormField,
-  SelectItem,
-  TextareaFormField,
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@ui/components'
-import { cn } from '@ui/lib'
-import { format } from 'date-fns'
-import { CalendarIcon, InfoIcon } from 'lucide-react'
+import { InputFormField, MultiSelectFormField, MultiSelectItem } from '@ui/components'
 import { customAlphabet } from 'nanoid'
-import { FunctionComponent, useEffect } from 'react'
-import { useNavigate } from 'react-router'
+import { FunctionComponent, useEffect, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 
-import { CurrencySelect } from '@/components/CurrencySelect'
-import { AdvancedSection, useHasFieldErrors } from '@/components/form'
-import { CREDIT_COUPON_HINT } from '@/features/productCatalog/coupons/discountLabel'
+import { emptyEligibility, fromDraft, isOpen } from '@/features/eligibility/eligibility'
+import {
+  CouponDiscountField,
+  CouponDurationField,
+  MoreConditions,
+} from '@/features/productCatalog/coupons/CouponTermsFields'
+import { couponDate, fixedDiscountOf } from '@/features/productCatalog/coupons/couponTerms'
 import { CatalogEditPanel } from '@/features/productCatalog/generic/CatalogEditPanel'
 import { useZodForm } from '@/hooks/useZodForm'
 import { rpcErrorMessage } from '@/lib/rpcError'
@@ -39,20 +21,25 @@ import { createCoupon, listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsS
 import { CouponDiscount_CreditScope } from '@/rpc/api/coupons/v1/models_pb'
 import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 
+import type { CouponTermsFormFields } from '@/features/productCatalog/coupons/CouponTermsFields'
+import type { Control } from 'react-hook-form'
+
 const nanoid = customAlphabet('23456789ABCDEFGHJKLMNPQRSTUVWXYZ')
 
-const InfoTooltip = ({ children }: { children: React.ReactNode }) => (
-  <Tooltip>
-    <TooltipTrigger asChild>
-      <InfoIcon className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
-    </TooltipTrigger>
-    <TooltipContent className="max-w-72">{children}</TooltipContent>
-  </Tooltip>
-)
+// An app path only: `//host` (or `/\host`) would leave the app.
+const appPath = (value: string | null) =>
+  value && /^\/(?![/\\])/.test(value) ? value : undefined
 
+/**
+ * `?planId=` prefills the plans; `?returnTo=` (an app path) is where the panel goes once saved
+ * or closed, e.g. back to the plan that opened it.
+ */
 export const CouponCreatePanel: FunctionComponent = () => {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const planId = searchParams.get('planId')
+  const returnTo = appPath(searchParams.get('returnTo'))
 
   const createCouponMut = useMutation(createCoupon, {
     onSuccess: async () => {
@@ -64,7 +51,8 @@ export const CouponCreatePanel: FunctionComponent = () => {
     onError: error => toast.error(rpcErrorMessage(error, 'The coupon could not be created')),
   })
 
-  const plansQuery = useQuery(listPlans, {})
+  const plansQuery = useQuery(listPlans, { pagination: { page: 0, perPage: 100 } })
+  const [eligibility, setEligibility] = useState(emptyEligibility)
 
   const methods = useZodForm({
     schema: schemas.coupons.createCouponSchema,
@@ -74,22 +62,23 @@ export const CouponCreatePanel: FunctionComponent = () => {
       discountType: 'percentage',
       percentage: undefined,
       redemptionLimit: undefined,
-      recurringValue: undefined,
+      duration: 'forever',
+      durationMonths: undefined,
       reusable: false,
-      planIds: [],
+      planIds: planId ? [planId] : [],
+      addOnIds: [],
+      otherAmounts: [],
     },
   })
+  const termsControl = methods.control as unknown as Control<CouponTermsFormFields>
 
   const discountType = methods.watch('discountType')
-  const creditAdvancedError = useHasFieldErrors(methods.control, [
-    'creditExpiresInDays',
-    'creditSubscriptionOnly',
-  ])
 
   // A credit coupon is redeemed once per customer: the hidden limits must not linger.
   useEffect(() => {
     if (discountType === 'credit') {
-      methods.setValue('recurringValue', undefined)
+      methods.setValue('duration', 'forever')
+      methods.setValue('durationMonths', undefined)
       methods.setValue('reusable', false)
     }
   }, [discountType])
@@ -97,7 +86,7 @@ export const CouponCreatePanel: FunctionComponent = () => {
   return (
     <CatalogEditPanel
       visible={true}
-      closePanel={() => navigate('..')}
+      closePanel={() => navigate(returnTo ?? '..')}
       title="Create coupon"
       methods={methods}
       onSubmit={a =>
@@ -110,10 +99,7 @@ export const CouponCreatePanel: FunctionComponent = () => {
                 a.discountType === 'fixed'
                   ? {
                       case: 'fixed' as const,
-                      value: {
-                        amount: a.amount,
-                        currency: a.currency,
-                      },
+                      value: fixedDiscountOf(a.amount ?? '', a.currency, a.otherAmounts),
                     }
                   : a.discountType === 'credit'
                     ? {
@@ -132,270 +118,66 @@ export const CouponCreatePanel: FunctionComponent = () => {
                         value: { percentage: a.percentage },
                       },
             },
-            expiresAt: a.expiresAt ? format(a.expiresAt, "y-MM-dd'T'HH:mm:ss") : undefined, // TODO time & timezone, to UTC
-            recurringValue: a.discountType === 'credit' ? undefined : a.recurringValue,
+            validFrom: couponDate(a.validFrom),
+            expiresAt: couponDate(a.expiresAt),
+            // Once is the first invoice; months count from the first paid period.
+            recurringValue: a.discountType !== 'credit' && a.duration === 'once' ? 1 : undefined,
+            durationMonths:
+              a.discountType !== 'credit' && a.duration === 'months' ? a.durationMonths : undefined,
             redemptionLimit: a.redemptionLimit,
             reusable: a.discountType === 'credit' ? false : a.reusable,
             planIds: a.planIds ?? [],
+            addOnIds: a.addOnIds ?? [],
+            eligibility: isOpen(fromDraft(eligibility)) ? undefined : fromDraft(eligibility),
           })
           .then(() => void 0)
       }
     >
-      <TooltipProvider delayDuration={100}>
-      <div className="space-y-6">
-        {/* Basic Info */}
-        <section className="space-y-4 mt-4">
-          <div className="space-y-4">
-            <InputFormField
-              name="code"
-              label="Code"
-              layout="horizontal"
-              required
-              control={methods.control}
-              type="text"
-              placeholder="Coupon code"
-            />
-            <TextareaFormField
-              name="description"
-              label="Description"
-              layout="horizontal"
-              control={methods.control}
-              placeholder="YC deal: 30% off for the first 6 months"
-            />
-          </div>
-        </section>
+      <div className="mt-4 space-y-5 pb-4">
+        <div className="grid grid-cols-[2fr_3fr] gap-3">
+          <InputFormField
+            name="code"
+            label="Code"
+            required
+            control={methods.control}
+            type="text"
+            placeholder="Coupon code"
+          />
+          <InputFormField
+            name="description"
+            label="Description"
+            control={methods.control}
+            type="text"
+            placeholder="YC deal: 30% off for the first 6 months"
+          />
+        </div>
 
-        <hr className="border-border" />
+        <CouponDiscountField control={termsControl} />
 
-        {/* Discount */}
-        <section className="space-y-4">
-          <h3 className="text-sm font-medium text-muted-foreground">Discount</h3>
-          <div className="space-y-4">
-            <SelectFormField
-              name="discountType"
-              label="Type"
-              layout="horizontal"
-              placeholder="Select..."
-              className="max-w-[320px]"
-              control={methods.control}
-            >
-              <SelectItem value="percentage" key="percentage">
-                Percentage
-              </SelectItem>
-              <SelectItem value="fixed" key="fixed">
-                Fixed amount
-              </SelectItem>
-              <SelectItem value="credit" key="credit">
-                Promotional credit
-              </SelectItem>
-            </SelectFormField>
+        {discountType !== 'credit' && <CouponDurationField control={termsControl} withOnce />}
 
-            {discountType === 'percentage' && (
-              <InputFormField
-                name="percentage"
-                label="Percentage"
-                required
-                layout="horizontal"
-                control={methods.control}
-                type="number"
-                placeholder="0"
-                rightText="%"
-              />
-            )}
+        <MultiSelectFormField
+          name="planIds"
+          label="Plans"
+          control={methods.control}
+          placeholder="All plans"
+          hasSearch
+        >
+          {plansQuery.data?.plans?.map(plan => (
+            <MultiSelectItem key={plan.id} value={plan.id}>
+              {plan.name}
+            </MultiSelectItem>
+          ))}
+        </MultiSelectFormField>
 
-            {discountType === 'fixed' && (
-              <>
-                <InputFormField
-                  name="amount"
-                  required
-                  label="Amount"
-                  layout="horizontal"
-                  control={methods.control}
-                  type="number"
-                  placeholder="Amount"
-                />
-                <CurrencySelect
-                  name="currency"
-                  label="Currency"
-                  required
-                  layout="horizontal"
-                  control={methods.control}
-                  placeholder="Currency"
-                />
-              </>
-            )}
-
-            {discountType === 'credit' && (
-              <>
-                <p className="text-xs text-muted-foreground">{CREDIT_COUPON_HINT}</p>
-                <InputFormField
-                  name="creditAmount"
-                  required
-                  label="Amount"
-                  layout="horizontal"
-                  control={methods.control}
-                  type="text"
-                  inputMode="decimal"
-                  placeholder="0.00"
-                />
-                <CurrencySelect
-                  name="currency"
-                  label="Currency"
-                  required
-                  layout="horizontal"
-                  control={methods.control}
-                  placeholder="Currency"
-                />
-                <AdvancedSection
-                  defaultOpen={
-                    !!methods.getValues('creditExpiresInDays') ||
-                    !!methods.getValues('creditSubscriptionOnly')
-                  }
-                  forceOpen={creditAdvancedError}
-                >
-                  <InputFormField
-                    name="creditExpiresInDays"
-                    label="Credit expires after (days)"
-                    layout="horizontal"
-                    control={methods.control}
-                    type="number"
-                    min={1}
-                    max={3660}
-                    placeholder="Never"
-                    inputMode="numeric"
-                  />
-                  <CheckboxFormField
-                    name="creditSubscriptionOnly"
-                    label="Only the subscription it is redeemed on"
-                    control={methods.control}
-                    layout="horizontal"
-                    description="The credit ends with that subscription."
-                  />
-                </AdvancedSection>
-              </>
-            )}
-          </div>
-        </section>
-
-        <hr className="border-border" />
-
-        {/* Limits */}
-        <section className="space-y-4">
-          <h3 className="text-sm font-medium text-muted-foreground">Limits</h3>
-          <div className="space-y-4">
-            <GenericFormField
-              control={methods.control}
-              layout="horizontal"
-              name="expiresAt"
-              label="Expiration"
-              render={({ field }) => (
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <FormControl>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          'w-full pl-3 text-left font-normal col-span-8',
-                          !field.value && 'text-muted-foreground'
-                        )}
-                      >
-                        {field.value ? format(field.value, 'PPP') : <span>No expiration</span>}
-                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                      </Button>
-                    </FormControl>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={field.value}
-                      onSelect={field.onChange}
-                      disabled={date => date < new Date()}
-                      autoFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-              )}
-            />
-
-            <InputFormField
-              name="redemptionLimit"
-              label="Max redemptions"
-              layout="horizontal"
-              control={methods.control}
-              type="number"
-              placeholder="Unlimited"
-              inputMode="numeric"
-              labelTooltip={
-                <InfoTooltip>
-                  Total number of times this coupon can be used across all customers
-                </InfoTooltip>
-              }
-            />
-
-            {discountType !== 'credit' && (
-              <InputFormField
-                name="recurringValue"
-                label="Billing cycles"
-                layout="horizontal"
-                control={methods.control}
-                type="number"
-                placeholder="Forever"
-                inputMode="numeric"
-                labelTooltip={
-                  <InfoTooltip>
-                    Number of billing cycles the discount applies. After this, the subscription
-                    continues at full price.
-                  </InfoTooltip>
-                }
-              />
-            )}
-          </div>
-        </section>
-
-        <hr className="border-border" />
-
-        {/* Restrictions */}
-        <section className="space-y-4 pb-4">
-          <h3 className="text-sm font-medium text-muted-foreground">Restrictions</h3>
-          <div className="space-y-4">
-            {discountType === 'credit' ? (
-              <div className="grid gap-2 md:grid-cols-12 items-center text-sm">
-                <span className="md:col-span-4 text-muted-foreground">Per customer</span>
-                <span className="md:col-span-8">Once per customer</span>
-              </div>
-            ) : (
-              <CheckboxFormField
-                name="reusable"
-                label="Reusable"
-                control={methods.control}
-                layout="horizontal"
-                description="Same customer can use on multiple subscriptions"
-              />
-            )}
-
-            <MultiSelectFormField
-              name="planIds"
-              label="Plans"
-              layout="horizontal"
-              control={methods.control}
-              placeholder="All plans"
-              hasSearch
-              labelTooltip={
-                <InfoTooltip>
-                  Restrict this coupon to specific plans. Leave empty to allow on all plans.
-                </InfoTooltip>
-              }
-            >
-              {plansQuery.data?.plans?.map(plan => (
-                <MultiSelectItem key={plan.id} value={plan.id}>
-                  {plan.name}
-                </MultiSelectItem>
-              ))}
-            </MultiSelectFormField>
-          </div>
-        </section>
+        <MoreConditions
+          control={termsControl}
+          kind={discountType}
+          creating
+          eligibility={eligibility}
+          onEligibilityChange={setEligibility}
+        />
       </div>
-      </TooltipProvider>
     </CatalogEditPanel>
   )
 }

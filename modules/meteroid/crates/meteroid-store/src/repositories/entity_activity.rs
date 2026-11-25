@@ -457,6 +457,7 @@ impl EntityActivityInterfaceResolveEntities for Store {
                 EntityType::Product => ed::product_names(&mut conn, tenant_id, &ids).await,
                 EntityType::AddOn => ed::add_on_names(&mut conn, tenant_id, &ids).await,
                 EntityType::Coupon => ed::coupon_codes(&mut conn, tenant_id, &ids).await,
+                EntityType::RateCard => ed::rate_card_names(&mut conn, tenant_id, &ids).await,
                 EntityType::BillableMetric => {
                     ed::billable_metric_names(&mut conn, tenant_id, &ids).await
                 }

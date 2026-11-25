@@ -37,6 +37,7 @@ import {
   CreateSubscriptionState,
   PaymentMethodsConfigType,
 } from '@/pages/tenants/subscription/create/state'
+import { useSubscriptionSale } from '@/pages/tenants/subscription/create/useSubscriptionSale'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 import { listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
 import { ListCouponRequest_CouponFilter } from '@/rpc/api/coupons/v1/coupons_pb'
@@ -44,7 +45,6 @@ import { Coupon } from '@/rpc/api/coupons/v1/models_pb'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { createFeature } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import { getPlanWithVersionByVersionId } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
-import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
 import {
   ActivationCondition,
   BankTransferSchema,
@@ -87,7 +87,11 @@ const buildProtoPaymentMethodsConfig = (
 // Builds the CreateSubscription payload shared by the create call and the server-side
 // preview (Subscription Summary), so the previewed first invoice matches what creation bills.
 // Entitlements are resolved separately at create time and don't affect totals, so omitted here.
-const buildCreateSubscriptionMessage = (state: CreateSubscriptionState, currency: string) => {
+const buildCreateSubscriptionMessage = (
+  state: CreateSubscriptionState,
+  currency: string,
+  option: string | undefined
+) => {
   // Map billingDay to billingDayAnchor
   // 'FIRST' = 1st of month (fixed day), 'SUB_START_DAY' = anniversary (undefined)
   const billingDayAnchor = state.billingDay === 'FIRST' ? 1 : state.billingDayAnchor
@@ -95,6 +99,7 @@ const buildCreateSubscriptionMessage = (state: CreateSubscriptionState, currency
   return {
     planVersionId: state.planVersionId,
     customerId: state.customerId,
+    option,
     startDate: mapDatev2(state.startDate),
     endDate: state.endDate && mapDatev2(state.endDate),
     billingDayAnchor,
@@ -113,7 +118,6 @@ const buildCreateSubscriptionMessage = (state: CreateSubscriptionState, currency
       parameterizedComponents: state.components.parameterized.map(c => ({
         componentId: c.componentId,
         initialSlotCount: c.initialSlotCount,
-        billingPeriod: c.billingPeriod,
         committedCapacity: c.committedCapacity,
       })),
       overriddenComponents: state.components.overridden.map(c => {
@@ -195,11 +199,7 @@ export const StepReviewAndCreate = () => {
     { enabled: !!state.planVersionId }
   )
 
-  const componentsQuery = useQuery(
-    listPriceComponents,
-    { planVersionId: state.planVersionId! },
-    { enabled: !!state.planVersionId }
-  )
+  const sale = useSubscriptionSale(state)
 
   const addOnsQuery = useQuery(
     listAddOns,
@@ -233,9 +233,11 @@ export const StepReviewAndCreate = () => {
   const createFeatureMutation = useMutation(createFeature)
   const netTermsDefault = useDefaultNetTerms(state)
 
-  const allComponents = componentsQuery.data?.components || []
+  const allComponents = sale.components ?? []
   const includedComponents = allComponents.filter(c => !state.components.removed.includes(c.id))
-  const currency = planQuery.data?.plan?.version?.currency
+  const currency = sale.currency
+  // The minimum commitment is set in the plan's currency (StepSettings).
+  const planCurrency = planQuery.data?.plan?.version?.currency
 
   const selectedAddOns =
     addOnsQuery.data?.addOns.filter(a => state.addOns.some(sa => sa.addOnId === a.id)) || []
@@ -259,9 +261,9 @@ export const StepReviewAndCreate = () => {
   const previewInput = useMemo(
     () =>
       currency && state.customerId && state.planVersionId
-        ? buildCreateSubscriptionMessage(state, currency)
+        ? buildCreateSubscriptionMessage(state, currency, sale.handle)
         : undefined,
-    [state, currency]
+    [state, currency, sale.handle]
   )
 
   const previewQuery = useQuery(
@@ -282,7 +284,7 @@ export const StepReviewAndCreate = () => {
 
       const created = await createSubscriptionMutation.mutateAsync({
         subscription: {
-          ...buildCreateSubscriptionMessage(state, currency),
+          ...buildCreateSubscriptionMessage(state, currency, sale.handle),
           entitlements: resolvedEntitlements,
         },
       })
@@ -352,6 +354,12 @@ export const StepReviewAndCreate = () => {
                       {planQuery.data?.plan?.plan?.description}
                     </div>
                   </div>
+                  {sale.options.length > 1 && sale.option && (
+                    <div>
+                      <div className="text-xs text-muted-foreground">Option</div>
+                      <div className="text-sm font-medium">{sale.option.name}</div>
+                    </div>
+                  )}
                   <div>
                     <div className="text-xs text-muted-foreground">Currency</div>
                     <div className="text-sm font-medium">{currency}</div>
@@ -565,7 +573,7 @@ export const StepReviewAndCreate = () => {
                     </CardHeader>
                     <CardContent>
                       <MinimumCommitmentDisplay
-                        currency={currency}
+                        currency={planCurrency ?? currency}
                         components={scopeOptions}
                         commitment={effectiveMinimum}
                         badge={

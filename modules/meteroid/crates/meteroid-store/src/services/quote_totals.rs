@@ -212,8 +212,20 @@ fn billed(fee: &SubscriptionFee, quantity: i32, precision: u8) -> Option<(i64, b
     let rounded = |amount: Decimal| amount.to_subunit_opt(precision).unwrap_or(0);
     match scale_fee(fee, quantity) {
         SubscriptionFee::Usage { .. } => None,
-        SubscriptionFee::OneTime { rate, quantity }
-        | SubscriptionFee::Credit {
+        SubscriptionFee::OneTime {
+            rate,
+            quantity,
+            model,
+        } => Some((
+            crate::domain::price_components::fixed_quantity_minor(
+                rate,
+                Decimal::from(quantity),
+                model.as_ref(),
+                precision,
+            ),
+            true,
+        )),
+        SubscriptionFee::Credit {
             rate,
             quantity,
             once: true,
@@ -221,10 +233,17 @@ fn billed(fee: &SubscriptionFee, quantity: i32, precision: u8) -> Option<(i64, b
         } => Some((rounded(rate * Decimal::from(quantity)), true)),
         // Rounded once on the seats' total, as the invoice prices it.
         SubscriptionFee::Slot {
-            unit_rate,
+            model,
             initial_slots,
             ..
-        } => Some((rounded(unit_rate * Decimal::from(initial_slots)), false)),
+        } => Some((
+            model
+                .price(Decimal::from(initial_slots), precision)
+                .ok()
+                .map(|line| line.total)
+                .unwrap_or(0),
+            false,
+        )),
         recurring => Some((fee_period_total_cents(&recurring, precision), false)),
     }
 }
@@ -316,7 +335,7 @@ mod tests {
     fn slots_bill_their_seat_count() {
         let fee = SubscriptionFee::Slot {
             unit: "seat".to_string(),
-            unit_rate: dec!(12.50),
+            model: crate::domain::price_components::RatingModel::PerUnit { rate: dec!(12.50) },
             min_slots: None,
             max_slots: None,
             initial_slots: 5,
@@ -378,11 +397,13 @@ mod tests {
         let setup = SubscriptionFee::OneTime {
             rate: dec!(500),
             quantity: 2,
+            model: None,
         };
         let monthly = SubscriptionFee::Recurring {
             rate: dec!(30),
             quantity: 2,
             billing_type: BillingType::Advance,
+            model: None,
         };
         let more_monthly = SubscriptionFee::Rate { rate: dec!(40) };
         let (totals, _) = recurring_totals(
@@ -413,7 +434,7 @@ mod tests {
     fn seats_round_once_on_their_total() {
         let fee = SubscriptionFee::Slot {
             unit: "seat".to_string(),
-            unit_rate: dec!(0.125),
+            model: crate::domain::price_components::RatingModel::PerUnit { rate: dec!(0.125) },
             min_slots: None,
             max_slots: None,
             initial_slots: 1000,

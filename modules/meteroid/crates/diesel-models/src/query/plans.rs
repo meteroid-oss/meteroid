@@ -1,8 +1,8 @@
 use crate::errors::IntoDbResult;
 use crate::plan_versions::{PlanVersionFilter, PlanVersionRow};
 use crate::plans::{
-    _FullPlanRowEmbed, FullPlanRow, PlanFilters, PlanRow, PlanRowForSubscription, PlanRowNew,
-    PlanRowOverview, PlanRowPatch, PlanWithVersionRow, SelfServicePlanRow,
+    _FullPlanRowEmbed, FullPlanRow, PlanFilters, PlanMrrRow, PlanRow, PlanRowForSubscription,
+    PlanRowNew, PlanRowOverview, PlanRowPatch, PlanWithVersionRow, SelfServicePlanRow,
 };
 
 use crate::{DbResult, PgConn};
@@ -12,11 +12,11 @@ use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 
 use crate::price_components::PriceComponentRow;
-use common_domain::ids::{PlanId, PlanVersionId, PriceId, ProductFamilyId, TenantId};
+use common_domain::ids::{PlanId, PlanVersionId, PriceId, ProductFamilyId, ProductId, TenantId};
 use diesel::NullableExpressionMethods;
 use diesel::{
-    BelongingToDsl, BoolExpressionMethods, ExpressionMethods, JoinOnDsl, PgTextExpressionMethods,
-    QueryDsl, SelectableHelper, alias,
+    BelongingToDsl, BoolExpressionMethods, ExpressionMethods, JoinOnDsl, PgSortExpressionMethods,
+    PgTextExpressionMethods, QueryDsl, SelectableHelper, alias,
 };
 use error_stack::ResultExt;
 
@@ -62,6 +62,213 @@ impl PlanRow {
             .load(conn)
             .await
             .attach("Error while listing plans by ids")
+            .into_db_result()
+    }
+
+    /// Locked, so two ladder rewrites of the same product family run one after the other.
+    pub async fn lock_by_product_family(
+        conn: &mut PgConn,
+        product_family_id: ProductFamilyId,
+        tenant_id: TenantId,
+    ) -> DbResult<Vec<PlanRow>> {
+        use crate::schema::plan::dsl as p_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = p_dsl::plan
+            .filter(p_dsl::product_family_id.eq(product_family_id))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .order(p_dsl::id.asc())
+            .select(PlanRow::as_select())
+            .for_update();
+
+        crate::debug_sql(&query);
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while locking the plans of a product family")
+            .into_db_result()
+    }
+
+    /// Ranks `ranked` 1..n and clears the rank of every other plan of the product family.
+    pub async fn set_self_service_ranks(
+        conn: &mut PgConn,
+        product_family_id: ProductFamilyId,
+        tenant_id: TenantId,
+        ranked: &[PlanId],
+    ) -> DbResult<()> {
+        use crate::schema::plan::dsl as p_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let now = common_clock::now().naive_utc();
+
+        let clear = diesel::update(p_dsl::plan)
+            .filter(p_dsl::product_family_id.eq(product_family_id))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .filter(p_dsl::self_service_rank.is_not_null())
+            .filter(diesel::dsl::not(p_dsl::id.eq_any(ranked)))
+            .set((
+                p_dsl::self_service_rank.eq(None::<i32>),
+                p_dsl::updated_at.eq(now),
+            ));
+
+        crate::debug_sql(&clear);
+
+        clear
+            .execute(conn)
+            .await
+            .attach("Error while clearing self-service ranks")
+            .into_db_result()?;
+
+        for (index, plan_id) in ranked.iter().enumerate() {
+            let rank = index as i32 + 1;
+            let query = diesel::update(p_dsl::plan)
+                .filter(p_dsl::id.eq(*plan_id))
+                .filter(p_dsl::product_family_id.eq(product_family_id))
+                .filter(p_dsl::tenant_id.eq(tenant_id))
+                .set((
+                    p_dsl::self_service_rank.eq(Some(rank)),
+                    p_dsl::updated_at.eq(now),
+                ));
+
+            crate::debug_sql(&query);
+
+            query
+                .execute(conn)
+                .await
+                .attach("Error while setting a self-service rank")
+                .into_db_result()?;
+        }
+
+        Ok(())
+    }
+
+    /// The product family's ladder, its pricing page, in rank order: ranked, live, published.
+    /// Sales-led plans included.
+    pub async fn list_ladder(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        product_family_id: ProductFamilyId,
+    ) -> DbResult<Vec<PlanRow>> {
+        use crate::schema::plan::dsl as p_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = p_dsl::plan
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .filter(p_dsl::product_family_id.eq(product_family_id))
+            .filter(p_dsl::self_service_rank.is_not_null())
+            .filter(p_dsl::active_version_id.is_not_null())
+            .filter(p_dsl::archived_at.is_null())
+            .filter(p_dsl::status.ne(PlanStatusEnum::Archived))
+            // Tied ranks (older data, or set through the API) read in a stable order.
+            .order((
+                p_dsl::self_service_rank.asc(),
+                p_dsl::created_at.asc(),
+                p_dsl::id.asc(),
+            ))
+            .select(PlanRow::as_select());
+
+        crate::debug_sql(&query);
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while listing the self-serve ladder")
+            .into_db_result()
+    }
+
+    pub async fn find_by_id(
+        conn: &mut PgConn,
+        id: PlanId,
+        tenant_id: TenantId,
+    ) -> DbResult<PlanRow> {
+        use crate::schema::plan::dsl as p_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = p_dsl::plan
+            .filter(p_dsl::id.eq(id))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .select(PlanRow::as_select());
+
+        crate::debug_sql(&query);
+
+        query
+            .first(conn)
+            .await
+            .attach("Error while finding plan")
+            .into_db_result()
+    }
+
+    /// Unmarks every plan of the product family but `except` as popular.
+    pub async fn clear_pricing_popular(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        product_family_id: ProductFamilyId,
+        except: PlanId,
+    ) -> DbResult<()> {
+        use crate::schema::plan::dsl as p_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(p_dsl::plan)
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .filter(p_dsl::product_family_id.eq(product_family_id))
+            .filter(p_dsl::id.ne(except))
+            .filter(p_dsl::pricing_popular.eq(true))
+            .set(p_dsl::pricing_popular.eq(false));
+
+        crate::debug_sql(&query);
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while clearing the popular plan")
+            .into_db_result()?;
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn update_pricing_page(
+        conn: &mut PgConn,
+        id: PlanId,
+        tenant_id: TenantId,
+        tagline: Option<String>,
+        popular: bool,
+        cta_label: Option<String>,
+        highlights: serde_json::Value,
+        sales_led: bool,
+        hide_price: bool,
+        contact_url: Option<String>,
+        product_order: Vec<ProductId>,
+        hidden_product_ids: Vec<ProductId>,
+    ) -> DbResult<PlanRow> {
+        use crate::schema::plan::dsl as p_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(p_dsl::plan)
+            .filter(p_dsl::id.eq(id))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .set((
+                p_dsl::pricing_tagline.eq(tagline),
+                p_dsl::pricing_popular.eq(popular),
+                p_dsl::pricing_cta_label.eq(cta_label),
+                p_dsl::pricing_highlights.eq(highlights),
+                p_dsl::pricing_sales_led.eq(sales_led),
+                p_dsl::pricing_hide_price.eq(hide_price),
+                p_dsl::pricing_contact_url.eq(contact_url),
+                p_dsl::pricing_product_order
+                    .eq(product_order.into_iter().map(Some).collect::<Vec<_>>()),
+                p_dsl::pricing_hidden_product_ids
+                    .eq(hidden_product_ids.into_iter().map(Some).collect::<Vec<_>>()),
+                p_dsl::updated_at.eq(common_clock::now().naive_utc()),
+            ))
+            .returning(PlanRow::as_select());
+
+        crate::debug_sql(&query);
+
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while updating a plan's pricing page")
             .into_db_result()
     }
 
@@ -197,6 +404,9 @@ impl PlanRow {
                 active_subscriptions_count_subselect,
                 p_dsl::self_service_rank,
                 p_dsl::issues_license,
+                p_dsl::eligibility,
+                p_dsl::pricing_sales_led,
+                p_dsl::pricing_hide_price,
             ));
 
         crate::debug_sql(&query);
@@ -283,15 +493,19 @@ impl PlanRow {
         param_plan_id: PlanId,
         param_tenant_id: TenantId,
     ) -> DbResult<()> {
-        use crate::schema::plan::dsl::{archived_at, id, plan, status, tenant_id, updated_at};
+        use crate::schema::plan::dsl::{
+            archived_at, id, plan, self_service_rank, status, tenant_id, updated_at,
+        };
 
         use diesel_async::RunQueryDsl;
 
+        // An archived plan leaves the self-serve ladder; unarchiving does not put it back.
         let query = diesel::update(plan)
             .filter(id.eq(param_plan_id))
             .filter(tenant_id.eq(param_tenant_id))
             .set((
                 status.eq(PlanStatusEnum::Archived),
+                self_service_rank.eq(None::<i32>),
                 archived_at.eq(Some(common_clock::now().naive_utc())),
                 updated_at.eq(common_clock::now().naive_utc()),
             ));
@@ -613,6 +827,9 @@ impl PlanRowOverview {
                 active_subscriptions_count_subselect,
                 p_dsl::self_service_rank,
                 p_dsl::issues_license,
+                p_dsl::eligibility,
+                p_dsl::pricing_sales_led,
+                p_dsl::pricing_hide_price,
             ))
             .into_boxed();
 
@@ -640,9 +857,24 @@ impl PlanRowOverview {
             );
         }
 
-        let order = OrderByParam::parse(order_by, "created_at.desc");
+        // The self-serve ladder first, by rank; the other plans after it, newest first.
+        let order = OrderByParam::parse(order_by, "self_service_rank.asc");
 
         match (order.column.as_str(), order.direction) {
+            ("self_service_rank", OrderDirection::Asc) => {
+                query = query.order((
+                    p_dsl::self_service_rank.asc().nulls_last(),
+                    p_dsl::created_at.desc(),
+                    p_dsl::id.asc(),
+                ))
+            }
+            ("self_service_rank", OrderDirection::Desc) => {
+                query = query.order((
+                    p_dsl::self_service_rank.desc().nulls_last(),
+                    p_dsl::created_at.desc(),
+                    p_dsl::id.asc(),
+                ))
+            }
             ("name", OrderDirection::Asc) => {
                 query = query.order((p_dsl::name.asc(), p_dsl::id.asc()))
             }
@@ -786,10 +1018,28 @@ impl SelfServicePlanRow {
         product_family_id: ProductFamilyId,
         currency: &str,
         exclude_plan_id: PlanId,
+        with_sales_led: bool,
     ) -> DbResult<Vec<SelfServicePlanRow>> {
         use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_component_price::dsl as pcp_dsl;
         use crate::schema::plan_version::dsl as pv_dsl;
+        use crate::schema::price::dsl as pr_dsl;
+        use crate::schema::price_component::dsl as pc_dsl;
         use diesel_async::RunQueryDsl;
+
+        // Versions with a price in the currency.
+        let offering: Vec<PlanVersionId> = pcp_dsl::plan_component_price
+            .inner_join(pc_dsl::price_component.on(pc_dsl::id.eq(pcp_dsl::plan_component_id)))
+            .inner_join(pr_dsl::price.on(pr_dsl::id.eq(pcp_dsl::price_id)))
+            .filter(pr_dsl::tenant_id.eq(tenant_id))
+            .filter(pr_dsl::currency.eq(currency))
+            .filter(pr_dsl::archived_at.is_null())
+            .select(pc_dsl::plan_version_id)
+            .distinct()
+            .load(conn)
+            .await
+            .attach("Error while listing the versions offered in a currency")
+            .into_db_result()?;
 
         let query = p_dsl::plan
             .inner_join(pv_dsl::plan_version.on(pv_dsl::id.nullable().eq(p_dsl::active_version_id)))
@@ -798,9 +1048,25 @@ impl SelfServicePlanRow {
             .filter(p_dsl::status.eq(PlanStatusEnum::Active))
             .filter(p_dsl::plan_type.ne(PlanTypeEnum::Custom))
             .filter(p_dsl::self_service_rank.is_not_null())
+            // A sales-led plan is on the pricing page only: a customer never moves to it alone.
+            .filter(
+                p_dsl::pricing_sales_led
+                    .eq(false)
+                    .or(diesel::IntoSql::into_sql::<diesel::sql_types::Bool>(
+                        with_sales_led,
+                    )),
+            )
             .filter(p_dsl::id.ne(exclude_plan_id))
-            .filter(pv_dsl::currency.eq(currency))
-            .order(p_dsl::self_service_rank.asc())
+            .filter(
+                pv_dsl::currency
+                    .eq(currency)
+                    .or(pv_dsl::id.eq_any(offering)),
+            )
+            .order((
+                p_dsl::self_service_rank.asc(),
+                p_dsl::created_at.asc(),
+                p_dsl::id.asc(),
+            ))
             .select((
                 p_dsl::id,
                 p_dsl::name,
@@ -816,5 +1082,39 @@ impl SelfServicePlanRow {
             .await
             .attach("Error while listing self-service plans")
             .into_db_result()
+    }
+}
+
+impl PlanMrrRow {
+    /// The MRR of each plan's active subscriptions, whatever their version, per currency.
+    pub async fn list_by_plan_ids(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        plan_ids: &[PlanId],
+    ) -> DbResult<Vec<PlanMrrRow>> {
+        use diesel::sql_types;
+        use diesel_async::RunQueryDsl;
+
+        if plan_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        diesel::sql_query(
+            r#"
+            SELECT pv.plan_id, s.currency, SUM(s.mrr_cents)::bigint AS mrr_cents
+            FROM subscription s
+            JOIN plan_version pv ON pv.id = s.plan_version_id
+            WHERE s.tenant_id = $1
+              AND pv.plan_id = ANY($2)
+              AND s.status = 'ACTIVE'
+            GROUP BY pv.plan_id, s.currency
+            "#,
+        )
+        .bind::<sql_types::Uuid, _>(tenant_id)
+        .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids)
+        .get_results(conn)
+        .await
+        .attach("Error while reading plans MRR")
+        .into_db_result()
     }
 }

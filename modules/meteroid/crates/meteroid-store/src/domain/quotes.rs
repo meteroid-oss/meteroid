@@ -113,6 +113,8 @@ pub struct Quote {
     pub allow_change_requests: bool,
     pub allow_decline: bool,
     pub last_sent_at: Option<NaiveDateTime>,
+    /// The plan option sold, by alias; none: the plan's default.
+    pub plan_option: Option<String>,
 }
 
 /// How the priced lines read on the document.
@@ -247,6 +249,8 @@ pub struct QuoteNew {
     pub allow_questions: bool,
     pub allow_change_requests: bool,
     pub allow_decline: bool,
+    /// The plan option sold, by alias; none: the plan's default.
+    pub plan_option: Option<String>,
 }
 
 impl Quote {
@@ -311,6 +315,7 @@ impl Quote {
             allow_change_requests: new.allow_change_requests,
             allow_decline: new.allow_decline,
             last_sent_at: None,
+            plan_option: new.plan_option,
         }
     }
 }

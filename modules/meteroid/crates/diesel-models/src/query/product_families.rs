@@ -73,6 +73,30 @@ impl ProductFamilyRow {
             .into_db_result()
     }
 
+    pub async fn rename(
+        conn: &mut PgConn,
+        id: ProductFamilyId,
+        tenant_id: TenantId,
+        name: &str,
+    ) -> DbResult<ProductFamilyRow> {
+        use crate::schema::product_family::dsl as pf_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(pf_dsl::product_family)
+            .filter(pf_dsl::id.eq(id))
+            .filter(pf_dsl::tenant_id.eq(tenant_id))
+            .set((
+                pf_dsl::name.eq(name),
+                pf_dsl::updated_at.eq(common_clock::now().naive_utc()),
+            ));
+        crate::debug_sql(&query);
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while renaming product family")
+            .into_db_result()
+    }
+
     pub async fn find_by_id(
         conn: &mut PgConn,
         id: ProductFamilyId,

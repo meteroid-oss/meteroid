@@ -4,7 +4,7 @@ use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 
 use crate::{DbResult, PgConn};
-use common_domain::ids::{BaseId, CouponId, QuoteId, TenantId};
+use common_domain::ids::{BaseId, CouponId, PlanId, QuoteId, TenantId};
 use diesel::dsl::not;
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, NullableExpressionMethods, PgSortExpressionMethods,
@@ -163,12 +163,30 @@ impl CouponRow {
         search: Option<String>,
         filter: CouponFilter,
         order_by: Option<&str>,
+        plan_id: Option<PlanId>,
     ) -> DbResult<PaginatedVec<CouponRow>> {
         use crate::schema::coupon::dsl as c_dsl;
+        use crate::schema::coupon_add_on::dsl as ca_dsl;
+        use crate::schema::coupon_plan::dsl as cp_dsl;
 
         let mut query = c_dsl::coupon
             .filter(c_dsl::tenant_id.eq(tenant_id))
             .into_boxed();
+
+        // Scoped to the plan, or to nothing at all and so to every plan.
+        if let Some(plan_id) = plan_id {
+            query = query.filter(
+                c_dsl::id
+                    .eq_any(
+                        cp_dsl::coupon_plan
+                            .filter(cp_dsl::plan_id.eq(plan_id))
+                            .select(cp_dsl::coupon_id),
+                    )
+                    .or(c_dsl::id
+                        .ne_all(cp_dsl::coupon_plan.select(cp_dsl::coupon_id))
+                        .and(c_dsl::id.ne_all(ca_dsl::coupon_add_on.select(ca_dsl::coupon_id)))),
+            );
+        }
 
         if let Some(search) = search {
             query = query.filter(c_dsl::code.ilike(format!("%{search}%")));
@@ -220,6 +238,12 @@ impl CouponRow {
             }
             ("expires_at", OrderDirection::Desc) => {
                 query.order((c_dsl::expires_at.desc().nulls_first(), c_dsl::id.desc()))
+            }
+            ("redemption_count", OrderDirection::Asc) => {
+                query.order((c_dsl::redemption_count.asc(), c_dsl::id.asc()))
+            }
+            ("redemption_count", OrderDirection::Desc) => {
+                query.order((c_dsl::redemption_count.desc(), c_dsl::id.desc()))
             }
             _ => query.order((c_dsl::created_at.desc(), c_dsl::id.desc())),
         };

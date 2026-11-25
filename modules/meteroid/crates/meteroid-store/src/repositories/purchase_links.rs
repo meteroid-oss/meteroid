@@ -6,16 +6,22 @@ use common_domain::ids::{
     SubscriptionId, TenantId,
 };
 use diesel_models::checkout_sessions::CheckoutSessionRow;
+use diesel_models::coupons::CouponRow;
 use diesel_models::customers::CustomerRow;
 use diesel_models::purchase_links::{
     PurchaseBindingRow, PurchaseLinkRow, PurchaseLinkRowNew, PurchaseLinkRowUpdate,
     PurchaseLinkSessionRestart, PurchaseLinkSessionRow, PurchaseLinkSessionRowNew,
     PurchasePowSpentRowNew,
 };
+use diesel_models::query::coupons::CodeMatch;
 use error_stack::Report;
 use scoped_futures::ScopedFutureExt;
 
+use crate::domain::coupons::{Coupon, CouponValidationError};
+use crate::domain::eligibility::CustomerFacts;
 use crate::domain::enums::{PlanStatusEnum, PlanTypeEnum};
+use crate::domain::plan_options::PlanOptionRef;
+use crate::domain::price_cells::{OptionPricing, currencies, priced_options, resolve_option};
 use crate::domain::purchase_links::{
     InstanceId, LivePurchaseLink, PURCHASE_LINK_TOKEN_LENGTH, PurchaseAttemptRestart, PurchaseLink,
     PurchaseLinkNew, PurchaseLinkSession, PurchaseLinkSessionNew, PurchaseLinkUpdate,
@@ -24,7 +30,9 @@ use crate::domain::purchase_links::{
 pub use crate::domain::purchase_links::{ListedPurchaseLink, PurchaseBinding};
 use crate::domain::{Plan, PlanVersion, PlanVersionFilter};
 use crate::errors::StoreError;
+use crate::repositories::checkout_sessions::{CouponRedemption, coupon_for_code};
 use crate::repositories::plans::PlansInterface;
+use crate::repositories::price_components::PriceComponentInterface;
 use crate::store::PgConn;
 use crate::{Store, StoreResult};
 
@@ -113,6 +121,17 @@ pub trait PurchaseLinksInterface {
         restart: PurchaseAttemptRestart,
     ) -> StoreResult<Result<(), PurchaseRecordConflict>>;
 
+    /// The coupon a buyer with `facts` redeems with `code` on the plan of a link in
+    /// `currency`; `Err` with why they cannot, in words for them.
+    async fn check_coupon_code(
+        &self,
+        tenant_id: TenantId,
+        code: &str,
+        plan_id: PlanId,
+        currency: &str,
+        facts: &CustomerFacts,
+    ) -> StoreResult<Result<Coupon, String>>;
+
     /// False only for checkout sessions started from a link that refuses coupon codes.
     async fn checkout_accepts_coupon_codes(
         &self,
@@ -170,6 +189,26 @@ impl PurchaseLinksInterface for Store {
         ensure_listable(link.listed, plan.plan.issues_license)?;
 
         let mut conn = self.get_conn().await?;
+        let option = match plan.version.as_ref() {
+            Some(version) => self.sold_option(&mut conn, version, link.option).await?,
+            None => None,
+        };
+        let sold_in = match plan.version.as_ref() {
+            Some(version) => {
+                self.link_currencies(&mut conn, version, option.as_deref())
+                    .await?
+            }
+            None => Vec::new(),
+        };
+        let coupon_code = link_coupon_code(
+            &mut conn,
+            link.tenant_id,
+            link.plan_id,
+            plan.version.as_ref(),
+            &sold_in,
+            link.coupon_code,
+        )
+        .await?;
         let row = PurchaseLinkRowNew {
             id: PurchaseLinkId::new(),
             tenant_id: link.tenant_id,
@@ -183,6 +222,8 @@ impl PurchaseLinksInterface for Store {
             require_billing_address: link.require_billing_address,
             tax_id_collection: link.tax_id_collection.into(),
             only_buyer_type: link.allowed_buyer_types.to_row(),
+            plan_option: option,
+            promotion_code: coupon_code,
         }
         .insert(&mut conn)
         .await
@@ -232,12 +273,48 @@ impl PurchaseLinksInterface for Store {
         validate_redirect_url("cancel_url", update.cancel_url.as_deref())?;
 
         let mut conn = self.get_conn().await?;
-        if update.listed {
+        let mut option = None;
+        let mut coupon_code = None;
+        let sells_offer = update.option.is_some();
+        let applies_coupon = update
+            .coupon_code
+            .as_deref()
+            .is_some_and(|code| !code.trim().is_empty());
+        if update.listed || sells_offer || applies_coupon {
             let current = PurchaseLinkRow::find_by_id(&mut conn, tenant_id, id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
-            let plan = self.get_plan_overview(current.plan_id, tenant_id).await?;
-            ensure_listable(true, plan.issues_license)?;
+            if update.listed {
+                let plan = self.get_plan_overview(current.plan_id, tenant_id).await?;
+                ensure_listable(true, plan.issues_license)?;
+            }
+            if sells_offer || applies_coupon {
+                let version = self
+                    .get_plan(current.plan_id, tenant_id, PlanVersionFilter::Active)
+                    .await
+                    .ok()
+                    .and_then(|plan| plan.version)
+                    .ok_or_else(|| {
+                        Report::new(StoreError::InvalidArgument(
+                            "The plan has no published version".to_string(),
+                        ))
+                    })?;
+                if sells_offer {
+                    option = self.sold_option(&mut conn, &version, update.option).await?;
+                }
+                let sold_in = self
+                    .link_currencies(&mut conn, &version, option.as_deref())
+                    .await?;
+                coupon_code = link_coupon_code(
+                    &mut conn,
+                    tenant_id,
+                    current.plan_id,
+                    Some(&version),
+                    &sold_in,
+                    update.coupon_code,
+                )
+                .await?;
+            }
         }
         let row = PurchaseLinkRow::update(
             &mut conn,
@@ -252,6 +329,8 @@ impl PurchaseLinksInterface for Store {
                 require_billing_address: update.require_billing_address,
                 tax_id_collection: update.tax_id_collection.into(),
                 only_buyer_type: update.allowed_buyer_types.to_row(),
+                plan_option: option,
+                promotion_code: coupon_code,
             },
         )
         .await
@@ -424,6 +503,29 @@ impl PurchaseLinksInterface for Store {
         }
     }
 
+    async fn check_coupon_code(
+        &self,
+        tenant_id: TenantId,
+        code: &str,
+        plan_id: PlanId,
+        currency: &str,
+        facts: &CustomerFacts,
+    ) -> StoreResult<Result<Coupon, String>> {
+        let mut conn = self.get_conn().await?;
+        coupon_for_code(
+            &mut conn,
+            tenant_id,
+            code,
+            &CouponRedemption {
+                plan_id,
+                add_on_ids: &[],
+                currency,
+                buyer: facts,
+            },
+        )
+        .await
+    }
+
     async fn checkout_accepts_coupon_codes(
         &self,
         tenant_id: TenantId,
@@ -543,6 +645,64 @@ impl PurchaseLinksInterface for Store {
     }
 }
 
+/// The coupon code a link applies, as its coupon spells it: one a purchase can redeem now, on
+/// this plan, in every currency the link checks out in (`sold_in`, as `Store::link_currencies`
+/// reads them). Blank: none.
+async fn link_coupon_code(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    plan_id: PlanId,
+    version: Option<&PlanVersion>,
+    sold_in: &[String],
+    code: Option<String>,
+) -> StoreResult<Option<String>> {
+    let Some(code) = code.map(|c| c.trim().to_owned()).filter(|c| !c.is_empty()) else {
+        return Ok(None);
+    };
+    let version = version.ok_or_else(|| invalid("The plan has no published version".to_owned()))?;
+    let codes = [code];
+    let rows = CouponRow::candidates_by_codes(conn, tenant_id, &codes)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    let found = match CodeMatch::of(&codes[0], &rows) {
+        CodeMatch::Found(row) => row.id,
+        _ => {
+            crate::repositories::coupons::match_coupon_codes(&codes, &rows)?;
+            return Err(invalid(format!("unknown coupon codes: {}", codes[0])));
+        }
+    };
+    let rows: Vec<CouponRow> = rows.into_iter().filter(|row| row.id == found).collect();
+    let coupon = crate::repositories::coupons::coupons_with_scope(conn, rows)
+        .await?
+        .pop()
+        .ok_or_else(|| invalid(format!("unknown coupon codes: {}", codes[0])))?;
+    let now = common_clock::now().naive_utc();
+    let fallback = [version.currency.clone()];
+    let sold_in = if sold_in.is_empty() {
+        &fallback[..]
+    } else {
+        sold_in
+    };
+    for currency in sold_in {
+        coupon
+            .validate_for_use_at(now, currency)
+            .map_err(|why| match why {
+                CouponValidationError::NoAmountIn(currency) => invalid(format!(
+                    "Coupon '{}' has no amount in {currency}, a currency the link sells in: add one to the coupon",
+                    coupon.code
+                )),
+                why => invalid(why.to_error_message(&coupon.code)),
+            })?;
+    }
+    if !coupon.applies_to(Some(plan_id), &[]) {
+        return Err(invalid(format!(
+            "Coupon '{}' does not apply to this plan",
+            coupon.code
+        )));
+    }
+    Ok(Some(coupon.code))
+}
+
 pub(crate) async fn checkout_accepts_coupon_codes_tx(
     conn: &mut PgConn,
     tenant_id: TenantId,
@@ -571,6 +731,64 @@ pub fn ensure_purchasable(plan: &Plan, version: Option<&PlanVersion>) -> Result<
         _ => Err(StoreError::InvalidArgument(
             "The plan has no published version".to_string(),
         )),
+    }
+}
+
+fn invalid(message: String) -> Report<StoreError> {
+    Report::new(StoreError::InvalidArgument(message))
+}
+
+impl Store {
+    /// The option a link sells, by alias: one of `version`'s sold in some currency (the buyer's
+    /// decides at checkout). None: the plan's default.
+    async fn sold_option(
+        &self,
+        conn: &mut PgConn,
+        version: &PlanVersion,
+        asked: Option<String>,
+    ) -> StoreResult<Option<String>> {
+        let Some(asked) = asked else {
+            return Ok(None);
+        };
+        let option = resolve_option(&version.options, Some(&PlanOptionRef::Alias(asked)))?;
+        let components = self
+            .list_price_components_with_conn(conn, version.id, version.tenant_id)
+            .await?;
+        if components.iter().any(|c| !c.prices.is_empty())
+            && !priced_options(&version.options, &components)
+                .iter()
+                .any(|(_, id)| *id == option.id)
+        {
+            return Err(invalid(format!("The plan does not sell {}", option.name)));
+        }
+        Ok(Some(option.alias.clone()))
+    }
+
+    /// The currencies a link selling the option `alias` (None: the plan's default) checks out in:
+    /// each the option is sold in, as a checkout sells in the buyer's when it can; the plan's when
+    /// it is sold in none (a plan pricing nothing per currency).
+    async fn link_currencies(
+        &self,
+        conn: &mut PgConn,
+        version: &PlanVersion,
+        alias: Option<&str>,
+    ) -> StoreResult<Vec<String>> {
+        let asked = alias.map(|alias| PlanOptionRef::Alias(alias.to_owned()));
+        let Ok(option) = resolve_option(&version.options, asked.as_ref()) else {
+            return Ok(vec![version.currency.clone()]);
+        };
+        let components = self
+            .list_price_components_with_conn(conn, version.id, version.tenant_id)
+            .await?;
+        let sold: Vec<String> = currencies(&components)
+            .into_iter()
+            .filter(|currency| OptionPricing::new(option.id, currency).sells(&components))
+            .collect();
+        Ok(if sold.is_empty() {
+            vec![version.currency.clone()]
+        } else {
+            sold
+        })
     }
 }
 

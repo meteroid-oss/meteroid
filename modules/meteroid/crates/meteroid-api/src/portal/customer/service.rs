@@ -262,6 +262,9 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
                 payment_methods,
                 card_connection_id: card_connection_id.map(|id| id.to_string()),
                 direct_debit_connection_id: direct_debit_connection_id.map(|id| id.to_string()),
+                invoicing_entity_contact_email: invoicing_entity
+                    .contact_email
+                    .filter(|email| !email.trim().is_empty()),
                 invoicing_entity_name: Some(invoicing_entity.legal_name),
                 invoicing_entity_logo_url,
                 invoicing_entity_brand_color: branding.brand_color,

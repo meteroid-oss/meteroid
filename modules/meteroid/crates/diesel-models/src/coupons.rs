@@ -21,6 +21,13 @@ pub struct CouponRow {
     pub last_redemption_at: Option<NaiveDateTime>,
     pub disabled: bool,
     pub archived_at: Option<NaiveDateTime>,
+    pub eligibility: Option<serde_json::Value>,
+    pub valid_from: Option<NaiveDateTime>,
+    /// `{"EUR": "10.00"}`: a fixed discount in currencies other than its own.
+    pub fixed_amounts: Option<serde_json::Value>,
+    /// Periods starting within this many months of the first paid period; `recurring_value`
+    /// counts invoices instead (older ones).
+    pub duration_months: Option<i32>,
 }
 
 #[derive(Debug, Default, Insertable)]
@@ -36,6 +43,10 @@ pub struct CouponRowNew {
     pub redemption_limit: Option<i32>,
     pub recurring_value: Option<i32>,
     pub reusable: bool,
+    pub eligibility: Option<serde_json::Value>,
+    pub valid_from: Option<NaiveDateTime>,
+    pub fixed_amounts: Option<serde_json::Value>,
+    pub duration_months: Option<i32>,
 }
 
 #[derive(AsChangeset)]
@@ -48,6 +59,12 @@ pub struct CouponRowPatch {
     pub description: Option<String>,
     pub discount: Option<serde_json::Value>,
     pub updated_at: NaiveDateTime,
+    pub eligibility: Option<Option<serde_json::Value>>,
+    pub valid_from: Option<Option<NaiveDateTime>>,
+    pub expires_at: Option<Option<NaiveDateTime>>,
+    pub fixed_amounts: Option<Option<serde_json::Value>>,
+    /// `Some(None)` makes it last forever.
+    pub duration_months: Option<Option<i32>>,
 }
 
 #[derive(AsChangeset)]

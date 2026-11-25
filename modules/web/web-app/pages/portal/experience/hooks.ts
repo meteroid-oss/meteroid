@@ -15,6 +15,7 @@ import {
 import {
   cancelScheduledEvent,
   cancelSubscription,
+  changeLevel,
   confirmPlanChange,
   getSubscriptionDetails,
   getUpcomingInvoice,
@@ -130,6 +131,10 @@ export const useWalletLedger = (walletId: string | undefined, page: number, perP
   )
 }
 
+/** The levels picked for a plan change, as its requests carry them. */
+const levelChoices = (levels: Record<string, bigint> = {}) =>
+  Object.entries(levels).map(([componentId, included]) => ({ componentId, included }))
+
 /**
  * Everything the subscription-detail screen and change-plan modal need:
  * details, available plans, a live proration preview, add-ons, the upcoming
@@ -137,7 +142,14 @@ export const useWalletLedger = (walletId: string | undefined, page: number, perP
  */
 export const useSubscription = (
   subscriptionId: string,
-  opts: { selectedPlanVersionId?: string; loadPlans?: boolean } = {}
+  opts: {
+    selectedPlanVersionId?: string
+    /** The option to move to, by id; unset: the subscription's when the plan has it. */
+    selectedOption?: string
+    /** The level picked per usage-levels charge of the plan moved to, by its component id. */
+    selectedLevels?: Record<string, bigint>
+    loadPlans?: boolean
+  } = {}
 ) => {
   const token = usePortalToken()
 
@@ -145,7 +157,12 @@ export const useSubscription = (
   const plans = useQuery(listAvailablePlans, { subscriptionId }, { enabled: !!opts.loadPlans })
   const preview = useQuery(
     previewPlanChange,
-    { subscriptionId, newPlanVersionId: opts.selectedPlanVersionId ?? '' },
+    {
+      subscriptionId,
+      newPlanVersionId: opts.selectedPlanVersionId ?? '',
+      option: opts.selectedOption,
+      levels: levelChoices(opts.selectedLevels),
+    },
     { enabled: !!opts.selectedPlanVersionId }
   )
   const addOns = useQuery(listAvailableAddOns, { subscriptionId })
@@ -162,6 +179,7 @@ export const useSubscription = (
   const cancelSubMutation = useMutation(cancelSubscription)
   const addOnQtyMutation = useMutation(updateAddOnQuantity)
   const seatsMutation = useMutation(updateSeats)
+  const levelMutation = useMutation(changeLevel)
 
   const invalidatePortal = useInvalidatePortal()
 
@@ -171,8 +189,13 @@ export const useSubscription = (
 
   /** Confirm a plan change. Redirects to checkout when payment is required. */
   const confirmPlan = useCallback(
-    async (newPlanVersionId: string) => {
-      const res = await confirmMutation.mutateAsync({ subscriptionId, newPlanVersionId })
+    async (newPlanVersionId: string, option?: string, levels?: Record<string, bigint>) => {
+      const res = await confirmMutation.mutateAsync({
+        subscriptionId,
+        newPlanVersionId,
+        option,
+        levels: levelChoices(levels),
+      })
       if (res.status === PlanChangeStatus.PLAN_CHANGE_CHECKOUT_REQUIRED && res.checkoutToken) {
         goToCheckout(res.checkoutToken)
         return { redirected: true as const, res }
@@ -240,6 +263,19 @@ export const useSubscription = (
     [seatsMutation, subscriptionId, goToCheckout, invalidatePortal]
   )
 
+  /**
+   * Move a usage-levels charge to another level of its plan: a higher one applies now, billed
+   * prorated; a lower one at the end of the period.
+   */
+  const setLevel = useCallback(
+    async (componentId: string, priceId: string) => {
+      const res = await levelMutation.mutateAsync({ subscriptionId, componentId, priceId })
+      await invalidatePortal()
+      return res
+    },
+    [levelMutation, subscriptionId, invalidatePortal]
+  )
+
   /** Cancel the subscription (end-of-period by default, or immediately). */
   const cancelSub = useCallback(
     async (opts: { immediate?: boolean; reason?: string } = {}) => {
@@ -261,11 +297,15 @@ export const useSubscription = (
     plans,
     preview: preview.data?.preview,
     previewPlanName: preview.data?.newPlanName,
+    /** The usage-levels charges of the plan moved to that offer a choice of level. */
+    previewLevels: preview.data?.levels ?? [],
     isPreviewLoading: preview.isFetching,
+    previewError: preview.error,
     addOns: addOns.data?.addOns ?? [],
     adjustableComponents: adjustable.data?.components ?? [],
     canSelfServe: adjustable.data?.canSelfServe ?? false,
     allowDowngrade: adjustable.data?.allowDowngrade ?? true,
+    levelDowngrade: adjustable.data?.levelDowngrade ?? false,
     upcomingInvoice: upcoming.data?.invoice,
     isUpcomingLoading: upcoming.isLoading,
     isUpcomingError: upcoming.isError,
@@ -274,6 +314,8 @@ export const useSubscription = (
     addOnQtyPending: addOnQtyMutation.isPending,
     setSeats,
     seatsPending: seatsMutation.isPending,
+    setLevel,
+    levelPending: levelMutation.isPending,
     confirmPlan,
     confirmPending: confirmMutation.isPending,
     purchase,

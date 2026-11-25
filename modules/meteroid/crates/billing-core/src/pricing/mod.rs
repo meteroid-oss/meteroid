@@ -5,7 +5,7 @@ mod fees;
 mod usage;
 
 pub use fees::{tiered, usage_amount, usage_price, volume};
-pub use usage::{capacity_overage_lines, cell_matches, usage_lines};
+pub use usage::{capacity_overage_lines, quantity_line, usage_lines};
 
 use std::collections::HashMap;
 
@@ -25,6 +25,8 @@ pub enum PricingError {
     /// A price no quantity can be billed under: a package of no units, or two tiers starting on
     /// the same unit.
     InvalidPrice,
+    /// Usage no rate by dimension rates, while its price or card holds such usage (R-132).
+    Unrated,
 }
 
 /// One row of a tiered or volume price; its last unit is the next row's first.
@@ -34,33 +36,6 @@ pub struct Tier {
     pub rate: Decimal,
     pub flat_fee: Option<Decimal>,
     pub flat_cap: Option<Decimal>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct MatrixDimension {
-    pub key: String,
-    pub value: String,
-}
-
-/// A matrix price: the usage carrying `dimension1` (and `dimension2`) costs `per_unit_price`.
-#[derive(Clone, Debug, PartialEq)]
-pub struct MatrixCell {
-    pub dimension1: MatrixDimension,
-    pub dimension2: Option<MatrixDimension>,
-    pub per_unit_price: Decimal,
-}
-
-impl MatrixCell {
-    /// Whether usage carrying `dimensions` falls in this cell.
-    pub fn matches(&self, dimensions: &HashMap<String, String>) -> bool {
-        cell_matches(
-            (&self.dimension1.key, &self.dimension1.value),
-            self.dimension2
-                .as_ref()
-                .map(|dimension2| (dimension2.key.as_str(), dimension2.value.as_str())),
-            dimensions,
-        )
-    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -80,9 +55,22 @@ pub enum UsageModel {
         block_size: u64,
         rate: Decimal,
     },
-    Matrix {
-        rates: Vec<MatrixCell>,
-    },
+    /// Rates by dimension: a shared card's, or a price's own (entries in force from always).
+    RateCard(CardRates),
+}
+
+/// A rate card's entries in the price's currency as a usage price reads them, each rate per
+/// `unit_size` units and scaled by `multiplier`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CardRates {
+    pub dimensions: Vec<String>,
+    pub entries: Vec<crate::rate_card::Entry<Decimal>>,
+    pub unit_size: Decimal,
+    pub multiplier: Decimal,
+    /// Usage no entry rates is left unbilled instead of holding the invoice.
+    pub ignore_unrated: bool,
+    /// The day whose entries rate the usage: the caller cuts windows where an entry takes over.
+    pub on: chrono::NaiveDate,
 }
 
 impl UsageModel {
@@ -91,7 +79,7 @@ impl UsageModel {
     /// Linear models (per-unit, graduated tiers) use the price-derived `quantity_scale` of
     /// their largest rate; step models (package, volume) only strip float noise, since a
     /// coarser scale would round genuine fractional usage across a `ceil`/tier boundary and
-    /// drop a whole block of revenue. Matrix is priced per cell at the call site.
+    /// drop a whole block of revenue. Rates by dimension are priced per key at the call site.
     pub fn billable_quantity_scale(&self, precision: u8) -> u32 {
         match self {
             UsageModel::PerUnit { rate } => quantity_scale(*rate, precision),
@@ -100,7 +88,7 @@ impl UsageModel {
                 .map(|t| t.rate)
                 .max()
                 .map_or(MAX_QUANTITY_SCALE, |rate| quantity_scale(rate, precision)),
-            UsageModel::Package { .. } | UsageModel::Volume { .. } | UsageModel::Matrix { .. } => {
+            UsageModel::Package { .. } | UsageModel::Volume { .. } | UsageModel::RateCard(_) => {
                 MAX_QUANTITY_SCALE
             }
         }
@@ -131,6 +119,7 @@ pub enum SubLineAttributes {
         flat_cap: Option<Decimal>,
         flat_fee: Option<Decimal>,
     },
+    /// The values of a rate by dimension's first two dimensions a subline is the usage of.
     Matrix {
         dimension1_key: String,
         dimension1_value: String,
@@ -160,6 +149,42 @@ pub struct PricedLine {
 }
 
 impl PricedLine {
+    /// A line of sublines at their exact amounts: the line is rounded once and the drift to the
+    /// sum of the rounded sublines goes to the largest-magnitude one. Rules: R-130, R-001.
+    pub fn from_exact_sublines(
+        sublines: Vec<(SubLine, Decimal)>,
+        precision: u8,
+    ) -> Result<PricedLine, PricingError> {
+        let exact_total = sublines
+            .iter()
+            .try_fold(Decimal::ZERO, |sum, (_, exact)| sum.checked_add(*exact))
+            .ok_or(PricingError::OutOfRange)?;
+        let total = to_minor(exact_total, precision)?;
+        let mut rounded = Vec::with_capacity(sublines.len());
+        for (mut subline, exact) in sublines {
+            subline.total = to_minor(exact, precision)?;
+            rounded.push((subline, exact));
+        }
+        let drift = total
+            - rounded
+                .iter()
+                .map(|(subline, _)| subline.total)
+                .sum::<i64>();
+        if drift != 0
+            && let Some((largest, _)) = rounded.iter_mut().max_by_key(|(_, exact)| exact.abs())
+        {
+            largest.total += drift;
+        }
+        Ok(PricedLine {
+            quantity: None,
+            unit_price: None,
+            total: total.max(0),
+            is_prorated: false,
+            sublines: rounded.into_iter().map(|(subline, _)| subline).collect(),
+            dimensions: None,
+        })
+    }
+
     /// A line made of sublines. Rules: R-071, R-002.
     pub fn from_usage_sublines(
         mut sublines: Vec<SubLine>,

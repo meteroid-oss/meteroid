@@ -1,4 +1,4 @@
-import { Badge } from '@md/ui'
+import { Badge, Tooltip, TooltipContent, TooltipTrigger } from '@md/ui'
 
 import { PlanStatus } from '@/rpc/api/plans/v1/models_pb'
 
@@ -20,3 +20,20 @@ export const PlanStatusBadge = ({ status }: Props) => {
       return null
   }
 }
+
+/** A plan's draft version, beside its name: "Draft open" over a published one, else "Draft". */
+export const DraftTag = ({ published }: { published: boolean }) =>
+  published ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge variant="outline" size="sm" className="font-normal text-muted-foreground">
+          Draft open
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent>A new version is being drafted</TooltipContent>
+    </Tooltip>
+  ) : (
+    <Badge variant="outline" size="sm" className="font-normal text-muted-foreground">
+      Draft
+    </Badge>
+  )

@@ -33,6 +33,8 @@ pub fn domain_to_server(link: PurchaseLinkWithStats, public_url: &str) -> server
         require_billing_address: link.require_billing_address,
         tax_id_collection: tax_id_collection_to_server(link.tax_id_collection).into(),
         allowed_buyer_types: allowed_buyer_types_to_server(link.allowed_buyer_types).into(),
+        coupon_code: link.coupon_code,
+        option: link.option,
     }
 }
 

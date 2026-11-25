@@ -51,22 +51,16 @@ const SlotSubscriptionFee = z.object({
   downgrade_policy: DowngradePolicyEnum,
 })
 
-const UsageMatrix = z.object({
-  rows: z.array(
+// A rate per key: one pattern per dimension (a value, a prefix ending in `*`, or `*`).
+const UsageDimensionRates = z.object({
+  dimensions: z.array(z.string()).min(1).max(4),
+  rates: z.array(
     z.object({
-      per_unit_price: PriceString,
-      dimension1: z.object({
-        key: z.string(),
-        value: z.string(),
-      }),
-      dimension2: z
-        .object({
-          key: z.string(),
-          value: z.string(),
-        })
-        .optional(),
+      key: z.array(z.string()),
+      rate: PriceString,
     })
   ),
+  unit_size: z.string().default('1'),
 })
 
 const UsageTierRow = z.object({
@@ -94,7 +88,7 @@ const UsageSubscriptionFee = z.object({
     z.object({ type: z.literal('tiered'), config: UsageTieredAndVolume }),
     z.object({ type: z.literal('volume'), config: UsageTieredAndVolume }),
     z.object({ type: z.literal('package'), config: UsagePackage }),
-    z.object({ type: z.literal('matrix'), config: UsageMatrix }),
+    z.object({ type: z.literal('dimension_rates'), config: UsageDimensionRates }),
   ]),
 })
 

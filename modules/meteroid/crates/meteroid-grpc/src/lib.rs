@@ -135,6 +135,30 @@ pub mod meteroid {
             }
         }
 
+        pub mod quantities {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.quantities.v1");
+            }
+        }
+
+        pub mod ratecards {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.ratecards.v1");
+            }
+        }
+
+        pub mod pricingpage {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.pricingpage.v1");
+            }
+        }
+
+        pub mod selfserve {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.selfserve.v1");
+            }
+        }
+
         pub mod budgets {
             pub mod v1 {
                 tonic::include_proto!("meteroid.api.budgets.v1");
@@ -162,6 +186,12 @@ pub mod meteroid {
         pub mod features {
             pub mod v1 {
                 tonic::include_proto!("meteroid.api.features.v1");
+            }
+        }
+
+        pub mod eligibility {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.eligibility.v1");
             }
         }
 

@@ -38,6 +38,7 @@ impl From<Report<StoreError>> for PriceComponentApiError {
         match value.current_context() {
             StoreError::FailedPrecondition(msg) => return Self::FailedPrecondition(msg.clone()),
             StoreError::ValueNotFound(msg) => return Self::NotFound(msg.clone()),
+            StoreError::InvalidArgument(msg) => return Self::InvalidArgument(msg.clone()),
             _ => {}
         }
         let err = Box::new(value.into_error());

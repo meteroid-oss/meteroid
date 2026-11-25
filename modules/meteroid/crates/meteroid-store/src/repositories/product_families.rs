@@ -30,6 +30,13 @@ pub trait ProductFamilyInterface {
         auth_tenant_id: TenantId,
     ) -> StoreResult<domain::ProductFamily>;
 
+    async fn rename_product_family(
+        &self,
+        id: ProductFamilyId,
+        name: String,
+        auth_tenant_id: TenantId,
+    ) -> StoreResult<domain::ProductFamily>;
+
     async fn find_default_product_family(
         &self,
         auth_tenant_id: TenantId,
@@ -110,6 +117,25 @@ impl ProductFamilyInterface for Store {
         let mut conn = self.get_conn().await?;
 
         ProductFamilyRow::find_by_id(&mut conn, id, auth_tenant_id)
+            .await
+            .map_err(Into::into)
+            .map(Into::into)
+    }
+
+    async fn rename_product_family(
+        &self,
+        id: ProductFamilyId,
+        name: String,
+        auth_tenant_id: TenantId,
+    ) -> StoreResult<domain::ProductFamily> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(error_stack::Report::new(
+                crate::errors::StoreError::InvalidArgument("a product line has a name".to_owned()),
+            ));
+        }
+        let mut conn = self.get_conn().await?;
+        ProductFamilyRow::rename(&mut conn, id, auth_tenant_id, name)
             .await
             .map_err(Into::into)
             .map(Into::into)

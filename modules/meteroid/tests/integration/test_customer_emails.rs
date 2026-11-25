@@ -3079,6 +3079,7 @@ async fn create_quote_for(env: &TestEnv, customer: CustomerId) -> QuoteId {
         .quotes
         .create_quote(quotes::CreateQuoteRequest {
             quote: Some(quotes::CreateQuote {
+                option: None,
                 plan_version_id: PLAN_VERSION_NOTION_ID.as_proto(),
                 customer_id: customer.as_proto(),
                 currency: "EUR".to_string(),

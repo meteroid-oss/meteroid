@@ -11,6 +11,8 @@ import {
 
 import {
   configurableComponents,
+  configureMatched,
+  matchedComponents,
   parametersKey,
   toParameterizedComponents,
 } from './componentChoices'
@@ -60,41 +62,24 @@ describe('plan change component parameters', () => {
     expect(params(targets, quarterly)).toEqual([])
   })
 
-  it("defaults the cadence to the subscription's, else the shortest", () => {
-    const both = [
-      rate('m', BillingPeriod.MONTHLY),
-      rate('q', BillingPeriod.QUARTERLY),
-      rate('a', BillingPeriod.ANNUAL),
-    ]
-    expect(params([component('pc_new', 'prod_new', both)], quarterly)).toEqual([
-      { componentId: 'pc_new', billingPeriod: BillingPeriod.QUARTERLY },
-    ])
-    expect(params([component('pc_new', 'prod_new', [both[2], both[0]])], quarterly)).toEqual([
-      { componentId: 'pc_new', billingPeriod: BillingPeriod.MONTHLY },
-    ])
+  it('sends no cadence: the option chosen for the plan bills its own', () => {
+    const cell = [rate('a', BillingPeriod.ANNUAL)]
+    expect(params([component('pc_new', 'prod_new', cell)], quarterly)).toEqual([])
   })
 
-  it('defaults to the lowest capacity tier of the chosen cadence and keeps a valid choice', () => {
+  it('defaults to the lowest capacity tier and keeps a valid choice', () => {
     const target = component('pc_cap', 'prod_cap', [
       capacity('m500', BillingPeriod.MONTHLY, 500n),
       capacity('m100', BillingPeriod.MONTHLY, 100n),
-      capacity('a1000', BillingPeriod.ANNUAL, 1000n),
-      capacity('a2000', BillingPeriod.ANNUAL, 2000n),
     ])
     const monthly = [held('prod_base', SubscriptionFeeBillingPeriod.MONTHLY)]
 
-    expect(params([target], monthly)).toEqual([
-      { componentId: 'pc_cap', billingPeriod: BillingPeriod.MONTHLY, committedCapacity: 100n },
-    ])
+    expect(params([target], monthly)).toEqual([{ componentId: 'pc_cap', committedCapacity: 100n }])
     expect(params([target], monthly, { pc_cap: { committedCapacity: 500n } })).toEqual([
-      { componentId: 'pc_cap', billingPeriod: BillingPeriod.MONTHLY, committedCapacity: 500n },
+      { componentId: 'pc_cap', committedCapacity: 500n },
     ])
-    expect(
-      params([target], monthly, {
-        pc_cap: { billingPeriod: BillingPeriod.ANNUAL, committedCapacity: 500n },
-      })
-    ).toEqual([
-      { componentId: 'pc_cap', billingPeriod: BillingPeriod.ANNUAL, committedCapacity: 1000n },
+    expect(params([target], monthly, { pc_cap: { committedCapacity: 1000n } })).toEqual([
+      { componentId: 'pc_cap', committedCapacity: 100n },
     ])
   })
 
@@ -127,12 +112,47 @@ describe('plan change component parameters', () => {
     ])
   })
 
+  it('picks a level for a held usage-levels charge the target sells at several levels', () => {
+    const target = component('pc_cap', 'prod_cap', [
+      capacity('l1', BillingPeriod.MONTHLY, 50_000n),
+      capacity('l2', BillingPeriod.MONTHLY, 250_000n),
+      capacity('l3', BillingPeriod.MONTHLY, 500_000n),
+    ])
+    const holding = (included: bigint) => [
+      create(SubscriptionComponentSchema, {
+        id: 'sc_cap',
+        productId: 'prod_cap',
+        period: SubscriptionFeeBillingPeriod.MONTHLY,
+        fee: {
+          fee: {
+            case: 'capacity',
+            value: { rate: '479', included, overageRate: '0.005', metricId: 'm' },
+          },
+        },
+      }),
+    ]
+    const level = (included: bigint, choices = {}) =>
+      toParameterizedComponents(
+        configureMatched(matchedComponents([target], holding(included)), holding(included), choices)
+      )
+
+    // The level held, when the target sells it; else the next one up.
+    expect(level(250_000n)).toEqual([{ componentId: 'pc_cap', committedCapacity: 250_000n }])
+    expect(level(125_000n)).toEqual([{ componentId: 'pc_cap', committedCapacity: 250_000n }])
+    expect(level(900_000n)).toEqual([{ componentId: 'pc_cap', committedCapacity: 500_000n }])
+    expect(level(125_000n, { pc_cap: { committedCapacity: 50_000n } })).toEqual([
+      { componentId: 'pc_cap', committedCapacity: 50_000n },
+    ])
+    // A matched charge is never configured as an added one.
+    expect(configurableComponents([target], holding(125_000n), {})).toEqual([])
+  })
+
   it('keys parameters for change detection', () => {
     expect(
       parametersKey([
-        { componentId: 'a', billingPeriod: BillingPeriod.ANNUAL, committedCapacity: 10n },
+        { componentId: 'a', committedCapacity: 10n },
         { componentId: 'b', initialSlotCount: 2 },
       ])
-    ).toBe('a:2:10:|b:::2')
+    ).toBe('a:10:|b::2')
   })
 })

@@ -60,6 +60,7 @@ fn test_quote_payload(
     let component_id = ids::COMP_NOTION_SEATS_ID.as_proto();
 
     api::quotes::v1::CreateQuote {
+        option: None,
         plan_version_id,
         customer_id,
         currency: "EUR".to_string(),
@@ -411,6 +412,153 @@ async fn test_quote_conversion_happy_path() {
     assert_eq!(active_seats, 5);
 }
 
+/// The seats at a custom price, with a count: one line, the custom price for that count, and the
+/// subscription it converts to holds the same.
+#[tokio::test]
+async fn test_quote_custom_priced_seats_keep_their_count() {
+    use meteroid_store::domain::price_components::RatingModel;
+    use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
+    use rust_decimal_macros::dec;
+
+    let TestContext { setup, clients } = setup_test(SeedLevel::PLANS).await.unwrap();
+
+    let mut payload = test_quote_payload(4, None);
+    payload
+        .components
+        .as_mut()
+        .unwrap()
+        .overridden_components
+        .push(
+            api::subscriptions::v1::create_subscription_components::ComponentOverride {
+                component_id: ids::COMP_NOTION_SEATS_ID.as_proto(),
+                name: "Seats".to_string(),
+                price: Some(api::components::v1::PriceEntry {
+                    entry: Some(api::components::v1::price_entry::Entry::NewPrice(
+                        api::components::v1::PriceInput {
+                            cadence: BillingPeriod::Monthly.into(),
+                            currency: "EUR".to_string(),
+                            pricing: Some(api::components::v1::price_input::Pricing::SlotPricing(
+                                api::prices::v1::SlotPricing {
+                                    unit_rate: "7.00".to_string(),
+                                    min_slots: None,
+                                    max_slots: None,
+                                    model: None,
+                                },
+                            )),
+                            credit_unit: None,
+                        },
+                    )),
+                }),
+            },
+        );
+
+    let created = clients
+        .quotes
+        .clone()
+        .create_quote(tonic::Request::new(api::quotes::v1::CreateQuoteRequest {
+            quote: Some(payload),
+        }))
+        .await
+        .expect("Failed to create quote")
+        .into_inner()
+        .quote
+        .expect("Quote not returned");
+    let quote_id_proto = created.quote.as_ref().unwrap().id.clone();
+
+    let seats_id = ids::COMP_NOTION_SEATS_ID.as_proto();
+    let seat_lines: Vec<_> = created
+        .components
+        .iter()
+        .filter(|c| c.price_component_id.as_deref() == Some(seats_id.as_str()))
+        .collect();
+    assert_eq!(seat_lines.len(), 1, "no plan line beside the custom price");
+    assert!(seat_lines[0].is_override);
+    assert_eq!(seat_count(&created), 4);
+
+    let is_custom_priced_seats = |fee: &SubscriptionFee| {
+        matches!(
+            fee,
+            SubscriptionFee::Slot {
+                model: RatingModel::PerUnit { rate },
+                initial_slots: 4,
+                ..
+            } if *rate == dec!(7)
+        )
+    };
+
+    let quote_id = QuoteId::from_proto(&quote_id_proto).expect("Invalid quote ID");
+    let detailed = setup
+        .store
+        .get_detailed_quote_by_id(ids::TENANT_ID, quote_id)
+        .await
+        .expect("Failed to load quote");
+    assert!(
+        detailed
+            .components
+            .iter()
+            .any(|c| c.is_override && is_custom_priced_seats(&c.fee)),
+        "{:?}",
+        detailed.components
+    );
+
+    clients
+        .quotes
+        .clone()
+        .publish_quote(tonic::Request::new(api::quotes::v1::PublishQuoteRequest {
+            id: quote_id_proto.clone(),
+        }))
+        .await
+        .expect("Failed to publish quote");
+    setup
+        .store
+        .accept_quote(
+            common_domain::actor::Actor::System,
+            quote_id,
+            ids::TENANT_ID,
+        )
+        .await
+        .expect("Failed to accept quote");
+
+    let subscription = clients
+        .quotes
+        .clone()
+        .convert_quote_to_subscription(tonic::Request::new(
+            api::quotes::v1::ConvertQuoteToSubscriptionRequest {
+                quote_id: quote_id_proto,
+            },
+        ))
+        .await
+        .expect("Failed to convert quote")
+        .into_inner()
+        .subscription
+        .expect("Subscription not returned");
+    let subscription_id = SubscriptionId::from_proto(&subscription.id).unwrap();
+
+    let details = setup
+        .store
+        .get_subscription_details(ids::TENANT_ID, subscription_id)
+        .await
+        .expect("Failed to load subscription");
+    let seat_components: Vec<_> = details
+        .price_components
+        .iter()
+        .filter(|c| c.price_component_id == Some(ids::COMP_NOTION_SEATS_ID))
+        .collect();
+    assert_eq!(seat_components.len(), 1, "{seat_components:?}");
+    assert!(
+        is_custom_priced_seats(&seat_components[0].fee),
+        "{:?}",
+        seat_components[0].fee
+    );
+
+    let active_seats = setup
+        .store
+        .get_active_slots_value(ids::TENANT_ID, subscription_id, "Seats".to_string(), None)
+        .await
+        .expect("Failed to read active seats");
+    assert_eq!(active_seats, 4);
+}
+
 #[tokio::test]
 async fn test_send_quote_requires_quote_ready_email() {
     let TestContext { setup, clients } = setup_test(SeedLevel::PLANS).await.unwrap();
@@ -749,6 +897,7 @@ async fn test_quote_with_inline_entitlements() {
         .clone()
         .create_quote(tonic::Request::new(api::quotes::v1::CreateQuoteRequest {
             quote: Some(api::quotes::v1::CreateQuote {
+                option: None,
                 plan_version_id,
                 customer_id,
                 currency: "EUR".to_string(),
@@ -895,6 +1044,7 @@ async fn test_quote_conversion_carries_entitlements() {
         .clone()
         .create_quote(tonic::Request::new(api::quotes::v1::CreateQuoteRequest {
             quote: Some(api::quotes::v1::CreateQuote {
+                option: None,
                 plan_version_id,
                 customer_id,
                 currency: "EUR".to_string(),
@@ -1239,6 +1389,7 @@ pub(crate) fn quote_granting(feature_id: &str) -> api::quotes::v1::CreateQuoteRe
 
     api::quotes::v1::CreateQuoteRequest {
         quote: Some(api::quotes::v1::CreateQuote {
+            option: None,
             plan_version_id: ids::PLAN_VERSION_NOTION_ID.as_proto(),
             customer_id: ids::CUST_SPOTIFY_ID.as_proto(),
             currency: "EUR".to_string(),

@@ -429,6 +429,7 @@ pub async fn pack_subscription(
         }
         .insert(tx)
         .await?;
+        crate::data::plans::seed_default_option(tx, tenant_id, plan_version_id).await?;
         PlanRowPatch {
             id: plan_id,
             tenant_id,
@@ -477,6 +478,7 @@ pub async fn pack_subscription(
             usage_filter_property: None,
             usage_filter_value: None,
             usage_filter_since: None,
+            plan_option_id: None,
         }
         .insert(tx)
         .await?;
@@ -565,6 +567,8 @@ pub async fn reduced_tax_unit_product(
         .expect("fee structure"),
         catalog: true,
         tax_category_id: Some(reduced.id),
+        icon: None,
+        color: None,
     }
     .insert(&mut conn)
     .await

@@ -997,6 +997,7 @@ pub fn build(story: &Story) -> Built {
             id: id(800 + u128::from(n)),
             from: start,
             invoices: (n % 2 == 0).then_some(2),
+            until: None,
         });
     }
     builder

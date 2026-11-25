@@ -8,6 +8,7 @@ use diesel_models::enums::{
 };
 use diesel_models::errors::DatabaseErrorContainer;
 use diesel_models::plan_component_prices::PlanComponentPriceRowNew;
+use diesel_models::plan_version_options::PlanVersionOptionRowNew;
 use diesel_models::plan_versions::PlanVersionRowNew;
 use diesel_models::plans::{PlanRowNew, PlanRowPatch};
 use diesel_models::price_components::PriceComponentRowNew;
@@ -21,6 +22,75 @@ use meteroid_store::domain::{
 };
 use meteroid_store::store::PgPool;
 use rust_decimal::Decimal;
+
+/// The id of `version_id`'s seeded option of `alias`, derived from both.
+pub fn option_id(version_id: PlanVersionId, alias: &str) -> PlanOptionId {
+    PlanOptionId::from(uuid::Uuid::new_v5(&version_id.as_uuid(), alias.as_bytes()))
+}
+
+/// The option a seeded version starts with, Standard.
+pub fn default_option_id(version_id: PlanVersionId) -> PlanOptionId {
+    option_id(
+        version_id,
+        meteroid_store::domain::plan_options::DEFAULT_OPTION_ALIAS,
+    )
+}
+
+/// Inserts `version_id`'s default option, Standard: every version is sold in at least one.
+/// Seeding more components into a version finds the one already there.
+pub async fn seed_default_option(
+    tx: &mut PgConn,
+    tenant_id: TenantId,
+    version_id: PlanVersionId,
+) -> Result<PlanOptionId, DatabaseErrorContainer> {
+    let id = default_option_id(version_id);
+    let existing =
+        diesel_models::plan_version_options::PlanVersionOptionRow::list_by_plan_version_id(
+            tx, tenant_id, version_id,
+        )
+        .await?;
+    if existing.iter().any(|option| option.id == id) {
+        return Ok(id);
+    }
+    PlanVersionOptionRowNew {
+        id,
+        tenant_id,
+        plan_version_id: version_id,
+        name: meteroid_store::domain::plan_options::DEFAULT_OPTION_NAME.to_owned(),
+        alias: meteroid_store::domain::plan_options::DEFAULT_OPTION_ALIAS.to_owned(),
+        position: 0,
+        hidden: false,
+    }
+    .insert(tx)
+    .await?;
+    Ok(id)
+}
+
+/// Inserts an option of `version_id` per `(name, cadence)`, aliased the name in lowercase.
+async fn seed_cadence_options(
+    tx: &mut PgConn,
+    version_id: PlanVersionId,
+    options: &[(&'static str, DieselBillingPeriodEnum)],
+) -> Result<Vec<(PlanOptionId, BillingPeriodEnum)>, DatabaseErrorContainer> {
+    let mut seeded = Vec::with_capacity(options.len());
+    for (position, (name, cadence)) in options.iter().enumerate() {
+        let alias = name.to_ascii_lowercase();
+        let id = option_id(version_id, &alias);
+        PlanVersionOptionRowNew {
+            id,
+            tenant_id: ids::TENANT_ID,
+            plan_version_id: version_id,
+            name: (*name).to_owned(),
+            alias,
+            position: position as i32,
+            hidden: false,
+        }
+        .insert(tx)
+        .await?;
+        seeded.push((id, cadence.clone().into()));
+    }
+    Ok(seeded)
+}
 
 pub async fn run_plans_seed(pool: &PgPool) {
     let mut conn = pool
@@ -322,6 +392,8 @@ fn product(
         fee_structure: serde_json::to_value(&fee_structure).unwrap(),
         catalog: true,
         tax_category_id: None,
+        icon: None,
+        color: None,
     }
 }
 
@@ -420,6 +492,7 @@ pub struct PlanSeed {
     draft: Option<(PlanVersionId, i32)>,
     trial: Option<(i32, PlanId, bool)>, // (days, trialing_plan_id, is_free)
     components: Vec<SeedComp>,
+    options: Vec<(&'static str, DieselBillingPeriodEnum)>,
 }
 
 impl PlanSeed {
@@ -434,7 +507,15 @@ impl PlanSeed {
             draft: None,
             trial: None,
             components: vec![],
+            options: vec![],
         }
+    }
+
+    /// An option per `(name, cadence)` instead of Standard: a charge priced on several cadences
+    /// is priced in each on its cadence, any other the same in every option.
+    pub fn options(mut self, options: &[(&'static str, DieselBillingPeriodEnum)]) -> Self {
+        self.options = options.to_vec();
+        self
     }
 
     pub fn free(mut self) -> Self {
@@ -524,6 +605,7 @@ impl PlanSeed {
             }
             .insert(tx)
             .await?;
+            seed_default_option(tx, ids::TENANT_ID, draft_id).await?;
         }
 
         PlanRowPatch {
@@ -539,7 +621,14 @@ impl PlanSeed {
         .update(tx)
         .await?;
 
-        Self::seed_components(tx, self.version_id, &self.components, self.currency).await?;
+        Self::seed_components_in(
+            tx,
+            self.version_id,
+            &self.components,
+            self.currency,
+            &self.options,
+        )
+        .await?;
 
         Ok(())
     }
@@ -585,12 +674,34 @@ impl PlanSeed {
         components: &[SeedComp],
         currency: &str,
     ) -> Result<(), DatabaseErrorContainer> {
+        Self::seed_components_in(tx, version_id, components, currency, &[]).await
+    }
+
+    /// `components` in the options `options` seeds (none: Standard).
+    pub async fn seed_components_in(
+        tx: &mut PgConn,
+        version_id: PlanVersionId,
+        components: &[SeedComp],
+        currency: &str,
+        options: &[(&'static str, DieselBillingPeriodEnum)],
+    ) -> Result<(), DatabaseErrorContainer> {
+        let options = if options.is_empty() {
+            vec![(
+                seed_default_option(tx, ids::TENANT_ID, version_id).await?,
+                BillingPeriodEnum::Monthly,
+            )]
+        } else {
+            seed_cadence_options(tx, version_id, options).await?
+        };
+        let fixed =
+            |pricing: &Pricing| !matches!(pricing, Pricing::Usage(_) | Pricing::OneTime { .. });
         let mut pcp_links = Vec::new();
         for comp in components {
             PriceComponentRowNew {
                 id: comp.id,
                 name: comp.name.to_string(),
-                legacy_fee: Some(comp.legacy_fee.clone().try_into().unwrap()),
+                legacy_fee: (!comp.prices.is_empty())
+                    .then(|| comp.legacy_fee.clone().try_into().unwrap()),
                 plan_version_id: version_id,
                 product_id: Some(comp.product_id),
                 billable_metric_id: comp.billable_metric_id,
@@ -598,6 +709,15 @@ impl PlanSeed {
             .insert(tx)
             .await?;
 
+            let mut cadences: Vec<BillingPeriodEnum> = comp
+                .prices
+                .iter()
+                .filter(|p| fixed(&p.pricing))
+                .map(|p| p.cadence.clone().into())
+                .collect();
+            cadences.sort();
+            cadences.dedup();
+            let per_option = options.len() > 1 && cadences.len() > 1;
             for price in &comp.prices {
                 PriceRowNew {
                     id: price.id,
@@ -613,10 +733,17 @@ impl PlanSeed {
                 .insert(tx)
                 .await?;
 
-                pcp_links.push(PlanComponentPriceRowNew {
-                    plan_component_id: comp.id,
-                    price_id: price.id,
-                });
+                let own: BillingPeriodEnum = price.cadence.clone().into();
+                for (option_id, cadence) in &options {
+                    if per_option && fixed(&price.pricing) && *cadence != own {
+                        continue;
+                    }
+                    pcp_links.push(PlanComponentPriceRowNew {
+                        plan_component_id: comp.id,
+                        price_id: price.id,
+                        option_id: *option_id,
+                    });
+                }
             }
         }
         if !pcp_links.is_empty() {
@@ -647,6 +774,18 @@ pub struct SeedComp {
 }
 
 impl SeedComp {
+    /// A product the plan includes with no price: its features, no fee.
+    pub fn included(id: PriceComponentId, name: &'static str, product_id: ProductId) -> Self {
+        Self {
+            id,
+            name,
+            product_id,
+            billable_metric_id: None,
+            legacy_fee: FeeType::Rate { rates: vec![] },
+            prices: vec![],
+        }
+    }
+
     pub fn rate(
         id: PriceComponentId,
         name: &'static str,
@@ -706,7 +845,9 @@ impl SeedComp {
                 id: pid,
                 cadence: c,
                 pricing: Pricing::Slot {
-                    unit_rate: r,
+                    model: meteroid_store::domain::price_components::RatingModel::PerUnit {
+                        rate: r,
+                    },
                     min_slots: Some(1),
                     max_slots: None,
                 },
@@ -825,6 +966,7 @@ impl SeedComp {
                 pricing: Pricing::ExtraRecurring {
                     unit_price,
                     quantity,
+                    model: None,
                 },
             }],
         }
@@ -853,6 +995,7 @@ impl SeedComp {
                 pricing: Pricing::OneTime {
                     unit_price,
                     quantity,
+                    model: None,
                 },
             }],
         }

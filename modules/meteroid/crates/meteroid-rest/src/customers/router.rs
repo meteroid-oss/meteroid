@@ -148,18 +148,61 @@ pub async fn create_customer(
     State(app_state): State<AppState>,
     ApiValid(ApiJson(payload)): ApiValid<ApiJson<CustomerCreateRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
-    let created = app_state
-        .store
-        .insert_customer(
-            authorized_state.as_actor(),
-            create_req_to_domain(payload)?,
-            authorized_state.tenant_id,
+    let (signup, signup_family) = (
+        payload.subscribe_to_signup_plan,
+        payload.signup_product_family_id,
+    );
+    let customer_new = create_req_to_domain(payload)?;
+    let signup_offer = if signup {
+        if !app_state
+            .feature_resolver
+            .resolve(authorized_state.organization_id)
+            .await
+            .is_enabled(meteroid_app::features::gates::PORTAL_SELF_SERVICE)
+        {
+            return Err(RestApiError::Forbidden);
+        }
+        Some(
+            app_state
+                .services
+                .signup_offer(
+                    authorized_state.tenant_id,
+                    signup_family,
+                    &customer_new.currency,
+                )
+                .await
+                .map_err(RestApiError::from)?,
         )
-        .await
-        .map_err(|e| {
-            log::error!("create_customer: failed to insert customer: {e}");
-            RestApiError::from(e)
-        })?;
+    } else {
+        None
+    };
+    let created = match signup_offer {
+        Some(offer) => {
+            app_state
+                .services
+                .create_customer_on_signup(
+                    authorized_state.as_actor(),
+                    authorized_state.tenant_id,
+                    customer_new,
+                    offer,
+                )
+                .await
+        }
+        None => {
+            app_state
+                .store
+                .insert_customer(
+                    authorized_state.as_actor(),
+                    customer_new,
+                    authorized_state.tenant_id,
+                )
+                .await
+        }
+    }
+    .map_err(|e| {
+        log::error!("create_customer: failed to insert customer: {e}");
+        RestApiError::from(e)
+    })?;
 
     app_state
         .store

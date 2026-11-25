@@ -1,11 +1,13 @@
 use std::time::Duration;
 
+use common_domain::ids::ProductId;
 use meteroid_grpc::meteroid::portal::purchase::v1::purchase_service_server::PurchaseService;
 use meteroid_grpc::meteroid::portal::purchase::v1::{
     BuyerType, GetPurchaseOfferRequest, GetPurchaseOfferResponse, OfferComponent, PurchaseOffer,
     StartPurchaseRequest, StartPurchaseResponse, TaxIdCollection as ServerTaxIdCollection,
 };
 use meteroid_store::domain::purchase_links::{AllowedBuyerTypes, InstanceId, TaxIdCollection};
+use meteroid_store::domain::usage_levels::ChosenLevel;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
 use tonic::{Request, Response, Status};
 
@@ -14,7 +16,9 @@ use crate::portal::branding::resolve_portal_branding;
 use crate::subscriptions::mapping::price_components::{
     subscription_fee_billing_period_to_grpc, subscription_fee_to_grpc,
 };
-use meteroid_app::services::purchase_links::{BillingAddressInput, Buyer, StartPurchase};
+use meteroid_app::services::purchase_links::{
+    BillingAddressInput, Buyer, PurchaseError, StartPurchase,
+};
 use meteroid_app::services::storage;
 
 #[tonic::async_trait]
@@ -73,7 +77,7 @@ impl PurchaseService for PurchaseServiceComponents {
                 seller_brand_color: branding.and_then(|b| b.brand_color),
                 plan_name: link.plan.name,
                 plan_description: link.plan.description,
-                currency: link.version.currency,
+                currency: offer.currency,
                 trial_days: link
                     .version
                     .trial_duration_days
@@ -82,13 +86,20 @@ impl PurchaseService for PurchaseServiceComponents {
                 components: offer
                     .components
                     .into_iter()
-                    .map(|c| OfferComponent {
-                        name: c.name,
-                        period: subscription_fee_billing_period_to_grpc(c.period).into(),
-                        fee: Some(subscription_fee_to_grpc(
-                            &c.fee,
-                            c.period.as_billing_period_opt().unwrap_or_default(),
-                        )),
+                    .map(|c| {
+                        let period = c.period.as_billing_period_opt().unwrap_or_default();
+                        OfferComponent {
+                            name: c.name,
+                            period: subscription_fee_billing_period_to_grpc(c.period).into(),
+                            fee: Some(subscription_fee_to_grpc(&c.fee, period)),
+                            product_id: c.product_id.map(|id| id.as_proto()),
+                            levels: c
+                                .levels
+                                .iter()
+                                .map(|fee| subscription_fee_to_grpc(fee, period))
+                                .collect(),
+                            unit: c.unit,
+                        }
                     })
                     .collect(),
                 allow_coupon_codes: link.link.allow_coupon_codes,
@@ -101,6 +112,8 @@ impl PurchaseService for PurchaseServiceComponents {
                 require_billing_information: seller.require_billing_information,
                 tax_id_collection: tax_id_collection.into(),
                 tax_inclusive: link.version.tax_inclusive,
+                coupon_code: offer.coupon_code,
+                option_name: offer.option_name,
             }),
         }))
     }
@@ -123,6 +136,16 @@ impl PurchaseService for PurchaseServiceComponents {
             },
             Err(_) => return Err(Status::invalid_argument("Unknown buyer type")),
         };
+        let levels = req
+            .levels
+            .iter()
+            .map(|level| {
+                Ok(ChosenLevel {
+                    product_id: ProductId::from_proto_opt(level.product_id.as_deref())?,
+                    included: level.included,
+                })
+            })
+            .collect::<Result<Vec<_>, Status>>()?;
         let address = req
             .billing_address
             .map(|a| BillingAddressInput {
@@ -148,11 +171,27 @@ impl PurchaseService for PurchaseServiceComponents {
                 attempt_id: req.attempt_id,
                 license_request: req.license_request,
                 client_ip,
+                coupon_code: req.coupon_code,
+                levels,
             })
-            .await?;
+            .await;
 
-        Ok(Response::new(StartPurchaseResponse {
-            checkout_url: started.checkout_url,
+        // What the buyer entered is answered next to it, the page's challenge spent all the same.
+        let refused = StartPurchaseResponse::default();
+        Ok(Response::new(match started {
+            Ok(started) => StartPurchaseResponse {
+                checkout_url: started.checkout_url,
+                ..refused
+            },
+            Err(PurchaseError::CouponCode(why)) => StartPurchaseResponse {
+                coupon_code_error: Some(why),
+                ..refused
+            },
+            Err(PurchaseError::Ineligible(why)) => StartPurchaseResponse {
+                ineligible: Some(why),
+                ..refused
+            },
+            Err(other) => return Err(other.into()),
         }))
     }
 }

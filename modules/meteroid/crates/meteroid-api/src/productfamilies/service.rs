@@ -3,6 +3,7 @@ use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::productfamilies::v1::{
     CreateProductFamilyRequest, CreateProductFamilyResponse, GetProductFamilyByLocalIdRequest,
     GetProductFamilyByLocalIdResponse, ListProductFamiliesRequest, ListProductFamiliesResponse,
+    UpdateProductFamilyRequest, UpdateProductFamilyResponse,
     product_families_service_server::ProductFamiliesService,
 };
 use meteroid_store::domain;
@@ -71,6 +72,24 @@ impl ProductFamiliesService for ProductFamilyServiceComponents {
 
         Ok(Response::new(CreateProductFamilyResponse {
             product_family: Some(rs),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn update_product_family(
+        &self,
+        request: Request<UpdateProductFamilyRequest>,
+    ) -> Result<Response<UpdateProductFamilyResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+        let family = self
+            .store
+            .rename_product_family(ProductFamilyId::from_proto(&req.id)?, req.name, tenant_id)
+            .await
+            .map_err(Into::<ProductFamilyApiError>::into)
+            .map(|x| ProductFamilyWrapper::from(x).0)?;
+        Ok(Response::new(UpdateProductFamilyResponse {
+            product_family: Some(family),
         }))
     }
 

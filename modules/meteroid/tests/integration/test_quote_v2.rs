@@ -1588,6 +1588,7 @@ async fn the_document_states_the_terms_of_its_coupons() {
             recurring_value,
             reusable: false,
             plan_ids: vec![],
+            ..Default::default()
         };
         async move {
             coupons
@@ -1618,6 +1619,7 @@ async fn the_document_states_the_terms_of_its_coupons() {
             api::coupons::v1::coupon_discount::FixedDiscount {
                 amount: "100".to_owned(),
                 currency: "EUR".to_owned(),
+                amounts: vec![],
             },
         ),
         None,
@@ -1651,6 +1653,7 @@ async fn the_document_states_the_terms_of_its_coupons() {
                 )),
             }),
             recurring_value: Some(3),
+            duration_months: None,
         },
         api::quotes::v1::QuoteCouponTerms {
             code: "SETUP100".to_owned(),
@@ -1660,10 +1663,12 @@ async fn the_document_states_the_terms_of_its_coupons() {
                     api::coupons::v1::coupon_discount::FixedDiscount {
                         amount: "100".to_owned(),
                         currency: "EUR".to_owned(),
+                        amounts: vec![],
                     },
                 )),
             }),
             recurring_value: None,
+            duration_months: None,
         },
     ];
 
@@ -1727,6 +1732,7 @@ async fn a_coupon_discount_is_locked_while_an_open_quote_offers_it() {
             recurring_value: None,
             reusable: true,
             plan_ids: vec![],
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -1741,6 +1747,7 @@ async fn a_coupon_discount_is_locked_while_an_open_quote_offers_it() {
             description: description.to_owned(),
             discount: Some(percent(percentage)),
             plan_ids: vec![],
+            ..Default::default()
         };
         async move { coupons.edit_coupon(request).await.map(|_| ()) }
     };

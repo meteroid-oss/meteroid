@@ -1,8 +1,9 @@
 use crate::domain::plan_version_add_ons::{PlanVersionAddOn, PlanVersionAddOnNew};
 use crate::errors::StoreError;
+use crate::repositories::price_components::PriceComponentInterface;
 use crate::{Store, StoreResult};
 use common_domain::ids::{AddOnId, PlanVersionId, TenantId};
-use diesel_models::add_ons::AddOnRow;
+use diesel_models::add_ons::{AddOnPriceRow, AddOnRow};
 use diesel_models::plan_version_add_ons::{PlanVersionAddOnRow, PlanVersionAddOnRowNew};
 use diesel_models::plan_versions::PlanVersionRow;
 use diesel_models::prices::PriceRow;
@@ -48,19 +49,39 @@ impl PlanVersionAddOnInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        // Validate the add-on's price currency matches the plan version's currency
         let plan_version =
             PlanVersionRow::find_by_id_and_tenant_id(&mut conn, new.plan_version_id, new.tenant_id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
-        let addon_price =
-            PriceRow::find_by_id_and_tenant_id(&mut conn, add_on.price_id, new.tenant_id)
+        // The add-on shares a currency with the version; a subscription in one the add-on has
+        // no price in is refused it.
+        let mut addon_price_ids = AddOnPriceRow::list_by_add_on_ids(&mut conn, &[add_on.id])
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .remove(&add_on.id)
+            .unwrap_or_default();
+        addon_price_ids.push(add_on.price_id);
+        let addon_currencies: Vec<String> =
+            PriceRow::list_by_ids(&mut conn, &addon_price_ids, new.tenant_id)
                 .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-        if addon_price.currency != plan_version.currency {
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into_iter()
+                .map(|p| p.currency.to_ascii_uppercase())
+                .collect();
+        let components = self
+            .list_price_components_with_conn(&mut conn, new.plan_version_id, new.tenant_id)
+            .await?;
+        let shared = std::iter::once(plan_version.currency.as_str())
+            .chain(
+                components
+                    .iter()
+                    .flat_map(|c| c.prices.iter().map(|p| p.currency.as_str())),
+            )
+            .any(|currency| addon_currencies.contains(&currency.to_ascii_uppercase()));
+        if !shared {
             return Err(Report::new(StoreError::InvalidArgument(format!(
-                "Add-on currency '{}' does not match plan version currency '{}'",
-                addon_price.currency, plan_version.currency
+                "Add-on {} has no price in a currency of the plan version ({})",
+                add_on.name, plan_version.currency
             ))));
         }
 

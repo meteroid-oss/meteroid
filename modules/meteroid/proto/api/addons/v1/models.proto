@@ -18,6 +18,12 @@ message AddOn {
   optional string archived_at = 11;
   optional meteroid.api.prices.v1.FeeStructure fee_structure = 12;
   string created_at = 13;
+  // Every price of the add-on, one per currency and billing period; `price` is the first, kept
+  // for older clients. A subscription is offered the add-on in its own currency only.
+  repeated meteroid.api.prices.v1.Price prices = 14;
+  // Its product's icon and color.
+  optional string product_icon = 15;
+  optional string product_color = 16;
 }
 
 message PlanVersionAddOn {

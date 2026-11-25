@@ -1,7 +1,21 @@
+use crate::data::ids::{PRODUCT_FAMILY_ID, PRODUCT_PLATFORM_FEE_ID, TENANT_ID};
+use crate::data::plans::{PlanSeed, SeedComp};
+use crate::harness::test_env;
 use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
+use common_domain::actor::Actor;
+use common_domain::ids::{BaseId, PlanId, PlanVersionId, PriceComponentId, PriceId, ProductId};
+use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
 use meteroid_grpc::meteroid::api;
+use meteroid_store::domain::enums::{BillingPeriodEnum, FeeTypeEnum};
+use meteroid_store::domain::price_components::{PriceEntry, PriceInput, ProductRef};
+use meteroid_store::domain::prices::{FeeStructure, Pricing};
+use meteroid_store::domain::products::ProductNew;
+use meteroid_store::repositories::add_ons::AddOnInterface;
+use meteroid_store::repositories::plans::PlansInterface;
+use meteroid_store::repositories::products::ProductInterface;
+use rust_decimal_macros::dec;
 
 #[tokio::test]
 async fn test_products_basic() {
@@ -50,6 +64,8 @@ async fn test_products_basic() {
             }),
             catalog: None,
             tax_category_id: None,
+            icon: None,
+            color: None,
         })
         .await
         .unwrap()
@@ -167,4 +183,197 @@ async fn test_products_basic() {
 
     // teardown
     // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await
+}
+
+/// Where a product is sold: live plans' active and draft versions, and live add-ons.
+#[tokio::test]
+async fn product_usage_lists_live_plan_versions_and_add_ons() {
+    let env = test_env().await;
+    let store = env.store();
+    let product = store
+        .create_product(
+            Actor::System,
+            ProductNew {
+                name: "Support".to_string(),
+                description: None,
+                tenant_id: TENANT_ID,
+                family_id: PRODUCT_FAMILY_ID,
+                fee_type: FeeTypeEnum::Rate,
+                fee_structure: FeeStructure::Rate {},
+                catalog: true,
+                tax_category_id: None,
+                icon: None,
+                color: None,
+            },
+        )
+        .await
+        .expect("a product")
+        .id;
+    let support = |amount| {
+        SeedComp::rate(
+            PriceComponentId::new(),
+            "Support",
+            product,
+            PriceId::new(),
+            DieselBillingPeriodEnum::Monthly,
+            amount,
+        )
+    };
+    let platform = || {
+        SeedComp::rate(
+            PriceComponentId::new(),
+            "Platform",
+            PRODUCT_PLATFORM_FEE_ID,
+            PriceId::new(),
+            DieselBillingPeriodEnum::Monthly,
+            dec!(20),
+        )
+    };
+    let mut conn = env.conn().await;
+
+    // Sold in USD, while another charge of the version is priced in EUR too: EUR is a gap.
+    let basic = PlanVersionId::new();
+    PlanSeed::new(PlanId::new(), "Usage Basic", basic)
+        .currency("USD")
+        .components(vec![support(dec!(12))])
+        .seed(&mut conn)
+        .await
+        .expect("basic");
+    PlanSeed::seed_components(&mut conn, basic, &[platform()], "EUR")
+        .await
+        .expect("basic in EUR");
+
+    // Two options, the price in each.
+    let team = PlanVersionId::new();
+    PlanSeed::new(PlanId::new(), "Usage Team", team)
+        .currency("USD")
+        .options(&[
+            ("Monthly", DieselBillingPeriodEnum::Monthly),
+            ("Annual", DieselBillingPeriodEnum::Annual),
+        ])
+        .components(vec![support(dec!(15))])
+        .seed(&mut conn)
+        .await
+        .expect("team");
+
+    // Only its draft sells the product.
+    let (draft_plan, draft) = (PlanId::new(), PlanVersionId::new());
+    PlanSeed::new(draft_plan, "Usage Draft", PlanVersionId::new())
+        .currency("USD")
+        .draft(draft, 2)
+        .components(vec![platform()])
+        .seed(&mut conn)
+        .await
+        .expect("draft plan");
+    PlanSeed::seed_components(&mut conn, draft, &[support(dec!(9))], "USD")
+        .await
+        .expect("draft components");
+
+    // An old version, neither active nor draft, and an archived plan: not where it is sold.
+    let old_plan = PlanId::new();
+    PlanSeed::new(old_plan, "Usage Old", PlanVersionId::new())
+        .currency("USD")
+        .components(vec![platform()])
+        .seed(&mut conn)
+        .await
+        .expect("old plan");
+    PlanSeed::seed_version(
+        &mut conn,
+        old_plan,
+        PlanVersionId::new(),
+        0,
+        "USD",
+        &[support(dec!(5))],
+    )
+    .await
+    .expect("old version");
+    let archived_plan = PlanId::new();
+    PlanSeed::new(archived_plan, "Usage Archived", PlanVersionId::new())
+        .currency("USD")
+        .components(vec![support(dec!(7))])
+        .seed(&mut conn)
+        .await
+        .expect("archived plan");
+    store
+        .archive_plan(Actor::System, archived_plan, TENANT_ID)
+        .await
+        .expect("archived");
+
+    let add_on = |name: &str| {
+        store.create_add_on_with_prices(
+            name.to_string(),
+            ProductRef::Existing(product),
+            vec![PriceEntry::New(PriceInput {
+                cadence: BillingPeriodEnum::Monthly,
+                currency: "USD".to_string(),
+                pricing: Pricing::Rate { rate: dec!(30) },
+                credit_unit: None,
+            })],
+            None,
+            true,
+            None,
+            TENANT_ID,
+            PRODUCT_FAMILY_ID,
+            vec![],
+        )
+    };
+    let extra = add_on("Extra support").await.expect("an add-on");
+    let retired = add_on("Retired support").await.expect("another add-on");
+    store
+        .archive_add_on(Actor::System, retired.id, TENANT_ID)
+        .await
+        .expect("archived add-on");
+
+    let usage = store
+        .product_usage(TENANT_ID, product)
+        .await
+        .expect("the product's usage");
+
+    let plans: Vec<(&str, i32, bool)> = usage
+        .plans
+        .iter()
+        .map(|p| (p.plan_name.as_str(), p.version, p.is_draft))
+        .collect();
+    assert_eq!(
+        plans,
+        [
+            ("Usage Basic", 1, false),
+            ("Usage Draft", 2, true),
+            ("Usage Team", 1, false)
+        ]
+    );
+
+    let basic_usage = &usage.plans[0];
+    assert_eq!(basic_usage.plan_version_id, basic);
+    assert_eq!(basic_usage.currencies, ["EUR", "USD"]);
+    assert_eq!(basic_usage.components.len(), 1, "the product's charge only");
+    let charge = &basic_usage.components[0];
+    assert_eq!(charge.product_id, Some(product));
+    assert_eq!(charge.prices.len(), 1);
+    assert_eq!(charge.prices[0].currency, "USD");
+    assert!(matches!(charge.prices[0].pricing, Pricing::Rate { rate } if rate == dec!(12)));
+
+    let team_usage = &usage.plans[2];
+    let options: Vec<&str> = team_usage.options.iter().map(|o| o.name.as_str()).collect();
+    assert_eq!(options, ["Monthly", "Annual"]);
+    let links = &team_usage.components[0].option_prices;
+    assert_eq!(links.len(), 2, "its price in each option");
+    assert!(
+        team_usage
+            .options
+            .iter()
+            .all(|o| links.iter().any(|l| l.option_id == o.id))
+    );
+
+    assert_eq!(usage.plans[1].plan_version_id, draft);
+
+    let add_ons: Vec<_> = usage.add_ons.iter().map(|a| a.id).collect();
+    assert_eq!(add_ons, [extra.id], "the live add-on only");
+    assert_eq!(usage.add_ons[0].catalog_prices().len(), 1);
+
+    let unused = store
+        .product_usage(TENANT_ID, ProductId::new())
+        .await
+        .expect("an unknown product's usage");
+    assert!(unused.plans.is_empty() && unused.add_ons.is_empty());
 }

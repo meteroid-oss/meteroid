@@ -425,6 +425,12 @@ async fn a_credit_coupon_is_validated_on_save(#[future] test_env: TestEnv) {
                 description: None,
                 discount: Some(CouponDiscount::Percentage(dec!(10))),
                 plan_ids: None,
+                add_on_ids: None,
+                eligibility: None,
+                valid_from: None,
+                expires_at: None,
+                fixed_amounts: None,
+                duration_months: None,
             },
         )
         .await;

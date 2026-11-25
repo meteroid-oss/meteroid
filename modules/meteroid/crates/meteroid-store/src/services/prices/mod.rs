@@ -8,7 +8,9 @@ use scoped_futures::ScopedFutureExt;
 use uuid::Uuid;
 
 use crate::StoreResult;
-use crate::domain::price_components::{MatrixRow, UsagePricingModel};
+use crate::domain::price_components::{
+    DimensionRate, DimensionRates, MatrixDimension, UsagePricingModel,
+};
 use crate::domain::prices::{
     AffectedPlan, FeeStructure, MatrixDimensionKey, MatrixPriceUpdate, MatrixUpdatePreview, Price,
     Pricing, UsageModel,
@@ -17,15 +19,29 @@ use crate::errors::StoreError;
 
 use super::Services;
 
-fn dimension_key_matches(row: &MatrixRow, key: &MatrixDimensionKey) -> bool {
-    let d1_match =
-        row.dimension1.key == key.dimension1.key && row.dimension1.value == key.dimension1.value;
-    let d2_match = match (&row.dimension2, &key.dimension2) {
-        (None, None) => true,
-        (Some(a), Some(b)) => a.key == b.key && a.value == b.value,
-        _ => false,
-    };
-    d1_match && d2_match
+/// The key of `rates` holding the values of `key`, in the order of its dimensions; none when
+/// `key` names other dimensions.
+fn key_in(rates: &DimensionRates, key: &MatrixDimensionKey) -> Option<Vec<String>> {
+    let cells: Vec<&MatrixDimension> = std::iter::once(&key.dimension1)
+        .chain(key.dimension2.as_ref())
+        .collect();
+    if cells.len() != rates.dimensions.len() {
+        return None;
+    }
+    rates
+        .dimensions
+        .iter()
+        .map(|dimension| {
+            cells
+                .iter()
+                .find(|cell| &cell.key == dimension)
+                .map(|cell| cell.value.clone())
+        })
+        .collect()
+}
+
+fn has_key(rates: &DimensionRates, key: &[String]) -> bool {
+    rates.rates.iter().any(|rate| rate.key == key)
 }
 
 fn validate_matrix_product(fee_structure: &serde_json::Value) -> StoreResult<()> {
@@ -38,11 +54,11 @@ fn validate_matrix_product(fee_structure: &serde_json::Value) -> StoreResult<()>
 
     match fs {
         FeeStructure::Usage {
-            model: UsageModel::Matrix,
+            model: UsageModel::DimensionRates,
             ..
         } => Ok(()),
         _ => Err(Report::new(StoreError::InvalidArgument(
-            "Product is not a matrix usage product".to_string(),
+            "Product is not rated by dimension".to_string(),
         ))),
     }
 }
@@ -160,11 +176,11 @@ impl Services {
                     ))
                 })?;
 
-            if let Pricing::Usage(UsagePricingModel::Matrix { rates }) = pricing {
+            if let Pricing::Usage(UsagePricingModel::DimensionRates(rates)) = pricing {
                 let mut price_affected = false;
 
                 for key in &update.remove_rows {
-                    if rates.iter().any(|r| dimension_key_matches(r, key)) {
+                    if key_in(&rates, key).is_some_and(|key| has_key(&rates, &key)) {
                         rows_to_remove += 1;
                         price_affected = true;
                     }
@@ -175,7 +191,7 @@ impl Services {
                         dimension1: row_add.dimension1.clone(),
                         dimension2: row_add.dimension2.clone(),
                     };
-                    if !rates.iter().any(|r| dimension_key_matches(r, &key)) {
+                    if key_in(&rates, &key).is_some_and(|key| !has_key(&rates, &key)) {
                         rows_to_add += 1;
                         price_affected = true;
                     }
@@ -242,7 +258,7 @@ fn lineage_tips(rows: Vec<PriceRow>) -> Vec<PriceRow> {
     tips.into_values().collect()
 }
 
-/// The new pricing of each matrix price row, `None` where the update changes nothing.
+/// The new pricing of each price rated by dimension, `None` where the update changes nothing.
 fn plan_matrix_update(
     prices: Vec<PriceRow>,
     update: &MatrixPriceUpdate,
@@ -257,14 +273,17 @@ fn plan_matrix_update(
             ))
         })?;
 
-        if let Pricing::Usage(UsagePricingModel::Matrix { mut rates }) = pricing {
+        if let Pricing::Usage(UsagePricingModel::DimensionRates(mut rates)) = pricing {
             let mut modified = false;
 
             // Remove rows matching remove_rows
             for key in &update.remove_rows {
-                let before = rates.len();
-                rates.retain(|r| !dimension_key_matches(r, key));
-                if rates.len() != before {
+                let Some(key) = key_in(&rates, key) else {
+                    continue;
+                };
+                let before = rates.rates.len();
+                rates.rates.retain(|rate| rate.key != key);
+                if rates.rates.len() != before {
                     modified = true;
                 }
             }
@@ -275,23 +294,26 @@ fn plan_matrix_update(
                     dimension1: row_add.dimension1.clone(),
                     dimension2: row_add.dimension2.clone(),
                 };
-                if !rates.iter().any(|r| dimension_key_matches(r, &key)) {
-                    let per_unit_price = row_add
+                let Some(key) = key_in(&rates, &key) else {
+                    continue;
+                };
+                if !has_key(&rates, &key) {
+                    let rate = row_add
                         .per_unit_prices
                         .get(&price_row.currency)
                         .copied()
                         .unwrap_or(rust_decimal::Decimal::ZERO);
-                    rates.push(MatrixRow {
-                        dimension1: row_add.dimension1.clone(),
-                        dimension2: row_add.dimension2.clone(),
-                        per_unit_price,
+                    rates.rates.push(DimensionRate {
+                        key,
+                        rate,
+                        label: None,
                     });
                     modified = true;
                 }
             }
 
             if modified {
-                let new_pricing = Pricing::Usage(UsagePricingModel::Matrix { rates });
+                let new_pricing = Pricing::Usage(UsagePricingModel::DimensionRates(rates));
                 let pricing_json = serde_json::to_value(&new_pricing).map_err(|e| {
                     Report::new(StoreError::SerdeError(
                         "Failed to serialize Pricing".to_string(),

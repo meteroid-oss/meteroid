@@ -2,6 +2,7 @@ import Decimal from 'decimal.js'
 
 import { formatPerUnit } from '@/features/billing/metrics/units'
 import { formatWalletAmount } from '@/features/credit/format'
+import { billedSlots, slotFeeTotal } from '@/features/subscriptions/utils/fees'
 import { currencyPrecision } from '@/lib/data/currency-precision'
 import { formatCurrency, formatCurrencyNoRounding } from '@/lib/utils/numbers'
 import { SubscriptionFeeBillingPeriod } from '@/rpc/api/subscriptions/v1/models_pb'
@@ -85,10 +86,14 @@ const recurringTotal = (fee: SubscriptionFee, slotCounts: Record<string, number>
       )
     case 'capacity':
       return parseDecimal(fee.fee.value.rate)
-    case 'slot':
-      return parseDecimal(fee.fee.value.unitRate)?.mul(
-        slotCounts[fee.fee.value.unit] ?? fee.fee.value.initialSlots
-      )
+    case 'slot': {
+      // A model prices the count (seats included, tiers, packs); the rate is then empty.
+      const slot = fee.fee.value
+      const seats = slotCounts[slot.unit] ?? slot.initialSlots
+      return slot.model?.model.case
+        ? slotFeeTotal(slot, seats)
+        : parseDecimal(slot.unitRate)?.mul(billedSlots(slot, seats))
+    }
     case 'credit':
       return parseDecimal(fee.fee.value.total)
     default:
@@ -261,10 +266,14 @@ const usageUnitPrices = (fee: SubscriptionFee): Decimal[] => {
     case 'tiered':
     case 'volume':
       return model.value.rows.map(r => parseDecimal(r.unitPrice)).filter((d): d is Decimal => !!d)
-    case 'matrix':
-      return model.value.rows
-        .map(r => parseDecimal(r.perUnitPrice))
+    // A rate per `unitSize` units: per unit, it is divided by it.
+    case 'dimensionRates': {
+      const size = parseDecimal(model.value.unitSize || '1')
+      return model.value.rates
+        .map(r => parseDecimal(r.rate))
         .filter((d): d is Decimal => !!d)
+        .map(rate => (size && !size.isZero() ? rate.div(size) : rate))
+    }
     case 'package': {
       const price = parseDecimal(model.value.packagePrice)
       return price && model.value.blockSize > 0n

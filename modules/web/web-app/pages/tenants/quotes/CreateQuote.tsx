@@ -47,7 +47,14 @@ import {
 import {
   PriceComponentsState,
   pricingConfigurationErrors,
+  pricingTransitions,
 } from '@/features/subscriptions/pricecomponents/PriceComponentsLogic'
+import {
+  byPosition,
+  chosenOption,
+  inOption,
+  optionHandle,
+} from '@/features/subscriptions/pricecomponents/planOption'
 import { useBasePath } from '@/hooks/useBasePath'
 import { entitlementCodes, useEntitlement } from '@/hooks/useEntitlement'
 import { useZodForm } from '@/hooks/useZodForm'
@@ -298,7 +305,25 @@ export const CreateQuote = ({
     },
     { enabled: Boolean(planVersionId) }
   )
-  const planComponents = priceComponentsQuery.data?.components
+  const rawPlanComponents = priceComponentsQuery.data?.components
+  const planVersion = planQuery.data?.plan?.version
+  const planOptions = useMemo(() => byPosition(planVersion?.options ?? []), [planVersion])
+  const planOption = useMemo(
+    () =>
+      rawPlanComponents && planCurrency
+        ? chosenOption(planOptions, rawPlanComponents, planCurrency, priceComponentsState.option)
+        : undefined,
+    [planOptions, rawPlanComponents, planCurrency, priceComponentsState.option]
+  )
+  // Every line, total and preview prices the plan as bought in the option shown.
+  const planComponents = useMemo(
+    () =>
+      rawPlanComponents && planCurrency
+        ? inOption(rawPlanComponents, planOption, planCurrency)
+        : undefined,
+    [rawPlanComponents, planOption, planCurrency]
+  )
+  const optionSent = planOption && optionHandle(planOption)
 
   const removedProductIds = useMemo(() => {
     const removedSet = new Set(priceComponentsState.components.removed)
@@ -521,6 +546,7 @@ export const CreateQuote = ({
       const createQuoteData = buildCreateQuote({
         values: data,
         currency: planCurrency,
+        option: optionSent,
         pricing: priceComponentsState,
         addOns: selectedAddOns,
         coupons: selectedCoupons,
@@ -596,6 +622,7 @@ export const CreateQuote = ({
       return buildCreateQuote({
         values: previewFormValues(values),
         currency: planCurrency,
+        option: optionSent,
         pricing: priceComponentsState,
         addOns: selectedAddOns,
         coupons: selectedCoupons,
@@ -828,6 +855,11 @@ export const CreateQuote = ({
                 planVersionId={planVersionId}
                 currency={planCurrency}
                 planComponents={planComponents}
+                planOptions={planOptions}
+                planOption={planOption}
+                onOptionChange={handle =>
+                  setPriceComponentsState(prev => pricingTransitions.changeOption(prev, handle))
+                }
                 pricing={priceComponentsState}
                 setPricing={setPriceComponentsState}
                 pricingErrors={pricingErrors}

@@ -18,6 +18,7 @@ import { useWatch } from 'react-hook-form'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import { AdvancedSection, useHasFieldErrors } from '@/components/form'
 import { invalidatePurchaseLinks } from '@/features/purchase-links/utils'
 import { useZodForm } from '@/hooks/useZodForm'
 import {
@@ -29,6 +30,8 @@ import {
   PurchaseLink,
   TaxIdCollection,
 } from '@/rpc/api/purchaselinks/v1/purchaselinks_pb'
+
+import type { OptionLike } from '@/features/plans/currencies/priceCells'
 
 const isHttpUrl = (value: string) => {
   try {
@@ -61,9 +64,14 @@ const taxIdLabels = {
   REQUIRED: 'Required',
 } satisfies Record<keyof typeof TaxIdCollection, string>
 
+// Select items can't carry an empty value.
+const DEFAULT_OPTION = '__default__'
+
 const schema = z.object({
+  option: z.string(),
   name: z.string().trim().min(1, 'Name is required').max(200),
   allowCouponCodes: z.boolean(),
+  couponCode: z.string().trim().max(64),
   listed: z.boolean(),
   successUrl: redirectUrl,
   cancelUrl: redirectUrl,
@@ -75,12 +83,15 @@ const schema = z.object({
 export const PurchaseLinkDialog = ({
   planId,
   link,
+  options,
   showListed,
   planIssuesLicense,
   onClose,
 }: {
   planId: string
   link?: PurchaseLink
+  /** The options the plan's active version sells. */
+  options: OptionLike[]
   showListed: boolean
   planIssuesLicense: boolean
   onClose: () => void
@@ -89,8 +100,10 @@ export const PurchaseLinkDialog = ({
   const methods = useZodForm({
     schema,
     defaultValues: {
+      option: link?.option ?? DEFAULT_OPTION,
       name: link?.name ?? '',
       allowCouponCodes: link?.allowCouponCodes ?? false,
+      couponCode: link?.couponCode ?? '',
       listed: link?.listed ?? false,
       successUrl: link?.successUrl ?? '',
       cancelUrl: link?.cancelUrl ?? '',
@@ -104,14 +117,37 @@ export const PurchaseLinkDialog = ({
 
   const listed = useWatch({ control: methods.control, name: 'listed' })
   const allowedBuyerTypes = useWatch({ control: methods.control, name: 'allowedBuyerTypes' })
+  const [chosenOption, couponCode] = useWatch({
+    control: methods.control,
+    name: ['option', 'couponCode'],
+  })
+  const moreInvalid = useHasFieldErrors(methods.control, ['option', 'couponCode'])
+  const showOption = options.length > 1 || link?.option !== undefined
+  const soldOption =
+    showOption && chosenOption !== DEFAULT_OPTION
+      ? (options.find(o => o.alias === chosenOption)?.name ?? chosenOption)
+      : undefined
+  const moreSummary = [soldOption, couponCode.trim() || undefined]
+    .filter(Boolean)
+    .join(' · ')
 
   const onSuccess = () => {
     void invalidatePurchaseLinks(queryClient)
     toast.success(link ? 'Purchase link updated' : 'Purchase link created')
     onClose()
   }
-  const onError = (err: { rawMessage?: string }) =>
+  const onError = (err: { rawMessage?: string }) => {
+    // A refused coupon is shown next to its code.
+    if (
+      err.rawMessage &&
+      /coupon/i.test(err.rawMessage) &&
+      methods.getValues('couponCode').trim()
+    ) {
+      methods.setError('couponCode', { message: err.rawMessage })
+      return
+    }
     toast.error(err.rawMessage || 'Could not save the purchase link')
+  }
 
   const create = useMutation(createPurchaseLink, { onSuccess, onError })
   const update = useMutation(updatePurchaseLink, { onSuccess, onError })
@@ -121,12 +157,14 @@ export const PurchaseLinkDialog = ({
     const fields = {
       name: data.name,
       allowCouponCodes: data.allowCouponCodes,
+      couponCode: data.couponCode || undefined,
       listed: data.listed,
       successUrl: data.successUrl || undefined,
       cancelUrl: data.cancelUrl || undefined,
       allowedBuyerTypes: AllowedBuyerTypes[data.allowedBuyerTypes],
       requireBillingAddress: data.requireBillingAddress,
       taxIdCollection: TaxIdCollection[data.taxIdCollection],
+      option: data.option === DEFAULT_OPTION ? undefined : data.option,
     }
     if (link) update.mutate({ id: link.id, ...fields })
     else create.mutate({ planId, ...fields })
@@ -212,6 +250,39 @@ export const PurchaseLinkDialog = ({
                 }
               />
             )}
+            <AdvancedSection
+              label="More options"
+              summary={moreSummary}
+              defaultOpen={link?.option !== undefined || !!link?.couponCode}
+              forceOpen={moreInvalid}
+            >
+              {showOption && (
+                <SelectFormField
+                  name="option"
+                  label="Option"
+                  control={methods.control}
+                  labelTooltip="What buyers subscribe to, among the plan's options."
+                >
+                  <SelectItem value={DEFAULT_OPTION}>Default</SelectItem>
+                  {options.map(option => (
+                    <SelectItem key={option.id} value={option.alias}>
+                      {option.name}
+                    </SelectItem>
+                  ))}
+                  {link?.option !== undefined && !options.some(o => o.alias === link.option) && (
+                    <SelectItem value={link.option}>{link.option} (no longer sold)</SelectItem>
+                  )}
+                </SelectFormField>
+              )}
+              <InputFormField
+                name="couponCode"
+                label="Coupon code"
+                control={methods.control}
+                placeholder="e.g. LAUNCH20"
+                autoComplete="off"
+                description="Applied to every purchase from this link unless the buyer enters another, even when buyers can't enter codes."
+              />
+            </AdvancedSection>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose}>
                 Cancel

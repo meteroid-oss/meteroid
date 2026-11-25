@@ -426,6 +426,8 @@ impl Services {
                 currency: invoice.currency.clone(),
                 coupons: Vec::new(),
                 discount: Some(discount as u64),
+                add_ons: Vec::new(),
+                starts: Vec::new(),
             },
         );
 

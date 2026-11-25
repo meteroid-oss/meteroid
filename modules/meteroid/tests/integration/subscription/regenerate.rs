@@ -526,6 +526,7 @@ async fn a_void_forgives_the_arrears_it_billed() {
                         pricing: Pricing::ExtraRecurring {
                             unit_price: rust_decimal::Decimal::new(3100, 2),
                             quantity: 1,
+                            model: None,
                         },
                         credit_unit: None,
                     }),

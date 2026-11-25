@@ -4,7 +4,7 @@ use crate::enums::{PlanStatusEnum, PlanTypeEnum};
 use crate::plan_versions::PlanVersionRow;
 use crate::price_components::PriceComponentRow;
 use crate::product_families::ProductFamilyOverviewRow;
-use common_domain::ids::{PlanId, PlanVersionId, ProductFamilyId, TenantId};
+use common_domain::ids::{PlanId, PlanVersionId, ProductFamilyId, ProductId, TenantId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
@@ -27,6 +27,21 @@ pub struct PlanRow {
     /// Trigger-maintained analytics ingestion marker; never written by app code.
     pub store_committed_at: NaiveDateTime,
     pub issues_license: bool,
+    pub pricing_tagline: Option<String>,
+    pub pricing_popular: bool,
+    pub pricing_cta_label: Option<String>,
+    /// `[{"feature": id} | {"text": "..."}]`, in display order.
+    pub pricing_highlights: serde_json::Value,
+    /// Who may see or get the plan; live, never versioned.
+    pub eligibility: Option<serde_json::Value>,
+    /// Sold by contacting sales: on the pricing page, never offered self-serve.
+    pub pricing_sales_led: bool,
+    pub pricing_hide_price: bool,
+    pub pricing_contact_url: Option<String>,
+    /// The order the card reads its charges in, by product; those not listed follow as computed.
+    pub pricing_product_order: Vec<Option<ProductId>>,
+    /// Usage charges the card leaves off, by product, read together as "+ usage".
+    pub pricing_hidden_product_ids: Vec<Option<ProductId>>,
 }
 
 #[derive(Debug, Default, Insertable)]
@@ -57,6 +72,20 @@ pub struct PlanRowOverview {
     pub subscription_count: Option<i64>,
     pub self_service_rank: Option<i32>,
     pub issues_license: bool,
+    pub eligibility: Option<serde_json::Value>,
+    pub pricing_sales_led: bool,
+    pub pricing_hide_price: bool,
+}
+
+/// `SUM(mrr_cents)` of a plan's active subscriptions in one currency (minor units).
+#[derive(diesel::QueryableByName, Debug, Clone)]
+pub struct PlanMrrRow {
+    #[diesel(sql_type = diesel::sql_types::Uuid)]
+    pub plan_id: PlanId,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub currency: String,
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    pub mrr_cents: i64,
 }
 
 #[derive(Debug, Queryable)]

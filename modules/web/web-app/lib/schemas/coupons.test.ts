@@ -2,12 +2,18 @@ import { describe, expect, it } from 'vitest'
 
 import { createCouponSchema } from '@/lib/schemas/coupons'
 
-const percentage = (code: string) => ({ code, discountType: 'percentage', percentage: 10 })
+const percentage = (code: string) => ({
+  code,
+  discountType: 'percentage',
+  percentage: 10,
+  duration: 'forever',
+})
 const credit = (code: string) => ({
   code,
   discountType: 'credit',
   creditAmount: '10',
   currency: 'EUR',
+  duration: 'forever',
 })
 const codeIssues = (input: unknown) => {
   const result = createCouponSchema.safeParse(input)
@@ -36,5 +42,21 @@ describe('coupon code', () => {
     expect(codeIssues(credit('welcome_10-B'))).toEqual([])
     expect(codeIssues(credit('WELCOME 2026'))).toHaveLength(1)
     expect(codeIssues(credit('CAFÉ'))).toHaveLength(1)
+  })
+})
+
+describe('coupon duration', () => {
+  const issues = (input: unknown) => {
+    const result = createCouponSchema.safeParse(input)
+    return result.success ? [] : result.error.issues.map(issue => issue.path[0])
+  }
+
+  it('asks the months only of a coupon lasting months', () => {
+    expect(issues({ ...percentage('A'), duration: 'once' })).toEqual([])
+    expect(issues({ ...percentage('A'), duration: 'months' })).toEqual(['durationMonths'])
+    expect(issues({ ...percentage('A'), duration: 'months', durationMonths: 12 })).toEqual([])
+    expect(issues({ ...percentage('A'), duration: 'months', durationMonths: 0 })).toEqual([
+      'durationMonths',
+    ])
   })
 })

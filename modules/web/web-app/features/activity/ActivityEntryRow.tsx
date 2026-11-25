@@ -163,6 +163,8 @@ function entityTypeLabel(entityType: string): string {
       return 'Add-on'
     case 'billable_metric':
       return 'Billable metric'
+    case 'rate_card':
+      return 'Rate card'
     case 'invoice':
       return 'Invoice'
     case 'credit_note':
@@ -205,6 +207,23 @@ function reminderStepSubtitle(md: Record<string, unknown>): string | undefined {
   const next = optionalDateTime(md.next_reminder_at)
   parts.push(next ? `next ${next}` : 'no further reminders')
   return parts.join(' · ')
+}
+
+// `rate_card.rates_changed` metadata: "2 rates set, 1 removed from 2026-12-01 · 1 scheduled withdrawn".
+function rateCardChangeSubtitle(md: Record<string, unknown>): string | undefined {
+  const changes = Array.isArray(md.changes) ? (md.changes as { to?: unknown }[]) : []
+  const withdrawn = Array.isArray(md.withdrawn) ? md.withdrawn.length : 0
+  const removed = changes.filter(c => c.to === null || c.to === undefined).length
+  const set = changes.length - removed
+  const done = [set && `${set} ${set === 1 ? 'rate' : 'rates'} set`, removed && `${removed} removed`]
+    .filter(Boolean)
+    .join(', ')
+  const from = typeof md.effective_from === 'string' ? md.effective_from : undefined
+  const parts = [
+    done && (from ? `${done} from ${from}` : done),
+    withdrawn && `${withdrawn} scheduled withdrawn`,
+  ].filter(Boolean)
+  return parts.length ? parts.join(' · ') : undefined
 }
 
 function recipientsNode(recipients: string[]): ReactNode {
@@ -438,6 +457,18 @@ function renderEntry(entry: ActivityEntry): RenderedEntry {
       return {
         icon: <Archive className="h-4 w-4 text-warning" />,
         title: <>{entityRef(entry, 'Metric', 'Metric')} archived</>,
+      }
+
+    case 'rate_card.created':
+      return {
+        icon: <Plus className="h-4 w-4 text-success" />,
+        title: <>{entityRef(entry, 'Rate card', 'Rate card')} created</>,
+      }
+    case 'rate_card.rates_changed':
+      return {
+        icon: <PencilLine className="h-4 w-4" />,
+        title: <>{entityRef(entry, 'Rate card', 'Rate card')} rates changed</>,
+        subtitle: rateCardChangeSubtitle(md),
       }
 
     case 'subscription.created':

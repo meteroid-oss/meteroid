@@ -1,6 +1,7 @@
 import { create } from '@bufbuild/protobuf';
 import Decimal from 'decimal.js'
 
+import { fixedQuantityTotal } from '@/features/pricing/fixedQuantity'
 import { formatCadence } from '@/lib/mapping/prices'
 import { formatCurrencyNoRounding, formatUsage } from '@/lib/utils/numbers'
 import { UsageFeeSchema, PriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb';
@@ -132,6 +133,7 @@ export function priceToSubscriptionFee(
       break
 
     case 'slotPricing':
+      // The model, when the price has one, prices the count; unitRate is then its first rate.
       fee.fee = {
         case: 'slot',
         value: create(SubscriptionFee_SlotSubscriptionFeeSchema, {
@@ -140,6 +142,7 @@ export function priceToSubscriptionFee(
           minSlots: price.pricing.value.minSlots,
           maxSlots: price.pricing.value.maxSlots,
           initialSlots: config?.initialSlotCount ?? 1,
+          model: price.pricing.value.model,
         }),
       }
       break
@@ -169,13 +172,14 @@ export function priceToSubscriptionFee(
 
     case 'oneTimePricing': {
       const ot = price.pricing.value
-      const total = new Decimal(ot.unitPrice || '0').mul(ot.quantity || 1).toString()
+      const total = fixedQuantityTotal(ot.quantity || 1, ot.unitPrice, ot.model).toString()
       fee.fee = {
         case: 'oneTime',
         value: create(SubscriptionFee_OneTimeSubscriptionFeeSchema, {
           rate: ot.unitPrice,
           quantity: ot.quantity || 1,
           total,
+          model: ot.model,
         }),
       }
       break
@@ -201,7 +205,7 @@ export function priceToSubscriptionFee(
 
     case 'extraRecurringPricing': {
       const er = price.pricing.value
-      const total = new Decimal(er.unitPrice || '0').mul(er.quantity || 1).toString()
+      const total = fixedQuantityTotal(er.quantity || 1, er.unitPrice, er.model).toString()
       fee.fee = {
         case: 'recurring',
         value: create(SubscriptionFee_ExtraRecurringSubscriptionFeeSchema, {
@@ -209,6 +213,7 @@ export function priceToSubscriptionFee(
           quantity: er.quantity || 1,
           total,
           billingType: FeeStructure_BillingType.ARREAR,
+          model: er.model,
         }),
       }
       break
@@ -219,7 +224,9 @@ export function priceToSubscriptionFee(
 }
 
 /**
- * Extract a simple unit price from a Price for display purposes.
+ * Extract a simple unit price from a Price for display purposes. A seat or fixed-quantity price
+ * with a model has none: this is then the model's first rate, never to be multiplied by a count
+ * (see `getPriceQuantityTotal`).
  */
 export function getPriceUnitPrice(price: Price): number {
   switch (price.pricing.case) {
@@ -243,7 +250,33 @@ export function getPriceUnitPrice(price: Price): number {
 }
 
 /**
- * Get component pricing info for display in subscription review.
+ * What `quantity` of what a price counts costs a period: seats (within their minimum and maximum)
+ * or a fixed quantity's units (its own quantity when none is given), through the price's model
+ * when it has one, as the engine bills them. Undefined for usage, which is metered.
+ */
+export function getPriceQuantityTotal(price: Price, quantity?: number): Decimal | undefined {
+  switch (price.pricing.case) {
+    case 'slotPricing': {
+      const { unitRate, model, minSlots, maxSlots } = price.pricing.value
+      const held = quantity ?? 1
+      const seats = Math.min(Math.max(held, minSlots ?? 0), maxSlots ?? Number.POSITIVE_INFINITY)
+      return fixedQuantityTotal(seats, unitRate, model)
+    }
+    case 'oneTimePricing':
+    case 'extraRecurringPricing': {
+      const { unitPrice, model } = price.pricing.value
+      return fixedQuantityTotal(quantity ?? (price.pricing.value.quantity || 1), unitPrice, model)
+    }
+    case 'usagePricing':
+      return undefined
+    default:
+      return new Decimal(getPriceUnitPrice(price)).mul(quantity ?? 1)
+  }
+}
+
+/**
+ * Get component pricing info for display in subscription review. A modelled seat or fixed
+ * quantity shows its total, and as unit price what that total works out to per unit.
  */
 export function getComponentPricingFromPrice(
   price: Price,
@@ -269,6 +302,16 @@ export function getComponentPricingFromPrice(
     quantity = price.pricing.value.quantity || 1
   } else if (price.pricing.case === 'creditPricing') {
     quantity = price.pricing.value.quantity || 1
+  }
+
+  const modelled =
+    (price.pricing.case === 'slotPricing' ||
+      price.pricing.case === 'oneTimePricing' ||
+      price.pricing.case === 'extraRecurringPricing') &&
+    !!price.pricing.value.model?.model.case
+  if (modelled) {
+    const total = getPriceQuantityTotal(price, quantity)?.toNumber() ?? 0
+    return { unitPrice: quantity > 0 ? total / quantity : 0, quantity, total, isMetered: false }
   }
 
   return {
@@ -401,19 +444,19 @@ function usagePriceSummary(
       }
     }
 
-    case 'matrix': {
-      const rows = usage.model.value.rows || []
-      if (rows.length === 0) {
-        return { model: 'Matrix', amount: '-' }
+    case 'dimensionRates': {
+      const rates = usage.model.value.rates
+      if (rates.length === 0) {
+        return { model: 'By dimension', amount: '-' }
       }
-      const prices = rows.map(r => Number(r.perUnitPrice))
+      const prices = rates.map(r => Number(r.rate))
       const min = Math.min(...prices)
       const max = Math.max(...prices)
+      const size = usage.model.value.unitSize || '1'
+      const per = size === '1' ? '/unit' : ` / ${Number(size).toLocaleString()} units`
       const amount =
-        min === max
-          ? `${amountOf(min)}/unit`
-          : `${amountOf(min)} – ${amountOf(max)}/unit`
-      return { model: 'Matrix', amount }
+        min === max ? `${amountOf(min)}${per}` : `${amountOf(min)} – ${amountOf(max)}${per}`
+      return { model: 'By dimension', amount }
     }
 
     default:

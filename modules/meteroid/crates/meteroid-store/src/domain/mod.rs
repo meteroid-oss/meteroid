@@ -48,6 +48,7 @@ pub mod customer_summary;
 pub mod customers;
 pub mod invoice_annex_templates;
 pub mod invoices;
+pub mod plan_options;
 pub mod plans;
 pub mod tax_categories;
 
@@ -56,6 +57,7 @@ pub mod prices;
 pub mod tenants;
 pub mod usage_attribution;
 pub mod usage_costs;
+pub mod usage_levels;
 pub mod usage_limits;
 
 pub mod add_ons;
@@ -81,6 +83,7 @@ pub mod customer_payment_methods;
 pub mod customer_signals;
 pub mod dead_letter;
 pub mod einvoicing;
+pub mod eligibility;
 pub mod entitlement_checks;
 pub mod entitlements;
 pub mod entity_activity;
@@ -89,6 +92,12 @@ pub mod enums;
 pub mod env_policy;
 pub mod filters;
 pub mod fx;
+pub mod managed_quantities;
+pub mod price_cells;
+pub mod price_headline;
+pub mod pricing_pages;
+pub mod product_family_journeys;
+pub mod rate_cards;
 
 pub mod historical_rates;
 pub mod invoice_lines;

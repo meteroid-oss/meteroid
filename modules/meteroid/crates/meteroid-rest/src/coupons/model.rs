@@ -112,8 +112,14 @@ pub struct Coupon {
     pub expires_at: Option<ApiDateTime>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub redemption_limit: Option<i32>,
+    /// Invoices it discounts on a subscription, for coupons made before `duration_months`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recurring_value: Option<i32>,
+    /// Applies to billing periods starting within this many months of the first paid period: one
+    /// whose service period (not invoice date) starts before that start plus these months. A free
+    /// trial counts none; redemptions keep theirs. Neither this nor `recurring_value`: forever.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_months: Option<i32>,
     pub reusable: bool,
     pub disabled: bool,
     pub created_at: ApiDateTime,
@@ -136,7 +142,12 @@ pub struct CreateCouponRequest {
     pub discount: CouponDiscount,
     pub expires_at: Option<ApiDateTime>,
     pub redemption_limit: Option<i32>,
+    /// Invoices it discounts on a subscription. Not with `duration_months`.
     pub recurring_value: Option<i32>,
+    /// 1 to 120: applies to billing periods starting within this many months of the first paid
+    /// period (see `Coupon.duration_months`). Not with `recurring_value`.
+    #[validate(range(min = 1, max = 120))]
+    pub duration_months: Option<i32>,
     /// Whether one customer may redeem the coupon more than once. Must be false for a
     /// promotional-credit (`CREDIT`) coupon.
     #[serde(default)]
@@ -151,6 +162,14 @@ pub struct UpdateCouponRequest {
     pub discount: Option<CouponDiscount>,
     #[serde(default, with = "string_serde_vec_opt")]
     pub plan_ids: Option<Vec<PlanId>>,
+    /// 1 to 120: applies to billing periods starting within this many months of the first paid
+    /// period (see `Coupon.duration_months`). Not on a coupon counting invoices or a credit.
+    /// Existing redemptions keep the months they were made with.
+    #[validate(range(min = 1, max = 120))]
+    pub duration_months: Option<i32>,
+    /// Makes it last forever instead of a number of months. Not with `duration_months`.
+    #[serde(default)]
+    pub clear_duration_months: bool,
 }
 
 // ── List ────────────────────────────────────────────────────────

@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package meteroid.api.coupons.v1;
 
+import "api/eligibility/v1/models.proto";
+
 import "api/coupons/v1/models.proto";
 import "common/v1/pagination.proto";
 
@@ -11,6 +13,8 @@ message ListCouponRequest {
   CouponFilter filter = 2;
   meteroid.common.v1.Pagination pagination = 3;
   optional string order_by = 4;
+  // Only the coupons scoped to this plan by name; unset: every coupon.
+  optional string plan_id = 5;
 
   enum CouponFilter {
     ALL = 0;
@@ -36,6 +40,12 @@ message CreateCouponRequest {
   optional int32 recurring_value = 6;
   bool reusable = 7;
   repeated string plan_ids = 8;
+  repeated string add_on_ids = 9;
+  optional meteroid.api.eligibility.v1.Eligibility eligibility = 10;
+  optional string valid_from = 11;
+  // Billing periods starting within this many months of the first paid period, instead of
+  // recurring_value (kept for compatibility).
+  optional int32 duration_months = 12;
 }
 
 message CreateCouponResponse {
@@ -53,6 +63,16 @@ message EditCouponRequest {
   string description = 2;
   CouponDiscount discount = 3;
   repeated string plan_ids = 4;
+  repeated string add_on_ids = 5;
+  // Unset leaves the rule as it is; an empty rule removes it.
+  optional meteroid.api.eligibility.v1.Eligibility eligibility = 6;
+  optional string valid_from = 7;
+  optional string expires_at = 8;
+  // Billing periods starting within this many months of the first paid period. Unset leaves it
+  // as it is. Existing redemptions keep theirs.
+  optional int32 duration_months = 9;
+  // Makes it last forever instead of a number of months; not with duration_months.
+  bool clear_duration_months = 10;
 }
 
 message EditCouponResponse {

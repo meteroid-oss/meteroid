@@ -1,8 +1,8 @@
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
   Button,
-  Form,
   Input,
+  Label,
   Select,
   SelectContent,
   SelectItem,
@@ -10,13 +10,14 @@ import {
   SelectValue,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { forwardRef, useState } from 'react'
-import { Controller } from 'react-hook-form'
-import { z } from 'zod'
+import { useId, useState } from 'react'
+import { toast } from 'sonner'
 
+import { AdvancedSection } from '@/components/form'
+import { ExtraActions } from '@/features/plans/MoreForPlan'
 import { useIsDraftVersion } from '@/features/plans/hooks/usePlan'
-import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
+import { rpcErrorMessage } from '@/lib/rpcError'
 import { PlanType, TrialConfig } from '@/rpc/api/plans/v1/models_pb'
 import {
   getPlanOverview,
@@ -29,441 +30,310 @@ interface TrialProps {
   currentPlanId: string
   currentPlanVersionId: string
   planType: PlanType
+  onDone: () => void
 }
 
+// Select items can't carry an empty value.
+const THIS_PLAN = 'current'
+
+interface Draft {
+  days: string
+  free: boolean
+  /** THIS_PLAN, or the plan whose features the trial gives. */
+  featuresOf: string
+}
+
+/** The version's trial: read on a published version, a small form on a draft. */
 export const PlanTrial = ({
   config,
   currentPlanId,
   currentPlanVersionId,
   planType,
+  onDone,
 }: TrialProps) => {
   const isDraft = useIsDraftVersion()
-  const [isEditing, setIsEditing] = useState(false)
+  const planName = usePlanName()
+  const isFree = planType === PlanType.FREE
 
-  if (isEditing) {
+  if (!isDraft) {
     return (
-      <PlanTrialForm
-        config={config}
-        currentPlanId={currentPlanId}
-        currentPlanVersionId={currentPlanVersionId}
-        planType={planType}
-        cancel={() => setIsEditing(false)}
-        afterSubmit={() => setIsEditing(false)}
-      />
+      <div className="space-y-3 text-sm">
+        {config && config.durationDays > 0 ? (
+          <TrialSentence
+            days={config.durationDays}
+            free={config.trialIsFree}
+            featuresOf={
+              config.trialingPlanId && config.trialingPlanId !== currentPlanId
+                ? planName(config.trialingPlanId)
+                : undefined
+            }
+            isFreePlan={isFree}
+          />
+        ) : (
+          <p className="text-muted-foreground">No trial.</p>
+        )}
+        <p className="text-xs text-muted-foreground">
+          The trial is part of the version: change it in a draft.
+        </p>
+      </div>
     )
   }
 
   return (
-    <div className="flex flex-row gap-2 items-center text-sm ">
-      <PlanTrialReadonly config={config} currentPlanId={currentPlanId} planType={planType} />
-      {isDraft && (
-        <Button type="button" variant="link" onClick={() => setIsEditing(true)}>
-          Edit
-        </Button>
-      )}
-    </div>
+    <TrialForm
+      config={config}
+      currentPlanId={currentPlanId}
+      currentPlanVersionId={currentPlanVersionId}
+      planType={planType}
+      onDone={onDone}
+    />
   )
 }
 
-const formSchema = z.object({
-  durationDays: z.number().int().optional(),
-  trialingPlanId: z.union([z.string(), z.literal('current')]).optional(),
-  trialIsFree: z.boolean().optional(),
-})
-
-interface TrialConfigSentenceProps {
-  config?: TrialConfig
-  currentPlanId: string
-  currentPlanVersionId: string
-  planType: PlanType
-  afterSubmit: () => void
-  cancel: () => void
+const usePlanName = () => {
+  const plans = useQuery(listPlans, {}).data?.plans
+  return (id: string) => plans?.find(plan => plan.id === id)?.name ?? 'another plan'
 }
-export function PlanTrialForm({
+
+const TrialForm = ({
   config,
   currentPlanId,
   currentPlanVersionId,
   planType,
-  afterSubmit,
-  cancel,
-}: TrialConfigSentenceProps) {
-  const methods = useZodForm({
-    schema: formSchema,
-    defaultValues: {
-      durationDays: config?.durationDays ?? 0,
-      trialingPlanId: config?.trialingPlanId,
-      trialIsFree: config?.trialIsFree ?? true,
-    },
-  })
-
+  onDone,
+}: TrialProps) => {
+  const id = useId()
   const queryClient = useQueryClient()
+  const isFreePlan = planType === PlanType.FREE
+  const existing = !!config && config.durationDays > 0
+  const [draft, setDraft] = useState<Draft>(() => ({
+    days: String(config && config.durationDays > 0 ? config.durationDays : 14),
+    free: config?.trialIsFree ?? true,
+    featuresOf:
+      config?.trialingPlanId && config.trialingPlanId !== currentPlanId
+        ? config.trialingPlanId
+        : THIS_PLAN,
+  }))
+  const set = (patch: Partial<Draft>) => setDraft(prev => ({ ...prev, ...patch }))
+
+  const plans = useQuery(listPlans, {}).data?.plans ?? []
+  // A trial gives a paid plan's features; this plan's own, by default.
+  const others = plans.filter(p => p.id !== currentPlanId && p.planType !== PlanType.FREE)
+  const planName = (planId: string) => plans.find(p => p.id === planId)?.name ?? 'another plan'
+
+  const days = Number(draft.days)
+  const valid = Number.isInteger(days) && days >= 1 && days <= 9999
 
   const mutation = useMutation(updatePlanTrial, {
-    onSuccess: () => {
-      afterSubmit()
-      queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey({
-          schema: getPlanOverview.parent,
-          cardinality: undefined
-        }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({ schema: getPlanOverview.parent, cardinality: undefined }),
       })
+      onDone()
     },
+    onError: error => toast.error(rpcErrorMessage(error, 'The trial could not be saved')),
   })
 
-  const plans = useQuery(listPlans, {})
+  const save = () =>
+    mutation.mutate({
+      planId: currentPlanId,
+      planVersionId: currentPlanVersionId,
+      trial: {
+        durationDays: days,
+        trialingPlanId: draft.featuresOf === THIS_PLAN ? undefined : draft.featuresOf,
+        // A free plan's trial never bills.
+        trialIsFree: isFreePlan || draft.free,
+      },
+    })
+  const remove = () =>
+    mutation.mutate({ planId: currentPlanId, planVersionId: currentPlanVersionId, trial: undefined })
 
-  const data = methods.watch()
-
-  const plansOptions = (plans.data?.plans ?? []).map(plan => {
-    const isCurrent = plan.id === currentPlanId
-
-    return {
-      value: isCurrent ? 'current' : plan.id,
-      name: isCurrent ? 'current' : plan.name,
-      type: plan.planType,
-      status: plan.planStatus,
-    }
-  })
-
-  const nonFreePlansOptions = plansOptions.filter(p => p.type !== PlanType.FREE)
-  const isFreePlan = planType === PlanType.FREE
+  const featuresSelect = (
+    <Select value={draft.featuresOf} onValueChange={featuresOf => set({ featuresOf })}>
+      <SelectTrigger id={`${id}-features`} className="h-9">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={THIS_PLAN}>This plan&apos;s</SelectItem>
+        {others.map(plan => (
+          <SelectItem key={plan.id} value={plan.id}>
+            {plan.name}&apos;s
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
 
   return (
-    <div className="space-y-4">
-      <div>
-        <Form {...methods}>
-          <form
-            onSubmit={methods.handleSubmit(data => {
-              const trial =
-                data?.durationDays && data.durationDays > 0
-                  ? {
-                      trialingPlanId:
-                        data.trialingPlanId === 'current' ? undefined : data.trialingPlanId,
-                      durationDays: data.durationDays,
-                      // Free plans are always free, paid plans use the toggle
-                      trialIsFree: isFreePlan ? true : (data.trialIsFree ?? true),
-                    }
-                  : undefined
-
-              return mutation.mutateAsync({
-                planId: currentPlanId,
-                planVersionId: currentPlanVersionId,
-                trial,
-              })
-            })}
-            className="space-y-4 text-sm"
-          >
-            {!data.durationDays || data.durationDays <= 0 ? (
-              <p className="text-sm">
-                No trial configured.
-                <Button
-                  type="button"
-                  variant="link"
-                  onClick={() =>
-                    methods.reset({
-                      durationDays: 14,
-                      trialIsFree: true,
-                    })
-                  }
-                >
-                  Add trial
-                </Button>
-              </p>
-            ) : (
-              <div className="text-sm space-y-2">
-                <p>
-                  Users get{' '}
-                  <Controller
-                    name="durationDays"
-                    control={methods.control}
-                    render={({ field }) => <EditableSpan {...field} type="number" />}
-                  />{' '}
-                  days
-                  {/* Trialing plan selector - for giving premium features during trial */}
-                  <Controller
-                    name="trialingPlanId"
-                    control={methods.control}
-                    render={({ field }) => (
-                      <>
-                        {' '}
-                        with{' '}
-                        <EditableSpan
-                          {...field}
-                          options={nonFreePlansOptions}
-                          emptyMessage="current"
-                          quotes
-                        />{' '}
-                        features
-                      </>
-                    )}
-                  />
-                  {/* Free/Paid toggle - only for paid plans */}
-                  {!isFreePlan && (
-                    <Controller
-                      name="trialIsFree"
-                      control={methods.control}
-                      render={({ field }) => (
-                        <>
-                          {' '}
-                          <EditableSpan
-                            onChange={val => field.onChange(val === 'free')}
-                            value={field.value ? 'free' : 'paid'}
-                            options={[
-                              { value: 'free', name: 'for free' },
-                              { value: 'paid', name: 'while being charged' },
-                            ]}
-                            emptyMessage="for free"
-                          />
-                        </>
-                      )}
-                    />
-                  )}
-                  , then continue on this plan.
-                  <Button
-                    type="button"
-                    variant="link"
-                    className="text-destructive"
-                    onClick={() =>
-                      methods.reset({
-                        durationDays: 0,
-                      })
-                    }
-                  >
-                    Remove trial
-                  </Button>
-                </p>
-                {/* Contextual help based on plan type */}
-                <p className="text-muted-foreground text-xs">
-                  {isFreePlan ? (
-                    <>No payment method will be required.</>
-                  ) : data.trialIsFree ? (
-                    <>
-                      If checkout and automatic charge are set, payment method will be collected at checkout and a charge
-                      will be made when the trial ends.
-                    </>
-                  ) : (
-                    <>This is a paid trial. Only the resolved features are impacted, not the billing period nor the price.</>
-                  )}
-                </p>
-              </div>
-            )}
-
-            {methods.formState.errors && (
-              <div className="text-[0.8rem] font-medium text-destructive">
-                {methods.formState.errors.durationDays && (
-                  <p>Invalid duration : {String(methods.formState.errors.durationDays?.message)}</p>
-                )}
-                {methods.formState.errors.trialingPlanId && (
-                  <p>
-                    Invalid trial plan : {String(methods.formState.errors.trialingPlanId?.message)}
-                  </p>
-                )}
-                {methods.formState.errors.root && (
-                  <p>Error : {String(methods.formState.errors.root?.message)}</p>
-                )}
-              </div>
-            )}
-
-            <div>
-              <Button
-                type="button"
-                variant="link"
-                className="text-foreground px-0 mr-4"
-                onClick={cancel}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" variant="link" className="px-0">
-                Save
-              </Button>
-            </div>
-          </form>
-        </Form>
+    <form
+      onSubmit={event => {
+        event.preventDefault()
+        if (valid) save()
+      }}
+      className="space-y-4 text-sm"
+    >
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label htmlFor={`${id}-days`} className="text-xs font-normal text-muted-foreground">
+            Length
+          </Label>
+          <div className="relative">
+            <Input
+              id={`${id}-days`}
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={9999}
+              step={1}
+              autoFocus
+              value={draft.days}
+              onChange={event => set({ days: event.target.value })}
+              className="h-9 pr-12 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            />
+            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-muted-foreground">
+              days
+            </span>
+          </div>
+        </div>
+        {isFreePlan ? (
+          <div className="space-y-1.5">
+            <Label htmlFor={`${id}-features`} className="text-xs font-normal text-muted-foreground">
+              Features of
+            </Label>
+            {featuresSelect}
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            <Label htmlFor={`${id}-billing`} className="text-xs font-normal text-muted-foreground">
+              During the trial
+            </Label>
+            <Select
+              value={draft.free ? 'free' : 'billed'}
+              onValueChange={value => set({ free: value === 'free' })}
+            >
+              <SelectTrigger id={`${id}-billing`} className="h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="free">Nothing is billed</SelectItem>
+                <SelectItem value="billed">Billed as usual</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
-    </div>
+
+      {!isFreePlan && others.length > 0 && (
+        <AdvancedSection
+          label="Another plan's features"
+          defaultOpen={draft.featuresOf !== THIS_PLAN}
+          summary={draft.featuresOf === THIS_PLAN ? 'none' : planName(draft.featuresOf)}
+        >
+          <div className="space-y-1.5">
+            <Label htmlFor={`${id}-features`} className="text-xs font-normal text-muted-foreground">
+              During the trial, subscribers get the features of
+            </Label>
+            {featuresSelect}
+          </div>
+        </AdvancedSection>
+      )}
+
+      <div className="rounded-md bg-muted/50 px-3 py-2.5">
+        {valid ? (
+          <TrialSentence
+            days={days}
+            free={isFreePlan || draft.free}
+            featuresOf={draft.featuresOf === THIS_PLAN ? undefined : planName(draft.featuresOf)}
+            isFreePlan={isFreePlan}
+          />
+        ) : (
+          <p className="text-xs text-destructive">Enter a whole number of days, from 1 to 9999.</p>
+        )}
+      </div>
+
+      <ExtraActions
+        start={
+          existing && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              disabled={mutation.isPending}
+              onClick={remove}
+            >
+              Remove trial
+            </Button>
+          )
+        }
+      >
+        <Button type="button" variant="secondary" size="sm" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button type="submit" variant="primary" size="sm" disabled={!valid || mutation.isPending}>
+          {existing ? 'Save' : 'Add trial'}
+        </Button>
+      </ExtraActions>
+    </form>
   )
 }
 
-interface PlanTrialReadonlyProps {
-  config?: TrialConfig
-  currentPlanId: string
-  planType?: PlanType
-}
-export function PlanTrialReadonly({ config, currentPlanId, planType }: PlanTrialReadonlyProps) {
-  const { data: plansData, isLoading } = useQuery(listPlans, {})
-
-  const resolvePlanName = (id: string): string => {
-    if (isLoading) return '...'
-    const plan = plansData?.plans.find(p => p.id === id)
-    return plan?.name ?? 'unknown'
-  }
-
-  const isCurrentPlan = (planId?: string) => !planId || planId === currentPlanId
-  const isFreePlan = planType === PlanType.FREE
-
-  if (!config) {
-    return <p className="text-sm">No trial configured.</p>
-  }
-
-  const renderTrialDescription = () => {
-    const { durationDays, trialingPlanId, trialIsFree } = config
-
-    if (!durationDays || durationDays <= 0) {
-      return <p className="text-sm">No trial configured.</p>
-    }
-
-    const trialPlanName = isCurrentPlan(trialingPlanId)
-      ? 'current'
-      : resolvePlanName(trialingPlanId!)
-    const hasTrialingPlan = !isCurrentPlan(trialingPlanId)
-
-    // Render based on plan type and trial configuration
-    if (isFreePlan) {
-      // Free plan: trial just gives access to features, no billing ever
-      return (
-        <div className="text-sm space-y-1">
-          <p>
-            Users get <span className="font-bold">{durationDays} days</span>
-            {hasTrialingPlan && (
+/** The trial in plain words, then what checkout asks for. */
+const TrialSentence = ({
+  days,
+  free,
+  featuresOf,
+  isFreePlan,
+}: {
+  days: number
+  free: boolean
+  /** Another plan's name when the trial gives its features. */
+  featuresOf?: string
+  isFreePlan: boolean
+}) => {
+  const length = `${days} ${days === 1 ? 'day' : 'days'}`
+  const withFeatures = featuresOf ? (
+    <>
+      {' '}
+      with <strong className="font-medium text-foreground">{featuresOf}</strong>&apos;s features
+    </>
+  ) : null
+  const [sentence, note] = isFreePlan
+    ? [
+        <>
+          New subscribers get <strong className="font-medium text-foreground">{length}</strong>
+          {withFeatures}, then continue on this free plan.
+        </>,
+        'No payment method needed.',
+      ]
+    : free
+      ? [
+          <>
+            New subscribers get <strong className="font-medium text-foreground">{length} free</strong>
+            {withFeatures}, then billing starts.
+          </>,
+          'Checkout collects a payment method; the first charge is when the trial ends.',
+        ]
+      : [
+          <>
+            New subscribers are <strong className="font-medium text-foreground">billed from day one</strong>
+            {featuresOf ? (
               <>
                 {' '}
-                with <span className="font-bold">&quot;{trialPlanName}&quot;</span> features
+                and get <strong className="font-medium text-foreground">{featuresOf}</strong>&apos;s
+                features for {length}
               </>
+            ) : (
+              <> with a {length} introductory period</>
             )}
-            , then continue on this free plan.
-          </p>
-          <p className="text-muted-foreground text-xs">No payment required.</p>
-        </div>
-      )
-    } else {
-      // Paid plan
-      if (trialIsFree) {
-        // Free trial on paid plan: no charge during trial, then billing starts
-        return (
-          <div className="text-sm space-y-1">
-            <p>
-              Users get <span className="font-bold">{durationDays} days free</span>
-              {hasTrialingPlan && (
-                <>
-                  {' '}
-                  with <span className="font-bold">&quot;{trialPlanName}&quot;</span> features
-                </>
-              )}
-              , then billing starts on this plan.
-            </p>
-            <p className="text-muted-foreground text-xs">
-              Payment method collected at checkout. If trial ends without payment, subscription
-              requires checkout to continue.
-            </p>
-          </div>
-        )
-      } else {
-        // Paid trial: charge from day 1, but with trialing plan features
-        return (
-          <div className="text-sm space-y-1">
-            <p>
-              Users are <span className="font-bold">charged from day 1</span>
-              {hasTrialingPlan && (
-                <>
-                  , but get <span className="font-bold">&quot;{trialPlanName}&quot;</span> features
-                  for <span className="font-bold">{durationDays} days</span>
-                </>
-              )}
-              {!hasTrialingPlan && (
-                <>
-                  {' '}
-                  with a <span className="font-bold">{durationDays}-day</span> introductory period
-                </>
-              )}
-              .
-            </p>
-            <p className="text-muted-foreground text-xs">
-              Payment collected immediately at checkout.
-            </p>
-          </div>
-        )
-      }
-    }
-  }
-
-  return <div className="space-y-4">{renderTrialDescription()}</div>
+            .
+          </>,
+          'Only the features change during the trial, not the price or billing period.',
+        ]
+  return (
+    <div className="space-y-0.5">
+      <p className="text-sm text-muted-foreground">{sentence}</p>
+      <p className="text-xs text-muted-foreground/80">{note}</p>
+    </div>
+  )
 }
-
-interface EditableSpanProps {
-  value?: string | number | null
-  onChange: (newValue: string | number) => void
-  options?: { name: string; value: string; label?: string }[]
-  type?: 'text' | 'number'
-  emptyMessage?: string
-  quotes?: boolean
-}
-
-const EditableSpan = forwardRef(
-  (
-    { value, onChange, options, type = 'text', emptyMessage, quotes = false }: EditableSpanProps,
-    _ref
-  ) => {
-    const [isEditing, setIsEditing] = useState(false)
-
-    if (isEditing) {
-      if (options) {
-        return (
-          <Select
-            value={value as string}
-            onValueChange={newValue => {
-              onChange(newValue)
-              setIsEditing(false)
-            }}
-            defaultOpen
-            onOpenChange={open => !open && setIsEditing(false)}
-          >
-            <SelectTrigger className="w-[200px]  inline-flex" autoFocus>
-              <SelectValue
-                placeholder="Please select"
-                onBlur={() => setIsEditing(false)}
-                autoFocus
-              />
-            </SelectTrigger>
-            <SelectContent>
-              {options.map(option => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.name || option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )
-      } else {
-        return (
-          <Input
-            type={type}
-            value={value as string | number}
-            className="w-[200px] inline-flex"
-            onChange={e =>
-              onChange(type === 'number' ? parseInt(e.target.value, 10) : e.target.value)
-            }
-            onBlur={() => setIsEditing(false)}
-            autoFocus
-            min={type === 'number' ? 0 : undefined}
-            max={type === 'number' ? 9999 : undefined}
-            step={type === 'number' ? 1 : undefined}
-          />
-        )
-      }
-    }
-
-    const msg = options
-      ? options.find(o => o.value === value)?.name || emptyMessage || value
-      : (value ?? emptyMessage)
-
-    const shouldQuote = quotes && msg !== 'current' && msg !== emptyMessage
-
-    return (
-      <span onClick={() => setIsEditing(true)} className="font-bold cursor-pointer underline">
-        {shouldQuote && <span>&quot;</span>}
-        {msg ?? emptyMessage}
-        {shouldQuote && <span>&quot;</span>}
-      </span>
-    )
-  }
-)

@@ -27,10 +27,13 @@ use crate::StoreResult;
 use crate::domain::entity_activity::{Activity, ActivityType, AuditInput, EntityType};
 use crate::domain::enums::BillingPeriodEnum;
 use crate::domain::outbox_event::SubscriptionUpdateType;
+use crate::domain::price_components::{PriceComponent, charges_nothing};
+use crate::domain::prices::Pricing;
 use crate::domain::{DetailedInvoice, SubscriptionDetails, SubscriptionStatusEnum};
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
 use crate::repositories::entity_activity::EntityActivityInterface;
+use crate::repositories::price_components::PriceComponentInterface;
 use crate::services::credit::coupon_grant::has_started;
 use crate::services::evaluate::bill::midnight;
 use crate::services::evaluate::load::load_facts;
@@ -129,6 +132,18 @@ pub(crate) fn writes_document(
         return false;
     }
     !due.awaiting_checkout || (status == Status::TrialExpired && collects_unattended)
+}
+
+/// A credit pack, paid or included.
+fn includes_credit(component: &PriceComponent) -> bool {
+    let credit = |pricing: &Pricing| matches!(pricing, Pricing::Credit { .. });
+    component.prices.iter().any(|price| credit(&price.pricing))
+        || component.legacy_pricing.as_ref().is_some_and(|legacy| {
+            legacy
+                .pricing_entries
+                .iter()
+                .any(|(_, pricing)| credit(pricing))
+        })
 }
 
 /// How a step issues the documents due.
@@ -405,6 +420,15 @@ impl Services {
             )
             .await)?;
         }
+        // A change to another option of the same version switches no plan, and may keep the
+        // cadence: recorded as the period it starts begins.
+        if plan_version == row.plan_version_id
+            && derived.current_period != stored.current_period
+            && let Some((start, _)) = derived.current_period
+            && let Some(change) = written_ahead_change(conn, &row, plan_version, start).await?
+        {
+            record_changed_option(&self.store, conn, &row, &change, None).await?;
+        }
 
         // The fees in force today, restated before the documents that read it: a change at the
         // period's end moves the MRR with the renewal that applies it.
@@ -649,13 +673,22 @@ impl Services {
         if due.is_empty() {
             return Ok(Vec::new());
         }
-        let plan = db(PlanRow::get_with_version(
-            conn,
-            derived.plan_version.unwrap_or(row.plan_version_id),
-            row.tenant_id,
-        )
-        .await)?;
-        let free_plan = plan.plan.plan_type == PlanTypeEnum::Free;
+        let plan_version = derived.plan_version.unwrap_or(row.plan_version_id);
+        let plan = db(PlanRow::get_with_version(conn, plan_version, row.tenant_id).await)?;
+        let bills_nothing = due.iter().any(|document| {
+            !reading.contains(&document.slot)
+                && document.charges.iter().all(|charge| charge.amount == 0)
+        });
+        // Priced at nothing, a plan is free whatever its type. Included credit is granted from
+        // its zero invoice, so a plan including some still writes it.
+        let free_plan = plan.plan.plan_type == PlanTypeEnum::Free
+            || (bills_nothing && {
+                let components = self
+                    .store
+                    .list_price_components_with_conn(conn, plan_version, row.tenant_id)
+                    .await?;
+                charges_nothing(&components) && !components.iter().any(includes_credit)
+            });
         let collects_unattended = row.charge_automatically
             && due.iter().any(|document| document.awaiting_checkout)
             && !db(CustomerPaymentMethodRow::list_by_customer_id(
@@ -1209,6 +1242,7 @@ impl Services {
         let scheduled = written_ahead_change(conn, row, to, on).await?;
         let written_ahead = scheduled.is_some();
         if let Some(change) = scheduled {
+            record_changed_option(&self.store, conn, row, &change, Some((to, on))).await?;
             details["event"] = serde_json::Value::String(change.id.as_uuid().to_string());
             // Settled now and again once a draft billing an old fee is issued, as an immediate one.
             details["outgoing"] = serde_json::Value::String("settled".to_owned());
@@ -1389,6 +1423,43 @@ impl ServicesEdge {
             })
             .await
     }
+}
+
+/// The option a change written ahead moves the subscription to, once it applies. A switch to
+/// `switched`'s version on its day by a change naming no option (one written before options were
+/// recorded on it) moves to the option a change naming none picks, as of the day before, and a
+/// version without options leaves none of the old version's.
+async fn record_changed_option(
+    store: &crate::Store,
+    conn: &mut PgConn,
+    row: &SubscriptionRow,
+    change: &SubscriptionChangeRow,
+    switched: Option<(PlanVersionId, NaiveDate)>,
+) -> StoreResult<()> {
+    let named = change
+        .change
+        .pointer("/ApplyPlanChange/new_plan_option_id")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|id| id.parse::<common_domain::ids::PlanOptionId>().ok());
+    let option = match (named, switched) {
+        (Some(option), _) => Some(option),
+        (None, Some((to, on))) if to != row.plan_version_id => {
+            let day_before = on.pred_opt().unwrap_or(on);
+            let before = store
+                .subscription_details_as_of(conn, row.tenant_id, row.id, day_before)
+                .await?;
+            crate::services::subscriptions::plan_change::unnamed_target_option(
+                conn, store, &before, to,
+            )
+            .await?
+            .map(|option| option.id)
+        }
+        (None, _) => return Ok(()),
+    };
+    if option != row.plan_option_id {
+        crate::services::subscriptions::currency::record_plan_option(conn, row.id, option).await?;
+    }
+    Ok(())
 }
 
 /// The plan change written ahead that a switch to `to` on `on` applies.

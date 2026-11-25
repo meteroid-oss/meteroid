@@ -1,7 +1,7 @@
 use crate::enums::{CustomPropertyEntityTypeEnum, CustomPropertyTypeEnum};
 use chrono::NaiveDateTime;
 use common_domain::ids::{CustomPropertyDefinitionId, TenantId};
-use diesel::{Identifiable, Queryable, Selectable};
+use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Identifiable, Selectable, Clone)]
 #[diesel(table_name = crate::schema::custom_property_definition)]
@@ -21,4 +21,23 @@ pub struct CustomPropertyDefinitionRow {
     pub archived_at: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
     pub updated_at: Option<NaiveDateTime>,
+}
+
+/// A definition as core code writes it (sandbox presets); users' go through the
+/// custom-properties module.
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::custom_property_definition)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct CustomPropertyDefinitionRowNew {
+    pub id: CustomPropertyDefinitionId,
+    pub tenant_id: TenantId,
+    pub entity_type: CustomPropertyEntityTypeEnum,
+    pub key: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub property_type: CustomPropertyTypeEnum,
+    pub config: serde_json::Value,
+    pub required: bool,
+    pub default_value: Option<serde_json::Value>,
+    pub display_order: i32,
 }

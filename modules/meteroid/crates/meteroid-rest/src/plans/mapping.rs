@@ -3,9 +3,9 @@ use crate::entitlements::mapping::entitlement_to_rest;
 use crate::plans::model::{
     AvailableParameters, BillingPeriodEnum, CapacityPlanFee, CapacityThreshold, CreditExpiryUnit,
     CreditPackExpiry, CreditPackRollover, CreditPlanFee, ExtraRecurringPlanFee, Fee,
-    MatrixDimension, MatrixPlanPricing, MatrixRow, OneTimePlanFee, PackagePlanPricing,
-    PerUnitPlanPricing, Plan, PlanFeeCreditUnit, PlanVersionSummary, PriceComponent,
-    PriceComponentInput, ProductFamily, RatePlanFee, SlotPlanFee, TermRate, TierRow,
+    MatrixPlanPricing, OneTimePlanFee, PackagePlanPricing, PerUnitPlanPricing, Plan,
+    PlanFeeCreditUnit, PlanOption, PlanVersionSummary, PriceComponent, PriceComponentInput,
+    ProductFamily, RateCardPlanPricing, RatePlanFee, SlotPlanFee, TermRate, TierRow,
     TieredPlanPricing, TrialConfig, UsagePlanFee, UsagePricingModel, VolumePlanPricing,
 };
 use common_domain::ids::ProductId;
@@ -69,6 +69,16 @@ pub fn plan_to_rest(
         billing_cycles: version.billing_cycles,
         period_start_day: version.period_start_day,
         trial,
+        options: version
+            .options
+            .iter()
+            .map(|option| PlanOption {
+                id: option.id,
+                name: option.name.clone(),
+                alias: option.alias.clone(),
+                hidden: option.hidden,
+            })
+            .collect(),
         price_components: rest_components,
         available_parameters,
         entitlements: version
@@ -225,9 +235,9 @@ fn v2_component_to_fee(product: &Product, prices: &[Price]) -> Option<Fee> {
             let rates = prices
                 .iter()
                 .filter_map(|p| match &p.pricing {
-                    Pricing::Slot { unit_rate, .. } => Some(TermRate {
+                    Pricing::Slot { model, .. } => Some(TermRate {
                         term: p.cadence.into(),
-                        price: *unit_rate,
+                        price: model.headline_rate(),
                     }),
                     _ => None,
                 })
@@ -293,11 +303,13 @@ fn v2_component_to_fee(product: &Product, prices: &[Price]) -> Option<Fee> {
                 Pricing::ExtraRecurring {
                     unit_price,
                     quantity,
+                    model,
                 } => Some(Fee::ExtraRecurring(ExtraRecurringPlanFee {
                     unit_price: *unit_price,
                     quantity: *quantity,
                     billing_type: billing_type.clone().into(),
                     cadence,
+                    model: fixed_quantity_model_to_rest(model.as_ref()),
                 })),
                 _ => None,
             }
@@ -308,9 +320,11 @@ fn v2_component_to_fee(product: &Product, prices: &[Price]) -> Option<Fee> {
                 Pricing::OneTime {
                     unit_price,
                     quantity,
+                    model,
                 } => Some(Fee::OneTime(OneTimePlanFee {
                     unit_price: *unit_price,
                     quantity: *quantity,
+                    model: fixed_quantity_model_to_rest(model.as_ref()),
                 })),
                 _ => None,
             }
@@ -340,6 +354,13 @@ fn v2_component_to_fee(product: &Product, prices: &[Price]) -> Option<Fee> {
             }
         }
     }
+}
+
+/// The model of an extra recurring or one-time price, when it has one.
+fn fixed_quantity_model_to_rest(
+    model: Option<&domain::price_components::RatingModel>,
+) -> Option<UsagePricingModel> {
+    model.map(|model| usage_pricing_to_rest(&model.as_usage_model()))
 }
 
 fn price_credit_unit(unit: &PlanFeeCreditUnit) -> domain::credit_units::PriceCreditUnit {
@@ -403,6 +424,7 @@ fn fee_type_to_rest(fee: &domain::price_components::FeeType) -> Fee {
             quantity: *quantity,
             billing_type: billing_type.clone().into(),
             cadence: (*cadence).into(),
+            model: None,
         }),
         domain::price_components::FeeType::OneTime {
             unit_price,
@@ -410,6 +432,7 @@ fn fee_type_to_rest(fee: &domain::price_components::FeeType) -> Fee {
         } => Fee::OneTime(OneTimePlanFee {
             unit_price: *unit_price,
             quantity: *quantity,
+            model: None,
         }),
         domain::price_components::FeeType::Credit {
             unit_price,
@@ -472,11 +495,20 @@ fn usage_pricing_to_rest(
                 rate: *rate,
             })
         }
-        domain::price_components::UsagePricingModel::Matrix { rates } => {
-            UsagePricingModel::Matrix(MatrixPlanPricing {
-                rates: rates.iter().map(matrix_row_to_rest).collect(),
-            })
+        // Rates a matrix can hold are returned as one, as before rates by dimension.
+        domain::price_components::UsagePricingModel::DimensionRates(rates) => {
+            match MatrixPlanPricing::from_domain(rates) {
+                Some(matrix) => UsagePricingModel::Matrix(matrix),
+                None => UsagePricingModel::DimensionRates(rates.clone().into()),
+            }
         }
+        domain::price_components::UsagePricingModel::RateCard {
+            rate_card_id,
+            multiplier,
+        } => UsagePricingModel::RateCard(RateCardPlanPricing {
+            rate_card_id: *rate_card_id,
+            multiplier: *multiplier,
+        }),
     }
 }
 
@@ -486,20 +518,6 @@ fn tier_row_to_rest(tier: &domain::price_components::TierRow) -> TierRow {
         rate: tier.rate,
         flat_fee: tier.flat_fee,
         flat_cap: tier.flat_cap,
-    }
-}
-
-fn matrix_row_to_rest(row: &domain::price_components::MatrixRow) -> MatrixRow {
-    MatrixRow {
-        dimension1: MatrixDimension {
-            key: row.dimension1.key.clone(),
-            value: row.dimension1.value.clone(),
-        },
-        dimension2: row.dimension2.as_ref().map(|d| MatrixDimension {
-            key: d.key.clone(),
-            value: d.value.clone(),
-        }),
-        per_unit_price: row.per_unit_price,
     }
 }
 
@@ -579,7 +597,9 @@ fn fee_to_domain(
                         cadence: r.term.into(),
                         currency: currency.to_string(),
                         pricing: Pricing::Slot {
-                            unit_rate: r.price,
+                            model: meteroid_store::domain::price_components::RatingModel::PerUnit {
+                                rate: r.price,
+                            },
                             min_slots: f.minimum_count,
                             max_slots: f.quota,
                         },
@@ -646,12 +666,15 @@ fn fee_to_domain(
             ))
         }
         Fee::ExtraRecurring(f) => {
+            let (unit_price, model) =
+                fixed_quantity_pricing_from_rest(f.unit_price, f.model.as_ref())?;
             let prices = vec![PriceEntry::New(PriceInput {
                 cadence: f.cadence.into(),
                 currency: currency.to_string(),
                 pricing: Pricing::ExtraRecurring {
-                    unit_price: f.unit_price,
+                    unit_price,
                     quantity: f.quantity,
+                    model,
                 },
                 credit_unit: None,
             })];
@@ -667,12 +690,15 @@ fn fee_to_domain(
             // OneTime fees have no meaningful cadence, but the price table requires one.
             // Monthly is used as a storage placeholder; billing logic uses
             // SubscriptionFeeBillingPeriod::OneTime for actual scheduling.
+            let (unit_price, model) =
+                fixed_quantity_pricing_from_rest(f.unit_price, f.model.as_ref())?;
             let prices = vec![PriceEntry::New(PriceInput {
                 cadence: domain::enums::BillingPeriodEnum::Monthly,
                 currency: currency.to_string(),
                 pricing: Pricing::OneTime {
-                    unit_price: f.unit_price,
+                    unit_price,
                     quantity: f.quantity,
+                    model,
                 },
                 credit_unit: None,
             })];
@@ -765,6 +791,48 @@ fn credit_term_to_rest(expiry: domain::price_components::CreditExpiry) -> Credit
     }
 }
 
+/// A model a count (seats, a quantity set on the plan) can be priced by, through the seat
+/// validator; a matrix, a rate card, tiers in blocks or an empty package is a 400.
+pub fn rating_model_from_rest(
+    model: domain::price_components::UsagePricingModel,
+) -> Result<domain::price_components::RatingModel, RestApiError> {
+    let model = domain::price_components::RatingModel::from_usage_model(model)
+        .map_err(|e| RestApiError::InvalidInput(e.to_string()))?;
+    // A model's checks read no currency.
+    domain::prices::validate_pricing(
+        &Pricing::Slot {
+            model: model.clone(),
+            min_slots: None,
+            max_slots: None,
+        },
+        "",
+    )
+    .map_err(|e| RestApiError::InvalidInput(e.to_string()))?;
+    Ok(model)
+}
+
+/// The unit price and model of an extra recurring or one-time fee, stored as gRPC stores them:
+/// a per-unit model becomes the unit price; any other leaves its first rate there.
+fn fixed_quantity_pricing_from_rest(
+    unit_price: rust_decimal::Decimal,
+    model: Option<&UsagePricingModel>,
+) -> Result<
+    (
+        rust_decimal::Decimal,
+        Option<domain::price_components::RatingModel>,
+    ),
+    RestApiError,
+> {
+    use domain::price_components::RatingModel;
+    let Some(model) = model else {
+        return Ok((unit_price, None));
+    };
+    match rating_model_from_rest(rest_usage_pricing_to_domain(model))? {
+        RatingModel::PerUnit { rate } => Ok((rate, None)),
+        model => Ok((model.headline_rate(), Some(model))),
+    }
+}
+
 fn rest_usage_pricing_to_domain(
     model: &UsagePricingModel,
 ) -> domain::price_components::UsagePricingModel {
@@ -784,8 +852,11 @@ fn rest_usage_pricing_to_domain(
             block_size: p.block_size,
             rate: p.rate,
         },
-        UsagePricingModel::Matrix(p) => D::Matrix {
-            rates: p.rates.iter().map(matrix_row_to_domain).collect(),
+        UsagePricingModel::Matrix(p) => D::DimensionRates(p.to_domain()),
+        UsagePricingModel::DimensionRates(p) => D::DimensionRates(p.clone().into()),
+        UsagePricingModel::RateCard(p) => D::RateCard {
+            rate_card_id: p.rate_card_id,
+            multiplier: p.multiplier,
         },
     }
 }
@@ -796,23 +867,6 @@ fn tier_row_to_domain(t: &TierRow) -> domain::price_components::TierRow {
         rate: t.rate,
         flat_fee: t.flat_fee,
         flat_cap: t.flat_cap,
-    }
-}
-
-fn matrix_row_to_domain(r: &MatrixRow) -> domain::price_components::MatrixRow {
-    domain::price_components::MatrixRow {
-        dimension1: domain::price_components::MatrixDimension {
-            key: r.dimension1.key.clone(),
-            value: r.dimension1.value.clone(),
-        },
-        dimension2: r
-            .dimension2
-            .as_ref()
-            .map(|d| domain::price_components::MatrixDimension {
-                key: d.key.clone(),
-                value: d.value.clone(),
-            }),
-        per_unit_price: r.per_unit_price,
     }
 }
 
@@ -916,5 +970,198 @@ fn extract_available_parameters(
         billing_periods,
         capacity_thresholds,
         slot_components,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plans::model::{BillingType, MatrixDimension, MatrixPlanPricing, MatrixRow};
+    use rust_decimal::Decimal;
+
+    fn package_fee(model: Option<UsagePricingModel>) -> Fee {
+        Fee::ExtraRecurring(ExtraRecurringPlanFee {
+            unit_price: Decimal::from(25),
+            quantity: 25,
+            billing_type: BillingType::Advance,
+            cadence: BillingPeriodEnum::Monthly,
+            model,
+        })
+    }
+
+    fn package() -> UsagePricingModel {
+        UsagePricingModel::Package(PackagePlanPricing {
+            block_size: 10,
+            rate: Decimal::from(30),
+        })
+    }
+
+    fn written(fee: &Fee) -> (FeeStructure, Pricing) {
+        let (_, structure, mut prices) = fee_to_domain(fee, "EUR").expect("a valid fee");
+        match prices.pop() {
+            Some(PriceEntry::New(input)) => (structure, input.pricing),
+            _ => panic!("one new price"),
+        }
+    }
+
+    fn read(structure: FeeStructure, pricing: Pricing) -> Fee {
+        let product = Product {
+            id: ProductId::default(),
+            name: "Setup".into(),
+            description: None,
+            created_at: chrono::NaiveDateTime::default(),
+            updated_at: None,
+            archived_at: None,
+            tenant_id: Default::default(),
+            product_family_id: Default::default(),
+            fee_type: domain::enums::FeeTypeEnum::ExtraRecurring,
+            fee_structure: structure,
+            catalog: false,
+            tax_category_id: None,
+            icon: None,
+            color: None,
+        };
+        let price = Price {
+            id: Default::default(),
+            product_id: product.id,
+            cadence: domain::enums::BillingPeriodEnum::Monthly,
+            currency: "EUR".into(),
+            pricing,
+            tenant_id: Default::default(),
+            created_at: chrono::NaiveDateTime::default(),
+            archived_at: None,
+            catalog: false,
+            credit_unit: None,
+        };
+        v2_component_to_fee(&product, &[price]).expect("a fee")
+    }
+
+    fn billed(pricing: &Pricing) -> Decimal {
+        match pricing {
+            Pricing::ExtraRecurring {
+                unit_price,
+                quantity,
+                model,
+            } => domain::price_components::fixed_quantity_amount(
+                *unit_price,
+                Decimal::from(*quantity),
+                model.as_ref(),
+            ),
+            _ => panic!("an extra recurring price"),
+        }
+    }
+
+    #[test]
+    fn a_package_fee_reads_and_writes_back_as_billed() {
+        // 25 units in packs of 10 at 30: 3 packs, 90, never 25 × 25.
+        let (structure, pricing) = written(&package_fee(Some(package())));
+        assert_eq!(billed(&pricing), Decimal::from(90));
+
+        let Fee::ExtraRecurring(read_back) = read(structure, pricing) else {
+            panic!("an extra recurring fee");
+        };
+        assert_eq!(read_back.unit_price, Decimal::from(30));
+        assert!(matches!(
+            &read_back.model,
+            Some(UsagePricingModel::Package(p)) if p.block_size == 10 && p.rate == Decimal::from(30)
+        ));
+
+        let (_, rewritten) = written(&Fee::ExtraRecurring(read_back));
+        assert_eq!(billed(&rewritten), Decimal::from(90));
+    }
+
+    #[test]
+    fn a_fee_without_a_model_keeps_its_unit_price() {
+        let (structure, pricing) = written(&package_fee(None));
+        assert_eq!(billed(&pricing), Decimal::from(625));
+        let Fee::ExtraRecurring(read_back) = read(structure, pricing) else {
+            panic!("an extra recurring fee");
+        };
+        assert!(read_back.model.is_none());
+    }
+
+    #[test]
+    fn a_model_a_count_cannot_take_is_refused() {
+        let matrix = UsagePricingModel::Matrix(MatrixPlanPricing { rates: vec![] });
+        assert!(fee_to_domain(&package_fee(Some(matrix)), "EUR").is_err());
+        let blocks = UsagePricingModel::Tiered(TieredPlanPricing {
+            tiers: vec![],
+            block_size: Some(5),
+        });
+        assert!(fee_to_domain(&package_fee(Some(blocks)), "EUR").is_err());
+        let empty = UsagePricingModel::Package(PackagePlanPricing {
+            block_size: 0,
+            rate: Decimal::from(30),
+        });
+        assert!(fee_to_domain(&package_fee(Some(empty)), "EUR").is_err());
+    }
+
+    /// A matrix sent to the API is written as rates by dimension of its exact values, and
+    /// returned as the matrix it was.
+    #[test]
+    fn a_matrix_is_written_as_rates_by_dimension() {
+        let dimension = |key: &str, value: &str| MatrixDimension {
+            key: key.to_owned(),
+            value: value.to_owned(),
+        };
+        let fee = Fee::Usage(UsagePlanFee {
+            metric_id: common_domain::ids::BillableMetricId::default(),
+            pricing: UsagePricingModel::Matrix(MatrixPlanPricing {
+                rates: vec![MatrixRow {
+                    dimension1: dimension("region", "eu"),
+                    dimension2: Some(dimension("tier", "gold")),
+                    per_unit_price: Decimal::from(2),
+                }],
+            }),
+            cadence: BillingPeriodEnum::Monthly,
+            credit_unit: None,
+        });
+        let (_, structure, mut prices) = fee_to_domain(&fee, "EUR").expect("a valid fee");
+        assert!(matches!(
+            structure,
+            FeeStructure::Usage {
+                model: UsageModel::DimensionRates,
+                ..
+            }
+        ));
+        let Some(PriceEntry::New(input)) = prices.pop() else {
+            panic!("one new price");
+        };
+        let Pricing::Usage(domain::price_components::UsagePricingModel::DimensionRates(rates)) =
+            input.pricing
+        else {
+            panic!("rates by dimension");
+        };
+        assert_eq!(rates.dimensions, vec!["region", "tier"]);
+        assert_eq!(rates.rates[0].key, vec!["eu", "gold"]);
+        assert_eq!(rates.rates[0].rate, Decimal::from(2));
+        let UsagePricingModel::Matrix(matrix) = usage_pricing_to_rest(
+            &domain::price_components::UsagePricingModel::DimensionRates(rates.clone()),
+        ) else {
+            panic!("returned as a matrix");
+        };
+        let [row] = matrix.rates.as_slice() else {
+            panic!("one cell");
+        };
+        assert_eq!(
+            (
+                (row.dimension1.key.as_str(), row.dimension1.value.as_str()),
+                row.dimension2
+                    .as_ref()
+                    .map(|cell| (cell.key.as_str(), cell.value.as_str())),
+                row.per_unit_price,
+            ),
+            (("region", "eu"), Some(("tier", "gold")), Decimal::from(2))
+        );
+
+        // A prefix is not a matrix's: returned as rates by dimension.
+        let mut prefixed = rates;
+        prefixed.rates[0].key[1] = "go*".to_owned();
+        assert!(matches!(
+            usage_pricing_to_rest(
+                &domain::price_components::UsagePricingModel::DimensionRates(prefixed)
+            ),
+            UsagePricingModel::DimensionRates(_)
+        ));
     }
 }

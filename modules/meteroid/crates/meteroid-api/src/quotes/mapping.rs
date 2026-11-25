@@ -604,6 +604,7 @@ pub mod quotes {
                 &terms.discount,
             )),
             recurring_value: terms.recurring_value.map(|v| v.max(0) as u32),
+            duration_months: terms.duration_months.map(|v| v.max(0) as u32),
         }
     }
 

@@ -6,12 +6,15 @@ import { toast } from 'sonner'
 import { z } from 'zod'
 
 import { DetailsForm, createPlanSchema } from '@/features/plans/create/details/DetailsForm'
+import { useTenant } from '@/hooks/useTenant'
 import { PlanType } from '@/rpc/api/plans/v1/models_pb'
 import { createDraftPlan, listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 
 export const PlanCreateInitModal = () => {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  // A plan's prices name their currencies; the version keeps the account's as its fallback.
+  const currency = useTenant().tenant?.reportingCurrency ?? ''
 
   const onCancel = () => navigate('..')
 
@@ -27,16 +30,13 @@ export const PlanCreateInitModal = () => {
       const plan = await createPlanMutation.mutateAsync({
         name: values.planName,
         description: values.description,
-        planType: PlanType[values.planType as keyof typeof PlanType],
+        // Free and sales-led are read from prices and where the plan is sold, not chosen here.
+        planType: PlanType.STANDARD,
         productFamilyLocalId: values.productFamilyLocalId,
-        currency: values.currency,
+        currency,
       })
 
-      if (values.planType === 'FREE') {
-        navigate(`../${plan.plan?.plan?.localId}`)
-      } else {
-        navigate(`../${plan.plan?.plan?.localId}/draft`)
-      }
+      navigate(`../${plan.plan?.plan?.localId}/draft`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to create plan')
     }
@@ -46,8 +46,8 @@ export const PlanCreateInitModal = () => {
     <Modal
       layout="vertical"
       visible={true}
-      header={<>Create a new plan </>}
-      size="xlarge"
+      header="Create a plan"
+      size="large"
       onCancel={onCancel}
       hideFooter
     >
@@ -55,7 +55,7 @@ export const PlanCreateInitModal = () => {
         <DetailsForm
           onCancel={onCancel}
           onNext={handleSubmit}
-          submitLabel="Create Plan"
+          submitLabel="Create plan"
           isSubmitting={createPlanMutation.isPending}
         />
       </div>

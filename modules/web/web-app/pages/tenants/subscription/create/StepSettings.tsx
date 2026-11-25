@@ -47,6 +47,7 @@ import {
   createSubscriptionAtom,
   effectiveSubscriptionPrices,
 } from '@/pages/tenants/subscription/create/state'
+import { useSubscriptionSale } from '@/pages/tenants/subscription/create/useSubscriptionSale'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
@@ -96,11 +97,7 @@ const useEffectivePrices = (state: CreateSubscriptionState) => {
     { localId: state.planVersionId! },
     { enabled: !!state.planVersionId }
   )
-  const componentsQuery = useQuery(
-    listPriceComponents,
-    { planVersionId: state.planVersionId! },
-    { enabled: !!state.planVersionId }
-  )
+  const sale = useSubscriptionSale(state)
   const addOnsQuery = useQuery(
     listAddOns,
     state.planVersionId
@@ -108,16 +105,16 @@ const useEffectivePrices = (state: CreateSubscriptionState) => {
       : skipToken
   )
   const version = planQuery.data?.plan?.version
-  if (!version || !componentsQuery.data || !addOnsQuery.data) return undefined
+  if (!version || !sale.components || !sale.currency || !addOnsQuery.data) return undefined
   const addOnPrices = state.addOns.map(
     selected => addOnsQuery.data.addOns.find(a => a.id === selected.addOnId)?.price
   )
   return {
     prices: effectiveSubscriptionPrices(
-      componentsQuery.data.components,
+      sale.components,
       state.components,
       addOnPrices,
-      version.currency
+      sale.currency
     ),
     planNetTerms: version.netTerms,
   }

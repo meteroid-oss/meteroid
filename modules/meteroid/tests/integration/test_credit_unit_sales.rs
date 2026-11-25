@@ -143,6 +143,8 @@ async fn set_product(setup: &MeteroidSetup, unit: CreditUnitId) -> TestResult<Pr
         .map_err(test_error)?,
         catalog: true,
         tax_category_id: None,
+        icon: None,
+        color: None,
     }
     .insert(&mut conn)
     .await

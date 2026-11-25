@@ -234,6 +234,8 @@ impl ComputedInvoiceContent {
 
 /// A subscription period's invoice once its lines are priced: either its stored content, kept as
 /// is, or fresh lines still to be covered, discounted and taxed.
+// Built once per invoice and consumed right away: boxing the lines would only add an allocation.
+#[allow(clippy::large_enum_variant)]
 pub(in crate::services) enum PricedInvoice {
     Stored(ComputedInvoiceContent),
     Lines(PricedLines),
@@ -489,12 +491,19 @@ impl Services {
                 .await?;
         let owed = queue.owed(&subscription_details.applied_coupons, currency);
         let applicable = super::discount::applicable_coupons(&owed);
+        let add_ons = queue.add_ons_of(&invoice_lines);
+        let starts = invoice_lines
+            .iter()
+            .map(|line| Some(line.start_date))
+            .collect();
         let assembled = assemble_lines(
             &mut invoice_lines,
             &AssemblyInputs {
                 currency: subscription_details.subscription.currency.clone(),
-                coupons: super::discount::coupon_inputs(&applicable),
+                coupons: queue.inputs(&applicable, currency),
                 discount: None,
+                add_ons,
+                starts,
             },
         );
         let discount_total = assembled.discount;
@@ -546,7 +555,8 @@ impl Services {
                 tax_inclusive,
             )
             .await?;
-        let mut applied_coupons = super::discount::coupon_rows(&applicable, &assembled.coupons);
+        let mut applied_coupons =
+            super::discount::coupon_rows(&applicable, &assembled.coupons, currency);
         let discount_total = taxed.net_discount(discount_total as i64, &mut applied_coupons)?;
         let (mut invoice_lines, mut breakdown) = (taxed.lines, taxed.breakdown);
 
@@ -594,6 +604,8 @@ impl Services {
                 currency: currency.clone(),
                 coupons: Vec::new(),
                 discount: Some(discount.unwrap_or(0)),
+                add_ons: Vec::new(),
+                starts: Vec::new(),
             },
         )
         .discount;
@@ -1151,8 +1163,11 @@ impl MeteredFee {
             | Self::Usage(UsagePricingModel::Package { rate, .. }) => zero(rate),
             Self::Usage(UsagePricingModel::Tiered { tiers, .. })
             | Self::Usage(UsagePricingModel::Volume { tiers, .. }) => tiers_free(tiers),
-            Self::Usage(UsagePricingModel::Matrix { rates }) => {
-                rates.iter().all(|row| row.per_unit_price.is_zero())
+            Self::Usage(UsagePricingModel::DimensionRates(rates)) => {
+                rates.rates.iter().all(|rate| rate.rate.is_zero())
+            }
+            Self::Usage(UsagePricingModel::RateCard { multiplier, .. }) => {
+                multiplier.is_some_and(|m| m.is_zero())
             }
             Self::CapacityOverage { overage_rate, .. } => overage_rate.is_zero(),
         }
@@ -1262,7 +1277,7 @@ mod tests {
 
     #[test]
     fn a_fee_is_free_only_when_no_usage_is_ever_charged() {
-        use crate::domain::price_components::{MatrixDimension, MatrixRow, TierRow};
+        use crate::domain::price_components::{DimensionRate, DimensionRates, TierRow};
         use rust_decimal_macros::dec;
 
         let tier = |first_unit, rate, flat_fee| TierRow {
@@ -1296,26 +1311,23 @@ mod tests {
             .is_free(),
             "a flat fee charges"
         );
-        let cell = |price| MatrixRow {
-            dimension1: MatrixDimension {
-                key: "region".to_owned(),
-                value: "eu".to_owned(),
-            },
-            dimension2: None,
-            per_unit_price: price,
+        let rates = |prices: &[(&str, rust_decimal::Decimal)]| {
+            UsagePricingModel::DimensionRates(DimensionRates {
+                dimensions: vec!["region".to_owned()],
+                rates: prices
+                    .iter()
+                    .map(|(region, rate)| DimensionRate {
+                        key: vec![(*region).to_owned()],
+                        rate: *rate,
+                        label: None,
+                    })
+                    .collect(),
+                unit_size: rust_decimal::Decimal::ONE,
+                on_unmatched: Default::default(),
+            })
         };
-        assert!(
-            usage(UsagePricingModel::Matrix {
-                rates: vec![cell(dec!(0))]
-            })
-            .is_free()
-        );
-        assert!(
-            !usage(UsagePricingModel::Matrix {
-                rates: vec![cell(dec!(0)), cell(dec!(1))]
-            })
-            .is_free()
-        );
+        assert!(usage(rates(&[("eu", dec!(0))])).is_free());
+        assert!(!usage(rates(&[("eu", dec!(0)), ("*", dec!(1))])).is_free());
         assert!(
             !MeteredFee::CapacityOverage {
                 included: dec!(10),

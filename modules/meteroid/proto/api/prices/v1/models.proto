@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package meteroid.api.prices.v1;
 
+import "api/ratecards/v1/models.proto";
 import "api/shared/v1/shared.proto";
 
 enum FeeType {
@@ -33,6 +34,8 @@ message Price {
   optional string archived_at = 12;
   // Usage (or capacity overage) priced in a credit unit: `pricing` amounts are credits.
   optional PriceCreditUnit credit_unit = 14;
+  reserved 15;
+  reserved "price_book_id";
 }
 
 message PriceCreditUnit {
@@ -46,9 +49,12 @@ message RatePricing {
 }
 
 message SlotPricing {
+  // The price of each seat; empty when `model` prices the count.
   string unit_rate = 1;
   optional uint32 min_slots = 2;
   optional uint32 max_slots = 3;
+  // Tiered, volume or package pricing of the seat count (never a matrix).
+  optional UsagePricing model = 4;
 }
 
 message CapacityPricing {
@@ -63,7 +69,38 @@ message UsagePricing {
     TieredAndVolumePricing tiered = 2;
     TieredAndVolumePricing volume = 3;
     PackagePricing package = 4;
+    // Deprecated: read as `dimension_rates`, never returned.
     MatrixPricing matrix = 5;
+    RateCardPricing rate_card = 6;
+    DimensionRatesPricing dimension_rates = 7;
+  }
+
+  // Usage rated by its dimensions at rates the price holds: keys match and resolve as a rate
+  // card's entries do (most specific wins), but the rates are not dated; other rates are a new
+  // price.
+  message DimensionRatesPricing {
+    // In the order that decides between keys equally specific on an earlier one.
+    repeated string dimensions = 1;
+    repeated DimensionRate rates = 2;
+    // Rates are per this many units of the metric (1000000: per 1M tokens), a decimal string;
+    // 1 when empty.
+    string unit_size = 3;
+    meteroid.api.ratecards.v1.RateCardUnmatched on_unmatched = 4;
+
+    message DimensionRate {
+      // A pattern per dimension: a value, a prefix ending in `*`, or `*`.
+      repeated string key = 1;
+      // Per `unit_size` units, a decimal string.
+      string rate = 2;
+      optional string label = 3;
+    }
+  }
+
+  // Usage rated by a rate card's entries in force each day.
+  message RateCardPricing {
+    string rate_card_id = 1;
+    // Scales every rate of the card, e.g. "0.8" for 20% off; 1 when unset.
+    optional string multiplier = 2;
   }
 
   message TieredAndVolumePricing {
@@ -83,6 +120,7 @@ message UsagePricing {
     uint64 block_size = 2;
   }
 
+  // Deprecated: a matrix is rates by dimension, each row a key of exact values.
   message MatrixPricing {
     repeated MatrixRow rows = 1;
 
@@ -102,11 +140,17 @@ message UsagePricing {
 message ExtraRecurringPricing {
   string unit_price = 1;
   uint32 quantity = 2;
+  // Prices the quantity through a model (per unit, tiered, volume, package); unit_price is then
+  // ignored.
+  optional UsagePricing model = 3;
 }
 
 message OneTimePricing {
   string unit_price = 1;
   uint32 quantity = 2;
+  // Prices the quantity through a model (per unit, tiered, volume, package); unit_price is then
+  // ignored.
+  optional UsagePricing model = 3;
 }
 
 // A credit pack priced like a fixed fee: the charge is unit_price × quantity and the invoice credit
@@ -186,7 +230,10 @@ message FeeStructure {
     TIERED = 1;
     VOLUME = 2;
     PACKAGE = 3;
+    // Deprecated: read as DIMENSION_RATES, never returned.
     MATRIX = 4;
+    RATE_CARD = 5;
+    DIMENSION_RATES = 6;
   }
 
   message ExtraRecurringStructure {

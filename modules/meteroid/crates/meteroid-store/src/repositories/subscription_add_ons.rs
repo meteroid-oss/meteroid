@@ -1,18 +1,23 @@
 use crate::StoreResult;
 use crate::domain::Product;
 use crate::domain::add_ons::AddOn;
+use crate::domain::enums::BillingPeriodEnum;
 use crate::domain::prices::Price;
 use crate::domain::subscription_add_ons::{
     CreateSubscriptionAddOn, SubscriptionAddOnNew, SubscriptionAddOnNewInternal,
 };
 use crate::errors::StoreError;
+use crate::services::subscriptions::currency::SubscriptionCurrency;
+use crate::services::subscriptions::utils::resolve_add_on_sold_in;
 use crate::store::PgConn;
 use common_domain::ids::{PriceId, ProductId, SubscriptionId, TenantId};
 use diesel_models::subscription_add_ons::SubscriptionAddOnRowNew;
 use error_stack::Report;
 use std::collections::HashMap;
 
-/// The rows checkout add-ons are stored as, resolved against their catalog definitions.
+/// The rows checkout add-ons are stored as, resolved against their catalog definitions: each at
+/// its price in the subscription's currency on its term, refused when it has none there.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_checkout_addons(
     subscription_id: SubscriptionId,
     addons: &[AddOn],
@@ -20,6 +25,8 @@ pub(crate) fn resolve_checkout_addons(
     products_by_id: &HashMap<ProductId, Product>,
     prices_by_id: &HashMap<PriceId, Price>,
     units: &crate::domain::credit_units::CreditUnitsById,
+    sold_in: &SubscriptionCurrency,
+    term: Option<BillingPeriodEnum>,
     effective_from: chrono::NaiveDate,
 ) -> StoreResult<Vec<SubscriptionAddOnRowNew>> {
     let mut addon_rows_new: Vec<SubscriptionAddOnRowNew> = Vec::new();
@@ -34,9 +41,15 @@ pub(crate) fn resolve_checkout_addons(
                 )))
             })?;
 
-        let resolved = addon
-            .resolve_customized(products_by_id, prices_by_id, units, &cs_ao.customization)
-            .map_err(Report::new)?;
+        let resolved = resolve_add_on_sold_in(
+            addon,
+            products_by_id,
+            prices_by_id,
+            units,
+            &cs_ao.customization,
+            sold_in,
+            term,
+        )?;
 
         let new_internal = SubscriptionAddOnNewInternal {
             add_on_id: addon.id,
@@ -68,13 +81,23 @@ pub(crate) async fn checkout_add_on_rows(
     create_add_ons: &[CreateSubscriptionAddOn],
     effective_from: chrono::NaiveDate,
 ) -> StoreResult<Vec<SubscriptionAddOnRowNew>> {
+    let subscription = diesel_models::subscriptions::SubscriptionRow::get_subscription_by_id(
+        conn,
+        &tenant_id,
+        subscription_id,
+    )
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?
+    .subscription;
+    let sold_in = SubscriptionCurrency::new(&subscription.currency);
+    let term: Option<BillingPeriodEnum> = Some(subscription.period.into());
     let addon_ids: Vec<_> = create_add_ons.iter().map(|a| a.add_on_id).collect();
     let rows = diesel_models::add_ons::AddOnRow::list_by_ids(conn, &addon_ids, &tenant_id)
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
     let addons = crate::repositories::add_ons::enrich_add_ons(conn, rows, tenant_id).await?;
     let product_ids: Vec<_> = addons.iter().map(|a| a.product_id).collect();
-    let price_ids: Vec<_> = addons.iter().map(|a| a.price_id).collect();
+    let price_ids: Vec<_> = addons.iter().flat_map(AddOn::price_ids).collect();
     let (prices_by_id, products_by_id) =
         crate::repositories::subscriptions::fetch_prices_and_products(
             conn,
@@ -97,6 +120,8 @@ pub(crate) async fn checkout_add_on_rows(
         &products_by_id,
         &prices_by_id,
         &units,
+        &sold_in,
+        term,
         effective_from,
     )
 }

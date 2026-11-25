@@ -14,7 +14,6 @@ use meteroid_store::domain::coupons::{CouponDiscount, CouponNew};
 use meteroid_store::domain::credit_units::{CreditUnit, CreditUnitNew, CreditUnitPatch};
 use meteroid_store::domain::enums::BankAccountFormat;
 use meteroid_store::domain::enums::FeeTypeEnum;
-use meteroid_store::domain::price_components::MatrixRow;
 use meteroid_store::domain::prices::FeeStructure;
 use meteroid_store::domain::products::ProductNew;
 use meteroid_store::domain::{
@@ -88,6 +87,8 @@ pub(super) async fn sell_credit_units(
                     fee_structure: FeeStructure::Credit {},
                     catalog: true,
                     tax_category_id: None,
+                    icon: None,
+                    color: None,
                 },
             )
             .await?;
@@ -256,20 +257,22 @@ pub(super) async fn connect_bank_account(
 pub(super) fn model_prices(plan: &Plan, units: &[CreditUnitSpec]) -> Option<ModelPrices> {
     plan.components.iter().find_map(|component| {
         let FeeType::Usage {
-            pricing: UsagePricingModel::Matrix { rates },
+            pricing: UsagePricingModel::DimensionRates(rates),
             credit_unit,
             ..
         } = &component.fee
         else {
             return None;
         };
+        if rates.dimensions != [MODEL_PROPERTY] {
+            return None;
+        }
         let rate = |model: &str| -> Option<Decimal> {
             rates
+                .rates
                 .iter()
-                .find(|r: &&MatrixRow| {
-                    r.dimension1.key == MODEL_PROPERTY && r.dimension1.value == model
-                })
-                .map(|r| r.per_unit_price)
+                .find(|r| r.key == [model])
+                .map(|r| r.rate)
         };
         let scale = match credit_unit {
             Some(unit) => u32::from(units.iter().find(|u| u.code == unit.credit_unit)?.precision),

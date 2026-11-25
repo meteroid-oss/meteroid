@@ -162,6 +162,7 @@ pub mod subscriptions {
             usage_filter_effective_from: s
                 .usage_filter_since
                 .map(|since| since.and_utc().to_rfc3339()),
+            plan_option_id: s.plan_option_id.map(|id| id.as_proto()),
         })
     }
 
@@ -274,6 +275,7 @@ pub mod subscriptions {
             entitlements,
             minimum_override,
             drop_minimum: param.drop_minimum_commitment,
+            option: crate::plans::mapping::plans::option_ref_from_proto(param.option),
         };
 
         Ok(res)
@@ -358,6 +360,7 @@ pub mod subscriptions {
                 usage_filter_effective_from: sub
                     .usage_filter_since
                     .map(|since| since.and_utc().to_rfc3339()),
+                plan_option_id: sub.plan_option_id.map(|id| id.as_proto()),
             }),
             schedules: vec![], // TODO
             price_components: details
@@ -410,6 +413,10 @@ pub mod subscriptions {
                     is_override: m.is_override,
                     period: minimum_period,
                 }),
+            plan_option: details
+                .plan_option
+                .as_ref()
+                .map(crate::plans::mapping::plans::plan_option_to_proto),
         })
     }
 
@@ -675,13 +682,25 @@ pub mod price_components {
                     },
                 )),
             },
-            domain::SubscriptionFee::OneTime { rate, quantity } => api::SubscriptionFee {
+            domain::SubscriptionFee::OneTime {
+                rate,
+                quantity,
+                model,
+            } => api::SubscriptionFee {
                 credit_unit: None,
                 fee: Some(api::subscription_fee::Fee::OneTime(
                     api::subscription_fee::OneTimeSubscriptionFee {
                         rate: rate.to_string(),
                         quantity: *quantity,
-                        total: (rate * rust_decimal::Decimal::from(*quantity)).to_string(),
+                        total: meteroid_store::domain::price_components::fixed_quantity_amount(
+                            *rate,
+                            rust_decimal::Decimal::from(*quantity),
+                            model.as_ref(),
+                        )
+                        .to_string(),
+                        model: crate::prices::mapping::prices::fixed_quantity_model_to_proto(
+                            model.as_ref(),
+                        ),
                     },
                 )),
             },
@@ -713,14 +732,23 @@ pub mod price_components {
                 rate,
                 quantity,
                 billing_type,
+                model,
             } => api::SubscriptionFee {
                 credit_unit: None,
                 fee: Some(api::subscription_fee::Fee::Recurring(
                     api::subscription_fee::ExtraRecurringSubscriptionFee {
                         rate: rate.to_string(),
                         quantity: *quantity,
-                        total: (rate * rust_decimal::Decimal::from(*quantity)).to_string(),
+                        total: meteroid_store::domain::price_components::fixed_quantity_amount(
+                            *rate,
+                            rust_decimal::Decimal::from(*quantity),
+                            model.as_ref(),
+                        )
+                        .to_string(),
                         billing_type: billing_type_to_grpc(billing_type.clone()).into(),
+                        model: crate::prices::mapping::prices::fixed_quantity_model_to_proto(
+                            model.as_ref(),
+                        ),
                     },
                 )),
             },
@@ -743,7 +771,7 @@ pub mod price_components {
             },
             domain::SubscriptionFee::Slot {
                 unit,
-                unit_rate,
+                model,
                 min_slots,
                 max_slots,
                 initial_slots,
@@ -752,7 +780,11 @@ pub mod price_components {
                 fee: Some(api::subscription_fee::Fee::Slot(
                     api::subscription_fee::SlotSubscriptionFee {
                         unit: unit.clone(),
-                        unit_rate: unit_rate.to_string(),
+                        unit_rate: model
+                            .per_unit_rate()
+                            .map(|rate| rate.to_string())
+                            .unwrap_or_default(),
+                        model: crate::prices::mapping::prices::rating_model_to_proto(model),
                         min_slots: *min_slots,
                         max_slots: *max_slots,
                         initial_slots: *initial_slots,
@@ -807,6 +839,12 @@ pub mod price_components {
             }
             api_prices::usage_pricing::Model::Matrix(v) => {
                 api_components::usage_fee::Model::Matrix(v)
+            }
+            api_prices::usage_pricing::Model::DimensionRates(v) => {
+                api_components::usage_fee::Model::DimensionRates(v)
+            }
+            api_prices::usage_pricing::Model::RateCard(v) => {
+                api_components::usage_fee::Model::RateCard(v)
             }
         }
     }

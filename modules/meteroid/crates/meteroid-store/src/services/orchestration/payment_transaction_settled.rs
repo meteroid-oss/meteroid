@@ -1020,7 +1020,9 @@ impl Services {
                                 ))
                             })?;
 
-                            let new_plan_version_id = session.subscription_plan_version_id()?;
+                            let target = session.plan_target()?;
+                            let component_params = session.component_params();
+                            let new_plan_version_id = target.version;
                             // The checkout preview and the synchronous confirm both price the
                             // change at the session's change_date, so rebuild at that date while
                             // it is still inside the current period; only a period rollover
@@ -1057,8 +1059,8 @@ impl Services {
                                 id: session.customer_id,
                             };
                             let applied = {
-                                let (actor, event, make_billing_mode) =
-                                    (&actor, &event, &make_billing_mode);
+                                let (actor, event, make_billing_mode, component_params) =
+                                    (&actor, &event, &make_billing_mode, &component_params);
                                 services.store
                                     .transaction_with(conn, |conn| {
                                         async move {
@@ -1067,8 +1069,8 @@ impl Services {
                                                     conn,
                                                     subscription_id,
                                                     event.tenant_id,
-                                                    new_plan_version_id,
-                                                    &[],
+                                                    target,
+                                                    component_params,
                                                     today,
                                                 )
                                                 .await?;
@@ -1513,6 +1515,9 @@ async fn apply_priced_coupons_tx(
     let applied = AppliedCouponDetailedRow::list_by_subscription_id(conn, &subscription_id)
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
+    let effective_from =
+        crate::services::subscriptions::coupon_months_from_id_tx(conn, tenant_id, subscription_id)
+            .await?;
     let missing: Vec<AppliedCouponRowNew> = session
         .coupon_ids
         .into_iter()
@@ -1531,7 +1536,7 @@ async fn apply_priced_coupons_tx(
             applied_amount: None,
             applied_count: None,
             last_applied_at: None,
-            effective_from: common_clock::now().date_naive(),
+            effective_from,
         })
         .collect();
     if missing.is_empty() {

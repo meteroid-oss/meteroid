@@ -37,7 +37,8 @@ use crate::services::evaluate::change::{Change, GiveBack};
 use crate::services::subscriptions::insert::context::resolve_fee_read_only;
 use crate::services::subscriptions::plan_change::calculate_components_mrr_with_slots;
 use crate::services::subscriptions::utils::{
-    MrrLine, calculate_mrr, fee_period_total_cents, scale_fee, subscription_mrr, with_add_on_lines,
+    MrrLine, calculate_mrr, fee_period_total_cents, resolve_add_on_sold_in, scale_fee,
+    subscription_mrr, with_add_on_lines,
 };
 use crate::store::PgConn;
 use chrono::{NaiveDate, NaiveTime};
@@ -45,7 +46,6 @@ use common_domain::ids::{
     AddOnId, BaseId, InvoiceId, PriceComponentId, PriceId, ProductId, SubscriptionAddOnId,
     SubscriptionId, SubscriptionPriceComponentId, TenantId,
 };
-use common_utils::decimals::ToSubunit;
 use diesel_models::credit_notes::CreditNoteRow;
 use diesel_models::enums::CreditNoteStatus;
 use diesel_models::enums::SubscriptionChangeKindEnum;
@@ -202,10 +202,13 @@ impl Services {
                                 rate,
                                 quantity,
                                 billing_type: BillingType::Arrears,
-                            } => {
-                                let total = *rate * rust_decimal::Decimal::from(*quantity);
-                                total.to_subunit_opt(precision).unwrap_or(0)
-                            }
+                                model,
+                            } => crate::domain::price_components::fixed_quantity_minor(
+                                *rate,
+                                rust_decimal::Decimal::from(*quantity),
+                                model.as_ref(),
+                                precision,
+                            ),
                             _ => 0,
                         }
                         })
@@ -421,6 +424,47 @@ impl Services {
         amendment: SubscriptionAmendment,
         change_date: NaiveDate,
     ) -> StoreResult<ImmediateAmendmentResult> {
+        self.amend_immediately_at(
+            actor,
+            subscription_id,
+            tenant_id,
+            amendment,
+            change_date,
+            AmendmentOrigin::Manual,
+        )
+        .await
+    }
+
+    /// A level change applied today, refused under the subscription's lock while another change
+    /// waits (R-106).
+    pub(in crate::services) async fn apply_level_change_immediate(
+        &self,
+        actor: Actor,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        amendment: SubscriptionAmendment,
+    ) -> StoreResult<ImmediateAmendmentResult> {
+        let today = common_clock::now().naive_utc().date();
+        self.amend_immediately_at(
+            actor,
+            subscription_id,
+            tenant_id,
+            amendment,
+            today,
+            AmendmentOrigin::LevelChange,
+        )
+        .await
+    }
+
+    async fn amend_immediately_at(
+        &self,
+        actor: Actor,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        amendment: SubscriptionAmendment,
+        change_date: NaiveDate,
+        origin: AmendmentOrigin,
+    ) -> StoreResult<ImmediateAmendmentResult> {
         let amendment = &amendment;
         let mut conn = self.store.get_conn().await?;
         self.transaction_reading_usage_first(&mut conn, |services, conn| {
@@ -445,6 +489,9 @@ impl Services {
                 validate_subscription_for_amendment(&sub_details.subscription.status)?;
                 // R-106: a scheduled amendment stands, this one written under it.
                 reject_if_plan_change_pending(conn, subscription_id, tenant_id).await?;
+                origin
+                    .refuse_while_a_change_is_pending(conn, tenant_id, subscription_id)
+                    .await?;
 
                 let period_start = sub_details.subscription.current_period_start;
                 let period_end = sub_details.subscription.current_period_end.ok_or_else(|| {
@@ -673,6 +720,43 @@ impl Services {
         tenant_id: TenantId,
         amendment: SubscriptionAmendment,
     ) -> StoreResult<ScheduledEvent> {
+        self.schedule_amendment_from(
+            actor,
+            subscription_id,
+            tenant_id,
+            amendment,
+            AmendmentOrigin::Manual,
+        )
+        .await
+    }
+
+    /// A level change scheduled for the period's end, refused under the subscription's lock while
+    /// another change waits (R-106) rather than replacing it as an amendment does.
+    pub(in crate::services) async fn schedule_level_change(
+        &self,
+        actor: Actor,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        amendment: SubscriptionAmendment,
+    ) -> StoreResult<ScheduledEvent> {
+        self.schedule_amendment_from(
+            actor,
+            subscription_id,
+            tenant_id,
+            amendment,
+            AmendmentOrigin::LevelChange,
+        )
+        .await
+    }
+
+    async fn schedule_amendment_from(
+        &self,
+        actor: Actor,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        amendment: SubscriptionAmendment,
+        origin: AmendmentOrigin,
+    ) -> StoreResult<ScheduledEvent> {
         self.store
             .transaction(|conn| {
                 let actor = &actor;
@@ -694,6 +778,9 @@ impl Services {
 
                     validate_subscription_for_amendment(&sub_details.subscription.status)?;
                     reject_if_plan_change_pending(conn, subscription_id, tenant_id).await?;
+                    origin
+                        .refuse_while_a_change_is_pending(conn, tenant_id, subscription_id)
+                        .await?;
 
                     let effective_date =
                         sub_details.subscription.current_period_end.ok_or_else(|| {
@@ -929,28 +1016,25 @@ impl Services {
         .await?;
 
         // Overrides and edited add-ons keep their unit's ledger: a seed would reset the live count.
-        for c in component_insert.iter().filter(|c| !c.is_override) {
-            if let Some(tx) = crate::domain::slot_transactions::SlotTransactionNewInternal::from_fee(
-                &c.fee,
-                change_date,
-            ) {
-                tx.into_row(subscription_id)
-                    .insert(conn)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-            }
-        }
-        for a in addon_insert.iter().filter(|a| a.lineage_id.is_none()) {
-            if let Some(tx) = crate::domain::slot_transactions::SlotTransactionNewInternal::from_fee(
-                &a.fee,
-                change_date,
-            ) {
-                tx.into_row(subscription_id)
-                    .insert(conn)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-            }
-        }
+        use crate::domain::slot_transactions::SlotTransactionNewInternal;
+        let seeds: Vec<_> = component_insert
+            .iter()
+            .filter(|c| !c.is_override)
+            .map(|c| &c.fee)
+            .chain(
+                addon_insert
+                    .iter()
+                    .filter(|a| a.lineage_id.is_none())
+                    .map(|a| &a.fee),
+            )
+            .filter_map(|fee| SlotTransactionNewInternal::from_fee(fee, change_date))
+            .map(|tx| (subscription_id, tx))
+            .collect();
+        let rows =
+            crate::repositories::subscriptions::slots::ledger_rows(conn, tenant_id, &seeds).await?;
+        SlotTransactionRow::insert_batch(conn, rows.iter().collect())
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         let sub_event = diesel_models::subscription_events::SubscriptionEventRow {
             id: uuid::Uuid::now_v7(),
@@ -1128,6 +1212,35 @@ fn amendment_effective_date(sub_details: &SubscriptionDetails, is_immediate: boo
             .subscription
             .current_period_end
             .unwrap_or(sub_details.subscription.current_period_start)
+    }
+}
+
+/// What asked for an amendment: an operator's, which replaces a scheduled one, or a level change,
+/// which stands back from any change still waiting.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AmendmentOrigin {
+    Manual,
+    LevelChange,
+}
+
+impl AmendmentOrigin {
+    /// A level change re-reads the pending changes under the subscription's lock: two moves
+    /// checked before it (a downgrade at the period's end, an upgrade now) would both pass.
+    async fn refuse_while_a_change_is_pending(
+        self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+    ) -> StoreResult<()> {
+        if self == AmendmentOrigin::LevelChange {
+            crate::services::subscriptions::levels::refuse_while_a_change_is_pending(
+                conn,
+                tenant_id,
+                subscription_id,
+            )
+            .await?;
+        }
+        Ok(())
     }
 }
 
@@ -1625,8 +1738,33 @@ async fn resolve_amendment(
             ))
         })?;
         let fee_structure = load_product_fee_structure(conn, tenant_id, product_id).await?;
-        let (mut new_fee, new_period) =
-            resolve_fee_read_only(conn, &fee_structure, &edit.price_entry, tenant_id).await?;
+        let (mut new_fee, new_period) = resolve_fee_read_only(
+            conn,
+            &fee_structure,
+            &edit.price_entry,
+            tenant_id,
+            Some(product_id),
+            Some(sub_details.subscription.currency.as_str()),
+        )
+        .await?;
+        // A usage-levels charge of the plan moves to an existing price only as another level of
+        // its cell; a lower one waits for the period's end (R-135).
+        if let PriceEntry::Existing(price_id) = &edit.price_entry
+            && current.price_component_id.is_some()
+            && matches!(current.fee, SubscriptionFee::Capacity { .. })
+        {
+            use crate::services::subscriptions::levels;
+            let cell = levels::levels_of(conn, &sub_details.subscription, current).await?;
+            let (_, _, direction) = levels::level_direction(current, &cell, *price_id)?;
+            let at_period_end = sub_details.subscription.current_period_end == Some(effective_date);
+            if direction == crate::domain::subscription_changes::ChangeDirection::Downgrade
+                && !at_period_end
+            {
+                return Err(Report::new(StoreError::FailedPrecondition(
+                    levels::LOWER_LEVEL_AT_PERIOD_END.to_string(),
+                )));
+            }
+        }
 
         let mut current_fee = current.fee.clone();
         resolve_live_slot_count(conn, tenant_id, subscription_id, &mut current_fee).await?;
@@ -1680,8 +1818,15 @@ async fn resolve_amendment(
             ProductRef::New { fee_structure, .. } => fee_structure.clone(),
             ProductRef::Existing(pid) => load_product_fee_structure(conn, tenant_id, *pid).await?,
         };
-        let (fee, period) =
-            resolve_fee_read_only(conn, &fee_structure, &extra.price_entry, tenant_id).await?;
+        let (fee, period) = resolve_fee_read_only(
+            conn,
+            &fee_structure,
+            &extra.price_entry,
+            tenant_id,
+            extra.product.existing_product_id(),
+            Some(sub_details.subscription.currency.as_str()),
+        )
+        .await?;
 
         // Pre-generate the id so the immediate adjustment invoice can stamp it onto
         // the prorated charge line, letting a later removal credit it.
@@ -1754,6 +1899,10 @@ async fn resolve_amendment(
 
     let (addons, addon_products, addon_prices, addon_units) =
         load_addon_catalog(conn, tenant_id, &catalog_addon_ids, amendment).await?;
+    let sold_in = crate::services::subscriptions::currency::SubscriptionCurrency::new(
+        &sub_details.subscription.currency,
+    );
+    let term = Some(sub_details.subscription.period);
 
     // Added add-ons
     for cs_ao in &amendment.add_on_changes.added {
@@ -1780,14 +1929,15 @@ async fn resolve_amendment(
                 cs_ao.add_on_id, cs_ao.quantity, max
             ))));
         }
-        let resolved = addon
-            .resolve_customized(
-                &addon_products,
-                &addon_prices,
-                &addon_units,
-                &cs_ao.customization,
-            )
-            .map_err(Report::new)?;
+        let resolved = resolve_add_on_sold_in(
+            addon,
+            &addon_products,
+            &addon_prices,
+            &addon_units,
+            &cs_ao.customization,
+            &sold_in,
+            term,
+        )?;
 
         // Pre-generate the id so the immediate adjustment invoice can stamp it onto
         // the prorated charge line, letting a later removal credit it.
@@ -1846,9 +1996,15 @@ async fn resolve_amendment(
         // New fee/period: either re-resolve from a new customization, or keep current.
         let (new_fee, new_period, new_name, price_entry, price_id, product_id) =
             if let (Some(addon), Some(cust)) = (addon, &e.customization) {
-                let resolved = addon
-                    .resolve_customized(&addon_products, &addon_prices, &addon_units, cust)
-                    .map_err(Report::new)?;
+                let resolved = resolve_add_on_sold_in(
+                    addon,
+                    &addon_products,
+                    &addon_prices,
+                    &addon_units,
+                    cust,
+                    &sold_in,
+                    term,
+                )?;
                 (
                     resolved.fee,
                     resolved.period,
@@ -1996,7 +2152,7 @@ async fn load_addon_catalog(
 
     // Collect product/price ids: the add-on definitions + any Existing override prices.
     let product_ids: Vec<ProductId> = addons.iter().map(|a| a.product_id).collect();
-    let mut price_ids: Vec<PriceId> = addons.iter().map(|a| a.price_id).collect();
+    let mut price_ids: Vec<PriceId> = addons.iter().flat_map(|a| a.price_ids()).collect();
 
     let collect_override =
         |price_ids: &mut Vec<PriceId>,
@@ -2166,7 +2322,9 @@ mod tests {
     fn scale_slot_multiplies_initial_slots() {
         let fee = SubscriptionFee::Slot {
             unit: "seat".into(),
-            unit_rate: Decimal::from(5),
+            model: crate::domain::price_components::RatingModel::PerUnit {
+                rate: Decimal::from(5),
+            },
             min_slots: None,
             max_slots: None,
             initial_slots: 4,
@@ -2174,6 +2332,52 @@ mod tests {
         match scale_fee(&fee, 2) {
             SubscriptionFee::Slot { initial_slots, .. } => assert_eq!(initial_slots, 8),
             _ => panic!("expected slot"),
+        }
+    }
+
+    #[test]
+    fn scale_modelled_fixed_fees_costs_each_instance_what_the_model_prices() {
+        use crate::domain::price_components::{RatingModel, fixed_quantity_amount};
+        let package = RatingModel::Package {
+            block_size: 10,
+            rate: Decimal::from(30),
+        };
+        let one_time = SubscriptionFee::OneTime {
+            rate: Decimal::ZERO,
+            quantity: 25,
+            model: Some(package.clone()),
+        };
+        match scale_fee(&one_time, 3) {
+            SubscriptionFee::OneTime {
+                rate,
+                quantity,
+                model,
+            } => {
+                assert_eq!(quantity, 25);
+                assert_eq!(
+                    fixed_quantity_amount(rate, Decimal::from(quantity), model.as_ref()),
+                    Decimal::from(270)
+                );
+            }
+            _ => panic!("expected one-time"),
+        }
+        let recurring = SubscriptionFee::Recurring {
+            rate: Decimal::ZERO,
+            quantity: 25,
+            billing_type: crate::domain::enums::BillingType::Advance,
+            model: Some(package),
+        };
+        match scale_fee(&recurring, 2) {
+            SubscriptionFee::Recurring {
+                rate,
+                quantity,
+                model,
+                ..
+            } => assert_eq!(
+                fixed_quantity_amount(rate, Decimal::from(quantity), model.as_ref()),
+                Decimal::from(180)
+            ),
+            _ => panic!("expected recurring"),
         }
     }
 

@@ -1,7 +1,7 @@
 use chrono::NaiveDateTime;
 
 use crate::enums::SlotTransactionStatusEnum;
-use common_domain::ids::{InvoiceId, SlotTransactionId, SubscriptionId};
+use common_domain::ids::{InvoiceId, ManagedQuantityId, SlotTransactionId, SubscriptionId};
 use diesel::{Insertable, Queryable};
 
 #[derive(Queryable, Debug, Insertable)]
@@ -17,4 +17,6 @@ pub struct SlotTransactionRow {
     pub unit: String,
     pub status: SlotTransactionStatusEnum,
     pub invoice_id: Option<InvoiceId>,
+    pub managed_quantity_id: ManagedQuantityId,
+    pub removal_waits_for_renewal: bool,
 }

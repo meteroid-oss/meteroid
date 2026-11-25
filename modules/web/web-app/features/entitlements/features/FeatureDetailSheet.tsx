@@ -16,6 +16,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
 import { EntityEntitlementsSection } from '@/features/entitlements/EntityEntitlementsSection'
+import { FeatureLimitQuantity } from '@/features/entitlements/features/FeatureLimitQuantity'
 import { FeatureStatusBadge } from '@/features/entitlements/features/FeatureStatusBadge'
 import {
   FeatureActionDialog,
@@ -169,6 +170,10 @@ export const FeatureDetailSheet = () => {
                       </div>
                       <MetricLink kind={kind} />
                     </section>
+                  )}
+
+                  {kind.type === 'metered' && env.entitlementsEnabled && (
+                    <FeatureLimitQuantity featureId={feature.id} readOnly={isArchived} />
                   )}
 
                   {kind.type === 'config' && (

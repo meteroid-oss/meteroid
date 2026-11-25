@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package meteroid.api.ratecards.v1;
+
+// The rates of a metric's usage by its dimensions (model, token type), independent of plans.
+message RateCard {
+  reserved 6;
+  reserved "currency";
+
+  string id = 1;
+  string code = 2;
+  string name = 3;
+  string metric_id = 4;
+  // In the order that decides between keys equally specific on an earlier one.
+  repeated string dimensions = 5;
+  // Unset: a money card, each rate in a currency, a price rated in the currency's rates. Set:
+  // the card rates in this credit unit, its rates carry no currency.
+  optional string credit_unit_id = 7;
+  RateCardUnmatched on_unmatched = 8;
+  // Rates are per this many units of the metric (1000000: per 1M tokens), a decimal string.
+  string unit_size = 9;
+}
+
+enum RateCardUnmatched {
+  // The invoice waits until the usage is rated.
+  RATE_CARD_UNMATCHED_HOLD = 0;
+  // The usage is left unbilled, on purpose.
+  RATE_CARD_UNMATCHED_IGNORE = 1;
+}
+
+// A key's rate in a currency, from its day until a later entry of the same key and currency.
+// Entries are never edited: a change, or a removal, is a later entry.
+message RateCardEntry {
+  string id = 1;
+  // A pattern per dimension of the card: a value, a prefix ending in `*`, or `*`.
+  repeated string key = 2;
+  // ISO date.
+  string effective_from = 3;
+  // Per `unit_size` units of the metric, in `currency` (the card's credit unit when unset), as
+  // a decimal string. Unset: the key is removed in the currency from this day.
+  optional string rate = 4;
+  optional string label = 5;
+  // Unset on a credit card's entries.
+  optional string currency = 6;
+  // A key of `*` on every dimension: the "Any other" row, rating what no other key does.
+  bool any_other = 7;
+}

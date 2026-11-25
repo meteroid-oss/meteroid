@@ -27,7 +27,9 @@ use crate::store::PgConn;
 use billing_core::charge::{ChargeKind, Fee};
 use billing_core::minimum::{self as core, Spend};
 use billing_core::proration::DaySpan;
-use common_domain::ids::{AppliedCouponId, InvoiceId, ProductId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    AddOnId, AppliedCouponId, InvoiceId, ProductId, SubscriptionId, TenantId,
+};
 use error_stack::Report;
 
 /// Display name shown on the invoice for the synthesized shortfall line.
@@ -68,6 +70,10 @@ pub struct Provisional {
     pub shown: Vec<AppliedCouponId>,
     /// Its lines' quoted subtotals before coupons, but a true-up's, which no coupon discounts.
     pub quoted: Vec<i64>,
+    /// The add-on each of them bills.
+    pub add_ons: Vec<Option<AddOnId>>,
+    /// The day the service period each of them charges starts.
+    pub starts: Vec<NaiveDate>,
     /// Its lines in `prior`: each one's place there and in `quoted`.
     pub lines: Vec<(usize, usize)>,
 }
@@ -132,17 +138,20 @@ impl PeriodTrueUp {
                 .iter()
                 .filter(|coupon| owed.contains(&coupon.applied_coupon.id))
                 .collect();
-            let off: i64 = billing_core::assembly::discount::calculate_coupons_discount(
-                draft.quoted.iter().sum(),
+            let parts: Vec<billing_core::assembly::discount::Part> = draft
+                .quoted
+                .iter()
+                .enumerate()
+                .map(|(i, subtotal)| billing_core::assembly::discount::Part {
+                    subtotal: *subtotal,
+                    add_on: draft.add_ons.get(i).copied().flatten(),
+                    start: draft.starts.get(i).copied(),
+                })
+                .collect();
+            let (_, taxable) = billing_core::assembly::discount::discount_parts(
+                &parts,
                 currency,
-                &super::discount::coupon_inputs(&kept),
-            )
-            .iter()
-            .map(|applied| applied.value)
-            .sum();
-            let taxable = billing_core::assembly::discount::distribute_discount(
-                &draft.quoted,
-                u64::try_from(off).unwrap_or(0),
+                &self.queue.inputs(&kept, currency),
             );
             for (index, at) in &draft.lines {
                 let (Some(spend), Some(quoted)) = (prior.get_mut(*index), draft.quoted.get(*at))
@@ -409,6 +418,7 @@ pub(in crate::services) async fn load_period_true_up_priced(
     )
     .await
     .map_err(Into::<Report<StoreError>>::into)?;
+    let add_on_ids = super::discount::load_add_on_ids(conn, details).await?;
     for row in rows {
         let invoice: crate::domain::Invoice = row.try_into()?;
         // A copy reissuing an invoice is read with the invoice it corrects.
@@ -460,6 +470,8 @@ pub(in crate::services) async fn load_period_true_up_priced(
                     .map(|coupon| coupon.applied_coupon_id)
                     .collect(),
                 quoted: discounted.iter().map(|line| quote(line)).collect(),
+                add_ons: super::discount::add_ons_of(discounted.iter().copied(), &add_on_ids),
+                starts: discounted.iter().map(|line| line.start_date).collect(),
                 lines: Vec::new(),
             });
         for line in &lines {

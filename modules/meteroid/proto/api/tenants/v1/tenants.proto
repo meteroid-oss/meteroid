@@ -46,6 +46,7 @@ message ResumeTenantResponse {
 enum SandboxPreset {
   SANDBOX_PRESET_DEFAULT = 0;
   SANDBOX_PRESET_AI_CREDITS = 1;
+  SANDBOX_PRESET_CURRENCIES_AND_COUPONS = 2;
 }
 
 message CreateTenantRequest {

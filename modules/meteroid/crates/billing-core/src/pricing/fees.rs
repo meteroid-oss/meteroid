@@ -161,43 +161,36 @@ pub fn tiered(
     precision: u8,
 ) -> Result<PricedLine, PricingError> {
     distinct_starts(tiers)?;
-    let charges = tiered_charges(usage_units, tiers);
-
-    let mut subtotal = Decimal::ZERO;
-    let mut sub_lines = Vec::with_capacity(charges.len());
-
-    for charge in &charges {
-        subtotal += charge.amount;
-        sub_lines.push(SubLine {
-            name: format!(
-                "{}-{} tier",
-                charge.first_unit,
-                charge.last_unit.map_or("∞".to_string(), |s| s.to_string())
-            ),
-            total: to_minor(charge.amount, precision)?,
-            quantity: charge.units,
-            unit_price: charge.unit_price,
-            attributes: Some(SubLineAttributes::Tiered {
-                first_unit: charge.first_unit,
-                last_unit: charge.last_unit,
-                flat_cap: charge.flat_cap,
-                flat_fee: charge.flat_fee,
-            }),
-        });
-    }
-
+    let sublines = tiered_charges(usage_units, tiers)
+        .into_iter()
+        .map(|charge| {
+            let subline = SubLine {
+                name: format!(
+                    "{}-{} tier",
+                    charge.first_unit,
+                    charge.last_unit.map_or("∞".to_string(), |s| s.to_string())
+                ),
+                total: 0,
+                quantity: charge.units,
+                unit_price: charge.unit_price,
+                attributes: Some(SubLineAttributes::Tiered {
+                    first_unit: charge.first_unit,
+                    last_unit: charge.last_unit,
+                    flat_cap: charge.flat_cap,
+                    flat_fee: charge.flat_fee,
+                }),
+            };
+            (subline, charge.amount)
+        })
+        .collect();
     Ok(PricedLine {
         quantity: Some(usage_units),
-        unit_price: None,
-        total: to_minor(subtotal, precision)?.max(0),
-        is_prorated: false,
-        sublines: sub_lines,
-        dimensions: None,
+        ..PricedLine::from_exact_sublines(sublines, precision)?
     })
 }
 
-/// The unrounded amount `usage_units` of usage costs under a pricing model. `None` for Matrix,
-/// which needs per-dimension quantities.
+/// The unrounded amount `usage_units` of usage costs under a pricing model. `None` for rates
+/// by dimension, which need per-dimension quantities.
 pub fn usage_amount(model: &UsageModel, usage_units: Decimal) -> Option<Decimal> {
     Some(match model {
         UsageModel::PerUnit { rate } => rate * usage_units,
@@ -214,12 +207,12 @@ pub fn usage_amount(model: &UsageModel, usage_units: Decimal) -> Option<Decimal>
         UsageModel::Volume { tiers, .. } => {
             volume_charge(usage_units, tiers).map_or(Decimal::ZERO, |c| c.amount)
         }
-        UsageModel::Matrix { .. } => return None,
+        UsageModel::RateCard(_) => return None,
     })
 }
 
 /// Prices a usage quantity under a pricing model, rounded to the minor unit exactly as the
-/// invoice line total is. `None` for Matrix. Display/estimation only.
+/// invoice line total is. `None` for rates by dimension. Display/estimation only.
 pub fn usage_price(
     model: &UsageModel,
     usage_units: Decimal,
@@ -254,6 +247,23 @@ mod tests {
 
     fn line_total(line: &PricedLine) -> Decimal {
         Decimal::from(line.total) / dec!(100)
+    }
+
+    /// Three tiers of $0.333 for 1, 2 and 3 units: 0.333 + 0.666 + 0.999 = 1.998, $2.00, its
+    /// sublines 33 + 67 + 100, where each rounded alone added up to 2.00 only by luck.
+    /// Rules: R-130
+    #[test]
+    fn tiered_sublines_add_up_to_the_line() {
+        let tiers = [
+            tier(0, dec!(0.333), None, None),
+            tier(1, dec!(0.333), None, None),
+            tier(3, dec!(0.333), None, None),
+        ];
+        let line = tiered(dec!(6), &tiers, 2).unwrap();
+        assert_eq!(line.total, 200);
+        let totals: Vec<i64> = line.sublines.iter().map(|s| s.total).collect();
+        assert_eq!(totals.iter().sum::<i64>(), 200);
+        assert_eq!(line.quantity, Some(dec!(6)));
     }
 
     #[test]
@@ -353,8 +363,15 @@ mod tests {
     }
 
     #[test]
-    fn matrix_is_not_priced() {
-        let matrix = UsageModel::Matrix { rates: vec![] };
-        assert_eq!(usage_price(&matrix, dec!(100), 2), Ok(None));
+    fn rates_by_dimension_are_not_priced() {
+        let rates = UsageModel::RateCard(super::super::CardRates {
+            dimensions: vec!["model".to_owned()],
+            entries: vec![],
+            unit_size: dec!(1),
+            multiplier: dec!(1),
+            ignore_unrated: true,
+            on: chrono::NaiveDate::MIN,
+        });
+        assert_eq!(usage_price(&rates, dec!(100), 2), Ok(None));
     }
 }

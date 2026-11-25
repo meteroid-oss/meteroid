@@ -272,6 +272,7 @@ fn map_to_domain(
     use meteroid_store::domain::SubscriptionNew;
 
     CreateSubscription {
+        option: None,
         subscription: SubscriptionNew {
             customer_id,
             plan_version_id,

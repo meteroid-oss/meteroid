@@ -6,8 +6,11 @@ use meteroid_store::repositories::quote_signing::QuoteSigningInterface;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use meteroid_store::repositories::price_components::PriceComponentInterface;
 use meteroid_store::repositories::{
-    CustomersInterface, PlansInterface, ProductFamilyInterface, QuotesInterface, TenantInterface,
+    CustomersInterface, EligibilityInterface, PlanOptionInterface, PlansInterface,
+    PricingPagesInterface, ProductFamilyInterface, QuotesInterface, RateCardsInterface,
+    TenantInterface,
 };
 use meteroid_store::{Services, domain as store_domain};
 
@@ -16,7 +19,7 @@ use meteroid_store::Store;
 use chrono::Utc;
 
 use crate::presets::scenarios;
-use crate::presets::scenarios::domain::{FeatureKind, MinimumSpec, UsageProfile};
+use crate::presets::scenarios::domain::{FeatureKind, HighlightSpec, MinimumSpec, UsageProfile};
 use crate::presets::scenarios::timeline::Clock;
 use crate::presets::{account_credit, credit_traffic, credits, preconditions, replay, usage_wait};
 use crate::usage;
@@ -24,27 +27,40 @@ use crate::utils::slugify;
 use chrono::{Datelike, NaiveDate, NaiveTime};
 use common_domain::actor::Actor;
 use common_domain::ids::{
-    AddOnId, BaseId, CustomerId, FeatureId, OrganizationId, PlanVersionId, ProductId, QuoteId,
-    TenantId,
+    AddOnId, BaseId, CouponId, CustomerId, FeatureId, OrganizationId, PlanVersionId,
+    ProductFamilyId, ProductId, QuoteId, RateCardId, TenantId,
 };
 use common_utils::decimals::ToSubunit;
 use metering_grpc::meteroid::metering::v1::Event;
 use meteroid_store::StoreResult;
 use meteroid_store::clients::usage::UsageClient;
+use meteroid_store::domain::coupons::{CouponDiscount, CouponNew, CouponTerms};
 use meteroid_store::domain::entitlements::{
-    EntitlementSpec, EntitlementValue, FeatureNew, FeatureType, OverageBehavior, ResetPeriod,
+    ConfigValue, ConfigValueType, EntitlementSpec, EntitlementValue, FeatureNew, FeatureType,
+    OverageBehavior, ResetPeriod,
 };
 use meteroid_store::domain::plan_minimums::CreateMinimumScope;
+use meteroid_store::domain::plan_options::{PlanOption, PlanOptionRef};
+use meteroid_store::domain::prices::Pricing;
+use meteroid_store::domain::pricing_pages::{Highlight, PlanPricingPage};
+use meteroid_store::domain::rate_cards::{
+    RateCardDenomination, RateCardNew, RateCardRateInput, RateCardRatesSet, RateCardUnmatched,
+};
+use meteroid_store::domain::subscription_coupons::{
+    CreateSubscriptionCoupon, CreateSubscriptionCoupons,
+};
 use meteroid_store::domain::{BillingPeriodEnum, FullPlan, Period, Tenant};
 use meteroid_store::errors::StoreError;
 use meteroid_store::hooks::{AnalyticsHook, SeededSandbox, no_analytics_hook};
 use meteroid_store::repositories::CreditUnitsInterface;
 use meteroid_store::repositories::add_ons::AddOnInterface;
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
+use meteroid_store::repositories::coupons::CouponInterface;
 use meteroid_store::repositories::entitlements::EntitlementsInterface;
 use meteroid_store::repositories::invoicing_entities::{
     InvoicingEntityInterface, InvoicingEntityInterfaceAuto,
 };
+use meteroid_store::repositories::products::ProductInterface;
 use meteroid_store::repositories::sandbox::SandboxInterface;
 use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
 use meteroid_store::utils::periods::find_period_containing_date;
@@ -157,6 +173,11 @@ async fn create_sandbox_tenant(
     }
     for customer in &scenario.customers {
         scenario_currencies.insert(customer.currency.clone());
+    }
+    for plan in &scenario.plans {
+        for prices in &plan.currency_prices {
+            scenario_currencies.insert(prices.currency.to_string());
+        }
     }
 
     // Add scenario currencies to the tenant's available currencies
@@ -301,7 +322,7 @@ async fn seed_sandbox_data(
     services: &Services,
     tenant: &Tenant,
     invoicing_entity: store_domain::InvoicingEntity,
-    scenario: scenarios::domain::Scenario,
+    mut scenario: scenarios::domain::Scenario,
     now: NaiveDate,
     as_of: chrono::NaiveDateTime,
     analytics: &dyn AnalyticsHook,
@@ -365,6 +386,27 @@ async fn seed_sandbox_data(
         created_metrics.push(created);
     }
 
+    let rate_card_ids = create_rate_cards(
+        store,
+        tenant.id,
+        &scenario.rate_cards,
+        &created_metrics,
+        now,
+    )
+    .await?;
+    for plan in &mut scenario.plans {
+        plan.resolve_rate_cards(&rate_card_ids)?;
+    }
+    let mut product_by_name = create_feature_products(
+        store,
+        tenant.id,
+        product_family.id,
+        &scenario,
+        &created_metrics,
+        &unit_ids,
+    )
+    .await?;
+
     let mut feature_ids: HashMap<String, FeatureId> = HashMap::new();
     for feature in &scenario.features {
         let (feature_type, entitlement) = match &feature.kind {
@@ -396,13 +438,29 @@ async fn seed_sandbox_data(
                     enabled: *default_enabled,
                 }),
             ),
+            FeatureKind::Number { default } => (
+                FeatureType::Config {
+                    value_type: ConfigValueType::Number,
+                },
+                Some(EntitlementValue::Config {
+                    value: ConfigValue::Number(*default),
+                }),
+            ),
         };
+        let product_id = feature
+            .product
+            .map(|name| {
+                product_by_name.get(name).copied().ok_or_else(|| {
+                    StoreError::ValueNotFound(format!("Product was not found {name}"))
+                })
+            })
+            .transpose()?;
         let created = store
             .create_feature(
                 Actor::System,
                 FeatureNew {
                     tenant_id: tenant.id,
-                    product_id: None,
+                    product_id,
                     name: feature.name.clone(),
                     code: feature.code.clone(),
                     description: None,
@@ -415,13 +473,17 @@ async fn seed_sandbox_data(
     }
 
     let mut created_plans = vec![];
-    let mut product_by_name: HashMap<String, common_domain::ids::ProductId> = HashMap::new();
     let mut revisions: Vec<PlanRevision> = vec![];
 
     for plan in scenario.plans.clone() {
         let currency = plan.currency.clone();
         let revision = plan.revision.clone();
         let net_terms = plan.payment.net_terms as i32;
+        // A minimum, a price in another currency or an option is only set on a draft, published
+        // right after.
+        let draft = plan.minimum.is_some()
+            || !plan.currency_prices.is_empty()
+            || !plan.cadence_options.is_empty();
         let entitlements = plan
             .entitlements
             .iter()
@@ -456,8 +518,7 @@ async fn seed_sandbox_data(
                         description: None,
                     },
                     version: store_domain::PlanVersionNewInternal {
-                        // A minimum is only set on a draft, published right after.
-                        is_draft_version: plan.minimum.is_some(),
+                        is_draft_version: draft,
                         trial: None, // TODO
                         period_start_day: None,
                         net_terms,
@@ -490,8 +551,37 @@ async fn seed_sandbox_data(
                     store_domain::plan_minimums::MinimumScope::AllComponents,
                 )
                 .await?;
+        }
+        let options = cadence_options(
+            store,
+            tenant.id,
+            &created,
+            &plan.cadence_options,
+            &plan.components,
+            &created_metrics,
+            &unit_ids,
+        )
+        .await?;
+        for prices in &plan.currency_prices {
+            price_in_currency(
+                store,
+                tenant.id,
+                &created,
+                prices,
+                &options,
+                &created_metrics,
+                &unit_ids,
+            )
+            .await?;
+        }
+        if draft {
             store
                 .publish_plan_version(Actor::System, created.version.id, tenant.id)
+                .await?;
+        }
+        if let Some(rule) = plan.eligibility.clone() {
+            store
+                .set_plan_eligibility(Actor::System, tenant.id, created.plan.id, rule)
                 .await?;
         }
 
@@ -507,6 +597,38 @@ async fn seed_sandbox_data(
                         active_version_id: None,
                         self_service_rank: Some(Some(rank)),
                         issues_license: None,
+                    },
+                )
+                .await?;
+        }
+        if let Some(page) = &plan.pricing_page {
+            let highlights = page
+                .highlights
+                .iter()
+                .map(|line| match line {
+                    HighlightSpec::Text(text) => Ok(Highlight::Text(text.to_string())),
+                    HighlightSpec::Feature(code) => feature_ids
+                        .get(*code)
+                        .map(|id| Highlight::Feature(*id))
+                        .ok_or_else(|| {
+                            StoreError::ValueNotFound(format!("Feature was not found {code}"))
+                        }),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            store
+                .update_plan_pricing_page(
+                    tenant.id,
+                    PlanPricingPage {
+                        plan_id: created.plan.id,
+                        tagline: Some(page.tagline.to_string()),
+                        popular: page.popular,
+                        cta_label: page.cta_label.map(str::to_string),
+                        highlights,
+                        sales_led: page.sales_led,
+                        hide_price: page.hide_price,
+                        contact_url: page.contact_url.map(str::to_string),
+                        product_order: vec![],
+                        hidden_product_ids: vec![],
                     },
                 )
                 .await?;
@@ -579,8 +701,10 @@ async fn seed_sandbox_data(
         }
         log::info!("Created {} add-on catalog entries", add_on_ids.len());
     }
+    let coupon_ids = create_coupons(store, tenant.id, &scenario.coupons, &plan_map).await?;
 
     *stage = SeedStage::Customers;
+    define_customer_properties(store, tenant.id, &scenario.customer_properties).await?;
     let mut customers_to_create = vec![];
 
     for customer in scenario.customers.clone() {
@@ -632,7 +756,7 @@ async fn seed_sandbox_data(
             tax_status: meteroid_store::domain::CustomerTaxStatus::Taxable,
             exemption_reason: None,
             connected_account_id: None,
-            custom_properties: serde_json::Value::Null,
+            custom_properties: customer.custom_properties.clone(),
             preferred_locales: Vec::new(),
         });
     }
@@ -646,7 +770,6 @@ async fn seed_sandbox_data(
             .into_iter()
             .map(|c| (c.name.clone(), c.id)),
     );
-
     // Capture each customer's active window before `scenario.customers` is consumed below. A
     // customer starting later has no usage yet.
     let customer_windows: HashMap<String, (NaiveDate, NaiveDate)> = scenario
@@ -695,10 +818,16 @@ async fn seed_sandbox_data(
         })
         .await?;
     } else {
+        let samples: HashMap<String, scenarios::domain::UsageSample> = scenario
+            .metrics
+            .iter()
+            .filter_map(|m| m.usage.clone().map(|sample| (m.code.clone(), sample)))
+            .collect();
         backfill_usage(
             services,
             tenant,
             &created_metrics,
+            &samples,
             &customer_map,
             &customer_windows,
             &staged,
@@ -828,11 +957,27 @@ async fn seed_sandbox_data(
                 .map(|m| minimum_override(m, &customer.currency, &product_by_name))
                 .transpose()?;
 
+            let coupons = sub
+                .coupons
+                .iter()
+                .map(|code| {
+                    coupon_ids
+                        .get(code)
+                        .map(|id| CreateSubscriptionCoupon { coupon_id: *id })
+                })
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| {
+                    StoreError::ValueNotFound(format!("{} names an unknown coupon", customer.name))
+                })?;
+
             subscriptions_to_create.push(store_domain::CreateSubscription {
                 subscription,
+                option: sub
+                    .option
+                    .map(|alias| PlanOptionRef::Alias(alias.to_owned())),
                 price_components,
                 add_ons,
-                coupons: None,
+                coupons: (!coupons.is_empty()).then_some(CreateSubscriptionCoupons { coupons }),
                 entitlements: vec![],
                 minimum_override,
                 drop_minimum: false,
@@ -959,6 +1104,402 @@ async fn seed_sandbox_data(
     Ok(())
 }
 
+/// Creates the scenario's rate cards with their rates, by code.
+async fn create_rate_cards(
+    store: &Store,
+    tenant_id: TenantId,
+    cards: &[scenarios::domain::RateCardSpec],
+    metrics: &[store_domain::BillableMetric],
+    today: NaiveDate,
+) -> StoreResult<HashMap<String, RateCardId>> {
+    let mut ids = HashMap::new();
+    for card in cards {
+        let metric = metrics.iter().find(|m| m.code == card.metric_code).ok_or(
+            StoreError::ValueNotFound(format!("Metric was not found {}", card.metric_code)),
+        )?;
+        let created = store
+            .create_rate_card(
+                Actor::System,
+                RateCardNew {
+                    tenant_id,
+                    code: card.code.to_string(),
+                    name: card.name.to_string(),
+                    metric_id: metric.id,
+                    dimensions: card.dimensions.iter().map(|d| d.to_string()).collect(),
+                    denomination: RateCardDenomination::Money,
+                    unit_size: card.unit_size,
+                    on_unmatched: RateCardUnmatched::Hold,
+                },
+            )
+            .await?;
+        let rates = card
+            .rates
+            .iter()
+            .flat_map(|row| {
+                row.rates
+                    .iter()
+                    .map(move |(currency, rate)| RateCardRateInput {
+                        key: row.key.iter().map(|p| p.to_string()).collect(),
+                        currency: Some(currency.to_string()),
+                        rate: *rate,
+                        label: row.label.map(str::to_string),
+                    })
+            })
+            .collect();
+        // From a day before the subscriptions, which would otherwise hold their usage unrated.
+        store
+            .set_rate_card_rates(
+                Actor::System,
+                tenant_id,
+                created.id,
+                RateCardRatesSet {
+                    effective_from: Some(card.effective_from),
+                    rates,
+                    remove: vec![],
+                },
+                today,
+            )
+            .await?;
+        log::info!("Created rate card '{}'", card.name);
+        ids.insert(card.code.to_string(), created.id);
+    }
+    Ok(ids)
+}
+
+/// The products features belong to, by name, created ahead of the plans so a plan's
+/// entitlements can name those features; the plans then sell the same products.
+async fn create_feature_products(
+    store: &Store,
+    tenant_id: TenantId,
+    product_family_id: ProductFamilyId,
+    scenario: &scenarios::domain::Scenario,
+    metrics: &[store_domain::BillableMetric],
+    credit_units: &HashMap<String, common_domain::ids::CreditUnitId>,
+) -> StoreResult<HashMap<String, ProductId>> {
+    let mut products = HashMap::new();
+    for wanted in scenario.features.iter().filter_map(|f| f.product) {
+        if products.contains_key(wanted) {
+            continue;
+        }
+        let (plan, component) = scenario
+            .plans
+            .iter()
+            .find_map(|plan| {
+                plan.components
+                    .iter()
+                    .find(|c| c.name == wanted)
+                    .map(|c| (plan, c))
+            })
+            .ok_or_else(|| StoreError::ValueNotFound(format!("No plan sells {wanted}")))?;
+        let store_domain::price_components::ProductRef::New {
+            name,
+            fee_type,
+            fee_structure,
+        } = component
+            .to_domain(metrics, &plan.currency, credit_units)?
+            .product_ref
+        else {
+            continue;
+        };
+        let product = store
+            .create_product(
+                Actor::System,
+                store_domain::ProductNew {
+                    name: name.clone(),
+                    description: None,
+                    tenant_id,
+                    family_id: product_family_id,
+                    fee_type,
+                    fee_structure,
+                    catalog: true,
+                    tax_category_id: None,
+                    icon: None,
+                    color: None,
+                },
+            )
+            .await?;
+        products.insert(name, product.id);
+    }
+    Ok(products)
+}
+
+/// Defines the customer custom properties the scenario's customers hold, so they show and keep
+/// on an edit: one with options picks among them.
+async fn define_customer_properties(
+    store: &Store,
+    tenant_id: TenantId,
+    properties: &[scenarios::domain::CustomerPropertySpec],
+) -> StoreResult<()> {
+    use meteroid_store::domain::custom_property_definitions::{
+        CustomPropertyDefinitionNew, PropertyConfig, SelectOption,
+    };
+    use meteroid_store::domain::enums::{CustomPropertyEntityType, CustomPropertyType};
+    for (order, property) in properties.iter().enumerate() {
+        let options: Vec<SelectOption> = property
+            .options
+            .iter()
+            .map(|value| SelectOption {
+                value: (*value).to_string(),
+                label: None,
+            })
+            .collect();
+        store
+            .insert_custom_property_definition(CustomPropertyDefinitionNew {
+                tenant_id,
+                entity_type: CustomPropertyEntityType::Customer,
+                key: property.key.to_string(),
+                name: property.name.to_string(),
+                description: None,
+                property_type: if options.is_empty() {
+                    CustomPropertyType::Text
+                } else {
+                    CustomPropertyType::SingleSelect
+                },
+                config: PropertyConfig {
+                    options: (!options.is_empty()).then_some(options),
+                    ..Default::default()
+                },
+                required: false,
+                default_value: None,
+                display_order: order as i32,
+            })
+            .await?;
+        log::info!("Defined customer property '{}'", property.key);
+    }
+    Ok(())
+}
+
+/// Creates the scenario's coupons on its plans, by code.
+async fn create_coupons(
+    store: &Store,
+    tenant_id: TenantId,
+    coupons: &[scenarios::domain::CouponSpec],
+    plans: &HashMap<String, FullPlan>,
+) -> StoreResult<HashMap<&'static str, CouponId>> {
+    let mut ids = HashMap::new();
+    for coupon in coupons {
+        let plan_ids = coupon
+            .plans
+            .iter()
+            .map(|name| {
+                plans.get(*name).map(|p| p.plan.id).ok_or_else(|| {
+                    StoreError::ValueNotFound(format!("Plan was not found : {name}"))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let created = store
+            .create_coupon_with_terms(
+                Actor::System,
+                CouponNew {
+                    code: coupon.code.to_string(),
+                    description: coupon.name.to_string(),
+                    tenant_id,
+                    discount: CouponDiscount::Percentage(coupon.percent_off),
+                    expires_at: coupon.expires_on.map(|day| day.and_time(NaiveTime::MIN)),
+                    redemption_limit: coupon.redemption_limit.map(|n| n as i32),
+                    recurring_value: None,
+                    reusable: false,
+                    plan_ids,
+                },
+                CouponTerms {
+                    add_on_ids: vec![],
+                    eligibility: coupon.eligibility.clone(),
+                    valid_from: coupon.valid_from.map(|day| day.and_time(NaiveTime::MIN)),
+                    fixed_amounts: Default::default(),
+                    duration_months: coupon.months.map(|n| n as i32),
+                },
+            )
+            .await?;
+        log::info!("Created coupon '{}'", coupon.name);
+        ids.insert(coupon.code, created.id);
+    }
+    Ok(ids)
+}
+
+/// Fills the cells of `prices.currency` of a draft plan's components, matched by name.
+/// Whether `pricing` bills on a cadence of its own, as options by cadence split it.
+fn has_cadence(pricing: &Pricing) -> bool {
+    !matches!(pricing, Pricing::Usage(_) | Pricing::OneTime { .. })
+}
+
+/// A plan's options by cadence, and its charges priced on several cadences, by name.
+#[derive(Default)]
+struct CadenceOptions {
+    options: Vec<(BillingPeriodEnum, PlanOption)>,
+    switching: Vec<String>,
+}
+
+/// An option of each of `cadences` on the draft `plan`: its default renamed after the first, a
+/// copy of it for each other; a charge of `components` priced on several cadences keeps in each
+/// option the prices of its cadence only. None for a plan of one option.
+async fn cadence_options(
+    store: &Store,
+    tenant_id: TenantId,
+    plan: &FullPlan,
+    cadences: &[BillingPeriodEnum],
+    components: &[scenarios::domain::PriceComponent],
+    metrics: &[store_domain::BillableMetric],
+    credit_units: &HashMap<String, common_domain::ids::CreditUnitId>,
+) -> StoreResult<CadenceOptions> {
+    let Some((first, others)) = cadences.split_first() else {
+        return Ok(CadenceOptions::default());
+    };
+    let name = |cadence: &BillingPeriodEnum| format!("{cadence:?}");
+    let alias = |cadence: &BillingPeriodEnum| name(cadence).to_ascii_lowercase();
+    // Creating the plan may already have derived these options from its cadences.
+    let existing = store.list_plan_options(tenant_id, plan.version.id).await?;
+    let default = existing
+        .first()
+        .cloned()
+        .ok_or_else(|| StoreError::ValueNotFound(format!("{} has no option", plan.plan.name)))?;
+    let named = |cadence: &BillingPeriodEnum| {
+        existing
+            .iter()
+            .find(|option| option.alias == alias(cadence))
+            .cloned()
+    };
+    let first_option = match named(first) {
+        Some(option) => option,
+        None => {
+            store
+                .update_plan_option(
+                    tenant_id,
+                    default.id,
+                    Some(name(first)),
+                    Some(alias(first)),
+                    None,
+                )
+                .await?
+        }
+    };
+    let mut options = vec![(*first, first_option)];
+    for cadence in others {
+        let option = match named(cadence) {
+            Some(option) => option,
+            None => {
+                store
+                    .create_plan_option(
+                        tenant_id,
+                        plan.version.id,
+                        name(cadence),
+                        Some(alias(cadence)),
+                        None,
+                    )
+                    .await?
+            }
+        };
+        options.push((*cadence, option));
+    }
+    let mut switching = vec![];
+    for component in components {
+        let prices: Vec<store_domain::price_components::PriceInput> = component
+            .to_domain(metrics, &plan.version.currency, credit_units)?
+            .prices
+            .into_iter()
+            .filter_map(|entry| match entry {
+                store_domain::price_components::PriceEntry::New(price) => Some(price),
+                store_domain::price_components::PriceEntry::Existing(_) => None,
+            })
+            .collect();
+        if !switches(&prices) {
+            continue;
+        }
+        switching.push(component.name.clone());
+        let target = plan
+            .price_components
+            .iter()
+            .find(|c| c.name == component.name)
+            .ok_or_else(|| {
+                StoreError::ValueNotFound(format!(
+                    "Plan {} has no component {}",
+                    plan.plan.name, component.name
+                ))
+            })?;
+        for (cadence, option) in &options {
+            store
+                .clear_component_price(
+                    tenant_id,
+                    target.id,
+                    vec![option.id],
+                    plan.version.currency.clone(),
+                )
+                .await?;
+            for price in prices.iter().filter(|p| p.cadence == *cadence) {
+                store
+                    .set_component_price(tenant_id, target.id, vec![option.id], price.clone())
+                    .await?;
+            }
+        }
+    }
+    Ok(CadenceOptions { options, switching })
+}
+
+/// Whether a charge's `prices` bill on several cadences, one per option.
+fn switches(prices: &[store_domain::price_components::PriceInput]) -> bool {
+    let mut cadences: Vec<BillingPeriodEnum> = prices
+        .iter()
+        .filter(|p| has_cadence(&p.pricing))
+        .map(|p| p.cadence)
+        .collect();
+    cadences.sort();
+    cadences.dedup();
+    cadences.len() > 1
+}
+
+/// `prices` set on `plan`'s charges: in every option, but a charge priced on several cadences
+/// in the option of each price's cadence.
+async fn price_in_currency(
+    store: &Store,
+    tenant_id: TenantId,
+    plan: &FullPlan,
+    prices: &scenarios::domain::CurrencyPrices,
+    options: &CadenceOptions,
+    metrics: &[store_domain::BillableMetric],
+    credit_units: &HashMap<String, common_domain::ids::CreditUnitId>,
+) -> StoreResult<()> {
+    for component in &prices.components {
+        let target = plan
+            .price_components
+            .iter()
+            .find(|c| c.name == component.name)
+            .ok_or_else(|| {
+                StoreError::ValueNotFound(format!(
+                    "Plan {} has no component {}",
+                    plan.plan.name, component.name
+                ))
+            })?;
+        let own: Vec<store_domain::price_components::PriceInput> = component
+            .to_domain(metrics, prices.currency, credit_units)?
+            .prices
+            .into_iter()
+            .filter_map(|entry| match entry {
+                store_domain::price_components::PriceEntry::New(price) => Some(price),
+                store_domain::price_components::PriceEntry::Existing(_) => None,
+            })
+            .collect();
+        let per_option = options.switching.contains(&component.name);
+        for price in own {
+            let targets: Vec<_> = if per_option {
+                options
+                    .options
+                    .iter()
+                    .filter(|(cadence, _)| *cadence == price.cadence)
+                    .map(|(_, option)| option.id)
+                    .collect()
+            } else {
+                vec![]
+            };
+            if per_option && targets.is_empty() {
+                continue;
+            }
+            store
+                .set_component_price(tenant_id, target.id, targets, price)
+                .await?;
+        }
+    }
+    Ok(())
+}
+
 /// The plan component named like `component`, priced as `component` for one subscription.
 fn component_override(
     component: &scenarios::domain::PriceComponent,
@@ -1057,10 +1598,12 @@ fn customer_active_window(
 /// historical usage line silently computes to zero. Degrades gracefully: if the
 /// metering pipeline is unavailable we give up after the cap and let usage stay
 /// empty rather than blocking tenant creation indefinitely.
+#[allow(clippy::too_many_arguments)]
 async fn backfill_usage(
     services: &Services,
     tenant: &Tenant,
     metrics: &[store_domain::BillableMetric],
+    samples: &HashMap<String, scenarios::domain::UsageSample>,
     customer_map: &HashMap<String, CustomerId>,
     windows: &HashMap<String, (NaiveDate, NaiveDate)>,
     staged: &HashMap<String, StagedUsage>,
@@ -1080,6 +1623,10 @@ async fn backfill_usage(
             Agg::Max | Agg::Min | Agg::Mean | Agg::Latest
         );
         let stream = usage::stream_for(&metric.code, &value_key, is_gauge, 18);
+        let stream = match samples.get(&metric.code) {
+            Some(sample) => sampled(stream, sample),
+            None => stream,
+        };
         for (name, id) in customer_map {
             let Some((start, end)) = windows.get(name) else {
                 continue;
@@ -1138,6 +1685,23 @@ async fn backfill_usage(
             short.join("; ")
         );
     }
+}
+
+/// `stream` generating the events `sample` describes.
+fn sampled(
+    stream: usage::UsageStream,
+    sample: &scenarios::domain::UsageSample,
+) -> usage::UsageStream {
+    let dimensions = sample
+        .properties
+        .iter()
+        .map(|property| usage::Dimension {
+            key: property.key.to_string(),
+            values: property.values.iter().map(|(v, _)| v.to_string()).collect(),
+            weights: property.values.iter().map(|(_, w)| *w).collect(),
+        })
+        .collect();
+    stream.with_events(sample.min, sample.max, dimensions)
 }
 
 /// A generated event with what it adds to its metric's total.
@@ -1660,6 +2224,7 @@ async fn seed_quotes(
             allow_questions: true,
             allow_change_requests: true,
             allow_decline: true,
+            plan_option: None,
         };
 
         store
@@ -1749,6 +2314,68 @@ mod tests {
             }
             StagedUsage::None => panic!("no cycle"),
         }
+    }
+
+    /// LLM events carry a model and a token type, all of the card's rows used; tracked events
+    /// keep the default sample.
+    #[test]
+    fn sampled_llm_events_carry_the_rate_cards_dimensions() {
+        use crate::presets::scenarios::currencies::currencies_scenario;
+        let scenario = currencies_scenario(date(TODAY));
+        let sample_of = |code: &str| {
+            scenario
+                .metrics
+                .iter()
+                .find(|m| m.code == code)
+                .and_then(|m| m.usage.clone())
+        };
+        assert!(sample_of("tracked_events").is_none());
+        let sample = sample_of("llm_tokens").expect("an LLM sample");
+        let stream = sampled(
+            usage::stream_for("llm_tokens", "tokens", false, 18),
+            &sample,
+        );
+        let id = customer_id("Northbeam Retail");
+        let customer = usage::UsageCustomer {
+            customer_id: id,
+            scale: 1.0,
+            start: date((2026, 8, 1)),
+            end: date((2026, 8, 31)),
+            seed: usage::seed_for(id, "llm_tokens"),
+        };
+        let events = usage::generate_stream(&stream, std::slice::from_ref(&customer));
+        assert!(events.len() > 100);
+        let property = |event: &usage::GeneratedEvent, key: &str| {
+            event
+                .properties
+                .iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_else(|| panic!("{key} on every event"))
+        };
+        let mut models = std::collections::BTreeSet::new();
+        let mut token_types = std::collections::BTreeSet::new();
+        let mut total = 0u64;
+        for event in &events {
+            let tokens: u64 = property(event, "tokens").parse().expect("whole tokens");
+            assert!((1_000..=20_000).contains(&tokens), "{tokens}");
+            total += tokens;
+            models.insert(property(event, "model"));
+            token_types.insert(property(event, "token_type"));
+            assert!(event.properties.iter().all(|(k, _)| k != "region"));
+        }
+        assert_eq!(
+            models.into_iter().collect::<Vec<_>>(),
+            vec!["claude-sonnet", "gpt-4o", "gpt-4o-mini", "llama-3-70b"]
+        );
+        assert_eq!(
+            token_types.into_iter().collect::<Vec<_>>(),
+            vec!["input", "output"]
+        );
+        assert!(
+            total > 1_000_000,
+            "a month bills millions of tokens, got {total}"
+        );
     }
 
     #[test]

@@ -5,9 +5,13 @@ use crate::{DbResult, PgConn};
 
 use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
-use common_domain::ids::{ProductFamilyId, ProductId, TenantId};
-use diesel::{ExpressionMethods, JoinOnDsl, PgTextExpressionMethods, QueryDsl, SelectableHelper};
+use common_domain::ids::{PlanId, PlanVersionId, ProductFamilyId, ProductId, TenantId};
+use diesel::{
+    AggregateExpressionMethods, BoolExpressionMethods, ExpressionMethods, JoinOnDsl,
+    NullableExpressionMethods, PgTextExpressionMethods, QueryDsl, SelectableHelper,
+};
 use error_stack::ResultExt;
+use std::collections::HashMap;
 
 impl ProductRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<ProductRow> {
@@ -282,6 +286,121 @@ impl ProductRow {
             .attach("Error while listing all products by tenant")
             .into_db_result()
     }
+
+    /// How many live plans sell each product: its charges in a plan's active or draft version.
+    pub async fn plan_counts(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        product_ids: &[ProductId],
+    ) -> DbResult<HashMap<ProductId, i64>> {
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use crate::schema::price_component::dsl as pc_dsl;
+        use diesel_async::RunQueryDsl;
+
+        if product_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let query = pc_dsl::price_component
+            .inner_join(pv_dsl::plan_version.on(pc_dsl::plan_version_id.eq(pv_dsl::id)))
+            .inner_join(p_dsl::plan.on(pv_dsl::plan_id.eq(p_dsl::id)))
+            .filter(pc_dsl::product_id.eq_any(product_ids))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .filter(p_dsl::archived_at.is_null())
+            .filter(
+                p_dsl::active_version_id
+                    .eq(pv_dsl::id.nullable())
+                    .or(p_dsl::draft_version_id.eq(pv_dsl::id.nullable())),
+            )
+            .group_by(pc_dsl::product_id)
+            .select((
+                pc_dsl::product_id,
+                diesel::dsl::count(p_dsl::id).aggregate_distinct(),
+            ));
+
+        crate::debug_sql(&query);
+
+        query
+            .load::<(Option<ProductId>, i64)>(conn)
+            .await
+            .attach("Error while counting plans by product")
+            .into_db_result()
+            .map(|rows| {
+                rows.into_iter()
+                    .filter_map(|(id, count)| id.map(|id| (id, count)))
+                    .collect()
+            })
+    }
+
+    /// The versions selling the product: a charge of it in a live plan's active or draft
+    /// version. By plan name, the active version before the draft.
+    pub async fn live_plan_versions(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        product_id: ProductId,
+    ) -> DbResult<Vec<ProductPlanVersionRow>> {
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use crate::schema::price_component::dsl as pc_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = pc_dsl::price_component
+            .inner_join(pv_dsl::plan_version.on(pc_dsl::plan_version_id.eq(pv_dsl::id)))
+            .inner_join(p_dsl::plan.on(pv_dsl::plan_id.eq(p_dsl::id)))
+            .filter(pc_dsl::product_id.eq(product_id))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .filter(p_dsl::archived_at.is_null())
+            .filter(
+                p_dsl::active_version_id
+                    .eq(pv_dsl::id.nullable())
+                    .or(p_dsl::draft_version_id.eq(pv_dsl::id.nullable())),
+            )
+            .select((
+                p_dsl::id,
+                p_dsl::name,
+                pv_dsl::id,
+                pv_dsl::version,
+                pv_dsl::is_draft_version,
+            ))
+            .distinct()
+            .order((
+                p_dsl::name.asc(),
+                p_dsl::id.asc(),
+                pv_dsl::is_draft_version.asc(),
+            ));
+
+        crate::debug_sql(&query);
+
+        query
+            .load::<(PlanId, String, PlanVersionId, i32, bool)>(conn)
+            .await
+            .attach("Error while listing the plans selling a product")
+            .into_db_result()
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|(plan_id, plan_name, plan_version_id, version, is_draft)| {
+                        ProductPlanVersionRow {
+                            plan_id,
+                            plan_name,
+                            plan_version_id,
+                            version,
+                            is_draft,
+                        }
+                    })
+                    .collect()
+            })
+    }
+}
+
+/// A live plan version with a charge of a product.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProductPlanVersionRow {
+    pub plan_id: PlanId,
+    pub plan_name: String,
+    pub plan_version_id: PlanVersionId,
+    pub version: i32,
+    pub is_draft: bool,
 }
 
 impl ProductRowPatch {

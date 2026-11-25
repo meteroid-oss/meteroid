@@ -894,7 +894,7 @@ impl CustomerEvent {
 #[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, Deserialize, o2o)]
 #[map_owned(BillableMetric)]
-#[ghosts(archived_at: None, updated_at: None, filters: None, usage_scope: {crate::domain::UsageScope::default()})]
+#[ghosts(archived_at: None, updated_at: None, filters: None, usage_scope: {crate::domain::UsageScope::default()}, rated_dimensions: {Vec::new()})]
 pub struct BillableMetricEvent {
     #[ghost(EventId::new())]
     pub id: EventId,
@@ -1247,6 +1247,9 @@ pub struct CouponEvent {
     pub expires_at: Option<NaiveDateTime>,
     pub redemption_limit: Option<i32>,
     pub recurring_value: Option<i32>,
+    /// Absent from events stored before coupons lasted months.
+    #[serde(default)]
+    pub duration_months: Option<i32>,
     pub reusable: bool,
     pub disabled: bool,
     pub created_at: NaiveDateTime,
@@ -1264,6 +1267,7 @@ impl From<crate::domain::coupons::Coupon> for CouponEvent {
             expires_at: c.expires_at,
             redemption_limit: c.redemption_limit,
             recurring_value: c.recurring_value,
+            duration_months: c.duration_months,
             reusable: c.reusable,
             disabled: c.disabled,
             created_at: c.created_at,

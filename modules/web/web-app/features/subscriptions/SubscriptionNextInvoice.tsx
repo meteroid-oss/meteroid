@@ -18,7 +18,12 @@ import { formatShortDay } from '@/features/subscriptions/utils/dates'
 import { useQuery } from '@/lib/connectrpc'
 import { currencyPrecision } from '@/lib/data/currency-precision'
 import { formatDateOnly } from '@/lib/utils/date'
-import { formatCurrency, rateToPercent } from '@/lib/utils/numbers'
+import {
+  formatCurrency,
+  formatCurrencyNoRounding,
+  formatUsage,
+  rateToPercent,
+} from '@/lib/utils/numbers'
 import { LineItemKind } from '@/rpc/api/invoices/v1/models_pb'
 import { SubscriptionStatus } from '@/rpc/api/subscriptions/v1/models_pb'
 import {
@@ -245,11 +250,36 @@ export const SubscriptionNextInvoice = ({
     l => !isUsageLine(l) && l.kind !== LineItemKind.MINIMUM_SHORTFALL && !inAdvance(l)
   )
 
+  // A fee's quantity and what it is priced at: "3 × $9.99", or by tier or pack, "5 · First 3
+  // included, Next 2 at $10.00". A single unit at one price says no more than its amount.
+  const feeText = (line: LineItem): string | undefined => {
+    if (!line.quantity) return undefined
+    const quantity = formatUsage(Number(line.quantity))
+    const price = (amount: string) => formatCurrencyNoRounding(amount, currency)
+    if (line.subLineItems.length > 0) {
+      const parts = line.subLineItems.map(sub => {
+        if (!sub.unitPrice || Number(sub.unitPrice) === 0) return sub.name
+        if (sub.name.endsWith(', capped')) return `${sub.name} (${money(sub.total)})`
+        switch (sub.sublineAttributes.case) {
+          case 'package':
+            return `${formatUsage(Number(sub.quantity))} ${sub.name.toLowerCase()} at ${price(sub.unitPrice)}`
+          case undefined:
+            return `${sub.name} ${price(sub.unitPrice)}`
+          default:
+            return `${sub.name} at ${price(sub.unitPrice)}`
+        }
+      })
+      return `${quantity} · ${parts.join(', ')}`
+    }
+    if (!line.unitPrice || Number(line.quantity) === 1) return undefined
+    return `${quantity} × ${price(line.unitPrice)}`
+  }
+
   const subText = (line: LineItem): ReactNode => {
     if (line.kind === LineItemKind.CREDIT) return packCreditText(line)
     if (line.kind === LineItemKind.MINIMUM_SHORTFALL) return shortfallText(line)
     if (isUsageLine(line)) return usageText(line)
-    return line.description
+    return [feeText(line), line.description].filter(Boolean).join(' · ') || undefined
   }
 
   const advanceRange = lineRange(advanceLines)

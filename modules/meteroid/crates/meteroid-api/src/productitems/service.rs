@@ -3,10 +3,11 @@ use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_app::features::ensure_credit_pricing_allowed;
 use meteroid_grpc::meteroid::api::products::v1::{
     ArchiveProductRequest, ArchiveProductResponse, CreateProductRequest, CreateProductResponse,
-    GetProductRequest, GetProductResponse, ListProductsRequest, ListProductsResponse,
-    ListProductsWithPricesRequest, ListProductsWithPricesResponse, SearchProductsRequest,
-    SearchProductsResponse, UnarchiveProductRequest, UnarchiveProductResponse,
-    UpdateProductRequest, UpdateProductResponse, products_service_server::ProductsService,
+    GetProductRequest, GetProductResponse, ListProductUsageRequest, ListProductUsageResponse,
+    ListProductsRequest, ListProductsResponse, ListProductsWithPricesRequest,
+    ListProductsWithPricesResponse, SearchProductsRequest, SearchProductsResponse,
+    UnarchiveProductRequest, UnarchiveProductResponse, UpdateProductRequest, UpdateProductResponse,
+    products_service_server::ProductsService,
 };
 use meteroid_store::domain;
 use meteroid_store::domain::prices::FeeStructure;
@@ -18,11 +19,21 @@ use tonic::{Request, Response, Status};
 use crate::productitems::error::ProductApiError;
 use crate::productitems::mapping::products::{
     ProductMetaWrapper, ProductWithPriceWrapper, ProductWrapper, fee_structure_from_proto,
-    fee_type_from_proto,
+    fee_type_from_proto, product_list_row, product_usage_to_proto,
 };
 use meteroid_grpc_mapping::utils::PaginationExt;
 
 use super::ProductServiceComponents;
+
+/// The metric a product's fee reads, when it reads one.
+fn metric_of(fee_structure: &FeeStructure) -> Option<BillableMetricId> {
+    match fee_structure {
+        FeeStructure::Capacity { metric_id } | FeeStructure::Usage { metric_id, .. } => {
+            Some(*metric_id)
+        }
+        _ => None,
+    }
+}
 
 #[tonic::async_trait]
 impl ProductsService for ProductServiceComponents {
@@ -66,6 +77,8 @@ impl ProductsService for ProductServiceComponents {
                         .tax_category_id
                         .map(TaxCategoryId::from_proto)
                         .transpose()?,
+                    icon: req.icon.filter(|i| !i.is_empty()),
+                    color: req.color.filter(|c| !c.is_empty()),
                 },
             )
             .await
@@ -121,6 +134,8 @@ impl ProductsService for ProductServiceComponents {
                         Some(s) if s.is_empty() => Some(None),
                         Some(s) => Some(Some(TaxCategoryId::from_proto(s)?)),
                     },
+                    icon: req.icon.map(|i| Some(i).filter(|i| !i.is_empty())),
+                    color: req.color.map(|c| Some(c).filter(|c| !c.is_empty())),
                 },
             )
             .await
@@ -193,6 +208,29 @@ impl ProductsService for ProductServiceComponents {
             .await
             .map_err(Into::<ProductApiError>::into)?;
 
+        let ids: Vec<ProductId> = res.items.iter().map(|p| p.id).collect();
+        let mut facts = self
+            .store
+            .product_list_facts(tenant_id, &ids)
+            .await
+            .map_err(Into::<ProductApiError>::into)?;
+
+        let metric_ids: Vec<BillableMetricId> = res
+            .items
+            .iter()
+            .filter_map(|p| metric_of(&p.fee_structure))
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        let metric_names: std::collections::HashMap<BillableMetricId, String> = self
+            .store
+            .find_billable_metrics_by_ids(&metric_ids, tenant_id)
+            .await
+            .map_err(Into::<ProductApiError>::into)?
+            .into_iter()
+            .map(|m| (m.id, m.name))
+            .collect();
+
         let response = SearchProductsResponse {
             pagination_meta: req
                 .pagination
@@ -200,7 +238,12 @@ impl ProductsService for ProductServiceComponents {
             products: res
                 .items
                 .into_iter()
-                .map(|x| ProductMetaWrapper::from(x).0)
+                .map(|product| {
+                    let metric_name = metric_of(&product.fee_structure)
+                        .and_then(|id| metric_names.get(&id).cloned());
+                    let facts = facts.remove(&product.id);
+                    product_list_row(product, facts, metric_name)
+                })
                 .collect::<Vec<_>>(),
         };
 
@@ -223,14 +266,7 @@ impl ProductsService for ProductServiceComponents {
             .await
             .map_err(Into::<ProductApiError>::into)?;
 
-        let metric_id: Option<BillableMetricId> = match &domain_product.fee_structure {
-            FeeStructure::Capacity { metric_id } | FeeStructure::Usage { metric_id, .. } => {
-                Some(*metric_id)
-            }
-            _ => None,
-        };
-
-        let metric_name = if let Some(mid) = metric_id {
+        let metric_name = if let Some(mid) = metric_of(&domain_product.fee_structure) {
             self.store
                 .find_billable_metric_by_id(mid, tenant_id)
                 .await
@@ -348,5 +384,22 @@ impl ProductsService for ProductServiceComponents {
         Ok(Response::new(UnarchiveProductResponse {
             product: Some(product),
         }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn list_product_usage(
+        &self,
+        request: Request<ListProductUsageRequest>,
+    ) -> Result<Response<ListProductUsageResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let product_id = ProductId::from_proto(request.into_inner().product_id.as_str())?;
+
+        let usage = self
+            .store
+            .product_usage(tenant_id, product_id)
+            .await
+            .map_err(Into::<ProductApiError>::into)?;
+
+        Ok(Response::new(product_usage_to_proto(usage)))
     }
 }

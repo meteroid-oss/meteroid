@@ -17,6 +17,7 @@ use crate::plans::plan_routes;
 use crate::productfamilies::product_family_routes;
 use crate::products::product_routes;
 use crate::rate_limit::RateLimiters;
+use crate::ratecards::rate_card_routes;
 use crate::subscriptions::subscription_routes;
 use crate::usage::usage_routes;
 use crate::usage_costs::usage_cost_routes;
@@ -57,6 +58,7 @@ pub mod portal_links;
 pub mod productfamilies;
 pub mod products;
 pub mod rate_limit;
+pub mod ratecards;
 pub mod sso;
 pub mod subscriptions;
 pub mod usage;
@@ -83,6 +85,7 @@ pub fn api_routes() -> OpenApiRouter<AppState> {
         .merge(product_routes())
         .merge(coupon_routes())
         .merge(metric_routes())
+        .merge(rate_card_routes())
         .merge(feature_routes())
         .merge(entitlement_routes())
         .merge(entity_entitlement_routes())

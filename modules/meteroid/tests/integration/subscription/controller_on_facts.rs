@@ -1361,27 +1361,33 @@ async fn a_cancellation_in_the_period_and_the_renewal_are_one_step(#[future] tes
 }
 
 /// Decision 6: a subscription on a free plan whose every charge is zero writes no document at its
-/// renewals, as a free plan never billed; its state still renews.
+/// renewals, as a free plan never billed; its state still renews. A standard plan priced at
+/// nothing is as free.
 /// Rules: R-104
 #[rstest]
+#[case::typed_free(true)]
+#[case::priced_at_nothing(false)]
 #[tokio::test]
-async fn a_free_plan_billing_nothing_writes_no_document(#[future] test_env: TestEnv) {
+async fn a_free_plan_billing_nothing_writes_no_document(
+    #[future] test_env: TestEnv,
+    #[case] typed_free: bool,
+) {
     let env = test_env.await;
     env.set_now(at(1, 15, 12));
     let version = PlanVersionId::new();
-    PlanSeed::new(PlanId::new(), "Free at nothing", version)
-        .free()
-        .components(vec![SeedComp::rate(
-            PriceComponentId::new(),
-            "Free Rate",
-            PRODUCT_PLATFORM_FEE_ID,
-            PriceId::new(),
-            DieselBillingPeriodEnum::Monthly,
-            Decimal::ZERO,
-        )])
-        .seed(&mut env.conn().await)
-        .await
-        .expect("a free plan");
+    let seed = PlanSeed::new(PlanId::new(), "Free at nothing", version);
+    let seed = if typed_free { seed.free() } else { seed };
+    seed.components(vec![SeedComp::rate(
+        PriceComponentId::new(),
+        "Free Rate",
+        PRODUCT_PLATFORM_FEE_ID,
+        PriceId::new(),
+        DieselBillingPeriodEnum::Monthly,
+        Decimal::ZERO,
+    )])
+    .seed(&mut env.conn().await)
+    .await
+    .expect("a free plan");
     let sub_id = subscription()
         .plan_version(version)
         .start_date(day(1, 1))

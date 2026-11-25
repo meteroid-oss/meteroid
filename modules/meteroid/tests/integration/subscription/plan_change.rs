@@ -12,13 +12,14 @@ use std::sync::Arc;
 use uuid::uuid;
 
 use crate::data::ids::*;
-use crate::data::plans::{PlanSeed, SeedComp};
+use crate::data::plans::{PlanSeed, SeedComp, SeedPrice, default_option_id, option_id};
 use crate::harness::{
     InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env, test_env_with_usage,
 };
 use meteroid_store::clients::usage::{
     GroupedUsageData, MockUsageClient, MockUsageDataParams, UsageData,
 };
+use meteroid_store::domain::prices::Pricing;
 use meteroid_store::domain::subscription_components::{
     ComponentParameterization, ComponentParameters,
 };
@@ -1439,6 +1440,8 @@ async fn seats_of_another_product_do_not_carry_over(#[future] test_env: TestEnv)
             .unwrap(),
             catalog: true,
             tax_category_id: None,
+            icon: None,
+            color: None,
         })
         .execute(&mut env.conn().await)
         .await
@@ -4174,6 +4177,277 @@ async fn test_plan_change_monthly_to_annual(#[future] test_env: TestEnv) {
             "Recurring 2024-02-01: Platform Fee 2024-02-01..2025-02-01 29000",
         ]
     );
+}
+
+// =============================================================================
+// TARGET OPTION
+// =============================================================================
+
+/// Basic, €60 a year in its one option Standard, and Pro selling its platform fee Monthly
+/// (€12 a month) or Annual (€120 a year).
+struct AnnualToOptions {
+    basic: PlanVersionId,
+    pro: PlanVersionId,
+    pro_annual_price: PriceId,
+}
+
+async fn annual_basic_and_pro_by_option(env: &TestEnv) -> AnnualToOptions {
+    let seeded = AnnualToOptions {
+        basic: PlanVersionId::new(),
+        pro: PlanVersionId::new(),
+        pro_annual_price: PriceId::new(),
+    };
+    PlanSeed::new(PlanId::new(), "Annual Basic", seeded.basic)
+        .components(vec![SeedComp::rate(
+            PriceComponentId::new(),
+            "Platform Fee",
+            PRODUCT_PLATFORM_FEE_ID,
+            PriceId::new(),
+            DieselBillingPeriodEnum::Annual,
+            Decimal::new(6000, 2),
+        )])
+        .seed(&mut env.conn().await)
+        .await
+        .expect("an annual plan in one option");
+
+    let mut platform = SeedComp::rate(
+        PriceComponentId::new(),
+        "Platform Fee",
+        PRODUCT_PLATFORM_FEE_ID,
+        PriceId::new(),
+        DieselBillingPeriodEnum::Monthly,
+        Decimal::new(1200, 2),
+    );
+    platform.prices.push(SeedPrice {
+        id: seeded.pro_annual_price,
+        cadence: DieselBillingPeriodEnum::Annual,
+        pricing: Pricing::Rate {
+            rate: Decimal::new(12000, 2),
+        },
+    });
+    PlanSeed::new(PlanId::new(), "Pro by option", seeded.pro)
+        .options(&[
+            ("Monthly", DieselBillingPeriodEnum::Monthly),
+            ("Annual", DieselBillingPeriodEnum::Annual),
+        ])
+        .components(vec![platform])
+        .seed(&mut env.conn().await)
+        .await
+        .expect("a plan sold Monthly or Annual");
+    seeded
+}
+
+/// A change naming no option, to a version without the subscription's alias, lands on the option
+/// billing on the subscription's period: an annual subscriber stays annual, not on the first
+/// option sold.
+#[rstest]
+#[tokio::test]
+async fn an_immediate_change_naming_no_option_keeps_the_annual_period(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let plans = annual_basic_and_pro_by_option(&env).await;
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let sub_id = subscription()
+        .plan_version(plans.basic)
+        .start_date(start_date)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    let sub = env.get_subscription(sub_id).await;
+    assert!(matches!(sub.period, DieselBillingPeriodEnum::Annual));
+    assert_eq!(sub.plan_option_id, Some(default_option_id(plans.basic)));
+
+    env.services()
+        .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            plans.pro,
+            vec![],
+            NaiveDate::from_ymd_opt(2024, 3, 1).unwrap(),
+        )
+        .await
+        .expect("an immediate change naming no option");
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, plans.pro);
+    assert_eq!(sub.plan_option_id, Some(option_id(plans.pro, "annual")));
+    assert!(matches!(sub.period, DieselBillingPeriodEnum::Annual));
+    sub.assert()
+        .has_period_start(start_date)
+        .has_period_end(NaiveDate::from_ymd_opt(2025, 1, 1).unwrap());
+    let prices: Vec<_> = env
+        .get_subscription_components(sub_id)
+        .await
+        .iter()
+        .map(|c| c.price_id)
+        .collect();
+    assert_eq!(prices, vec![Some(plans.pro_annual_price)]);
+}
+
+/// The same at the period's end: the renewal bills Pro's year.
+#[rstest]
+#[tokio::test]
+async fn a_change_at_period_end_naming_no_option_keeps_the_annual_period(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    let plans = annual_basic_and_pro_by_option(&env).await;
+    let sub_id = subscription()
+        .plan_version(plans.basic)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    env.services()
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            plans.pro,
+            vec![],
+        )
+        .await
+        .expect("a change at period end naming no option");
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, plans.pro);
+    assert_eq!(sub.plan_option_id, Some(option_id(plans.pro, "annual")));
+    assert!(matches!(sub.period, DieselBillingPeriodEnum::Annual));
+    sub.assert()
+        .has_period_start(NaiveDate::from_ymd_opt(2025, 1, 1).unwrap())
+        .has_period_end(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap());
+    let prices: Vec<_> = env
+        .get_subscription_components(sub_id)
+        .await
+        .iter()
+        .map(|c| c.price_id)
+        .collect();
+    assert_eq!(prices, vec![Some(plans.pro_annual_price)]);
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("Pro's first year")
+        .has_total(12000)
+        .has_period(
+            NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+        );
+}
+
+/// Strips the option from the plan changes written ahead for `sub_id`, as main wrote them.
+pub(super) async fn as_written_by_main(env: &TestEnv, sub_id: SubscriptionId) {
+    use diesel_async::RunQueryDsl;
+    let stripped = diesel::sql_query(
+        "UPDATE subscription_change
+         SET change = change #- '{ApplyPlanChange,new_plan_option_id}'
+         WHERE subscription_id = $1 AND change -> 'ApplyPlanChange' IS NOT NULL",
+    )
+    .bind::<diesel::sql_types::Uuid, _>(sub_id.as_uuid())
+    .execute(&mut env.conn().await)
+    .await
+    .expect("the change as main wrote it");
+    assert_eq!(stripped, 1, "one plan change written ahead");
+}
+
+/// A change written ahead by main names no option: once it applies, the subscription lands on the
+/// option a change naming none picks (Pro's annual one, its period), not left on Basic's.
+#[rstest]
+#[tokio::test]
+async fn a_change_written_by_main_lands_on_the_option_of_the_subscriptions_period(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    let plans = annual_basic_and_pro_by_option(&env).await;
+    let sub_id = subscription()
+        .plan_version(plans.basic)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    env.services()
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            plans.pro,
+            vec![],
+        )
+        .await
+        .expect("a change at period end");
+    as_written_by_main(&env, sub_id).await;
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, plans.pro);
+    assert_eq!(sub.plan_option_id, Some(option_id(plans.pro, "annual")));
+}
+
+/// An annual platform fee beside monthly usage, on a plan of one option: the subscription's period
+/// is the shortest of its fees, monthly, but its fixed fee is annual. A change naming no option to
+/// a plan sold Monthly or Annual lands on Annual.
+#[rstest]
+#[tokio::test]
+async fn a_change_naming_no_option_reads_the_cadence_of_the_fixed_fees(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    let plans = annual_basic_and_pro_by_option(&env).await;
+    let basic_with_usage = PlanVersionId::new();
+    PlanSeed::new(PlanId::new(), "Annual Basic with usage", basic_with_usage)
+        .components(vec![
+            SeedComp::rate(
+                PriceComponentId::new(),
+                "Platform Fee",
+                PRODUCT_PLATFORM_FEE_ID,
+                PriceId::new(),
+                DieselBillingPeriodEnum::Annual,
+                Decimal::new(6000, 2),
+            ),
+            SeedComp::usage(
+                PriceComponentId::new(),
+                "API Calls",
+                PRODUCT_API_CALLS_ID,
+                METRIC_BANDWIDTH,
+                PriceId::new(),
+                DieselBillingPeriodEnum::Monthly,
+                UsagePricingModel::PerUnit {
+                    rate: Decimal::new(10, 2),
+                },
+            ),
+        ])
+        .seed(&mut env.conn().await)
+        .await
+        .expect("an annual fee and monthly usage in one option");
+    let sub_id = subscription()
+        .plan_version(basic_with_usage)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    env.services()
+        .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            plans.pro,
+            vec![],
+            NaiveDate::from_ymd_opt(2024, 1, 15).unwrap(),
+        )
+        .await
+        .expect("an immediate change naming no option");
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, plans.pro);
+    assert_eq!(sub.plan_option_id, Some(option_id(plans.pro, "annual")));
 }
 
 // =============================================================================

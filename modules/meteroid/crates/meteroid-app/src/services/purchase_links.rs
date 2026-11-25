@@ -10,18 +10,24 @@ use meteroid_store::Store;
 use meteroid_store::domain::checkout_sessions::{
     CheckoutSession, CheckoutSessionStatus, CheckoutType, CreateCheckoutSession,
 };
+use meteroid_store::domain::eligibility::{self, CustomerFacts};
 use meteroid_store::domain::enums::{CustomerType, SubscriptionFeeBillingPeriod};
+use meteroid_store::domain::plan_options::{PlanOption, PlanOptionRef};
+use meteroid_store::domain::price_cells::{OptionPricing, currencies, resolve_option};
 use meteroid_store::domain::purchase_links::{
     AllowedBuyerTypes, InstanceId, LivePurchaseLink, PurchaseAttemptRestart, PurchaseLink,
     PurchaseLinkSession, PurchaseLinkSessionNew, TaxIdCollection,
 };
-use meteroid_store::domain::subscription_components::SubscriptionFee;
+use meteroid_store::domain::subscription_components::{
+    ComponentParameterization, ComponentParameters, CreateSubscriptionComponents, SubscriptionFee,
+};
+use meteroid_store::domain::usage_levels::{self, ChosenLevel};
 use meteroid_store::domain::{
     Address, CustomerNew, CustomerPatch, CustomerTaxStatus, PriceComponent, Product,
     is_complete_billing_information,
 };
 use meteroid_store::errors::StoreError;
-use meteroid_store::repositories::CustomersInterface;
+use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::checkout_sessions::CheckoutSessionsInterface;
 use meteroid_store::repositories::credit_units::CreditUnitsInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
@@ -29,6 +35,7 @@ use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
 use meteroid_store::repositories::price_components::PriceComponentInterfaceAuto;
 use meteroid_store::repositories::products::ProductInterface;
 use meteroid_store::repositories::purchase_links::PurchaseLinksInterface;
+use meteroid_store::repositories::{CustomersInterface, PlanOptionInterface};
 use meteroid_store::services::MAX_DECLINED_CHECKOUT_ATTEMPTS;
 use rate_limiter::{RateLimitConfig, RateLimiter};
 use secrecy::SecretString;
@@ -54,6 +61,12 @@ pub enum PurchaseError {
     NotFound,
     #[error("{0}")]
     InvalidInput(String),
+    /// The plan is not for this buyer, as they entered themselves.
+    #[error("{0}")]
+    Ineligible(String),
+    /// The coupon code cannot be redeemed on this purchase.
+    #[error("{0}")]
+    CouponCode(String),
     #[error("Verification failed, please try again")]
     ProofOfWorkFailed,
     #[error("Too many purchase attempts, please try again later")]
@@ -75,9 +88,10 @@ impl From<PurchaseError> for tonic::Status {
         let message = value.to_string();
         match value {
             PurchaseError::NotFound => tonic::Status::not_found(message),
-            PurchaseError::InvalidInput(_) | PurchaseError::ProofOfWorkFailed => {
-                tonic::Status::invalid_argument(message)
-            }
+            PurchaseError::InvalidInput(_)
+            | PurchaseError::Ineligible(_)
+            | PurchaseError::CouponCode(_)
+            | PurchaseError::ProofOfWorkFailed => tonic::Status::invalid_argument(message),
             PurchaseError::Throttled => tonic::Status::resource_exhausted(message),
             PurchaseError::Unavailable => tonic::Status::failed_precondition(message),
             PurchaseError::Internal(e) => {
@@ -122,6 +136,10 @@ pub struct StartPurchase {
     pub attempt_id: String,
     pub license_request: Option<String>,
     pub client_ip: Option<String>,
+    /// Entered by the buyer; none: the link's own, if any.
+    pub coupon_code: Option<String>,
+    /// The level picked for each usage-levels charge; a charge left out starts on its lowest.
+    pub levels: Vec<ChosenLevel>,
 }
 
 #[derive(Debug, Clone)]
@@ -135,13 +153,25 @@ pub struct StartedPurchase {
 /// A plan component as a subscription started from the link gets it.
 pub struct OfferComponent {
     pub name: String,
+    pub product_id: Option<ProductId>,
     pub period: SubscriptionFeeBillingPeriod,
+    /// At its lowest level for a usage-levels charge.
     pub fee: SubscriptionFee,
+    /// A usage-levels charge's fee at each of its levels, fewest units first; empty for any other.
+    pub levels: Vec<SubscriptionFee>,
+    /// What a usage-levels charge's units count, as its metric names them (plural).
+    pub unit: Option<String>,
 }
 
 pub struct PurchaseOffer {
     pub link: LivePurchaseLink,
     pub components: Vec<OfferComponent>,
+    /// The currency sold in.
+    pub currency: String,
+    /// The name of the plan option it sells, when the plan has several.
+    pub option_name: Option<String>,
+    /// The coupon the link applies when the buyer enters none.
+    pub coupon_code: Option<String>,
     /// ALTCHA challenge JSON.
     pub pow_challenge: String,
     /// The installation a license request names; the license goes to it.
@@ -197,14 +227,29 @@ impl PurchaseLinks {
             .find_live_purchase_link(token)
             .await?
             .ok_or(PurchaseError::NotFound)?;
+        let components = self
+            .store
+            .list_price_components(link.version.id, link.link.tenant_id)
+            .await?;
+        let options = self
+            .store
+            .list_plan_options(link.link.tenant_id, link.version.id)
+            .await?;
+        let sold = sold_option(&link, &options, &components)?;
+        let option_name = (options.len() > 1).then(|| sold.option_name.clone());
 
-        let components = self.offer_components(&link).await.unwrap_or_else(|e| {
-            log::warn!(
-                "Could not resolve the prices of purchase link {}: {e:?}",
-                link.link.id
-            );
-            vec![]
-        });
+        let components = self
+            .offer_components(&link, &sold, components)
+            .await
+            .unwrap_or_else(|e| {
+                log::warn!(
+                    "Could not resolve the prices of purchase link {}: {e:?}",
+                    link.link.id
+                );
+                vec![]
+            });
+        let currency = sold.pricing.currency.clone();
+        let coupon_code = link.link.coupon_code.clone();
 
         let pow_challenge = serde_json::to_string(&self.pow.create_challenge(&link.link.token))
             .map_err(|e| {
@@ -214,21 +259,24 @@ impl PurchaseLinks {
         Ok(PurchaseOffer {
             link,
             components,
+            currency,
+            option_name,
+            coupon_code,
             pow_challenge,
             installation_id,
         })
     }
 
-    /// Resolved like the subscription a purchase creates: the plan's components, default parameters.
+    /// Resolved like the subscription a purchase creates: the plan's components, default
+    /// parameters, a usage-levels charge on its lowest level and priced at each of the others.
     async fn offer_components(
         &self,
         link: &LivePurchaseLink,
+        sold: &SoldOption,
+        mut components: Vec<PriceComponent>,
     ) -> Result<Vec<OfferComponent>, Report<StoreError>> {
         let tenant_id = link.link.tenant_id;
-        let components = self
-            .store
-            .list_price_components(link.version.id, tenant_id)
-            .await?;
+        sold.pricing.narrow(&mut components);
         let product_ids: Vec<ProductId> = components
             .iter()
             .filter_map(|c| c.product_id)
@@ -252,18 +300,58 @@ impl PurchaseLinks {
                     .collect(),
             )
             .await?;
-        components
+        let at_level = |included: u64| ComponentParameters {
+            initial_slot_count: None,
+            billing_period: None,
+            committed_capacity: Some(included),
+        };
+        let mut offered: Vec<OfferComponent> = components
             .iter()
+            .filter(|c| !c.is_included_only())
             .map(|c| {
-                let resolved = c.resolve_fee(&products, &units, None)?;
+                let sizes = usage_levels::sizes(&usage_levels::levels(c));
+                let params = sizes.first().map(|lowest| at_level(*lowest));
+                let resolved = c.resolve_fee(&products, &units, params.as_ref())?;
+                let levels = sizes
+                    .iter()
+                    .map(|included| {
+                        c.resolve_fee(&products, &units, Some(&at_level(*included)))
+                            .map(|level| level.fee)
+                    })
+                    .collect::<Result<_, StoreError>>()?;
                 Ok(OfferComponent {
                     name: c.name.clone(),
+                    product_id: c.product_id,
                     period: resolved.period,
                     fee: resolved.fee,
+                    levels,
+                    unit: None,
                 })
             })
             .collect::<Result<_, StoreError>>()
-            .map_err(Report::new)
+            .map_err(Report::new)?;
+
+        // The levels read in their metric's unit ("€250K", "250K requests").
+        let level_metric = |component: &OfferComponent| match component.levels.first() {
+            Some(SubscriptionFee::Capacity { metric_id, .. }) => Some(*metric_id),
+            _ => None,
+        };
+        let metric_ids: Vec<_> = offered.iter().filter_map(level_metric).collect();
+        if !metric_ids.is_empty() {
+            let metrics = self
+                .store
+                .find_billable_metrics_by_ids(&metric_ids, tenant_id)
+                .await?;
+            for component in &mut offered {
+                component.unit = level_metric(&*component).and_then(|id| {
+                    metrics
+                        .iter()
+                        .find(|m| m.id == id)
+                        .and_then(|m| m.unit_plural.clone())
+                });
+            }
+        }
+        Ok(offered)
     }
 
     /// Starts a purchase, or resumes the one of the same `attempt_id` (see the arms below).
@@ -301,6 +389,27 @@ impl PurchaseLinks {
             .await?
             .require_billing_information;
         check_link_options(&link.link, &buyer, requires_billing_information)?;
+        let components = self
+            .store
+            .list_price_components(link.version.id, tenant_id)
+            .await?;
+        let options = self
+            .store
+            .list_plan_options(tenant_id, link.version.id)
+            .await?;
+        let sold = sold_option(&link, &options, &components)?;
+        let levels = purchase_levels(&sold, components, &input.levels)?;
+        let facts = CustomerFacts {
+            country: Some(input.country.trim().to_ascii_uppercase()),
+            ..Default::default()
+        };
+        if let Some(rule) = link.plan.eligibility.as_ref() {
+            eligibility::check(rule, &facts)
+                .map_err(|why| PurchaseError::Ineligible(why.message()))?;
+        }
+        let coupon_code = self
+            .coupon_code(&link, &sold, &facts, input.coupon_code.as_deref())
+            .await?;
 
         let installation = input
             .license_request
@@ -317,13 +426,39 @@ impl PurchaseLinks {
         let Some(attempt) = attempt else {
             self.check_link_bucket(&link).await?;
             return self
-                .start_new(&link, &buyer, input.attempt_id, installation)
+                .start_new(
+                    &link,
+                    &sold,
+                    &buyer,
+                    coupon_code.as_deref(),
+                    &levels,
+                    input.attempt_id,
+                    installation,
+                )
                 .await;
         };
 
         let checkout = match attempt.checkout_session_id {
             Some(id) => Some(self.store.get_checkout_session(tenant_id, id).await?),
             None => None,
+        };
+        // Another coupon code or level than the open checkout's: a new checkout takes it, unless
+        // a payment of the open one is in flight.
+        let checkout = match checkout {
+            Some(open)
+                if open.can_complete()
+                    && open.subscription_id.is_none()
+                    && (open.coupon_code != coupon_code
+                        || !same_levels(&open.component_params(), &levels)) =>
+            {
+                refuse_superseding(open.status)?;
+                Some(
+                    self.store
+                        .cancel_checkout_session(tenant_id, open.id)
+                        .await?,
+                )
+            }
+            checkout => checkout,
         };
         match checkout {
             Some(checkout) if checkout.is_completed() || checkout.subscription_id.is_some() => Err(
@@ -357,14 +492,57 @@ impl PurchaseLinks {
                 self.check_link_bucket(&link).await?;
                 self.restart(
                     &link,
+                    &sold,
                     &attempt,
                     previous.map(|c| c.id),
                     &buyer,
+                    coupon_code.as_deref(),
+                    &levels,
                     installation,
                 )
                 .await
             }
         }
+    }
+
+    /// The coupon code the purchase redeems, as its coupon spells it: the buyer's, else the
+    /// link's. One the buyer entered is taken only from a link accepting codes, or when it is
+    /// the link's own.
+    async fn coupon_code(
+        &self,
+        link: &LivePurchaseLink,
+        sold: &SoldOption,
+        facts: &CustomerFacts,
+        entered: Option<&str>,
+    ) -> Result<Option<String>, PurchaseError> {
+        let entered = entered.map(str::trim).filter(|code| !code.is_empty());
+        let own = link.link.coupon_code.as_deref();
+        let Some(code) = entered.or(own) else {
+            return Ok(None);
+        };
+        if code.chars().count() > meteroid_store::repositories::coupons::MAX_COUPON_CODE_LENGTH {
+            return Err(PurchaseError::CouponCode(
+                "This coupon code is not valid".to_string(),
+            ));
+        }
+        let is_own = own.is_some_and(|own| own.eq_ignore_ascii_case(code));
+        if !is_own && !link.link.allow_coupon_codes {
+            return Err(PurchaseError::CouponCode(
+                "Coupon codes are not accepted for this purchase".to_string(),
+            ));
+        }
+        let coupon = self
+            .store
+            .check_coupon_code(
+                link.link.tenant_id,
+                code,
+                link.plan.id,
+                &sold.pricing.currency,
+                facts,
+            )
+            .await?
+            .map_err(PurchaseError::CouponCode)?;
+        Ok(Some(coupon.code))
     }
 
     /// Only purchases that open a new checkout count against the link.
@@ -382,10 +560,14 @@ impl PurchaseLinks {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn start_new(
         &self,
         link: &LivePurchaseLink,
+        sold: &SoldOption,
         buyer: &ValidatedBuyer,
+        coupon_code: Option<&str>,
+        levels: &[ComponentParameterization],
         attempt_id: String,
         installation: Option<(InstanceId, String)>,
     ) -> Result<StartedPurchase, PurchaseError> {
@@ -394,12 +576,15 @@ impl PurchaseLinks {
             .store
             .insert_customer(
                 Actor::System,
-                new_customer(buyer, &link.version.currency),
+                new_customer(buyer, &sold.pricing.currency),
                 tenant_id,
             )
             .await
             .map_err(refused_or_internal)?;
-        let checkout = match self.create_checkout(link, customer.id).await {
+        let checkout = match self
+            .create_checkout(link, sold, customer.id, coupon_code, levels)
+            .await
+        {
             Ok(checkout) => checkout,
             Err(e) => {
                 self.archive_customer(tenant_id, customer.id).await;
@@ -441,9 +626,12 @@ impl PurchaseLinks {
     async fn restart(
         &self,
         link: &LivePurchaseLink,
+        sold: &SoldOption,
         attempt: &PurchaseLinkSession,
         previous_checkout: Option<CheckoutSessionId>,
         buyer: &ValidatedBuyer,
+        coupon_code: Option<&str>,
+        levels: &[ComponentParameterization],
         installation: Option<(InstanceId, String)>,
     ) -> Result<StartedPurchase, PurchaseError> {
         let tenant_id = link.link.tenant_id;
@@ -456,7 +644,7 @@ impl PurchaseLinks {
             self.store
                 .insert_customer(
                     Actor::System,
-                    new_customer(buyer, &link.version.currency),
+                    new_customer(buyer, &sold.pricing.currency),
                     tenant_id,
                 )
                 .await
@@ -464,7 +652,10 @@ impl PurchaseLinks {
                 .id
         };
         let created = (!reuses_customer).then_some(customer_id);
-        let checkout = match self.create_checkout(link, customer_id).await {
+        let checkout = match self
+            .create_checkout(link, sold, customer_id, coupon_code, levels)
+            .await
+        {
             Ok(checkout) => checkout,
             Err(e) => {
                 if let Some(created) = created {
@@ -508,7 +699,10 @@ impl PurchaseLinks {
     async fn create_checkout(
         &self,
         link: &LivePurchaseLink,
+        sold: &SoldOption,
         customer_id: CustomerId,
+        coupon_code: Option<&str>,
+        levels: &[ComponentParameterization],
     ) -> Result<CheckoutSession, PurchaseError> {
         Ok(self
             .store
@@ -516,6 +710,7 @@ impl PurchaseLinks {
                 tenant_id: link.link.tenant_id,
                 customer_id,
                 plan_version_id: link.version.id,
+                option: Some(sold.option_alias.clone()),
                 billing_start_date: None,
                 billing_day_anchor: None,
                 net_terms: None,
@@ -527,9 +722,14 @@ impl PurchaseLinks {
                 invoice_threshold: None,
                 purchase_order: None,
                 payment_methods_config: None,
-                components: None,
+                components: (!levels.is_empty()).then(|| CreateSubscriptionComponents {
+                    parameterized_components: levels.to_vec(),
+                    overridden_components: vec![],
+                    extra_components: vec![],
+                    remove_components: vec![],
+                }),
                 add_ons: None,
-                coupon_code: None,
+                coupon_code: coupon_code.map(str::to_owned),
                 coupon_ids: vec![],
                 expires_in_hours: Some(CHECKOUT_EXPIRY_HOURS),
                 metadata: Some(serde_json::json!({
@@ -783,6 +983,67 @@ fn check_billing_address(
     Ok(())
 }
 
+/// The plan option a purchase buys, and the currency it is priced in.
+struct SoldOption {
+    pricing: OptionPricing,
+    option_alias: String,
+    option_name: String,
+}
+
+/// A link sells its option (else the plan's default) in the plan's currency, else the first one
+/// the option is sold in. An option the plan no longer has is the seller's to fix.
+fn sold_option(
+    link: &LivePurchaseLink,
+    options: &[PlanOption],
+    components: &[PriceComponent],
+) -> Result<SoldOption, PurchaseError> {
+    let asked = link.link.option.clone().map(PlanOptionRef::Alias);
+    let option = resolve_option(options, asked.as_ref()).map_err(|e| {
+        log::warn!("Purchase link {} sells no option: {e:?}", link.link.id);
+        PurchaseError::Unavailable
+    })?;
+    let sells = |currency: &String| OptionPricing::new(option.id, currency).sells(components);
+    let currency = std::iter::once(link.version.currency.clone())
+        .chain(currencies(components))
+        .find(sells)
+        .unwrap_or_else(|| link.version.currency.clone());
+    Ok(SoldOption {
+        pricing: OptionPricing::new(option.id, &currency),
+        option_alias: option.alias.clone(),
+        option_name: option.name.clone(),
+    })
+}
+
+/// The level each usage-levels charge of the option sold starts on: the buyer's pick, else its
+/// lowest (`usage_levels::starting_levels`). A level the plan does not sell is the buyer's to fix.
+fn purchase_levels(
+    sold: &SoldOption,
+    mut components: Vec<PriceComponent>,
+    chosen: &[ChosenLevel],
+) -> Result<Vec<ComponentParameterization>, PurchaseError> {
+    sold.pricing.narrow(&mut components);
+    usage_levels::starting_levels(&components, chosen).map_err(|e| match e {
+        StoreError::InvalidArgument(why) => PurchaseError::InvalidInput(why),
+        other => PurchaseError::Internal(Report::new(other)),
+    })
+}
+
+/// Whether a checkout bills the levels a purchase asks.
+fn same_levels(
+    checkout: &[ComponentParameterization],
+    asked: &[ComponentParameterization],
+) -> bool {
+    let key = |params: &[ComponentParameterization]| {
+        let mut key: Vec<_> = params
+            .iter()
+            .map(|p| (p.component_id, p.parameters.committed_capacity))
+            .collect();
+        key.sort_by_key(|(id, _)| *id);
+        key
+    };
+    key(checkout) == key(asked)
+}
+
 fn new_customer(buyer: &ValidatedBuyer, currency: &str) -> CustomerNew {
     CustomerNew {
         name: buyer.name.clone(),
@@ -878,6 +1139,16 @@ fn hourly_bucket(name: &str, per_hour: u32) -> RateLimitConfig {
     }
 }
 
+/// A checkout another coupon code would cancel: only one no payment was started on.
+fn refuse_superseding(status: CheckoutSessionStatus) -> Result<(), PurchaseError> {
+    if status == CheckoutSessionStatus::Created {
+        return Ok(());
+    }
+    Err(PurchaseError::InvalidInput(
+        "A payment is in progress for this purchase".to_string(),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -895,6 +1166,19 @@ mod tests {
             attempt_id: "0f3c2a1e-6b7d-4e2f-9a8b-1c2d3e4f5a6b".to_string(),
             license_request: None,
             client_ip: None,
+            coupon_code: None,
+            levels: vec![],
+        }
+    }
+
+    #[test]
+    fn a_new_coupon_code_cancels_only_a_checkout_without_a_payment() {
+        assert!(refuse_superseding(CheckoutSessionStatus::Created).is_ok());
+        match refuse_superseding(CheckoutSessionStatus::AwaitingPayment) {
+            Err(PurchaseError::InvalidInput(message)) => {
+                assert_eq!(message, "A payment is in progress for this purchase");
+            }
+            other => panic!("expected a refusal, got {other:?}"),
         }
     }
 

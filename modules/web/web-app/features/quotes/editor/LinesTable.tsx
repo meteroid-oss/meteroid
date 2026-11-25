@@ -18,6 +18,7 @@ import {
 import { ArrowDown, ArrowUp, Minus, MoreHorizontal, Plus, X } from 'lucide-react'
 import { useRef, useState } from 'react'
 
+import { KIND_LABELS } from '@/features/plans/charges/kinds'
 import { formDataToPrice } from '@/features/pricing'
 import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
 import { feeFigures } from '@/features/quotes/editor/lineFigures'
@@ -29,9 +30,14 @@ import {
   getExampleQuantity,
   isComponentConfigured,
   planComponentDisplayPrice,
-  planComponentSlotTotal,
   requiresConfiguration,
 } from '@/features/subscriptions/pricecomponents/PriceComponentsLogic'
+import {
+  modelAmountRequest,
+  quantityFigures,
+  useModelAmounts,
+  withModelAmount,
+} from '@/features/subscriptions/pricecomponents/chargeFigures'
 import { getPriceBillingLabel, priceToSubscriptionFee } from '@/lib/mapping/priceToSubscriptionFee'
 import { formatCurrencyNoRounding, formatUsage } from '@/utils/numbers'
 
@@ -66,17 +72,20 @@ interface RowCells {
   needsConfiguration: boolean
 }
 
+// What a line charges for, as the plan editor names it; a fixed fee needs no badge.
 const FEE_BADGES: Partial<Record<ComponentFeeType, string>> = {
-  slot: 'Seat',
-  usage: 'Usage',
-  capacity: 'Capacity',
-  credit: 'Credit',
-  oneTime: 'One-time',
-  extraRecurring: 'Recurring',
+  slot: KIND_LABELS.seat,
+  usage: KIND_LABELS.usage,
+  capacity: KIND_LABELS.levels,
+  credit: KIND_LABELS.credit,
+  oneTime: 'One-time fee',
 }
 
+// Usage priced by dimension has no one quantity to show an example at.
 const isExampleUsage = (price: Price | undefined) =>
-  price?.pricing.case === 'usagePricing' && price.pricing.value.model.case !== 'matrix'
+  price?.pricing.case === 'usagePricing' &&
+  price.pricing.value.model.case !== 'dimensionRates' &&
+  price.pricing.value.model.case !== 'rateCard'
 
 const NONE = <span className="text-muted-foreground">—</span>
 
@@ -175,23 +184,68 @@ export const LinesTable = ({
     setV2(prev => ({ ...prev, lineOrder: order }))
   }
 
-  const figuresOf = (price: Price | undefined, initialSlotCount?: number) =>
-    price
-      ? feeFigures(
-          priceToSubscriptionFee(price, { initialSlotCount, creditUnits }),
-          currency,
-          creditUnits
-        )
-      : undefined
+  // The price each component and extra row bills, at its seat count.
+  const pricedRows = rows.map((row, index): { key: string; price?: Price; seats?: number } => {
+    const key = `${row.line.key}#${index}`
+    if (row.kind === 'component') {
+      const { component } = row
+      const override = pricing.components.overridden.find(o => o.componentId === component.id)
+      const configuration = pricing.components.parameterized.find(
+        p => p.componentId === component.id
+      )
+      const price = planComponentDisplayPrice(component, configuration, override, currency)
+      const seats = deriveFeeType(component) === 'slot' ? configuration?.initialSlotCount : undefined
+      return { key, price, seats }
+    }
+    if (row.kind === 'extra') {
+      return { key, price: formDataToPrice(row.extra.feeType, row.extra.formData, currency) }
+    }
+    return { key, price: undefined }
+  })
+  // A count priced by a model (seat tiers, packages) has no single rate: the server prices it.
+  const amounts = useModelAmounts(
+    pricedRows.flatMap(({ key, price, seats }) =>
+      price ? modelAmountRequest(key, quantityFigures(price, { seats })) : []
+    ),
+    currency
+  )
+
+  // Add-ons (no key) keep the figures of their fee.
+  const figuresOf = (
+    price: Price | undefined,
+    key?: string,
+    seats?: number
+  ): LineFigures | undefined => {
+    if (!price) return undefined
+    const quantified = key ? quantityFigures(price, { seats }) : undefined
+    if (key && quantified) {
+      const { unitPrice, amount, quantity, inWords } = withModelAmount(quantified, amounts, key)!
+      return { unitPrice, amount, quantity, inWords }
+    }
+    return feeFigures(
+      priceToSubscriptionFee(price, { initialSlotCount: seats, creditUnits }),
+      currency,
+      creditUnits
+    )
+  }
 
   const priceCell = (figures: LineFigures | undefined, custom = false) => (
-    <FirstLine className="justify-end gap-1.5 whitespace-nowrap">
+    <FirstLine className={cn('justify-end gap-1.5', !figures?.inWords && 'whitespace-nowrap')}>
       {custom && (
         <Badge variant="outline" size="sm" className="font-normal text-muted-foreground">
           Custom
         </Badge>
       )}
-      {figures ? <span title={figures.detail || undefined}>{figures.unitPrice}</span> : NONE}
+      {figures ? (
+        <span
+          title={figures.detail || undefined}
+          className={cn(figures.inWords && 'text-right text-xs text-muted-foreground')}
+        >
+          {figures.unitPrice}
+        </span>
+      ) : (
+        NONE
+      )}
     </FirstLine>
   )
 
@@ -220,20 +274,22 @@ export const LinesTable = ({
   const fixedQuantity = (figures: LineFigures | undefined) =>
     figures?.quantity !== undefined ? <span>{formatUsage(figures.quantity)}</span> : NONE
 
-  const componentCells = (component: PriceComponent): RowCells => {
+  const componentCells = (component: PriceComponent, key: string): RowCells => {
     const override = pricing.components.overridden.find(o => o.componentId === component.id)
     const configuration = pricing.components.parameterized.find(p => p.componentId === component.id)
     const feeType = deriveFeeType(component)
     const configurable = requiresConfiguration(component, pricing)
     const needsConfiguration = configurable && !isComponentConfigured(component, pricing)
     const price = planComponentDisplayPrice(component, configuration, override, currency)
-    const figures = figuresOf(price, configuration?.initialSlotCount)
+    const seats = feeType === 'slot' ? configuration?.initialSlotCount : undefined
+    const figures = figuresOf(price, key, seats)
     const name = override?.name || component.name
 
     let quantity: ReactNode = fixedQuantity(figures)
     let amount: ReactNode = figures?.amount ?? NONE
 
-    if (feeType === 'slot' && !override) {
+    // A custom seat price still bills the seats set here.
+    if (feeType === 'slot') {
       quantity = (
         <SeatQuantity
           name={name}
@@ -242,7 +298,6 @@ export const LinesTable = ({
           onChange={count => actions.updateConfiguration(component.id, { initialSlotCount: count })}
         />
       )
-      amount = planComponentSlotTotal(component, configuration, override, currency) ?? NONE
     } else if (feeType === 'capacity' && configurable) {
       quantity = (
         <div className="w-40">
@@ -268,7 +323,7 @@ export const LinesTable = ({
 
     return {
       badge: FEE_BADGES[feeType],
-      cadence: getComponentBillingLabel(component, configuration),
+      cadence: getComponentBillingLabel(component),
       quantity,
       price: priceCell(figures, Boolean(override)),
       amount,
@@ -295,9 +350,9 @@ export const LinesTable = ({
     }
   }
 
-  const extraCells = (extra: ExtraComponent, index: number): RowCells => {
+  const extraCells = (extra: ExtraComponent, index: number, key: string): RowCells => {
     const price = formDataToPrice(extra.feeType, extra.formData, currency)
-    const figures = figuresOf(price)
+    const figures = figuresOf(price, key)
     let quantity: ReactNode = fixedQuantity(figures)
     let amount: ReactNode = figures?.amount ?? NONE
     if (isExampleUsage(price)) {
@@ -395,11 +450,12 @@ export const LinesTable = ({
   }
 
   const renderRow = (row: Row, index: number) => {
+    const key = pricedRows[index].key
     const cells =
       row.kind === 'component'
-        ? componentCells(row.component)
+        ? componentCells(row.component, key)
         : row.kind === 'extra'
-          ? extraCells(row.extra, row.index)
+          ? extraCells(row.extra, row.index, key)
           : addOnCells(row)
     const name =
       row.kind === 'component'

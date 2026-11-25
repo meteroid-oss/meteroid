@@ -238,11 +238,18 @@ fn meter_request(
         customer_ids: vec![customer_id.to_string()],
         from: Some(datetime_to_timestamp(period.start)),
         to: Some(datetime_to_timestamp(period.end)),
+        // Not the keys of the matrix filtering it: metering groups by those already.
         group_by_properties: metric
             .usage_group_key
             .iter()
+            .chain(&metric.rated_dimensions)
             .map(String::as_str)
             .chain(group_by)
+            .filter(|name| {
+                metric
+                    .complete_segmentation_matrix()
+                    .is_none_or(|matrix| !matrix.keys().contains(name))
+            })
             .fold(Vec::<String>::new(), |mut names, name| {
                 if !names.iter().any(|known| known == name) {
                     names.push(name.to_owned());
@@ -251,7 +258,9 @@ fn meter_request(
             }),
         window_size: window_size.into(),
         timezone: None,
-        segmentation_filter: build_segmentation_filter(metric.segmentation_matrix.clone()),
+        segmentation_filter: build_segmentation_filter(
+            metric.complete_segmentation_matrix().cloned(),
+        ),
         filters: build_property_filters(metric.filters.as_ref()),
         value_property: metric.aggregation_key.clone(),
         origin_filter: query_meter_request::OriginFilter::All.into(),
@@ -689,7 +698,9 @@ impl UsageClient for MeteringUsageClient {
             group_by_properties: vec![],
             window_size: QueryWindowSize::AggregateAll.into(),
             timezone: None,
-            segmentation_filter: build_segmentation_filter(metric.segmentation_matrix.clone()),
+            segmentation_filter: build_segmentation_filter(
+                metric.complete_segmentation_matrix().cloned(),
+            ),
             filters: build_property_filters(metric.filters.as_ref()),
             value_property: metric.aggregation_key.clone(),
             origin_filter: query_meter_request::OriginFilter::All.into(),
@@ -778,7 +789,9 @@ impl UsageClient for MeteringUsageClient {
                 .unwrap_or_default(),
             window_size: QueryWindowSize::Day.into(),
             timezone: None,
-            segmentation_filter: build_segmentation_filter(metric.segmentation_matrix.clone()),
+            segmentation_filter: build_segmentation_filter(
+                metric.complete_segmentation_matrix().cloned(),
+            ),
             filters: build_property_filters(metric.filters.as_ref()),
             value_property: metric.aggregation_key.clone(),
             origin_filter: query_meter_request::OriginFilter::All.into(),
@@ -852,7 +865,9 @@ impl UsageClient for MeteringUsageClient {
             group_by_properties: vec![],
             window_size: QueryWindowSize::AggregateAll.into(),
             timezone: None,
-            segmentation_filter: build_segmentation_filter(metric.segmentation_matrix.clone()),
+            segmentation_filter: build_segmentation_filter(
+                metric.complete_segmentation_matrix().cloned(),
+            ),
             filters: build_property_filters(metric.filters.as_ref()),
             value_property: None,
             origin_filter: query_meter_request::OriginFilter::All.into(),
@@ -1074,7 +1089,9 @@ impl UsageClient for MeteringUsageClient {
             group_by_properties: vec![],
             window_size: window_size.into(),
             timezone: None,
-            segmentation_filter: build_segmentation_filter(metric.segmentation_matrix.clone()),
+            segmentation_filter: build_segmentation_filter(
+                metric.complete_segmentation_matrix().cloned(),
+            ),
             filters: build_property_filters(metric.filters.as_ref()),
             value_property: metric.aggregation_key.clone(),
             origin_filter: query_meter_request::OriginFilter::All.into(),
@@ -1184,7 +1201,9 @@ impl UsageClient for MeteringUsageClient {
                 .unwrap_or_default(),
             window_size: QueryWindowSize::AggregateAll.into(),
             timezone: None,
-            segmentation_filter: build_segmentation_filter(metric.segmentation_matrix.clone()),
+            segmentation_filter: build_segmentation_filter(
+                metric.complete_segmentation_matrix().cloned(),
+            ),
             filters: build_property_filters(metric.filters.as_ref()),
             value_property: metric.aggregation_key.clone(),
             origin_filter: query_meter_request::OriginFilter::All.into(),
@@ -1606,7 +1625,9 @@ impl PendingUsageSource for MeteringUsageClient {
                 }),
             window_size: QueryWindowSize::AggregateAll.into(),
             timezone: None,
-            segmentation_filter: build_segmentation_filter(metric.segmentation_matrix.clone()),
+            segmentation_filter: build_segmentation_filter(
+                metric.complete_segmentation_matrix().cloned(),
+            ),
             filters: build_property_filters(metric.filters.as_ref()),
             value_property: metric.aggregation_key.clone(),
             origin_filter: origin_filter.into(),

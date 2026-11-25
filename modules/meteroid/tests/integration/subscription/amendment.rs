@@ -40,6 +40,7 @@ use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::add_ons::AddOnInterface;
 use meteroid_store::repositories::credit_notes::CreditNoteInterface;
 use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
+use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
 use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
 use rust_decimal::Decimal;
 
@@ -156,6 +157,7 @@ fn extra_arrears_component(name: &str, rate_cents: i64) -> AddExtraComponent {
             pricing: Pricing::ExtraRecurring {
                 unit_price: Decimal::new(rate_cents, 2),
                 quantity: 1,
+                model: None,
             },
             credit_unit: None,
         }),
@@ -178,6 +180,7 @@ fn extra_onetime_component(name: &str, rate_cents: i64) -> AddExtraComponent {
             pricing: Pricing::OneTime {
                 unit_price: Decimal::new(rate_cents, 2),
                 quantity: 1,
+                model: None,
             },
             credit_unit: None,
         }),
@@ -1956,7 +1959,9 @@ fn edit_seats_price_amendment(
                     currency: "EUR".to_string(),
                     credit_unit: None,
                     pricing: Pricing::Slot {
-                        unit_rate: Decimal::new(1200, 2),
+                        model: meteroid_store::domain::price_components::RatingModel::PerUnit {
+                            rate: Decimal::new(1200, 2),
+                        },
                         min_slots: None,
                         max_slots: None,
                     },
@@ -4029,5 +4034,171 @@ async fn an_immediate_amendment_previewed_at_a_free_trial_s_end_realigns_the_per
     assert_eq!(
         (sub.current_period_start, sub.current_period_end),
         (january(15), Some(feb15))
+    );
+}
+
+/// "50% off Support" on an add-on billed in arrears (€40/mo), removed at the end of January:
+/// Support is no longer in force on Feb 1, yet the renewal still bills its January, 20.00 off,
+/// and counts the use. Starter €39 + Support €40 − €20 = €59.
+#[rstest]
+#[tokio::test]
+async fn test_add_on_coupon_discounts_the_last_arrears_of_an_ended_add_on(
+    #[future] test_env: TestEnv,
+) {
+    use meteroid_store::domain::CreateSubscriptionAddOns;
+    use meteroid_store::domain::coupons::{CouponDiscount, CouponNew, CouponTerms};
+    use meteroid_store::repositories::coupons::CouponInterface;
+
+    let env = test_env.await;
+    let jan1 = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let feb1 = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
+
+    let support = env
+        .store()
+        .create_add_on_from_ref(
+            "Support".to_string(),
+            ProductRef::New {
+                name: "Support Product".to_string(),
+                fee_type: FeeTypeEnum::ExtraRecurring,
+                fee_structure: FeeStructure::ExtraRecurring {
+                    billing_type: BillingType::Arrears,
+                },
+            },
+            PriceEntry::New(PriceInput {
+                cadence: BillingPeriodEnum::Monthly,
+                currency: "EUR".to_string(),
+                pricing: Pricing::ExtraRecurring {
+                    unit_price: Decimal::new(4000, 2),
+                    quantity: 1,
+                    model: None,
+                },
+                credit_unit: None,
+            }),
+            None,
+            true,
+            None,
+            TENANT_ID,
+            PRODUCT_FAMILY_ID,
+            vec![],
+        )
+        .await
+        .expect("an arrears add-on")
+        .id;
+    let coupon_id = env
+        .store()
+        .create_coupon_with_terms(
+            common_domain::actor::Actor::System,
+            CouponNew {
+                code: "SUPPORT50".to_string(),
+                description: "50% off Support".to_string(),
+                tenant_id: TENANT_ID,
+                discount: CouponDiscount::Percentage(Decimal::from(50)),
+                expires_at: None,
+                redemption_limit: None,
+                recurring_value: Some(3),
+                reusable: true,
+                plan_ids: vec![],
+            },
+            CouponTerms {
+                add_on_ids: vec![support],
+                ..CouponTerms::default()
+            },
+        )
+        .await
+        .expect("a coupon on Support")
+        .id;
+
+    let mut request = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(jan1)
+        .on_start()
+        .no_trial()
+        .coupon(coupon_id)
+        .request();
+    request.add_ons = Some(CreateSubscriptionAddOns {
+        add_ons: vec![CreateSubscriptionAddOn {
+            add_on_id: support,
+            customization: SubscriptionAddOnCustomization::None,
+            quantity: 1,
+        }],
+    });
+    let sub_id = env
+        .services()
+        .insert_subscription(common_domain::actor::Actor::System, request, TENANT_ID)
+        .await
+        .expect("subscribed with Support")
+        .id;
+    env.run_outbox_and_orchestration().await;
+
+    env.services()
+        .schedule_amendment(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            SubscriptionAmendment {
+                apply_mode: PlanChangeMode::EndOfPeriod,
+                component_changes: ComponentChanges::default(),
+                add_on_changes: AddOnChanges {
+                    added: vec![],
+                    edited: vec![],
+                    removed: vec![active_addon_id(&env, sub_id).await],
+                },
+            },
+        )
+        .await
+        .expect("Support ends at the period end");
+
+    // A pass advances one boundary: the Feb 1 renewal, past any earlier due work.
+    for _ in 0..3 {
+        env.process_cycles().await;
+        env.run_outbox_and_orchestration().await;
+    }
+
+    let invoices = env.get_invoices(sub_id).await;
+    // The renewal bills Support's January in arrears, up to Feb 1.
+    let renewal = invoices
+        .iter()
+        .find(|i| {
+            i.line_items
+                .iter()
+                .any(|l| l.sub_add_on_id.is_some() && l.end_date == feb1)
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "the Feb 1 renewal among {:?}",
+                invoices
+                    .iter()
+                    .map(|i| i
+                        .line_items
+                        .iter()
+                        .map(|l| (l.name.clone(), l.start_date, l.end_date, l.amount_subtotal))
+                        .collect::<Vec<_>>())
+                    .collect::<Vec<_>>()
+            )
+        });
+    let support_line = renewal
+        .line_items
+        .iter()
+        .find(|l| l.sub_add_on_id.is_some())
+        .expect("Support's January, billed in arrears");
+    assert_eq!(support_line.amount_subtotal, 4000);
+    assert_eq!(
+        support_line.taxable_amount, 2000,
+        "half of Support's last line is taken off"
+    );
+    assert_eq!(renewal.coupons.len(), 1);
+    assert_eq!(renewal.discount, 2000);
+    assert_eq!(renewal.total, 5900);
+
+    let details = env
+        .store()
+        .get_subscription_details(TENANT_ID, sub_id)
+        .await
+        .expect("details");
+    assert!(details.add_ons.is_empty(), "Support is no longer in force");
+    assert_eq!(
+        details.applied_coupons[0].applied_coupon.applied_count,
+        Some(1),
+        "the renewal took one of its three uses"
     );
 }

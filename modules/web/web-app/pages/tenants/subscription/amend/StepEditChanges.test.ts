@@ -73,7 +73,7 @@ describe('subscriptionFeeToFormData (fix G: keeps credit-unit pricing on amend o
     expect(formData).toMatchObject({ creditUnitId: '', creditUnitRate: '' })
   })
 
-  it('prefills the current matrix and tiered prices', () => {
+  it('prefills a matrix as rates by dimension, and tiered prices', () => {
     const matrix = create(SubscriptionFeeSchema)
     matrix.fee = {
       case: 'usage',
@@ -91,10 +91,11 @@ describe('subscriptionFeeToFormData (fix G: keeps credit-unit pricing on amend o
       }),
     }
     expect(subscriptionFeeToFormData(matrix, SubscriptionFeeBillingPeriod.MONTHLY)).toMatchObject({
-      usageModel: 'matrix',
-      rows: [
-        { perUnitPrice: '2', dimension1: { key: 'model', value: 'halyard-lite' } },
-        { perUnitPrice: '60', dimension1: { key: 'model', value: 'halyard-max' } },
+      usageModel: 'dimension_rates',
+      dimensions: ['model'],
+      keyRates: [
+        { key: ['halyard-lite'], rate: '2' },
+        { key: ['halyard-max'], rate: '60' },
       ],
     })
 

@@ -42,6 +42,7 @@ pub(crate) fn customer(
         history: None,
         credit: vec![],
         tax_rates: vec![],
+        custom_properties: serde_json::Value::Null,
     }
 }
 
@@ -102,6 +103,7 @@ pub(crate) fn seats(unit_price: Decimal) -> PriceComponent {
             downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
             minimum_count: Some(1),
             quota: None,
+            included: None,
         },
     }
 }

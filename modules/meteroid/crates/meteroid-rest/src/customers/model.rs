@@ -130,6 +130,13 @@ pub struct CustomerCreateRequest {
     #[serde(default)]
     #[schema(deprecated)]
     pub invoicing_language: Option<String>,
+    /// Subscribes the customer to the sign-up plan of `signup_product_family_id`, or of the only
+    /// product line that has one. Needs the customer portal's self-service.
+    #[serde(default)]
+    pub subscribe_to_signup_plan: bool,
+    #[serde(default, with = "string_serde_opt")]
+    #[schema(value_type = Option<String>)]
+    pub signup_product_family_id: Option<common_domain::ids::ProductFamilyId>,
 }
 
 #[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]

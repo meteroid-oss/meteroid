@@ -1617,36 +1617,48 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
             return;
         };
         if !self.pricer.per_part(&last.row.fee) {
-            let first = &pieces[0];
+            // Rows sharing one allowance price the period once; a row changing it (a capacity's
+            // level) starts a part of its own, each part's allowance its share of the days (R-135).
+            let runs: Vec<&[UsagePiece<'a, F>]> = pieces
+                .chunk_by(|a, b| self.pricer.shares_allowance(&a.row.fee, &b.row.fee))
+                .collect();
+            let several = runs.len() > 1;
             // Its allowance follows its fixed amount: prorated when the window is cut short, is a
             // first partial period, or starts after its period does in advance (R-002).
             let starts_late =
                 window.from > window.period.0 && Some(window.from) != self.billing_start;
-            let prorated = window.until < window.period.1
+            let prorated = several
+                || window.until < window.period.1
                 || self.first_partial(billed)
                 || (last.row.billing == Billing::Advance && starts_late);
-            let merged = UsagePiece {
-                row: last.row,
-                from: first.from,
-                until: last.until,
-                read: UsageWindow {
-                    from: first.read.from,
-                    until: last.read.until,
-                },
-                cut: last.cut,
-                plan: last.plan,
-                allowance: if prorated {
-                    DaySpan {
-                        period: billed.nominal,
+            let merged: Vec<UsagePiece<'a, F>> = runs
+                .into_iter()
+                .map(|run| {
+                    let (first, last) = (&run[0], &run[run.len() - 1]);
+                    UsagePiece {
+                        row: last.row,
                         from: first.from,
                         until: last.until,
+                        read: UsageWindow {
+                            from: first.read.from,
+                            until: last.read.until,
+                        },
+                        cut: last.cut,
+                        plan: last.plan,
+                        allowance: if prorated {
+                            DaySpan {
+                                period: billed.nominal,
+                                from: first.from,
+                                until: last.until,
+                            }
+                            .fraction()
+                        } else {
+                            DayFraction::WHOLE
+                        },
                     }
-                    .fraction()
-                } else {
-                    DayFraction::WHOLE
-                },
-            };
-            pieces = vec![merged];
+                })
+                .collect();
+            pieces = merged;
         }
         for piece in pieces {
             self.queue(piece, usage_pieces, out);

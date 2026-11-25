@@ -9,9 +9,9 @@ use common_domain::actor::Actor;
 use common_domain::ids::{PlanId, PlanVersionId, SubscriptionId};
 use meteroid_grpc::meteroid::portal::subscription::v1 as portal;
 use meteroid_store::domain::PlanPatch;
-use meteroid_store::repositories::PlansInterface;
+use meteroid_store::repositories::{PlansInterface, PricingPagesInterface};
 
-async fn rank(env: &TestEnv, plan_id: PlanId, rank: Option<i32>) {
+pub(crate) async fn rank(env: &TestEnv, plan_id: PlanId, rank: Option<i32>) {
     env.store()
         .patch_published_plan(
             Actor::User { id: USER_ID },
@@ -29,7 +29,7 @@ async fn rank(env: &TestEnv, plan_id: PlanId, rank: Option<i32>) {
         .expect("rank plan");
 }
 
-fn request<T>(env: &TestEnv, message: T) -> tonic::Request<T> {
+pub(crate) fn request<T>(env: &TestEnv, message: T) -> tonic::Request<T> {
     let token = meteroid_store::jwt_claims::generate_portal_token(
         &env.setup.config.jwt_secret,
         TENANT_ID,
@@ -46,7 +46,7 @@ fn request<T>(env: &TestEnv, message: T) -> tonic::Request<T> {
     request
 }
 
-fn client(
+pub(crate) fn client(
     env: &TestEnv,
 ) -> portal::portal_subscription_service_client::PortalSubscriptionServiceClient<
     tonic::transport::Channel,
@@ -65,8 +65,10 @@ async fn preview(
         .preview_plan_change(request(
             env,
             portal::PreviewPlanChangeRequest {
+                option: None,
                 subscription_id: sub_id.to_string(),
                 new_plan_version_id: target.to_string(),
+                levels: vec![],
             },
         ))
         .await
@@ -82,15 +84,17 @@ async fn confirm(
         .confirm_plan_change(request(
             env,
             portal::ConfirmPlanChangeRequest {
+                option: None,
                 subscription_id: sub_id.to_string(),
                 new_plan_version_id: target.to_string(),
+                levels: vec![],
             },
         ))
         .await
         .map(tonic::Response::into_inner)
 }
 
-async fn available(env: &TestEnv, sub_id: SubscriptionId) -> Vec<portal::AvailablePlan> {
+pub(crate) async fn available(env: &TestEnv, sub_id: SubscriptionId) -> Vec<portal::AvailablePlan> {
     client(env)
         .list_available_plans(request(
             env,
@@ -201,6 +205,92 @@ async fn portal_plan_change_is_limited_to_the_offered_plans(#[future] test_env: 
     assert_eq!(refused.code(), Code::FailedPrecondition, "{refused:?}");
 }
 
+async fn sell_by_sales(env: &TestEnv, plan_id: PlanId, sales_led: bool) {
+    use meteroid_store::domain::pricing_pages::PlanPricingPage;
+    env.store()
+        .update_plan_pricing_page(
+            TENANT_ID,
+            PlanPricingPage {
+                plan_id,
+                tagline: None,
+                popular: false,
+                cta_label: None,
+                highlights: vec![],
+                sales_led,
+                hide_price: false,
+                contact_url: Some("https://acme.test/contact".to_string()),
+                product_order: vec![],
+                hidden_product_ids: vec![],
+            },
+        )
+        .await
+        .expect("how the plan is sold");
+}
+
+/// A sales-led plan stays on the pricing page but is never offered in the portal: not as an
+/// upgrade, and a subscription to one is managed by the account team.
+#[rstest]
+#[tokio::test]
+async fn portal_never_offers_a_sales_led_plan(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    rank(&env, PLAN_STARTER_ID, Some(1)).await;
+    rank(&env, PLAN_PRO_ID, Some(2)).await;
+    sell_by_sales(&env, PLAN_PRO_ID, true).await;
+
+    let sub_id = subscription()
+        .customer(CUST_UBER_ID)
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(chrono::Utc::now().date_naive())
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    let offered = available(&env, sub_id).await;
+    assert!(
+        offered.iter().all(|p| p.plan_id != PLAN_PRO_ID.as_proto()),
+        "a sales-led plan is not an upgrade: {offered:?}"
+    );
+    let refused = preview(&env, sub_id, PLAN_VERSION_PRO_ID)
+        .await
+        .expect_err("a sales-led plan cannot be previewed");
+    assert_eq!(refused.code(), Code::InvalidArgument, "{refused:?}");
+    let refused = confirm(&env, sub_id, PLAN_VERSION_PRO_ID)
+        .await
+        .expect_err("a sales-led plan cannot be confirmed");
+    assert_eq!(refused.code(), Code::InvalidArgument, "{refused:?}");
+
+    let ladder = env
+        .store()
+        .pricing_page(
+            TENANT_ID,
+            PRODUCT_FAMILY_ID,
+            meteroid_store::domain::pricing_pages::PricingPageRequest::default(),
+        )
+        .await
+        .expect("the pricing page");
+    assert!(
+        ladder
+            .cards
+            .iter()
+            .any(|card| card.plan_id == PLAN_PRO_ID && card.sales_led),
+        "the pricing page keeps it"
+    );
+
+    // Sold self-serve again, it is offered.
+    sell_by_sales(&env, PLAN_PRO_ID, false).await;
+    preview(&env, sub_id, PLAN_VERSION_PRO_ID)
+        .await
+        .expect("a self-serve plan is offered");
+
+    // A customer on a sales-led plan is managed by the account team.
+    sell_by_sales(&env, PLAN_STARTER_ID, true).await;
+    assert!(!can_change_plan(&env, sub_id).await);
+    let refused = preview(&env, sub_id, PLAN_VERSION_PRO_ID)
+        .await
+        .expect_err("a sales-led subscription cannot self-serve a plan change");
+    assert_eq!(refused.code(), Code::FailedPrecondition, "{refused:?}");
+}
+
 /// RF-37: two subscriptions to one plan are told apart in the portal by their usage filters.
 #[rstest]
 #[tokio::test]
@@ -244,4 +334,57 @@ async fn portal_lists_each_subscriptions_usage_filter(#[future] test_env: TestEn
         (filter.property.as_str(), filter.value.as_str()),
         ("team", "mobile")
     );
+}
+
+/// A hidden option is never offered in the portal: not among its plan's options, nor as a switch,
+/// though the customer may switch option.
+#[tokio::test]
+async fn portal_never_offers_a_hidden_option() {
+    use super::currency_portal::{journey, list, monthly_subscription, offered, plan, rate};
+    use common_domain::ids::{BaseId, PriceId};
+    use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
+    use rust_decimal_macros::dec;
+
+    let env = test_env().await;
+    let pro = plan(
+        &env,
+        "Pro",
+        1,
+        "EUR",
+        vec![
+            rate(PriceId::new(), DieselBillingPeriodEnum::Monthly, dec!(20)),
+            rate(PriceId::new(), DieselBillingPeriodEnum::Annual, dec!(200)),
+        ],
+    )
+    .await;
+    journey(&env, true).await;
+    diesel_models::plan_version_options::PlanVersionOptionRow::set_hidden(
+        &mut env.conn().await,
+        TENANT_ID,
+        crate::data::plans::option_id(pro, "annual"),
+        true,
+    )
+    .await
+    .expect("a hidden option");
+    let sub = monthly_subscription(&env, pro).await;
+
+    let response = list(&env, sub).await.expect("the plans");
+    assert_eq!(
+        offered(&response),
+        vec![("Pro".to_string(), vec![("Monthly".to_string(), true)])],
+        "Annual is hidden"
+    );
+    let refused = client(&env)
+        .preview_plan_change(request(
+            &env,
+            portal::PreviewPlanChangeRequest {
+                subscription_id: sub.to_string(),
+                new_plan_version_id: pro.to_string(),
+                option: Some("annual".to_string()),
+                levels: vec![],
+            },
+        ))
+        .await
+        .expect_err("a hidden option is no switch");
+    assert_eq!(refused.code(), Code::InvalidArgument, "{refused:?}");
 }

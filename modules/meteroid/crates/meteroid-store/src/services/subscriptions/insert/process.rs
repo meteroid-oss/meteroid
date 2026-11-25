@@ -5,17 +5,19 @@ use crate::domain::checkout_sessions::{CheckoutType, CreateCheckoutSession};
 use crate::domain::coupons::Coupon;
 use crate::domain::custom_property_definitions::CustomPropertyMode;
 use crate::domain::entity_activity::Actor;
+use crate::domain::enums::BillingPeriodEnum;
 use crate::domain::enums::{CustomPropertyEntityType, SubscriptionEventType};
-use crate::domain::slot_transactions::{SlotTransaction, SlotTransactionNewInternal};
+use crate::domain::slot_transactions::SlotTransactionNewInternal;
 use crate::domain::{
     CreateSubscription, CreateSubscriptionAddOns, CreateSubscriptionComponents,
     CreateSubscriptionFromQuote, CreatedSubscription, Customer, PaymentMethodsConfig,
-    SlotTransactionStatusEnum, SubscriptionActivationCondition, SubscriptionAddOnNew,
-    SubscriptionAddOnNewInternal, SubscriptionComponentNew, SubscriptionComponentNewInternal,
-    SubscriptionNew, SubscriptionNewEnriched, SubscriptionStatusEnum,
+    SubscriptionActivationCondition, SubscriptionAddOnNew, SubscriptionAddOnNewInternal,
+    SubscriptionComponentNew, SubscriptionComponentNewInternal, SubscriptionNew,
+    SubscriptionNewEnriched, SubscriptionStatusEnum,
 };
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::services::InvoiceBillingMode;
+use crate::services::subscriptions::currency::{SubscriptionCurrency, add_on_term};
 use crate::services::subscriptions::utils::{
     PendingMaterialization, apply_coupons, apply_coupons_at, apply_coupons_without_validation,
     creation_minimum_for_mrr, extract_billing_period, process_create_subscription_add_ons,
@@ -59,7 +61,7 @@ pub struct ProcessedSubscription {
     /// (a migrated, already-ended subscription) so the analytics running total decrements
     /// it at its end_date. The +1 at start comes from the DB activation trigger.
     ended_event: Option<SubscriptionEventRow>,
-    slot_transactions: Vec<SlotTransactionRow>,
+    slot_transactions: Vec<(SubscriptionId, SlotTransactionNewInternal)>,
     /// Products/prices that need to be created inside the persist transaction (components).
     pending_materializations: Vec<PendingMaterialization>,
     /// Products/prices that need to be created inside the persist transaction (add-ons).
@@ -70,6 +72,7 @@ pub struct ProcessedSubscription {
     /// When true, skip billing for this subscription (migration mode).
     skip_past_invoices: bool,
     entitlements: Vec<crate::domain::entitlements::EntitlementSpec>,
+    excluded_components: Vec<common_domain::ids::PriceComponentId>,
     /// Snapshot of the plan minimum at subscription creation time. None when the plan has no minimum.
     minimum: Option<crate::domain::plan_minimums::PlanMinimum>,
     /// Operator-set minimum override. When present it supersedes `minimum` and is written as
@@ -114,6 +117,8 @@ pub struct DetailedSubscription {
     coupons: Vec<Coupon>,
     pub customer: Customer,
     currency: Currency,
+    /// The plan option bought.
+    plan_option_id: Option<common_domain::ids::PlanOptionId>,
     pub slot_transactions: Vec<SlotTransactionNewInternal>,
     pub pending_materializations: Vec<PendingMaterialization>,
     pub pending_addon_materializations: Vec<PendingMaterialization>,
@@ -125,6 +130,20 @@ pub struct DetailedSubscription {
     /// The tax the quoted prices carry, resolved in the gather step. `None` for a
     /// tax-exclusive plan or an untaxed customer.
     tax_inclusive_rate: Option<rust_decimal::Decimal>,
+    /// Components including a product with no price the request removes.
+    excluded_components: Vec<common_domain::ids::PriceComponentId>,
+}
+
+impl DetailedSubscription {
+    /// Whether it bills anything: a fee of its own, an add-on or a minimum commitment.
+    pub(crate) fn charges(&self, plan_minimum: bool) -> bool {
+        self.components
+            .iter()
+            .any(|component| component.fee.charges())
+            || self.add_ons.iter().any(|add_on| add_on.fee.charges())
+            || self.minimum_override.is_some()
+            || (plan_minimum && !self.drop_minimum)
+    }
 }
 
 impl Services {
@@ -138,6 +157,7 @@ impl Services {
         for (idx, params) in batch.iter().enumerate() {
             let CreateSubscription {
                 subscription,
+                option: _,
                 price_components,
                 add_ons,
                 coupons,
@@ -161,9 +181,27 @@ impl Services {
                     "Plan id not found".to_string(),
                 )))?;
 
-            let subscription_currency = &plan.currency.clone();
+            let sold_in = context
+                .currencies
+                .get(idx)
+                .ok_or(Report::new(StoreError::InsertError))
+                .attach("Missing currency for batch index")?;
+            let subscription_currency = sold_in.currency.clone();
+            if !subscription_currency.eq_ignore_ascii_case(&plan.currency)
+                && context
+                    .minimums_by_plan_version
+                    .contains_key(&subscription.plan_version_id)
+                && minimum_override.is_none()
+                && !*drop_minimum
+            {
+                return Err(Report::new(StoreError::InvalidArgument(format!(
+                    "the plan's minimum commitment is in {}: a subscription in {} overrides or \
+                     drops it",
+                    plan.currency, subscription_currency
+                ))));
+            }
 
-            let currency = Currencies::resolve_currency(subscription_currency)
+            let currency = Currencies::resolve_currency(&subscription_currency)
                 .ok_or(StoreError::InsertError)
                 .attach("Failed to resolve currency")?
                 .clone();
@@ -174,10 +212,22 @@ impl Services {
                 .ok_or(Report::new(StoreError::InsertError))
                 .attach("Missing resolved custom components for batch index")?;
 
-            let (components, pending_materializations) =
-                self.process_components(price_components, subscription, context, resolved, plan)?;
-            let (subscription_add_ons, pending_addon_materializations) =
-                self.process_add_ons(add_ons, subscription, context, plan)?;
+            let (components, pending_materializations) = self.process_components(
+                price_components,
+                subscription,
+                context,
+                resolved,
+                plan,
+                sold_in,
+            )?;
+            let (subscription_add_ons, pending_addon_materializations) = self.process_add_ons(
+                add_ons,
+                subscription,
+                context,
+                plan,
+                sold_in,
+                add_on_term(None, &components),
+            )?;
 
             let slot_transactions = process_slot_transactions(
                 &components,
@@ -203,13 +253,29 @@ impl Services {
                 vec![]
             };
 
+            let excluded_components = price_components
+                .as_ref()
+                .zip(
+                    context
+                        .price_components_by_plan_version
+                        .get(&subscription.plan_version_id),
+                )
+                .map(|(asked, plan)| {
+                    plan.iter()
+                        .filter(|c| c.is_included_only() && asked.remove_components.contains(&c.id))
+                        .map(|c| c.id)
+                        .collect()
+                })
+                .unwrap_or_default();
             results.push(DetailedSubscription {
+                excluded_components,
                 subscription: subscription.clone(),
                 components,
                 add_ons: subscription_add_ons,
                 coupons: coupons_resolved,
                 customer: customer.clone(),
                 currency,
+                plan_option_id: sold_in.option.as_ref().map(|option| option.id),
                 slot_transactions,
                 pending_materializations,
                 pending_addon_materializations,
@@ -246,6 +312,11 @@ impl Services {
             )))?;
 
         let subscription_currency = &plan.currency.clone();
+        let plan_option_id = context
+            .currencies
+            .first()
+            .and_then(|sold_in| sold_in.option.as_ref())
+            .map(|option| option.id);
 
         let currency = Currencies::resolve_currency(subscription_currency)
             .ok_or(StoreError::InsertError)
@@ -265,12 +336,14 @@ impl Services {
             .collect();
 
         Ok(DetailedSubscription {
+            excluded_components: Vec::new(),
             subscription: subscription.clone(),
             components,
             add_ons,
             coupons,
             customer: customer.clone(),
             currency,
+            plan_option_id,
             slot_transactions,
             pending_materializations: vec![], // Quotes have pre-resolved products/prices
             pending_addon_materializations: vec![], // Quotes have pre-resolved add-on prices
@@ -563,11 +636,14 @@ impl Services {
             effective_trial_duration,
             imported_at,
             tax_inclusive_rate: sub.tax_inclusive_rate,
+            currency: sub.currency.code,
+            plan_option_id: sub.plan_option_id,
         };
 
         let subscription_row = enriched.map_to_row()?;
 
-        let subscription_coupons = self.process_coupons(&subscription_row, &sub.coupons)?;
+        let subscription_coupons =
+            self.process_coupons(&subscription_row, plan.trial_is_free, &sub.coupons)?;
 
         let minimum_for_mrr = creation_minimum_for_mrr(
             &sub.components,
@@ -630,18 +706,17 @@ impl Services {
             .slot_transactions
             .iter()
             .map(|tx| {
-                SlotTransaction {
-                    id: tx.id,
-                    subscription_id: subscription_row.id,
-                    unit: tx.unit.clone(),
-                    delta: tx.delta,
-                    prev_active_slots: tx.prev_active_slots,
-                    effective_at: tx.effective_at,
-                    transaction_at: tx.transaction_at,
-                    status: SlotTransactionStatusEnum::Active,
-                    invoice_id: None,
-                }
-                .into()
+                (
+                    subscription_row.id,
+                    SlotTransactionNewInternal {
+                        id: tx.id,
+                        unit: tx.unit.clone(),
+                        delta: tx.delta,
+                        prev_active_slots: tx.prev_active_slots,
+                        effective_at: tx.effective_at,
+                        transaction_at: tx.transaction_at,
+                    },
+                )
             })
             .collect::<Vec<_>>();
 
@@ -664,6 +739,7 @@ impl Services {
             skip_checkout_session: sub.subscription.skip_checkout_session,
             skip_past_invoices: sub.subscription.skip_past_invoices,
             entitlements: sub.entitlements.clone(),
+            excluded_components: sub.excluded_components.clone(),
             minimum,
             minimum_override: sub.minimum_override.clone(),
             drop_minimum: sub.drop_minimum,
@@ -678,6 +754,7 @@ impl Services {
         context: &SubscriptionCreationContext,
         resolved: &super::context::ResolvedCustomComponents,
         plan: &crate::domain::PlanForSubscription,
+        sold_in: &SubscriptionCurrency,
     ) -> Result<
         (
             Vec<SubscriptionComponentNewInternal>,
@@ -697,7 +774,7 @@ impl Services {
             &context.credit_units,
             resolved,
             plan.product_family_id,
-            &plan.currency,
+            sold_in,
             effective_from,
         )
     }
@@ -708,6 +785,8 @@ impl Services {
         subscription: &SubscriptionNew,
         context: &SubscriptionCreationContext,
         plan: &crate::domain::PlanForSubscription,
+        sold_in: &SubscriptionCurrency,
+        term: Option<BillingPeriodEnum>,
     ) -> Result<
         (
             Vec<SubscriptionAddOnNewInternal>,
@@ -726,7 +805,8 @@ impl Services {
             &context.addon_prices_by_id,
             &context.credit_units,
             plan.product_family_id,
-            &plan.currency,
+            sold_in,
+            term,
             effective_from,
         )
     }
@@ -734,9 +814,10 @@ impl Services {
     fn process_coupons(
         &self,
         subscription: &SubscriptionRowNew,
+        trial_is_free: bool,
         coupons: &[Coupon],
     ) -> Result<Vec<AppliedCouponRowNew>, StoreErrorReport> {
-        process_create_subscription_coupons(subscription, coupons)
+        process_create_subscription_coupons(subscription, trial_is_free, coupons)
     }
 
     fn build_subscription_event(
@@ -1139,10 +1220,12 @@ impl Services {
                         .iter()
                         .flat_map(|p| std::iter::once(&p.event).chain(p.ended_event.iter()))
                         .collect();
-                    let slot_transactions: Vec<_> = processed
-                        .iter()
-                        .flat_map(|p| &p.slot_transactions)
-                        .collect();
+                    let slot_transactions = crate::repositories::subscriptions::slots::ledger_rows(
+                        conn,
+                        tenant_id,
+                        processed.iter().flat_map(|p| &p.slot_transactions),
+                    )
+                    .await?;
 
                     // Perform batch insertions
                     let inserted: Vec<CreatedSubscription> =
@@ -1301,6 +1384,18 @@ impl Services {
                         .map_err(Into::<StoreErrorReport>::into)
                         .await?;
 
+                    let excluded: Vec<(uuid::Uuid, uuid::Uuid)> = processed
+                        .iter()
+                        .flat_map(|p| {
+                            p.excluded_components
+                                .iter()
+                                .map(|c| (p.subscription.id.as_uuid(), c.as_uuid()))
+                        })
+                        .collect();
+                    diesel_models::query::subscription_components::exclude_included(conn, &excluded)
+                        .await
+                        .map_err(Into::<StoreErrorReport>::into)?;
+
                     record_created_usage_filters(conn, tenant_id, &owned_subscriptions).await?;
 
                     if skip_coupon_validation {
@@ -1318,7 +1413,7 @@ impl Services {
                         .map_err(Into::<StoreErrorReport>::into)
                         .await?;
 
-                    SlotTransactionRow::insert_batch(conn, slot_transactions)
+                    SlotTransactionRow::insert_batch(conn, slot_transactions.iter().collect())
                         .map_err(Into::<StoreErrorReport>::into)
                         .await?;
 
@@ -1345,6 +1440,8 @@ impl Services {
                                 tenant_id,
                                 customer_id: sub.customer_id,
                                 plan_version_id: sub.plan_version_id,
+                                // The subscription it activates holds its option.
+                                option: None,
                                 billing_start_date: sub.billing_start_date,
                                 billing_day_anchor: Some(sub.billing_day_anchor),
                                 net_terms: Some(sub.net_terms),

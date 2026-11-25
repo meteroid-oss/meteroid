@@ -1,12 +1,13 @@
-use crate::add_ons::{AddOnRow, AddOnRowNew, AddOnRowPatch};
+use crate::add_ons::{AddOnPriceRow, AddOnRow, AddOnRowNew, AddOnRowPatch};
 use crate::errors::IntoDbResult;
 use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
-use common_domain::ids::{AddOnId, PlanVersionId, TenantId};
+use common_domain::ids::{AddOnId, PlanVersionId, PriceId, ProductId, TenantId};
 use diesel::{ExpressionMethods, PgTextExpressionMethods, QueryDsl, SelectableHelper};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
+use std::collections::HashMap;
 use tap::TapFallible;
 
 impl AddOnRowNew {
@@ -47,7 +48,7 @@ impl AddOnRow {
     }
 
     /// List add-ons for a tenant. If `plan_version_id` is provided, filters through the junction table.
-    /// If `currency` is provided, filters add-ons whose price matches that currency.
+    /// If `currency` is provided, filters add-ons priced in that currency.
     pub async fn list_by_tenant_id(
         conn: &mut PgConn,
         tenant_id: TenantId,
@@ -79,13 +80,15 @@ impl AddOnRow {
         }
 
         if let Some(currency) = currency {
+            use crate::schema::add_on_price::dsl as aop_dsl;
             use crate::schema::price::dsl as p_dsl;
 
-            let price_ids_subquery = p_dsl::price
+            let priced_subquery = aop_dsl::add_on_price
+                .inner_join(p_dsl::price)
                 .filter(p_dsl::currency.eq(currency))
-                .select(p_dsl::id);
+                .select(aop_dsl::add_on_id);
 
-            query = query.filter(ao_dsl::price_id.eq_any(price_ids_subquery));
+            query = query.filter(ao_dsl::id.eq_any(priced_subquery));
         }
 
         if let Some(search) = search {
@@ -186,6 +189,30 @@ impl AddOnRow {
             .attach("Error while fetching add-ons")
             .into_db_result()
     }
+
+    /// The live add-ons selling `product_id`, by name.
+    pub async fn list_live_by_product(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        product_id: ProductId,
+    ) -> DbResult<Vec<AddOnRow>> {
+        use crate::schema::add_on::dsl as ao_dsl;
+
+        let query = ao_dsl::add_on
+            .filter(ao_dsl::product_id.eq(product_id))
+            .filter(ao_dsl::tenant_id.eq(tenant_id))
+            .filter(ao_dsl::archived_at.is_null())
+            .order((ao_dsl::name.asc(), ao_dsl::id.asc()))
+            .select(AddOnRow::as_select());
+
+        crate::debug_sql(&query);
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while listing the add-ons of a product")
+            .into_db_result()
+    }
 }
 
 impl AddOnRowPatch {
@@ -203,6 +230,85 @@ impl AddOnRowPatch {
             .get_result(conn)
             .await
             .attach("Error while updating add-on")
+            .into_db_result()
+    }
+}
+
+impl AddOnPriceRow {
+    pub async fn insert_batch(conn: &mut PgConn, rows: &[AddOnPriceRow]) -> DbResult<usize> {
+        use crate::schema::add_on_price::dsl as aop_dsl;
+
+        if rows.is_empty() {
+            return Ok(0);
+        }
+
+        let query = diesel::insert_into(aop_dsl::add_on_price)
+            .values(rows)
+            .on_conflict_do_nothing();
+
+        crate::debug_sql(&query);
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while inserting add-on prices")
+            .into_db_result()
+    }
+
+    /// The price ids of each add-on of `add_on_ids`.
+    pub async fn list_by_add_on_ids(
+        conn: &mut PgConn,
+        add_on_ids: &[AddOnId],
+    ) -> DbResult<HashMap<AddOnId, Vec<PriceId>>> {
+        use crate::schema::add_on_price::dsl as aop_dsl;
+
+        if add_on_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let query = aop_dsl::add_on_price
+            .filter(aop_dsl::add_on_id.eq_any(add_on_ids))
+            .select(AddOnPriceRow::as_select());
+
+        crate::debug_sql(&query);
+
+        let rows: Vec<AddOnPriceRow> = query
+            .load(conn)
+            .await
+            .attach("Error while listing add-on prices")
+            .into_db_result()?;
+
+        let mut by_add_on: HashMap<AddOnId, Vec<PriceId>> = HashMap::new();
+        for row in rows {
+            by_add_on
+                .entry(row.add_on_id)
+                .or_default()
+                .push(row.price_id);
+        }
+        Ok(by_add_on)
+    }
+
+    /// Unlinks the prices of `add_on_id` not in `kept`; the price rows stay, as subscriptions
+    /// bought at them still read them.
+    pub async fn delete_except(
+        conn: &mut PgConn,
+        add_on_id: AddOnId,
+        kept: &[PriceId],
+    ) -> DbResult<usize> {
+        use crate::schema::add_on_price::dsl as aop_dsl;
+
+        let query = diesel::delete(
+            aop_dsl::add_on_price
+                .filter(aop_dsl::add_on_id.eq(add_on_id))
+                .filter(diesel::dsl::not(aop_dsl::price_id.eq_any(kept))),
+        );
+
+        crate::debug_sql(&query);
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while unlinking add-on prices")
             .into_db_result()
     }
 }

@@ -5,6 +5,8 @@ package meteroid.api.products.v1;
 import "common/v1/pagination.proto";
 import "api/products/v1/models.proto";
 import "api/prices/v1/models.proto";
+import "api/plans/v1/models.proto";
+import "api/pricecomponents/v1/models.proto";
 
 message CreateProductRequest {
   string name = 1;
@@ -14,6 +16,8 @@ message CreateProductRequest {
   meteroid.api.prices.v1.FeeStructure fee_structure = 5;
   optional bool catalog = 6;
   optional string tax_category_id = 7;
+  optional string icon = 8;
+  optional string color = 9;
 }
 
 message CreateProductResponse {
@@ -27,6 +31,9 @@ message UpdateProductRequest {
   optional meteroid.api.prices.v1.FeeType fee_type = 4;
   optional meteroid.api.prices.v1.FeeStructure fee_structure = 5;
   optional string tax_category_id = 6;
+  // Unset leaves them, empty clears them.
+  optional string icon = 7;
+  optional string color = 8;
 }
 
 message UpdateProductResponse {
@@ -101,6 +108,37 @@ message UnarchiveProductResponse {
   Product product = 1;
 }
 
+message ListProductUsageRequest {
+  string product_id = 1;
+}
+
+message ListProductUsageResponse {
+  repeated ProductPlanUsage plans = 1;
+  repeated ProductAddOnUsage add_ons = 2;
+}
+
+// A live plan's active or draft version with a charge of the product.
+message ProductPlanUsage {
+  string plan_id = 1;
+  string plan_name = 2;
+  string plan_version_id = 3;
+  uint32 version = 4;
+  bool is_draft = 5;
+  // The version's options, by position.
+  repeated meteroid.api.plans.v1.PlanOption options = 6;
+  // Every currency the version is priced in: one the product's charge has no price in is a gap.
+  repeated string currencies = 7;
+  // The version's charges of the product, with their prices and the options each is in.
+  repeated meteroid.api.components.v1.PriceComponent components = 8;
+}
+
+// A live add-on selling the product.
+message ProductAddOnUsage {
+  string add_on_id = 1;
+  string name = 2;
+  repeated meteroid.api.prices.v1.Price prices = 3;
+}
+
 service ProductsService {
   rpc CreateProduct(CreateProductRequest) returns (CreateProductResponse) {}
   rpc UpdateProduct(UpdateProductRequest) returns (UpdateProductResponse) {}
@@ -110,4 +148,6 @@ service ProductsService {
   rpc ListProductsWithPrices(ListProductsWithPricesRequest) returns (ListProductsWithPricesResponse) {}
   rpc ArchiveProduct(ArchiveProductRequest) returns (ArchiveProductResponse) {}
   rpc UnarchiveProduct(UnarchiveProductRequest) returns (UnarchiveProductResponse) {}
+  // Where the product is sold: live plan versions and add-ons, with their prices.
+  rpc ListProductUsage(ListProductUsageRequest) returns (ListProductUsageResponse) {}
 }

@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package meteroid.api.quantities.v1;
+
+import "api/quantities/v1/models.proto";
+
+// The tenant's managed quantities. They are created with the seat products that use them.
+service ManagedQuantitiesService {
+  rpc ListManagedQuantities(ListManagedQuantitiesRequest) returns (ListManagedQuantitiesResponse) {}
+  rpc UpdateManagedQuantity(UpdateManagedQuantityRequest) returns (UpdateManagedQuantityResponse) {}
+  rpc SetFeatureLimitQuantity(SetFeatureLimitQuantityRequest) returns (SetFeatureLimitQuantityResponse) {}
+}
+
+message ListManagedQuantitiesRequest {}
+message ListManagedQuantitiesResponse {
+  repeated ManagedQuantity quantities = 1;
+}
+
+// Each optional field left unset leaves that property unchanged.
+message UpdateManagedQuantityRequest {
+  string id = 1;
+  optional string name = 2;
+  optional QuantityIncrease on_increase = 3;
+  optional QuantityDecrease on_decrease = 4;
+}
+message UpdateManagedQuantityResponse {
+  ManagedQuantity quantity = 1;
+}
+
+// A metered feature's limit, counted per unit of the quantity a subscription holds
+// (10k API calls per seat); unset counts it per subscription again.
+message SetFeatureLimitQuantityRequest {
+  string feature_id = 1;
+  optional string managed_quantity_id = 2;
+}
+message SetFeatureLimitQuantityResponse {}

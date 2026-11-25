@@ -1,7 +1,9 @@
 //! Coupon test helpers.
 
 use common_domain::ids::{CouponId, PlanId};
-use meteroid_store::domain::coupons::{CouponDiscount, CouponNew, CouponStatusPatch};
+use meteroid_store::domain::coupons::{
+    CouponDiscount, CouponNew, CouponPatch, CouponStatusPatch, CouponTerms,
+};
 use meteroid_store::repositories::coupons::CouponInterface;
 use rust_decimal::Decimal;
 
@@ -82,6 +84,56 @@ impl TestEnv {
             plan_ids: vec![],
         })
         .await
+    }
+
+    /// A percentage coupon for the billing periods starting within `months` of the first paid
+    /// period.
+    pub async fn create_months_coupon(&self, code: &str, percentage: u32, months: i32) -> CouponId {
+        self.store()
+            .create_coupon_with_terms(
+                common_domain::actor::Actor::System,
+                CouponNew {
+                    code: code.to_string(),
+                    description: format!("{percentage}% off for {months} months"),
+                    tenant_id: TENANT_ID,
+                    discount: CouponDiscount::Percentage(Decimal::from(percentage)),
+                    expires_at: None,
+                    redemption_limit: None,
+                    recurring_value: None,
+                    reusable: false,
+                    plan_ids: vec![],
+                },
+                CouponTerms {
+                    duration_months: Some(months),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("Failed to create coupon")
+            .id
+    }
+
+    /// Changes the months of `coupon_id`: `None` makes it last forever.
+    pub async fn set_coupon_months(&self, coupon_id: CouponId, months: Option<i32>) {
+        self.store()
+            .update_coupon(
+                common_domain::actor::Actor::System,
+                CouponPatch {
+                    id: coupon_id,
+                    tenant_id: TENANT_ID,
+                    description: None,
+                    discount: None,
+                    plan_ids: None,
+                    add_on_ids: None,
+                    eligibility: None,
+                    valid_from: None,
+                    expires_at: None,
+                    fixed_amounts: None,
+                    duration_months: Some(months),
+                },
+            )
+            .await
+            .expect("Failed to change the coupon's months");
     }
 
     /// Create a coupon restricted to specific plans.

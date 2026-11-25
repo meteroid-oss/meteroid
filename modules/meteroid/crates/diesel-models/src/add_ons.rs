@@ -47,3 +47,12 @@ pub struct AddOnRowPatch {
     pub max_instances_per_subscription: Option<Option<i32>>,
     pub updated_at: NaiveDateTime,
 }
+
+/// One price of an add-on: a currency on a billing period.
+#[derive(Queryable, Debug, Selectable, Insertable, Clone)]
+#[diesel(table_name = crate::schema::add_on_price)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct AddOnPriceRow {
+    pub add_on_id: AddOnId,
+    pub price_id: PriceId,
+}

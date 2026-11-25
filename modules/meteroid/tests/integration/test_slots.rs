@@ -10,8 +10,9 @@ use crate::meteroid_it::container::SeedLevel;
 use common_domain::ids::{PriceComponentId, SubscriptionId};
 use meteroid_store::clients::usage::MockUsageClient;
 use meteroid_store::domain::enums::BillingPeriodEnum;
-use meteroid_store::domain::price_components::{PriceEntry, PriceInput};
+use meteroid_store::domain::price_components::{PriceEntry, PriceInput, RatingModel, TierRow};
 use meteroid_store::domain::prices::Pricing;
+use meteroid_store::domain::slot_transactions::UpdateSlotsResult;
 use meteroid_store::domain::{
     ComponentOverride, ComponentParameterization, ComponentParameters, CreateSubscription,
     CreateSubscriptionComponents, SlotUpgradeBillingMode, SubscriptionNew,
@@ -98,6 +99,453 @@ async fn test_slot_transactions_comprehensive_next() {
 
     // Test 10: Mixed pending and active transactions
     test_mixed_pending_and_active(&services, &store).await;
+}
+
+/// A metered feature's limit counted per seat is the entitlement's times the seats held.
+/// Rules: R-133
+#[tokio::test]
+async fn a_feature_limit_counts_per_seat_held() {
+    use meteroid_store::domain::entitlements::{
+        EntitlementValue, FeatureNew, FeatureType, OverageBehavior, ResetPeriod,
+        ResolvedEntitlementValue,
+    };
+    use meteroid_store::repositories::ManagedQuantitiesInterface;
+    use meteroid_store::repositories::entitlements::{EntitlementsInterface, ResolveTarget};
+
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
+    let setup = meteroid_it::container::start_meteroid_with_clients(
+        postgres_connection_string,
+        SeedLevel::PLANS,
+        Arc::new(MockUsageClient::noop()),
+        Arc::new(MockMailerService::new()),
+    )
+    .await;
+    let (services, store) = (setup.services.clone(), setup.store.clone());
+    let (subscription_id, _) = create_subscription_with_slots(
+        &services,
+        Decimal::from_str("12.00").unwrap(),
+        Some(1),
+        Some(100),
+        20,
+    )
+    .await;
+    let feature = store
+        .create_feature(
+            common_domain::actor::Actor::System,
+            FeatureNew {
+                tenant_id: TENANT_ID,
+                product_id: Some(PRODUCT_SEATS_ID),
+                name: "API calls".to_string(),
+                code: "api_calls".to_string(),
+                description: None,
+                feature_type: FeatureType::metered(METRIC_BANDWIDTH),
+                entitlement: Some(EntitlementValue::Metered {
+                    limit: Some(Decimal::from(1000)),
+                    reset_period: ResetPeriod::BillingCycle,
+                    overage_behavior: OverageBehavior::Allow,
+                    thresholds: vec![],
+                    enabled: true,
+                    group_by: None,
+                }),
+            },
+        )
+        .await
+        .expect("a metered feature of the seat product")
+        .id;
+    let seats = store
+        .list_managed_quantities(TENANT_ID)
+        .await
+        .expect("quantities")
+        .into_iter()
+        .find(|quantity| quantity.code == SLOT_UNIT)
+        .expect("the seats' quantity");
+
+    let limit = || async {
+        let mut conn = store.get_conn().await.expect("conn");
+        store
+            .resolve_entitlements_for_entity(
+                &mut conn,
+                TENANT_ID,
+                ResolveTarget::Subscription(subscription_id),
+            )
+            .await
+            .expect("entitlements")
+            .into_iter()
+            .find(|entitlement| entitlement.feature.id == feature)
+            .and_then(|entitlement| match entitlement.value {
+                ResolvedEntitlementValue::Metered { limit, .. } => limit,
+                _ => None,
+            })
+    };
+    assert_eq!(limit().await, Some(Decimal::from(1000)));
+
+    store
+        .set_feature_limit_quantity(TENANT_ID, feature, Some(seats.id))
+        .await
+        .expect("counted per seat");
+    assert_eq!(
+        limit().await,
+        Some(Decimal::from(20_000)),
+        "1000 for each of 20 seats"
+    );
+    let listed = store
+        .list_managed_quantities(TENANT_ID)
+        .await
+        .expect("quantities")
+        .into_iter()
+        .find(|quantity| quantity.id == seats.id)
+        .expect("the seats' quantity");
+    assert_eq!(listed.per_unit_features, vec![feature]);
+
+    store
+        .set_feature_limit_quantity(TENANT_ID, feature, None)
+        .await
+        .expect("counted per subscription again");
+    assert_eq!(limit().await, Some(Decimal::from(1000)));
+}
+
+/// A seat quantity's policies decide when a change takes effect: a decrease at once is out of
+/// force from its day, an increase for the next period from the renewal; a change to a count
+/// is its difference with the seats held.
+/// Rules: R-108
+#[tokio::test]
+async fn seat_policies_date_a_change_and_a_target_count_is_reached() {
+    use meteroid_store::domain::managed_quantities::{
+        ManagedQuantityPatch, QuantityDecrease, QuantityIncrease, SeatChange,
+    };
+    use meteroid_store::repositories::ManagedQuantitiesInterface;
+
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
+    let setup = meteroid_it::container::start_meteroid_with_clients(
+        postgres_connection_string,
+        SeedLevel::PLANS,
+        Arc::new(MockUsageClient::noop()),
+        Arc::new(MockMailerService::new()),
+    )
+    .await;
+    let (services, store) = (setup.services.clone(), setup.store.clone());
+
+    let (subscription_id, slot_component_id) = create_subscription_with_slots(
+        &services,
+        Decimal::from_str("12.00").unwrap(),
+        Some(1),
+        Some(100),
+        20,
+    )
+    .await;
+    let seats = store
+        .list_managed_quantities(TENANT_ID)
+        .await
+        .expect("quantities")
+        .into_iter()
+        .find(|quantity| quantity.code == SLOT_UNIT)
+        .expect("the seats' quantity, registered with their ledger");
+    store
+        .update_managed_quantity(ManagedQuantityPatch {
+            tenant_id: TENANT_ID,
+            id: seats.id,
+            name: None,
+            on_increase: Some(QuantityIncrease::NextPeriod),
+            on_decrease: Some(QuantityDecrease::Immediately),
+        })
+        .await
+        .expect("policies");
+
+    let day = |day: u32, month: u32| {
+        NaiveDate::from_ymd_opt(2024, month, day)
+            .unwrap()
+            .and_time(NaiveTime::MIN)
+    };
+    let count_on = |at| {
+        store.get_active_slots_value(TENANT_ID, subscription_id, SLOT_UNIT.to_string(), Some(at))
+    };
+
+    let removed = services
+        .update_subscription_slots_for_test(
+            TENANT_ID,
+            subscription_id,
+            slot_component_id,
+            -5,
+            SlotUpgradeBillingMode::Optimistic,
+            Some(day(16, 1)),
+        )
+        .await
+        .expect("an immediate decrease");
+    assert_eq!(removed.new_slot_count, 15);
+    assert_eq!(count_on(day(15, 1)).await.unwrap(), 20);
+    assert_eq!(
+        count_on(day(16, 1)).await.unwrap(),
+        15,
+        "out of force from its day"
+    );
+    assert_eq!(
+        january_seats_net(&store, subscription_id).await,
+        24_000 - 3_097,
+        "5 × 12.00 × 16/31 given back"
+    );
+
+    let added = services
+        .update_subscription_slots_for_test(
+            TENANT_ID,
+            subscription_id,
+            slot_component_id,
+            SeatChange::To(18),
+            SlotUpgradeBillingMode::Optimistic,
+            Some(day(16, 1)),
+        )
+        .await
+        .expect("an increase to a count, for the next period");
+    assert_eq!(added.delta_applied, 3);
+    assert!(
+        added.invoice_id.is_none(),
+        "nothing billed before the renewal"
+    );
+    assert_eq!(count_on(day(31, 1)).await.unwrap(), 15);
+    assert_eq!(count_on(day(1, 2)).await.unwrap(), 18);
+
+    let back = services
+        .update_subscription_slots_for_test(
+            TENANT_ID,
+            subscription_id,
+            slot_component_id,
+            SeatChange::To(15),
+            SlotUpgradeBillingMode::Optimistic,
+            Some(day(16, 1)),
+        )
+        .await
+        .expect("a count replaces the change waiting for the renewal");
+    assert_eq!(back.delta_applied, 0);
+    assert_eq!(count_on(day(1, 2)).await.unwrap(), 15);
+
+    let unchanged = services
+        .update_subscription_slots_for_test(
+            TENANT_ID,
+            subscription_id,
+            slot_component_id,
+            SeatChange::To(15),
+            SlotUpgradeBillingMode::Optimistic,
+            Some(day(16, 1)),
+        )
+        .await;
+    assert!(unchanged.is_err(), "a count already held changes nothing");
+}
+
+/// What the seat lines of January bill, net of the notes crediting them, in cents.
+async fn january_seats_net(store: &Store, subscription_id: SubscriptionId) -> i64 {
+    use meteroid_store::repositories::CreditNoteInterface;
+    let january = |start: NaiveDate| start < NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
+    let mut net = 0;
+    for invoice in get_invoices_for_subscription(store, subscription_id, SLOT_UNIT).await {
+        net += invoice
+            .line_items
+            .iter()
+            .filter(|line| line.name.contains(SLOT_UNIT) && january(line.start_date))
+            .map(|line| line.amount_subtotal)
+            .sum::<i64>();
+        for note in store
+            .list_credit_notes_by_invoice_id(TENANT_ID, invoice.id)
+            .await
+            .expect("credit notes")
+        {
+            net -= note
+                .line_items
+                .iter()
+                .filter(|line| january(line.start_date))
+                .map(|line| line.amount_subtotal.abs())
+                .sum::<i64>();
+        }
+    }
+    net
+}
+
+/// Seats priced by graduated tiers, 10.00 for the first ten and 8.00 after: five more on
+/// Jan 15 cost what the five next seats cost, 5 × 8.00 × 17/31, not five at the first tier.
+#[tokio::test]
+async fn tiered_seats_bought_mid_period_cost_their_tier() {
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
+    let setup = meteroid_it::container::start_meteroid_with_clients(
+        postgres_connection_string,
+        SeedLevel::PLANS,
+        Arc::new(MockUsageClient::noop()),
+        Arc::new(MockMailerService::new()),
+    )
+    .await;
+    let (services, store) = (setup.services.clone(), setup.store.clone());
+    let tier = |first_unit, rate: &str| TierRow {
+        first_unit,
+        rate: Decimal::from_str(rate).unwrap(),
+        flat_fee: None,
+        flat_cap: None,
+    };
+    let (subscription_id, slot_component_id) = create_subscription_with_seat_model(
+        &services,
+        RatingModel::Tiered {
+            tiers: vec![tier(0, "10.00"), tier(10, "8.00")],
+        },
+        Some(1),
+        Some(100),
+        10,
+    )
+    .await;
+
+    let result = services
+        .update_subscription_slots_for_test(
+            TENANT_ID,
+            subscription_id,
+            slot_component_id,
+            5,
+            SlotUpgradeBillingMode::Optimistic,
+            NaiveDate::from_ymd_opt(2024, 1, 15).map(|t| t.and_time(NaiveTime::MIN)),
+        )
+        .await
+        .expect("five more seats");
+    let invoice = store
+        .get_invoice_by_id(
+            TENANT_ID,
+            result.invoice_id.expect("the purchase's invoice"),
+        )
+        .await
+        .expect("invoice");
+    let charged: i64 = invoice.line_items.iter().map(|l| l.amount_subtotal).sum();
+    assert!(
+        (2193..=2194).contains(&charged),
+        "5 seats at the second tier for 17 of 31 days, got {charged}"
+    );
+}
+
+/// Three seats free, then 39.00 each: going from 2 to 3 seats costs nothing, and a fourth bought
+/// after costs one seat at 39.00 for the days left, as a fifth with it costs two.
+#[tokio::test]
+async fn seats_bought_past_free_ones_cost_their_tier_after_a_free_purchase() {
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
+    let setup = meteroid_it::container::start_meteroid_with_clients(
+        postgres_connection_string,
+        SeedLevel::PLANS,
+        Arc::new(MockUsageClient::noop()),
+        Arc::new(MockMailerService::new()),
+    )
+    .await;
+    let (services, store) = (setup.services.clone(), setup.store.clone());
+    let tier = |first_unit, rate: &str| TierRow {
+        first_unit,
+        rate: Decimal::from_str(rate).unwrap(),
+        flat_fee: None,
+        flat_cap: None,
+    };
+    let (subscription_id, slot_component_id) = create_subscription_with_seat_model(
+        &services,
+        RatingModel::Tiered {
+            tiers: vec![tier(0, "0"), tier(3, "39.00")],
+        },
+        Some(1),
+        Some(100),
+        2,
+    )
+    .await;
+    let charged = |result: &UpdateSlotsResult| {
+        let store = store.clone();
+        let invoice_id = result.invoice_id;
+        async move {
+            match invoice_id {
+                None => 0,
+                Some(id) => store
+                    .get_invoice_by_id(TENANT_ID, id)
+                    .await
+                    .expect("invoice")
+                    .line_items
+                    .iter()
+                    .map(|l| l.amount_subtotal)
+                    .sum::<i64>(),
+            }
+        }
+    };
+    let buy = |delta: i32, day: u32| {
+        services.update_subscription_slots_for_test(
+            TENANT_ID,
+            subscription_id,
+            slot_component_id,
+            delta,
+            SlotUpgradeBillingMode::Optimistic,
+            NaiveDate::from_ymd_opt(2024, 1, day).map(|t| t.and_time(NaiveTime::MIN)),
+        )
+    };
+
+    let third = buy(1, 10).await.expect("a third seat");
+    assert_eq!(charged(&third).await, 0, "the third seat is free");
+    let fourth = buy(1, 12).await.expect("a fourth seat");
+    assert_eq!(
+        charged(&fourth).await,
+        2516,
+        "one seat at 39.00 for 20 of 31 days"
+    );
+}
+
+/// The creation preview prices seats at a custom price with the count sent: 4 × 7.00, not the
+/// plan's 10.00 a seat.
+#[tokio::test]
+async fn the_creation_preview_bills_custom_priced_seats_for_their_count() {
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
+    let setup = meteroid_it::container::start_meteroid_with_clients(
+        postgres_connection_string,
+        SeedLevel::PLANS,
+        Arc::new(MockUsageClient::noop()),
+        Arc::new(MockMailerService::new()),
+    )
+    .await;
+    let rate = Decimal::from_str("7.00").unwrap();
+    let request = seats_at_custom_price(
+        chrono::Utc::now().date_naive(),
+        RatingModel::PerUnit { rate },
+        None,
+        None,
+        4,
+    );
+
+    let (content, details) = setup
+        .services
+        .preview_create_subscription(&request, TENANT_ID)
+        .await
+        .expect("preview");
+
+    let seats: Vec<_> = details
+        .price_components
+        .iter()
+        .filter(|c| c.price_component_id == Some(COMP_NOTION_SEATS_ID))
+        .collect();
+    assert_eq!(seats.len(), 1, "{seats:?}");
+    assert!(
+        matches!(
+            &seats[0].fee,
+            meteroid_store::domain::SubscriptionFee::Slot {
+                model: RatingModel::PerUnit { rate: r },
+                initial_slots: 4,
+                ..
+            } if *r == rate
+        ),
+        "{:?}",
+        seats[0].fee
+    );
+
+    assert_eq!(
+        content
+            .invoice_lines
+            .iter()
+            .map(|l| (l.quantity, l.amount_subtotal))
+            .collect::<Vec<_>>(),
+        vec![(Some(Decimal::from(4)), 2800)],
+        "{:?}",
+        content.invoice_lines
+    );
 }
 
 async fn test_optimistic_upgrade(services: &Services, store: &Store) {
@@ -982,65 +1430,33 @@ async fn create_subscription_with_slots(
     max_slots: Option<u32>,
     initial_slots: u32,
 ) -> (SubscriptionId, PriceComponentId) {
+    create_subscription_with_seat_model(
+        services,
+        RatingModel::PerUnit { rate: unit_rate },
+        min_slots,
+        max_slots,
+        initial_slots,
+    )
+    .await
+}
+
+async fn create_subscription_with_seat_model(
+    services: &Services,
+    model: RatingModel,
+    min_slots: Option<u32>,
+    max_slots: Option<u32>,
+    initial_slots: u32,
+) -> (SubscriptionId, PriceComponentId) {
     let subscription_id = services
         .insert_subscription(
             common_domain::actor::Actor::System,
-            CreateSubscription {
-                subscription: SubscriptionNew {
-                    customer_id: CUST_UBER_ID,
-                    plan_version_id: PLAN_VERSION_NOTION_ID,
-                    net_terms: None,
-                    invoice_memo: None,
-                    invoice_threshold: None,
-                    start_date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
-                    end_date: None,
-                    billing_start_date: None,
-                    activation_condition:
-                        meteroid_store::domain::SubscriptionActivationCondition::OnStart,
-                    trial_duration: None,
-                    billing_day_anchor: None,
-                    payment_methods_config: None,
-                    auto_advance_invoices: true,
-                    charge_automatically: false,
-                    purchase_order: None,
-                    backdate_invoices: false,
-                    skip_checkout_session: false,
-                    skip_past_invoices: false,
-                    usage_filter: None,
-                    custom_properties: serde_json::Value::Null,
-                },
-                price_components: Some(CreateSubscriptionComponents {
-                    parameterized_components: vec![ComponentParameterization {
-                        component_id: COMP_NOTION_SEATS_ID,
-                        parameters: ComponentParameters {
-                            initial_slot_count: Some(initial_slots),
-                            billing_period: None,
-                            committed_capacity: None,
-                        },
-                    }],
-                    overridden_components: vec![ComponentOverride {
-                        component_id: COMP_NOTION_SEATS_ID,
-                        name: "Seats".to_string(),
-                        price_entry: PriceEntry::New(PriceInput {
-                            cadence: BillingPeriodEnum::Monthly,
-                            currency: "EUR".to_string(),
-                            pricing: Pricing::Slot {
-                                unit_rate,
-                                min_slots,
-                                max_slots,
-                            },
-                            credit_unit: None,
-                        }),
-                    }],
-                    extra_components: vec![],
-                    remove_components: vec![],
-                }),
-                add_ons: None,
-                coupons: None,
-                entitlements: vec![],
-                minimum_override: None,
-                drop_minimum: false,
-            },
+            seats_at_custom_price(
+                NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                model,
+                min_slots,
+                max_slots,
+                initial_slots,
+            ),
             TENANT_ID,
         )
         .await
@@ -1048,4 +1464,70 @@ async fn create_subscription_with_slots(
         .id;
 
     (subscription_id, COMP_NOTION_SEATS_ID)
+}
+
+/// Notion's seats at a custom price, with a seat count.
+fn seats_at_custom_price(
+    start_date: NaiveDate,
+    model: RatingModel,
+    min_slots: Option<u32>,
+    max_slots: Option<u32>,
+    initial_slots: u32,
+) -> CreateSubscription {
+    CreateSubscription {
+        option: None,
+        subscription: SubscriptionNew {
+            customer_id: CUST_UBER_ID,
+            plan_version_id: PLAN_VERSION_NOTION_ID,
+            net_terms: None,
+            invoice_memo: None,
+            invoice_threshold: None,
+            start_date,
+            end_date: None,
+            billing_start_date: None,
+            activation_condition: meteroid_store::domain::SubscriptionActivationCondition::OnStart,
+            trial_duration: None,
+            billing_day_anchor: None,
+            payment_methods_config: None,
+            auto_advance_invoices: true,
+            charge_automatically: false,
+            purchase_order: None,
+            backdate_invoices: false,
+            skip_checkout_session: false,
+            skip_past_invoices: false,
+            usage_filter: None,
+            custom_properties: serde_json::Value::Null,
+        },
+        price_components: Some(CreateSubscriptionComponents {
+            parameterized_components: vec![ComponentParameterization {
+                component_id: COMP_NOTION_SEATS_ID,
+                parameters: ComponentParameters {
+                    initial_slot_count: Some(initial_slots),
+                    billing_period: None,
+                    committed_capacity: None,
+                },
+            }],
+            overridden_components: vec![ComponentOverride {
+                component_id: COMP_NOTION_SEATS_ID,
+                name: "Seats".to_string(),
+                price_entry: PriceEntry::New(PriceInput {
+                    cadence: BillingPeriodEnum::Monthly,
+                    currency: "EUR".to_string(),
+                    pricing: Pricing::Slot {
+                        model,
+                        min_slots,
+                        max_slots,
+                    },
+                    credit_unit: None,
+                }),
+            }],
+            extra_components: vec![],
+            remove_components: vec![],
+        }),
+        add_ons: None,
+        coupons: None,
+        entitlements: vec![],
+        minimum_override: None,
+        drop_minimum: false,
+    }
 }

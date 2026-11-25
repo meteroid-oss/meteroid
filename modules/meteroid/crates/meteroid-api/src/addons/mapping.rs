@@ -8,6 +8,12 @@ pub mod addons {
     pub struct AddOnWrapper(pub server::AddOn);
     impl From<domain::add_ons::AddOn> for AddOnWrapper {
         fn from(value: domain::add_ons::AddOn) -> Self {
+            let prices = value
+                .prices
+                .into_iter()
+                .map(|p| PriceWrapper::from(p).0)
+                .collect();
+            let price = value.price.map(|p| PriceWrapper::from(p).0);
             Self(server::AddOn {
                 id: value.id.to_string(),
                 name: value.name,
@@ -15,12 +21,15 @@ pub mod addons {
                 price_id: value.price_id.to_string(),
                 product_id: value.product_id.to_string(),
                 fee_type: value.fee_type.map(fee_type_to_proto).unwrap_or(0),
-                price: value.price.map(|p| PriceWrapper::from(p).0),
+                prices,
+                price,
                 self_serviceable: value.self_serviceable,
                 max_instances_per_subscription: value.max_instances_per_subscription,
                 archived_at: value.archived_at.as_proto(),
                 fee_structure: value.fee_structure.map(fee_structure_to_proto),
                 created_at: value.created_at.as_proto(),
+                product_icon: value.product_icon,
+                product_color: value.product_color,
             })
         }
     }

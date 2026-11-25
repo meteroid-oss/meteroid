@@ -1,14 +1,15 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { InputFormField, SelectFormField, SelectItem, TextareaFormField } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
-import { EditableStructuralFields } from '@/features/plans/pricecomponents/ProductPricingForm'
+import { EditableStructuralFields } from '@/features/plans/pricecomponents/StructuralFields'
 import { feeTypeToHuman } from '@/features/plans/pricecomponents/utils'
 import { buildFeeStructure, feeTypeToProto } from '@/features/pricing/conversions'
 import { CatalogEditPanel } from '@/features/productCatalog/generic/CatalogEditPanel'
+import { ProductAppearancePicker } from '@/features/productCatalog/items/ProductAppearancePicker'
 import { useZodForm, type Methods } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { listProductFamilies } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
@@ -16,6 +17,7 @@ import { createProduct } from '@/rpc/api/products/v1/products-ProductsService_co
 import { listTaxCategories } from '@/rpc/api/taxes/v1/taxes-TaxesService_connectquery'
 
 import type { ComponentFeeType } from '@/features/pricing/conversions'
+import type { ProductAppearance } from '@/features/productCatalog/items/ProductIcon'
 
 const FEE_TYPES = [
   'rate',
@@ -62,6 +64,10 @@ export const ProductCreatePanel = ({ visible, onClose, onCreated }: ProductCreat
   const familiesQuery = useQuery(listProductFamilies)
   const families = familiesQuery.data?.productFamilies ?? []
   const taxCategoriesQuery = useQuery(listTaxCategories, {})
+  const [appearance, setAppearance] = useState<ProductAppearance>({})
+  useEffect(() => {
+    if (!visible) setAppearance({})
+  }, [visible])
 
   const methods = useZodForm({
     schema: ProductCreateSchema,
@@ -108,6 +114,8 @@ export const ProductCreatePanel = ({ visible, onClose, onCreated }: ProductCreat
         catalog: true,
         taxCategoryId:
           values.taxCategoryId === ENTITY_DEFAULT_CATEGORY ? undefined : values.taxCategoryId,
+        icon: appearance.icon,
+        color: appearance.color,
       })
       toast.success('Product created')
       if (res.product) onCreated?.(res.product.id)
@@ -126,7 +134,17 @@ export const ProductCreatePanel = ({ visible, onClose, onCreated }: ProductCreat
       onSubmit={onSubmit}
     >
       <div className="flex flex-col gap-4 mt-4">
-        <InputFormField name="name" label="Name" control={methods.control} />
+        <div className="flex items-end gap-2">
+          <div className="pb-1">
+            <ProductAppearancePicker {...appearance} onChange={setAppearance} />
+          </div>
+          <InputFormField
+            name="name"
+            label="Name"
+            control={methods.control}
+            containerClassName="flex-1"
+          />
+        </div>
         <TextareaFormField
           name="description"
           label="Description (optional)"

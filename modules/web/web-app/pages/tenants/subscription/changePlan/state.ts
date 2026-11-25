@@ -11,8 +11,12 @@ export interface ChangePlanState {
   currentPlanVersionId: string
   currentPlanName: string
   currency: string
+  /** The alias of the plan option the subscription bought, when it still exists. */
+  currentOption?: string
   targetPlanVersionId?: string
   targetPlanName?: string
+  /** The alias of the target version's option bought; unset when it has none. */
+  option?: string
   preview?: PreviewPlanChangeResponse
   applyMode: PlanChangeApplyMode
   componentChoices: Record<string, ComponentChoice>
@@ -23,8 +27,10 @@ export const changePlanAtom = atomWithReset<ChangePlanState>({
   currentPlanVersionId: '',
   currentPlanName: '',
   currency: '',
+  currentOption: undefined,
   targetPlanVersionId: undefined,
   targetPlanName: undefined,
+  option: undefined,
   preview: undefined,
   applyMode: PlanChangeApplyMode.END_OF_PERIOD,
   componentChoices: {},

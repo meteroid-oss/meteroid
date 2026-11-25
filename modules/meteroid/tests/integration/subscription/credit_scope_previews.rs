@@ -46,6 +46,7 @@ async fn subscribe(
         .insert_subscription(
             Actor::System,
             CreateSubscription {
+                option: None,
                 subscription: SubscriptionNew {
                     customer_id: CUST_UBER_ID,
                     plan_version_id: PLAN_VERSION_1_LEETCODE_ID,

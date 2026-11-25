@@ -8,25 +8,28 @@ import {
 } from '@md/ui'
 import { useQueryClient, UseQueryResult } from '@tanstack/react-query'
 import { ColumnDef, OnChangeFn, PaginationState, SortingState } from '@tanstack/react-table'
-import { ArchiveIcon, ArchiveRestoreIcon, MoreVerticalIcon } from 'lucide-react'
+import { ArchiveIcon, ArchiveRestoreIcon, MoreVerticalIcon, PlusIcon, XIcon } from 'lucide-react'
 import { useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
 
 import { Gate } from '@/components/Gate'
-import { LocalId } from '@/components/LocalId'
 import { StandardTable } from '@/components/table/StandardTable'
-import { PlanStatusBadge } from '@/features/plans/PlanStatusBadge'
+import { HeadlinePrice, SoldIn } from '@/features/plans/currencies/PlanPrice'
+import { priceLabel } from '@/features/plans/currencies/headline'
 import { usePrefetchPlan } from '@/features/plans/hooks/usePlan'
-import { displayPlanType } from '@/features/plans/utils'
+import { canBeRanked } from '@/features/plans/ladder/ladderOrder'
+import {
+  useAddToPricingPage,
+  useRemoveFromPricingPage,
+} from '@/features/plans/ladder/useAddToPricingPage'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
-import { PlanOverview, PlanStatus } from '@/rpc/api/plans/v1/models_pb'
+import { PlanOverview, PlanStatus, PlanType } from '@/rpc/api/plans/v1/models_pb'
 import {
   archivePlan,
   listPlans,
   unarchivePlan,
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { ListPlansResponse } from '@/rpc/api/plans/v1/plans_pb'
-import { parseAndFormatDate } from '@/utils/date'
 
 import type { FunctionComponent } from 'react'
 
@@ -36,6 +39,8 @@ interface PlansTableProps {
   setPagination: React.Dispatch<React.SetStateAction<PaginationState>>
   sorting?: SortingState
   onSortingChange?: OnChangeFn<SortingState>
+  /** With one product line only, its column is left out. */
+  showLine?: boolean
 }
 export const PlansTable: FunctionComponent<PlansTableProps> = ({
   plansQuery,
@@ -43,10 +48,13 @@ export const PlansTable: FunctionComponent<PlansTableProps> = ({
   setPagination,
   sorting,
   onSortingChange,
+  showLine = true,
 }) => {
   const queryClient = useQueryClient()
   const isExpress = useIsExpressOrganization()
   const prefetchPlan = usePrefetchPlan()
+  const addToPricingPage = useAddToPricingPage()
+  const removeFromPricingPage = useRemoveFromPricingPage()
 
   const archiveMutation = useMutation(archivePlan, {
     onSuccess: async () => {
@@ -86,59 +94,118 @@ export const PlansTable: FunctionComponent<PlansTableProps> = ({
     () => [
       {
         id: 'name',
-        header: 'Name',
-        accessorKey: 'name',
-        cell: ({ row }) => <span>{row.original.name}</span>,
+        header: 'Plan',
+        enableSorting: true,
+        cell: ({ row }) => {
+          const plan = row.original
+          const kind = planKind(plan)
+          return (
+            <div className={box}>
+              <div className="truncate font-medium">{plan.name}</div>
+              {(kind || plan.description) && (
+                <div className="max-w-xs truncate text-xs text-muted-foreground">
+                  {[kind, plan.description].filter(Boolean).join(' · ')}
+                </div>
+              )}
+            </div>
+          )
+        },
       },
       {
-        header: 'Default',
-        cell: ({ row }) => (
-          <span>
-            {row.original.activeVersion ? <span>v{row.original.activeVersion.version}</span> : '-'}
-          </span>
-        ),
+        header: 'Price',
         enableSorting: false,
-      },
-
-      {
-        id: 'status',
-        header: 'Status',
-        enableSorting: true,
-        cell: ({ row }) => <PlanStatusBadge status={row.original.planStatus} />,
-      },
-      {
-        header: 'Type',
-        id: 'plan_type',
-        enableSorting: true,
-        cell: ({ row }) => <>{displayPlanType(row.original.planType)}</>,
-      },
-
-      {
-        id: 'created_at',
-        header: 'Created',
-        enableSorting: true,
         cell: ({ row }) => (
-          <span className="text-muted-foreground">
-            {parseAndFormatDate(row.original.createdAt)}
-          </span>
+          <div className={`${box} max-w-56`}>
+            <HeadlinePrice priced={row.original.pricedOptions} options={row.original.options} />
+          </div>
+        ),
+      },
+      {
+        header: 'Sold in',
+        enableSorting: false,
+        cell: ({ row }) => (
+          <div className={box}>
+            <SoldIn priced={row.original.pricedOptions} />
+            {!!row.original.activeVersion?.trialDurationDays && (
+              <div className="text-xs text-muted-foreground">
+                {row.original.activeVersion.trialDurationDays}-day trial
+              </div>
+            )}
+          </div>
         ),
       },
       {
         header: 'Subscriptions',
-        accessorFn: c => c.subscriptionCount,
         enableSorting: false,
+        cell: ({ row }) => (
+          <div className={`${box} tabular-nums`}>{row.original.subscriptionCount}</div>
+        ),
       },
       {
-        header: 'Product line',
-        id: 'productFamilyName',
-        cell: ({ row }) => <>{row.original.productFamilyName}</>,
+        id: 'pricingPage',
+        header: 'Pricing page',
         enableSorting: false,
+        cell: ({ row }) =>
+          row.original.selfServiceRank !== undefined ? (
+            <span className={`${box} whitespace-nowrap`}>
+              #{row.original.selfServiceRank}
+              <span className="text-muted-foreground">
+                {' · '}
+                {row.original.salesLed ? 'Contact sales' : 'Self-serve'}
+              </span>
+            </span>
+          ) : (
+            <span className={`${box} text-muted-foreground`}>—</span>
+          ),
       },
+      {
+        header: 'Version',
+        enableSorting: false,
+        cell: ({ row }) => (
+          <div className={`${box} whitespace-nowrap`}>
+            {row.original.activeVersion ? `v${row.original.activeVersion.version}` : '—'}
+            {row.original.hasDraftVersion && (
+              <div
+                className="text-xs text-muted-foreground"
+                title="A new version is being drafted"
+              >
+                {row.original.activeVersion
+                  ? `v${row.original.activeVersion.version + 1} in draft`
+                  : 'In draft'}
+              </div>
+            )}
+          </div>
+        ),
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        enableSorting: true,
+        cell: ({ row }) => (
+          <div className={box}>
+            <StatusDot status={row.original.planStatus} />
+          </div>
+        ),
+      },
+      ...(showLine
+        ? [
+            {
+              header: 'Product line',
+              id: 'productFamilyName',
+              cell: ({ row }) => <div className={box}>{row.original.productFamilyName}</div>,
+              enableSorting: false,
+            } satisfies ColumnDef<PlanOverview>,
+          ]
+        : []),
 
       {
         header: 'API Handle',
         id: 'localId',
-        cell: ({ row }) => <LocalId localId={row.original.localId} className="max-w-16" />,
+        cell: ({ row }) => (
+          <div className={`${box} font-mono text-xs text-muted-foreground`}>
+            {row.original.localId}
+          </div>
+        ),
         enableSorting: false,
       },
 
@@ -160,6 +227,21 @@ export const PlansTable: FunctionComponent<PlansTableProps> = ({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        {row.original.selfServiceRank !== undefined ? (
+                          <DropdownMenuItem
+                            onClick={() => void removeFromPricingPage(row.original)}
+                          >
+                            <XIcon size={16} className="mr-2" />
+                            Remove from the pricing page
+                          </DropdownMenuItem>
+                        ) : (
+                          canBeRanked(row.original) && (
+                            <DropdownMenuItem onClick={() => void addToPricingPage(row.original)}>
+                              <PlusIcon size={16} className="mr-2" />
+                              Add to the pricing page
+                            </DropdownMenuItem>
+                          )
+                        )}
                         {isArchived ? (
                           <DropdownMenuItem onClick={() => handleUnarchive(row.original.id)}>
                             <ArchiveRestoreIcon size={16} className="mr-2" />
@@ -180,7 +262,7 @@ export const PlansTable: FunctionComponent<PlansTableProps> = ({
           ]
         : []),
     ],
-    [isExpress]
+    [isExpress, addToPricingPage, removeFromPricingPage, showLine]
   )
 
   return (
@@ -198,5 +280,41 @@ export const PlansTable: FunctionComponent<PlansTableProps> = ({
       rowLink={row => `${row.original.localId}`}
       onRowIntent={row => prefetchPlan(row.original, plansQuery.dataUpdatedAt)}
     />
+  )
+}
+
+// Every cell centred on the row's height, whatever its number of lines.
+const box = 'flex min-h-10 flex-col justify-center text-sm'
+
+/** A plan type worth naming under its name. */
+const KIND: Partial<Record<PlanType, string>> = {
+  [PlanType.FREE]: 'Free',
+  [PlanType.CUSTOM]: 'Custom',
+}
+
+/** Its type, or Free when every option it sells reads free: a standard plan priced at nothing.
+ * None sold (included products, or charges the list can't read) says nothing. */
+export const planKind = (plan: PlanOverview): string | undefined =>
+  KIND[plan.planType] ??
+  (plan.free ||
+  (plan.pricedOptions.length > 0 && plan.pricedOptions.every(p => priceLabel(p) === 'Free'))
+    ? 'Free'
+    : undefined)
+
+const STATUS: Record<PlanStatus, { label: string; dot: string }> = {
+  [PlanStatus.ACTIVE]: { label: 'Active', dot: 'bg-success' },
+  [PlanStatus.DRAFT]: { label: 'Draft', dot: 'bg-muted-foreground' },
+  [PlanStatus.INACTIVE]: { label: 'Inactive', dot: 'bg-warning' },
+  [PlanStatus.ARCHIVED]: { label: 'Archived', dot: 'bg-muted-foreground/50' },
+}
+
+/** A quiet status: a coloured dot and its word, readable in a dense list. */
+const StatusDot = ({ status }: { status: PlanStatus }) => {
+  const { label, dot } = STATUS[status] ?? { label: '—', dot: 'bg-muted-foreground' }
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+      <span aria-hidden className={`size-1.5 rounded-full ${dot}`} />
+      {label}
+    </span>
   )
 }

@@ -20,6 +20,7 @@ use rust_decimal::Decimal;
 use crate::StoreResult;
 use crate::constants::Currency;
 use crate::domain::enums::{BillingType, SubscriptionFeeBillingPeriod};
+use crate::domain::price_components::{RatingModel, fixed_quantity_line};
 use crate::domain::{
     BillableMetric, LineItem, SubscriptionFee, SubscriptionFeeInterface, UsagePricingModel,
 };
@@ -54,6 +55,11 @@ pub struct StoreFee {
     pub conversion: UnitConversion,
     /// Unit prices an operator pinned on the draft being refreshed, by group of dimensions.
     pub pinned: BTreeMap<BTreeMap<String, String>, Decimal>,
+    /// The rates its usage is rated by dimension at: the entries of the rate card its price
+    /// names, or the price's own rates.
+    pub rate_card: Option<pricing::CardRates>,
+    /// Dimensions its metric is read by for another fee's rate card, summed away here.
+    pub folded_dimensions: Vec<String>,
 }
 
 impl StoreFee {
@@ -160,6 +166,8 @@ pub struct Resolved<'a> {
     pub metrics: &'a [BillableMetric],
     /// From [`pinned_prices`] on a draft refresh, else empty.
     pub pinned: BTreeMap<BTreeMap<String, String>, Decimal>,
+    /// The rate cards the subscription's usage prices name, by id.
+    pub rate_cards: &'a HashMap<common_domain::ids::RateCardId, pricing::CardRates>,
 }
 
 /// The fee `row` bills, refused where it cannot be priced whatever the period:
@@ -181,7 +189,25 @@ pub fn fee_of<T: SubscriptionFeeInterface>(
         instances: row.instance_quantity(),
         conversion: UnitConversion::default(),
         pinned: resolved.pinned,
+        rate_card: None,
+        folded_dimensions: Vec::new(),
     };
+    if let SubscriptionFee::Usage { model, .. } = &fee.fee {
+        fee.rate_card = match model {
+            UsagePricingModel::RateCard {
+                rate_card_id,
+                multiplier,
+            } => resolved
+                .rate_cards
+                .get(rate_card_id)
+                .map(|card| pricing::CardRates {
+                    multiplier: multiplier.unwrap_or(Decimal::ONE),
+                    ..card.clone()
+                }),
+            UsagePricingModel::DimensionRates(rates) => Some(rates.card_rates()),
+            _ => None,
+        };
+    }
     if let Some(metric_id) = fee.metric() {
         let metric = resolved
             .metrics
@@ -196,6 +222,15 @@ pub fn fee_of<T: SubscriptionFeeInterface>(
             factor: metric.unit_conversion_factor,
             rounding: metric.unit_conversion_rounding.as_ref().map(Into::into),
         };
+        if fee.rate_card.is_none() {
+            let own = crate::services::usage_grouping::own_dimensions(metric);
+            fee.folded_dimensions = metric
+                .rated_dimensions
+                .iter()
+                .filter(|dimension| !own.contains(*dimension))
+                .cloned()
+                .collect();
+        }
     }
     fixed(&fee, &Fee::Unattached, None).map_err(pricing_error)?;
     Ok(fee)
@@ -246,27 +281,47 @@ fn fixed(fee: &StoreFee, lineage: &Fee, seats: Option<u64>) -> Result<Option<Rat
             .map(|line| (quantity, line.total, line.unit_price))
     };
     let instances = |quantity: u32| Decimal::from(quantity) * fee.instances;
+    let fixed_quantity = |rate: &Decimal, quantity: u32, model: Option<&RatingModel>| {
+        let units = instances(quantity);
+        let quantity = Decimal::from(quantity);
+        fixed_quantity_line(*rate, quantity, fee.instances, model, None, fee.precision)
+            .map(|line| (units, line.total, line.unit_price))
+    };
     let (kind, (quantity, total, unit_price), prorated) = match &fee.fee {
         SubscriptionFee::Rate { rate } => (ChargeKind::Fee, whole(rate, fee.instances)?, true),
         // Billed whole once, never prorated.
-        SubscriptionFee::OneTime { rate, quantity } => {
-            (ChargeKind::Fee, whole(rate, instances(*quantity))?, false)
-        }
-        SubscriptionFee::Recurring { rate, quantity, .. } => {
-            (ChargeKind::Fee, whole(rate, instances(*quantity))?, true)
-        }
+        SubscriptionFee::OneTime {
+            rate,
+            quantity,
+            model,
+        } => (
+            ChargeKind::Fee,
+            fixed_quantity(rate, *quantity, model.as_ref())?,
+            false,
+        ),
+        SubscriptionFee::Recurring {
+            rate,
+            quantity,
+            model,
+            ..
+        } => (
+            ChargeKind::Fee,
+            fixed_quantity(rate, *quantity, model.as_ref())?,
+            true,
+        ),
         SubscriptionFee::Slot {
-            unit_rate,
+            model,
             min_slots,
             max_slots,
             ..
         } => {
-            let slots = pricing::billed_slots(seats.unwrap_or(0), *min_slots, *max_slots);
-            (
-                ChargeKind::Fee,
-                whole(unit_rate, Decimal::from(slots))?,
-                true,
-            )
+            let slots = Decimal::from(pricing::billed_slots(
+                seats.unwrap_or(0),
+                *min_slots,
+                *max_slots,
+            ));
+            let line = model.fixed_line(slots, None, fee.precision)?;
+            (ChargeKind::Fee, (slots, line.total, line.unit_price), true)
         }
         // A fixed amount of capacity, billed whole where its window is a whole period (R-002).
         SubscriptionFee::Capacity { rate, .. } => {
@@ -313,6 +368,7 @@ fn read(
         metric,
         window: *window,
     })?;
+    let usage = fold(usage, &fee.folded_dimensions);
     Some(
         usage
             .iter()
@@ -329,6 +385,23 @@ fn read(
             })
             .collect(),
     )
+}
+
+/// `usage` added up over `dimensions`; a card only rates a metric whose usage adds up.
+fn fold<'a>(
+    usage: &'a billing_core::pricer::Usage,
+    dimensions: &[String],
+) -> std::borrow::Cow<'a, billing_core::pricer::Usage> {
+    if dimensions.is_empty() {
+        return std::borrow::Cow::Borrowed(usage);
+    }
+    let mut folded: BTreeMap<BTreeMap<String, String>, Decimal> = BTreeMap::new();
+    for (group, value) in usage {
+        let mut group = group.clone();
+        group.retain(|key, _| !dimensions.contains(key));
+        *folded.entry(group).or_default() += *value;
+    }
+    std::borrow::Cow::Owned(folded.into_iter().collect())
 }
 
 /// What `fee` bills for its usage over `window`, one rate per line, in what it is priced in
@@ -349,7 +422,14 @@ fn usage_rates(
     let (denomination, precision) = fee.usage_denomination();
     let lines = match &fee.fee {
         SubscriptionFee::Usage { model, .. } => {
-            pricing::usage_lines(&model.into(), &usage, precision, |dimensions| {
+            let model = match &fee.rate_card {
+                Some(card) => pricing::UsageModel::RateCard(pricing::CardRates {
+                    on: window.from.date_naive(),
+                    ..card.clone()
+                }),
+                None => model.into(),
+            };
+            pricing::usage_lines(&model, &usage, precision, |dimensions| {
                 fee.pinned.get(&sorted(dimensions)).copied()
             })?
         }
@@ -407,7 +487,7 @@ impl Pricer<StoreFee> for StorePricer {
         fee.metric().into_iter().collect()
     }
 
-    /// Only usage priced by the unit, a matrix's cells included, prices each part on its own.
+    /// Only usage priced by the unit, rates by dimension included, prices each part on its own.
     fn per_part(&self, fee: &StoreFee) -> bool {
         match &fee.fee {
             SubscriptionFee::Capacity { .. } => false,
@@ -417,6 +497,18 @@ impl Pricer<StoreFee> for StorePricer {
                     | UsagePricingModel::Volume { .. }
                     | UsagePricingModel::Package { .. }
             ),
+            _ => true,
+        }
+    }
+
+    /// A capacity moved to another level (other included units) starts a part of its own: each
+    /// part counts its usage against its level (R-135). Anything else repriced shares one.
+    fn shares_allowance(&self, earlier: &StoreFee, later: &StoreFee) -> bool {
+        match (&earlier.fee, &later.fee) {
+            (
+                SubscriptionFee::Capacity { included: a, .. },
+                SubscriptionFee::Capacity { included: b, .. },
+            ) => a == b,
             _ => true,
         }
     }
@@ -455,7 +547,7 @@ mod tests {
     use crate::domain::UsagePeriod;
     use crate::domain::credit_units::FeeCreditUnit;
     use crate::domain::enums::BillingMetricAggregateEnum;
-    use crate::domain::price_components::{CreditExpiry, MatrixDimension, MatrixRow};
+    use crate::domain::price_components::{CreditExpiry, DimensionRate, DimensionRates};
     use crate::domain::{LineItemKind, TierRow, UsagePricingModel};
     use crate::services::clients::usage::{GroupedUsageData, UsageData};
     use crate::services::invoice_lines::component::{
@@ -494,6 +586,8 @@ mod tests {
             instances: Decimal::ONE,
             conversion: UnitConversion::default(),
             pinned: BTreeMap::new(),
+            rate_card: None,
+            folded_dimensions: Vec::new(),
         }
     }
 
@@ -625,6 +719,7 @@ mod tests {
                 rate: dec!(9.99),
                 quantity: 2,
                 billing_type: billing_type.clone(),
+                model: None,
             });
             let rate = only(rates_of(&fee, None));
             let whole = pricing::simple_prorated(&dec!(9.99), &dec!(2), None, 2).unwrap();
@@ -639,6 +734,7 @@ mod tests {
             rate: dec!(1),
             quantity: 1,
             billing_type: BillingType::Arrears,
+            model: None,
         });
         assert_eq!(arrears.billing(), Billing::Arrears);
     }
@@ -648,6 +744,7 @@ mod tests {
         let mut fee = store_fee(SubscriptionFee::OneTime {
             rate: dec!(49.5),
             quantity: 2,
+            model: None,
         });
         fee.instances = dec!(2);
         let rate = only(rates_of(&fee, None));
@@ -659,10 +756,44 @@ mod tests {
     }
 
     #[test]
+    fn a_fixed_quantity_with_a_model_bills_what_the_model_prices() {
+        let tier = |first_unit, rate| TierRow {
+            first_unit,
+            rate,
+            flat_fee: None,
+            flat_cap: None,
+        };
+        let tiers = vec![tier(0, dec!(10)), tier(10, dec!(8))];
+        let recurring = store_fee(SubscriptionFee::Recurring {
+            rate: Decimal::ZERO,
+            quantity: 15,
+            billing_type: BillingType::Advance,
+            model: Some(RatingModel::Tiered {
+                tiers: tiers.clone(),
+            }),
+        });
+        let rate = only(rates_of(&recurring, None));
+        // 10 × 10 + 5 × 8, shown by tier rather than at one unit price.
+        assert_eq!(rate.amount, 14_000);
+        assert_eq!(rate.quantity, Some(dec!(15)));
+        assert_eq!(rate.shown.unit_price, None);
+        assert!(rate.prorated);
+
+        let one_time = store_fee(SubscriptionFee::OneTime {
+            rate: Decimal::ZERO,
+            quantity: 15,
+            model: Some(RatingModel::Volume { tiers }),
+        });
+        let rate = only(rates_of(&one_time, None));
+        assert_eq!(rate.amount, 12_000);
+        assert!(!rate.prorated);
+    }
+
+    #[test]
     fn slots_bill_the_segments_seats_within_their_bounds() {
         let fee = store_fee(SubscriptionFee::Slot {
             unit: "seat".to_owned(),
-            unit_rate: dec!(25),
+            model: crate::domain::price_components::RatingModel::PerUnit { rate: dec!(25) },
             min_slots: Some(5),
             max_slots: Some(20),
             initial_slots: 1,
@@ -688,7 +819,7 @@ mod tests {
     fn no_seats_bill_nothing_like_a_zero_quantity_line() {
         let fee = store_fee(SubscriptionFee::Slot {
             unit: "seat".to_owned(),
-            unit_rate: dec!(25),
+            model: crate::domain::price_components::RatingModel::PerUnit { rate: dec!(25) },
             min_slots: None,
             max_slots: None,
             initial_slots: 4,
@@ -771,7 +902,7 @@ mod tests {
         assert_eq!(priced(DayFraction::WHOLE), 0);
     }
 
-    /// Usage priced by the unit or by a matrix's cells prices each part of a period on its own;
+    /// Usage priced by the unit or by dimension prices each part of a period on its own;
     /// a capacity, tiers and packages price the period once.
     /// Rules: R-097
     #[test]
@@ -779,7 +910,9 @@ mod tests {
         let metric = BillableMetricId::new();
         let per_part = |model| StorePricer.per_part(&usage_fee(metric, model));
         assert!(per_part(UsagePricingModel::PerUnit { rate: dec!(1) }));
-        assert!(per_part(UsagePricingModel::Matrix { rates: vec![] }));
+        assert!(per_part(UsagePricingModel::DimensionRates(region_rates(
+            &[]
+        ))));
         for model in [
             UsagePricingModel::Tiered {
                 tiers: vec![tier(0, dec!(1))],
@@ -805,6 +938,27 @@ mod tests {
         });
         assert!(!StorePricer.per_part(&capacity));
         assert!(StorePricer.per_part(&store_fee(SubscriptionFee::Rate { rate: dec!(1) })));
+    }
+
+    /// A capacity repriced at the same level shares its allowance over the period; one moved to
+    /// another level does not.
+    /// Rules: R-135, R-097
+    #[test]
+    fn only_a_capacity_moved_to_another_level_stops_sharing_its_allowance() {
+        let metric = BillableMetricId::new();
+        let level = |rate, included| {
+            store_fee(SubscriptionFee::Capacity {
+                rate,
+                included,
+                overage_rate: dec!(0.005),
+                metric_id: metric,
+                credit_unit: None,
+            })
+        };
+        let at_125k = level(dec!(479), 125_000);
+        assert!(StorePricer.shares_allowance(&at_125k, &level(dec!(499), 125_000)));
+        assert!(!StorePricer.shares_allowance(&at_125k, &level(dec!(899), 250_000)));
+        assert!(!StorePricer.shares_allowance(&level(dec!(899), 250_000), &at_125k));
     }
 
     #[test]
@@ -1013,26 +1167,59 @@ mod tests {
         assert_eq!(package[0].amount, 600);
     }
 
-    fn cell(value: &str, price: Decimal) -> MatrixRow {
-        MatrixRow {
-            dimension1: MatrixDimension {
-                key: "region".to_owned(),
-                value: value.to_owned(),
+    /// Rules: R-132
+    #[test]
+    fn a_fee_sums_away_the_dimensions_another_fees_card_reads() {
+        let metric = BillableMetricId::new();
+        let mut fee = usage_fee(
+            metric,
+            UsagePricingModel::Tiered {
+                tiers: vec![tier(0, dec!(1)), tier(100, dec!(0.5))],
+                block_size: None,
             },
-            dimension2: None,
-            per_unit_price: price,
+        );
+        fee.folded_dimensions = vec!["model".to_owned()];
+        let rates = usage_of(
+            &fee,
+            &reads_of(
+                metric,
+                &[
+                    (&[("model", "a")], dec!(100)),
+                    (&[("model", "b")], dec!(50)),
+                ],
+            ),
+        );
+        assert_eq!(rates.len(), 1);
+        assert_eq!(
+            rates[0].amount, 12_500,
+            "150 units along the tiers, not 100 and 50"
+        );
+    }
+
+    fn region_rates(rates: &[(&str, Decimal)]) -> DimensionRates {
+        DimensionRates {
+            dimensions: vec!["region".to_owned()],
+            rates: rates
+                .iter()
+                .map(|(region, rate)| DimensionRate {
+                    key: vec![(*region).to_owned()],
+                    rate: *rate,
+                    label: None,
+                })
+                .collect(),
+            unit_size: Decimal::ONE,
+            on_unmatched: crate::domain::rate_cards::RateCardUnmatched::Ignore,
         }
     }
 
     #[test]
-    fn matrix_usage_bills_one_line_per_group_of_other_dimensions() {
+    fn usage_rated_by_dimension_bills_one_line_per_group_of_other_dimensions() {
         let metric = BillableMetricId::new();
-        let fee = usage_fee(
-            metric,
-            UsagePricingModel::Matrix {
-                rates: vec![cell("eu", dec!(2)), cell("us", dec!(3))],
-            },
-        );
+        let rates = region_rates(&[("eu", dec!(2)), ("us", dec!(3))]);
+        let fee = StoreFee {
+            rate_card: Some(rates.card_rates()),
+            ..usage_fee(metric, UsagePricingModel::DimensionRates(rates))
+        };
         let rates = assert_priced_as_today(
             &fee,
             &[
@@ -1050,6 +1237,63 @@ mod tests {
             })
             .unwrap();
         assert_eq!(x.amount, 3_500);
+    }
+
+    /// A subscription's own rates by dimension (a custom price) bill at its rates: the fee reads
+    /// them as its card, its metric's keyed dimensions are not folded away.
+    /// Rules: R-136
+    #[test]
+    fn a_subscriptions_own_rates_by_dimension_bill_at_its_rates() {
+        let metric = BillableMetric {
+            unit_conversion_factor: None,
+            unit_conversion_rounding: None,
+            rated_dimensions: vec!["region".to_owned()],
+            ..tokens(crate::domain::enums::UnitConversionRoundingEnum::None)
+        };
+        // The plan's price rated eu at 2: the subscription's override rates it at 5, and `*`
+        // at 1.
+        let overridden = region_rates(&[("eu", dec!(5)), ("*", dec!(1))]);
+        let component = crate::domain::SubscriptionComponent {
+            id: SubscriptionPriceComponentId::new(),
+            price_component_id: None,
+            product_id: None,
+            subscription_id: common_domain::ids::SubscriptionId::new(),
+            name: "Calls".to_owned(),
+            period: SubscriptionFeeBillingPeriod::Monthly,
+            fee: SubscriptionFee::Usage {
+                metric_id: metric.id,
+                model: UsagePricingModel::DimensionRates(overridden),
+                credit_unit: None,
+            },
+            price_id: None,
+            effective_from: d(2026, 1, 1),
+            effective_to: None,
+            lineage_id: None,
+            added_by_amendment: false,
+        };
+        let fee = fee_of(
+            &component,
+            Resolved {
+                currency: &USD,
+                metrics: std::slice::from_ref(&metric),
+                pinned: BTreeMap::new(),
+                rate_cards: &HashMap::new(),
+            },
+        )
+        .unwrap();
+        assert!(fee.rate_card.is_some());
+        assert!(fee.folded_dimensions.is_empty());
+        let rates = usage_of(
+            &fee,
+            &reads_of(
+                metric.id,
+                &[
+                    (&[("region", "eu")], dec!(10)),
+                    (&[("region", "apac")], dec!(4)),
+                ],
+            ),
+        );
+        assert_eq!(rates.iter().map(|rate| rate.amount).sum::<i64>(), 5_400);
     }
 
     #[test]
@@ -1092,6 +1336,7 @@ mod tests {
             product_family_id: ProductFamilyId::new(),
             product_id: None,
             usage_scope: Default::default(),
+            rated_dimensions: Vec::new(),
         }
     }
 
@@ -1134,6 +1379,7 @@ mod tests {
                     currency: &USD,
                     metrics: std::slice::from_ref(&metric),
                     pinned: BTreeMap::new(),
+                    rate_cards: &HashMap::new(),
                 },
             )
             .unwrap();
@@ -1187,10 +1433,12 @@ mod tests {
             lineage_id: None,
             added_by_amendment: false,
         };
+        let no_cards = HashMap::new();
         let resolved = || Resolved {
             currency: &USD,
             metrics: &[],
             pinned: BTreeMap::new(),
+            rate_cards: &no_cards,
         };
         let fee = fee_of(
             &add_on(SubscriptionFee::Rate { rate: dec!(10) }),
@@ -1402,7 +1650,7 @@ mod tests {
         let lineage = lineage();
         let fee = store_fee(SubscriptionFee::Slot {
             unit: "seat".to_owned(),
-            unit_rate: Decimal::MAX,
+            model: crate::domain::price_components::RatingModel::PerUnit { rate: Decimal::MAX },
             min_slots: None,
             max_slots: None,
             initial_slots: 0,

@@ -9,6 +9,7 @@ import {
   usageDenominations,
   versionChargesUsage,
 } from '@/features/plans/creditRule'
+import { orderCurrencies, pricedCurrencies } from '@/features/plans/currencies/priceCells'
 import { usePlanOverview } from '@/features/plans/hooks/usePlan'
 import { formatPrice } from '@/features/plans/pricecomponents/utils'
 import { useCreditUnit, useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
@@ -59,8 +60,15 @@ export const PlanOverview: React.FC<{ plan: Plan; version: PlanVersion }> = ({ p
   const creditUnit = useCreditUnit(creditUnitRef?.id)
   const units = useCreditUnits()
 
+  const priced = orderCurrencies(
+    [version.currency, ...pricedCurrencies(components)],
+    version.currency
+  )
   const settings: { label: string; value: ReactNode }[] = [
-    { label: 'Currency', value: version.currency },
+    {
+      label: priced.length > 1 ? 'Currencies' : 'Currency',
+      value: priced.join(' · '),
+    },
   ]
   if (!isFree) {
     if (creditUnit) {

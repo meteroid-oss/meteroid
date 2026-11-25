@@ -358,6 +358,7 @@ async fn checkout_promo_codes_draw_on_the_customer_code_budget() {
                 tenant_id: TENANT_ID,
                 customer_id: CUST_UBER_ID,
                 plan_version_id: PLAN_VERSION_PAID_TRIAL_ID,
+                option: None,
                 billing_start_date: None,
                 billing_day_anchor: None,
                 net_terms: None,

@@ -1333,8 +1333,14 @@ pub(super) fn render(
             } else {
                 None
             };
+            // Tiers and packages billed for a whole period show what each priced.
             match shown {
-                Some(line) => (line.quantity, line.unit_price, line.is_prorated, Vec::new()),
+                Some(line) => (
+                    line.quantity,
+                    line.unit_price,
+                    line.is_prorated,
+                    line.sublines.into_iter().map(Into::into).collect(),
+                ),
                 None => {
                     let quantity = charge.quantity.filter(|q| !q.is_zero());
                     let unit_price = quantity.map(|q| unit_price_of(amount, precision, q));
@@ -1511,21 +1517,32 @@ fn fixed_shown(
         SubscriptionFee::Rate { rate } => {
             pricing::simple_prorated(rate, &instances, share, precision)
         }
-        SubscriptionFee::OneTime { rate, quantity } => pricing::simple_prorated(
+        SubscriptionFee::OneTime {
             rate,
-            &(Decimal::from(*quantity) * instances),
+            quantity,
+            model,
+        } => crate::domain::price_components::fixed_quantity_line(
+            *rate,
+            Decimal::from(*quantity),
+            instances,
+            model.as_ref(),
             None,
             precision,
         ),
-        SubscriptionFee::Recurring { rate, quantity, .. } => pricing::simple_prorated(
+        SubscriptionFee::Recurring {
             rate,
-            &(Decimal::from(*quantity) * instances),
+            quantity,
+            model,
+            ..
+        } => crate::domain::price_components::fixed_quantity_line(
+            *rate,
+            Decimal::from(*quantity),
+            instances,
+            model.as_ref(),
             share,
             precision,
         ),
-        SubscriptionFee::Slot { unit_rate, .. } => {
-            pricing::simple_prorated(unit_rate, &quantity?, share, precision)
-        }
+        SubscriptionFee::Slot { model, .. } => model.fixed_line(quantity?, share, precision),
         SubscriptionFee::Capacity { rate, .. } => {
             pricing::simple_prorated(rate, &instances, None, precision)
         }
@@ -1756,6 +1773,44 @@ mod tests {
             unit_price_of(2_000, 2, Decimal::from(3)).to_string(),
             "6.66666667"
         );
+    }
+
+    /// Five seats at "3 included, then 10.00" show both tiers over a whole period; over half of
+    /// one, the 10.00 billed works out to 2.00 a seat, the period's tiers no longer adding up.
+    #[test]
+    fn tiered_seats_show_their_tiers_over_a_whole_period() {
+        use crate::domain::price_components::{RatingModel, TierRow};
+        let tier = |first_unit, rate| TierRow {
+            first_unit,
+            rate,
+            flat_fee: None,
+            flat_cap: None,
+        };
+        let seats = SubscriptionFee::Slot {
+            unit: "seat".to_owned(),
+            model: RatingModel::Tiered {
+                tiers: vec![tier(0, Decimal::ZERO), tier(3, Decimal::from(10))],
+            },
+            min_slots: None,
+            max_slots: None,
+            initial_slots: 5,
+        };
+        let five = Some(Decimal::from(5));
+        let whole = fixed_shown(&seats, Decimal::ONE, five, None, 2).unwrap();
+        assert_eq!(
+            (whole.total, whole.quantity, whole.unit_price),
+            (2_000, five, None)
+        );
+        let names: Vec<&str> = whole.sublines.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["First 3 included", "Next 2"]);
+
+        let half = DayFraction::new(1, 2);
+        let half = fixed_shown(&seats, Decimal::ONE, five, Some(half), 2).unwrap();
+        assert_eq!(
+            (half.total, half.unit_price),
+            (1_000, Some(Decimal::from(2)))
+        );
+        assert!(half.is_prorated && half.sublines.is_empty());
     }
 
     /// A pack's 50.00 charge granting 50.00, of which 20.00 is billed here: it grants 20.00.

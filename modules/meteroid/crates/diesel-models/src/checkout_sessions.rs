@@ -53,6 +53,8 @@ pub struct CheckoutSessionRow {
     // What the coupons were before a payment attempt changed them, until it settles or fails.
     pub coupon_code_before_payment: Option<String>,
     pub coupon_ids_before_payment: Option<Vec<Option<CouponId>>>,
+    /// The plan option bought, by alias; its currency is the customer's.
+    pub plan_option: Option<String>,
 }
 
 #[derive(Debug, Insertable)]
@@ -96,4 +98,5 @@ pub struct CheckoutSessionRowNew {
     pub change_date: Option<NaiveDate>,
     pub success_url: Option<String>,
     pub cancel_url: Option<String>,
+    pub plan_option: Option<String>,
 }

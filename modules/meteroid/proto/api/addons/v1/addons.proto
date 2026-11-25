@@ -24,12 +24,16 @@ message CreateAddOnRequest {
   reserved 1;
   string name = 2;
   meteroid.api.components.v1.ProductRef product = 3;
+  // A single price, for older clients: see `prices`.
   meteroid.api.components.v1.PriceEntry price = 4;
   optional string description = 5;
   bool self_serviceable = 6;
   optional int32 max_instances_per_subscription = 7;
   optional string product_family_local_id = 8;
   repeated meteroid.api.entitlements.v1.EntitlementSpec entitlements = 9;
+  // Every price of the add-on, one per currency and billing period; when set, `price` is
+  // ignored. The first is the add-on's `price_id`.
+  repeated meteroid.api.components.v1.PriceInput prices = 10;
 }
 
 message CreateAddOnResponse {
@@ -53,10 +57,14 @@ message RemoveAddOnResponse {}
 message EditAddOnRequest {
   string add_on_id = 1;
   string name = 2;
+  // Replaces the price of its currency and period, for older clients: see `prices`.
   meteroid.api.components.v1.PriceEntry price = 3;
   optional string description = 4;
   optional bool self_serviceable = 5;
   optional int32 max_instances_per_subscription = 6;
+  // Every price of the add-on, one per currency and billing period, replacing its prices; a
+  // price left as it was keeps its id. When set, `price` is ignored.
+  repeated meteroid.api.components.v1.PriceInput prices = 7;
 }
 
 message EditAddOnResponse {

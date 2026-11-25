@@ -237,6 +237,7 @@ impl Engine {
                 let fixed = Pricing::ExtraRecurring {
                     unit_price: cents(*price),
                     quantity: 1,
+                    model: None,
                 };
                 let mut edited = vec![self.edit(&fee_line(*plan), day, fixed, *months).await?];
                 if moved {
@@ -270,6 +271,7 @@ impl Engine {
                 let fixed = Pricing::ExtraRecurring {
                     unit_price: cents(*price),
                     quantity: 1,
+                    model: None,
                 };
                 let edited = vec![
                     self.edit(&fee_line(*plan), at.date_naive(), fixed, *months)
@@ -387,6 +389,7 @@ impl Engine {
                                 pricing: Pricing::OneTime {
                                     unit_price: cents(*price),
                                     quantity: 1,
+                                    model: None,
                                 },
                                 credit_unit: None,
                             }),

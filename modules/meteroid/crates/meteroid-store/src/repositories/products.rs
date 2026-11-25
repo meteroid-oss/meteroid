@@ -4,13 +4,25 @@ use crate::StoreResult;
 use crate::domain::entity_activity::Actor;
 use crate::domain::enums::FeeTypeEnum;
 use crate::domain::outbox_event::{OutboxEvent, ProductEvent};
+use crate::domain::plan_options::PlanOption;
+use crate::domain::price_cells;
+use crate::domain::price_components::PriceComponent;
 use crate::domain::prices::FeeStructure;
 use crate::domain::{
-    PaginatedVec, PaginationRequest, Price, Product, ProductNew, ProductWithLatestPrice,
+    PaginatedVec, PaginationRequest, Price, Product, ProductListFacts, ProductNew,
+    ProductPlanUsage, ProductUsage, ProductWithLatestPrice, validate_product_appearance,
 };
 use crate::errors::StoreError;
+use crate::repositories::add_ons::enrich_add_ons;
+use crate::repositories::price_components::attach_prices;
 use crate::store::Store;
-use common_domain::ids::{BaseId, ProductFamilyId, ProductId, TaxCategoryId, TenantId};
+use common_domain::ids::{
+    BaseId, PlanVersionId, ProductFamilyId, ProductId, TaxCategoryId, TenantId,
+};
+use diesel_models::add_ons::AddOnRow;
+use diesel_models::entitlements::FeatureRow;
+use diesel_models::plan_version_options::PlanVersionOptionRow;
+use diesel_models::price_components::PriceComponentRow;
 use diesel_models::prices::PriceRow;
 use diesel_models::product_families::ProductFamilyRow;
 use diesel_models::products::{ProductRow, ProductRowNew, ProductRowPatch};
@@ -59,6 +71,9 @@ pub struct ProductUpdate {
     pub fee_structure: Option<FeeStructure>,
     /// Patch: None leaves unchanged, Some(None) clears, Some(Some(id)) sets.
     pub tax_category_id: Option<Option<TaxCategoryId>>,
+    /// Patch, as `tax_category_id`.
+    pub icon: Option<Option<String>>,
+    pub color: Option<Option<String>>,
 }
 
 #[async_trait::async_trait]
@@ -113,6 +128,21 @@ pub trait ProductInterface {
         fee_types: Vec<FeeTypeEnum>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<ProductWithLatestPrice>>;
+
+    /// The catalog list's facts of each product: latest prices, features and plans.
+    async fn product_list_facts(
+        &self,
+        auth_tenant_id: TenantId,
+        ids: &[ProductId],
+    ) -> StoreResult<HashMap<ProductId, ProductListFacts>>;
+
+    /// Where the product is sold: each live plan version with a charge of it, and its live
+    /// add-ons.
+    async fn product_usage(
+        &self,
+        auth_tenant_id: TenantId,
+        product_id: ProductId,
+    ) -> StoreResult<ProductUsage>;
 }
 
 #[async_trait::async_trait]
@@ -126,6 +156,7 @@ impl ProductInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         validate_tax_category(&mut conn, product.tax_category_id, product.tenant_id).await?;
+        validate_product_appearance(product.icon.as_deref(), product.color.as_deref())?;
 
         let insertable: ProductRowNew = ProductRowNew {
             id: ProductId::new(),
@@ -142,6 +173,8 @@ impl ProductInterface for Store {
                 ))
             })?,
             catalog: product.catalog,
+            icon: product.icon,
+            color: product.color,
         };
 
         self.transaction_with(&mut conn, |conn| {
@@ -152,6 +185,7 @@ impl ProductInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)
                     .and_then(|row| row.try_into())?;
+                register_quantity(conn, product.tenant_id, &product.fee_structure).await?;
 
                 let event = ProductEvent::new(
                     product.id,
@@ -201,6 +235,10 @@ impl ProductInterface for Store {
 
                 validate_tax_category(conn, update.tax_category_id.flatten(), update.tenant_id)
                     .await?;
+                validate_product_appearance(
+                    update.icon.as_ref().and_then(|i| i.as_deref()),
+                    update.color.as_ref().and_then(|c| c.as_deref()),
+                )?;
 
                 let fee_structure = update
                     .fee_structure
@@ -232,6 +270,8 @@ impl ProductInterface for Store {
                     description: update.description,
                     fee_structure,
                     tax_category_id: update.tax_category_id,
+                    icon: update.icon,
+                    color: update.color,
                 }
                 .patch(conn)
                 .await
@@ -496,4 +536,135 @@ impl ProductInterface for Store {
             total_results: rows.total_results,
         })
     }
+
+    async fn product_list_facts(
+        &self,
+        auth_tenant_id: TenantId,
+        ids: &[ProductId],
+    ) -> StoreResult<HashMap<ProductId, ProductListFacts>> {
+        let mut conn = self.get_conn().await?;
+
+        let price_rows =
+            PriceRow::latest_per_currency_by_product_ids(&mut conn, ids, auth_tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+        let features = FeatureRow::count_by_products(&mut conn, auth_tenant_id, ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        let plans = ProductRow::plan_counts(&mut conn, auth_tenant_id, ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        let mut facts: HashMap<ProductId, ProductListFacts> = ids
+            .iter()
+            .map(|id| {
+                let fact = ProductListFacts {
+                    latest_prices: vec![],
+                    feature_count: features.get(id).copied().unwrap_or(0),
+                    plan_count: plans.get(id).copied().unwrap_or(0),
+                };
+                (*id, fact)
+            })
+            .collect();
+        for row in price_rows {
+            let product_id = row.product_id;
+            let price = Price::try_from(row)?;
+            if let Some(fact) = facts.get_mut(&product_id) {
+                fact.latest_prices.push(price);
+            }
+        }
+
+        Ok(facts)
+    }
+
+    async fn product_usage(
+        &self,
+        auth_tenant_id: TenantId,
+        product_id: ProductId,
+    ) -> StoreResult<ProductUsage> {
+        let mut conn = self.get_conn().await?;
+
+        let versions = ProductRow::live_plan_versions(&mut conn, auth_tenant_id, product_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        let version_ids: Vec<PlanVersionId> = versions.iter().map(|v| v.plan_version_id).collect();
+
+        // Every charge of the versions, so a currency only another charge has counts as a gap.
+        let rows =
+            PriceComponentRow::get_by_plan_version_ids(&mut conn, &version_ids, auth_tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+        let mut version_of = Vec::new();
+        let mut components: Vec<PriceComponent> = Vec::new();
+        for (version_id, rows) in rows {
+            for row in rows {
+                version_of.push(version_id);
+                components.push(row.try_into()?);
+            }
+        }
+        attach_prices(&mut conn, auth_tenant_id, &mut components).await?;
+        let mut by_version: HashMap<PlanVersionId, Vec<PriceComponent>> = HashMap::new();
+        for (version_id, component) in version_of.into_iter().zip(components) {
+            by_version.entry(version_id).or_default().push(component);
+        }
+
+        let mut options: HashMap<PlanVersionId, Vec<PlanOption>> = HashMap::new();
+        for row in
+            PlanVersionOptionRow::list_by_plan_version_ids(&mut conn, auth_tenant_id, &version_ids)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+        {
+            options
+                .entry(row.plan_version_id)
+                .or_default()
+                .push(row.into());
+        }
+
+        let plans = versions
+            .into_iter()
+            .map(|v| {
+                let all = by_version.remove(&v.plan_version_id).unwrap_or_default();
+                let currencies = price_cells::currencies(&all);
+                let mut own: Vec<PriceComponent> = all
+                    .into_iter()
+                    .filter(|c| c.product_id == Some(product_id))
+                    .collect();
+                own.sort_by(|a, b| a.name.cmp(&b.name));
+                ProductPlanUsage {
+                    plan_id: v.plan_id,
+                    plan_name: v.plan_name,
+                    plan_version_id: v.plan_version_id,
+                    version: v.version,
+                    is_draft: v.is_draft,
+                    options: options.remove(&v.plan_version_id).unwrap_or_default(),
+                    currencies,
+                    components: own,
+                }
+            })
+            .collect();
+
+        let add_on_rows = AddOnRow::list_live_by_product(&mut conn, auth_tenant_id, product_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        let add_ons = enrich_add_ons(&mut conn, add_on_rows, auth_tenant_id).await?;
+
+        Ok(ProductUsage { plans, add_ons })
+    }
+}
+
+/// A seat product counts the managed quantity of its unit, registered with the product.
+pub(crate) async fn register_quantity(
+    conn: &mut crate::store::PgConn,
+    tenant_id: common_domain::ids::TenantId,
+    fee_structure: &crate::domain::prices::FeeStructure,
+) -> crate::StoreResult<()> {
+    if let crate::domain::prices::FeeStructure::Slot { unit_name, .. } = fee_structure {
+        diesel_models::managed_quantities::ManagedQuantityRow::ensure_codes(
+            conn,
+            tenant_id,
+            &[unit_name.as_str()],
+        )
+        .await?;
+    }
+    Ok(())
 }

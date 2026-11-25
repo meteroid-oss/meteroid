@@ -4,7 +4,6 @@ use rust_decimal::Decimal;
 use crate::domain::credit_units::FeeCreditUnit;
 use crate::domain::enums::UnitConversionRoundingEnum;
 use crate::domain::invoice_lines::{UsageBreakdown, UsageBreakdownItem};
-use crate::domain::price_components::MatrixRow;
 use crate::domain::{BillableMetric, LineItem, UsagePricingModel};
 
 use super::fees::pricing_error;
@@ -13,7 +12,7 @@ use crate::services::clients::usage::{GroupedUsageData, UsageData};
 use common_domain::ids::{BillableMetricId, SubscriptionAddOnId, SubscriptionPriceComponentId};
 use common_utils::decimals::{MAX_QUANTITY_SCALE, round_quantity};
 use error_stack::ResultExt;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 /// Key to match existing line items during invoice refresh
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -128,16 +127,17 @@ impl PinnedPrices {
 const MAX_BREAKDOWN_ITEMS: usize = 100;
 
 /// The usage of `usage`, read grouped by `breakdown_key` too, that the one line of group
-/// `dimensions` priced: a matrix line weighs each item by its cells' prices, any other line by
-/// its quantity; none when no usage of its group was read.
+/// `dimensions` priced: a line rated by dimension weighs each item by the rates its keys
+/// resolve to, any other line by its quantity; none when no usage of its group was read.
 pub(crate) fn line_breakdown(
     dimensions: Option<&HashMap<String, String>>,
     metric: &BillableMetric,
     breakdown_key: &str,
-    matrix_rates: Option<&[MatrixRow]>,
+    rated: Option<&pricing::CardRates>,
     usage: &[GroupedUsageData],
 ) -> Option<UsageBreakdown> {
-    let matrix_keys = matrix_dimension_keys(matrix_rates.unwrap_or_default());
+    // A line rated by dimension stands for the usage of all values of the dimensions it keys.
+    let keyed: &[String] = rated.map_or(&[], |card| card.dimensions.as_slice());
     let line_dimensions = sorted_dimensions(
         dimensions
             .into_iter()
@@ -150,23 +150,18 @@ pub(crate) fn line_breakdown(
         if quantity <= Decimal::ZERO {
             continue;
         }
-        let weight = match matrix_rates {
-            Some(rates) => {
-                match rates
-                    .iter()
-                    .find(|rate| matrix_cell_matches(rate, &row.dimensions))
-                {
-                    Some(rate) => quantity * rate.per_unit_price,
-                    None => continue,
-                }
-            }
+        let weight = match rated {
+            Some(card) => match rated_weight(card, &row.dimensions, quantity) {
+                Some(weight) => weight,
+                None => continue,
+            },
             None => quantity,
         };
         let row_dimensions = sorted_dimensions(
             row.dimensions
                 .iter()
                 .map(|(key, value)| (key.as_str(), value.as_str()))
-                .filter(|(key, _)| *key != breakdown_key && !matrix_keys.contains(key)),
+                .filter(|(key, _)| *key != breakdown_key && !keyed.iter().any(|k| k == *key)),
         );
         if row_dimensions != line_dimensions {
             continue;
@@ -269,26 +264,20 @@ pub(crate) fn rounds_converted_units(metric: &BillableMetric) -> bool {
         )
 }
 
-/// The properties a matrix prices by; a matrix line stands for the usage of all their values.
-fn matrix_dimension_keys(rates: &[MatrixRow]) -> HashSet<&str> {
-    rates
+/// What `quantity` units of usage carrying `dimensions` cost at the rate its key resolves to on
+/// `card.on`, unrounded; none when no key rates it.
+pub(crate) fn rated_weight(
+    card: &pricing::CardRates,
+    dimensions: &HashMap<String, String>,
+    quantity: Decimal,
+) -> Option<Decimal> {
+    let dimensions: BTreeMap<String, String> = dimensions
         .iter()
-        .flat_map(|rate| {
-            std::iter::once(rate.dimension1.key.as_str())
-                .chain(rate.dimension2.as_ref().map(|d| d.key.as_str()))
-        })
-        .collect()
-}
-
-/// Whether usage carrying `dimensions` falls in the matrix cell `rate` prices.
-pub(crate) fn matrix_cell_matches(rate: &MatrixRow, dimensions: &HashMap<String, String>) -> bool {
-    pricing::cell_matches(
-        (&rate.dimension1.key, &rate.dimension1.value),
-        rate.dimension2
-            .as_ref()
-            .map(|dimension2| (dimension2.key.as_str(), dimension2.value.as_str())),
-        dimensions,
-    )
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    let rate =
+        billing_core::rate_card::resolve(&card.dimensions, &card.entries, &dimensions, card.on)?;
+    (quantity * rate * card.multiplier).checked_div(card.unit_size)
 }
 
 /// The lines a usage fee bills for the usage of one window; shared by the invoice and the live
@@ -300,7 +289,17 @@ pub(crate) fn usage_lines(
     precision: u8,
     unit_price_override: impl Fn(&HashMap<String, String>) -> Option<Decimal>,
 ) -> StoreResult<Vec<pricing::PricedLine>> {
-    pricing::usage_lines(&model.into(), usage, precision, unit_price_override)
+    rated_usage_lines(&model.into(), usage, precision, unit_price_override)
+}
+
+/// [`usage_lines`] for a pricing model already resolved, e.g. a rate card's entries.
+pub(crate) fn rated_usage_lines(
+    model: &pricing::UsageModel,
+    usage: &[GroupedUsageData],
+    precision: u8,
+    unit_price_override: impl Fn(&HashMap<String, String>) -> Option<Decimal>,
+) -> StoreResult<Vec<pricing::PricedLine>> {
+    pricing::usage_lines(model, usage, precision, unit_price_override)
         .map_err(pricing_error)
         .attach("Failed to convert price_total to subunit")
 }
@@ -529,12 +528,12 @@ mod unit_conversion_tests {
     }
 
     /// Attaches to each line the usage of `usage`, read grouped by `breakdown_key` too, that the line
-    /// priced. A matrix line weighs each item by its cells' prices; any other line by its quantity.
+    /// priced. A line rated by dimension weighs each item by its rates; any other by its quantity.
     fn breakdown_lines(
         lines: &mut [InvoiceLineInner],
         metric: &BillableMetric,
         breakdown_key: &str,
-        matrix_rates: Option<&[MatrixRow]>,
+        rated: Option<&pricing::CardRates>,
         usage: &[GroupedUsageData],
     ) {
         for line in lines.iter_mut() {
@@ -542,7 +541,7 @@ mod unit_conversion_tests {
                 line.group_by_dimensions.as_ref(),
                 metric,
                 breakdown_key,
-                matrix_rates,
+                rated,
                 usage,
             ) {
                 line.usage_breakdown = Some(breakdown);
@@ -573,6 +572,7 @@ mod unit_conversion_tests {
             product_family_id: ProductFamilyId::new(),
             product_id: None,
             usage_scope: Default::default(),
+            rated_dimensions: Vec::new(),
         }
     }
 
@@ -634,6 +634,7 @@ mod unit_conversion_tests {
                 currency: "USD".to_owned(),
                 precision: 2,
                 overage: None,
+                card: None,
             };
             let projected_minor = price_window_groups(
                 &window,
@@ -796,20 +797,20 @@ mod unit_conversion_tests {
     }
 
     #[test]
-    fn a_matrix_breakdown_weighs_each_value_by_its_cells_prices() {
+    fn a_breakdown_by_dimension_weighs_each_value_by_its_rates() {
         let metric = breakdown_metric();
-        let cell = |model: &str, price: Decimal| MatrixRow {
-            dimension1: crate::domain::price_components::MatrixDimension {
-                key: "model".to_owned(),
-                value: model.to_owned(),
-            },
-            dimension2: None,
-            per_unit_price: price,
+        let rate = |model: &str, rate: Decimal| crate::domain::price_components::DimensionRate {
+            key: vec![model.to_owned()],
+            rate,
+            label: None,
         };
-        let rates = vec![cell("large", dec!(10)), cell("small", dec!(1))];
-        let model = UsagePricingModel::Matrix {
-            rates: rates.clone(),
+        let rates = crate::domain::price_components::DimensionRates {
+            dimensions: vec!["model".to_owned()],
+            rates: vec![rate("large", dec!(10)), rate("small", dec!(1))],
+            unit_size: Decimal::ONE,
+            on_unmatched: crate::domain::rate_cards::RateCardUnmatched::Ignore,
         };
+        let model = UsagePricingModel::DimensionRates(rates.clone());
         let mut lines = usage_lines(
             &model,
             metric.id,
@@ -826,7 +827,7 @@ mod unit_conversion_tests {
             &mut lines,
             &metric,
             "project",
-            Some(&rates),
+            Some(&rates.card_rates()),
             &[
                 row(dec!(1), &[("model", "large"), ("project", "alpha")]),
                 row(dec!(10), &[("model", "small"), ("project", "beta")]),

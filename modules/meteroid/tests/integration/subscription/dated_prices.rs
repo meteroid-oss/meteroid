@@ -1,4 +1,4 @@
-//! A matrix price's rates change only from a date, as a successor in its lineage (R-097): a fee
+//! A price's rates by dimension change only from a date, as a successor in its lineage (R-097): a fee
 //! row prices each day from the price in force that day, a usage period the date splits priced
 //! per part from its own usage, and issued lines are never repriced.
 use std::collections::HashMap;
@@ -14,7 +14,9 @@ use meteroid_store::clients::usage::{
     GroupedUsageData, MockUsageDataParams, MutableMockUsageClient, UsageData,
 };
 use meteroid_store::domain::enums::FeeTypeEnum;
-use meteroid_store::domain::price_components::{MatrixDimension, MatrixRow, UsagePricingModel};
+use meteroid_store::domain::price_components::{
+    DimensionRate, DimensionRates, MatrixDimension, UsagePricingModel,
+};
 use meteroid_store::domain::prices::{
     FeeStructure, MatrixDimensionKey, MatrixPriceUpdate, MatrixRowAdd, UsageModel,
 };
@@ -89,10 +91,12 @@ async fn matrix_plan(env: &TestEnv, name: &'static str) -> (ProductId, PlanVersi
                 fee_type: FeeTypeEnum::Usage,
                 fee_structure: FeeStructure::Usage {
                     metric_id: METRIC_BANDWIDTH,
-                    model: UsageModel::Matrix,
+                    model: UsageModel::DimensionRates,
                 },
                 catalog: true,
                 tax_category_id: None,
+                icon: None,
+                color: None,
             },
         )
         .await
@@ -107,13 +111,17 @@ async fn matrix_plan(env: &TestEnv, name: &'static str) -> (ProductId, PlanVersi
             METRIC_BANDWIDTH,
             PriceId::new(),
             DieselBillingPeriodEnum::Monthly,
-            UsagePricingModel::Matrix {
-                rates: vec![MatrixRow {
-                    dimension1: region("eu"),
-                    dimension2: None,
-                    per_unit_price: dec!(0.10),
+            UsagePricingModel::DimensionRates(DimensionRates {
+                dimensions: vec!["region".to_string()],
+                rates: vec![DimensionRate {
+                    key: vec!["eu".to_string()],
+                    rate: dec!(0.10),
+                    label: None,
                 }],
-            },
+                unit_size: Decimal::ONE,
+                // As a matrix: usage of a region without a rate is not billed.
+                on_unmatched: meteroid_store::domain::rate_cards::RateCardUnmatched::Ignore,
+            }),
         )])
         .seed(&mut env.conn().await)
         .await

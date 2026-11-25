@@ -74,8 +74,15 @@ export const StepReviewMapping = () => {
   const [state, setState] = useAtom(changePlanAtom)
 
   const previewMut = useMutation(previewPlanChange)
-  const { addedTargets, configurable, parameterizedComponents, parametersKey, choose, ready } =
-    usePlanChangeParameters()
+  const {
+    addedTargets,
+    configurable,
+    matchedConfigurable,
+    parameterizedComponents,
+    parametersKey,
+    choose,
+    ready,
+  } = usePlanChangeParameters()
 
   useEffect(() => {
     if (ready && state.targetPlanVersionId && state.subscriptionId) {
@@ -85,6 +92,7 @@ export const StepReviewMapping = () => {
           newPlanVersionId: state.targetPlanVersionId,
           applyMode: state.applyMode,
           parameterizedComponents,
+          option: state.option,
         },
         {
           onSuccess: data => {
@@ -109,6 +117,10 @@ export const StepReviewMapping = () => {
         : addedTargets.find(t => t.name === added.name)
     return target && configurable.find(c => c.component.id === target.id)
   }
+
+  // A matched row carries the target's name: its levels, when it is sold at several.
+  const levelsFor = (newName: string) =>
+    matchedConfigurable.find(c => c.component.name === newName)
 
   if (!preview && previewMut.isError) {
     return (
@@ -212,6 +224,13 @@ export const StepReviewMapping = () => {
                   <td className="px-4 py-3">
                     <div className="text-sm font-medium text-foreground">{match.newName}</div>
                     <FeeLabel fee={match.newFee} period={match.newPeriod} currency={currency} />
+                    {levelsFor(match.newName) && (
+                      <ComponentChoiceControls
+                        configurable={levelsFor(match.newName)!}
+                        currency={currency}
+                        onChange={choice => choose(levelsFor(match.newName)!.component.id, choice)}
+                      />
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <Badge variant="secondary" size="sm">

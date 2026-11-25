@@ -339,6 +339,7 @@ impl Services {
             ScheduledEventData::ApplyPlanChange {
                 source_plan_version_id: Some(sub.plan_version_id),
                 new_plan_version_id,
+                new_plan_option_id: prepared.target_option.as_ref().map(|o| o.id),
                 component_mappings: prepared.component_mappings().to_vec(),
             },
         );
@@ -465,7 +466,7 @@ impl Services {
             })?;
         let SubscriptionFee::Slot {
             unit,
-            unit_rate,
+            model,
             min_slots,
             max_slots,
             ..
@@ -488,7 +489,6 @@ impl Services {
         crate::repositories::subscriptions::slots::validate_slot_limits(
             &SlotForTransaction {
                 unit: unit.clone(),
-                unit_rate: *unit_rate,
                 min_slots: *min_slots,
                 max_slots: *max_slots,
             },
@@ -498,7 +498,16 @@ impl Services {
         let precision = Currencies::resolve_currency_precision(&sub.currency).unwrap_or(2);
         let today = common_clock::now().date_naive();
         let new_slots = current + delta;
-        let full_period_amount = (Decimal::from(delta) * *unit_rate).round_dp(u32::from(precision));
+        let period_total = |count: i32| {
+            Decimal::new(
+                model.period_total_minor(u64::try_from(count).unwrap_or(0), precision),
+                u32::from(precision),
+            )
+        };
+        let full_period_amount = period_total(new_slots) - period_total(current);
+        let unit_rate = model
+            .per_unit_rate()
+            .unwrap_or_else(|| full_period_amount / Decimal::from(delta));
 
         // The fee's period holding today, from its charge there.
         let loaded =
@@ -523,7 +532,23 @@ impl Services {
                 ))
             })?;
 
-        let (prorated_amount, adjustment_invoice) = if delta > 0 {
+        let deferred = crate::services::subscriptions::slots::deferred_to_period_end(
+            &mut conn, tenant_id, unit, delta,
+        )
+        .await?;
+        let (prorated_amount, adjustment_invoice) = if deferred {
+            (Decimal::ZERO, None)
+        } else if delta < 0 {
+            // Removed at once, what their unused time gives back.
+            let given_back = self
+                .seat_purchase_documents(&mut conn, &details, price_component_id, delta, today)
+                .await?;
+            let given_back = Decimal::new(
+                given_back.map_or(0, |given_back| given_back.purchase.amount.min(0)),
+                u32::from(precision),
+            );
+            (given_back, None)
+        } else if delta > 0 {
             // What the purchase bills, from the facts, and the adjustment it issues for it.
             let bought = self
                 .seat_purchase_documents(&mut conn, &details, price_component_id, delta, today)
@@ -548,12 +573,12 @@ impl Services {
             new_slots,
             delta,
             unit: unit.clone(),
-            unit_rate: *unit_rate,
+            unit_rate,
             prorated_amount,
             full_period_amount,
             days_remaining: (period_end - today).num_days() as i32,
             days_total: (period_end - period_start).num_days() as i32,
-            effective_at: if delta > 0 { today } else { period_end },
+            effective_at: if deferred { period_end } else { today },
             current_period_end: period_end,
             next_invoice_delta: prorated_amount,
             adjustment_invoice,

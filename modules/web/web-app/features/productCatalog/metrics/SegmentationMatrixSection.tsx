@@ -45,7 +45,7 @@ export const SegmentationMatrixSection = ({ methods }: BillingMatrixProps) => {
   return (
     <SettingsSection
       title="Segmentation"
-      description="Optional. Apply different pricing based on predefined categories (e.g. cloud provider or region)."
+      description="Optional. The dimensions usage is priced by (e.g. cloud provider or region); their values pre-fill a price's rates."
     >
       <div className="space-y-4">
         <SettingsFieldGrid>
@@ -115,7 +115,8 @@ export const SegmentationMatrixSection = ({ methods }: BillingMatrixProps) => {
               />
             </SettingsFieldGrid>
             <FormDescription>
-              Each value will create a separate pricing tier. Press Enter or comma to add values.
+              Optional. Listed values pre-fill the rates of a price by dimension, and only their usage
+              is counted. Press Enter or comma to add values.
             </FormDescription>
           </div>
         )}
@@ -180,7 +181,8 @@ export const SegmentationMatrixSection = ({ methods }: BillingMatrixProps) => {
               </div>
             </div>
             <FormDescription>
-              This creates a pricing matrix. Each combination will have its own pricing tier.
+              Optional. Each listed combination pre-fills a rate of a price by dimension, and only
+              their usage is counted once both dimensions list values.
             </FormDescription>
           </div>
         )}

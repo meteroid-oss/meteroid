@@ -1,13 +1,14 @@
-import { Badge, Button, Checkbox, Input } from '@md/ui'
-import { ChevronDownIcon, ChevronRightIcon, Gift, Minus, Plus, Search, Tag } from 'lucide-react'
+import { Badge, Button, Checkbox, Input, cn } from '@md/ui'
+import { Gift, Minus, Plus, Search, Tag } from 'lucide-react'
 import { useState } from 'react'
 
-import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
-import { PricingDetailsView } from '@/features/plans/pricecomponents/components/PricingDetailsView'
-import { feeTypeToHuman, priceSummaryBadges } from '@/features/plans/pricecomponents/utils'
-import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
+import { billedWords, chipParts, countsWords, priceWords } from '@/features/plans/canvas/billingWords'
 import { couponDiscountLabel } from '@/features/productCatalog/coupons/discountLabel'
+import { ProductIcon } from '@/features/productCatalog/items/ProductIcon'
 
+import { addOnPriceIn } from './addOnPrice'
+
+import type { ChargeContext } from '@/features/plans/canvas/billingWords'
 import type { AddOn } from '@/rpc/api/addons/v1/models_pb'
 import type { Coupon } from '@/rpc/api/coupons/v1/models_pb'
 
@@ -38,10 +39,8 @@ export const AddOnCouponSelector = ({
   isCouponAvailable,
   currency,
 }: AddOnCouponSelectorProps) => {
-  const creditUnits = useCreditUnits()
   const [addOnSearch, setAddOnSearch] = useState('')
   const [couponSearch, setCouponSearch] = useState('')
-  const [expandedAddOnId, setExpandedAddOnId] = useState<string | null>(null)
 
   const filteredAddOns = addOnSearch
     ? availableAddOns.filter(a => a.name.toLowerCase().includes(addOnSearch.toLowerCase()))
@@ -86,100 +85,18 @@ export const AddOnCouponSelector = ({
             <div className="space-y-1 max-h-64 overflow-y-auto">
               {filteredAddOns.map(addOn => {
                 const selectedEntry = selectedAddOns.find(a => a.addOnId === addOn.id)
-                const isSelected = Boolean(selectedEntry)
-                const isExpanded = expandedAddOnId === addOn.id
-                const feeType = feeTypeEnumToComponentFeeType(addOn.feeType)
-                const feeLabel = feeTypeToHuman(feeType)
-                const priceBadge = priceSummaryBadges(feeType, addOn.price, currency, creditUnits).join(' / ')
-                const addOnCurrency = currency ?? addOn.price?.currency ?? 'USD'
-                // Show quantity controls when the add-on allows multiple instances
-                // (unlimited = null, or max > 1) and quantity changes are supported.
-                const maxInstances = addOn.maxInstancesPerSubscription ?? null
-                const supportsMultiple = maxInstances === null || maxInstances > 1
-                const showQtyControls = isSelected && supportsMultiple && Boolean(onAddOnQuantityChange)
-                const currentQty = selectedEntry?.quantity ?? 1
-
                 return (
-                  <div
+                  <AddOnOption
                     key={addOn.id}
-                    className={`rounded-md transition-colors ${
-                      isSelected
-                        ? 'bg-success/10 border border-success/30'
-                        : 'border border-transparent hover:bg-muted/50'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 px-3 py-2">
-                      <button
-                        type="button"
-                        className="shrink-0 text-muted-foreground hover:text-foreground"
-                        onClick={() => setExpandedAddOnId(isExpanded ? null : addOn.id)}
-                      >
-                        {isExpanded ? (
-                          <ChevronDownIcon className="w-4 h-4" />
-                        ) : (
-                          <ChevronRightIcon className="w-4 h-4" />
-                        )}
-                      </button>
-                      <label className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer">
-                        <Checkbox
-                          checked={isSelected}
-                          onCheckedChange={checked =>
-                            checked ? onAddOnAdd(addOn.id) : onAddOnRemove(addOn.id)
-                          }
-                          className="shrink-0 data-[state=checked]:bg-success data-[state=checked]:border-success data-[state=checked]:text-success-foreground"
-                        />
-                        {showQtyControls && (
-                          <div className="flex items-center gap-1 shrink-0">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 w-6 p-0"
-                              onClick={e => {
-                                e.stopPropagation()
-                                if (currentQty > 1) onAddOnQuantityChange!(addOn.id, currentQty - 1)
-                              }}
-                              disabled={currentQty <= 1}
-                            >
-                              <Minus className="h-3 w-3" />
-                            </Button>
-                            <span className="text-sm w-5 text-center tabular-nums">
-                              {currentQty}
-                            </span>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 w-6 p-0"
-                              onClick={e => {
-                                e.stopPropagation()
-                                if (maxInstances === null || currentQty < maxInstances) {
-                                  onAddOnQuantityChange!(addOn.id, currentQty + 1)
-                                }
-                              }}
-                              disabled={maxInstances !== null && currentQty >= maxInstances}
-                            >
-                              <Plus className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <span className="text-sm font-medium">{addOn.name}</span>
-                        </div>
-                        <Badge variant="outline" size="sm" className="shrink-0">
-                          {feeLabel}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground shrink-0">
-                          {isSelected && currentQty > 1 ? `${currentQty} × ${priceBadge}` : priceBadge}
-                        </span>
-                      </label>
-                    </div>
-                    {isExpanded && addOn.price && (
-                      <div className="px-3 pb-3 pt-0 border-t border-border mx-3 mt-0">
-                        <PricingDetailsView prices={[addOn.price]} currency={addOnCurrency} />
-                      </div>
-                    )}
-                  </div>
+                    addOn={addOn}
+                    currency={currency}
+                    quantity={selectedEntry ? (selectedEntry.quantity ?? 1) : undefined}
+                    onAdd={() => onAddOnAdd(addOn.id)}
+                    onRemove={() => onAddOnRemove(addOn.id)}
+                    onQuantityChange={
+                      onAddOnQuantityChange && (qty => onAddOnQuantityChange(addOn.id, qty))
+                    }
+                  />
                 )
               })}
               {addOnSearch && filteredAddOns.length === 0 && (
@@ -270,5 +187,112 @@ export const AddOnCouponSelector = ({
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * An add-on as the plan editor reads it: its name, what it charges and how it bills, its price
+ * in the subscription's currency; once picked, how many when it can be taken several times.
+ */
+const AddOnOption = ({
+  addOn,
+  currency,
+  quantity,
+  onAdd,
+  onRemove,
+  onQuantityChange,
+}: {
+  addOn: AddOn
+  currency?: string
+  /** Picked: how many. */
+  quantity?: number
+  onAdd: () => void
+  onRemove: () => void
+  onQuantityChange?: (quantity: number) => void
+}) => {
+  const isSelected = quantity !== undefined
+  // Sold at its price in the subscription's currency only.
+  const price = addOnPriceIn(addOn, currency)
+  const unpriced = !price && Boolean(currency)
+  const ctx: ChargeContext = { product: { feeStructure: addOn.feeStructure } }
+  const what = price ? [countsWords(price, ctx), billedWords(price, ctx)].join(' · ') : undefined
+  const amount = price && chipParts(priceWords(price, ctx))
+  // Several of it when it allows more than one (none set: any number).
+  const maxInstances = addOn.maxInstancesPerSubscription ?? null
+  const supportsMultiple = maxInstances === null || maxInstances > 1
+  const showQtyControls = isSelected && supportsMultiple && Boolean(onQuantityChange)
+  const currentQty = quantity ?? 1
+
+  return (
+    <label
+      className={cn(
+        'flex items-center gap-3 rounded-md border px-3 py-2 transition-colors',
+        isSelected
+          ? 'border-success/30 bg-success/10'
+          : unpriced
+            ? 'cursor-not-allowed border-transparent opacity-60'
+            : 'cursor-pointer border-transparent hover:bg-muted/50'
+      )}
+    >
+      <Checkbox
+        checked={isSelected}
+        disabled={unpriced && !isSelected}
+        onCheckedChange={checked => (checked ? onAdd() : onRemove())}
+        className="shrink-0 data-[state=checked]:bg-success data-[state=checked]:border-success data-[state=checked]:text-success-foreground"
+      />
+      <ProductIcon icon={addOn.productIcon} color={addOn.productColor} size="sm" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium">{addOn.name}</span>
+        <span className="block truncate text-xs text-muted-foreground">
+          {what ?? `No price in ${currency}`}
+        </span>
+      </span>
+      {showQtyControls && (
+        <span className="flex shrink-0 items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0"
+            aria-label="One less"
+            onClick={e => {
+              e.preventDefault()
+              if (currentQty > 1) onQuantityChange!(currentQty - 1)
+            }}
+            disabled={currentQty <= 1}
+          >
+            <Minus className="h-3 w-3" />
+          </Button>
+          <span className="w-5 text-center text-sm tabular-nums">{currentQty}</span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0"
+            aria-label="One more"
+            onClick={e => {
+              e.preventDefault()
+              if (maxInstances === null || currentQty < maxInstances) {
+                onQuantityChange!(currentQty + 1)
+              }
+            }}
+            disabled={maxInstances !== null && currentQty >= maxInstances}
+          >
+            <Plus className="h-3 w-3" />
+          </Button>
+        </span>
+      )}
+      {amount && (
+        <span className="shrink-0 text-right">
+          {isSelected && currentQty > 1 && (
+            <span className="text-xs text-muted-foreground">{currentQty} × </span>
+          )}
+          <span className="text-sm font-semibold tabular-nums">{amount.strong}</span>
+          {amount.quiet && (
+            <span className="ml-1 text-xs text-muted-foreground">{amount.quiet}</span>
+          )}
+        </span>
+      )}
+    </label>
   )
 }

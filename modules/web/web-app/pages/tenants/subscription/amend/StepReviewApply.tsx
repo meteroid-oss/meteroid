@@ -20,18 +20,21 @@ import { useWizard } from 'react-use-wizard'
 import { toast } from 'sonner'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
-import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
 import { priceSummaryBadges } from '@/features/plans/pricecomponents/utils'
 import {
   buildExistingProductRef,
   buildNewProductRef,
   buildPriceInputs,
+  existingPriceEntries,
   formDataToPrice,
   toPricingTypeFromFeeType,
   wrapAsNewPriceEntries,
 } from '@/features/pricing'
+import { protoFeeTypeToComponentFeeType } from '@/features/pricing/formData'
 import { InvoicePreviewCard } from '@/features/subscriptions/UpcomingInvoiceCard'
+import { levelAppliesNow, levelMove } from '@/features/subscriptions/capacityLevels'
 import { invalidateSubscriptionBilling } from '@/features/subscriptions/invalidateSubscriptionBilling'
+import { useLevelUnit } from '@/features/subscriptions/useLevelUnit'
 import { formatSubscriptionFeeBillingPeriod } from '@/features/subscriptions/utils/fees'
 import { useQuery } from '@/lib/connectrpc'
 import { priceToSubscriptionFee } from '@/lib/mapping/priceToSubscriptionFee'
@@ -66,7 +69,7 @@ import type {
   ExtraComponentDraft,
 } from '@/pages/tenants/subscription/amend/state'
 import type { CreditUnit } from '@/rpc/api/creditunits/v1/models_pb'
-import type { CreateSubscriptionAddOn } from '@/rpc/api/subscriptions/v1/models_pb';
+import type { SubscriptionFee , CreateSubscriptionAddOn } from '@/rpc/api/subscriptions/v1/models_pb'
 import type { AmendmentAddComponent, AmendmentEditAddOn, AmendmentEditComponent } from '@/rpc/api/subscriptions/v1/subscriptions_pb';
 import type { MessageInitShape } from '@bufbuild/protobuf'
 
@@ -91,7 +94,10 @@ const buildComponentChanges = (
       create(AmendmentEditComponentSchema, {
         subscriptionComponentId: c.subscriptionComponentId,
         name: c.name,
-        price: buildPriceEntry(c.feeType, c.formData, currency),
+        // A level of the plan is its existing price; anything else a custom one.
+        price: c.level
+          ? existingPriceEntries([c.level.priceId])[0]
+          : buildPriceEntry(c.feeType, c.formData, currency),
       })
   ),
   added: state.componentChanges.added.map(
@@ -113,10 +119,21 @@ const buildAddOnChanges = (
 ): MessageInitShape<typeof AmendmentAddOnChangesSchema> => ({
   added: state.addOnChanges.added.map(
     (a): CreateSubscriptionAddOn =>
-      create(
-        CreateSubscriptionAddOnSchema,
-        { addOnId: a.addOnId, quantity: a.quantity }
-      )
+      create(CreateSubscriptionAddOnSchema, {
+        addOnId: a.addOnId,
+        quantity: a.quantity,
+        // Its level, cadence or seats when it has several: as the create flow sends them.
+        ...(a.parameterization && {
+          customization: {
+            case: 'parameterization' as const,
+            value: {
+              initialSlotCount: a.parameterization.initialSlotCount,
+              billingPeriod: a.parameterization.billingPeriod,
+              committedCapacity: a.parameterization.committedCapacity,
+            },
+          },
+        }),
+      })
   ),
   edited: state.addOnChanges.edited.map((a): AmendmentEditAddOn => {
     const base = { subscriptionAddOnId: a.subscriptionAddOnId, quantity: a.quantity }
@@ -231,9 +248,14 @@ export const StepReviewApply = () => {
   // The change list is built from the user's actual edits (not the backend's
   // remove+add proration decomposition), so a price override reads as "Price
   // updated" rather than a paired removal + addition.
+  const levelEdits = state.componentChanges.edited.filter(c => c.level)
+  // A lower level waits for the period's end (R-135): the amendment cannot apply now.
+  const lowersLevel = levelEdits.some(
+    c => c.level && !levelAppliesNow(c.level.fromIncluded, c.level.included)
+  )
   const changeRows: ChangeItem[] = [
     // Component price override: old fee → new fee (same as the editor row).
-    ...state.componentChanges.edited.map(c => {
+    ...state.componentChanges.edited.filter(c => !c.level).map(c => {
       const live = componentById.get(c.subscriptionComponentId)
       return {
         kind: 'edit' as const,
@@ -264,7 +286,7 @@ export const StepReviewApply = () => {
     ...state.addOnChanges.added.map(a => {
       const cat = catalogById.get(a.addOnId)
       const price = cat
-        ? priceSummaryBadges(feeTypeEnumToComponentFeeType(cat.feeType), cat.price, currency, creditUnits).join(
+        ? priceSummaryBadges(protoFeeTypeToComponentFeeType(cat.feeType), cat.price, currency, creditUnits).join(
             ' / '
           )
         : ''
@@ -356,6 +378,13 @@ export const StepReviewApply = () => {
     setState(prev => ({ ...prev, applyMode: mode }))
   }
 
+  useEffect(() => {
+    if (lowersLevel && isImmediate) {
+      setState(prev => ({ ...prev, applyMode: PlanChangeApplyMode.END_OF_PERIOD }))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lowersLevel, isImmediate])
+
   const handleApply = async () => {
     if (!state.subscriptionId || isEmpty) return
     try {
@@ -408,11 +437,21 @@ export const StepReviewApply = () => {
                   </Label>
                 </div>
                 <div className="flex items-start gap-3">
-                  <RadioGroupItem value="immediate" id="mode-immediate" className="mt-0.5" />
-                  <Label htmlFor="mode-immediate" className="cursor-pointer">
+                  <RadioGroupItem
+                    value="immediate"
+                    id="mode-immediate"
+                    className="mt-0.5"
+                    disabled={lowersLevel}
+                  />
+                  <Label
+                    htmlFor="mode-immediate"
+                    className={lowersLevel ? 'opacity-60' : 'cursor-pointer'}
+                  >
                     <div className="text-sm font-medium">Immediately</div>
                     <div className="text-xs text-muted-foreground">
-                      Apply now with a prorated adjustment invoice.
+                      {lowersLevel
+                        ? 'A lower level takes effect at the end of the billing period.'
+                        : 'Apply now with a prorated adjustment invoice.'}
                     </div>
                   </Label>
                 </div>
@@ -436,13 +475,28 @@ export const StepReviewApply = () => {
 
           {/* Changes — placed above the proration so the user sees what changed first.
               Driven by the user's edits; MRR is folded in as a small footer. */}
-          {changeRows.length > 0 && (
+          {changeRows.length + levelEdits.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Changes</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="divide-y divide-border">
+                  {levelEdits.map(c =>
+                    c.level ? (
+                      <LevelChangeRow
+                        key={`level-${c.subscriptionComponentId}`}
+                        name={
+                          c.name || componentNameById.get(c.subscriptionComponentId) || 'Component'
+                        }
+                        fee={componentById.get(c.subscriptionComponentId)?.fee}
+                        currency={currency}
+                        from={c.level.fromIncluded}
+                        to={c.level.included}
+                        now={isImmediate}
+                      />
+                    ) : null
+                  )}
                   {changeRows.map((row, idx) => (
                     <ChangeRow
                       key={`${row.kind}-${idx}`}
@@ -612,6 +666,33 @@ export const StepReviewApply = () => {
         </Button>
       </div>
     </div>
+  )
+}
+
+/** "Level: 125K → 250K, now" or "at period end". */
+const LevelChangeRow = ({
+  name,
+  fee,
+  currency,
+  from,
+  to,
+  now,
+}: {
+  name: string
+  fee?: SubscriptionFee
+  currency: string
+  from: bigint
+  to: bigint
+  now: boolean
+}) => {
+  const unit = useLevelUnit(fee, currency)
+  return (
+    <ChangeRow
+      kind="edit"
+      name={name}
+      detail={`Level: ${levelMove(from, to, currency, unit)}, ${now ? 'now' : 'at period end'}`}
+      label={to > from ? 'Level raised' : 'Level lowered'}
+    />
   )
 }
 

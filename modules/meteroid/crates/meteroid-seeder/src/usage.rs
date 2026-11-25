@@ -49,6 +49,29 @@ pub enum UsageShape {
 pub struct Dimension {
     pub key: String,
     pub values: Vec<String>,
+    /// Relative frequency of each value, in `values`' order; empty: equally likely.
+    pub weights: Vec<u32>,
+}
+
+impl Dimension {
+    /// One unit draw either way, so a stream of uniform dimensions generates as it always has.
+    fn pick(&self, rng: &mut Rng) -> &str {
+        let draw = rng.unit();
+        let total: u32 = self.weights.iter().sum();
+        let idx = if self.weights.len() == self.values.len() && total > 0 {
+            let mut left = draw * f64::from(total);
+            self.weights
+                .iter()
+                .position(|weight| {
+                    left -= f64::from(*weight);
+                    left < 0.0
+                })
+                .unwrap_or(self.values.len() - 1)
+        } else {
+            (draw * self.values.len() as f64) as usize
+        };
+        &self.values[idx.min(self.values.len() - 1)]
+    }
 }
 
 /// One metric's generation parameters, shared across customers.
@@ -61,9 +84,34 @@ pub struct UsageStream {
     /// Multiplicative growth applied per 30-day step across the window.
     pub monthly_growth: f64,
     pub dimensions: Vec<Dimension>,
+    /// Values are whole units (tokens, requests) rather than fractional ones.
+    pub whole_values: bool,
 }
 
 impl UsageStream {
+    /// Events valued in whole units within `[min, max]`, carrying `dimensions` instead of the
+    /// default ones.
+    pub fn with_events(mut self, min: u64, max: u64, dimensions: Vec<Dimension>) -> Self {
+        let (min, max) = (min as f64, max as f64);
+        match &mut self.shape {
+            UsageShape::Counter {
+                per_event_min,
+                per_event_max,
+                ..
+            } => {
+                *per_event_min = min;
+                *per_event_max = max;
+            }
+            UsageShape::Gauge { floor, ceil, .. } => {
+                *floor = min;
+                *ceil = max;
+            }
+        }
+        self.dimensions = dimensions;
+        self.whole_values = true;
+        self
+    }
+
     pub fn value_key(&self) -> &str {
         match &self.shape {
             UsageShape::Counter { value_key, .. } | UsageShape::Gauge { value_key, .. } => {
@@ -143,7 +191,7 @@ fn generate_for_customer(stream: &UsageStream, c: &UsageCustomer, out: &mut Vec<
                         code: stream.metric_code.clone(),
                         customer_id: c.customer_id,
                         timestamp: ts,
-                        properties: props(value_key, value, &stream.dimensions, &mut rng),
+                        properties: props(value_key, value, stream, &mut rng),
                     });
                     produced += 1;
                 }
@@ -166,7 +214,7 @@ fn generate_for_customer(stream: &UsageStream, c: &UsageCustomer, out: &mut Vec<
                     code: stream.metric_code.clone(),
                     customer_id: c.customer_id,
                     timestamp: ts,
-                    properties: props(value_key, value, &stream.dimensions, &mut rng),
+                    properties: props(value_key, value, stream, &mut rng),
                 });
                 produced += 1;
             }
@@ -183,16 +231,19 @@ fn generate_for_customer(stream: &UsageStream, c: &UsageCustomer, out: &mut Vec<
 fn props(
     value_key: &str,
     value: f64,
-    dimensions: &[Dimension],
+    stream: &UsageStream,
     rng: &mut Rng,
 ) -> Vec<(String, String)> {
-    let mut p = Vec::with_capacity(1 + dimensions.len());
-    p.push((value_key.to_string(), format!("{value:.4}")));
-    for dim in dimensions {
+    let mut p = Vec::with_capacity(1 + stream.dimensions.len());
+    let value = if stream.whole_values {
+        format!("{:.0}", value.round())
+    } else {
+        format!("{value:.4}")
+    };
+    p.push((value_key.to_string(), value));
+    for dim in &stream.dimensions {
         if !dim.values.is_empty() {
-            let idx = (rng.unit() * dim.values.len() as f64) as usize;
-            let idx = idx.min(dim.values.len() - 1);
-            p.push((dim.key.clone(), dim.values[idx].clone()));
+            p.push((dim.key.clone(), dim.pick(rng).to_string()));
         }
     }
     p
@@ -226,6 +277,7 @@ fn default_dimensions() -> Vec<Dimension> {
             "eu-west".to_string(),
             "ap-south".to_string(),
         ],
+        weights: vec![],
     }]
 }
 
@@ -274,6 +326,7 @@ pub fn stream_for(
         base_daily_volume,
         monthly_growth: 1.03,
         dimensions: default_dimensions(),
+        whole_values: false,
     }
 }
 
@@ -389,7 +442,9 @@ mod tests {
             dimensions: vec![Dimension {
                 key: "endpoint".to_string(),
                 values: vec!["read".to_string(), "write".to_string()],
+                weights: vec![],
             }],
+            whole_values: false,
         }
     }
 
@@ -454,6 +509,7 @@ mod tests {
             base_daily_volume: 0,
             monthly_growth: 1.0,
             dimensions: vec![],
+            whole_values: false,
         };
         let id_on = |events: &[GeneratedEvent], d: NaiveDate| {
             events
@@ -485,6 +541,7 @@ mod tests {
             base_daily_volume: 0,
             monthly_growth: 1.0,
             dimensions: vec![],
+            whole_values: false,
         };
         let events = generate_stream(&s, &[cust(5, (2025, 1, 1), (2025, 1, 31))]);
         assert_eq!(events.len(), 31, "one gauge reading per day");

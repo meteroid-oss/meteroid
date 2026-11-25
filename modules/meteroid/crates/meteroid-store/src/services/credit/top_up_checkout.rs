@@ -394,6 +394,7 @@ impl Services {
             tenant_id,
             customer_id,
             plan_version_id: None,
+            plan_option: None,
             billing_start_date: None,
             billing_day_anchor: None,
             net_terms: None,

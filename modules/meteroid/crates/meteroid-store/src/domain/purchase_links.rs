@@ -124,6 +124,11 @@ pub struct PurchaseLink {
     pub require_billing_address: bool,
     pub tax_id_collection: TaxIdCollection,
     pub allowed_buyer_types: AllowedBuyerTypes,
+    /// The plan option it sells, by alias (kept across versions); `None`: the plan's default in
+    /// the buyer's currency.
+    pub option: Option<String>,
+    /// The coupon a purchase redeems when the buyer enters no code, as the coupon spells it.
+    pub coupon_code: Option<String>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub archived_at: Option<NaiveDateTime>,
@@ -144,6 +149,8 @@ impl From<PurchaseLinkRow> for PurchaseLink {
             require_billing_address: row.require_billing_address,
             tax_id_collection: row.tax_id_collection.into(),
             allowed_buyer_types: AllowedBuyerTypes::from_row(row.only_buyer_type),
+            option: row.plan_option,
+            coupon_code: row.promotion_code,
             created_at: row.created_at,
             updated_at: row.updated_at,
             archived_at: row.archived_at,
@@ -163,6 +170,8 @@ pub struct PurchaseLinkNew {
     pub require_billing_address: bool,
     pub tax_id_collection: TaxIdCollection,
     pub allowed_buyer_types: AllowedBuyerTypes,
+    pub option: Option<String>,
+    pub coupon_code: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -175,6 +184,8 @@ pub struct PurchaseLinkUpdate {
     pub require_billing_address: bool,
     pub tax_id_collection: TaxIdCollection,
     pub allowed_buyer_types: AllowedBuyerTypes,
+    pub option: Option<String>,
+    pub coupon_code: Option<String>,
 }
 
 #[derive(Debug, Clone)]

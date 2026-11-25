@@ -473,6 +473,42 @@ impl FeatureRow {
     }
 }
 
+impl FeatureRow {
+    /// How many features each product grants, archived ones left out.
+    pub async fn count_by_products(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        product_ids: &[ProductId],
+    ) -> DbResult<std::collections::HashMap<ProductId, i64>> {
+        use crate::schema::feature::dsl as f_dsl;
+        use diesel_async::RunQueryDsl;
+
+        if product_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let query = f_dsl::feature
+            .filter(f_dsl::tenant_id.eq(param_tenant_id))
+            .filter(f_dsl::product_id.eq_any(product_ids))
+            .filter(f_dsl::status.ne(FeatureStatusEnum::Archived))
+            .group_by(f_dsl::product_id)
+            .select((f_dsl::product_id, diesel::dsl::count(f_dsl::id)));
+
+        crate::debug_sql(&query);
+
+        query
+            .load::<(Option<ProductId>, i64)>(conn)
+            .await
+            .attach("Error while counting features by product")
+            .into_db_result()
+            .map(|rows| {
+                rows.into_iter()
+                    .filter_map(|(id, count)| id.map(|id| (id, count)))
+                    .collect()
+            })
+    }
+}
+
 /// Entitlements of an archived feature are kept but hidden until it is restored.
 #[diesel::dsl::auto_type(no_type_alias)]
 fn archived_feature_ids(param_tenant_id: TenantId) -> _ {

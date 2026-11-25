@@ -60,6 +60,9 @@ const EXPRESS_ALLOWED_SERVICES: &[&str] = &[
     // A catalog primitive a plan's prices can name, same footing as BillableMetricsService: an
     // express org must be able to define the units it prices in, not just the plans that use them.
     "CreditUnitsService",
+    "ManagedQuantitiesService",
+    "RateCardsService",
+    "PricingPageService",
 ];
 
 fn is_express_allowed_service(sm: &GrpcServiceMethod) -> bool {

@@ -324,11 +324,13 @@ async fn customer_and_tenant_writers_bump_their_tokens() -> TestResult {
         fee_type: FeeTypeEnum::Usage,
         fee_structure: serde_json::to_value(FeeStructure::Usage {
             metric_id: METRIC_DATABASE_SIZE,
-            model: UsageModel::Matrix,
+            model: UsageModel::DimensionRates,
         })
         .map_err(test_error)?,
         catalog: true,
         tax_category_id: None,
+        icon: None,
+        color: None,
     }
     .insert(&mut conn)
     .await

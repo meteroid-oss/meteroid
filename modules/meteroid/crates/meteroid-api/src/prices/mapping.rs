@@ -3,12 +3,15 @@ pub mod prices {
     use meteroid_app::conversions::ProtoConv;
 
     use meteroid_grpc::meteroid::api::prices::v1 as proto;
+    use meteroid_grpc::meteroid::api::ratecards::v1::RateCardUnmatched as ProtoUnmatched;
     use meteroid_grpc::meteroid::api::shared::v1 as api_shared;
     use meteroid_store::domain;
     use meteroid_store::domain::price_components::{
-        CreditExpiry, CreditRollover, MatrixDimension, MatrixRow, TierRow, UsagePricingModel,
+        CreditExpiry, CreditRollover, DimensionRate, DimensionRates, MatrixDimension, TierRow,
+        UsagePricingModel,
     };
     use meteroid_store::domain::prices::Pricing;
+    use meteroid_store::domain::rate_cards::RateCardUnmatched;
     use rust_decimal::Decimal;
     use tonic::Status;
 
@@ -52,13 +55,17 @@ pub mod prices {
                 }))
             }
             Pricing::Slot {
-                unit_rate,
+                model,
                 min_slots,
                 max_slots,
             } => Some(proto::price::Pricing::SlotPricing(proto::SlotPricing {
-                unit_rate: unit_rate.as_proto(),
+                unit_rate: model
+                    .per_unit_rate()
+                    .unwrap_or_else(|| model.headline_rate())
+                    .as_proto(),
                 min_slots: *min_slots,
                 max_slots: *max_slots,
+                model: rating_model_to_proto(model),
             })),
             Pricing::Capacity {
                 rate,
@@ -77,19 +84,23 @@ pub mod prices {
             Pricing::ExtraRecurring {
                 unit_price,
                 quantity,
+                model,
             } => Some(proto::price::Pricing::ExtraRecurringPricing(
                 proto::ExtraRecurringPricing {
                     unit_price: unit_price.as_proto(),
                     quantity: *quantity,
+                    model: fixed_quantity_model_to_proto(model.as_ref()),
                 },
             )),
             Pricing::OneTime {
                 unit_price,
                 quantity,
+                model,
             } => Some(proto::price::Pricing::OneTimePricing(
                 proto::OneTimePricing {
                     unit_price: unit_price.as_proto(),
                     quantity: *quantity,
+                    model: fixed_quantity_model_to_proto(model.as_ref()),
                 },
             )),
             Pricing::Credit {
@@ -161,6 +172,61 @@ pub mod prices {
         }
     }
 
+    /// A per-unit model travels as its rate alone; any other in `model`.
+    pub fn rating_model_to_proto(
+        model: &meteroid_store::domain::price_components::RatingModel,
+    ) -> Option<proto::UsagePricing> {
+        model
+            .per_unit_rate()
+            .is_none()
+            .then(|| usage_model_to_proto(&model.as_usage_model()))
+    }
+
+    pub fn rating_model_from_proto(
+        model: Option<&proto::UsagePricing>,
+        unit_rate: &String,
+    ) -> Result<meteroid_store::domain::price_components::RatingModel, Status> {
+        use meteroid_store::domain::price_components::RatingModel;
+        match model {
+            Some(model) => RatingModel::from_usage_model(usage_model_from_proto(model)?)
+                .map_err(|e| Status::invalid_argument(e.to_string())),
+            None => Ok(RatingModel::PerUnit {
+                rate: Decimal::from_proto_ref(unit_rate)?,
+            }),
+        }
+    }
+
+    /// The model of an extra recurring or one-time price, when it has one.
+    pub fn fixed_quantity_model_to_proto(
+        model: Option<&meteroid_store::domain::price_components::RatingModel>,
+    ) -> Option<proto::UsagePricing> {
+        model.map(|model| usage_model_to_proto(&model.as_usage_model()))
+    }
+
+    /// The unit price and model of an extra recurring or one-time price. A per-unit model is
+    /// kept as the unit price; any other leaves its first rate there, for readers without models.
+    pub fn fixed_quantity_model_from_proto(
+        model: Option<&proto::UsagePricing>,
+        unit_price: &String,
+    ) -> Result<
+        (
+            Decimal,
+            Option<meteroid_store::domain::price_components::RatingModel>,
+        ),
+        Status,
+    > {
+        use meteroid_store::domain::price_components::RatingModel;
+        let Some(model) = model else {
+            return Ok((Decimal::from_proto_ref(unit_price)?, None));
+        };
+        match RatingModel::from_usage_model(usage_model_from_proto(model)?)
+            .map_err(|e| Status::invalid_argument(e.to_string()))?
+        {
+            RatingModel::PerUnit { rate } => Ok((rate, None)),
+            model => Ok((model.headline_rate(), Some(model))),
+        }
+    }
+
     pub fn usage_model_to_proto(model: &UsagePricingModel) -> proto::UsagePricing {
         let model_oneof = match model {
             UsagePricingModel::PerUnit { rate } => {
@@ -184,11 +250,16 @@ pub mod prices {
                     block_size: *block_size,
                 })
             }
-            UsagePricingModel::Matrix { rates } => {
-                proto::usage_pricing::Model::Matrix(proto::usage_pricing::MatrixPricing {
-                    rows: rates.iter().map(matrix_row_to_proto).collect(),
-                })
+            UsagePricingModel::DimensionRates(rates) => {
+                proto::usage_pricing::Model::DimensionRates(dimension_rates_to_proto(rates))
             }
+            UsagePricingModel::RateCard {
+                rate_card_id,
+                multiplier,
+            } => proto::usage_pricing::Model::RateCard(proto::usage_pricing::RateCardPricing {
+                rate_card_id: rate_card_id.as_proto(),
+                multiplier: multiplier.map(|m| m.as_proto()),
+            }),
         };
         proto::UsagePricing {
             model: Some(model_oneof),
@@ -206,20 +277,59 @@ pub mod prices {
         }
     }
 
-    pub fn matrix_row_to_proto(row: &MatrixRow) -> proto::usage_pricing::matrix_pricing::MatrixRow {
-        proto::usage_pricing::matrix_pricing::MatrixRow {
-            per_unit_price: row.per_unit_price.as_proto(),
-            dimension1: Some(proto::usage_pricing::matrix_pricing::MatrixDimension {
-                key: row.dimension1.key.clone(),
-                value: row.dimension1.value.clone(),
-            }),
-            dimension2: row.dimension2.as_ref().map(|d| {
-                proto::usage_pricing::matrix_pricing::MatrixDimension {
-                    key: d.key.clone(),
-                    value: d.value.clone(),
-                }
-            }),
+    pub fn dimension_rates_to_proto(
+        rates: &DimensionRates,
+    ) -> proto::usage_pricing::DimensionRatesPricing {
+        proto::usage_pricing::DimensionRatesPricing {
+            dimensions: rates.dimensions.clone(),
+            rates: rates
+                .rates
+                .iter()
+                .map(
+                    |rate| proto::usage_pricing::dimension_rates_pricing::DimensionRate {
+                        key: rate.key.clone(),
+                        rate: rate.rate.as_proto(),
+                        label: rate.label.clone(),
+                    },
+                )
+                .collect(),
+            unit_size: rates.unit_size.as_proto(),
+            on_unmatched: match rates.on_unmatched {
+                RateCardUnmatched::Hold => ProtoUnmatched::Hold,
+                RateCardUnmatched::Ignore => ProtoUnmatched::Ignore,
+            }
+            .into(),
         }
+    }
+
+    pub fn dimension_rates_from_proto(
+        rates: &proto::usage_pricing::DimensionRatesPricing,
+    ) -> Result<DimensionRates, Status> {
+        let unit_size = match rates.unit_size.trim() {
+            "" => Decimal::ONE,
+            size => Decimal::from_proto_ref(&size.to_owned())?,
+        };
+        let on_unmatched = match ProtoUnmatched::try_from(rates.on_unmatched) {
+            Ok(ProtoUnmatched::Hold) => RateCardUnmatched::Hold,
+            Ok(ProtoUnmatched::Ignore) => RateCardUnmatched::Ignore,
+            Err(_) => return Err(Status::invalid_argument("unknown unmatched policy")),
+        };
+        Ok(DimensionRates {
+            dimensions: rates.dimensions.clone(),
+            rates: rates
+                .rates
+                .iter()
+                .map(|rate| {
+                    Ok(DimensionRate {
+                        key: rate.key.clone(),
+                        rate: Decimal::from_proto_ref(&rate.rate)?,
+                        label: rate.label.clone().filter(|label| !label.trim().is_empty()),
+                    })
+                })
+                .collect::<Result<Vec<_>, Status>>()?,
+            unit_size,
+            on_unmatched,
+        })
     }
 
     pub fn pricing_from_proto(
@@ -231,7 +341,7 @@ pub mod prices {
                 rate: Decimal::from_proto_ref(&p.rate)?,
             }),
             Some(P::SlotPricing(p)) => Ok(Pricing::Slot {
-                unit_rate: Decimal::from_proto_ref(&p.unit_rate)?,
+                model: rating_model_from_proto(p.model.as_ref(), &p.unit_rate)?,
                 min_slots: p.min_slots,
                 max_slots: p.max_slots,
             }),
@@ -244,14 +354,24 @@ pub mod prices {
                 let model = usage_model_from_proto(&p)?;
                 Ok(Pricing::Usage(model))
             }
-            Some(P::ExtraRecurringPricing(p)) => Ok(Pricing::ExtraRecurring {
-                unit_price: Decimal::from_proto_ref(&p.unit_price)?,
-                quantity: p.quantity,
-            }),
-            Some(P::OneTimePricing(p)) => Ok(Pricing::OneTime {
-                unit_price: Decimal::from_proto_ref(&p.unit_price)?,
-                quantity: p.quantity,
-            }),
+            Some(P::ExtraRecurringPricing(p)) => {
+                let (unit_price, model) =
+                    fixed_quantity_model_from_proto(p.model.as_ref(), &p.unit_price)?;
+                Ok(Pricing::ExtraRecurring {
+                    unit_price,
+                    quantity: p.quantity,
+                    model,
+                })
+            }
+            Some(P::OneTimePricing(p)) => {
+                let (unit_price, model) =
+                    fixed_quantity_model_from_proto(p.model.as_ref(), &p.unit_price)?;
+                Ok(Pricing::OneTime {
+                    unit_price,
+                    quantity: p.quantity,
+                    model,
+                })
+            }
             Some(P::CreditPricing(p)) => Ok(Pricing::Credit {
                 unit_price: Decimal::from_proto_ref(&p.unit_price)?,
                 quantity: p.quantity,
@@ -315,13 +435,27 @@ pub mod prices {
                     rate,
                 })
             }
+            Some(proto::usage_pricing::Model::RateCard(card)) => Ok(UsagePricingModel::RateCard {
+                rate_card_id: common_domain::ids::RateCardId::from_proto(&card.rate_card_id)?,
+                multiplier: card
+                    .multiplier
+                    .as_ref()
+                    .map(Decimal::from_proto_ref)
+                    .transpose()?,
+            }),
+            Some(proto::usage_pricing::Model::DimensionRates(rates)) => Ok(
+                UsagePricingModel::DimensionRates(dimension_rates_from_proto(rates)?),
+            ),
+            // Deprecated: a matrix is read as its rates by dimension.
             Some(proto::usage_pricing::Model::Matrix(matrix)) => {
-                let rates = matrix
+                let cells = matrix
                     .rows
                     .iter()
                     .map(matrix_row_from_proto)
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok(UsagePricingModel::Matrix { rates })
+                Ok(UsagePricingModel::DimensionRates(
+                    DimensionRates::from_matrix_cells(cells),
+                ))
             }
             None => Err(Status::invalid_argument("usage pricing model is required")),
         }
@@ -349,25 +483,26 @@ pub mod prices {
         })
     }
 
+    /// A deprecated matrix row: its cell's dimensions and its rate.
     pub fn matrix_row_from_proto(
         row: &proto::usage_pricing::matrix_pricing::MatrixRow,
-    ) -> Result<MatrixRow, Status> {
+    ) -> Result<(MatrixDimension, Option<MatrixDimension>, Decimal), Status> {
         let dimension1 = row
             .dimension1
             .as_ref()
             .ok_or_else(|| Status::invalid_argument("Missing dimension1"))?;
 
-        Ok(MatrixRow {
-            dimension1: MatrixDimension {
+        Ok((
+            MatrixDimension {
                 key: dimension1.key.clone(),
                 value: dimension1.value.clone(),
             },
-            dimension2: row.dimension2.as_ref().map(|d| MatrixDimension {
+            row.dimension2.as_ref().map(|d| MatrixDimension {
                 key: d.key.clone(),
                 value: d.value.clone(),
             }),
-            per_unit_price: Decimal::from_proto_ref(&row.per_unit_price)?,
-        })
+            Decimal::from_proto_ref(&row.per_unit_price)?,
+        ))
     }
 
     pub fn cadence_from_proto(cadence: i32) -> Result<domain::enums::BillingPeriodEnum, Status> {
@@ -500,5 +635,64 @@ pub mod prices {
                 })
                 .collect(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::prices::{usage_model_from_proto, usage_model_to_proto};
+    use meteroid_grpc::meteroid::api::prices::v1 as proto;
+    use meteroid_store::domain::price_components::UsagePricingModel;
+    use rust_decimal_macros::dec;
+
+    /// A matrix sent by an older client is read as rates by dimension, returned as such.
+    #[test]
+    fn a_matrix_input_reads_as_rates_by_dimension() {
+        let dimension =
+            |key: &str, value: &str| proto::usage_pricing::matrix_pricing::MatrixDimension {
+                key: key.to_owned(),
+                value: value.to_owned(),
+            };
+        let input = proto::UsagePricing {
+            model: Some(proto::usage_pricing::Model::Matrix(
+                proto::usage_pricing::MatrixPricing {
+                    rows: vec![
+                        proto::usage_pricing::matrix_pricing::MatrixRow {
+                            per_unit_price: "0.2".to_owned(),
+                            dimension1: Some(dimension("region", "eu")),
+                            dimension2: Some(dimension("tier", "gold")),
+                        },
+                        proto::usage_pricing::matrix_pricing::MatrixRow {
+                            per_unit_price: "0.1".to_owned(),
+                            dimension1: Some(dimension("region", "us")),
+                            dimension2: None,
+                        },
+                    ],
+                },
+            )),
+        };
+        let UsagePricingModel::DimensionRates(rates) = usage_model_from_proto(&input).unwrap()
+        else {
+            panic!("rates by dimension");
+        };
+        assert_eq!(rates.dimensions, vec!["region", "tier"]);
+        assert_eq!(rates.rates[1].key, vec!["us", "*"]);
+        assert_eq!(rates.rates[0].rate, dec!(0.2));
+
+        let Some(proto::usage_pricing::Model::DimensionRates(output)) =
+            usage_model_to_proto(&UsagePricingModel::DimensionRates(rates.clone())).model
+        else {
+            panic!("returned as rates by dimension");
+        };
+        assert_eq!(output.unit_size, "1");
+        assert_eq!(
+            output.on_unmatched,
+            meteroid_grpc::meteroid::api::ratecards::v1::RateCardUnmatched::Ignore as i32
+        );
+        let read = usage_model_from_proto(&proto::UsagePricing {
+            model: Some(proto::usage_pricing::Model::DimensionRates(output)),
+        })
+        .unwrap();
+        assert!(matches!(read, UsagePricingModel::DimensionRates(back) if back == rates));
     }
 }

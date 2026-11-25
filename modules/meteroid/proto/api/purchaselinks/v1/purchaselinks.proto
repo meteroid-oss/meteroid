@@ -38,6 +38,12 @@ message PurchaseLink {
   bool require_billing_address = 14;
   TaxIdCollection tax_id_collection = 15;
   AllowedBuyerTypes allowed_buyer_types = 16;
+  reserved 17, 18, 19;
+  reserved "plan_variant_code", "price_book_code", "term";
+  // The alias of the plan option it sells; unset: the plan's default option.
+  optional string option = 21;
+  // The coupon code a purchase redeems when the buyer enters none.
+  optional string coupon_code = 20;
 }
 
 message ListPurchaseLinksRequest {
@@ -60,6 +66,12 @@ message CreatePurchaseLinkRequest {
   optional bool require_billing_address = 7;
   TaxIdCollection tax_id_collection = 8;
   AllowedBuyerTypes allowed_buyer_types = 9;
+  reserved 10, 11, 12;
+  reserved "plan_variant_code", "price_book_code", "term";
+  // The alias of the plan option it sells; unset or blank: the plan's default option.
+  optional string option = 14;
+  // The coupon code a purchase redeems when the buyer enters none; unset or blank: none.
+  optional string coupon_code = 13;
 }
 
 message CreatePurchaseLinkResponse {
@@ -77,6 +89,12 @@ message UpdatePurchaseLinkRequest {
   optional bool require_billing_address = 7;
   TaxIdCollection tax_id_collection = 8;
   AllowedBuyerTypes allowed_buyer_types = 9;
+  reserved 10, 11, 12;
+  reserved "plan_variant_code", "price_book_code", "term";
+  // The alias of the plan option it sells; unset or blank: the plan's default option.
+  optional string option = 14;
+  // The coupon code a purchase redeems when the buyer enters none; unset or blank: none.
+  optional string coupon_code = 13;
 }
 
 message UpdatePurchaseLinkResponse {

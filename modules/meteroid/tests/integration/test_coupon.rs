@@ -26,6 +26,7 @@ async fn test_coupons_basic() {
             api::coupons::v1::coupon_discount::FixedDiscount {
                 amount: "20.23".into(),
                 currency: "USD".into(),
+                amounts: vec![],
             },
         )),
     };
@@ -51,6 +52,7 @@ async fn test_coupons_basic() {
             recurring_value: None,
             reusable: false,
             plan_ids: vec![],
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -73,6 +75,7 @@ async fn test_coupons_basic() {
             pagination: None,
             filter: api::coupons::v1::list_coupon_request::CouponFilter::All as i32,
             order_by: None,
+            plan_id: None,
         })
         .await
         .unwrap()
@@ -91,6 +94,7 @@ async fn test_coupons_basic() {
             description: "test-desc-edited".into(),
             discount: Some(percentage_discount.clone()),
             plan_ids: vec![],
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -123,6 +127,7 @@ async fn test_coupons_basic() {
             pagination: None,
             filter: api::coupons::v1::list_coupon_request::CouponFilter::All as i32,
             order_by: None,
+            plan_id: None,
         })
         .await
         .unwrap()

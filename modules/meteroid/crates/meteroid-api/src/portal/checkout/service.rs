@@ -850,14 +850,22 @@ impl PortalCheckoutServiceComponents {
                 let change_date = session.change_date.ok_or_else(|| {
                     Status::internal("PlanChange checkout session missing change_date")
                 })?;
+                let target = meteroid_store::domain::subscription_changes::PlanTarget {
+                    version: new_plan_version_id,
+                    ..session
+                        .plan_target()
+                        .map_err(Into::<PortalCheckoutApiError>::into)?
+                };
 
+                // The levels the customer picked for the plan moved to.
+                let component_params = session.component_params();
                 let preview = self
                     .services
                     .preview_plan_change(
                         subscription_id,
                         tenant,
-                        new_plan_version_id,
-                        vec![],
+                        target.clone(),
+                        component_params.clone(),
                         Some(
                             meteroid_store::domain::subscription_changes::PlanChangeMode::Immediate,
                         ),
@@ -876,10 +884,11 @@ impl PortalCheckoutServiceComponents {
 
                 let invoice_content = self
                     .services
-                    .compute_plan_change_checkout_invoice(
+                    .compute_plan_change_checkout_invoice_with(
                         subscription_id,
                         tenant,
-                        new_plan_version_id,
+                        target,
+                        &component_params,
                         change_date,
                     )
                     .await
@@ -1272,8 +1281,10 @@ impl PortalCheckoutServiceComponents {
             let discount = calculate_next_invoice_coupons_discount(
                 minimum.amount_subunit,
                 &subscription_details.subscription.currency,
+                Some(subscription_details.subscription.plan_id),
                 &subscription_details.applied_coupons,
                 &invoice_content.applied_coupons,
+                subscription_details.subscription.current_period_end,
             );
             (minimum.amount_subunit - discount).to_non_negative_u64()
         });
@@ -1320,8 +1331,9 @@ impl PortalCheckoutServiceComponents {
         tenant_id: TenantId,
         subscription: &SubscriptionDetails,
     ) -> Result<AppliedCouponDetailed, Status> {
+        let add_on_ids: Vec<_> = subscription.add_ons.iter().map(|a| a.add_on_id).collect();
         self.services
-            .preview_checkout_coupon(tenant_id, code, &subscription.subscription)
+            .preview_checkout_coupon(tenant_id, code, &subscription.subscription, &add_on_ids)
             .await
             .map_err(|err| PortalCheckoutApiError::from(err).into())
     }

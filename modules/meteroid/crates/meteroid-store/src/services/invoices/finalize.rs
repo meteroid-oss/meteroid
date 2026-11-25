@@ -1149,10 +1149,7 @@ pub(crate) async fn release_applied_coupons(
     }
     let precision = crate::constants::Currencies::resolve_currency_precision(currency).unwrap_or(2);
     for detailed in AppliedCouponDetailedRow::list_by_ids_for_update(tx_conn, lock, &ids).await? {
-        let amount_delta = detailed
-            .coupon
-            .recurring_value
-            .is_some_and(|x| x >= 1)
+        let amount_delta = lasts_limited(&detailed)
             .then(|| {
                 applied_coupons_amounts
                     .iter()
@@ -1165,6 +1162,13 @@ pub(crate) async fn release_applied_coupons(
             .await?;
     }
     Ok(())
+}
+
+/// A redemption lasting a number of invoices or of months (as redeemed), which reports what it
+/// gave.
+fn lasts_limited(detailed: &AppliedCouponDetailedRow) -> bool {
+    detailed.coupon.recurring_value.is_some_and(|x| x >= 1)
+        || detailed.applied_coupon.duration_months.is_some()
 }
 
 async fn refresh_applied_coupons(
@@ -1185,11 +1189,7 @@ async fn refresh_applied_coupons(
     for applied_coupon_detailed in applied_coupons_detailed {
         // The amount given is reported, never a budget (R-089); only coupons of a limited
         // duration have always recorded it, so forever ones still do not.
-        let amount_delta = if applied_coupon_detailed
-            .coupon
-            .recurring_value
-            .is_some_and(|x| x >= 1)
-        {
+        let amount_delta = if lasts_limited(&applied_coupon_detailed) {
             // Never panic on an unknown/unsupported currency during finalize (billing must not
             // fail); fall back to precision 2 via the single currency source.
             let precision =

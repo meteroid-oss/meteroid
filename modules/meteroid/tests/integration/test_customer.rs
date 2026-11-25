@@ -42,6 +42,9 @@ async fn test_customers_basic() {
         .customers
         .clone()
         .create_customer(api::customers::v1::CreateCustomerRequest {
+            subscribe_to_signup_plan: false,
+            signup_product_family_id: None,
+            signup_levels: vec![],
             data: Some(api::customers::v1::CustomerNew {
                 name: customer_name.to_string(),
                 customer_type: api::customers::v1::CustomerType::Company as i32,
@@ -76,6 +79,9 @@ async fn test_customers_basic() {
         .customers
         .clone()
         .create_customer(api::customers::v1::CreateCustomerRequest {
+            subscribe_to_signup_plan: false,
+            signup_product_family_id: None,
+            signup_levels: vec![],
             data: Some(api::customers::v1::CustomerNew {
                 name: "created_manual".to_string(),
                 customer_type: api::customers::v1::CustomerType::Company as i32,

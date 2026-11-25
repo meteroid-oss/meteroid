@@ -391,7 +391,11 @@ pub struct WebhookOutCouponEventData {
     pub discount: CouponDiscount,
     pub expires_at: Option<ApiDateTime>,
     pub redemption_limit: Option<i32>,
+    /// Invoices it discounts on a subscription, for coupons made before `duration_months`.
     pub recurring_value: Option<i32>,
+    /// Applies to billing periods starting within this many months of the first paid period;
+    /// neither this nor `recurring_value`: forever.
+    pub duration_months: Option<i32>,
     pub reusable: bool,
     pub disabled: bool,
     pub created_at: ApiDateTime,
@@ -408,6 +412,7 @@ impl From<CouponEvent> for WebhookOutCouponEventData {
             expires_at: e.expires_at.map(Into::into),
             redemption_limit: e.redemption_limit,
             recurring_value: e.recurring_value,
+            duration_months: e.duration_months,
             reusable: e.reusable,
             disabled: e.disabled,
             created_at: e.created_at.into(),

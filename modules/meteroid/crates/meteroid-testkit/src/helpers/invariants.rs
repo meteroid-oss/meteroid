@@ -627,6 +627,16 @@ const CHECKS: &[(&str, &str)] = &[
                        WHERE e.subscription_id = s.id AND e.event_type = 'CREATED')
            AND (coalesce(s.trial_duration, 0) > 0) <> (t.subscription_id IS NOT NULL)",
     ),
+    (
+        "I32 a seat transaction counts the managed quantity of its unit, in its tenant",
+        "SELECT format('slot transaction %s: unit %s, quantity %s of tenant %s',
+                       st.id, st.unit, q.code, q.tenant_id) AS message
+         FROM slot_transaction st
+         JOIN subscription s ON s.id = st.subscription_id
+         JOIN managed_quantity q ON q.id = st.managed_quantity_id
+         WHERE s.tenant_id = $1
+           AND (q.tenant_id <> s.tenant_id OR q.code <> st.unit)",
+    ),
 ];
 
 /// One violated invariant: the check (`"I23 the lines' taxable amounts …"`) and what broke it.

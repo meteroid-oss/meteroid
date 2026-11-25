@@ -24,15 +24,16 @@ use meteroid_grpc::meteroid::api::subscriptions::v1::{
     GetSubscriptionComponentUsageResponse, GetSubscriptionMinimumProgressRequest,
     GetSubscriptionMinimumProgressResponse, GetSubscriptionReceivablesRequest,
     GetSubscriptionReceivablesResponse, GetSubscriptionUsageRequest, GetSubscriptionUsageResponse,
-    GetUpcomingInvoiceRequest, GetUpcomingInvoiceResponse, ListSlotTransactionsRequest,
-    ListSlotTransactionsResponse, ListSubscriptionsRequest, ListSubscriptionsResponse,
-    ListUnattributedUsageRequest, ListUnattributedUsageResponse, MrrChange,
-    PreviewAmendmentRequest, PreviewAmendmentResponse, PreviewCreateSubscriptionRequest,
-    PreviewCreateSubscriptionResponse, PreviewPlanChangeRequest, PreviewPlanChangeResponse,
-    PreviewSlotUpdateRequest, PreviewSlotUpdateResponse, SchedulePlanChangeRequest,
-    SchedulePlanChangeResponse, SubscriptionDetails, SubscriptionMinimumProgress,
-    SubscriptionReceivables, SyncToHubspotRequest, SyncToHubspotResponse, UpdateSlotsRequest,
-    UpdateSlotsResponse, UpdateSubscriptionRequest, UpdateSubscriptionResponse,
+    GetUpcomingInvoiceRequest, GetUpcomingInvoiceResponse, ListCapacityLevelsRequest,
+    ListCapacityLevelsResponse, ListSlotTransactionsRequest, ListSlotTransactionsResponse,
+    ListSubscriptionsRequest, ListSubscriptionsResponse, ListUnattributedUsageRequest,
+    ListUnattributedUsageResponse, MrrChange, PreviewAmendmentRequest, PreviewAmendmentResponse,
+    PreviewCreateSubscriptionRequest, PreviewCreateSubscriptionResponse, PreviewPlanChangeRequest,
+    PreviewPlanChangeResponse, PreviewSlotUpdateRequest, PreviewSlotUpdateResponse,
+    SchedulePlanChangeRequest, SchedulePlanChangeResponse, SubscriptionDetails,
+    SubscriptionMinimumProgress, SubscriptionReceivables, SyncToHubspotRequest,
+    SyncToHubspotResponse, UpdateSlotsRequest, UpdateSlotsResponse, UpdateSubscriptionRequest,
+    UpdateSubscriptionResponse,
 };
 
 use crate::subscriptions::error::SubscriptionApiError;
@@ -45,6 +46,7 @@ use meteroid_grpc::meteroid::api::subscriptions::v1::{
 use meteroid_grpc_mapping::utils::PaginationExt;
 use meteroid_grpc_mapping::utils::caller_permissions;
 use meteroid_store::domain::credit_outlook::UpcomingChange;
+use meteroid_store::domain::subscription_changes::PlanTarget;
 use meteroid_store::repositories::SubscriptionInterface;
 use meteroid_store::repositories::plans::PlansInterfaceAuto;
 use meteroid_store::repositories::subscriptions::{
@@ -341,6 +343,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
 
         use meteroid_grpc::meteroid::api::subscriptions::v1::SlotUpgradeBillingMode as ProtoMode;
         use meteroid_store::domain::SlotUpgradeBillingMode;
+        use meteroid_store::domain::managed_quantities::SeatChange;
 
         // default to Optimistic
         let billing_mode = match inner.billing_mode() {
@@ -355,7 +358,15 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 tenant_id,
                 subscription_id,
                 price_component_id,
-                inner.delta,
+                match inner.target {
+                    Some(target) if inner.delta == 0 => SeatChange::To(target),
+                    Some(_) => {
+                        return Err(Status::invalid_argument(
+                            "a seat change has a delta or a target, not both",
+                        ));
+                    }
+                    None => SeatChange::By(inner.delta),
+                },
                 billing_mode,
                 actor,
             )
@@ -632,7 +643,10 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let inner = request.into_inner();
 
         let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
-        let new_plan_version_id = PlanVersionId::from_proto(inner.new_plan_version_id)?;
+        let target = PlanTarget {
+            version: PlanVersionId::from_proto(inner.new_plan_version_id)?,
+            option: crate::plans::mapping::plans::option_ref_from_proto(inner.option),
+        };
         let component_params =
             mapping::plan_change::map_component_parameterizations(inner.parameterized_components)?;
         let mode = mapping::plan_change::map_apply_mode(inner.apply_mode);
@@ -645,7 +659,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                         actor_typed.clone(),
                         subscription_id,
                         tenant_id,
-                        new_plan_version_id,
+                        target,
                         component_params,
                     )
                     .await
@@ -664,7 +678,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                         actor_typed,
                         subscription_id,
                         tenant_id,
-                        new_plan_version_id,
+                        target,
                         component_params,
                     )
                     .await
@@ -688,7 +702,10 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let inner = request.into_inner();
 
         let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
-        let new_plan_version_id = PlanVersionId::from_proto(inner.new_plan_version_id)?;
+        let target = PlanTarget {
+            version: PlanVersionId::from_proto(inner.new_plan_version_id)?,
+            option: crate::plans::mapping::plans::option_ref_from_proto(inner.option),
+        };
         let component_params =
             mapping::plan_change::map_component_parameterizations(inner.parameterized_components)?;
         let mode = mapping::plan_change::map_apply_mode(inner.apply_mode);
@@ -698,7 +715,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .preview_plan_change(
                 subscription_id,
                 tenant_id,
-                new_plan_version_id,
+                target,
                 component_params,
                 Some(mode),
             )
@@ -986,6 +1003,52 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .map_err(Into::<SubscriptionApiError>::into)?;
 
         Ok(Response::new(CancelAmendmentResponse {}))
+    }
+
+    #[tracing::instrument(skip_all, fields(subscription_id = %request.get_ref().subscription_id))]
+    async fn list_capacity_levels(
+        &self,
+        request: Request<ListCapacityLevelsRequest>,
+    ) -> Result<Response<ListCapacityLevelsResponse>, Status> {
+        use meteroid_grpc::meteroid::api::subscriptions::v1::{
+            CapacityLevel, ComponentCapacityLevels,
+        };
+
+        let tenant_id = request.tenant()?;
+        let inner = request.into_inner();
+
+        let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
+
+        let components = self
+            .services
+            .list_capacity_levels(tenant_id, subscription_id)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?
+            .into_iter()
+            .map(|component| ComponentCapacityLevels {
+                subscription_component_id: component.subscription_component_id.as_proto(),
+                price_component_id: component.price_component_id.as_proto(),
+                name: component.name,
+                period: mapping::price_components::subscription_fee_billing_period_to_grpc(
+                    component.period,
+                )
+                .into(),
+                included: component.included,
+                levels: component
+                    .levels
+                    .into_iter()
+                    .map(|level| CapacityLevel {
+                        price_id: level.price_id.as_proto(),
+                        included: level.included,
+                        rate: level.rate.to_string(),
+                        overage_rate: level.overage_rate.to_string(),
+                        current: level.current,
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        Ok(Response::new(ListCapacityLevelsResponse { components }))
     }
 
     #[tracing::instrument(skip_all, fields(subscription_id = %request.get_ref().subscription_id))]

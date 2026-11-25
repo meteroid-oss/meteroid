@@ -1,7 +1,8 @@
 import { FunctionComponent } from 'react'
+import { Navigate, useParams } from 'react-router'
 
-import { AddonEditPanel } from '@/features/productCatalog/addons/AddonEditPanel'
-
+/** An add-on is edited in its panel beside the catalog: older links open it there. */
 export const EditAddon: FunctionComponent = () => {
-  return <AddonEditPanel />
+  const { addonId } = useParams<{ addonId: string }>()
+  return <Navigate to={`../${addonId ?? ''}`} replace />
 }

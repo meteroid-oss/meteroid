@@ -2,8 +2,11 @@
 //! back, the coupons (R-020, R-089) spread over them (R-070), and once the store resolved their
 //! taxes, the discount restated net (R-031).
 
+use chrono::NaiveDate;
+use common_domain::ids::AddOnId;
+
 use crate::assembly::discount::{
-    Coupon, CouponDiscount, calculate_coupons_discount, distribute_discount,
+    Coupon, CouponDiscount, Part, discount_parts, distribute_discount,
 };
 use crate::assembly::tax_inclusive::net_coupons;
 use crate::credit::allocation::Overflow;
@@ -17,6 +20,11 @@ pub struct AssemblyInputs {
     pub coupons: Vec<Coupon>,
     /// A discount given as an amount (a one-off invoice), instead of coupons.
     pub discount: Option<u64>,
+    /// The add-on each line bills, by place; a line past them bills none.
+    pub add_ons: Vec<Option<AddOnId>>,
+    /// The day the service period each line charges starts, by place, which a coupon lasting
+    /// months reads; a line past them is within any coupon's months.
+    pub starts: Vec<Option<NaiveDate>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -37,22 +45,29 @@ pub fn assemble(lines: Vec<Line>, inputs: &AssemblyInputs) -> Assembled {
         line.promotional = None;
         line.taxable = line.figures.subtotal;
     }
-    let (coupons, discount) = match inputs.discount {
-        Some(discount) => (Vec::new(), discount),
+    let subtotals: Vec<i64> = lines.iter().map(|line| line.figures.subtotal).collect();
+    let (coupons, discount, taxable) = match inputs.discount {
+        Some(discount) => (
+            Vec::new(),
+            discount,
+            distribute_discount(&subtotals, discount),
+        ),
         None => {
-            let subtotal = lines
+            let parts: Vec<Part> = subtotals
                 .iter()
-                .fold(0, |sum, line| sum + line.figures.subtotal);
-            let coupons = calculate_coupons_discount(subtotal, &inputs.currency, &inputs.coupons);
+                .enumerate()
+                .map(|(i, subtotal)| Part {
+                    subtotal: *subtotal,
+                    add_on: inputs.add_ons.get(i).copied().flatten(),
+                    start: inputs.starts.get(i).copied().flatten(),
+                })
+                .collect();
+            let (coupons, taxable) = discount_parts(&parts, &inputs.currency, &inputs.coupons);
             let discount = coupons.iter().map(|coupon| coupon.value).sum::<i64>();
-            (coupons, u64::try_from(discount).unwrap_or(0))
+            (coupons, u64::try_from(discount).unwrap_or(0), taxable)
         }
     };
-    let subtotals: Vec<i64> = lines.iter().map(|line| line.figures.subtotal).collect();
-    for (line, taxable) in lines
-        .iter_mut()
-        .zip(distribute_discount(&subtotals, discount))
-    {
+    for (line, taxable) in lines.iter_mut().zip(taxable) {
         if let Some(taxable) = taxable {
             line.taxable = taxable;
         }
@@ -121,7 +136,37 @@ mod tests {
             currency: "USD".to_owned(),
             coupons,
             discount: None,
+            add_ons: Vec::new(),
+            starts: Vec::new(),
         }
+    }
+
+    /// 50% off the add-on billed on the second line: its 40.00 taxable 20.00, the plan's 60.00
+    /// whole.
+    #[test]
+    fn a_coupon_on_an_add_on_is_spread_over_its_lines_alone() {
+        let support = Uuid::from_u128(7).into();
+        let assembled = assemble(
+            vec![line(6_000), line(4_000)],
+            &AssemblyInputs {
+                add_ons: vec![None, Some(support)],
+                ..inputs(vec![Coupon {
+                    coupon_id: Uuid::from_u128(1).into(),
+                    value: CouponValue::Percentage(Decimal::from(50)),
+                    add_ons: Some(vec![support]),
+                    until: None,
+                }])
+            },
+        );
+        assert_eq!(assembled.discount, 2_000);
+        assert_eq!(
+            assembled
+                .lines
+                .iter()
+                .map(|l| l.taxable)
+                .collect::<Vec<_>>(),
+            vec![6_000, 2_000]
+        );
     }
 
     /// 10% then 5.00 off 60.00 and 40.00: 15.00 off, spread 9.00 and 6.00.
@@ -135,10 +180,14 @@ mod tests {
                     currency: "USD".to_owned(),
                     exponent: 2,
                 },
+                add_ons: None,
+                until: None,
             },
             Coupon {
                 coupon_id: Uuid::from_u128(2).into(),
                 value: CouponValue::Percentage(Decimal::from(10)),
+                add_ons: None,
+                until: None,
             },
         ];
         let assembled = assemble(vec![line(6_000), line(4_000)], &inputs(coupons));
@@ -180,6 +229,8 @@ mod tests {
             &inputs(vec![Coupon {
                 coupon_id: Uuid::from_u128(1).into(),
                 value: CouponValue::Percentage(Decimal::from(25)),
+                add_ons: None,
+                until: None,
             }]),
         );
         assert_eq!(discounted.lines[0].taxable, 3_750);

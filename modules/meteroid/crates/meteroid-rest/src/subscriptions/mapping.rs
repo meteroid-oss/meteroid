@@ -7,7 +7,9 @@ use crate::subscriptions::model::{
     SubscriptionUpdateRequest, UsageFilter,
 };
 use chrono::NaiveDate;
-use common_domain::ids::{CouponId, CustomerId, PlanVersionId, SubscriptionId};
+use common_domain::ids::{
+    AliasOr, CouponId, CustomerId, PlanOptionId, PlanVersionId, SubscriptionId,
+};
 use meteroid_app::errors::RestApiError;
 use meteroid_store::domain;
 use meteroid_store::domain::enums::ScheduledEventTypeEnum;
@@ -48,6 +50,7 @@ pub fn domain_to_rest(s: domain::Subscription) -> Result<Subscription, RestApiEr
         usage_filter: s.usage_filter.map(usage_filter_to_rest),
         usage_filter_effective_from: (s.usage_filter_since.map(|since| since.and_utc()))
             .map(Into::into),
+        plan_option_id: s.plan_option_id,
     })
 }
 
@@ -82,6 +85,7 @@ pub fn domain_to_rest_details(
         plan_name: s.subscription.plan_name,
         plan_version_id: s.subscription.plan_version_id,
         plan_version: s.subscription.version,
+        plan_option_id: s.subscription.plan_option_id,
         status: s.subscription.status.into(),
         start_date: s.subscription.start_date,
         end_date: s.subscription.end_date,
@@ -177,8 +181,22 @@ fn domain_coupon_to_rest(c: domain::coupons::Coupon) -> Result<Coupon, RestApiEr
         expires_at: c.expires_at.map(Into::into),
         redemption_limit: c.redemption_limit,
         recurring_value: c.recurring_value,
+        duration_months: c.duration_months,
         reusable: c.reusable,
         disabled: c.disabled,
+    })
+}
+
+/// An option named by id when the text is one, else by alias; blank: none asked.
+pub fn option_ref_from_rest(option: Option<String>) -> Option<domain::plan_options::PlanOptionRef> {
+    use domain::plan_options::PlanOptionRef;
+    let option = option?.trim().to_string();
+    if option.is_empty() {
+        return None;
+    }
+    Some(match option.parse::<AliasOr<PlanOptionId>>() {
+        Ok(AliasOr::Id(id)) => PlanOptionRef::Id(id),
+        _ => PlanOptionRef::Alias(option),
     })
 }
 
@@ -223,6 +241,7 @@ pub fn rest_to_domain_create_request(
         entitlements: vec![],
         minimum_override: None,
         drop_minimum: false,
+        option: option_ref_from_rest(sub.option),
     };
 
     Ok(converted)

@@ -172,6 +172,8 @@ pub struct Subscription {
     pub plan_name: String,
     pub plan_description: Option<String>,
     pub plan_version_id: PlanVersionId,
+    /// The plan option bought; none for a subscription older than options or whose option is gone.
+    pub plan_option_id: Option<common_domain::ids::PlanOptionId>,
     pub version: u32,
     pub created_at: NaiveDateTime,
     pub net_terms: u32,
@@ -267,6 +269,7 @@ impl TryFrom<SubscriptionForDisplayRow> for Subscription {
             plan_name: val.plan_name,
             plan_description: val.plan_description,
             plan_version_id: val.subscription.plan_version_id,
+            plan_option_id: val.subscription.plan_option_id,
             version: val.version as u32,
             created_at: val.subscription.created_at,
             net_terms: val.subscription.net_terms as u32,
@@ -389,6 +392,10 @@ pub struct SubscriptionNewEnriched<'a> {
     /// The tax the plan's quoted prices carry, resolved against this customer in the
     /// context-gathering step. `None` for a tax-exclusive plan or an untaxed customer.
     pub tax_inclusive_rate: Option<rust_decimal::Decimal>,
+    /// The customer's.
+    pub currency: &'a str,
+    /// The option bought, of the plan version.
+    pub plan_option_id: Option<common_domain::ids::PlanOptionId>,
 }
 
 impl SubscriptionNewEnriched<'_> {
@@ -417,7 +424,7 @@ impl SubscriptionNewEnriched<'_> {
             customer_id: sub.customer_id,
             billing_day_anchor: self.billing_day_anchor as i16,
             tenant_id: self.tenant_id,
-            currency: self.plan.currency.clone(),
+            currency: self.currency.to_owned(),
             billing_start_date: Some(self.billing_start_date),
             end_date: sub.end_date,
             plan_version_id: sub.plan_version_id,
@@ -452,6 +459,7 @@ impl SubscriptionNewEnriched<'_> {
                 .usage_filter
                 .as_ref()
                 .map(|_| sub.start_date.and_time(chrono::NaiveTime::MIN)),
+            plan_option_id: self.plan_option_id,
         })
     }
 }
@@ -459,6 +467,9 @@ impl SubscriptionNewEnriched<'_> {
 #[derive(Debug, Clone)]
 pub struct CreateSubscription {
     pub subscription: SubscriptionNew,
+    /// The plan option bought; none: the first sold in the subscription's currency, or the one
+    /// whose cells bill the cadences `price_components` asks (as before options).
+    pub option: Option<crate::domain::plan_options::PlanOptionRef>,
     pub price_components: Option<CreateSubscriptionComponents>,
     pub add_ons: Option<CreateSubscriptionAddOns>,
     pub coupons: Option<CreateSubscriptionCoupons>,
@@ -477,6 +488,8 @@ pub struct CreateSubscription {
 #[derive(Debug, Clone)]
 pub struct CreateSubscriptionFromQuote {
     pub subscription: SubscriptionNew,
+    /// The plan option the quote sold; none: the one whose cells hold its prices.
+    pub option: Option<crate::domain::plan_options::PlanOptionRef>,
     pub components: Vec<SubscriptionComponentNewInternal>,
     pub add_ons: Vec<SubscriptionAddOnNewInternal>,
     pub coupon_ids: Vec<CouponId>,
@@ -535,6 +548,8 @@ pub struct SubscriptionDetails {
     pub pending_events: Vec<PendingScheduledEvent>,
     pub entitlements: Vec<Entitlement>,
     pub minimum: Option<crate::domain::subscription_minimums::SubscriptionMinimum>,
+    /// The plan option the subscription bought, when it still exists.
+    pub plan_option: Option<crate::domain::plan_options::PlanOption>,
 }
 
 #[derive(Clone, Debug)]
@@ -594,6 +609,7 @@ mod default_net_terms_tests {
                 catalog: true,
                 credit_unit: None,
             }],
+            option_prices: vec![],
             legacy_pricing: None,
         }
     }

@@ -1,0 +1,266 @@
+syntax = "proto3";
+
+package meteroid.api.pricingpage.v1;
+
+import "api/shared/v1/shared.proto";
+
+// What a plan shows on a public pricing page. Marketing copy, not billing: editing it never
+// makes a new plan version.
+message PlanPricingPage {
+  string plan_id = 1;
+  // One line under the plan's name.
+  optional string tagline = 2;
+  // At most one plan per product line: marking one unmarks the others.
+  bool popular = 3;
+  // The button's text, e.g. "Start free trial", "Contact sales".
+  optional string cta_label = 4;
+  // In display order. Only these are shown: a plan's other entitlements stay off the page.
+  repeated Highlight highlights = 5;
+  // Sold by contacting sales: shown on the page, never offered in the portal or a checkout.
+  bool sales_led = 6;
+  // A sales-led plan's price stays off the page ("Custom pricing").
+  bool hide_price = 7;
+  // Where a sales-led plan's button leads: an absolute http(s) URL.
+  optional string contact_url = 8;
+  reserved 9;
+  reserved "lead_product_id";
+  // Usage charges left off the card, by product: they read together as "+ usage". What every
+  // subscriber pays (fixed fees, seats, one-time fees, credit packs) always shows.
+  repeated string hidden_product_ids = 10;
+  // The order the card reads its charges in, by product (kept across versions, where charges
+  // are new): the first that can lead is the card's price, the others read below it in this
+  // order. The fixed fees billed on the card's period read together as its base price, at the
+  // earliest place of their products. Products not listed follow as computed: the base price,
+  // fees on another period, seats, usage, one-time fees, credit packs.
+  repeated string product_order = 11;
+}
+
+// A charge of the plan's published version (else its draft), as its card's editor lists it.
+message PricingCharge {
+  enum Kind {
+    // In the card's amount, or beside it when billed on another period.
+    FIXED = 0;
+    SEATS = 1;
+    USAGE = 2;
+    ONE_TIME = 3;
+    CREDIT_PACK = 4;
+  }
+  string product_id = 1;
+  string name = 2;
+  Kind kind = 3;
+  // It can be the card's price: fixed fees together as the base price, a seat, or usage read per
+  // unit (per unit, by tiers, by package); a rate card, rates by dimension and a capacity never.
+  bool can_lead = 4;
+  // It can be left off the card: usage only.
+  bool can_hide = 5;
+}
+
+message Highlight {
+  oneof item {
+    // A feature of the plan, shown with its value in the plan's published version ("10,000 events").
+    string feature_id = 1;
+    // A line of copy, e.g. "Priority support".
+    string text = 2;
+  }
+}
+
+// The pricing page of a product line as a visitor sees it: the active ladder in rank order, each
+// plan priced in one currency in one option, sold self-serve or by contacting sales. Hidden
+// plans are never shown.
+message PricingPage {
+  string product_family_id = 1;
+  string product_family_name = 2;
+  // The currency shown.
+  string currency = 3;
+  // The currencies the ladder is sold in, for the visitor to switch between.
+  repeated string currencies = 5;
+  repeated PricingCard cards = 7;
+  reserved 4, 6, 8, 9, 10, 11, 12, 13, 14;
+  reserved "cadence", "cadences", "hidden_gated_variants", "price_book_code", "price_book_name",
+    "price_books", "hidden_offers", "term", "terms";
+  // The alias of the option shown; absent when no plan of the ladder is sold in the currency.
+  optional string option = 15;
+  // The options some plan of the ladder is sold in, in the currency, for the visitor to switch
+  // between: plans name an option alike by its alias.
+  repeated PageOption options = 16;
+  // The plans of the ladder left off the page: not sold in the currency, nor by contacting sales.
+  repeated string not_sold_plan_names = 17;
+}
+
+message PageOption {
+  string alias = 1;
+  string name = 2;
+}
+
+message PricingCard {
+  string plan_id = 1;
+  string plan_name = 2;
+  optional string tagline = 3;
+  bool popular = 4;
+  optional string cta_label = 5;
+  // Nothing to pay: no fixed amount, nothing on top, nothing left out.
+  bool free = 6;
+  reserved 7, 8;
+  reserved "variant_id", "variant_code";
+  // Absent when the plan is not sold in this currency (see `options`).
+  optional CardPrice price = 9;
+  // "Everything in <plan>, plus:", the plan just below on the ladder.
+  optional string includes_plan_name = 10;
+  repeated RenderedHighlight highlights = 11;
+  optional uint32 trial_days = 12;
+  reserved 13;
+  reserved "terms";
+  // The aliases of the options the plan is sold in, in this currency.
+  repeated string options = 14;
+  // Its button contacts sales (`contact_url`) instead of signing up.
+  bool sales_led = 15;
+  // The price is not shown: `price` is absent, read "Custom pricing".
+  bool hide_price = 16;
+  optional string contact_url = 17;
+  // The plan does not sell the option shown: its default is priced instead, read under the
+  // price ("Billed monthly", "Annual only").
+  optional string option_note = 18;
+}
+
+message CardPrice {
+  // The fixed recurring amount per period, a decimal in the currency ("149.00"; "0" when none).
+  string amount = 1;
+  // The term it is billed on; absent for a plan billing only usage or one-time charges.
+  optional meteroid.api.shared.v1.BillingPeriod period = 2;
+  // Per month, when the period is longer than a month, at the currency's precision.
+  optional string monthly_equivalent = 3;
+  // Saved against the same plan billed monthly in this currency, in whole percent.
+  optional uint32 saving_percent = 4;
+  // Charged on top of the fixed amount.
+  repeated CardExtra extras = 5;
+  // The amount is the lowest of several levels: read "from".
+  bool from_lowest = 6;
+  // A charge could not be shown here: the card is never read as free.
+  bool partial = 7;
+  // The usage levels a visitor picks between, for a plan with one usage-levels charge: `amount`,
+  // `monthly_equivalent` and `extras` read its lowest level (`from_lowest`), each level carries
+  // the card's amount with it.
+  optional CardLevels levels = 8;
+}
+
+// A usage-levels charge as its card offers it ("Up to €125K managed revenue per month").
+message CardLevels {
+  // The charge's name.
+  string name = 1;
+  // By the usage they include, smallest first.
+  repeated CardLevel levels = 2;
+  // What the charge counts, as its metric names it. Usage counting money in the page's currency
+  // (unit named as the currency, not converted) reads as an amount, its overage as a share of it.
+  optional string metric_name = 3;
+  optional string unit_singular = 4;
+  optional string unit_plural = 5;
+  optional int32 unit_conversion_factor = 6;
+  // A last stop past the largest level, sold by contacting sales: the plan's own contact when it
+  // is sales-led, else a sales-led plan of the ladder (`more_plan_name`). False when the ladder
+  // sells nothing by contacting sales.
+  bool more = 7;
+  // Where the "More" stop's button leads; absent when that plan has no contact link yet.
+  optional string more_contact_url = 8;
+  // The sales-led plan the "More" stop leads to; absent when it is the card's own.
+  optional string more_plan_name = 9;
+}
+
+message CardLevel {
+  // The usage included each period, in the metric's unit: a sign-up at this level commits to it
+  // (the subscription's committed capacity).
+  uint64 included = 1;
+  // The card's amount with this level, a decimal in the currency: as `CardPrice.amount`.
+  string amount = 2;
+  // As `CardPrice.monthly_equivalent`, with this level.
+  optional string monthly_equivalent = 3;
+  // Per unit used above `included`; absent when priced in a credit unit or left off the card.
+  optional string overage_rate = 4;
+}
+
+// An item of a card, in the order it reads (`PlanPricingPage.product_order`).
+message CardExtra {
+  enum Kind {
+    PER_SEAT = 0;
+    USAGE = 1;
+    ONE_TIME = 2;
+    // A credit pack sold for `amount`.
+    CREDIT_PACK = 3;
+    // A fixed fee billed on its own period (`period`), not the card's: never added to `amount`.
+    RECURRING = 4;
+    // The fixed fees billed on the card's period, summed: `CardPrice.amount`, on its period.
+    BASE = 5;
+  }
+  Kind kind = 1;
+  // The charge's name; empty for the base price and the "+ usage" line folding hidden usage.
+  string name = 2;
+  // The base price; per seat or unit, read with `from_lowest`, `included` and `block_size`; once;
+  // a pack's. Absent for a rate card, rates by dimension, levels whose overage varies, and
+  // folded usage.
+  optional string amount = 3;
+  // The seat unit or the metric's unit name.
+  optional string unit = 4;
+  // How often a recurring extra is charged.
+  optional meteroid.api.shared.v1.BillingPeriod period = 5;
+  // The card's price: the first item that can be (the base price when not zero, a seat or usage
+  // with `amount`; never a one-time fee, a pack, a fee on another period or a capacity's
+  // overage). The others read beside it in order, the base price among them. At most one.
+  bool lead = 6;
+  // The usage-levels charge `CardPrice.levels` offers: its overage reads with the level picked.
+  bool levels = 7;
+  // `amount` is the lowest rate of its tiers: read "from".
+  bool from_lowest = 8;
+  // Units free before `amount` applies ("3 seats included"); a capacity's level.
+  optional uint64 included = 9;
+  // `amount` is per this many units: "$30 / 10 units".
+  optional uint64 block_size = 10;
+  // Its products: the charge's, the base price's fees, or the usage a "+ usage" line folds; for
+  // an editor ordering the card. Internal: a public page leaves them out.
+  repeated string product_ids = 11;
+}
+
+message RenderedHighlight {
+  // Ready to show: "SSO", "10,000 events", "Unlimited projects", or the copy line.
+  string text = 1;
+  optional string feature_id = 2;
+}
+
+message GetPlanPricingPageRequest {
+  string plan_id = 1;
+}
+message GetPlanPricingPageResponse {
+  PlanPricingPage page = 1;
+  // One per product, fixed fees first, then seats, usage, one-time fees and credit packs.
+  repeated PricingCharge charges = 2;
+  // The product line whose pricing page shows the plan's card.
+  string product_family_id = 3;
+}
+
+// Replaces the plan's pricing page fields.
+message UpdatePlanPricingPageRequest {
+  PlanPricingPage page = 1;
+}
+message UpdatePlanPricingPageResponse {
+  PlanPricingPage page = 1;
+}
+
+message GetPricingPageRequest {
+  string product_family_id = 1;
+  // Defaults to the tenant's currency when it sells the ladder, else the one selling most of it.
+  optional string currency = 2;
+  reserved 3, 4, 5;
+  reserved "cadence", "price_book_code", "term";
+  // An option alias; defaults to the first option offered.
+  optional string option = 6;
+  // A plan's copy as an editor holds it, shown on its card instead of the saved one: a live
+  // preview, nothing is saved.
+  optional PlanPricingPage draft = 7;
+}
+message GetPricingPageResponse {
+  PricingPage page = 1;
+}
+
+service PricingPageService {
+  rpc GetPlanPricingPage(GetPlanPricingPageRequest) returns (GetPlanPricingPageResponse) {}
+  rpc UpdatePlanPricingPage(UpdatePlanPricingPageRequest) returns (UpdatePlanPricingPageResponse) {}
+  rpc GetPricingPage(GetPricingPageRequest) returns (GetPricingPageResponse) {}
+}

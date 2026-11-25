@@ -55,6 +55,12 @@ type ReleaseConn = AsyncConnectionWrapper<PgConn>;
 /// the final one, never one in between.
 const RELEASE_FIRST: &str = "20261116171538";
 const RELEASE_LAST: &str = "20261116171749";
+// Later migrations adding what today's code reads of the tables the conversion writes: applied
+// before it, so the conversion runs against the schema it was built for.
+const READ_BY_THE_CONVERSION: &[&str] = &[
+    // The pricing model: managed quantities, journeys, eligibility, plan options.
+    "20261124204716",
+];
 // A lock held by a long transaction of a running pod fails the release instead of queueing every
 // later query behind it; the whole release is retried.
 const RELEASE_LOCK_TIMEOUT: &str = "SET LOCAL lock_timeout = '5s'";
@@ -69,7 +75,7 @@ BEGIN
                       'subscription_add_on', 'slot_transaction', 'scheduled_event', 'invoice',
                       'applied_coupon', 'subscription_adjustment',
                       'subscription_adjustment_component', 'customer_credit_grant', 'price',
-                      'checkout_session']) AS name
+                      'checkout_session', 'purchase_link']) AS name
     WHERE to_regclass(name) IS NOT NULL;
     EXECUTE 'LOCK TABLE ' || locked || ' IN ACCESS EXCLUSIVE MODE';
 END $$"#;
@@ -147,7 +153,9 @@ fn apply_release(
     conn.transaction(|conn| {
         conn.batch_execute(RELEASE_LOCK_TIMEOUT)?;
         conn.batch_execute(RELEASE_TABLES_LOCKED)?;
-        let mut applied = apply(conn, |version| version < RELEASE_LAST)?;
+        let mut applied = apply(conn, |version| {
+            version < RELEASE_LAST || READ_BY_THE_CONVERSION.contains(&version)
+        })?;
         let conversion = runtime
             .block_on(
                 meteroid_store::services::facts::pending::write_pending_scheduled_changes(conn),

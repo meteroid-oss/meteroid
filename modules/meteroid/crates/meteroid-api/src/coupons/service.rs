@@ -3,7 +3,7 @@ use crate::coupons::mapping::applied::AppliedCouponForDisplayWrapper;
 use crate::coupons::mapping::coupons::CouponWrapper;
 use crate::coupons::{CouponsServiceComponents, mapping};
 use chrono::NaiveDateTime;
-use common_domain::ids::{CouponId, PlanId};
+use common_domain::ids::{AddOnId, CouponId, PlanId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_app::conversions::FromProtoOpt;
 use meteroid_grpc::meteroid::api::coupons::v1::coupons_service_server::CouponsService;
@@ -53,10 +53,18 @@ impl CouponsService for CouponsServiceComponents {
         let filter = mapping::coupons::filter::from_server(req.filter());
 
         let pagination_req = req.pagination.into_domain();
+        let plan_id = PlanId::from_proto_opt(req.plan_id)?;
 
         let coupons = self
             .store
-            .list_coupons(tenant_id, pagination_req, req.search, filter, req.order_by)
+            .list_coupons(
+                tenant_id,
+                pagination_req,
+                req.search,
+                filter,
+                req.order_by,
+                plan_id,
+            )
             .await
             .map_err(Into::<CouponApiError>::into)?;
 
@@ -118,6 +126,8 @@ impl CouponsService for CouponsServiceComponents {
 
         let req = request.into_inner();
 
+        let fixed_amounts =
+            mapping::coupons::discount::fixed_amounts_to_domain(req.discount.as_ref())?;
         let discount = mapping::coupons::discount::to_domain(req.discount)?;
 
         let plan_ids = req
@@ -125,6 +135,13 @@ impl CouponsService for CouponsServiceComponents {
             .into_iter()
             .map(|id| PlanId::from_proto(&id))
             .collect::<Result<Vec<_>, _>>()?;
+        let terms = domain::coupons::CouponTerms {
+            add_on_ids: add_on_ids_from_proto(req.add_on_ids)?,
+            eligibility: req.eligibility.map(crate::eligibility::from_proto),
+            valid_from: NaiveDateTime::from_proto_opt(req.valid_from.filter(|v| !v.is_empty()))?,
+            fixed_amounts,
+            duration_months: req.duration_months,
+        };
 
         let new = domain::coupons::CouponNew {
             code: req.code,
@@ -140,7 +157,7 @@ impl CouponsService for CouponsServiceComponents {
 
         let added = self
             .store
-            .create_coupon(actor, new)
+            .create_coupon_with_terms(actor, new, terms)
             .await
             .map(|x| CouponWrapper::from(x).0)
             .map_err(Into::<CouponApiError>::into)?;
@@ -179,6 +196,8 @@ impl CouponsService for CouponsServiceComponents {
 
         let req = request.into_inner();
 
+        let fixed_amounts =
+            mapping::coupons::discount::fixed_amounts_to_domain(req.discount.as_ref())?;
         let discount = mapping::coupons::discount::to_domain(req.discount)?;
 
         let plan_ids = req
@@ -187,12 +206,30 @@ impl CouponsService for CouponsServiceComponents {
             .map(|id| PlanId::from_proto(&id))
             .collect::<Result<Vec<_>, _>>()?;
 
+        let duration_months = match (req.clear_duration_months, req.duration_months) {
+            (true, Some(_)) => {
+                return Err(Status::invalid_argument(
+                    "a coupon lasts forever or a number of months, not both",
+                ));
+            }
+            (true, None) => Some(None),
+            (false, months) => months.map(Some),
+        };
+
         let patch = domain::coupons::CouponPatch {
             id: CouponId::from_proto(&req.coupon_id)?,
             tenant_id,
             description: Some(req.description),
             discount: Some(discount),
             plan_ids: Some(plan_ids),
+            add_on_ids: Some(add_on_ids_from_proto(req.add_on_ids)?),
+            eligibility: req
+                .eligibility
+                .map(|rule| Some(crate::eligibility::from_proto(rule))),
+            valid_from: moment_patch(req.valid_from)?,
+            expires_at: moment_patch(req.expires_at)?,
+            fixed_amounts: Some(fixed_amounts),
+            duration_months,
         };
 
         let updated = self
@@ -244,5 +281,18 @@ impl CouponsService for CouponsServiceComponents {
         Ok(Response::new(UpdateCouponStatusResponse {
             coupon: Some(updated),
         }))
+    }
+}
+
+fn add_on_ids_from_proto(ids: Vec<String>) -> Result<Vec<AddOnId>, Status> {
+    ids.iter().map(AddOnId::from_proto).collect()
+}
+
+/// Unset leaves the moment as it is; an empty one clears it.
+fn moment_patch(value: Option<String>) -> Result<Option<Option<NaiveDateTime>>, Status> {
+    match value {
+        None => Ok(None),
+        Some(value) if value.is_empty() => Ok(Some(None)),
+        Some(value) => NaiveDateTime::from_proto_opt(Some(value)).map(Some),
     }
 }

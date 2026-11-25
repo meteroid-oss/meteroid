@@ -1,81 +1,58 @@
-import { skipToken } from '@connectrpc/connect-query'
 import {
   Badge,
   Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
   Checkbox,
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
   Input,
-  Label,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-  ScrollArea,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-  Textarea,
-} from '@ui/components'
-import { cn } from '@ui/lib'
-import {
-  Activity,
-  Calendar,
-  Check,
-  Coins,
-  Edit2,
-  Package,
-  Plus,
-  PlusIcon,
-  RefreshCcw,
-  Settings,
-  Users,
-  X,
-  Zap,
-} from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+  cn,
+} from '@md/ui'
+import { MoreHorizontalIcon, PlusIcon } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 
-import { FeeTypePicker } from '@/features/plans/pricecomponents/FeeTypePicker'
-import {
-  ProductBrowser,
-  extractStructuralInfo,
-} from '@/features/plans/pricecomponents/ProductBrowser'
-import { ProductPricingForm } from '@/features/plans/pricecomponents/ProductPricingForm'
+import { useChargeContext } from '@/features/plans/canvas/ChargeRow'
+import { billedWords, countsWords, priceWords } from '@/features/plans/canvas/billingWords'
 import { type ComponentFeeType, feeTypeFromPrice, formDataToPrice } from '@/features/pricing'
 import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
-import { formatSubscriptionFee } from '@/features/subscriptions/utils/fees'
-import { useQuery } from '@/lib/connectrpc'
 import {
-  formatUsagePriceSummary,
-  getBillingPeriodLabel,
+  FeeForm,
+  InlinePanel,
+  PlanChargePriceForm,
+  salesCadence,
+} from '@/features/subscriptions/pricecomponents/ChargeDialogs'
+import {
+  modelAmountRequest,
+  quantityFigures,
+  useModelAmounts,
+  withModelAmount,
+} from '@/features/subscriptions/pricecomponents/chargeFigures'
+import { formatSubscriptionFee } from '@/features/subscriptions/utils/fees'
+import {
   getPrice,
   getPriceBillingLabel,
-  getPriceUnitPrice,
   isPaidCreditPack,
   priceToSubscriptionFee,
 } from '@/lib/mapping/priceToSubscriptionFee'
-import { formatUsage } from '@/lib/utils/numbers'
+import { formatCurrencyNoRounding, formatUsage } from '@/lib/utils/numbers'
 import {
   ComponentOverride,
   ComponentParameterization,
   ExtraComponent,
 } from '@/pages/tenants/subscription/create/state'
-import { PlanVersion } from '@/rpc/api/plans/v1/models_pb'
 import { PriceComponent as ProtoPriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
-import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
 import { Price } from '@/rpc/api/prices/v1/models_pb'
-import { getProduct } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
+
+import type { ChargeContext } from '@/features/plans/canvas/billingWords'
+import type { ChargeFigures } from '@/features/subscriptions/pricecomponents/chargeFigures'
+import type { ReactNode } from 'react'
 
 // --- State types ---
 
@@ -89,6 +66,8 @@ export interface UsageExampleEntry {
 }
 
 export interface PriceComponentsState {
+  /** The plan option bought (its alias); unset: the default one sold in the currency. */
+  option?: string
   components: {
     removed: string[]
     parameterized: ComponentParameterization[]
@@ -114,11 +93,11 @@ export function requiresConfiguration(
   component: ProtoPriceComponent,
   state: PriceComponentsState
 ): boolean {
-  if (state.components.overridden.some(o => o.componentId === component.id)) return false
   const feeType = deriveFeeType(component)
+  // A custom seat price still bills a seat count; a custom capacity has its one level.
   if (feeType === 'slot') return true
-  if (feeType === 'capacity' && component.prices.length > 1) return true
-  return false
+  if (state.components.overridden.some(o => o.componentId === component.id)) return false
+  return feeType === 'capacity' && component.prices.length > 1
 }
 
 export function isComponentConfigured(
@@ -126,7 +105,6 @@ export function isComponentConfigured(
   state: PriceComponentsState
 ): boolean {
   if (!requiresConfiguration(component, state)) return true
-  if (state.components.overridden.some(o => o.componentId === component.id)) return true
 
   const config = state.components.parameterized.find(p => p.componentId === component.id)
   if (!config) return false
@@ -185,6 +163,8 @@ export const pricingTransitions = {
     }
   },
 
+  // The seat count stays: the server applies it to the custom price. The capacity level chosen
+  // was one of the plan's prices, which the custom one replaces.
   addOverride: <S extends PriceComponentsState>(
     prev: S,
     componentId: string,
@@ -197,7 +177,13 @@ export const pricingTransitions = {
         ...prev.components.overridden.filter(o => o.componentId !== componentId),
         override,
       ],
-      parameterized: prev.components.parameterized.filter(p => p.componentId !== componentId),
+      parameterized: prev.components.parameterized.flatMap(p =>
+        p.componentId !== componentId
+          ? [p]
+          : p.initialSlotCount === undefined
+            ? []
+            : [{ componentId, initialSlotCount: p.initialSlotCount }]
+      ),
     },
   }),
 
@@ -206,6 +192,21 @@ export const pricingTransitions = {
     components: {
       ...prev.components,
       overridden: prev.components.overridden.filter(o => o.componentId !== componentId),
+    },
+  }),
+
+  // Capacity levels and custom prices were read off the old option's prices; seats still hold.
+  changeOption: <S extends PriceComponentsState>(prev: S, option: string): S => ({
+    ...prev,
+    option,
+    components: {
+      ...prev.components,
+      parameterized: prev.components.parameterized.flatMap(p =>
+        p.initialSlotCount === undefined
+          ? []
+          : [{ componentId: p.componentId, initialSlotCount: p.initialSlotCount }]
+      ),
+      overridden: [],
     },
   }),
 
@@ -262,88 +263,10 @@ export function getExampleQuantity(state: PriceComponentsState, key: UsageExampl
   return match?.quantity ?? ''
 }
 
-export function feeTypeIcon(feeType: ComponentFeeType) {
-  switch (feeType) {
-    case 'rate':
-      return <Calendar className="h-4 w-4" />
-    case 'usage':
-      return <Activity className="h-4 w-4" />
-    case 'slot':
-      return <Users className="h-4 w-4" />
-    case 'capacity':
-      return <Zap className="h-4 w-4" />
-    case 'credit':
-      return <Coins className="h-4 w-4" />
-    default:
-      return <Package className="h-4 w-4" />
-  }
-}
-
-export function feeTypeLabel(feeType: ComponentFeeType): string {
-  switch (feeType) {
-    case 'rate':
-      return 'Rate'
-    case 'usage':
-      return 'Usage'
-    case 'slot':
-      return 'Slot'
-    case 'capacity':
-      return 'Capacity'
-    case 'oneTime':
-      return 'One-time'
-    case 'extraRecurring':
-      return 'Recurring'
-    case 'credit':
-      return 'Credit pack'
-  }
-}
-
-function formatCurrency(price: string | number, currency: string): string {
-  const amount = typeof price === 'string' ? parseFloat(price || '0') : price
-  return amount.toLocaleString(undefined, {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })
-}
-
-export function getComponentBillingLabel(
-  component: ProtoPriceComponent,
-  configuration?: ComponentParameterization
-): string {
-  if (configuration?.billingPeriod !== undefined) {
-    return getBillingPeriodLabel(configuration.billingPeriod)
-  }
+export function getComponentBillingLabel(component: ProtoPriceComponent): string {
   const price = component.prices[0]
   if (price) return getPriceBillingLabel(price)
   return 'Monthly'
-}
-
-function getDisplayUnitPrice(
-  component: ProtoPriceComponent,
-  configuration?: ComponentParameterization,
-  override?: ComponentOverride,
-  currency?: string
-): number {
-  // Override takes priority — derive display price from formData
-  if (override && currency) {
-    const displayPrice = formDataToPrice(override.feeType, override.formData, currency)
-    return getPriceUnitPrice(displayPrice)
-  }
-
-  // For capacity: match selected threshold
-  if (configuration?.committedCapacity !== undefined) {
-    const matched = component.prices.find(
-      p =>
-        p.pricing.case === 'capacityPricing' &&
-        p.pricing.value.included === configuration.committedCapacity
-    )
-    if (matched) return getPriceUnitPrice(matched)
-  }
-
-  const price = component.prices[0]
-  return price ? getPriceUnitPrice(price) : 0
 }
 
 /** The price a plan component is shown at: its override, its committed capacity, else its own. */
@@ -365,384 +288,543 @@ export function planComponentDisplayPrice(
   return threshold ?? getPrice(component)
 }
 
-/** A slot component's amount for its configured seats, formatted as its price line shows it. */
-export function planComponentSlotTotal(
+/** The plan's own price of a component, the capacity level chosen: what a custom price starts from. */
+const planPrice = (
   component: ProtoPriceComponent,
   configuration: ComponentParameterization | undefined,
-  override: ComponentOverride | undefined,
   currency: string
-): string | undefined {
-  if (deriveFeeType(component) !== 'slot' || !configuration?.initialSlotCount) return undefined
-  const unitPrice = getDisplayUnitPrice(component, configuration, override, currency)
-  return formatCurrency(unitPrice * configuration.initialSlotCount, currency)
-}
+) => planComponentDisplayPrice(component, configuration, undefined, currency)
 
-/** A credit pack: its price (included when free) and the credit it grants, in its unit. */
-const CreditPackPrice = ({
-  price,
-  currency,
-  billingLabel,
-}: {
-  price: Price
-  currency: string
-  billingLabel: string
-}) => {
-  const creditUnits = useCreditUnits()
-  const granted = formatSubscriptionFee(
-    priceToSubscriptionFee(price, { creditUnits }),
-    currency,
-    creditUnits
-  ).details
-  return (
-    <div className="text-right">
-      <div className="flex items-center justify-end gap-1">
-        <span>
-          {isPaidCreditPack(price)
-            ? formatCurrency(getPriceUnitPrice(price), currency)
-            : 'Included'}
-        </span>
-        <Badge variant="secondary" size="sm">
-          {billingLabel}
-        </Badge>
-      </div>
-      {granted && <div className="text-xs text-muted-foreground">{granted}</div>}
-    </div>
-  )
-}
-
-/** A capacity fee: its price, what it includes, and its overage (in credits, with their money rate). */
-const CapacityPrice = ({
-  price,
-  currency,
-  billingLabel,
-}: {
-  price: Price
-  currency: string
-  billingLabel: string
-}) => {
-  const creditUnits = useCreditUnits()
-  const formatted = formatSubscriptionFee(
-    priceToSubscriptionFee(price, { creditUnits }),
-    currency,
-    creditUnits
-  )
-  return (
-    <div className="text-right">
-      <div className="flex items-center justify-end gap-1">
-        <span>{formatted.amount}</span>
-        <Badge variant="secondary" size="sm">
-          {billingLabel}
-        </Badge>
-      </div>
-      {formatted.breakdown && (
-        <div className="whitespace-pre-line text-xs text-muted-foreground">
-          {formatted.breakdown}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/** Usage pricing summarized, in credits when priced in a credit unit. */
-const useUsageSummary = (price: Price | undefined, currency: string) => {
-  const creditUnits = useCreditUnits()
-  return price ? formatUsagePriceSummary(price, currency, creditUnits) : undefined
-}
+/** The figures of a line's price, at its seat count. */
+const lineFigures = (price: Price | undefined, seats: number | undefined, ctx?: ChargeContext) =>
+  price ? quantityFigures(price, { seats, ctx }) : undefined
 
 // --- Main component ---
 
 interface PriceComponentsLogicProps {
-  planVersionId: PlanVersion['id']
+  /** The plan's charges as bought in the chosen option (see `inOption`). */
+  planComponents: ProtoPriceComponent[]
   currency: string
   state: PriceComponentsState
   onStateChange: (state: PriceComponentsState) => void
   onValidationChange?: (isValid: boolean, errors: string[]) => void
+  /** Where a new fee's products and metrics come from. */
+  familyLocalId?: string
   showUsageExamples?: boolean
   exampleAmountByKey?: Map<string, string | undefined>
 }
 
+type Editing =
+  | { what: 'price'; componentId: string }
+  | { what: 'fee'; index: number }
+  | { what: 'newFee' }
+
 export const PriceComponentsLogic = ({
-  planVersionId,
+  planComponents,
   currency,
   state,
   onStateChange,
   onValidationChange,
+  familyLocalId,
   showUsageExamples = false,
   exampleAmountByKey,
 }: PriceComponentsLogicProps) => {
-  const [editingComponentId, setEditingComponentId] = useState<string | null>(null)
-  const [showAddFeeModal, setShowAddFeeModal] = useState(false)
-  const [overrideComponentId, setOverrideComponentId] = useState<string | null>(null)
-  const [editExtraIndex, setEditExtraIndex] = useState<number | null>(null)
+  const [editing, setEditing] = useState<Editing>()
 
   const onValidationChangeRef = useRef(onValidationChange)
   onValidationChangeRef.current = onValidationChange
 
-  const componentsQuery = useQuery(
-    listPriceComponents,
-    { planVersionId: planVersionId ?? '' },
-    { enabled: Boolean(planVersionId) }
-  )
-  const planComponents = componentsQuery?.data?.components ?? []
-
   const setState = (updater: (prev: PriceComponentsState) => PriceComponentsState) => {
     onStateChange(updater(state))
   }
-
-  // --- Configuration logic ---
 
   useEffect(() => {
     const errors = pricingConfigurationErrors(planComponents, state)
     onValidationChangeRef.current?.(errors.length === 0, errors)
   }, [state.components, planComponents])
 
-  // --- State mutations ---
-
-  const toggleRemoval = (componentId: string) =>
-    setState(prev => pricingTransitions.toggleRemoval(prev, componentId))
-
-  const updateConfiguration = (componentId: string, config: Partial<ComponentParameterization>) =>
-    setState(prev => pricingTransitions.updateConfiguration(prev, componentId, config))
-
-  const addOverride = (componentId: string, override: ComponentOverride) =>
-    setState(prev => pricingTransitions.addOverride(prev, componentId, override))
-
-  const removeOverride = (componentId: string) =>
-    setState(prev => pricingTransitions.removeOverride(prev, componentId))
-
-  const addExtra = (component: ExtraComponent) =>
-    setState(prev => pricingTransitions.addExtra(prev, component))
-
-  const removeExtra = (index: number) =>
-    setState(prev => pricingTransitions.removeExtra(prev, index))
-
-  const updateExtra = (index: number, component: ExtraComponent) =>
-    setState(prev => pricingTransitions.updateExtra(prev, index, component))
-
-  // --- Usage example helpers (display-only, quote mode) ---
-
   const getExampleAmount = (key: UsageExampleKey): string | undefined =>
     exampleAmountByKey?.get(key.componentId ?? key.name ?? '')
-
   const setExampleQuantity = (key: UsageExampleKey, quantity: string) =>
     setState(prev => pricingTransitions.setExampleQuantity(prev, key, quantity))
 
-  // --- Render ---
+  const cadence = salesCadence(planComponents)
+  const lines = planComponents.map(component => {
+    const configuration = state.components.parameterized.find(p => p.componentId === component.id)
+    const override = state.components.overridden.find(o => o.componentId === component.id)
+    const price = planComponentDisplayPrice(component, configuration, override, currency)
+    const seats = deriveFeeType(component) === 'slot' ? configuration?.initialSlotCount : undefined
+    return { component, configuration, override, price, seats }
+  })
+  const extras = state.components.extra.map(extra => ({
+    extra,
+    price: formDataToPrice(extra.feeType, extra.formData, currency),
+  }))
+  // A count priced by a model: its amount is the server's.
+  const amounts = useModelAmounts(
+    [
+      ...lines.flatMap(l =>
+        modelAmountRequest(`c:${l.component.id}`, lineFigures(l.price, l.seats))
+      ),
+      ...extras.flatMap((e, i) => modelAmountRequest(`x:${i}`, lineFigures(e.price, undefined))),
+    ],
+    currency
+  )
+  const close = () => setEditing(undefined)
 
   return (
-    <div className="space-y-3">
-      {planComponents.map(component => {
-        const isExcluded = state.components.removed.includes(component.id)
-        const configuration = state.components.parameterized.find(
-          p => p.componentId === component.id
-        )
-        const override = state.components.overridden.find(o => o.componentId === component.id)
-        const isOverridden = !!override
-        const isEditing = editingComponentId === component.id
-        const configured = isComponentConfigured(component, state)
-        const needsConfig =
-          requiresConfiguration(component, state) && !configured && !isOverridden && !isExcluded
-
-        return (
-          <CompactPriceComponentCard
-            key={component.id}
-            component={component}
-            isExcluded={isExcluded}
-            isConfigured={configured}
-            isOverridden={isOverridden}
-            isEditing={isEditing}
-            needsConfiguration={needsConfig}
-            configuration={configuration}
-            override={override}
-            currency={currency}
-            onToggleExclude={() => toggleRemoval(component.id)}
-            onStartEdit={() => setEditingComponentId(component.id)}
-            onEndEdit={() => setEditingComponentId(null)}
-            onUpdateConfiguration={config => updateConfiguration(component.id, config)}
-            onStartOverride={() => setOverrideComponentId(component.id)}
-            onRemoveOverride={() => removeOverride(component.id)}
-            showUsageExample={showUsageExamples}
-            exampleQuantity={getExampleQuantity(state, { componentId: component.id })}
-            exampleAmount={getExampleAmount({ componentId: component.id })}
-            onExampleQuantityChange={v => setExampleQuantity({ componentId: component.id }, v)}
-          />
-        )
-      })}
-
-      {state.components.extra.map((extra, index) => (
-        <ExtraComponentCard
-          key={`extra-${index}`}
-          component={extra}
-          currency={currency}
-          onEdit={() => setEditExtraIndex(index)}
-          onRemove={() => removeExtra(index)}
-          showUsageExample={showUsageExamples}
-          exampleQuantity={getExampleQuantity(state, { name: extra.name })}
-          exampleAmount={getExampleAmount({ name: extra.name })}
-          onExampleQuantityChange={v => setExampleQuantity({ name: extra.name }, v)}
-        />
-      ))}
-
-      <Button
-        type="button"
-        variant="outline"
-        className="w-full border-dashed"
-        onClick={() => setShowAddFeeModal(true)}
-      >
-        <Plus className="h-4 w-4 mr-2" />
-        Add a fee
-      </Button>
-
-      {!planComponents.length && !state.components.extra.length && (
-        <span className="text-muted-foreground">No price components</span>
-      )}
-
-      {showAddFeeModal && (
-        <AddFeeModal
-          onClose={() => setShowAddFeeModal(false)}
-          onAdd={addExtra}
-          currency={currency}
-        />
-      )}
-
-      {overrideComponentId &&
-        (() => {
-          const original = planComponents.find(c => c.id === overrideComponentId)
+    <div className="overflow-hidden rounded-lg border border-border bg-card">
+      <div className="divide-y divide-border">
+        {lines.map(({ component, configuration, override, price, seats }) => {
+          if (editing?.what === 'price' && editing.componentId === component.id) {
+            return (
+              <InlinePanel key={component.id}>
+                <PlanChargePriceForm
+                  component={component}
+                  price={planPrice(component, configuration, currency)}
+                  override={override}
+                  currency={currency}
+                  onClose={close}
+                  onSave={next => {
+                    setState(prev => pricingTransitions.addOverride(prev, component.id, next))
+                    close()
+                  }}
+                />
+              </InlinePanel>
+            )
+          }
+          const excluded = state.components.removed.includes(component.id)
           return (
-            <OverrideFeeModal
-              componentId={overrideComponentId}
-              originalComponent={original}
-              onClose={() => setOverrideComponentId(null)}
-              onSave={override => {
-                addOverride(overrideComponentId, override)
-                setOverrideComponentId(null)
-              }}
+            <PlanChargeLine
+              key={component.id}
+              component={component}
+              price={price}
+              configuration={configuration}
+              override={override}
+              seats={seats}
+              amounts={amounts}
               currency={currency}
+              excluded={excluded}
+              needsConfiguration={
+                !excluded &&
+                requiresConfiguration(component, state) &&
+                !isComponentConfigured(component, state)
+              }
+              onOverride={() => setEditing({ what: 'price', componentId: component.id })}
+              onResetOverride={() =>
+                setState(prev => pricingTransitions.removeOverride(prev, component.id))
+              }
+              onToggleExclude={() =>
+                setState(prev => pricingTransitions.toggleRemoval(prev, component.id))
+              }
+              onConfigure={config =>
+                setState(prev => pricingTransitions.updateConfiguration(prev, component.id, config))
+              }
+              example={
+                showUsageExamples
+                  ? {
+                      quantity: getExampleQuantity(state, { componentId: component.id }),
+                      amount: getExampleAmount({ componentId: component.id }),
+                      onChange: v => setExampleQuantity({ componentId: component.id }, v),
+                    }
+                  : undefined
+              }
             />
           )
-        })()}
+        })}
 
-      {editExtraIndex !== null && (
-        <AddFeeModal
-          onClose={() => setEditExtraIndex(null)}
-          onAdd={component => {
-            updateExtra(editExtraIndex, component)
-            setEditExtraIndex(null)
-          }}
-          currency={currency}
-          initialValues={state.components.extra[editExtraIndex]}
-          isEditing
-        />
+        {extras.map(({ extra, price }, index) =>
+          editing?.what === 'fee' && editing.index === index ? (
+            <InlinePanel key={`extra-${index}`}>
+              <FeeForm
+                fee={extra}
+                currency={currency}
+                cadence={cadence}
+                familyLocalId={familyLocalId}
+                onClose={close}
+                onSave={fee => {
+                  setState(prev => pricingTransitions.updateExtra(prev, index, fee))
+                  close()
+                }}
+              />
+            </InlinePanel>
+          ) : (
+            <ExtraChargeLine
+              key={`extra-${index}`}
+              extra={extra}
+              price={price}
+              figures={withModelAmount(lineFigures(price, undefined), amounts, `x:${index}`)}
+              currency={currency}
+              onEdit={() => setEditing({ what: 'fee', index })}
+              onRemove={() => setState(prev => pricingTransitions.removeExtra(prev, index))}
+              example={
+                showUsageExamples
+                  ? {
+                      quantity: getExampleQuantity(state, { name: extra.name }),
+                      amount: getExampleAmount({ name: extra.name }),
+                      onChange: v => setExampleQuantity({ name: extra.name }, v),
+                    }
+                  : undefined
+              }
+            />
+          )
+        )}
+
+        {!planComponents.length && !state.components.extra.length && (
+          <p className="px-4 py-3 text-sm text-muted-foreground">No charges on this plan.</p>
+        )}
+
+        {editing?.what === 'newFee' ? (
+          <InlinePanel>
+            <FeeForm
+              currency={currency}
+              cadence={cadence}
+              familyLocalId={familyLocalId}
+              onClose={close}
+              onSave={fee => {
+                setState(prev => pricingTransitions.addExtra(prev, fee))
+                close()
+              }}
+            />
+          </InlinePanel>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEditing({ what: 'newFee' })}
+            className="flex w-full items-center gap-1.5 px-4 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+          >
+            <PlusIcon size={14} /> Add a fee
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// --- Lines: a charge's name and what it is, its figures, its actions ---
+
+interface Example {
+  quantity: string
+  amount?: string
+  onChange: (value: string) => void
+}
+
+/** "Per seat · billed monthly, upfront": what a price is and when it bills, in plan words. */
+const describe = (price: Price | undefined, ctx: ChargeContext) =>
+  price ? [countsWords(price, ctx), billedWords(price, ctx)].filter(Boolean).join(' · ') : 'Included without a price'
+
+const LineShell = ({
+  name,
+  description,
+  badge,
+  muted,
+  figures,
+  actions,
+  children,
+}: {
+  name: string
+  description: string
+  badge?: string
+  muted?: boolean
+  figures: ReactNode
+  actions: ReactNode
+  children?: ReactNode
+}) => (
+  <div className={cn('group px-4 py-3', muted && 'text-muted-foreground')}>
+    <div className="flex min-h-7 items-start gap-3">
+      <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
+        <span
+          className={cn(
+            'truncate text-sm font-semibold',
+            muted ? 'line-through' : 'text-foreground'
+          )}
+        >
+          {name}
+        </span>
+        {!muted && <span className="text-xs text-muted-foreground">{description}</span>}
+        {badge && !muted && (
+          <Badge variant="outline" size="sm" className="font-normal text-muted-foreground">
+            {badge}
+          </Badge>
+        )}
+      </div>
+      {!muted && <div className="max-w-[50%] text-right text-sm">{figures}</div>}
+      <div className="flex shrink-0 items-center gap-0.5">{actions}</div>
+    </div>
+    {children}
+  </div>
+)
+
+/** "10 × $12.00 per seat  $120.00", or the price in words and the server's amount. */
+const Figures = ({ figures, fallback }: { figures?: ChargeFigures; fallback?: ReactNode }) => {
+  if (!figures) return <>{fallback}</>
+  const { quantity, unitPrice, inWords, amount } = figures
+  // One unit at its own price reads as the amount alone; seats always read as a count.
+  const counted = quantity !== undefined && (quantity > 1 || unitPrice !== amount)
+  return (
+    <div>
+      {inWords ? (
+        <div className="text-xs text-muted-foreground">
+          {quantity !== undefined && `${formatUsage(quantity)} · `}
+          {unitPrice}
+        </div>
+      ) : counted ? (
+        <span className="text-xs text-muted-foreground">
+          {formatUsage(quantity!)} × {unitPrice}
+          {amount && ' = '}
+        </span>
+      ) : null}
+      {amount ? (
+        <span className="font-medium tabular-nums text-foreground">{amount}</span>
+      ) : (
+        !inWords && !counted && <span className="tabular-nums text-foreground">{unitPrice}</span>
       )}
     </div>
   )
 }
 
-// --- Price and configuration of a plan component (shared by every pricing editor) ---
+/** Usage, a capacity or a credit pack: their price in words. */
+const SummaryFigures = ({ price, ctx, currency }: { price: Price; ctx: ChargeContext; currency: string }) => {
+  const creditUnits = useCreditUnits()
+  if (price.pricing.case === 'creditPricing') {
+    const granted = formatSubscriptionFee(
+      priceToSubscriptionFee(price, { creditUnits }),
+      currency,
+      creditUnits
+    ).details
+    const { unitPrice, quantity } = price.pricing.value
+    return (
+      <div>
+        <span className="font-medium tabular-nums text-foreground">
+          {isPaidCreditPack(price)
+            ? formatCurrencyNoRounding(Number(unitPrice || 0) * Math.max(quantity, 1), currency)
+            : 'Included'}
+        </span>
+        {granted && <div className="text-xs text-muted-foreground">{granted}</div>}
+      </div>
+    )
+  }
+  return <span className="text-xs text-muted-foreground">{priceWords(price, ctx)}</span>
+}
 
-export const PlanComponentPrice = ({
+const lineMenuButton = (label: string) => (
+  <DropdownMenuTrigger asChild>
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="size-7 text-muted-foreground"
+      aria-label={`${label} actions`}
+    >
+      <MoreHorizontalIcon size={14} />
+    </Button>
+  </DropdownMenuTrigger>
+)
+
+const PlanChargeLine = ({
   component,
+  price,
   configuration,
   override,
+  seats,
+  amounts,
   currency,
+  excluded,
   needsConfiguration,
-  isExcluded,
+  onOverride,
+  onResetOverride,
+  onToggleExclude,
+  onConfigure,
+  example,
 }: {
   component: ProtoPriceComponent
+  price?: Price
   configuration?: ComponentParameterization
   override?: ComponentOverride
+  seats?: number
+  amounts: Map<string, string | undefined>
   currency: string
+  excluded: boolean
   needsConfiguration: boolean
-  isExcluded: boolean
+  onOverride: () => void
+  onResetOverride: () => void
+  onToggleExclude: () => void
+  onConfigure: (config: Partial<ComponentParameterization>) => void
+  example?: Example
 }) => {
+  const ctx = useChargeContext(component)
   const feeType = deriveFeeType(component)
-  const unitPrice = getDisplayUnitPrice(component, configuration, override, currency)
-  const billingLabel = getComponentBillingLabel(component, configuration)
-  const displayPrice = override
-    ? formDataToPrice(override.feeType, override.formData, currency)
-    : getPrice(component)
-  const usage = useUsageSummary(feeType === 'usage' ? displayPrice : undefined, currency)
+  const name = override?.name || component.name
+  const figures = withModelAmount(lineFigures(price, seats, ctx), amounts, `c:${component.id}`)
+  const levels = !override && feeType === 'capacity' && component.prices.length > 1
 
-  if (needsConfiguration && !isExcluded) {
-    return (
-      <div className="text-right">
-        <div className="text-xs font-medium text-red-700">Configuration required</div>
-      </div>
-    )
-  }
-
-  // Slot with configured count
-  if (feeType === 'slot' && configuration?.initialSlotCount && configuration.initialSlotCount > 1) {
-    const total = planComponentSlotTotal(component, configuration, override, currency)
-    return (
-      <div className="text-right">
-        <div className="flex items-center justify-end gap-1">
-          <span>
-            {formatCurrency(unitPrice, currency)} × {formatUsage(configuration.initialSlotCount)}{' '}
-            slots
-          </span>
-          <Badge variant="secondary" size="sm">
-            {billingLabel}
-          </Badge>
-        </div>
-        <div className="text-xs text-muted-foreground">{total}</div>
-      </div>
-    )
-  }
-
-  // Usage-based: show model + rate summary instead of €0.00
-  if (feeType === 'usage') {
-    return (
-      <div className="text-right">
-        <div className="flex items-center justify-end gap-1">
-          {usage ? (
-            <span>
-              {usage.model && (
-                <>
-                  <span className="text-muted-foreground">{usage.model}</span>{' '}
-                </>
-              )}
-              {usage.amount}
-            </span>
-          ) : (
-            <span className="text-muted-foreground">Metered</span>
+  const actions = excluded ? (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className="h-7 px-2 text-xs"
+      onClick={onToggleExclude}
+    >
+      Include
+    </Button>
+  ) : (
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+        onClick={onOverride}
+      >
+        {override ? 'Edit custom price' : 'Override price'}
+      </Button>
+      <DropdownMenu modal={false}>
+        {lineMenuButton(name)}
+        <DropdownMenuContent align="end">
+          {override && (
+            <>
+              <DropdownMenuItem onSelect={onResetOverride}>Reset to plan price</DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
           )}
-          <Badge variant="secondary" size="sm">
-            {billingLabel}
-          </Badge>
-        </div>
-        {usage?.note && <div className="text-xs text-muted-foreground">{usage.note}</div>}
-      </div>
-    )
-  }
-
-  if (feeType === 'capacity' && displayPrice) {
-    return (
-      <CapacityPrice
-        price={
-          planComponentDisplayPrice(component, configuration, override, currency) ?? displayPrice
-        }
-        currency={currency}
-        billingLabel={billingLabel}
-      />
-    )
-  }
-
-  if (feeType === 'credit' && displayPrice) {
-    return <CreditPackPrice price={displayPrice} currency={currency} billingLabel={billingLabel} />
-  }
+          <DropdownMenuItem onSelect={onToggleExclude} className="text-destructive">
+            Exclude from this subscription
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
+  )
 
   return (
-    <div className="text-right">
-      <div className="flex items-center justify-end gap-1">
-        <span>{formatCurrency(unitPrice, currency)}</span>
-        <Badge variant="secondary" size="sm">
-          {billingLabel}
-        </Badge>
-      </div>
-    </div>
+    <LineShell
+      name={name}
+      description={describe(price, ctx)}
+      badge={override ? 'Custom price' : undefined}
+      muted={excluded}
+      figures={
+        needsConfiguration && !levels ? (
+          <span className="text-xs text-warning">Set the seat count</span>
+        ) : (
+          <Figures
+            figures={figures}
+            fallback={price && <SummaryFigures price={price} ctx={ctx} currency={currency} />}
+          />
+        )
+      }
+      actions={actions}
+    >
+      {!excluded && feeType === 'slot' && (
+        <SeatCount
+          name={name}
+          value={configuration?.initialSlotCount}
+          invalid={needsConfiguration}
+          onChange={count => onConfigure({ initialSlotCount: count })}
+        />
+      )}
+      {!excluded && levels && (
+        <div className="mt-2 w-60">
+          <ComponentConfigurationFields
+            component={component}
+            configuration={configuration}
+            currency={currency}
+            onUpdateConfiguration={onConfigure}
+          />
+        </div>
+      )}
+      {!excluded && example && isExampleUsage(price) && <UsageExample {...example} currency={currency} />}
+    </LineShell>
   )
 }
+
+const ExtraChargeLine = ({
+  extra,
+  price,
+  figures,
+  currency,
+  onEdit,
+  onRemove,
+  example,
+}: {
+  extra: ExtraComponent
+  price: Price
+  figures?: ChargeFigures
+  currency: string
+  onEdit: () => void
+  onRemove: () => void
+  example?: Example
+}) => {
+  const ctx: ChargeContext = {}
+  return (
+    <LineShell
+      name={extra.name}
+      description={describe(price, ctx)}
+      badge="Added"
+      figures={
+        <Figures
+          figures={figures}
+          fallback={<SummaryFigures price={price} ctx={ctx} currency={currency} />}
+        />
+      }
+      actions={
+        <>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+            onClick={onEdit}
+          >
+            Edit fee
+          </Button>
+          <DropdownMenu modal={false}>
+            {lineMenuButton(extra.name)}
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={onRemove} className="text-destructive">
+                Remove fee
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </>
+      }
+    >
+      {example && isExampleUsage(price) && <UsageExample {...example} currency={currency} />}
+    </LineShell>
+  )
+}
+
+// Usage priced by dimension has no one quantity to show an example at.
+const isExampleUsage = (price: Price | undefined) =>
+  price?.pricing.case === 'usagePricing' &&
+  price.pricing.value.model.case !== 'dimensionRates' &&
+  price.pricing.value.model.case !== 'rateCard'
+
+/** The seats a seat charge starts with: its price, custom or not, bills them. */
+const SeatCount = ({
+  name,
+  value,
+  invalid,
+  onChange,
+}: {
+  name: string
+  value?: number
+  invalid: boolean
+  onChange: (count: number | undefined) => void
+}) => (
+  <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+    Starts with
+    <Input
+      type="number"
+      min="0"
+      value={value ?? ''}
+      onChange={e => onChange(e.target.value ? parseInt(e.target.value) : undefined)}
+      aria-label={`${name} seats`}
+      aria-invalid={invalid}
+      className={cn('h-7 w-20 px-2 text-sm', invalid && 'border-warning')}
+    />
+    {value === 1 ? 'seat' : 'seats'}
+  </label>
+)
 
 export const ComponentConfigurationFields = ({
   component,
@@ -759,293 +841,68 @@ export const ComponentConfigurationFields = ({
 
   if (feeType === 'slot') {
     return (
-      <div className="space-y-2">
-        <Label className="text-xs">Initial Seats</Label>
-        <Input
-          type="number"
-          min="0"
-          className="h-8 text-xs"
-          placeholder="Number of seats"
-          value={configuration?.initialSlotCount || ''}
-          onChange={e => {
-            const value = e.target.value ? parseInt(e.target.value) : undefined
-            onUpdateConfiguration({ initialSlotCount: value })
-          }}
-        />
-      </div>
+      <SeatCount
+        name={component.name}
+        value={configuration?.initialSlotCount}
+        invalid={configuration?.initialSlotCount === undefined}
+        onChange={count => onUpdateConfiguration({ initialSlotCount: count })}
+      />
     )
   }
 
   if (feeType === 'capacity' && component.prices.length > 1) {
     return (
-      <div className="space-y-2">
-        <Select
-          value={configuration?.committedCapacity?.toString() || ''}
-          onValueChange={value => onUpdateConfiguration({ committedCapacity: BigInt(value) })}
-        >
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue placeholder="Select capacity" />
-          </SelectTrigger>
-          <SelectContent>
-            {component.prices
-              .filter(p => p.pricing.case === 'capacityPricing')
-              .map(p => {
-                const cap = p.pricing.value as { included: bigint; rate: string }
-                return (
-                  <SelectItem key={cap.included.toString()} value={cap.included.toString()}>
-                    <div className="flex justify-between items-center w-full">
-                      <span>{formatUsage(Number(cap.included))} included</span>
-                      <span className="text-muted-foreground ml-2">
-                        {formatCurrency(cap.rate, currency)}
-                      </span>
-                    </div>
-                  </SelectItem>
-                )
-              })}
-          </SelectContent>
-        </Select>
-      </div>
+      <Select
+        value={configuration?.committedCapacity?.toString() || ''}
+        onValueChange={value => onUpdateConfiguration({ committedCapacity: BigInt(value) })}
+      >
+        <SelectTrigger className="h-8 text-xs" aria-label={`${component.name} level`}>
+          <SelectValue placeholder="Choose the included amount" />
+        </SelectTrigger>
+        <SelectContent>
+          {component.prices
+            .filter(p => p.pricing.case === 'capacityPricing')
+            .map(p => {
+              const cap = p.pricing.value as { included: bigint; rate: string }
+              return (
+                <SelectItem key={cap.included.toString()} value={cap.included.toString()}>
+                  <div className="flex w-full items-center justify-between">
+                    <span>{formatUsage(Number(cap.included))} included</span>
+                    <span className="ml-2 text-muted-foreground">
+                      {formatCurrencyNoRounding(cap.rate, currency)}
+                    </span>
+                  </div>
+                </SelectItem>
+              )
+            })}
+        </SelectContent>
+      </Select>
     )
   }
 
   return null
 }
 
-// --- Compact plan component card ---
-
-interface CompactPriceComponentCardProps {
-  component: ProtoPriceComponent
-  isExcluded: boolean
-  isConfigured: boolean
-  isOverridden: boolean
-  isEditing: boolean
-  needsConfiguration: boolean
-  configuration?: ComponentParameterization
-  override?: ComponentOverride
-  currency: string
-  onToggleExclude: () => void
-  onStartEdit: () => void
-  onEndEdit: () => void
-  onUpdateConfiguration: (config: Partial<ComponentParameterization>) => void
-  onStartOverride: () => void
-  onRemoveOverride: () => void
-  showUsageExample?: boolean
-  exampleQuantity?: string
-  exampleAmount?: string
-  onExampleQuantityChange?: (value: string) => void
-}
-
-const CompactPriceComponentCard = ({
-  component,
-  isExcluded,
-  isConfigured,
-  isOverridden,
-  isEditing,
-  needsConfiguration,
-  configuration,
-  override,
-  currency,
-  onToggleExclude,
-  onStartEdit,
-  onEndEdit,
-  onUpdateConfiguration,
-  onStartOverride,
-  onRemoveOverride,
-  showUsageExample = false,
-  exampleQuantity,
-  exampleAmount,
-  onExampleQuantityChange,
-}: CompactPriceComponentCardProps) => {
-  const feeType = deriveFeeType(component)
-
-  // Matrix usage can't be estimated from a single quantity, so no example input.
-  const isMatrixUsage =
-    feeType === 'usage' &&
-    (() => {
-      const price = override
-        ? formDataToPrice(override.feeType, override.formData, currency)
-        : getPrice(component)
-      return price?.pricing.case === 'usagePricing' && price.pricing.value.model.case === 'matrix'
-    })()
-
-  const canConfigure = () => {
-    if (isOverridden) return false
-    if (feeType === 'slot') return true
-    if (feeType === 'capacity' && component.prices.length > 1) return true
-    return false
-  }
-
-  const renderPriceDisplay = () => (
-    <PlanComponentPrice
-      component={component}
-      configuration={configuration}
-      override={override}
-      currency={currency}
-      needsConfiguration={needsConfiguration}
-      isExcluded={isExcluded}
-    />
-  )
-
-  const renderConfiguration = () => {
-    if (!isEditing || isExcluded) return null
-    return (
-      <ComponentConfigurationFields
-        component={component}
-        configuration={configuration}
-        currency={currency}
-        onUpdateConfiguration={onUpdateConfiguration}
-      />
-    )
-  }
-
-  return (
-    <Card
-      className={cn(
-        'transition-all duration-200 hover:shadow-sm',
-        isExcluded && 'opacity-50 bg-muted/30',
-        needsConfiguration && 'bg-card text-card-foreground'
-      )}
-    >
-      <CardHeader className="p-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-1">
-            <div className="text-muted-foreground">{feeTypeIcon(feeType)}</div>
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <CardTitle className={cn('text-sm font-medium', isExcluded && 'line-through')}>
-                  {isOverridden && override?.name ? override.name : component.name}
-                </CardTitle>
-                <Badge variant="outline" size="sm">
-                  {feeTypeLabel(feeType)}
-                </Badge>
-                {isOverridden && (
-                  <Badge variant="destructive" size="sm">
-                    Custom Price
-                  </Badge>
-                )}
-              </div>
-            </div>
-            <div className={cn('text-sm font-medium', isExcluded && 'line-through')}>
-              {renderPriceDisplay()}
-            </div>
-          </div>
-          <div className="flex gap-1 ml-4">
-            {!isOverridden && canConfigure() && (
-              <Popover open={isEditing} onOpenChange={open => (open ? onStartEdit() : onEndEdit())}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant={needsConfiguration && !isExcluded ? 'default' : 'ghost'}
-                    size="sm"
-                    disabled={isExcluded}
-                    type="button"
-                    className={needsConfiguration && !isExcluded ? 'animate-pulse' : ''}
-                  >
-                    {isEditing ? <Check className="h-3 w-3" /> : <Settings className="h-3 w-3" />}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-64" align="end">
-                  <div className="space-y-2">
-                    <h4 className="font-medium text-sm">Configure {component.name}</h4>
-                    {renderConfiguration()}
-                    <div className="flex justify-end gap-2 pt-2">
-                      <Button size="sm" variant="ghost" onClick={onEndEdit} type="button">
-                        Cancel
-                      </Button>
-                      <Button size="sm" onClick={onEndEdit} type="button">
-                        Done
-                      </Button>
-                    </div>
-                  </div>
-                </PopoverContent>
-              </Popover>
-            )}
-            {!isExcluded && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  type="button"
-                  onClick={onStartOverride}
-                  title={isOverridden ? 'Edit custom pricing' : 'Override with custom pricing'}
-                >
-                  <Edit2 className="h-3 w-3" />
-                </Button>
-                {isOverridden && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    type="button"
-                    onClick={onRemoveOverride}
-                    title="Remove custom pricing"
-                  >
-                    <RefreshCcw className="h-3 w-3" />
-                  </Button>
-                )}
-              </>
-            )}
-            <Button
-              variant={isExcluded ? 'ghost' : 'destructive'}
-              size="sm"
-              type="button"
-              onClick={onToggleExclude}
-              title={isExcluded ? 'Include this component' : 'Exclude this component'}
-            >
-              {isExcluded ? <PlusIcon className="h-3 w-3" /> : <X className="h-3 w-3" />}
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
-      {isConfigured && !isEditing && (
-        <CardContent className="px-3 pb-3 pt-0">
-          <div className="text-xs text-muted-foreground">
-            {configuration?.initialSlotCount !== undefined && (
-              <span>Seats: {configuration.initialSlotCount}</span>
-            )}
-            {configuration?.committedCapacity !== undefined && (
-              <span>
-                {configuration.initialSlotCount !== undefined && ' • '}
-                Capacity: {configuration.committedCapacity.toString()}
-              </span>
-            )}
-          </div>
-        </CardContent>
-      )}
-      {showUsageExample && feeType === 'usage' && !isMatrixUsage && !isExcluded && (
-        <UsageExampleSection
-          quantity={exampleQuantity}
-          amount={exampleAmount}
-          currency={currency}
-          onChange={onExampleQuantityChange}
-        />
-      )}
-    </Card>
-  )
-}
-
-const UsageExampleSection = ({
+/** An example quantity of usage, priced by the server, shown on the quote. */
+const UsageExample = ({
   quantity,
   amount,
   currency,
   onChange,
-}: {
-  quantity?: string
-  amount?: string
-  currency: string
-  onChange?: (value: string) => void
-}) => {
+}: Example & { currency: string }) => {
   const [enabled, setEnabled] = useState(Boolean(quantity))
 
   const toggle = (checked: boolean) => {
     setEnabled(checked)
-    if (!checked) onChange?.('')
+    if (!checked) onChange('')
   }
 
   const qty = Number(quantity)
-  const showAmount = quantity?.trim() && Number.isFinite(qty) && amount
+  const showAmount = quantity.trim() && Number.isFinite(qty) && amount
 
   return (
-    <CardContent className="px-3 pb-3 pt-0 space-y-2">
-      <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer w-fit">
+    <div className="mt-2 space-y-2">
+      <label className="flex w-fit cursor-pointer items-center gap-2 text-xs text-muted-foreground">
         <Checkbox checked={enabled} onCheckedChange={v => toggle(v === true)} />
         Add example pricing
       </label>
@@ -1054,366 +911,18 @@ const UsageExampleSection = ({
           <Input
             type="number"
             min="0"
-            className="h-7 text-xs max-w-[140px]"
+            className="h-7 max-w-[140px] text-xs"
             placeholder="e.g. 10000"
-            value={quantity ?? ''}
-            onChange={e => onChange?.(e.target.value)}
+            value={quantity}
+            onChange={e => onChange(e.target.value)}
           />
           {showAmount && (
-            <span className="text-xs text-muted-foreground whitespace-nowrap">
-              {qty.toLocaleString()} units = {formatCurrency(amount, currency || 'USD')}
+            <span className="whitespace-nowrap text-xs text-muted-foreground">
+              {qty.toLocaleString()} units = {formatCurrencyNoRounding(amount, currency || 'USD')}
             </span>
           )}
         </div>
       )}
-    </CardContent>
-  )
-}
-
-// --- Extra component card ---
-
-export const ExtraComponentPrice = ({
-  component,
-  currency,
-}: {
-  component: ExtraComponent
-  currency: string
-}) => {
-  const displayPrice = formDataToPrice(component.feeType, component.formData, currency)
-  const unitPrice = getPriceUnitPrice(displayPrice)
-  const billingLabel = getPriceBillingLabel(displayPrice)
-  const isUsage = displayPrice.pricing.case === 'usagePricing'
-  const usage = useUsageSummary(isUsage ? displayPrice : undefined, currency)
-
-  return (
-    <>
-      {displayPrice.pricing.case === 'creditPricing' ? (
-        <CreditPackPrice price={displayPrice} currency={currency} billingLabel={billingLabel} />
-      ) : displayPrice.pricing.case === 'capacityPricing' ? (
-        <CapacityPrice price={displayPrice} currency={currency} billingLabel={billingLabel} />
-      ) : (
-        <div className="flex items-center justify-end gap-1">
-          {usage ? (
-            <span>
-              {usage.model && (
-                <>
-                  <span className="text-muted-foreground">{usage.model}</span>{' '}
-                </>
-              )}
-              {usage.amount}
-            </span>
-          ) : (
-            <span>{formatCurrency(unitPrice, currency)}</span>
-          )}
-          <Badge variant="secondary" size="sm">
-            {billingLabel}
-          </Badge>
-        </div>
-      )}
-      {usage?.note && <div className="text-xs text-muted-foreground">{usage.note}</div>}
-    </>
-  )
-}
-
-const ExtraComponentCard = ({
-  component,
-  currency,
-  onEdit,
-  onRemove,
-  showUsageExample = false,
-  exampleQuantity,
-  exampleAmount,
-  onExampleQuantityChange,
-}: {
-  component: ExtraComponent
-  currency: string
-  onEdit: () => void
-  onRemove: () => void
-  showUsageExample?: boolean
-  exampleQuantity?: string
-  exampleAmount?: string
-  onExampleQuantityChange?: (value: string) => void
-}) => {
-  const displayPrice = formDataToPrice(component.feeType, component.formData, currency)
-  const isUsage = displayPrice.pricing.case === 'usagePricing'
-  const isMatrixUsage =
-    displayPrice.pricing.case === 'usagePricing' &&
-    displayPrice.pricing.value.model.case === 'matrix'
-
-  return (
-    <Card className="transition-all duration-200 hover:shadow-sm">
-      <CardHeader className="p-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-1">
-            <div className="text-muted-foreground">
-              <Plus className="h-4 w-4" />
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <CardTitle className="text-sm font-medium">{component.name}</CardTitle>
-                <Badge variant="secondary" size="sm">
-                  Extra
-                </Badge>
-              </div>
-            </div>
-            <div className="text-sm font-medium text-right">
-              <ExtraComponentPrice component={component} currency={currency} />
-            </div>
-          </div>
-          <div className="flex gap-1 ml-4">
-            <Button variant="ghost" size="sm" type="button" onClick={onEdit}>
-              <Edit2 className="h-3 w-3" />
-            </Button>
-            <Button variant="destructive" size="sm" type="button" onClick={onRemove}>
-              <X className="h-3 w-3" />
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
-      {showUsageExample && isUsage && !isMatrixUsage && (
-        <UsageExampleSection
-          quantity={exampleQuantity}
-          amount={exampleAmount}
-          currency={currency}
-          onChange={onExampleQuantityChange}
-        />
-      )}
-    </Card>
-  )
-}
-
-// --- Add Fee Modal — two tabs: product library + custom fee ---
-
-export interface AddFeeModalProps {
-  onClose: () => void
-  onAdd: (component: ExtraComponent) => void
-  currency: string
-  initialValues?: ExtraComponent
-  isEditing?: boolean
-}
-
-export const AddFeeModal = ({
-  onClose,
-  onAdd,
-  currency,
-  initialValues,
-  isEditing = false,
-}: AddFeeModalProps) => {
-  // Custom tab state
-  const [customStep, setCustomStep] = useState<'identity' | 'feeType' | 'pricing'>(
-    initialValues ? 'pricing' : 'identity'
-  )
-  const [name, setName] = useState(initialValues?.name || '')
-  const [description, setDescription] = useState(initialValues?.description || '')
-  const [feeType, setFeeType] = useState<ComponentFeeType | null>(initialValues?.feeType ?? null)
-
-  const handleFeeTypeSelect = (ft: ComponentFeeType) => {
-    setFeeType(ft)
-    setCustomStep('pricing')
-  }
-
-  const handleCustomSubmit = (formData: Record<string, unknown>) => {
-    if (!feeType) return
-    onAdd({ name, description: description || undefined, feeType, formData, productId: undefined })
-    onClose()
-  }
-
-  const handleProductAdd = ({
-    productId,
-    componentName,
-    formData,
-    feeType: ft,
-  }: {
-    productId: string
-    componentName: string
-    formData: Record<string, unknown>
-    feeType: ComponentFeeType
-  }) => {
-    onAdd({ name: componentName, feeType: ft, formData, productId })
-    onClose()
-  }
-
-  // For editing, show just the pricing form directly
-  if (isEditing) {
-    return (
-      <Dialog open={true} onOpenChange={onClose}>
-        <DialogContent className="sm:max-w-[540px] max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Edit Fee</DialogTitle>
-          </DialogHeader>
-          {feeType && (
-            <div className="space-y-4">
-              <div className="text-sm font-medium">
-                {name} — {feeTypeLabel(feeType)}
-              </div>
-              <ProductPricingForm
-                feeType={feeType}
-                currency={currency}
-                editableStructure
-                initialFormData={initialValues?.formData}
-                onSubmit={handleCustomSubmit}
-                submitLabel="Save Changes"
-              />
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-    )
-  }
-
-  return (
-    <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[600px] max-h-[85vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle>Add a Fee</DialogTitle>
-        </DialogHeader>
-        <Tabs defaultValue="product" className="flex flex-col flex-1 overflow-hidden">
-          <TabsList className="w-full grid grid-cols-2">
-            <TabsTrigger value="product">From Product</TabsTrigger>
-            <TabsTrigger value="custom">Custom Fee</TabsTrigger>
-          </TabsList>
-
-          {/* Product Library Tab */}
-          <TabsContent value="product" className="flex-1 overflow-hidden mt-4">
-            <ScrollArea className="h-[55vh]">
-              <ProductBrowser currency={currency} onAdd={handleProductAdd} submitLabel="Add Fee" />
-            </ScrollArea>
-          </TabsContent>
-
-          {/* Custom Fee Tab */}
-          <TabsContent value="custom" className="flex-1 overflow-y-auto mt-4">
-            {customStep === 'identity' && (
-              <div className="space-y-4">
-                <div>
-                  <Label className="text-sm">Product name</Label>
-                  <Input
-                    className="mt-1"
-                    placeholder="e.g., Setup Fee, Custom Service"
-                    value={name}
-                    onChange={e => setName(e.target.value)}
-                    autoFocus
-                  />
-                </div>
-                <div>
-                  <Label className="text-sm">Description (optional)</Label>
-                  <Textarea
-                    className="mt-1"
-                    placeholder="Brief description"
-                    value={description}
-                    onChange={e => setDescription(e.target.value)}
-                  />
-                </div>
-                {name.length > 0 && (
-                  <div className="flex justify-end">
-                    <Button type="button" onClick={() => setCustomStep('feeType')}>
-                      Next
-                    </Button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {customStep === 'feeType' && (
-              <div className="space-y-4">
-                <button
-                  type="button"
-                  onClick={() => setCustomStep('identity')}
-                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-                >
-                  ← Back
-                </button>
-                <div className="text-sm font-medium">{name}</div>
-                <FeeTypePicker onSelect={handleFeeTypeSelect} />
-              </div>
-            )}
-
-            {customStep === 'pricing' && feeType && (
-              <div className="space-y-4">
-                <button
-                  type="button"
-                  onClick={() => setCustomStep('feeType')}
-                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-                >
-                  ← Back
-                </button>
-                <div className="text-sm font-medium">
-                  {name} — {feeTypeLabel(feeType)}
-                </div>
-                <ProductPricingForm
-                  feeType={feeType}
-                  currency={currency}
-                  editableStructure
-                  onSubmit={handleCustomSubmit}
-                  submitLabel="Add Fee"
-                />
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// --- Override Fee Modal — reuses ProductPricingForm ---
-
-interface OverrideFeeModalProps {
-  componentId: string
-  originalComponent?: ProtoPriceComponent
-  onClose: () => void
-  onSave: (override: ComponentOverride) => void
-  currency: string
-}
-
-export const OverrideFeeModal = ({
-  componentId,
-  originalComponent,
-  onClose,
-  onSave,
-  currency,
-}: OverrideFeeModalProps) => {
-  const feeType = originalComponent ? deriveFeeType(originalComponent) : 'rate'
-  const hasProduct = !!originalComponent?.productId
-
-  const productQuery = useQuery(
-    getProduct,
-    originalComponent?.productId ? { productId: originalComponent.productId } : skipToken,
-    { enabled: hasProduct }
-  )
-  const product = productQuery.data?.product
-
-  const structural = useMemo(
-    () => (product ? extractStructuralInfo(feeType, product.feeStructure) : undefined),
-    [feeType, product]
-  )
-
-  const handleSubmit = (formData: Record<string, unknown>) => {
-    onSave({
-      componentId,
-      name: originalComponent?.name || '',
-      feeType,
-      formData,
-      productId: originalComponent?.productId,
-    })
-  }
-
-  return (
-    <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[500px] max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Override: {originalComponent?.name}</DialogTitle>
-        </DialogHeader>
-        <ProductPricingForm
-          feeType={feeType}
-          currency={currency}
-          existingPrice={originalComponent ? getPrice(originalComponent) : undefined}
-          structuralInfo={structural}
-          editableStructure={!hasProduct}
-          isOverride
-          onSubmit={handleSubmit}
-          submitLabel="Save Override"
-        />
-      </DialogContent>
-    </Dialog>
+    </div>
   )
 }

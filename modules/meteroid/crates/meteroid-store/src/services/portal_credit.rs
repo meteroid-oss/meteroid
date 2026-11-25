@@ -925,7 +925,21 @@ impl ServicesEdge {
             .into_iter()
             .map(TryInto::try_into)
             .collect::<StoreResult<Vec<AppliedCouponDetailed>>>()?;
-        coupons.retain(AppliedCouponDetailed::is_invoice_applicable);
+        let next_period: HashMap<SubscriptionId, Option<NaiveDate>> =
+            diesel_models::subscriptions::SubscriptionRow::list_by_ids(&mut conn, subscription_ids)
+                .await?
+                .into_iter()
+                .map(|row| (row.subscription.id, row.subscription.current_period_end))
+                .collect();
+        // The estimate prices the next invoice: judged on the period it opens, as checkout does.
+        coupons.retain(|coupon| {
+            coupon.is_invoice_applicable()
+                && next_period
+                    .get(&coupon.applied_coupon.subscription_id)
+                    .copied()
+                    .flatten()
+                    .is_none_or(|start| coupon.covers(start))
+        });
         coupons.sort_by_key(|coupon| coupon.applied_coupon.created_at);
         let mut by_subscription: HashMap<SubscriptionId, Vec<AppliedCouponDetailed>> =
             HashMap::new();

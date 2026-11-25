@@ -407,6 +407,48 @@ impl SubscriptionComponentRow {
     }
 
     /// Fetch distinct product IDs from subscription components for the given subscriptions.
+    /// The products the subscriptions' plan versions include with no price: they bring their
+    /// features, no fee.
+    pub async fn list_included_product_ids(
+        conn: &mut PgConn,
+        subscription_ids: &[SubscriptionId],
+        tenant_id: &TenantId,
+    ) -> DbResult<Vec<ProductId>> {
+        use common_domain::ids::BaseId;
+        use diesel::sql_types;
+        use diesel_async::RunQueryDsl;
+
+        #[derive(diesel::QueryableByName)]
+        struct Included {
+            #[diesel(sql_type = sql_types::Uuid)]
+            product_id: ProductId,
+        }
+
+        if subscription_ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let ids: Vec<uuid::Uuid> = subscription_ids.iter().map(|id| id.as_uuid()).collect();
+        let query = diesel::sql_query(
+            "SELECT DISTINCT pc.product_id \
+             FROM subscription s \
+             JOIN price_component pc ON pc.plan_version_id = s.plan_version_id \
+             WHERE s.id = ANY($1) AND s.tenant_id = $2 \
+               AND pc.product_id IS NOT NULL AND pc.legacy_fee IS NULL \
+               AND NOT EXISTS (SELECT 1 FROM plan_component_price pcp \
+                               WHERE pcp.plan_component_id = pc.id) \
+               AND NOT EXISTS (SELECT 1 FROM subscription_excluded_component x \
+                               WHERE x.subscription_id = s.id AND x.price_component_id = pc.id)",
+        )
+        .bind::<sql_types::Array<sql_types::Uuid>, _>(ids)
+        .bind::<sql_types::Uuid, _>(tenant_id.as_uuid());
+        query
+            .get_results::<Included>(conn)
+            .await
+            .attach("Error while listing the products plans include with no price")
+            .into_db_result()
+            .map(|rows| rows.into_iter().map(|row| row.product_id).collect())
+    }
+
     pub async fn list_product_ids(
         conn: &mut PgConn,
         subscription_ids: &[SubscriptionId],
@@ -519,4 +561,30 @@ impl SubscriptionComponentRow {
         .into_db_result()
         .map(|rows| rows.into_iter().map(|row| row.id).collect())
     }
+}
+
+/// Leaves each component's included product out of its subscription, by (subscription, component).
+pub async fn exclude_included(
+    conn: &mut PgConn,
+    rows: &[(uuid::Uuid, uuid::Uuid)],
+) -> DbResult<()> {
+    use diesel::sql_types;
+    use diesel_async::RunQueryDsl;
+
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let (subscriptions, components): (Vec<uuid::Uuid>, Vec<uuid::Uuid>) =
+        rows.iter().copied().unzip();
+    diesel::sql_query(
+        "INSERT INTO subscription_excluded_component (subscription_id, price_component_id) \
+         SELECT * FROM UNNEST($1::uuid[], $2::uuid[]) ON CONFLICT DO NOTHING",
+    )
+    .bind::<sql_types::Array<sql_types::Uuid>, _>(subscriptions)
+    .bind::<sql_types::Array<sql_types::Uuid>, _>(components)
+    .execute(conn)
+    .await
+    .map(|_| ())
+    .attach("Error while excluding included products")
+    .into_db_result()
 }

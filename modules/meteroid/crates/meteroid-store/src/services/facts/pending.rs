@@ -220,6 +220,7 @@ async fn resolve_change_with(
             source_plan_version_id,
             new_plan_version_id,
             component_mappings,
+            ..
         } => {
             resolve_plan_change(
                 conn,
@@ -958,7 +959,13 @@ async fn write_facts(
             transaction_at: at,
         };
         written.seat_seeds.push(seed.id.as_uuid());
-        db(seed.into_row(facts.subscription_id).insert(conn).await)?;
+        let rows = crate::repositories::subscriptions::slots::ledger_rows(
+            conn,
+            facts.tenant_id,
+            [&(facts.subscription_id, seed)],
+        )
+        .await?;
+        db(rows[0].insert(conn).await)?;
     }
     if !facts.set_seats.is_empty() {
         let ledger = db(SlotTransactionRow::list_by_subscription_id(
@@ -982,7 +989,13 @@ async fn write_facts(
             };
             written.seat_seeds.push(seed.id.as_uuid());
             written.set_seats.push(seed.id.as_uuid());
-            db(seed.into_row(facts.subscription_id).insert(conn).await)?;
+            let rows = crate::repositories::subscriptions::slots::ledger_rows(
+                conn,
+                facts.tenant_id,
+                [&(facts.subscription_id, seed)],
+            )
+            .await?;
+            db(rows[0].insert(conn).await)?;
         }
     }
     let Some(window) = &facts.plan_window else {

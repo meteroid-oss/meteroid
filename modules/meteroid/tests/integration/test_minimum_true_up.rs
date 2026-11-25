@@ -555,6 +555,8 @@ async fn a_product_scoped_true_up_is_split_and_taxed_by_its_products() {
                 fee_type: None,
                 fee_structure: None,
                 tax_category_id: Some(Some(reduced.id)),
+                icon: None,
+                color: None,
             },
         )
         .await
@@ -2488,6 +2490,7 @@ async fn raising_an_arrears_fee_under_a_minimum_applies_at_once() {
                             pricing: Pricing::ExtraRecurring {
                                 unit_price: dec!(50),
                                 quantity: 1,
+                                model: None,
                             },
                             credit_unit: None,
                         }),

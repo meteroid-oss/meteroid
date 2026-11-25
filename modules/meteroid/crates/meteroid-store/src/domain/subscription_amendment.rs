@@ -130,3 +130,45 @@ pub struct ImmediateAmendmentResult {
     pub credit_note_ids: Vec<CreditNoteId>,
     pub effective_date: NaiveDate,
 }
+
+/// A level of a usage-levels charge: one of the capacity prices of its plan component's cell, in
+/// the subscription's option, currency and cadence (R-135).
+#[derive(Debug, Clone)]
+pub struct CapacityLevel {
+    pub price_id: common_domain::ids::PriceId,
+    pub included: u64,
+    pub rate: rust_decimal::Decimal,
+    pub overage_rate: rust_decimal::Decimal,
+    /// The level the subscription bills now.
+    pub current: bool,
+}
+
+/// A subscription's usage-levels charge, with the levels it may move to, fewest units first.
+#[derive(Debug, Clone)]
+pub struct ComponentLevels {
+    pub subscription_component_id: SubscriptionPriceComponentId,
+    pub price_component_id: common_domain::ids::PriceComponentId,
+    pub name: String,
+    pub period: crate::domain::enums::SubscriptionFeeBillingPeriod,
+    /// The units it includes now.
+    pub included: u64,
+    pub levels: Vec<CapacityLevel>,
+}
+
+/// A move to another level, as it applies: a higher level at once, a lower one at the period's
+/// end (R-135).
+#[derive(Debug, Clone)]
+pub struct LevelChangePreview {
+    pub direction: ChangeDirection,
+    pub apply_mode: PlanChangeMode,
+    pub effective_date: NaiveDate,
+    pub from_included: u64,
+    pub to_included: u64,
+    pub preview: AmendmentPreviewExtended,
+}
+
+#[derive(Debug, Clone)]
+pub enum LevelChangeOutcome {
+    Applied(ImmediateAmendmentResult),
+    Scheduled(Box<crate::domain::scheduled_events::ScheduledEvent>),
+}

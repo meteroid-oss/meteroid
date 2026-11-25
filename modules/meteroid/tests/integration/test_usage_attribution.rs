@@ -32,7 +32,7 @@ use meteroid_store::domain::invoice_annex_templates::{
     EventTableDefinition,
 };
 use meteroid_store::domain::invoices::InvoiceAnnexCell;
-use meteroid_store::domain::price_components::{MatrixDimension, MatrixRow, UsagePricingModel};
+use meteroid_store::domain::price_components::{DimensionRate, DimensionRates, UsagePricingModel};
 use meteroid_store::domain::subscription_components::CreateSubscriptionComponents;
 use meteroid_store::domain::{
     ApiTokenNew, BillableMetric, BillableMetricNew, CreateSubscription, Invoice,
@@ -200,19 +200,17 @@ impl Stack {
         advance_fee: bool,
         usage_filter: Option<(&str, &str)>,
     ) -> Result<SubscriptionId, error_stack::Report<StoreError>> {
-        let rate = |model: &str, euros: i64| MatrixRow {
-            dimension1: MatrixDimension {
-                key: "model".to_owned(),
-                value: model.to_owned(),
-            },
-            dimension2: None,
-            per_unit_price: Decimal::from(euros),
+        let rate = |model: &str, euros: i64| DimensionRate {
+            key: vec![model.to_owned()],
+            rate: Decimal::from(euros),
+            label: None,
         };
         self.meteroid
             .services
             .insert_subscription(
                 Actor::System,
                 CreateSubscription {
+                    option: None,
                     subscription: SubscriptionNew {
                         customer_id,
                         plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
@@ -243,9 +241,13 @@ impl Stack {
                         extra_components: vec![metric_component(
                             "Model usage",
                             self.metric.id,
-                            UsagePricingModel::Matrix {
+                            UsagePricingModel::DimensionRates(DimensionRates {
+                                dimensions: vec!["model".to_owned()],
                                 rates: vec![rate("lite", 2), rate("standard", 12), rate("max", 60)],
-                            },
+                                unit_size: Decimal::ONE,
+                                on_unmatched:
+                                    meteroid_store::domain::rate_cards::RateCardUnmatched::Ignore,
+                            }),
                         )],
                         remove_components: if advance_fee {
                             vec![]

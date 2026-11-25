@@ -3,6 +3,9 @@
 use crate::StoreResult;
 use crate::constants::Currencies;
 use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
+use crate::domain::managed_quantities::{
+    ManagedQuantity, QuantityDecrease, QuantityIncrease, SeatChange,
+};
 use crate::domain::payment_transactions::PaymentNextAction;
 use crate::domain::slot_transactions::{SlotUpgradeBillingMode, UpdateSlotsResult};
 use crate::domain::{
@@ -22,6 +25,8 @@ use chrono::NaiveDateTime;
 use common_domain::ids::{BaseId, InvoiceId, PriceComponentId, SubscriptionId, TenantId};
 use diesel_models::enums::SubscriptionEventType;
 use diesel_models::lock::CustomerLock;
+use diesel_models::managed_quantities::ManagedQuantityRow;
+use diesel_models::slot_transactions::SlotTransactionRow;
 use diesel_models::subscription_events::SubscriptionEventRow;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
@@ -36,19 +41,21 @@ struct PricedSeats {
 }
 
 impl Services {
-    /// Upgrades (delta > 0): Behavior depends on billing_mode (OnCheckout/OnInvoicePaid/Optimistic)
-    /// Downgrades (delta < 0): Always deferred to next billing period
+    /// A change of the seats of a slot fee, as its managed quantity's policies say: an increase in
+    /// force at once is billed as `billing_mode` says; one for the next period, and a decrease at
+    /// the period's end, bill nothing now; a decrease at once gives its unused time back.
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_subscription_slots(
         &self,
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
         price_component_id: PriceComponentId,
-        delta: i32,
+        change: SeatChange,
         billing_mode: SlotUpgradeBillingMode,
         actor: Actor,
         at_ts: Option<NaiveDateTime>,
     ) -> StoreResult<UpdateSlotsResult> {
-        if delta == 0 {
+        if change == SeatChange::By(0) {
             return Err(StoreError::InvalidArgument(
                 "Delta cannot be zero - no slot change requested".to_string(),
             )
@@ -88,7 +95,55 @@ impl Services {
 
                 let customer_id = subscription.customer_id;
 
-                let result = if delta < 0 {
+                let at = now.min(period_end.and_time(chrono::NaiveTime::MIN));
+                let mut held = SlotTransactionRow::fetch_by_subscription_id_and_unit_locked(
+                    conn,
+                    lock,
+                    subscription_id,
+                    slot.unit.clone(),
+                    Some(at),
+                )
+                .await?
+                .current_active_slots;
+                // A count replaces the changes still waiting, and counts the seats still paying.
+                let withdrawn = if matches!(change, SeatChange::To(_)) {
+                    held += SlotTransactionRow::pending_upgrades(
+                        conn,
+                        tenant_id,
+                        subscription_id,
+                        slot.unit.clone(),
+                    )
+                    .await?;
+                    SlotTransactionRow::delete_waiting_changes(
+                        conn,
+                        lock,
+                        subscription_id,
+                        &slot.unit,
+                        at,
+                    )
+                    .await?
+                } else {
+                    0
+                };
+                let Some(delta) = change.delta(held) else {
+                    if withdrawn > 0 {
+                        return Ok(UpdateSlotsResult {
+                            new_slot_count: held,
+                            delta_applied: 0,
+                            invoice_id: None,
+                            prorated_amount: None,
+                            slots_active: true,
+                        });
+                    }
+                    return Err(StoreError::InvalidArgument(format!(
+                        "the subscription already holds {held} {}",
+                        slot.unit
+                    ))
+                    .into());
+                };
+                let deferred = deferred_to_period_end(conn, tenant_id, &slot.unit, delta).await?;
+
+                let result = if delta < 0 || deferred {
                     let new_slot_count = self
                         .store
                         .add_slot_transaction_tx(
@@ -99,10 +154,39 @@ impl Services {
                             delta,
                             &slot,
                             at_ts,
+                            deferred,
                         )
                         .await?
                         .prev_active_slots
                         + delta;
+                    if !deferred {
+                        services
+                            .derive_state_tx(
+                                conn,
+                                &crate::domain::entity_activity::Actor::System,
+                                tenant_id,
+                                subscription_id,
+                                crate::services::evaluate::bill::midnight(now_date),
+                            )
+                            .await?;
+                        // Removed at once, their unused time goes back on notes (R-108, R-120).
+                        services
+                            .settle_change_tx(
+                                conn,
+                                actor,
+                                subscription,
+                                &subscription_details.customer,
+                                &crate::services::evaluate::change::Change::of_rows(
+                                    now_date,
+                                    crate::services::evaluate::change::GiveBack::LatestFirst,
+                                    "seats",
+                                )
+                                .without_packs(),
+                                "Seats removed",
+                                crate::domain::enums::CreditNoteOrigin::Amendment,
+                            )
+                            .await?;
+                    }
 
                     UpdateSlotsResult {
                         new_slot_count,
@@ -234,7 +318,7 @@ impl Services {
             })?;
         let bought = Bought {
             lineage: billing_core::charge::Fee::Component(component.lineage()),
-            seats: u64::try_from(delta).unwrap_or(0),
+            seats: i64::from(delta),
         };
         seat_purchase(
             conn,
@@ -427,7 +511,16 @@ impl Services {
         Box::pin(async move {
             let new_slot_count = self
                 .store
-                .add_slot_transaction_tx(conn, lock, subscription_id, end_date, delta, slot, at_ts)
+                .add_slot_transaction_tx(
+                    conn,
+                    lock,
+                    subscription_id,
+                    end_date,
+                    delta,
+                    slot,
+                    at_ts,
+                    false,
+                )
                 .await?
                 .prev_active_slots
                 + delta;
@@ -550,13 +643,11 @@ impl Services {
 
         match slot_component.fee_ref() {
             SubscriptionFee::Slot {
-                unit_rate,
                 unit,
                 min_slots,
                 max_slots,
                 ..
             } => Ok(SlotForTransaction {
-                unit_rate: *unit_rate,
                 unit: unit.clone(),
                 min_slots: *min_slots,
                 max_slots: *max_slots,
@@ -936,4 +1027,24 @@ impl Services {
             })
             .await
     }
+}
+
+/// Whether a change of `delta` seats of `unit` waits for the period's end, as its quantity's
+/// policies say; a quantity not yet in the catalog has the default ones.
+pub(crate) async fn deferred_to_period_end(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    unit: &str,
+    delta: i32,
+) -> StoreResult<bool> {
+    let quantity = ManagedQuantityRow::find_by_code(conn, tenant_id, unit)
+        .await?
+        .map(ManagedQuantity::from);
+    let on_increase = quantity.as_ref().map(|q| q.on_increase).unwrap_or_default();
+    let on_decrease = quantity.as_ref().map(|q| q.on_decrease).unwrap_or_default();
+    Ok(if delta < 0 {
+        on_decrease == QuantityDecrease::AtPeriodEnd
+    } else {
+        on_increase == QuantityIncrease::NextPeriod
+    })
 }

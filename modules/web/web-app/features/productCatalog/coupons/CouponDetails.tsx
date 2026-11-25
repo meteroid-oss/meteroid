@@ -2,39 +2,46 @@ import { createConnectQueryKey, skipToken, useMutation, useQuery as useConnectQu
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Button,
-  Card,
-  CheckboxFormField,
-  CardContent,
-  CardHeader,
-  CardTitle,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
   Form,
-  InputFormField,
   MultiSelectFormField,
   MultiSelectItem,
-  SelectFormField,
-  SelectItem,
-  Separator,
   TextareaFormField,
 } from '@ui/components'
 import { ChevronDown } from 'lucide-react'
-import { FunctionComponent, useEffect, useMemo } from 'react'
+import { FunctionComponent, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
-import { CurrencySelect } from '@/components/CurrencySelect'
 import { Gate } from '@/components/Gate'
 import { LocalId } from '@/components/LocalId'
-import { Property } from '@/components/Property'
+import { PanelHead, PanelSection } from '@/components/layouts'
 import { EntityActivityTimeline } from '@/features/activity/EntityActivityTimeline'
+import { fromDraft, isOpen, toDraft } from '@/features/eligibility/eligibility'
 import {
-  CREDIT_COUPON_HINT,
-  couponDiscountLabel,
-} from '@/features/productCatalog/coupons/discountLabel'
+  CouponDiscountField,
+  CouponDurationField,
+  MoreConditions,
+} from '@/features/productCatalog/coupons/CouponTermsFields'
+import { CouponStatusChip } from '@/features/productCatalog/coupons/CouponsTable'
+import {
+  couponDate,
+  fixedDiscountOf,
+  hasCouponTerms,
+  otherAmountsOf,
+  parseCouponDate,
+} from '@/features/productCatalog/coupons/couponTerms'
+import {
+  couponAppliesTo,
+  couponDiscountLine,
+  couponStatus,
+  couponWhoLine,
+} from '@/features/productCatalog/coupons/couponWords'
+import { getCountryName } from '@/features/settings/utils'
 import { useQueryState } from '@/hooks/useQueryState'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
@@ -50,13 +57,17 @@ import {
 import { CouponAction } from '@/rpc/api/coupons/v1/coupons_pb'
 import { CouponDiscount_CreditScope } from '@/rpc/api/coupons/v1/models_pb'
 import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
-import { parseAndFormatDate, parseAndFormatDateOptional } from '@/utils/date'
-import { useTypedParams } from '@/utils/params'
+import { parseAndFormatDateOptional } from '@/utils/date'
 
-export const CouponDetails: FunctionComponent = () => {
+import type { CouponTermsFormFields } from '@/features/productCatalog/coupons/CouponTermsFields'
+import type { Control } from 'react-hook-form'
+
+/** The coupon open beside the list: its terms in words, the short form, its activity. */
+export const CouponDetails: FunctionComponent<{ couponLocalId: string; onClose: () => void }> = ({
+  couponLocalId,
+  onClose,
+}) => {
   const queryClient = useQueryClient()
-
-  const { couponLocalId } = useTypedParams<{ couponLocalId: string }>()
 
   const query = useQuery(
     getCoupon,
@@ -83,7 +94,10 @@ export const CouponDetails: FunctionComponent = () => {
   })
 
   const removeCouponMut = useMutation(removeCoupon, {
-    onSuccess: invalidate,
+    onSuccess: async () => {
+      await invalidate()
+      onClose()
+    },
     onError: error => toast.error(rpcErrorMessage(error, 'The coupon could not be removed')),
   })
 
@@ -92,7 +106,8 @@ export const CouponDetails: FunctionComponent = () => {
     onError: error => toast.error(rpcErrorMessage(error, 'The coupon status could not be changed')),
   })
 
-  const plansQuery = useConnectQuery(listPlans, {})
+  const plansQuery = useConnectQuery(listPlans, { pagination: { page: 0, perPage: 100 } })
+  const [eligibility, setEligibility] = useState(() => toDraft(undefined))
 
   const [, setTab] = useQueryState<string>('filter', '')
 
@@ -103,11 +118,24 @@ export const CouponDetails: FunctionComponent = () => {
       discountType: 'percentage',
       percentage: undefined,
       planIds: [],
+      addOnIds: [],
+      otherAmounts: [],
+      duration: undefined,
+      durationMonths: undefined,
     },
   })
+  const termsControl = methods.control as unknown as Control<CouponTermsFormFields>
 
   const onSubmit = async (data: z.infer<typeof schemas.coupons.editComponentSchema>) => {
+    // Existing redemptions keep the months they were made with: this reaches later ones.
+    const months =
+      data.discountType === 'credit' || data.duration === undefined
+        ? {}
+        : data.duration === 'months'
+          ? { durationMonths: data.durationMonths }
+          : { clearDurationMonths: true }
     editCouponMut.mutateAsync({
+      ...months,
       couponId: query.data?.coupon?.id,
       description: data.description,
       discount: {
@@ -115,10 +143,7 @@ export const CouponDetails: FunctionComponent = () => {
           data.discountType === 'fixed'
             ? {
                 case: 'fixed' as const,
-                value: {
-                  amount: data.amount,
-                  currency: data.currency,
-                },
+                value: fixedDiscountOf(data.amount ?? '', data.currency, data.otherAmounts),
               }
             : data.discountType === 'credit'
               ? {
@@ -138,10 +163,17 @@ export const CouponDetails: FunctionComponent = () => {
                 },
       },
       planIds: data.planIds ?? [],
+      addOnIds: data.addOnIds ?? [],
+      // Left out keeps a date: an empty one clears it.
+      validFrom: data.validFrom ? couponDate(data.validFrom) : coupon?.validFrom ? '' : undefined,
+      expiresAt: data.expiresAt ? couponDate(data.expiresAt) : coupon?.expiresAt ? '' : undefined,
+      // An empty rule removes it: anyone holding the code redeems.
+      eligibility: fromDraft(eligibility),
     })
   }
 
   const discountType = methods.watch('discountType')
+  const duration = methods.watch('duration')
 
   const coupon = query.data?.coupon
   // The server rejects switching a coupon between promotional credit and a discount.
@@ -151,9 +183,16 @@ export const CouponDetails: FunctionComponent = () => {
   useEffect(() => {
     if (!coupon) return
 
+    setEligibility(toDraft(coupon.eligibility))
+    const terms = {
+      addOnIds: coupon.addOnIds ?? [],
+      validFrom: parseCouponDate(coupon.validFrom),
+      expiresAt: parseCouponDate(coupon.expiresAt),
+    }
     const kind = coupon.discount?.discountType
     if (kind?.case === 'credit') {
       methods.reset({
+        ...terms,
         description: coupon.description,
         discountType: 'credit',
         creditAmount: kind.value.amount,
@@ -166,6 +205,16 @@ export const CouponDetails: FunctionComponent = () => {
     }
 
     methods.reset({
+      ...terms,
+      // A coupon counting invoices, made before months, keeps counting them.
+      duration:
+        coupon.recurringValue === undefined
+          ? coupon.durationMonths
+            ? 'months'
+            : 'forever'
+          : undefined,
+      durationMonths: coupon.durationMonths,
+      otherAmounts: kind?.case === 'fixed' ? otherAmountsOf(kind.value) : [],
       amount:
         coupon.discount?.discountType?.case === 'fixed'
           ? coupon.discount.discountType.value.amount
@@ -184,338 +233,206 @@ export const CouponDetails: FunctionComponent = () => {
     })
   }, [coupon?.id])
 
-  const status = useMemo(() => {
-    if (!coupon) {
-      return 'Loading'
-    }
-    if (coupon.disabled) {
-      return 'Disabled'
-    }
-    if (coupon.archivedAt) {
-      return 'Archived'
-    }
-    if (
-      coupon.redemptionCount &&
-      coupon.redemptionLimit &&
-      coupon.redemptionCount >= coupon.redemptionLimit
-    ) {
-      return 'Exhausted'
-    }
-    if (coupon.expiresAt && new Date(coupon.expiresAt).getTime() < Date.now()) {
-      return 'Expired'
-    }
-    return 'Active'
-  }, [coupon])
-
   if (!coupon) {
-    return null
+    return <div className="h-40 animate-pulse p-4" />
   }
+  const kind = coupon.discount?.discountType
+  const fixed = kind?.case === 'fixed' ? kind.value : undefined
+  const credit = kind?.case === 'credit' ? kind.value : undefined
+  const termsSet = hasCouponTerms({
+    validFrom: parseCouponDate(coupon.validFrom),
+    expiresAt: parseCouponDate(coupon.expiresAt),
+    otherAmounts: fixed ? otherAmountsOf(fixed) : [],
+    creditExpiresInDays: credit?.expiresInDays,
+    creditSubscriptionOnly: credit?.scope === CouponDiscount_CreditScope.SUBSCRIPTION,
+    addOnCount: coupon.addOnIds.length,
+    eligibility: isOpen(coupon.eligibility) ? undefined : coupon.eligibility,
+  })
+
+  // Named while few, counted otherwise.
+  const planNames = coupon.planIds.flatMap(
+    id => plansQuery.data?.plans.find(p => p.id === id)?.name ?? []
+  )
+  const appliesTo =
+    planNames.length && planNames.length === coupon.planIds.length && planNames.length <= 3
+      ? [
+          planNames.join(', '),
+          coupon.addOnIds.length && couponAppliesTo({ planIds: [], addOnIds: coupon.addOnIds }),
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : couponAppliesTo(coupon)
+
+  const actions = (
+    <Gate perm="catalog:manage">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" hasIcon className="h-7">
+            Actions <ChevronDown className="w-4 h-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {coupon.archivedAt !== undefined ? (
+            <DropdownMenuItem
+              key="enable"
+              onClick={() =>
+                updateCouponStatusMut
+                  .mutateAsync({ action: CouponAction.ENABLE, couponId: coupon.id })
+                  .then(() => setTab('active'))
+              }
+            >
+              Restore & enable
+            </DropdownMenuItem>
+          ) : coupon.disabled ? (
+            <DropdownMenuItem
+              key="enable"
+              onClick={() =>
+                updateCouponStatusMut
+                  .mutateAsync({ action: CouponAction.ENABLE, couponId: coupon.id })
+                  .then(() => setTab('active'))
+              }
+            >
+              Enable
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem
+              key="disable"
+              onClick={() =>
+                updateCouponStatusMut
+                  .mutateAsync({ action: CouponAction.DISABLE, couponId: coupon.id })
+                  .then(() => setTab('inactive'))
+              }
+            >
+              Disable
+            </DropdownMenuItem>
+          )}
+
+          {coupon.archivedAt ? null : (
+            <DropdownMenuItem
+              key="archive"
+              onClick={() =>
+                updateCouponStatusMut
+                  .mutateAsync({ action: CouponAction.ARCHIVE, couponId: coupon.id })
+                  .then(() => setTab('archived'))
+              }
+            >
+              Archive
+            </DropdownMenuItem>
+          )}
+
+          {coupon.lastRedemptionAt ? null : (
+            <DropdownMenuItem
+              key="delete"
+              onClick={() => removeCouponMut.mutateAsync({ couponId: coupon.id })}
+              className="bg-destructive text-destructive-foreground"
+            >
+              Delete
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </Gate>
+  )
 
   return (
-    <div className="w-4/5">
-      <Card className="min-h-[60%] flex flex-col">
-        <CardHeader className="flex flex-row justify-between">
-          <CardTitle className="content-center xl:space-x-2">
+    <div className="divide-y divide-border">
+      <PanelHead
+        title={
+          <div className="flex items-center gap-2">
             <CopyToClipboardButton
               text={coupon.code}
               buttonVariant="ghost"
-              buttonClassName="text-base font-semibold px-2"
+              buttonClassName="h-7 px-1.5 font-mono text-base font-semibold"
             />
-            <LocalId
-              localId={coupon.localId}
-              className="max-w-24 text-[10px]"
-              buttonClassName="p-1 border-10"
-            />
-          </CardTitle>
-          <div className="flex gap-0.5">
-            <Gate perm="catalog:manage">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  // onClick={primaryAction.onClick}
-                  hasIcon
-                  className={' '}
-                >
-                  Actions <ChevronDown className="w-4 h-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {coupon.archivedAt !== undefined ? (
-                  <>
-                    <DropdownMenuItem
-                      key="enable"
-                      onClick={() =>
-                        updateCouponStatusMut
-                          .mutateAsync({
-                            action: CouponAction.ENABLE,
-                            couponId: coupon.id,
-                          })
-                          .then(() => setTab('active'))
-                      }
-                    >
-                      Restore & enable
-                    </DropdownMenuItem>
-                  </>
-                ) : coupon.disabled ? (
-                  <DropdownMenuItem
-                    key="enable"
-                    onClick={() =>
-                      updateCouponStatusMut
-                        .mutateAsync({
-                          action: CouponAction.ENABLE,
-                          couponId: coupon.id,
-                        })
-                        .then(() => setTab('active'))
-                    }
-                  >
-                    Enable
-                  </DropdownMenuItem>
-                ) : (
-                  <DropdownMenuItem
-                    key="disable"
-                    onClick={() =>
-                      updateCouponStatusMut
-                        .mutateAsync({
-                          action: CouponAction.DISABLE,
-                          couponId: coupon.id,
-                        })
-                        .then(() => setTab('inactive'))
-                    }
-                  >
-                    Disable
-                  </DropdownMenuItem>
-                )}
-
-                {coupon.archivedAt ? null : (
-                  <DropdownMenuItem
-                    key="archive"
-                    onClick={() =>
-                      updateCouponStatusMut
-                        .mutateAsync({
-                          action: CouponAction.ARCHIVE,
-                          couponId: coupon.id,
-                        })
-                        .then(() => setTab('archived'))
-                    }
-                  >
-                    Archive
-                  </DropdownMenuItem>
-                )}
-
-                {coupon.lastRedemptionAt ? null : (
-                  <DropdownMenuItem
-                    key="delete"
-                    onClick={() => removeCouponMut.mutateAsync({ couponId: coupon.id })}
-                    className="bg-destructive text-destructive-foreground"
-                  >
-                    Delete
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            </Gate>
+            <CouponStatusChip status={couponStatus(coupon)} />
           </div>
-        </CardHeader>
-        <CardContent className="space-y-4 flex flex-col flex-1">
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-y-2 gap-x-2">
-            <Property label="Status" value={status} />
-            <Property
-              label="Expires"
-              value={coupon.expiresAt ? parseAndFormatDate(coupon.expiresAt) : 'Never'}
-            />
-            <Property
-              label="Redeemed"
-              value={`${coupon.redemptionCount} / ${coupon.redemptionLimit ?? '∞'}`}
-            />
-            <Property
-              label="Last usage"
-              value={parseAndFormatDateOptional(coupon.lastRedemptionAt)}
-            />
-            {isCreditCoupon ? (
-              <Property label="Discount" value={couponDiscountLabel(coupon.discount)} />
-            ) : (
-              <Property
-                label="Recurring limit"
-                value={
-                  coupon.recurringValue
-                    ? `${coupon.recurringValue} billing cycle(s)`
-                    : 'Unlimited'
-                }
-              />
-            )}
-            {isCreditCoupon ? (
-              <Property label="Per customer" value="Once per customer" />
-            ) : (
-              <Property label="Reusable" value={coupon.reusable ? 'Yes' : 'No'} />
-            )}
-            <Property
-              label="Plan restrictions"
-              value={
-                coupon.planIds && coupon.planIds.length > 0
-                  ? `${coupon.planIds.length} plan(s)`
-                  : 'All plans'
-              }
-            />
-          </div>
-          <Separator />
-          <Form {...methods}>
-            <form
-              className="h-full flex flex-col flex-1 justify-between"
-              onSubmit={methods.handleSubmit(onSubmit)}
-            >
-              <div className="space-y-4">
-                <TextareaFormField
-                  name="description"
-                  label="Description"
-                  layout="horizontal"
-                  control={methods.control}
-                  placeholder="YC deal: 30% off for the first 6 months"
-                />
+        }
+        actions={actions}
+        onClose={onClose}
+      />
 
-                {isCreditCoupon ? (
-                  <>
-                    <div className="grid gap-2 md:grid-cols-12 items-center">
-                      <span className="col-span-4 text-sm text-muted-foreground">Discount type</span>
-                      <span className="col-span-8 text-sm">Promotional credit</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">{CREDIT_COUPON_HINT}</p>
-                  </>
-                ) : (
-                  <SelectFormField
-                    name="discountType"
-                    label="Discount type"
-                    layout="horizontal"
-                    placeholder="Select..."
-                    className="max-w-[320px]  "
-                    control={methods.control}
-                  >
-                    <SelectItem value="fixed" key="fixed">
-                      Fixed amount
-                    </SelectItem>
-                    <SelectItem value="percentage" key="percentage">
-                      Percentage
-                    </SelectItem>
-                  </SelectFormField>
-                )}
+      <dl className="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-1.5 px-4 py-3 text-sm">
+        <dt className="text-muted-foreground">Discount</dt>
+        <dd>{couponDiscountLine(coupon)}</dd>
+        <dt className="text-muted-foreground">Who can redeem it</dt>
+        <dd>{couponWhoLine(coupon, code => getCountryName(code))}</dd>
+        <dt className="text-muted-foreground">Applies to</dt>
+        <dd>{appliesTo}</dd>
+        <dt className="text-muted-foreground">Redeemed</dt>
+        <dd className="tabular-nums">
+          {coupon.redemptionCount} / {coupon.redemptionLimit ?? '∞'}
+          {coupon.lastRedemptionAt && (
+            <span className="text-muted-foreground">
+              {' '}
+              · last {parseAndFormatDateOptional(coupon.lastRedemptionAt)}
+            </span>
+          )}
+        </dd>
+        <dt className="text-muted-foreground">Per customer</dt>
+        <dd>{isCreditCoupon ? 'Once' : coupon.reusable ? 'Reusable' : 'Once'}</dd>
+        <dt className="text-muted-foreground">API handle</dt>
+        <dd>
+          <LocalId localId={coupon.localId} className="max-w-24" />
+        </dd>
+      </dl>
 
-                {discountType === 'percentage' && (
-                  <InputFormField
-                    name="percentage"
-                    label="Percentage"
-                    required
-                    layout="horizontal"
-                    control={methods.control}
-                    type="number"
-                    placeholder="0"
-                    rightText="%"
-                  />
-                )}
-
-                {discountType === 'fixed' && (
-                  <>
-                    <InputFormField
-                      name="amount"
-                      required
-                      label="Amount"
-                      layout="horizontal"
-                      control={methods.control}
-                      type="number"
-                      placeholder="Amount"
-                    />
-                    <CurrencySelect
-                      name="currency"
-                      label="Currency"
-                      required
-                      layout="horizontal"
-                      control={methods.control}
-                      placeholder="Currency"
-                    />
-                  </>
-                )}
-
-                {discountType === 'credit' && (
-                  <>
-                    <InputFormField
-                      name="creditAmount"
-                      required
-                      label="Amount"
-                      layout="horizontal"
-                      control={methods.control}
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="0.00"
-                    />
-                    <CurrencySelect
-                      name="currency"
-                      label="Currency"
-                      required
-                      layout="horizontal"
-                      control={methods.control}
-                      placeholder="Currency"
-                    />
-                    <InputFormField
-                      name="creditExpiresInDays"
-                      label="Credit expires after (days)"
-                      layout="horizontal"
-                      control={methods.control}
-                      type="number"
-                      min={1}
-                      max={3660}
-                      placeholder="Never"
-                      inputMode="numeric"
-                    />
-                    <CheckboxFormField
-                      name="creditSubscriptionOnly"
-                      label="Only the subscription it is redeemed on"
-                      control={methods.control}
-                      layout="horizontal"
-                      description="The credit ends with that subscription."
-                    />
-                  </>
-                )}
-
-                <MultiSelectFormField
-                  name="planIds"
-                  label="Restrict to plans"
-                  layout="horizontal"
-                  control={methods.control}
-                  placeholder="All plans (no restriction)"
-                  hasSearch
-                >
-                  {plansQuery.data?.plans?.map(plan => (
-                    <MultiSelectItem key={plan.id} value={plan.id}>
-                      {plan.name}
-                    </MultiSelectItem>
-                  ))}
-                </MultiSelectFormField>
-              </div>
-              <div className="flex justify-end">
-                <Button
-                  type="submit"
-                  variant="primary"
-                >
-                  Save
-                </Button>
-              </div>
-            </form>
-          </Form>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Activity</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <EntityActivityTimeline
-            entityType="coupon"
-            entityId={coupon.id}
-            emptyLabel="No activity yet for this coupon"
+      <Form {...methods}>
+        <form className="space-y-5 px-4 py-4" onSubmit={methods.handleSubmit(onSubmit)}>
+          <TextareaFormField
+            name="description"
+            label="Description"
+            control={methods.control}
+            placeholder="YC deal: 30% off for the first 6 months"
           />
-        </CardContent>
-      </Card>
+
+          <CouponDiscountField
+            control={termsControl}
+            locked={isCreditCoupon ? ['percentage', 'fixed'] : ['credit']}
+          />
+
+          {discountType !== 'credit' && duration !== undefined && (
+            <CouponDurationField control={termsControl} note="Existing redemptions keep theirs." />
+          )}
+
+          <MultiSelectFormField
+            name="planIds"
+            label="Plans"
+            control={methods.control}
+            placeholder="All plans"
+            hasSearch
+          >
+            {plansQuery.data?.plans?.map(plan => (
+              <MultiSelectItem key={plan.id} value={plan.id}>
+                {plan.name}
+              </MultiSelectItem>
+            ))}
+          </MultiSelectFormField>
+
+          <MoreConditions
+            key={coupon.id}
+            control={termsControl}
+            kind={discountType}
+            eligibility={eligibility}
+            onEligibilityChange={setEligibility}
+            defaultOpen={termsSet}
+          />
+          <Gate perm="catalog:manage">
+            <div className="flex justify-end">
+              <Button type="submit" variant="primary" size="sm" disabled={editCouponMut.isPending}>
+                Save
+              </Button>
+            </div>
+          </Gate>
+        </form>
+      </Form>
+
+      <PanelSection title="Activity">
+        <EntityActivityTimeline
+          entityType="coupon"
+          entityId={coupon.id}
+          emptyLabel="No activity yet for this coupon"
+        />
+      </PanelSection>
     </div>
   )
 }

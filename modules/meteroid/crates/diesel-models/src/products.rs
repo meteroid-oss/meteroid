@@ -22,6 +22,8 @@ pub struct ProductRow {
     /// Trigger-maintained analytics ingestion marker; never written by app code.
     pub store_committed_at: NaiveDateTime,
     pub tax_category_id: Option<TaxCategoryId>,
+    pub icon: Option<String>,
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Insertable)]
@@ -37,6 +39,8 @@ pub struct ProductRowNew {
     pub fee_structure: serde_json::Value,
     pub catalog: bool,
     pub tax_category_id: Option<TaxCategoryId>,
+    pub icon: Option<String>,
+    pub color: Option<String>,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -50,4 +54,6 @@ pub struct ProductRowPatch {
     pub description: Option<Option<String>>,
     pub fee_structure: Option<serde_json::Value>,
     pub tax_category_id: Option<Option<TaxCategoryId>>,
+    pub icon: Option<Option<String>>,
+    pub color: Option<Option<String>>,
 }

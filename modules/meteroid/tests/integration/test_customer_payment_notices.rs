@@ -1114,6 +1114,7 @@ fn session_with_code(customer: CustomerId, coupon_code: Option<&str>) -> CreateC
         tenant_id: TENANT_ID,
         customer_id: customer,
         plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
+        option: None,
         billing_start_date: Some(NaiveDate::from_ymd_opt(2024, 1, 15).unwrap()),
         billing_day_anchor: Some(15),
         net_terms: None,

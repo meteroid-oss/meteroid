@@ -69,6 +69,8 @@ async fn create_link(env: &TestEnv, allow_coupon_codes: bool) -> PurchaseLinkWit
             require_billing_address: true,
             tax_id_collection: TaxIdCollection::Optional,
             allowed_buyer_types: AllowedBuyerTypes::All,
+            option: None,
+            coupon_code: None,
         })
         .await
         .expect("create purchase link")
@@ -89,6 +91,8 @@ async fn create_listed_link(env: &TestEnv) -> PurchaseLinkWithStats {
             require_billing_address: true,
             tax_id_collection: TaxIdCollection::Optional,
             allowed_buyer_types: AllowedBuyerTypes::All,
+            option: None,
+            coupon_code: None,
         })
         .await
         .expect("create listed purchase link")
@@ -129,6 +133,8 @@ fn company_purchase(env: &TestEnv, token: &str, email: &str, attempt_id: &str) -
         attempt_id: attempt_id.to_string(),
         license_request: None,
         client_ip: Some("10.0.0.1".to_string()),
+        coupon_code: None,
+        levels: vec![],
     }
 }
 
@@ -559,6 +565,8 @@ async fn test_link_buyer_options_are_enforced(#[future] test_env: TestEnv) {
                 require_billing_address: true,
                 tax_id_collection: TaxIdCollection::Optional,
                 allowed_buyer_types: AllowedBuyerTypes::CompaniesOnly,
+                option: None,
+                coupon_code: None,
             },
         )
         .await
@@ -598,6 +606,8 @@ async fn test_link_buyer_options_are_enforced(#[future] test_env: TestEnv) {
             require_billing_address: false,
             tax_id_collection: TaxIdCollection::Off,
             allowed_buyer_types: AllowedBuyerTypes::IndividualsOnly,
+            option: None,
+            coupon_code: None,
         })
         .await
         .unwrap();
@@ -651,6 +661,8 @@ async fn test_tax_ids_follow_the_link_policy(#[future] test_env: TestEnv) {
             require_billing_address: true,
             tax_id_collection: TaxIdCollection::Off,
             allowed_buyer_types: AllowedBuyerTypes::All,
+            option: None,
+            coupon_code: None,
         })
         .await
         .unwrap();
@@ -687,6 +699,8 @@ async fn test_tax_ids_follow_the_link_policy(#[future] test_env: TestEnv) {
             require_billing_address: true,
             tax_id_collection: TaxIdCollection::Required,
             allowed_buyer_types: AllowedBuyerTypes::All,
+            option: None,
+            coupon_code: None,
         })
         .await
         .unwrap();
@@ -1176,6 +1190,7 @@ async fn other_checkout(env: &TestEnv, customer_id: CustomerId) -> CheckoutSessi
             tenant_id: TENANT_ID,
             customer_id,
             plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
+            option: None,
             billing_start_date: None,
             billing_day_anchor: None,
             net_terms: None,
@@ -1254,6 +1269,8 @@ async fn test_only_licensing_plans_can_be_listed(#[future] test_env: TestEnv) {
             require_billing_address: true,
             tax_id_collection: TaxIdCollection::Optional,
             allowed_buyer_types: AllowedBuyerTypes::All,
+            option: None,
+            coupon_code: None,
         })
         .await;
     assert!(refused.is_err(), "the plan issues no license");
@@ -1268,6 +1285,8 @@ async fn test_only_licensing_plans_can_be_listed(#[future] test_env: TestEnv) {
         require_billing_address: true,
         tax_id_collection: TaxIdCollection::Optional,
         allowed_buyer_types: AllowedBuyerTypes::All,
+        option: None,
+        coupon_code: None,
     };
     assert!(
         env.store()
@@ -1346,4 +1365,542 @@ async fn test_cleanup_skips_a_purchase_that_changed_after_listing(#[future] test
         .await
         .unwrap();
     assert!(customer.archived_at.is_none());
+}
+
+/// A link sells one option of a plan, by alias, else its default: Annual bills the platform fee
+/// yearly and the seats monthly; an option the plan lacks is refused.
+#[rstest]
+#[tokio::test]
+async fn test_a_link_sells_an_option_its_fees_on_their_own_cadences(#[future] test_env: TestEnv) {
+    use crate::data::ids::{PRODUCT_PLATFORM_FEE_ID, PRODUCT_SEATS_ID};
+    use crate::data::plans::{PlanSeed, SeedComp, SeedPrice};
+    use common_domain::ids::{PlanId, PlanVersionId, PriceComponentId, PriceId};
+    use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
+    use meteroid_store::domain::prices::Pricing;
+    use rust_decimal_macros::dec;
+
+    let env = test_env.await;
+    env.seed_payments().await;
+    let plan_id = PlanId::new();
+    let mut platform = SeedComp::rate(
+        PriceComponentId::new(),
+        "Platform",
+        PRODUCT_PLATFORM_FEE_ID,
+        PriceId::new(),
+        DieselBillingPeriodEnum::Monthly,
+        dec!(100),
+    );
+    platform.prices.push(SeedPrice {
+        id: PriceId::new(),
+        cadence: DieselBillingPeriodEnum::Annual,
+        pricing: Pricing::Rate { rate: dec!(1200) },
+    });
+    PlanSeed::new(plan_id, "Scale", PlanVersionId::new())
+        .options(&[
+            ("Monthly", DieselBillingPeriodEnum::Monthly),
+            ("Annual", DieselBillingPeriodEnum::Annual),
+        ])
+        .components(vec![
+            SeedComp::slot(
+                PriceComponentId::new(),
+                "Seats",
+                PRODUCT_SEATS_ID,
+                PriceId::new(),
+                DieselBillingPeriodEnum::Monthly,
+                dec!(10),
+            ),
+            platform,
+        ])
+        .seed(&mut env.conn().await)
+        .await
+        .expect("plan");
+    let new_link = |option: Option<&str>| PurchaseLinkNew {
+        tenant_id: TENANT_ID,
+        plan_id,
+        name: format!("Scale {option:?}"),
+        allow_coupon_codes: false,
+        listed: false,
+        success_url: None,
+        cancel_url: None,
+        require_billing_address: true,
+        tax_id_collection: TaxIdCollection::Optional,
+        allowed_buyer_types: AllowedBuyerTypes::All,
+        option: option.map(str::to_owned),
+        coupon_code: None,
+    };
+    let by_default = env
+        .store()
+        .create_purchase_link(new_link(None))
+        .await
+        .expect("a link selling the plan's default");
+    assert_eq!(by_default.link.option, None);
+    let annual = env
+        .store()
+        .create_purchase_link(new_link(Some("annual")))
+        .await
+        .expect("a link selling Annual");
+    assert_eq!(annual.link.option.as_deref(), Some("annual"));
+    assert!(
+        env.store()
+            .create_purchase_link(new_link(Some("quarterly")))
+            .await
+            .is_err(),
+        "an option the plan does not have"
+    );
+
+    let purchases = purchases(&env);
+    let periods = |offer: &meteroid::services::purchase_links::PurchaseOffer| {
+        let mut periods: Vec<(String, SubscriptionFeeBillingPeriod)> = offer
+            .components
+            .iter()
+            .map(|c| (c.name.clone(), c.period))
+            .collect();
+        periods.sort_by(|a, b| a.0.cmp(&b.0));
+        periods
+    };
+    let monthly_offer = purchases
+        .get_offer(&by_default.link.token, None)
+        .await
+        .expect("offer");
+    assert_eq!(monthly_offer.option_name.as_deref(), Some("Monthly"));
+    assert_eq!(
+        periods(&monthly_offer),
+        vec![
+            (
+                "Platform".to_string(),
+                SubscriptionFeeBillingPeriod::Monthly
+            ),
+            ("Seats".to_string(), SubscriptionFeeBillingPeriod::Monthly),
+        ]
+    );
+
+    let token = annual.link.token.clone();
+    let offer = purchases.get_offer(&token, None).await.expect("offer");
+    assert_eq!(offer.option_name.as_deref(), Some("Annual"));
+    assert_eq!(
+        periods(&offer),
+        vec![
+            ("Platform".to_string(), SubscriptionFeeBillingPeriod::Annual),
+            ("Seats".to_string(), SubscriptionFeeBillingPeriod::Monthly),
+        ]
+    );
+
+    let started = start(&env, &purchases, &token, "buyer@scale.test")
+        .await
+        .expect("the purchase starts");
+    let checkout = env
+        .store()
+        .get_checkout_session(TENANT_ID, started.checkout_session_id)
+        .await
+        .expect("the checkout");
+    assert_eq!(checkout.option.as_deref(), Some("annual"));
+}
+
+/// A link to LeetCode with a coupon code of its own.
+async fn create_coupon_link(
+    env: &TestEnv,
+    allow_coupon_codes: bool,
+    coupon_code: Option<&str>,
+) -> Result<PurchaseLinkWithStats, String> {
+    env.store()
+        .create_purchase_link(PurchaseLinkNew {
+            tenant_id: TENANT_ID,
+            plan_id: PLAN_LEETCODE_ID,
+            name: "LeetCode with a coupon".to_string(),
+            allow_coupon_codes,
+            listed: false,
+            success_url: None,
+            cancel_url: None,
+            require_billing_address: true,
+            tax_id_collection: TaxIdCollection::Optional,
+            allowed_buyer_types: AllowedBuyerTypes::All,
+            option: None,
+            coupon_code: coupon_code.map(str::to_owned),
+        })
+        .await
+        .map_err(|e| format!("{e:?}"))
+}
+
+/// The link's coupon code is redeemed without the buyer entering it, even on a link taking no
+/// codes, and discounts the first invoice: 10% of 35.00.
+#[rstest]
+#[tokio::test]
+async fn test_a_links_coupon_code_discounts_the_first_invoice(#[future] test_env: TestEnv) {
+    use crate::harness::InvoicesAssertExt;
+
+    let env = test_env.await;
+    env.seed_payments().await;
+    env.create_percentage_coupon("SAVE10", 10).await;
+    let link = create_coupon_link(&env, false, Some(" save10 "))
+        .await
+        .expect("a link with a live coupon");
+    assert_eq!(link.link.coupon_code.as_deref(), Some("SAVE10"));
+    let purchases = purchases(&env);
+    let offer = purchases
+        .get_offer(&link.link.token, None)
+        .await
+        .expect("offer");
+    assert_eq!(offer.coupon_code.as_deref(), Some("SAVE10"));
+
+    let mut other = company_purchase(&env, &link.link.token, "a@acme.com", &attempt());
+    other.coupon_code = Some("WELCOME".to_string());
+    assert!(
+        matches!(
+            purchases.start(other).await,
+            Err(PurchaseError::CouponCode(m)) if m.contains("not accepted")
+        ),
+        "the link takes no code but its own"
+    );
+
+    let started = start(&env, &purchases, &link.link.token, "b@acme.com")
+        .await
+        .expect("the purchase starts");
+    let session = env
+        .store()
+        .get_checkout_session(TENANT_ID, started.checkout_session_id)
+        .await
+        .unwrap();
+    assert_eq!(session.coupon_code.as_deref(), Some("SAVE10"));
+
+    let card = add_card(&env, started.customer_id).await;
+    let subscription_id = match env
+        .services()
+        .complete_checkout(
+            TENANT_ID,
+            started.checkout_session_id,
+            card,
+            PRICE * 9 / 10,
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("the discounted checkout completes")
+    {
+        CheckoutCompletionResult::Completed {
+            subscription_id, ..
+        } => subscription_id,
+        other => panic!("unexpected checkout result: {other:?}"),
+    };
+    let invoices = env.get_invoices(subscription_id).await;
+    invoices
+        .assert()
+        .invoice_at(0)
+        .has_subtotal(3500)
+        .has_discount(350)
+        .has_coupons_count(1);
+}
+
+/// A fixed coupon with no amount in the purchase's currency (EUR) is refused: entered on the
+/// purchase page, next to the code, and as a link's own.
+#[rstest]
+#[tokio::test]
+async fn test_a_coupon_with_no_amount_in_the_currency_is_refused(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.create_fixed_coupon("USD10", 10, "USD").await;
+
+    let refused = create_coupon_link(&env, true, Some("USD10"))
+        .await
+        .expect_err("a link cannot apply it");
+    assert!(refused.contains("has no amount in EUR"), "{refused}");
+
+    let link = create_link(&env, true).await;
+    let purchases = purchases(&env);
+    let mut entered = company_purchase(&env, &link.link.token, "a@acme.com", &attempt());
+    entered.coupon_code = Some("usd10".to_string());
+    let refused = purchases.start(entered).await;
+    assert!(
+        matches!(&refused, Err(PurchaseError::CouponCode(m)) if m.contains("has no amount in EUR")),
+        "{:?}",
+        refused.err()
+    );
+    assert_eq!(started_count(&env).await, 0, "no customer, no checkout");
+
+    let mut unknown = company_purchase(&env, &link.link.token, "a@acme.com", &attempt());
+    unknown.coupon_code = Some("NOPE".to_string());
+    assert!(matches!(
+        purchases.start(unknown).await,
+        Err(PurchaseError::CouponCode(m)) if m.contains("not valid")
+    ));
+}
+
+/// A plan in EUR whose platform fee is also priced in USD sells a buyer in USD at its USD price:
+/// a link's own code must be redeemable there too. A fixed EUR coupon without a USD amount is
+/// refused on the link; with one, or a percentage, it is kept.
+#[rstest]
+#[tokio::test]
+async fn test_a_links_coupon_code_is_checked_in_every_currency_it_sells_in(
+    #[future] test_env: TestEnv,
+) {
+    use crate::data::ids::PRODUCT_PLATFORM_FEE_ID;
+    use crate::data::plans::{PlanSeed, SeedComp, default_option_id};
+    use common_domain::ids::{PlanId, PlanVersionId, PriceComponentId, PriceId};
+    use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
+    use diesel_models::plan_component_prices::PlanComponentPriceRowNew;
+    use diesel_models::prices::PriceRowNew;
+    use meteroid_store::domain::coupons::{CouponDiscount, CouponNew, CouponTerms};
+    use meteroid_store::domain::prices::Pricing;
+    use meteroid_store::repositories::coupons::CouponInterface;
+    use rust_decimal_macros::dec;
+    use std::collections::BTreeMap;
+
+    let env = test_env.await;
+    let (plan_id, version_id, component_id) =
+        (PlanId::new(), PlanVersionId::new(), PriceComponentId::new());
+    PlanSeed::new(plan_id, "Worldwide", version_id)
+        .components(vec![SeedComp::rate(
+            component_id,
+            "Platform",
+            PRODUCT_PLATFORM_FEE_ID,
+            PriceId::new(),
+            DieselBillingPeriodEnum::Monthly,
+            dec!(20),
+        )])
+        .seed(&mut env.conn().await)
+        .await
+        .expect("plan");
+    let usd = PriceRowNew {
+        id: PriceId::new(),
+        product_id: PRODUCT_PLATFORM_FEE_ID,
+        cadence: DieselBillingPeriodEnum::Monthly,
+        currency: "USD".to_string(),
+        pricing: serde_json::to_value(Pricing::Rate { rate: dec!(22) }).unwrap(),
+        tenant_id: TENANT_ID,
+        catalog: true,
+        credit_unit_id: None,
+        credit_unit_rate: None,
+    }
+    .insert(&mut env.conn().await)
+    .await
+    .expect("its USD price");
+    PlanComponentPriceRowNew::insert_batch(
+        &mut env.conn().await,
+        &[PlanComponentPriceRowNew {
+            plan_component_id: component_id,
+            price_id: usd.id,
+            option_id: default_option_id(version_id),
+        }],
+    )
+    .await
+    .expect("sold in USD");
+
+    let coupon = |code: &str, discount: CouponDiscount| CouponNew {
+        code: code.to_string(),
+        description: code.to_string(),
+        tenant_id: TENANT_ID,
+        discount,
+        expires_at: None,
+        redemption_limit: None,
+        recurring_value: None,
+        reusable: true,
+        plan_ids: vec![],
+    };
+    let eur5 = || CouponDiscount::Fixed {
+        amount: dec!(5),
+        currency: "EUR".to_string(),
+    };
+    for (code, discount, terms) in [
+        ("WWEUR5", eur5(), CouponTerms::default()),
+        (
+            "WWWORLD5",
+            eur5(),
+            CouponTerms {
+                fixed_amounts: BTreeMap::from([("USD".to_owned(), dec!(6))]),
+                ..CouponTerms::default()
+            },
+        ),
+        (
+            "WWTEN",
+            CouponDiscount::Percentage(dec!(10)),
+            CouponTerms::default(),
+        ),
+    ] {
+        env.store()
+            .create_coupon_with_terms(Actor::System, coupon(code, discount), terms)
+            .await
+            .expect("a coupon");
+    }
+    let link = |code: &str| PurchaseLinkNew {
+        tenant_id: TENANT_ID,
+        plan_id,
+        name: format!("Worldwide {code}"),
+        allow_coupon_codes: false,
+        listed: false,
+        success_url: None,
+        cancel_url: None,
+        require_billing_address: true,
+        tax_id_collection: TaxIdCollection::Optional,
+        allowed_buyer_types: AllowedBuyerTypes::All,
+        option: None,
+        coupon_code: Some(code.to_owned()),
+    };
+
+    let refused = env
+        .store()
+        .create_purchase_link(link("WWEUR5"))
+        .await
+        .expect_err("no amount in USD, which the link sells in");
+    assert!(
+        format!("{refused:?}").contains("has no amount in USD, a currency the link sells in"),
+        "{refused:?}"
+    );
+    for code in ["WWWORLD5", "WWTEN"] {
+        let created = env
+            .store()
+            .create_purchase_link(link(code))
+            .await
+            .unwrap_or_else(|e| panic!("{code} is redeemable in EUR and USD: {e:?}"));
+        assert_eq!(created.link.coupon_code.as_deref(), Some(code));
+    }
+}
+
+/// The committed capacity a checkout bills each usage-levels charge at.
+async fn checkout_levels(env: &TestEnv, id: CheckoutSessionId) -> Vec<Option<u64>> {
+    env.store()
+        .get_checkout_session(TENANT_ID, id)
+        .await
+        .expect("the checkout")
+        .component_params()
+        .iter()
+        .map(|p| p.parameters.committed_capacity)
+        .collect()
+}
+
+/// A link to a plan selling managed revenue at €50K, €125K or €250K a month: the offer prices
+/// each level, the purchase starts on the one the buyer picks, else the lowest; a level the plan
+/// does not sell is the buyer's to fix, and another level on the same attempt is a new checkout.
+/// Rules: R-135
+#[rstest]
+#[tokio::test]
+async fn test_purchase_starts_on_the_level_picked(#[future] test_env: TestEnv) {
+    use common_domain::ids::{PlanId, PlanVersionId, PriceComponentId, PriceId};
+    use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
+    use meteroid_store::domain::prices::Pricing;
+    use meteroid_store::domain::usage_levels::ChosenLevel;
+
+    use crate::data::ids::{METRIC_BANDWIDTH, PRODUCT_CAPACITY_ID};
+    use crate::data::plans::{PlanSeed, SeedComp, SeedPrice};
+
+    let env = test_env.await;
+    let (plan_id, version_id) = (PlanId::new(), PlanVersionId::new());
+    let mut charge = SeedComp::capacity(
+        PriceComponentId::new(),
+        "Managed revenue",
+        PRODUCT_CAPACITY_ID,
+        METRIC_BANDWIDTH,
+        PriceId::new(),
+        DieselBillingPeriodEnum::Monthly,
+        Decimal::from(199),
+        50_000,
+        Decimal::new(5, 3),
+    );
+    for (included, rate) in [(125_000, 479), (250_000, 899)] {
+        charge.prices.push(SeedPrice {
+            id: PriceId::new(),
+            cadence: DieselBillingPeriodEnum::Monthly,
+            pricing: Pricing::Capacity {
+                rate: Decimal::from(rate),
+                included,
+                overage_rate: Decimal::new(5, 3),
+            },
+        });
+    }
+    PlanSeed::new(plan_id, "Volume", version_id)
+        .components(vec![charge])
+        .seed(&mut env.conn().await)
+        .await
+        .expect("a plan with usage levels");
+    let link = env
+        .store()
+        .create_purchase_link(PurchaseLinkNew {
+            tenant_id: TENANT_ID,
+            plan_id,
+            name: "Volume".to_string(),
+            allow_coupon_codes: false,
+            listed: false,
+            success_url: None,
+            cancel_url: None,
+            require_billing_address: true,
+            tax_id_collection: TaxIdCollection::Optional,
+            allowed_buyer_types: AllowedBuyerTypes::All,
+            option: None,
+            coupon_code: None,
+        })
+        .await
+        .expect("a link to the plan");
+    let token = link.link.token.as_str();
+    let purchases = purchases(&env);
+
+    let offer = purchases.get_offer(token, None).await.expect("offer");
+    let [charge] = offer.components.as_slice() else {
+        panic!("one charge");
+    };
+    assert_eq!(charge.product_id, Some(PRODUCT_CAPACITY_ID));
+    let sizes: Vec<u64> = charge
+        .levels
+        .iter()
+        .filter_map(|fee| match fee {
+            SubscriptionFee::Capacity { included, .. } => Some(*included),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sizes, vec![50_000, 125_000, 250_000]);
+    assert!(matches!(
+        charge.fee,
+        SubscriptionFee::Capacity {
+            included: 50_000,
+            ..
+        }
+    ));
+
+    let at = |email: &str, attempt_id: &str, included: u64| {
+        let mut purchase = company_purchase(&env, token, email, attempt_id);
+        purchase.levels = vec![ChosenLevel {
+            product_id: Some(PRODUCT_CAPACITY_ID),
+            included,
+        }];
+        purchase
+    };
+
+    let lowest = start(&env, &purchases, token, "lowest@acme.com")
+        .await
+        .expect("none picked");
+    assert_eq!(
+        checkout_levels(&env, lowest.checkout_session_id).await,
+        vec![Some(50_000)]
+    );
+
+    let refused = purchases
+        .start(at("off@acme.com", &attempt(), 60_000))
+        .await;
+    assert!(
+        matches!(&refused, Err(PurchaseError::InvalidInput(why)) if why.contains("60000 is not a level")),
+        "{:?}",
+        refused.err()
+    );
+
+    let attempt_id = attempt();
+    let picked = purchases
+        .start(at("levels@acme.com", &attempt_id, 125_000))
+        .await
+        .expect("a level of the plan");
+    assert_eq!(
+        checkout_levels(&env, picked.checkout_session_id).await,
+        vec![Some(125_000)]
+    );
+    let repicked = purchases
+        .start(at("levels@acme.com", &attempt_id, 250_000))
+        .await
+        .expect("another level on the same attempt");
+    assert_ne!(repicked.checkout_session_id, picked.checkout_session_id);
+    assert_eq!(repicked.customer_id, picked.customer_id);
+    assert_eq!(
+        checkout_levels(&env, repicked.checkout_session_id).await,
+        vec![Some(250_000)]
+    );
+    let replaced = env
+        .store()
+        .get_checkout_session(TENANT_ID, picked.checkout_session_id)
+        .await
+        .expect("the first checkout");
+    assert_eq!(replaced.status, CheckoutSessionStatus::Cancelled);
 }

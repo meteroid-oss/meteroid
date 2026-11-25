@@ -29,7 +29,7 @@ use meteroid_store::domain::credit_units::{CreditUnitNew, PriceCreditUnit};
 use meteroid_store::domain::enums::TaxResolverEnum;
 use meteroid_store::domain::enums::{BillingMetricAggregateEnum, InvoiceType};
 use meteroid_store::domain::price_components::{
-    MatrixDimension, MatrixRow, PriceEntry, TierRow, UsagePricingModel,
+    DimensionRate, DimensionRates, PriceEntry, TierRow, UsagePricingModel,
 };
 use meteroid_store::domain::subscription_components::ExtraComponent;
 use meteroid_store::domain::{
@@ -355,17 +355,17 @@ fn tiers() -> Vec<TierRow> {
 }
 
 fn matrix() -> UsagePricingModel {
-    let cell = |value: &str, price: Decimal| MatrixRow {
-        dimension1: MatrixDimension {
-            key: "region".to_owned(),
-            value: value.to_owned(),
-        },
-        dimension2: None,
-        per_unit_price: price,
+    let rate = |value: &str, rate: Decimal| DimensionRate {
+        key: vec![value.to_owned()],
+        rate,
+        label: None,
     };
-    UsagePricingModel::Matrix {
-        rates: vec![cell("eu", dec!(0.02)), cell("us", dec!(0.03))],
-    }
+    UsagePricingModel::DimensionRates(DimensionRates {
+        dimensions: vec!["region".to_owned()],
+        rates: vec![rate("eu", dec!(0.02)), rate("us", dec!(0.03))],
+        unit_size: Decimal::ONE,
+        on_unmatched: meteroid_store::domain::rate_cards::RateCardUnmatched::Ignore,
+    })
 }
 
 struct Api {

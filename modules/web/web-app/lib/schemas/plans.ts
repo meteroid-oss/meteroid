@@ -4,8 +4,6 @@ export const createPlanSchema = z.object({
   planName: z.string().min(1, 'Name is required').max(256),
   description: z.string().max(2048).optional(),
   productFamilyLocalId: z.string().min(1, 'A product family is required'),
-  planType: z.enum(['FREE', 'STANDARD', 'CUSTOM']).default('STANDARD'),
-  currency: z.string().min(1, 'Currency is required'),
 })
 
 export const editPlanSchema = z.object({
@@ -13,7 +11,6 @@ export const editPlanSchema = z.object({
   description: z.string().max(2048).optional(),
   netTerms: z.number().int(),
   taxInclusive: z.boolean(),
-  selfServiceRank: z.number().int().positive().optional().or(z.literal(0)),
   creditRule: z.enum(['INVOICE', 'PAUSE', 'INVOICE_UP_TO']),
   // Major units by denomination code, with `creditRule` INVOICE_UP_TO.
   creditCaps: z.record(z.string(), z.string()).default({}),
@@ -144,26 +141,21 @@ const PackageSchema = z.object({
 })
 export type Package = z.infer<typeof PackageSchema>
 
-const dimensionSchema = z.object({
-  key: z.string(),
-  value: z.string(),
-})
-
-export type Dimension = z.infer<typeof dimensionSchema>
-
-const MatrixSchema = z.object({
-  dimensionRates: z
+// A rate per key: one pattern per dimension (a value, a prefix ending in `*`, or `*`).
+const DimensionRatesSchema = z.object({
+  dimensions: z.array(z.string()).min(1).max(4),
+  rates: z
     .array(
       z.object({
-        dimension1: dimensionSchema,
-        dimension2: dimensionSchema.optional(),
-        price: pricePrecision8Schema,
+        key: z.array(z.string()),
+        rate: pricePrecision8Schema,
       })
     )
     .min(1),
+  unitSize: z.string().default('1'),
 })
 
-export type Matrix = z.infer<typeof MatrixSchema>
+export type DimensionRates = z.infer<typeof DimensionRatesSchema>
 
 const UsagePricingModelSchema = z.discriminatedUnion('model', [
   z.object({ model: z.literal('per_unit'), data: PerUnitSchema }),
@@ -176,7 +168,7 @@ const UsagePricingModelSchema = z.discriminatedUnion('model', [
     data: TieredAndVolumeSchema,
   }),
   z.object({ model: z.literal('package'), data: PackageSchema }),
-  z.object({ model: z.literal('matrix'), data: MatrixSchema }),
+  z.object({ model: z.literal('dimension_rates'), data: DimensionRatesSchema }),
 ])
 
 export type UsagePricingModel = z.infer<typeof UsagePricingModelSchema>

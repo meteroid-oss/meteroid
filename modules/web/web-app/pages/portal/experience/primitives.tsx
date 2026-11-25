@@ -502,7 +502,7 @@ export const CenterState = ({
 }: {
   icon?: ReactNode
   title: string
-  hint?: string
+  hint?: ReactNode
   action?: ReactNode
 }) => (
   <div

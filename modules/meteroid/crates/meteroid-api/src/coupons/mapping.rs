@@ -33,12 +33,27 @@ pub mod coupons {
     pub struct CouponWrapper(pub server::Coupon);
     impl From<domain::coupons::Coupon> for CouponWrapper {
         fn from(value: domain::coupons::Coupon) -> Self {
+            let mut coupon_discount = discount::to_server(&value.discount);
+            if let Some(server::coupon_discount::DiscountType::Fixed(fixed)) =
+                coupon_discount.discount_type.as_mut()
+            {
+                fixed.amounts = value
+                    .fixed_amounts
+                    .iter()
+                    .map(
+                        |(currency, amount)| server::coupon_discount::CurrencyAmount {
+                            currency: currency.clone(),
+                            amount: amount.as_proto(),
+                        },
+                    )
+                    .collect();
+            }
             Self(server::Coupon {
                 id: value.id.as_proto(),
                 local_id: value.id.as_proto(), //todo remove me
                 description: value.description,
                 code: value.code,
-                discount: Some(discount::to_server(&value.discount)),
+                discount: Some(coupon_discount),
                 expires_at: value.expires_at.as_proto(),
                 redemption_limit: value.redemption_limit,
                 created_at: value.created_at.as_proto(),
@@ -49,6 +64,14 @@ pub mod coupons {
                 recurring_value: value.recurring_value,
                 reusable: value.reusable,
                 plan_ids: value.plan_ids.into_iter().map(|id| id.as_proto()).collect(),
+                add_on_ids: value
+                    .add_on_ids
+                    .into_iter()
+                    .map(|id| id.as_proto())
+                    .collect(),
+                eligibility: value.eligibility.map(crate::eligibility::to_proto),
+                valid_from: value.valid_from.as_proto(),
+                duration_months: value.duration_months,
             })
         }
     }
@@ -93,6 +116,7 @@ pub mod coupons {
                             server::coupon_discount::FixedDiscount {
                                 currency: currency.clone(),
                                 amount: amount.as_proto(),
+                                amounts: vec![],
                             },
                         )),
                     }
@@ -121,6 +145,33 @@ pub mod coupons {
                     )),
                 },
             }
+        }
+
+        /// A fixed discount's amounts in currencies other than its own; one repeating its own
+        /// amount is dropped.
+        pub fn fixed_amounts_to_domain(
+            value: Option<&server::CouponDiscount>,
+        ) -> Result<std::collections::BTreeMap<String, Decimal>, Status> {
+            let mut amounts = std::collections::BTreeMap::new();
+            let Some(server::coupon_discount::DiscountType::Fixed(fixed)) =
+                value.and_then(|x| x.discount_type.as_ref())
+            else {
+                return Ok(amounts);
+            };
+            let own = Decimal::from_proto_ref(&fixed.amount)?;
+            for entry in &fixed.amounts {
+                let amount = Decimal::from_proto_ref(&entry.amount)?;
+                if entry.currency == fixed.currency && amount == own {
+                    continue;
+                }
+                if amounts.insert(entry.currency.clone(), amount).is_some() {
+                    return Err(Status::invalid_argument(format!(
+                        "{} is given more than one amount",
+                        entry.currency
+                    )));
+                }
+            }
+            Ok(amounts)
         }
 
         pub fn to_domain(

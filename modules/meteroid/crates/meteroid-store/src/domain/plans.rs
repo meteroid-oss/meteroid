@@ -13,9 +13,13 @@ use diesel_models::plans::PlanVersionRowInfo;
 use diesel_models::plans::PlanWithVersionRow;
 
 use super::entitlements::Entitlement;
-use super::enums::{PlanStatusEnum, PlanTypeEnum};
-use common_domain::ids::{BaseId, PlanId, PlanVersionId, ProductFamilyId, ProductId, TenantId};
+use super::enums::{BillingPeriodEnum, PlanStatusEnum, PlanTypeEnum};
+use super::plan_options::PlanOption;
+use common_domain::ids::{
+    BaseId, PlanId, PlanOptionId, PlanVersionId, ProductFamilyId, ProductId, TenantId,
+};
 use o2o::o2o;
+use rust_decimal::Decimal;
 use std::collections::HashMap;
 
 use crate::domain::ProductFamilyOverview;
@@ -156,6 +160,11 @@ pub struct Plan {
     pub draft_version_id: Option<PlanVersionId>,
     pub self_service_rank: Option<i32>,
     pub issues_license: bool,
+    /// Who may see or get it; live, never versioned. `None`: anyone.
+    #[from(crate::domain::eligibility::Eligibility::from_row(~))]
+    pub eligibility: Option<crate::domain::eligibility::Eligibility>,
+    /// Sold by contacting sales: on the pricing page, never offered self-serve.
+    pub pricing_sales_led: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, o2o)]
@@ -189,6 +198,10 @@ pub struct PlanVersion {
     /// via `convert_full_plan_row`); other loaders leave this as `None`.
     #[ghost({None})]
     pub minimum: Option<crate::domain::plan_minimums::PlanMinimum>,
+    /// What a buyer picks, by position; the first is the default. Loaded with the components
+    /// (`FullPlan`, `PlanWithVersion`); other loaders leave it empty.
+    #[ghost({vec![]})]
+    pub options: Vec<PlanOption>,
 }
 
 #[derive(Clone, Debug, o2o)]
@@ -212,6 +225,40 @@ pub struct PlanOverview {
     pub subscription_count: Option<i64>,
     pub self_service_rank: Option<i32>,
     pub issues_license: bool,
+    #[from(crate::domain::eligibility::Eligibility::from_row(~))]
+    pub eligibility: Option<crate::domain::eligibility::Eligibility>,
+    pub pricing_sales_led: bool,
+    pub pricing_hide_price: bool,
+    /// The options of its active version, by position.
+    #[ghost({Vec::new()})]
+    pub options: Vec<PlanOption>,
+    /// The `(currency, option)` its active version is sold in (`price_cells`), each priced.
+    #[ghost({Vec::new()})]
+    pub priced_options: Vec<PricedOption>,
+    /// Its active subscriptions' MRR in the tenant's reporting currency; filled by `list_plans`.
+    #[ghost({None})]
+    pub mrr: Option<Decimal>,
+    /// Typed free, or its active version charges nothing; filled by `list_plans`.
+    #[ghost({false})]
+    pub free: bool,
+}
+
+/// A currency an option is sold in, with its headline price as a pricing page card reads it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PricedOption {
+    pub currency: String,
+    pub option_id: PlanOptionId,
+    /// Its fixed recurring total on `period`, zero when free; none when nothing fixed recurs
+    /// beside seats or usage, or a charge can't be read.
+    pub amount: Option<Decimal>,
+    /// None for an option billing only usage or one-time charges.
+    pub period: Option<BillingPeriodEnum>,
+    /// Usage charges come on top of the amount.
+    pub has_usage: bool,
+    /// The amount is the lowest of several capacity levels: "from".
+    pub from_lowest: bool,
+    /// The amount is per this unit (a seat) when nothing fixed is due but seats.
+    pub unit: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, o2o)]

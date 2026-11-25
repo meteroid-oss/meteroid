@@ -444,6 +444,7 @@ async fn test_metering_e2e() {
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(
                     api::subscriptions::v1::CreateSubscription {
+                        option: None,
                         plan_version_id: plan_version_id.clone(),
                         start_date: period_1_start.date_naive().to_string(),
                         end_date: None,

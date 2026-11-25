@@ -20,16 +20,22 @@ import { useState } from 'react'
 import { useFormContext } from 'react-hook-form'
 
 import { SubscribablePlanVersionSelect } from '@/features/plans/SubscribablePlanVersionSelect'
-import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
 import { priceSummaryBadges } from '@/features/plans/pricecomponents/utils'
 import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
+import { protoFeeTypeToComponentFeeType } from '@/features/pricing/formData'
 import { couponDiscountLabel } from '@/features/productCatalog/coupons/discountLabel'
 import { EditorSection } from '@/features/quotes/editor/EditorSection'
 import { LinesTable } from '@/features/quotes/editor/LinesTable'
 import { discountError } from '@/features/quotes/editor/quoteV2'
 import {
-  AddFeeModal,
-  OverrideFeeModal,
+  FeeDialog,
+  PlanChargePriceDialog,
+  salesCadence,
+  usePlanVersionFamily,
+} from '@/features/subscriptions/pricecomponents/ChargeDialogs'
+import { OptionSelect } from '@/features/subscriptions/pricecomponents/OptionSelect'
+import {
+  planComponentDisplayPrice,
   pricingTransitions,
 } from '@/features/subscriptions/pricecomponents/PriceComponentsLogic'
 
@@ -39,6 +45,7 @@ import type { EditorLine, QuoteV2State } from '@/features/quotes/editor/quoteV2'
 import type { PriceComponentsState } from '@/features/subscriptions/pricecomponents/PriceComponentsLogic'
 import type { AddOn } from '@/rpc/api/addons/v1/models_pb'
 import type { Coupon } from '@/rpc/api/coupons/v1/models_pb'
+import type { PlanOption } from '@/rpc/api/plans/v1/models_pb'
 import type { PriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
 import type { Dispatch, ReactNode, SetStateAction } from 'react'
 
@@ -49,7 +56,11 @@ interface LinesSectionProps {
   customerId?: string
   planVersionId?: string
   currency?: string
+  /** The plan's charges as bought in `planOption`. */
   planComponents?: PriceComponent[]
+  planOptions: PlanOption[]
+  planOption?: PlanOption
+  onOptionChange: (handle: string) => void
   pricing: PriceComponentsState
   setPricing: Dispatch<SetStateAction<PriceComponentsState>>
   pricingErrors: string[]
@@ -75,6 +86,9 @@ export const LinesSection = ({
   planVersionId,
   currency,
   planComponents,
+  planOptions,
+  planOption,
+  onOptionChange,
   pricing,
   setPricing,
   pricingErrors,
@@ -96,6 +110,7 @@ export const LinesSection = ({
   const [addingFee, setAddingFee] = useState(false)
   const [overrideComponentId, setOverrideComponentId] = useState<string>()
   const [editExtraIndex, setEditExtraIndex] = useState<number>()
+  const familyLocalId = usePlanVersionFamily(planVersionId)
 
   const actions: LinesTableActions = {
     toggleRemoval: id => setPricing(prev => pricingTransitions.toggleRemoval(prev, id)),
@@ -127,6 +142,14 @@ export const LinesSection = ({
           <SubscribablePlanVersionSelect value={field.value} onChange={field.onChange} />
         )}
       />
+      {planVersionId && (
+        <OptionSelect
+          options={planOptions}
+          value={planOption}
+          onChange={onOptionChange}
+          className="w-64 max-w-full"
+        />
+      )}
       {currency && <span className="text-xs text-muted-foreground">Priced in {currency}</span>}
     </div>
   )
@@ -151,6 +174,7 @@ export const LinesSection = ({
     const overridden = overrideComponentId
       ? planComponents.find(c => c.id === overrideComponentId)
       : undefined
+    const cadence = salesCadence(planComponents)
     const hasDiscountError = lines.some(l =>
       discountError(v2.lineDetails[l.key]?.discountPercent ?? '')
     )
@@ -262,36 +286,47 @@ export const LinesSection = ({
         )}
 
         {addingFee && (
-          <AddFeeModal
-            onClose={() => setAddingFee(false)}
-            onAdd={component => setPricing(prev => pricingTransitions.addExtra(prev, component))}
+          <FeeDialog
             currency={currency}
+            cadence={cadence}
+            familyLocalId={familyLocalId}
+            onClose={() => setAddingFee(false)}
+            onSave={fee => {
+              setPricing(prev => pricingTransitions.addExtra(prev, fee))
+              setAddingFee(false)
+            }}
           />
         )}
-        {overrideComponentId && (
-          <OverrideFeeModal
-            componentId={overrideComponentId}
-            originalComponent={overridden}
+        {overridden && (
+          <PlanChargePriceDialog
+            component={overridden}
+            price={planComponentDisplayPrice(
+              overridden,
+              pricing.components.parameterized.find(p => p.componentId === overridden.id),
+              undefined,
+              currency
+            )}
+            override={pricing.components.overridden.find(o => o.componentId === overridden.id)}
+            currency={currency}
             onClose={() => setOverrideComponentId(undefined)}
             onSave={override => {
-              setPricing(prev =>
-                pricingTransitions.addOverride(prev, overrideComponentId, override)
-              )
+              setPricing(prev => pricingTransitions.addOverride(prev, overridden.id, override))
               setOverrideComponentId(undefined)
             }}
-            currency={currency}
           />
         )}
         {editExtraIndex !== undefined && pricing.components.extra[editExtraIndex] && (
-          <AddFeeModal
+          <FeeDialog
+            fee={pricing.components.extra[editExtraIndex]}
+            renamable={false}
+            currency={currency}
+            cadence={cadence}
+            familyLocalId={familyLocalId}
             onClose={() => setEditExtraIndex(undefined)}
-            onAdd={component => {
-              setPricing(prev => pricingTransitions.updateExtra(prev, editExtraIndex, component))
+            onSave={fee => {
+              setPricing(prev => pricingTransitions.updateExtra(prev, editExtraIndex, fee))
               setEditExtraIndex(undefined)
             }}
-            currency={currency}
-            initialValues={pricing.components.extra[editExtraIndex]}
-            isEditing
           />
         )}
       </>
@@ -344,7 +379,7 @@ const AddOnPicker = ({
                   <span className="truncate">{addOn.name}</span>
                   <span className="shrink-0 text-xs text-muted-foreground">
                     {priceSummaryBadges(
-                      feeTypeEnumToComponentFeeType(addOn.feeType),
+                      protoFeeTypeToComponentFeeType(addOn.feeType),
                       addOn.price,
                       currency,
                       creditUnits

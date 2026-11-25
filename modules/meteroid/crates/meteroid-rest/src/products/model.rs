@@ -60,7 +60,11 @@ pub enum UsageModelEnum {
     Tiered,
     Volume,
     Package,
+    /// A product priced by dimension, as v1 has always named it; its prices are returned as
+    /// MATRIX when a matrix can hold their rates, else DIMENSION_RATES.
     Matrix,
+    RateCard,
+    DimensionRates,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -89,7 +93,8 @@ impl From<UsageModelEnum> for meteroid_store::domain::prices::UsageModel {
             UsageModelEnum::Tiered => Self::Tiered,
             UsageModelEnum::Volume => Self::Volume,
             UsageModelEnum::Package => Self::Package,
-            UsageModelEnum::Matrix => Self::Matrix,
+            UsageModelEnum::Matrix | UsageModelEnum::DimensionRates => Self::DimensionRates,
+            UsageModelEnum::RateCard => Self::RateCard,
         }
     }
 }
@@ -101,7 +106,9 @@ impl From<meteroid_store::domain::prices::UsageModel> for UsageModelEnum {
             meteroid_store::domain::prices::UsageModel::Tiered => Self::Tiered,
             meteroid_store::domain::prices::UsageModel::Volume => Self::Volume,
             meteroid_store::domain::prices::UsageModel::Package => Self::Package,
-            meteroid_store::domain::prices::UsageModel::Matrix => Self::Matrix,
+            // Every product priced by dimension was a matrix to v1 clients.
+            meteroid_store::domain::prices::UsageModel::DimensionRates => Self::Matrix,
+            meteroid_store::domain::prices::UsageModel::RateCard => Self::RateCard,
         }
     }
 }
@@ -302,6 +309,12 @@ pub struct Product {
     pub created_at: ApiDateTime,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<ApiDateTime>,
+    /// The icon the dashboard draws the product with, a lucide name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    /// The color token of its icon.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 // ── Requests ───────────────────────────────────────────────────

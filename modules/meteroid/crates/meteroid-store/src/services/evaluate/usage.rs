@@ -85,11 +85,11 @@ pub async fn evaluate_reading_usage(
 }
 
 /// What a usage line was priced over, to read its usage again grouped by its metric's
-/// breakdown key: its metric, the window its charges read, and the cells a matrix prices.
+/// breakdown key: its metric, the window its charges read, and its rates by dimension.
 pub(super) struct BreakdownRead {
     metric: common_domain::ids::BillableMetricId,
     window: billing_core::pricer::UsageWindow,
-    matrix: Option<Vec<crate::domain::price_components::MatrixRow>>,
+    rated: Option<billing_core::pricing::CardRates>,
 }
 
 impl BreakdownRead {
@@ -98,10 +98,7 @@ impl BreakdownRead {
         charges: &[&billing_core::evaluate::Charge],
         fee: &super::pricer::StoreFee,
     ) -> Option<Self> {
-        let crate::domain::SubscriptionFee::Usage {
-            metric_id, model, ..
-        } = &fee.fee
-        else {
+        let crate::domain::SubscriptionFee::Usage { metric_id, .. } = &fee.fee else {
             return None;
         };
         let windows = charges.iter().filter_map(|charge| charge.usage);
@@ -110,10 +107,13 @@ impl BreakdownRead {
         Some(BreakdownRead {
             metric: *metric_id,
             window: billing_core::pricer::UsageWindow { from, until },
-            matrix: match model {
-                crate::domain::UsagePricingModel::Matrix { rates } => Some(rates.clone()),
-                _ => None,
-            },
+            rated: fee
+                .rate_card
+                .clone()
+                .map(|card| billing_core::pricing::CardRates {
+                    on: from.date_naive(),
+                    ..card
+                }),
         })
     }
 }
@@ -156,7 +156,7 @@ pub(super) async fn attach_breakdowns(
                     line.group_by_dimensions.as_ref(),
                     metric,
                     key,
-                    read.matrix.as_deref(),
+                    read.rated.as_ref(),
                     &usage.data,
                 );
             }

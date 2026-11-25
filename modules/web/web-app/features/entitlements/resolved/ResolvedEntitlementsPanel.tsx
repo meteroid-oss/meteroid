@@ -10,6 +10,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   Skeleton,
   Tooltip,
   TooltipContent,
@@ -18,13 +22,17 @@ import {
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { cn } from '@ui/lib'
-import { CirclePower, Pencil, Pin, PinOff } from 'lucide-react'
+import { MoreHorizontal } from 'lucide-react'
 import { FC, forwardRef, useImperativeHandle, useState } from 'react'
 import { toast } from 'sonner'
 
 import { EntityEntitlementDialog } from '@/features/entitlements/EntityEntitlementDialog'
 import { InheritedIcon } from '@/features/entitlements/InheritedIcon'
-import { LimitTermsBadges, termsOfValue } from '@/features/entitlements/LimitTermsBadges'
+import {
+  LimitTermsBadges,
+  limitTermsLabels,
+  termsOfValue,
+} from '@/features/entitlements/LimitTermsBadges'
 import { entitlementTooltip } from '@/features/entitlements/entitlementTooltips'
 import {
   buildInheritanceTooltip,
@@ -109,6 +117,8 @@ type Props = {
   hidePinAll?: boolean
   /** A short secondary label of metered rows, by metric id. */
   meteredLabels?: Map<string, string>
+  /** One list, each row saying where its value comes from, instead of groups by product. */
+  flat?: boolean
 }
 
 export type ResolvedEntitlementsPanelHandle = {
@@ -224,75 +234,46 @@ const RowActions: FC<RowActionsProps> = ({
 
   const isBoolean = row.value.case === 'boolean'
   const isMetered = row.value.case === 'metered'
+  const product = row.feature?.product?.name
+  const canToggle = (isBoolean || isMetered) && entity.type !== 'product'
+  const canLock = canPin && !pinnedHere && entity.type !== 'product'
+
+  if (isBoolean && !canToggle && !canLock && !canRemove) return null
 
   return (
-    <div className="flex items-center gap-1">
-      {!isBoolean && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className="p-1 hover:bg-muted rounded"
-              onClick={() => onOverride(row)}
-              disabled={isBusy}
-            >
-              <Pencil size={12} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{entitlementTooltip(label, 'override')}</TooltipContent>
-        </Tooltip>
-      )}
-
-      {canPin && (
-        pinnedHere ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className="p-1 hover:bg-muted rounded text-destructive"
-                onClick={handleRemove}
-                disabled={isBusy || !canRemove}
-              >
-                <PinOff size={12} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{entitlementTooltip(label, 'unpin')}</TooltipContent>
-          </Tooltip>
-        ) : (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className="p-1 hover:bg-muted rounded"
-                onClick={handlePin}
-                disabled={isBusy || entity.type === 'product'}
-              >
-                <Pin size={12} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{entitlementTooltip(label, 'pin')}</TooltipContent>
-          </Tooltip>
-        )
-      )}
-
-      {(isBoolean || isMetered) && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className="p-1 hover:bg-muted rounded"
-              onClick={handleToggleDisable}
-              disabled={isBusy || entity.type === 'product'}
-            >
-              {disabled
-                ? <CirclePower size={12} className="text-destructive" />
-                : <CirclePower size={12} className="text-primary" />}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{entitlementTooltip(label, disabled ? 'enable' : 'disable')}</TooltipContent>
-        </Tooltip>
-      )}
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          disabled={isBusy}
+          aria-label={`${row.feature?.name ?? 'Entitlement'} actions`}
+        >
+          <MoreHorizontal size={14} />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {!isBoolean && (
+          <DropdownMenuItem onSelect={() => onOverride(row)}>Change the value</DropdownMenuItem>
+        )}
+        {canToggle && (
+          <DropdownMenuItem onSelect={handleToggleDisable}>
+            {disabled ? `Turn on for this ${label}` : `Turn off for this ${label}`}
+          </DropdownMenuItem>
+        )}
+        {canLock && (
+          <DropdownMenuItem onSelect={handlePin}>
+            Keep this value if {product ?? 'the source'} changes
+          </DropdownMenuItem>
+        )}
+        {canPin && canRemove && (
+          <DropdownMenuItem onSelect={handleRemove}>
+            {product ? `Use ${product}'s value` : `Remove from this ${label}`}
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -304,6 +285,7 @@ export const ResolvedEntitlementsPanel = forwardRef<ResolvedEntitlementsPanelHan
   hideAddButton = false,
   hidePinAll = false,
   meteredLabels,
+  flat = false,
 }, ref) => {
   const label = ENTITY_LABEL[entity.type]
   const { entitlements: resolved, isLoading } = useResolvedEntitlementsForEntity(entity)
@@ -364,7 +346,7 @@ export const ResolvedEntitlementsPanel = forwardRef<ResolvedEntitlementsPanelHan
 
   // On a product detail page every row belongs to that product (or to no product), so
   // grouping by product is redundant — fall back to a single flat list.
-  const showGrouping = entity.type !== 'product'
+  const showGrouping = entity.type !== 'product' && !flat
   const groups = showGrouping
     ? groupByProduct(resolved, r =>
       r.feature?.product ? { id: r.feature.product.id, name: r.feature.product.name } : undefined
@@ -473,6 +455,76 @@ export const ResolvedEntitlementsPanel = forwardRef<ResolvedEntitlementsPanelHan
                     const featureName = r.feature?.name ?? featureId
                     const disabled = isEntitlementDisabled(r.value)
                     const pinned = isPinnedHere(r, entity)
+                    const valueText = formatResolvedValue(
+                      r.value,
+                      r.value.case === 'metered' ? metricUnits[r.value.value.metricId] : undefined
+                    )
+                    const actions = (
+                      <RowActions
+                        row={r}
+                        entity={entity}
+                        label={label}
+                        canPin={canPin}
+                        pinnedHere={pinned}
+                        localEntitlements={localEntitlements}
+                        onOverride={row => setDialog({ open: true, row })}
+                        onInvalidate={invalidate}
+                      />
+                    )
+
+                    if (flat) {
+                      // A table: the feature, its value, where the value comes from, its menu.
+                      const terms = limitTermsLabels(termsOfValue(r.value)).join(' · ')
+                      const metered =
+                        r.value.case === 'metered' ? meteredLabels?.get(r.value.value.metricId) : undefined
+                      return (
+                        <div
+                          key={featureId}
+                          className={cn(
+                            'grid grid-cols-[minmax(0,1fr)_2rem] items-center gap-x-4 gap-y-0.5 px-4 py-2.5 text-sm sm:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_2rem]',
+                            disabled && 'opacity-60'
+                          )}
+                        >
+                          <span className="min-w-0 truncate font-medium">
+                            {featureName}
+                            {metered && (
+                              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                                {metered}
+                              </span>
+                            )}
+                          </span>
+                          <span className="row-start-2 min-w-0 sm:row-start-auto">
+                            <span className="font-semibold tabular-nums">
+                              {r.value.case === 'boolean'
+                                ? r.value.value.enabled
+                                  ? 'Included'
+                                  : 'Off'
+                                : valueText}
+                            </span>
+                            {terms && (
+                              <span className="block truncate text-xs text-muted-foreground">{terms}</span>
+                            )}
+                          </span>
+                          <span
+                            className={cn(
+                              'row-start-3 truncate text-xs sm:row-start-auto sm:text-sm',
+                              pinned ? 'text-brand' : 'text-muted-foreground'
+                            )}
+                          >
+                            {pinned
+                              ? entity.type === 'plan-version'
+                                ? 'Set on the plan'
+                                : `Set on this ${label}`
+                              : r.feature?.product
+                                ? `From ${r.feature.product.name}`
+                                : 'Inherited'}
+                          </span>
+                          <span className="col-start-2 row-start-1 flex justify-end sm:col-start-auto sm:row-start-auto">
+                            {actions}
+                          </span>
+                        </div>
+                      )
+                    }
 
                     return (
                       <div
@@ -484,7 +536,9 @@ export const ResolvedEntitlementsPanel = forwardRef<ResolvedEntitlementsPanelHan
                       >
                         {/* Feature name + inheritance icon. */}
                         <div className="flex items-center gap-2 min-w-0">
-                          <span className="font-medium truncate">{featureName}</span>
+                          <span className="min-w-0">
+                            <span className="block font-medium truncate">{featureName}</span>
+                          </span>
                           {(() => {
                             const featureProduct = r.feature?.product
                             const isDirectlySet =
@@ -510,21 +564,9 @@ export const ResolvedEntitlementsPanel = forwardRef<ResolvedEntitlementsPanelHan
                         {/* Value + actions */}
                         <div className="flex items-center gap-2 shrink-0 ml-4">
                         <span className="text-muted-foreground text-xs tabular-nums">
-                          {formatResolvedValue(
-                            r.value,
-                            r.value.case === 'metered' ? metricUnits[r.value.value.metricId] : undefined
-                          )}
+                          {valueText}
                         </span>
-                          <RowActions
-                            row={r}
-                            entity={entity}
-                            label={label}
-                            canPin={canPin}
-                            pinnedHere={pinned}
-                            localEntitlements={localEntitlements}
-                            onOverride={row => setDialog({ open: true, row })}
-                            onInvalidate={invalidate}
-                          />
+                          {actions}
                         </div>
                       </div>
                     )

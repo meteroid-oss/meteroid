@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package meteroid.api.selfserve.v1;
+
+// How customers move through a product family's self-serve offers.
+message ProductFamilyJourney {
+  string product_family_id = 1;
+  // The plan a customer created with `subscribe_to_signup_plan` starts on, in the customer's
+  // currency; unset: none.
+  optional string signup_plan_id = 2;
+  reserved 3, 6, 7;
+  reserved "signup_variant_code", "signup_price_book_code", "signup_term";
+  // Customers switch between the options their plan is sold in, in their currency.
+  bool period_switch = 4;
+  // Customers schedule a downgrade themselves; else the portal sends them to the account team.
+  bool self_serve_downgrade = 5;
+  // The alias of the sign-up plan's option a sign-up starts on; unset: its default option.
+  optional string signup_option = 8;
+}
+
+message GetProductFamilyJourneyRequest {
+  string product_family_id = 1;
+}
+
+message GetProductFamilyJourneyResponse {
+  ProductFamilyJourney journey = 1;
+}
+
+message SaveProductFamilyJourneyRequest {
+  ProductFamilyJourney journey = 1;
+}
+
+message SaveProductFamilyJourneyResponse {
+  ProductFamilyJourney journey = 1;
+}
+
+// The self-serve journey of each product family. Needs the customer portal's self-service.
+service SelfServeJourneyService {
+  rpc GetProductFamilyJourney(GetProductFamilyJourneyRequest) returns (GetProductFamilyJourneyResponse) {}
+  rpc SaveProductFamilyJourney(SaveProductFamilyJourneyRequest) returns (SaveProductFamilyJourneyResponse) {}
+}

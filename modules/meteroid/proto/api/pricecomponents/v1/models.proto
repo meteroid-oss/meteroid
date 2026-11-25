@@ -12,7 +12,10 @@ message UsageFee {
     meteroid.api.prices.v1.UsagePricing.TieredAndVolumePricing tiered = 3;
     meteroid.api.prices.v1.UsagePricing.TieredAndVolumePricing volume = 4;
     meteroid.api.prices.v1.UsagePricing.PackagePricing package = 5;
+    // Deprecated: never returned, see dimension_rates.
     meteroid.api.prices.v1.UsagePricing.MatrixPricing matrix = 6;
+    meteroid.api.prices.v1.UsagePricing.RateCardPricing rate_card = 8;
+    meteroid.api.prices.v1.UsagePricing.DimensionRatesPricing dimension_rates = 9;
   }
   meteroid.api.shared.v1.BillingPeriod term = 7;
 }
@@ -22,7 +25,15 @@ message PriceComponent {
   string name = 2;
   optional string product_id = 4;
   string local_id = 5;
+  // Every price linked in any option of the version.
   repeated meteroid.api.prices.v1.Price prices = 6;
+  // Which option bills which of `prices`: a price linked in every option is the same in each.
+  repeated OptionPrice option_prices = 7;
+}
+
+message OptionPrice {
+  string option_id = 1;
+  string price_id = 2;
 }
 
 message ProductRef {

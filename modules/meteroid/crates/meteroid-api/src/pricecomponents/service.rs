@@ -1,10 +1,13 @@
-use common_domain::ids::{BillableMetricId, PlanVersionId, PriceComponentId, ProductId, TenantId};
+use common_domain::ids::{
+    BillableMetricId, PlanOptionId, PlanVersionId, PriceComponentId, ProductId, TenantId,
+};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_app::features::ensure_credit_pricing_allowed;
 use meteroid_grpc::meteroid::api::components::v1::{
-    CreatePriceComponentRequest, CreatePriceComponentResponse, EditPriceComponentRequest,
-    EditPriceComponentResponse, EmptyResponse, ListPriceComponentRequest,
-    ListPriceComponentResponse, RemovePriceComponentRequest,
+    ClearComponentPriceRequest, ClearComponentPriceResponse, CreatePriceComponentRequest,
+    CreatePriceComponentResponse, EditPriceComponentRequest, EditPriceComponentResponse,
+    EmptyResponse, ListPriceComponentRequest, ListPriceComponentResponse,
+    RemovePriceComponentRequest, SetComponentPriceRequest, SetComponentPriceResponse,
     price_components_service_server::PriceComponentsService,
 };
 use std::collections::HashSet;
@@ -87,10 +90,8 @@ impl PriceComponentsService for PriceComponentServiceComponents {
         .await?;
         let price_entries = mapping::components::price_entries_from_proto(req.prices)?;
 
-        if price_entries.is_empty() {
-            return Err(Status::invalid_argument("prices must not be empty"));
-        }
-
+        // No price includes the product, its features only: a new one keeps the structure it is
+        // created with, for when it is priced.
         let component = self
             .store
             .create_price_component_from_ref(
@@ -132,21 +133,16 @@ impl PriceComponentsService for PriceComponentServiceComponents {
         let plan_version_id = PlanVersionId::from_proto(&req.plan_version_id)?;
         let price_entries = mapping::components::price_entries_from_proto(req.prices)?;
 
-        // For edit, all entries must be new prices (replace all)
-        let price_inputs: Vec<_> = price_entries
-            .into_iter()
-            .map(|entry| match entry {
-                domain::PriceEntry::New(input) => Ok(input),
-                domain::PriceEntry::Existing(_) => Err(Status::invalid_argument(
-                    "edit_price_component does not support existing price references; send all prices as new",
-                )),
-            })
-            .collect::<Result<_, _>>()?;
-
-        if price_inputs.is_empty() {
-            return Err(Status::invalid_argument("prices must not be empty"));
+        // New prices replace the component's others, an existing one is kept as it is.
+        let mut price_inputs = Vec::new();
+        let mut keep = Vec::new();
+        for entry in price_entries {
+            match entry {
+                domain::PriceEntry::New(input) => price_inputs.push(input),
+                domain::PriceEntry::Existing(id) => keep.push(id),
+            }
         }
-
+        // No price, none kept: the charge becomes included.
         let edit_comp = req
             .component
             .ok_or(Status::invalid_argument("component is missing"))?;
@@ -163,12 +159,19 @@ impl PriceComponentsService for PriceComponentServiceComponents {
             product_id: Some(product_id),
             id: component_id,
             prices: Vec::new(),
+            option_prices: Vec::new(),
             legacy_pricing: None,
         };
 
         let component = self
             .store
-            .update_price_component_with_prices(component, price_inputs, tenant_id, plan_version_id)
+            .update_price_component_with_prices(
+                component,
+                price_inputs,
+                keep,
+                tenant_id,
+                plan_version_id,
+            )
             .await
             .map_err(PriceComponentApiError::from)?;
 
@@ -217,6 +220,95 @@ impl PriceComponentsService for PriceComponentServiceComponents {
 
         Ok(Response::new(EmptyResponse {}))
     }
+
+    #[tracing::instrument(skip_all)]
+    async fn set_component_price(
+        &self,
+        request: Request<SetComponentPriceRequest>,
+    ) -> Result<Response<SetComponentPriceResponse>, Status> {
+        let actor = request.actor_typed()?;
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let component_id = PriceComponentId::from_proto(&req.price_component_id)?;
+        let options = option_ids_from_proto(&req.option_ids)?;
+
+        // `prices` is the whole cell (a capacity charge's levels); `price` alone, one price.
+        let component = if req.prices.is_empty() {
+            let price = req
+                .price
+                .ok_or_else(|| Status::invalid_argument("price is required"))?;
+            let price = mapping::components::price_input_from_proto(price)?;
+            self.store
+                .set_component_price(tenant_id, component_id, options, price)
+                .await
+        } else {
+            let prices = req
+                .prices
+                .into_iter()
+                .map(mapping::components::price_input_from_proto)
+                .collect::<Result<Vec<_>, _>>()?;
+            self.store
+                .set_component_prices(tenant_id, component_id, options, prices)
+                .await
+        }
+        .map_err(PriceComponentApiError::from)?;
+
+        let _ = self
+            .store
+            .eventbus
+            .publish(Event::price_component_edited(
+                actor,
+                component.id,
+                tenant_id,
+            ))
+            .await;
+
+        Ok(Response::new(SetComponentPriceResponse {
+            component: Some(mapping::components::domain_to_api(component)),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn clear_component_price(
+        &self,
+        request: Request<ClearComponentPriceRequest>,
+    ) -> Result<Response<ClearComponentPriceResponse>, Status> {
+        let actor = request.actor_typed()?;
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let component_id = PriceComponentId::from_proto(&req.price_component_id)?;
+        let currency = req.currency.trim().to_ascii_uppercase();
+        if currency.is_empty() {
+            return Err(Status::invalid_argument("currency is required"));
+        }
+        let options = option_ids_from_proto(&req.option_ids)?;
+
+        let component = self
+            .store
+            .clear_component_price(tenant_id, component_id, options, currency)
+            .await
+            .map_err(PriceComponentApiError::from)?;
+
+        let _ = self
+            .store
+            .eventbus
+            .publish(Event::price_component_edited(
+                actor,
+                component.id,
+                tenant_id,
+            ))
+            .await;
+
+        Ok(Response::new(ClearComponentPriceResponse {
+            component: Some(mapping::components::domain_to_api(component)),
+        }))
+    }
+}
+
+fn option_ids_from_proto(ids: &[String]) -> Result<Vec<PlanOptionId>, Status> {
+    ids.iter().map(PlanOptionId::from_proto).collect()
 }
 
 impl PriceComponentServiceComponents {

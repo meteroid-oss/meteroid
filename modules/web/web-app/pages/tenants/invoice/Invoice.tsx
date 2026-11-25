@@ -1620,6 +1620,11 @@ const InvoiceLineItemCard: React.FC<{
               {formatCurrencyNoRounding(unitPrice, invoice.currency)}
             </div>
           )}
+          {hasSubItems && line_item.quantity && !line_item.metricId && (
+            <div className="text-[11px] text-muted-foreground">
+              {formatUsage(parseFloat(line_item.quantity))}
+            </div>
+          )}
           <div className="text-[13px] font-medium">
             {hasSubItems
               ? formatCurrency(
@@ -1634,9 +1639,17 @@ const InvoiceLineItemCard: React.FC<{
       {isExpanded && hasSubItems && (
         <div className="mt-2 ml-4 pt-2 border-t space-y-1">
           {subLines.map(subItem => (
-            <div key={subItem.id} className="flex justify-between items-center py-1">
+            <div key={subItem.id} className="flex justify-between items-center gap-2 py-1">
               <span className="text-[11px] text-muted-foreground">{subItem.name}</span>
-              <span className="text-[11px]">{formatCurrency(subItem.total, invoice.currency)}</span>
+              <span className="text-[11px] whitespace-nowrap">
+                {subItem.quantity && Number(subItem.unitPrice) !== 0 && (
+                  <span className="text-muted-foreground mr-2">
+                    {formatUsage(parseFloat(subItem.quantity))} ×{' '}
+                    {formatCurrencyNoRounding(subItem.unitPrice, invoice.currency)}
+                  </span>
+                )}
+                {formatCurrency(subItem.total, invoice.currency)}
+              </span>
             </div>
           ))}
         </div>

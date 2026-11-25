@@ -877,6 +877,7 @@ async fn a_new_subscription_checkout_quote_is_what_its_first_invoice_bills(
             tenant_id: TENANT_ID,
             customer_id: CUST_UBER_ID,
             plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
+            option: None,
             billing_start_date: Some(jan(15)),
             billing_day_anchor: Some(15),
             net_terms: None,

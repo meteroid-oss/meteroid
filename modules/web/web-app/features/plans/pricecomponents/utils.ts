@@ -11,7 +11,10 @@ import {
 } from 'lucide-react'
 import { match } from 'ts-pattern'
 
+import { priceWords } from '@/features/plans/canvas/billingWords'
 import { usePlanWithVersion } from '@/features/plans/hooks/usePlan'
+import { FIXED_MODEL_NAMES, fixedQuantityTotal } from '@/features/pricing/fixedQuantity'
+import { unitSizeLabel } from '@/features/productCatalog/ratecards/rateTable'
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 
 import type { ComponentFeeType } from '@/features/pricing/conversions'
@@ -20,6 +23,16 @@ import type { Price } from '@/rpc/api/prices/v1/models_pb'
 import type { LucideIcon } from 'lucide-react'
 
 export const editedComponentsAtom = atom<string[]>([])
+
+/** A cell to price, asked from outside the pricing section (the selling gaps banner). */
+export interface PriceCellRequest {
+  componentId: string
+  currency: string
+  /** None: the option shown. */
+  optionId?: string
+}
+
+export const priceCellRequestAtom = atom<PriceCellRequest | undefined>(undefined)
 
 export const useEditedComponents = () => {
   return useAtomValue(editedComponentsAtom)
@@ -46,6 +59,8 @@ export const useCurrency = () => {
   return version?.currency ?? 'USD'
 }
 
+export const COMMON_CURRENCIES = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'CHF', 'JPY', 'INR', 'BRL', 'MXN']
+
 export const mapCadence = (
   cadence: 'ANNUAL' | 'SEMIANNUAL' | 'QUARTERLY' | 'MONTHLY' | 'COMMITTED'
 ): string => {
@@ -62,12 +77,12 @@ export const feeTypeToHuman = (
   type: ComponentFeeType
 ) => {
   return match(type)
-    .with('rate', () => 'Subscription Rate')
-    .with('slot', () => 'Slot-based')
-    .with('capacity', () => 'Capacity commitment')
-    .with('usage', () => 'Usage-based')
-    .with('oneTime', () => 'One-time charge')
-    .with('extraRecurring', () => 'Recurring charge')
+    .with('rate', () => 'Flat fee')
+    .with('slot', () => 'Per seat')
+    .with('capacity', () => 'Usage with included amount')
+    .with('usage', () => 'Usage')
+    .with('oneTime', () => 'One-time')
+    .with('extraRecurring', () => 'Recurring by quantity')
     .with('credit', () => 'Credit pack')
     .exhaustive()
 }
@@ -122,7 +137,10 @@ export function priceSummaryBadges(
     case 'ratePricing':
       return [`${fmt(latestPrice.pricing.value.rate)} / ${cadence}`]
     case 'slotPricing':
-      return ['Unit price', `${fmt(latestPrice.pricing.value.unitRate)} / seat`]
+      // A slot model (seats included, tiers) carries the real price; unitRate is its first tier.
+      return latestPrice.pricing.value.model
+        ? [priceWords(latestPrice)]
+        : ['Unit price', `${fmt(latestPrice.pricing.value.unitRate)} / seat`]
     case 'capacityPricing':
       return [`${fmt(latestPrice.pricing.value.rate)} / ${cadence}`, 'Capacity']
     case 'usagePricing': {
@@ -141,23 +159,26 @@ export function priceSummaryBadges(
       if (model.case === 'package') {
         return [`${fmt(model.value.packagePrice)} / ${model.value.blockSize} units`]
       }
-      if (model.case === 'matrix') {
-        const prices = model.value.rows.map(r => parseFloat(r.perUnitPrice)).filter(n => !isNaN(n))
-        if (prices.length === 0) return ['Matrix']
+      if (model.case === 'dimensionRates') {
+        const prices = model.value.rates.map(r => parseFloat(r.rate)).filter(n => !isNaN(n))
+        if (prices.length === 0) return ['By dimension']
         const range = priceRange(prices, fmt)
-        return [`${range} / unit, by dimension`]
+        const per = unitSizeLabel(model.value.unitSize)
+        return [`${range} ${per === 'per 1' ? '/ unit' : per}, by dimension`]
       }
       return ['Usage']
     }
     case 'extraRecurringPricing': {
-      const { unitPrice, quantity } = latestPrice.pricing.value
-      const total = quantity > 1 ? new Decimal(unitPrice).mul(quantity).toString() : unitPrice
-      return [`${fmt(total)} / ${cadence}`]
+      const { unitPrice, quantity, model } = latestPrice.pricing.value
+      const total = fixedQuantityTotal(Math.max(quantity, 1), unitPrice, model).toString()
+      const how = model?.model.case ? [FIXED_MODEL_NAMES[model.model.case] ?? model.model.case] : []
+      return [`${fmt(total)} / ${cadence}`, ...how]
     }
     case 'oneTimePricing': {
-      const { unitPrice, quantity } = latestPrice.pricing.value
-      const total = quantity > 1 ? new Decimal(unitPrice).mul(quantity).toString() : unitPrice
-      return [`${fmt(total)}`]
+      const { unitPrice, quantity, model } = latestPrice.pricing.value
+      const total = fixedQuantityTotal(Math.max(quantity, 1), unitPrice, model).toString()
+      const how = model?.model.case ? [FIXED_MODEL_NAMES[model.model.case] ?? model.model.case] : []
+      return [`${fmt(total)}`, ...how]
     }
     case 'creditPricing': {
       const { unitPrice, quantity, creditAmount, once } = latestPrice.pricing.value

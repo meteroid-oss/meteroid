@@ -1000,6 +1000,7 @@ async fn create_subscription(services: &Services, params: SubscriptionParams) ->
         .insert_subscription(
             common_domain::actor::Actor::System,
             CreateSubscription {
+                option: None,
                 subscription: SubscriptionNew {
                     customer_id: CUST_UBER_ID,
                     plan_version_id: params.plan_version_id.unwrap_or(PLAN_VERSION_1_LEETCODE_ID),

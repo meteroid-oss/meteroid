@@ -10,7 +10,7 @@ import {
   Clock,
   Zap,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 
@@ -40,17 +40,37 @@ import { parseAndFormatDate } from '@/utils/date'
 import { formatCurrency, formatCurrencyNoRounding } from '@/utils/numbers'
 import { useForceTheme } from 'providers/ThemeProvider'
 
-import { packLineView } from './experience/format'
+import { Contact } from './experience/Contact'
+import { appliesOn, isDue, packLineView } from './experience/format'
+import { usePortalOverview } from './experience/hooks'
+import { planPriceShort } from './experience/planPrice'
+import {
+  cheaperThanCurrent,
+  isCurrentChoice,
+  isPeriodSwitch,
+  notOffered,
+  notOfferedLabel,
+  periodSwitchLabel,
+  usePlanOption,
+  variantFor,
+  variantLabel,
+} from './experience/variants'
+import { customerError } from './experience/walletFormat'
 
+import type { OptionChoice } from './experience/variants'
 import type { AmendmentSummary, PlanChangePackLine } from '@/rpc/api/subscriptions/v1/models_pb'
 import type {
   AvailableAddOn,
   AvailablePlan,
+  AvailableOption,
   ComponentFee,
   PortalUpcomingInvoice,
 } from '@/rpc/portal/subscription/v1/subscription_pb'
+import type { KeyboardEvent } from 'react'
 
 type Mode = 'idle' | 'changing' | 'confirmed'
+
+type Selection = { plan: AvailablePlan; variant?: AvailableOption }
 
 const cadenceLabel = (cadence: SubscriptionFeeBillingPeriod): string => {
   switch (cadence) {
@@ -109,7 +129,7 @@ export const PortalSubscription = () => {
   const navigate = useNavigate()
 
   const [mode, setMode] = useState<Mode>('idle')
-  const [selectedPlan, setSelectedPlan] = useState<AvailablePlan | null>(null)
+  const [selectedPlan, setSelectedPlan] = useState<Selection | null>(null)
   const [confirmResult, setConfirmResult] = useState<{
     effectiveDate: string
     changeDirection: ChangeDirection
@@ -121,9 +141,18 @@ export const PortalSubscription = () => {
     { subscriptionId: subscriptionId! },
     { enabled: mode === 'changing' }
   )
+  const plans = plansQuery.data?.plans ?? []
+  const { choices, option, setOption, showToggle } = usePlanOption(
+    plans,
+    plansQuery.data?.periodSwitch ?? false
+  )
   const previewQuery = useQuery(
     previewPlanChange,
-    { subscriptionId: subscriptionId!, newPlanVersionId: selectedPlan?.planVersionId ?? '' },
+    {
+      subscriptionId: subscriptionId!,
+      newPlanVersionId: selectedPlan?.plan.planVersionId ?? '',
+      option: selectedPlan?.variant?.id,
+    },
     { enabled: mode === 'changing' && !!selectedPlan }
   )
   const upcomingInvoiceQuery = useQuery(
@@ -143,28 +172,42 @@ export const PortalSubscription = () => {
     }
   }
 
-  const handleSelectPlan = (plan: AvailablePlan) => {
-    if (plan.isCurrent) return
-    setSelectedPlan(plan)
+  const handleSelectPlan = (plan: AvailablePlan, variant: AvailableOption | undefined) => {
+    if (isCurrentChoice(plan, variant)) return
+    setSelectedPlan({ plan, variant })
+  }
+
+  const handleChangeOption = (next: string) => {
+    setOption(next)
+    if (!selectedPlan) return
+    const variant = variantFor(selectedPlan.plan, next)
+    setSelectedPlan(
+      isCurrentChoice(selectedPlan.plan, variant) || notOffered(selectedPlan.plan, variant)
+        ? null
+        : { plan: selectedPlan.plan, variant }
+    )
   }
 
   const handleConfirm = async () => {
     if (!selectedPlan || !subscriptionId) return
-    const res = await confirmMutation.mutateAsync({
-      subscriptionId,
-      newPlanVersionId: selectedPlan.planVersionId,
-    })
-
-    if (res.status === PlanChangeStatus.PLAN_CHANGE_CHECKOUT_REQUIRED && res.checkoutToken) {
-      navigate(portalCheckoutHref(res.checkoutToken, window.location.href))
-      return
+    try {
+      const res = await confirmMutation.mutateAsync({
+        subscriptionId,
+        newPlanVersionId: selectedPlan.plan.planVersionId,
+        option: selectedPlan.variant?.id,
+      })
+      if (res.status === PlanChangeStatus.PLAN_CHANGE_CHECKOUT_REQUIRED && res.checkoutToken) {
+        navigate(portalCheckoutHref(res.checkoutToken, window.location.href))
+        return
+      }
+      setConfirmResult({
+        effectiveDate: res.effectiveDate,
+        changeDirection: res.changeDirection,
+      })
+      setMode('confirmed')
+    } catch (e) {
+      toast.error(customerError(e, 'Unable to change plan'))
     }
-
-    setConfirmResult({
-      effectiveDate: res.effectiveDate,
-      changeDirection: res.changeDirection,
-    })
-    setMode('confirmed')
   }
 
   const handleCancelScheduledEvent = async () => {
@@ -177,7 +220,7 @@ export const PortalSubscription = () => {
       await cancelMutation.mutateAsync({ subscriptionId, eventId })
       detailsQuery.refetch()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Unable to cancel the scheduled change')
+      toast.error(customerError(e, 'Unable to cancel the scheduled change'))
     }
   }
 
@@ -255,10 +298,14 @@ export const PortalSubscription = () => {
       )}
       {mode === 'changing' && (
         <PlanChangeView
-          plans={plansQuery.data?.plans ?? []}
+          plans={plans}
           isLoadingPlans={plansQuery.isLoading}
           selectedPlan={selectedPlan}
           onSelectPlan={handleSelectPlan}
+          choices={showToggle ? choices : []}
+          option={option}
+          onChangeOption={handleChangeOption}
+          selfServeDowngrade={plansQuery.data?.selfServeDowngrade ?? false}
           currentPlanName={sub.planName}
           currentHeadlineFee={sub.headlineFee}
           currency={sub.currency}
@@ -272,7 +319,8 @@ export const PortalSubscription = () => {
       {mode === 'confirmed' && (
         <ConfirmedView
           effectiveDate={confirmResult?.effectiveDate ?? null}
-          isImmediate={confirmResult?.changeDirection === ChangeDirection.UPGRADE}
+          isImmediate={!!confirmResult && isDue(confirmResult.effectiveDate)}
+          isUpgrade={confirmResult?.changeDirection === ChangeDirection.UPGRADE}
           onDone={handleBackToPortal}
         />
       )}
@@ -352,7 +400,7 @@ function IdleView({
       onRefetchDetails()
       setTimeout(() => setPurchasedAddonName(null), 3000)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Unable to add this add-on')
+      toast.error(customerError(e, 'Unable to add this add-on'))
     }
   }
 
@@ -837,6 +885,10 @@ function PlanChangeView({
   isLoadingPlans,
   selectedPlan,
   onSelectPlan,
+  choices,
+  option,
+  onChangeOption,
+  selfServeDowngrade,
   currentPlanName,
   currentHeadlineFee,
   currency,
@@ -848,8 +900,12 @@ function PlanChangeView({
 }: {
   plans: AvailablePlan[]
   isLoadingPlans: boolean
-  selectedPlan: AvailablePlan | null
-  onSelectPlan: (plan: AvailablePlan) => void
+  selectedPlan: Selection | null
+  onSelectPlan: (plan: AvailablePlan, variant: AvailableOption | undefined) => void
+  choices: OptionChoice[]
+  option: string | undefined
+  onChangeOption: (alias: string) => void
+  selfServeDowngrade: boolean
   currentPlanName: string
   currentHeadlineFee?: ComponentFee
   currency: string
@@ -882,13 +938,32 @@ function PlanChangeView({
   onConfirm: () => void
   isConfirming: boolean
 }) {
-  const targetPlan = selectedPlan
+  const targetPlan = selectedPlan?.plan
+  const targetVariant = selectedPlan?.variant
+  const { overview } = usePortalOverview()
   const targetHeadlineFee = targetPlan?.headlineFee
+  const downgradeBlocked =
+    preview?.preview?.changeDirection === ChangeDirection.DOWNGRADE &&
+    !selfServeDowngrade &&
+    !targetPlan?.isCurrent
+  const periodSwitch =
+    targetPlan && targetVariant && isPeriodSwitch(targetPlan, targetVariant)
+      ? targetVariant
+      : undefined
+  const appliesNow = isDue(preview?.preview?.effectiveDate)
 
   return (
     <div className="max-w-xl mx-auto px-6 py-10">
       <h1 className="text-2xl font-semibold text-gray-900">Change your plan</h1>
-      <p className="text-sm text-gray-500 mt-1.5">Select the plan that best fits your needs.</p>
+      <p className="text-sm text-gray-500 mt-1.5">
+        {currentPlanName} · upgrades apply now, prorated; downgrades at the end of your period
+      </p>
+
+      {choices.length >= 2 && (
+        <div className="mt-6 flex justify-center">
+          <OptionToggle choices={choices} value={option} onChange={onChangeOption} />
+        </div>
+      )}
 
       {/* Plan cards */}
       {isLoadingPlans ? (
@@ -905,15 +980,28 @@ function PlanChangeView({
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-8">
-          {plans.map(plan => (
-            <PlanCard
-              key={plan.planId}
-              plan={plan}
-              currency={currency}
-              isSelected={selectedPlan?.planId === plan.planId}
-              onSelect={() => onSelectPlan(plan)}
-            />
-          ))}
+          {plans.map(plan => {
+            const variant = variantFor(plan, option)
+            return (
+              <PlanCard
+                key={plan.planId}
+                plan={plan}
+                variant={variant}
+                shown={choices.length >= 2 ? option : undefined}
+                currency={currency}
+                notOfferedHint={
+                  notOffered(plan, variant)
+                    ? notOfferedLabel(choices.find(c => c.alias === option))
+                    : undefined
+                }
+                contactToDowngrade={
+                  !selfServeDowngrade && cheaperThanCurrent(plans, plan, variant, option)
+                }
+                isSelected={selectedPlan?.plan.planId === plan.planId}
+                onSelect={() => onSelectPlan(plan, variant)}
+              />
+            )
+          })}
         </div>
       )}
 
@@ -947,10 +1035,21 @@ function PlanChangeView({
                 <p className="text-sm font-semibold text-gray-900 mt-1 truncate">
                   {preview?.newPlanName ?? targetPlan.planName}
                 </p>
-                {targetHeadlineFee && (
-                  <p className="text-xs text-gray-500 mt-0.5 tabular-nums">
-                    {formatComponentFee(targetHeadlineFee, currency)}
+                {variantLabel(targetPlan, targetVariant) && (
+                  <p className="text-xs text-gray-500 mt-0.5 truncate">
+                    {variantLabel(targetPlan, targetVariant)}
                   </p>
+                )}
+                {targetVariant?.price ? (
+                  <p className="text-xs text-gray-500 mt-0.5 tabular-nums">
+                    {planPriceShort(targetVariant.price)}
+                  </p>
+                ) : (
+                  targetHeadlineFee && (
+                    <p className="text-xs text-gray-500 mt-0.5 tabular-nums">
+                      {formatComponentFee(targetHeadlineFee, currency)}
+                    </p>
+                  )
                 )}
               </div>
             </div>
@@ -960,79 +1059,86 @@ function PlanChangeView({
           {isLoadingPreview && <Skeleton height={56} className="rounded-xl" />}
 
           {!isLoadingPreview && !!previewError && (
-            <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3">
+            <div
+              role="alert"
+              className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3"
+            >
               <AlertCircle className="h-4 w-4 text-gray-400 shrink-0" />
-              <p className="text-sm text-gray-500">Unable to load preview</p>
+              <p className="text-sm text-gray-500">
+                {customerError(previewError, 'Unable to load preview')}
+              </p>
             </div>
           )}
 
           {!isLoadingPreview && !previewError && preview?.preview && (
             <div className="bg-white rounded-xl border border-gray-200 p-4">
               <div className="flex gap-3">
-                {preview.preview.changeDirection === ChangeDirection.UPGRADE ? (
-                  <>
-                    <Zap size={16} className="text-green-500 mt-0.5 shrink-0" />
-                    <div className="text-sm text-gray-700">
-                      <p>
-                        Your plan will change to{' '}
-                        <span className="font-medium">{preview.newPlanName}</span> immediately.
-                      </p>
-                      {preview.preview.proration && (
-                        <p className="mt-1.5 text-xs text-gray-500">
-                          A prorated adjustment of{' '}
-                          <span className="font-medium tabular-nums">
-                            {formatCurrency(
-                              Number(preview.preview.proration.netAmountCents),
-                              currency
-                            )}
-                          </span>{' '}
-                          will be billed.
-                        </p>
-                      )}
-                      {preview.preview.proration?.packChanges.map((line, idx) => {
-                        const view = packLineView(line, currency)
-                        return view ? (
-                          <p
-                            key={`${line.kind}-${line.name}-${idx}`}
-                            className="mt-1 flex justify-between gap-3 text-xs text-gray-500"
-                          >
-                            <span>
-                              {view.label} · {line.name}
-                            </span>
-                            <span className="font-medium tabular-nums shrink-0">{view.value}</span>
-                          </p>
-                        ) : null
-                      })}
-                    </div>
-                  </>
+                {appliesNow ? (
+                  <Zap size={16} className="text-green-500 mt-0.5 shrink-0" />
                 ) : (
-                  <>
-                    <Clock size={16} className="text-gray-400 mt-0.5 shrink-0" />
-                    <p className="text-sm text-gray-700">
-                      Your plan will change to{' '}
-                      <span className="font-medium">{preview.newPlanName}</span> on your next
-                      billing cycle ({parseAndFormatDate(preview.preview.effectiveDate)}).
-                    </p>
-                  </>
+                  <Clock size={16} className="text-gray-400 mt-0.5 shrink-0" />
                 )}
+                <div className="text-sm text-gray-700">
+                  <p>
+                    {appliesOn(preview.preview.effectiveDate)}: your plan changes to{' '}
+                    <span className="font-medium">{preview.newPlanName}</span>.
+                  </p>
+                  {!downgradeBlocked && appliesNow && preview.preview.proration && (
+                    <p className="mt-1.5 text-xs text-gray-500">
+                      A prorated adjustment of{' '}
+                      <span className="font-medium tabular-nums">
+                        {formatCurrency(Number(preview.preview.proration.netAmountCents), currency)}
+                      </span>{' '}
+                      will be billed.
+                    </p>
+                  )}
+                  {!downgradeBlocked &&
+                    appliesNow &&
+                    preview.preview.proration?.packChanges.map((line, idx) => {
+                      const view = packLineView(line, currency)
+                      return view ? (
+                        <p
+                          key={`${line.kind}-${line.name}-${idx}`}
+                          className="mt-1 flex justify-between gap-3 text-xs text-gray-500"
+                        >
+                          <span>
+                            {view.label} · {line.name}
+                          </span>
+                          <span className="font-medium tabular-nums shrink-0">{view.value}</span>
+                        </p>
+                      ) : null
+                    })}
+                </div>
               </div>
             </div>
           )}
 
           {/* Confirm button */}
-          <button
-            onClick={onConfirm}
-            disabled={isConfirming || isLoadingPreview || !!previewError}
-            className="w-full text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-lg py-3 disabled:opacity-50 transition-colors"
-          >
-            {isConfirming
-              ? 'Confirming...'
-              : preview?.preview?.changeDirection === ChangeDirection.UPGRADE
-                ? `Upgrade to ${preview?.newPlanName ?? targetPlan.planName}`
-                : `Switch to ${preview?.newPlanName ?? targetPlan.planName}`}
-          </button>
+          {downgradeBlocked ? (
+            <p
+              role="status"
+              className="w-full text-sm font-medium text-gray-700 text-center bg-white border border-gray-200 rounded-lg py-3"
+            >
+              Downgrades are arranged by our team: please{' '}
+              <Contact label="contact us" email={overview?.invoicingEntityContactEmail} />.
+            </p>
+          ) : (
+            <button
+              onClick={onConfirm}
+              disabled={isConfirming || isLoadingPreview || !!previewError}
+              className="w-full text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-lg py-3 disabled:opacity-50 transition-colors"
+            >
+              {isConfirming
+                ? 'Confirming...'
+                : periodSwitch
+                  ? periodSwitchLabel(periodSwitch)
+                  : preview?.preview?.changeDirection === ChangeDirection.UPGRADE
+                    ? `Upgrade to ${preview?.newPlanName ?? targetPlan.planName}`
+                    : `Switch to ${preview?.newPlanName ?? targetPlan.planName}`}
+            </button>
+          )}
 
-          {preview?.preview?.changeDirection !== ChangeDirection.UPGRADE && (
+          {!downgradeBlocked && preview?.preview && !appliesNow && (
             <p className="text-[11px] text-gray-400 text-center leading-relaxed">
               Your current features remain active until the transition date.
             </p>
@@ -1044,32 +1150,109 @@ function PlanChangeView({
 }
 
 // ---------------------------------------------------------------------------
+// Option toggle
+// ---------------------------------------------------------------------------
+
+function OptionToggle({
+  choices,
+  value,
+  onChange,
+}: {
+  choices: OptionChoice[]
+  value: string | undefined
+  onChange: (alias: string) => void
+}) {
+  const refs = useRef<(HTMLButtonElement | null)[]>([])
+  const activeIndex = Math.max(0, choices.findIndex(c => c.alias === value))
+
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const step = ['ArrowRight', 'ArrowDown'].includes(e.key)
+      ? 1
+      : ['ArrowLeft', 'ArrowUp'].includes(e.key)
+        ? -1
+        : 0
+    if (!step) return
+    e.preventDefault()
+    const next = (activeIndex + step + choices.length) % choices.length
+    onChange(choices[next].alias)
+    refs.current[next]?.focus()
+  }
+
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Option"
+      onKeyDown={onKeyDown}
+      className="inline-flex gap-0.5 rounded-lg border border-gray-200 bg-gray-100 p-0.5"
+    >
+      {choices.map((c, i) => {
+        const checked = i === activeIndex
+        return (
+          <button
+            key={c.alias}
+            ref={el => {
+              refs.current[i] = el
+            }}
+            type="button"
+            role="radio"
+            aria-checked={checked}
+            tabIndex={checked ? 0 : -1}
+            onClick={() => onChange(c.alias)}
+            className={`rounded-md px-3.5 py-1.5 text-xs transition-colors ${
+              checked
+                ? 'bg-white font-semibold text-gray-900 shadow-sm'
+                : 'font-medium text-gray-500 hover:text-gray-900'
+            }`}
+          >
+            {c.name}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Plan Card
 // ---------------------------------------------------------------------------
 
 function PlanCard({
   plan,
+  variant,
+  shown,
   currency,
+  notOfferedHint,
+  contactToDowngrade,
   isSelected,
   onSelect,
 }: {
   plan: AvailablePlan
+  variant: AvailableOption | undefined
+  /** The option alias the switch shows, its name said there. */
+  shown?: string
   currency: string
+  notOfferedHint?: string
+  contactToDowngrade: boolean
   isSelected: boolean
   onSelect: () => void
 }) {
-  const isCurrent = plan.isCurrent
+  const isCurrent = isCurrentChoice(plan, variant)
+  const label = variantLabel(plan, variant, shown)
 
   return (
     <button
+      type="button"
       onClick={onSelect}
-      disabled={isCurrent}
+      aria-pressed={isSelected}
+      disabled={isCurrent || !!notOfferedHint}
       className={`relative text-left rounded-xl p-5 transition-all duration-150 border-2 outline-none ${
-        isCurrent
-          ? 'bg-gray-50/80 border-gray-200 cursor-default'
-          : isSelected
-            ? 'bg-white border-gray-900 shadow-sm'
-            : 'bg-white border-gray-200 hover:border-gray-300 hover:shadow-sm cursor-pointer'
+        notOfferedHint
+          ? 'bg-gray-50/80 border-gray-200 cursor-default opacity-60'
+          : isCurrent
+            ? 'bg-gray-50/80 border-gray-200 cursor-default'
+            : isSelected
+              ? 'bg-white border-gray-900 shadow-sm'
+              : 'bg-white border-gray-200 hover:border-gray-300 hover:shadow-sm cursor-pointer'
       }`}
     >
       {/* Top-right indicator */}
@@ -1088,10 +1271,20 @@ function PlanCard({
 
       <h3 className="text-base font-semibold text-gray-900 pr-12">{plan.planName}</h3>
 
-      {plan.headlineFee && (
+      {label && <p className="text-[11px] font-medium text-gray-400 mt-0.5">{label}</p>}
+
+      {notOfferedHint ? (
+        <p className="text-sm text-gray-500 font-medium mt-1">{notOfferedHint}</p>
+      ) : (variant?.price ?? plan.price) ? (
         <p className="text-sm text-gray-900 font-medium mt-1 tabular-nums">
-          {formatComponentFee(plan.headlineFee, currency)}
+          {planPriceShort((variant?.price ?? plan.price)!)}
         </p>
+      ) : (
+        plan.headlineFee && (
+          <p className="text-sm text-gray-900 font-medium mt-1 tabular-nums">
+            {formatComponentFee(plan.headlineFee, currency)}
+          </p>
+        )
       )}
 
       {plan.description && (
@@ -1099,6 +1292,12 @@ function PlanCard({
           {plan.description}
         </p>
       )}
+
+      {variant && isPeriodSwitch(plan, variant) && (
+        <p className="text-xs font-semibold text-blue-600 mt-2">{periodSwitchLabel(variant)}</p>
+      )}
+
+      {contactToDowngrade && <p className="text-xs text-gray-400 mt-2">Contact us to downgrade</p>}
     </button>
   )
 }
@@ -1110,10 +1309,12 @@ function PlanCard({
 function ConfirmedView({
   effectiveDate,
   isImmediate,
+  isUpgrade,
   onDone,
 }: {
   effectiveDate: string | null
   isImmediate: boolean
+  isUpgrade: boolean
   onDone: () => void
 }) {
   return (
@@ -1122,13 +1323,13 @@ function ConfirmedView({
         <Check size={28} className="text-green-500" />
       </div>
       <h2 className="text-xl font-semibold text-gray-900 mb-2">
-        {isImmediate ? 'Plan upgraded' : 'Plan change confirmed'}
+        {!isImmediate ? 'Plan change confirmed' : isUpgrade ? 'Plan upgraded' : 'Plan updated'}
       </h2>
       {effectiveDate && (
         <p className="text-sm text-gray-500 mb-8 leading-relaxed">
           {isImmediate ? (
             <>
-              Your plan has been upgraded effective today.
+              Your new plan applies from today.
               <br />A prorated adjustment will appear on your next invoice.
             </>
           ) : (

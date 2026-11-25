@@ -36,6 +36,8 @@ export const KNOWN_ACTIVITY_TYPES = [
   'billable_metric.created',
   'billable_metric.updated',
   'billable_metric.archived',
+  'rate_card.created',
+  'rate_card.rates_changed',
   'subscription.created',
   'credit_note.created',
   'credit_note.finalized',

@@ -4,11 +4,9 @@ import { StandardOnly } from '@/components/StandardOnly'
 import { NotFound } from '@/features/NotFound'
 import { PlanCreateInitModal } from '@/features/plans/PlanCreateInitModal'
 import { DetailsFormModal } from '@/features/plans/create/details/DetailsFormModal'
-import { AddonDetails } from '@/pages/tenants/billing/addonDetails'
+import { useBasePath } from '@/hooks/useBasePath'
 import { Addons } from '@/pages/tenants/billing/addons'
-import { CouponDetails } from '@/pages/tenants/billing/couponDetails'
 import { Coupons } from '@/pages/tenants/billing/coupons'
-import { CreateAddon } from '@/pages/tenants/billing/createAddon'
 import { CreateCoupon } from '@/pages/tenants/billing/createCoupon'
 import { EditAddon } from '@/pages/tenants/billing/editAddon'
 import { Plans } from '@/pages/tenants/billing/plans'
@@ -23,6 +21,11 @@ import { FeatureCreate, FeatureDetail, FeatureEdit, Features } from '@/pages/ten
 import { Products } from '@/pages/tenants/catalog/productItems'
 import { ProductMetricDetail } from '@/pages/tenants/catalog/productMetricDetail'
 import { ProductMetrics } from '@/pages/tenants/catalog/productMetrics'
+
+const CatalogRedirect = ({ to }: { to: string }) => {
+  const basePath = useBasePath()
+  return <Navigate to={`${basePath}/${to}`} replace />
+}
 
 export const productCatalogRoutes: RouteObject = {
   children: [
@@ -58,6 +61,15 @@ export const productCatalogRoutes: RouteObject = {
           element: <ProductMetricDetail />,
           handle: { title: 'Metric' },
         },
+        // Seat rules live on the seat product, rate cards on their metric.
+        {
+          path: 'quantities',
+          element: <CatalogRedirect to="items" />,
+        },
+        {
+          path: 'rate-cards',
+          element: <CatalogRedirect to="metrics" />,
+        },
         {
           path: 'plans',
           children: [
@@ -86,6 +98,7 @@ export const productCatalogRoutes: RouteObject = {
                       element: <DetailsFormModal />,
                     },
                     {
+                      // Offered from the plan's "Add-ons" section: older links open it.
                       path: 'add-addon',
                       element: <CreateAddOn />,
                     },
@@ -143,19 +156,20 @@ export const productCatalogRoutes: RouteObject = {
                   element: null,
                 },
                 {
+                  // "New add-on" and the add-on open beside the list, shown by the page.
                   path: 'add-addon',
-                  element: <CreateAddon />,
+                  element: null,
                   handle: { title: 'New add-on' },
                 },
                 {
                   path: ':addonId',
-                  element: <AddonDetails />,
+                  element: null,
                   handle: { title: 'Add-on' },
                 },
                 {
+                  // Edited in its panel now: older links open it there.
                   path: 'edit/:addonId',
                   element: <EditAddon />,
-                  handle: { title: 'Edit add-on' },
                 },
               ],
             },
@@ -174,8 +188,9 @@ export const productCatalogRoutes: RouteObject = {
                   handle: { title: 'New coupon' },
                 },
                 {
+                  // Shown beside the list by the page: the row stays in view.
                   path: ':couponLocalId',
-                  element: <CouponDetails />,
+                  element: null,
                   handle: { title: 'Coupon' },
                 },
               ],

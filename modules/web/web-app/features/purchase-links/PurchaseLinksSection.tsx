@@ -25,13 +25,23 @@ import {
   TableRow,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { ArchiveIcon, MoreHorizontalIcon, PencilIcon, RefreshCwIcon } from 'lucide-react'
+import {
+  ArchiveIcon,
+  MoreHorizontalIcon,
+  PencilIcon,
+  PlusIcon,
+  RefreshCwIcon,
+} from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
-import { PageSection } from '@/components/layouts/shared/PageSection'
-import { useIsDraftVersion, usePlanWithVersion } from '@/features/plans/hooks/usePlan'
+import { AddRow } from '@/features/plans/MoreForPlan'
+import {
+  useIsDraftVersion,
+  usePlanOverview,
+  usePlanWithVersion,
+} from '@/features/plans/hooks/usePlan'
 import { PurchaseLinkDialog } from '@/features/purchase-links/PurchaseLinkDialog'
 import { invalidatePurchaseLinks } from '@/features/purchase-links/utils'
 import { entitlementCodes, useEntitlement } from '@/hooks/useEntitlement'
@@ -83,6 +93,13 @@ const PurchaseLinks = ({
 
   const query = useQuery(listPurchaseLinks, { planId, includeArchived })
   const links = query.data?.links ?? []
+  // The options the active version sells in some currency.
+  const overview = usePlanOverview()
+  const options = (overview?.options ?? []).filter(option =>
+    overview?.pricedOptions.some(priced => priced.optionId === option.id)
+  )
+  const optionName = (alias: string) =>
+    overview?.options.find(option => option.alias === alias)?.name ?? alias
 
   const onError = (fallback: string) => (err: { rawMessage?: string }) =>
     toast.error(err.rawMessage || fallback)
@@ -109,25 +126,134 @@ const PurchaseLinks = ({
     dialog?.kind === 'regenerate' || dialog?.kind === 'archive' ? dialog.link : undefined
 
   return (
-    <PageSection
-      header={{
-        title: 'Purchase links',
-        subtitle: 'Public, reusable links to buy this plan without a pre-existing account.',
-        actions:
-          canManage && planActive ? (
-            <Button
-              variant="outline"
-              className="py-1.5"
-              onClick={() => setDialog({ kind: 'edit' })}
-            >
-              + New purchase link
-            </Button>
-          ) : null,
-      }}
-    >
-      <div className="flex flex-col gap-3">
+    <div className="space-y-3">
+      {query.isLoading ? null : links.length === 0 ? (
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          {includeArchived
+            ? 'No purchase link, archived or not.'
+            : 'Share a link on your website or in an email: buyers enter their email and billing details, then pay at checkout. Each purchase creates a customer and a subscription to this plan.'}
+          {!planActive && ' Publish the plan to create one.'}
+        </p>
+      ) : (
+        <div className="overflow-x-auto rounded-md border border-border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>URL</TableHead>
+                <TableHead className="text-right whitespace-nowrap">Started</TableHead>
+                <TableHead className="text-right whitespace-nowrap">Completed</TableHead>
+                <TableHead className="whitespace-nowrap">Created</TableHead>
+                <TableHead className="w-px" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {links.map(link => (
+                <TableRow key={link.id} className={link.archivedAt ? 'opacity-60' : undefined}>
+                  <TableCell className="text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium truncate max-w-[200px]" title={link.name}>
+                        {link.name}
+                      </span>
+                      {link.option !== undefined && (
+                        <Badge variant="outline" size="sm">
+                          {optionName(link.option)}
+                        </Badge>
+                      )}
+                      {link.listed && (
+                        <Badge variant="outline" size="sm">
+                          Listed
+                        </Badge>
+                      )}
+                      {link.allowCouponCodes && (
+                        <Badge variant="outline" size="sm">
+                          Coupons
+                        </Badge>
+                      )}
+                      {link.couponCode && (
+                        <Badge variant="outline" size="sm" title="Coupon code applied">
+                          {link.couponCode}
+                        </Badge>
+                      )}
+                      {link.allowedBuyerTypes !== AllowedBuyerTypes.ALL && (
+                        <Badge variant="outline" size="sm">
+                          {link.allowedBuyerTypes === AllowedBuyerTypes.COMPANIES_ONLY
+                            ? 'Companies'
+                            : 'Individuals'}
+                        </Badge>
+                      )}
+                      {link.archivedAt && (
+                        <Badge variant="secondary" size="sm">
+                          Archived
+                        </Badge>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="max-w-[280px]">
+                    {link.archivedAt ? (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    ) : (
+                      <CopyToClipboardButton
+                        text={link.url}
+                        className="inline-block max-w-[240px] font-mono"
+                      />
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right text-sm tabular-nums">
+                    {link.startedCount}
+                  </TableCell>
+                  <TableCell className="text-right text-sm tabular-nums">
+                    {link.completedCount}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                    {parseAndFormatDate(link.createdAt)}
+                  </TableCell>
+                  <TableCell className="w-px">
+                    {canManage && !link.archivedAt && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            aria-label={`Actions for ${link.name}`}
+                          >
+                            <MoreHorizontalIcon size={16} />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => setDialog({ kind: 'edit', link })}>
+                            <PencilIcon size={14} className="mr-2" /> Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => setDialog({ kind: 'regenerate', link })}>
+                            <RefreshCwIcon size={14} className="mr-2" /> Regenerate URL
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => setDialog({ kind: 'archive', link })}
+                          >
+                            <ArchiveIcon size={14} className="mr-2" /> Archive
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-4">
+        {canManage && planActive && (
+          <AddRow onClick={() => setDialog({ kind: 'edit' })}>
+            <PlusIcon size={12} /> New purchase link
+          </AddRow>
+        )}
         {(links.length > 0 || includeArchived) && (
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-2">
             <Switch
               id="purchase-links-archived"
               checked={includeArchived}
@@ -141,120 +267,13 @@ const PurchaseLinks = ({
             </Label>
           </div>
         )}
-
-        {query.isLoading ? null : links.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
-            <p>
-              Share a purchase link on your website or in an email: buyers enter their email and
-              billing details, then pay through checkout. Each purchase creates a new customer and a
-              subscription to this plan.
-            </p>
-            {!planActive && <p className="mt-2">Publish the plan to create purchase links.</p>}
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-lg border border-border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>URL</TableHead>
-                  <TableHead className="text-right whitespace-nowrap">Started</TableHead>
-                  <TableHead className="text-right whitespace-nowrap">Completed</TableHead>
-                  <TableHead className="whitespace-nowrap">Created</TableHead>
-                  <TableHead className="w-px" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {links.map(link => (
-                  <TableRow key={link.id} className={link.archivedAt ? 'opacity-60' : undefined}>
-                    <TableCell className="text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium truncate max-w-[200px]" title={link.name}>
-                          {link.name}
-                        </span>
-                        {link.listed && (
-                          <Badge variant="outline" size="sm">
-                            Listed
-                          </Badge>
-                        )}
-                        {link.allowCouponCodes && (
-                          <Badge variant="outline" size="sm">
-                            Coupons
-                          </Badge>
-                        )}
-                        {link.allowedBuyerTypes !== AllowedBuyerTypes.ALL && (
-                          <Badge variant="outline" size="sm">
-                            {link.allowedBuyerTypes === AllowedBuyerTypes.COMPANIES_ONLY
-                              ? 'Companies'
-                              : 'Individuals'}
-                          </Badge>
-                        )}
-                        {link.archivedAt && (
-                          <Badge variant="secondary" size="sm">
-                            Archived
-                          </Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="max-w-[280px]">
-                      {link.archivedAt ? (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      ) : (
-                        <CopyToClipboardButton
-                          text={link.url}
-                          className="inline-block max-w-[240px] font-mono"
-                        />
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right text-sm tabular-nums">
-                      {link.startedCount}
-                    </TableCell>
-                    <TableCell className="text-right text-sm tabular-nums">
-                      {link.completedCount}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                      {parseAndFormatDate(link.createdAt)}
-                    </TableCell>
-                    <TableCell className="w-px">
-                      {canManage && !link.archivedAt && (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8">
-                              <MoreHorizontalIcon size={16} />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => setDialog({ kind: 'edit', link })}>
-                              <PencilIcon size={14} className="mr-2" /> Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => setDialog({ kind: 'regenerate', link })}
-                            >
-                              <RefreshCwIcon size={14} className="mr-2" /> Regenerate URL
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onClick={() => setDialog({ kind: 'archive', link })}
-                            >
-                              <ArchiveIcon size={14} className="mr-2" /> Archive
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
       </div>
 
       {dialog?.kind === 'edit' && (
         <PurchaseLinkDialog
           planId={planId}
           link={dialog.link}
+          options={options}
           showListed={licensingEnabled || !!dialog.link?.listed}
           planIssuesLicense={planIssuesLicense}
           onClose={close}
@@ -290,6 +309,6 @@ const PurchaseLinks = ({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </PageSection>
+    </div>
   )
 }

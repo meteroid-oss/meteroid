@@ -9,12 +9,15 @@ use std::time::Duration;
 
 use chrono::{Duration as ChronoDuration, NaiveDate, Utc};
 use common_domain::actor::Actor;
-use common_domain::ids::{BaseId, CustomerId, InvoiceId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    BaseId, BillableMetricId, CustomerId, InvoiceId, SubscriptionId, TenantId,
+};
 use meteroid_store::StoreResult;
 use meteroid_store::domain::enums::{
     BillingMetricAggregateEnum, CreditNoteStatus, InvoicePaymentStatus, InvoiceStatusEnum,
     TenantStatusEnum,
 };
+use meteroid_store::domain::rate_cards::rates_at;
 use meteroid_store::domain::sandbox_seeds::SandboxSeedStatus;
 use meteroid_store::domain::{BillableMetricMeta, PaginationRequest, Tenant};
 use meteroid_store::hooks::AnalyticsHook;
@@ -26,7 +29,9 @@ use meteroid_store::repositories::credit_notes::{
 use meteroid_store::repositories::sandbox::SandboxInterface;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
 use meteroid_store::repositories::tenants::TenantInterface;
-use meteroid_store::repositories::{CustomersInterface, InvoiceInterface, SubscriptionInterface};
+use meteroid_store::repositories::{
+    CustomersInterface, InvoiceInterface, RateCardsInterface, SubscriptionInterface,
+};
 use meteroid_store::{Services, Store};
 use rust_decimal::Decimal;
 
@@ -46,6 +51,9 @@ const FRESH_ACTIVE_DAYS: i64 = 7;
 const FRESH_WINDOW_DAYS: i64 = 3;
 /// Modest per-customer daily event volume for freshness (backfill is denser).
 const FRESH_DAILY_VOLUME: u32 = 6;
+/// Units per event of a metric a rate card rates, enough to bill at its per-1M-unit rates.
+const RATED_MIN_UNITS: u64 = 1_000;
+const RATED_MAX_UNITS: u64 = 20_000;
 /// Hard ceiling on events emitted per tenant per freshen pass, independent of
 /// customer/metric count. Bounds sandbox ingest load (~100/day over the window);
 /// oversized tenants are evenly downsampled to this.
@@ -286,7 +294,12 @@ async fn freshen(
         return Ok(0);
     }
 
-    let streams: Vec<usage::UsageStream> = metrics.items.iter().map(fresh_stream).collect();
+    let rated = rated_dimensions(store, tenant.id, today).await?;
+    let streams: Vec<usage::UsageStream> = metrics
+        .items
+        .iter()
+        .map(|metric| fresh_stream(metric, rated.get(&metric.id)))
+        .collect();
     let customers: Vec<(CustomerId, &str)> = customers
         .items
         .iter()
@@ -320,7 +333,64 @@ async fn freshen(
     .await)
 }
 
-fn fresh_stream(metric: &BillableMetricMeta) -> usage::UsageStream {
+/// The event properties of each metric a rate card rates, from the first card rating it.
+async fn rated_dimensions(
+    store: &Store,
+    tenant_id: TenantId,
+    today: NaiveDate,
+) -> StoreResult<HashMap<BillableMetricId, Vec<usage::Dimension>>> {
+    let mut rated = HashMap::new();
+    for card in store.list_rate_cards(tenant_id, None).await? {
+        if rated.contains_key(&card.metric_id) {
+            continue;
+        }
+        let (card, entries) = store.get_rate_card(tenant_id, card.id).await?;
+        let keys: Vec<Vec<String>> = rates_at(&entries, today)
+            .iter()
+            .map(|entry| entry.key_text())
+            .collect();
+        rated.insert(card.metric_id, card_dimensions(&card.dimensions, &keys));
+    }
+    Ok(rated)
+}
+
+/// Per dimension of a card, the values its `keys` name, equally often, and one no key names at
+/// a tenth of the events, so the card's `*` row bills too.
+fn card_dimensions(dimensions: &[String], keys: &[Vec<String>]) -> Vec<usage::Dimension> {
+    dimensions
+        .iter()
+        .enumerate()
+        .map(|(i, key)| {
+            let mut values: Vec<String> = Vec::new();
+            for pattern in keys.iter().filter_map(|k| k.get(i)) {
+                if !pattern.ends_with('*') && !values.contains(pattern) {
+                    values.push(pattern.clone());
+                }
+            }
+            let named = values.len() as u32;
+            let mut weights = vec![9; values.len()];
+            let unnamed = (0..)
+                .map(|n| match n {
+                    0 => "other".to_string(),
+                    n => format!("other-{n}"),
+                })
+                .find(|value| !values.contains(value))
+                .expect("a value no key names");
+            values.push(unnamed);
+            weights.push(named.max(1));
+            usage::Dimension {
+                key: key.clone(),
+                values,
+                weights,
+            }
+        })
+        .collect()
+}
+
+fn fresh_stream(
+    metric: &BillableMetricMeta,
+    rated: Option<&Vec<usage::Dimension>>,
+) -> usage::UsageStream {
     let value_key = metric
         .aggregation_key
         .clone()
@@ -332,7 +402,13 @@ fn fresh_stream(metric: &BillableMetricMeta) -> usage::UsageStream {
             | BillingMetricAggregateEnum::Mean
             | BillingMetricAggregateEnum::Latest
     );
-    usage::stream_for(&metric.code, &value_key, is_gauge, FRESH_DAILY_VOLUME)
+    let stream = usage::stream_for(&metric.code, &value_key, is_gauge, FRESH_DAILY_VOLUME);
+    match rated {
+        Some(dimensions) => {
+            stream.with_events(RATED_MIN_UNITS, RATED_MAX_UNITS, dimensions.clone())
+        }
+        None => stream,
+    }
 }
 
 /// Trailing-window events for every customer except the staged ones, whose seeded
@@ -771,6 +847,106 @@ mod tests {
         let unstaged = freshen_events(&streams, &[(other, "Solstice Retail")], start, today);
         assert!(!unstaged.is_empty());
         assert_eq!(events, unstaged);
+    }
+
+    fn keys(keys: &[[&str; 2]]) -> Vec<Vec<String>> {
+        keys.iter()
+            .map(|key| key.iter().map(|p| p.to_string()).collect())
+            .collect()
+    }
+
+    /// The LLM card's exact values, each equally often, and one no key names at a tenth.
+    #[test]
+    fn a_rated_metrics_events_take_the_values_its_card_names() {
+        let dimensions = ["model".to_string(), "token_type".to_string()];
+        let card = keys(&[
+            ["claude-sonnet", "input"],
+            ["claude-sonnet", "output"],
+            ["gpt-4o", "input"],
+            ["gpt-4o", "output"],
+            ["gpt-4o-mini", "*"],
+            ["*", "*"],
+        ]);
+        let derived = card_dimensions(&dimensions, &card);
+        let [model, token_type] = derived.as_slice() else {
+            panic!("a property per dimension");
+        };
+        assert_eq!(model.key, "model");
+        assert_eq!(
+            model.values,
+            vec!["claude-sonnet", "gpt-4o", "gpt-4o-mini", "other"]
+        );
+        assert_eq!(model.weights, vec![9u32, 9, 9, 3]);
+        assert_eq!(token_type.key, "token_type");
+        assert_eq!(token_type.values, vec!["input", "output", "other"]);
+        assert_eq!(token_type.weights, vec![9u32, 9, 2]);
+
+        let named_other = card_dimensions(&dimensions[..1], &keys(&[["other", "*"]]));
+        assert_eq!(named_other[0].values, vec!["other", "other-1"]);
+        let only_any = card_dimensions(&dimensions[..1], &keys(&[["*", "*"]]));
+        assert_eq!(only_any[0].values, vec!["other"]);
+        assert_eq!(only_any[0].weights, vec![1u32]);
+    }
+
+    /// A rated metric's fresh events carry its card's dimensions in whole units; another keeps
+    /// the default sample.
+    #[test]
+    fn fresh_events_of_a_rated_metric_carry_its_cards_dimensions() {
+        let metric = |code: &str| BillableMetricMeta {
+            id: BillableMetricId::new(),
+            name: code.to_string(),
+            code: code.to_string(),
+            description: None,
+            aggregation_type: BillingMetricAggregateEnum::Sum,
+            aggregation_key: Some("tokens".to_string()),
+            unit_conversion_factor: None,
+            segmentation_matrix: None,
+            filters: None,
+            unit_singular: None,
+            unit_plural: None,
+            created_at: chrono::Utc::now().naive_utc(),
+            archived_at: None,
+        };
+        let card = card_dimensions(
+            &["model".to_string(), "token_type".to_string()],
+            &keys(&[["gpt-4o", "input"], ["gpt-4o", "output"], ["*", "*"]]),
+        );
+        let today = NaiveDate::from_ymd_opt(2026, 9, 23).unwrap();
+        let start = today - ChronoDuration::days(FRESH_WINDOW_DAYS);
+        let customers = [(customer(2), "Solstice Retail")];
+        let rated = freshen_events(
+            &[fresh_stream(&metric("llm_tokens"), Some(&card))],
+            &customers,
+            start,
+            today,
+        );
+        assert!(!rated.is_empty());
+        for event in &rated {
+            let value = |key: &str| {
+                event
+                    .properties
+                    .iter()
+                    .find(|(k, _)| k == key)
+                    .map(|(_, v)| v.clone())
+                    .unwrap_or_else(|| panic!("{key} on every event"))
+            };
+            let tokens: u64 = value("tokens").parse().expect("whole tokens");
+            assert!((RATED_MIN_UNITS..=RATED_MAX_UNITS).contains(&tokens));
+            assert!(["gpt-4o", "other"].contains(&value("model").as_str()));
+            assert!(["input", "output", "other"].contains(&value("token_type").as_str()));
+        }
+        let plain = freshen_events(
+            &[fresh_stream(&metric("tracked_events"), None)],
+            &customers,
+            start,
+            today,
+        );
+        assert!(!plain.is_empty());
+        assert!(
+            plain
+                .iter()
+                .all(|e| e.properties.iter().any(|(k, _)| k == "region"))
+        );
     }
 
     #[test]

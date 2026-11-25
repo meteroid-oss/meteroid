@@ -18,6 +18,7 @@ pub fn coupon_to_rest(coupon: domain::coupons::Coupon) -> Coupon {
         expires_at: coupon.expires_at.map(Into::into),
         redemption_limit: coupon.redemption_limit,
         recurring_value: coupon.recurring_value,
+        duration_months: coupon.duration_months,
         reusable: coupon.reusable,
         disabled: coupon.disabled,
         created_at: coupon.created_at.into(),

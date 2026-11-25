@@ -2,6 +2,9 @@ syntax = "proto3";
 
 package meteroid.api.plans.v1;
 
+import "api/eligibility/v1/models.proto";
+import "api/shared/v1/shared.proto";
+
 enum PlanStatus {
   DRAFT = 0;
   ACTIVE = 1;
@@ -75,6 +78,21 @@ message PlanVersion {
   // chosen yet: publishing sets the default (pause when the version grants credit or prices usage
   // in a credit unit, invoice otherwise).
   optional CreditExhaustedRule credit_exhausted_rule = 14;
+  // What a buyer picks when buying the plan, by position; the first is the default.
+  repeated PlanOption options = 15;
+}
+
+// An option of a plan version, e.g. "Annual": its own price in each cell of a charge.
+message PlanOption {
+  string id = 1;
+  // Shown to buyers: pricing page, checkout, portal.
+  string name = 2;
+  // The API handle (lowercase slug), kept across versions: plan + alias names the option.
+  string alias = 3;
+  int32 position = 4;
+  // Sold when named (API, quotes, links, checkout), never advertised: off the pricing page and
+  // the portal. The default option never is.
+  bool hidden = 5;
 }
 
 message CreditExhaustedRule {
@@ -155,6 +173,8 @@ message Plan {
   optional int32 self_service_rank = 13;
   // Subscriptions to this plan are issued a software license automatically.
   bool issues_license = 14;
+  // Who may get the plan; live. Unset: anyone.
+  optional meteroid.api.eligibility.v1.Eligibility eligibility = 15;
 }
 
 message PlanOverview {
@@ -173,6 +193,23 @@ message PlanOverview {
   string product_family_name = 12;
   optional int32 self_service_rank = 13;
   bool issues_license = 14;
+  reserved 15;
+  reserved "variants";
+  // The currencies each option of its active version is sold in, e.g. "USD · Annual".
+  repeated PricedOption priced_options = 16;
+  optional meteroid.api.eligibility.v1.Eligibility eligibility = 17;
+  // The options of its active version, by position.
+  repeated PlanOption options = 18;
+  // On the pricing page (ranked), sold by contacting sales rather than self-serve.
+  bool sales_led = 19;
+  // A sales-led plan whose price the pricing page does not show.
+  bool hide_price = 20;
+  // Its active subscriptions' MRR, a decimal in the tenant's reporting currency: other
+  // currencies are converted at today's rate. Set when plans are listed.
+  optional string mrr = 21;
+  // Typed free, or its active version charges nothing (only included products, or every price at
+  // zero): a new customer can start on it without paying. Set when plans are listed.
+  bool free = 22;
 
   message ActiveVersionInfo {
     string id = 1;
@@ -204,4 +241,20 @@ message PlanParameter {
   }
 }
 
-
+// A currency an option of a plan version is sold in: every priced charge has a price there.
+message PricedOption {
+  string currency = 1;
+  reserved 2;
+  string option_id = 3;
+  // Its fixed recurring total on `period`, a decimal at the currency's precision, zero when free;
+  // none when nothing fixed recurs beside seats or usage, or a charge can't be read.
+  optional string amount = 4;
+  // None for an option billing only usage or one-time charges.
+  optional meteroid.api.shared.v1.BillingPeriod period = 5;
+  // Usage charges come on top of the amount.
+  bool has_usage = 6;
+  // The amount is the lowest of several capacity levels: "from".
+  bool from_lowest = 7;
+  // The amount is per this unit (a seat) when nothing fixed is due but seats.
+  optional string unit = 8;
+}

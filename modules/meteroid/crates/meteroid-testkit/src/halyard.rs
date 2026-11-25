@@ -521,6 +521,7 @@ impl Halyard {
         start: NaiveDate,
     ) -> CreateSubscription {
         CreateSubscription {
+            option: None,
             subscription: SubscriptionNew {
                 customer_id: customer,
                 plan_version_id: plan,

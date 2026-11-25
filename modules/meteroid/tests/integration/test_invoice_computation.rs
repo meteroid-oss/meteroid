@@ -64,6 +64,7 @@ async fn test_compute_invoice_basic(
         .insert_subscription(
             common_domain::actor::Actor::System,
             CreateSubscription {
+                option: None,
                 subscription: SubscriptionNew {
                     customer_id: CUST_UBER_ID,
                     plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
@@ -162,6 +163,7 @@ async fn test_compute_invoice_with_eu_vat(
         .insert_subscription(
             common_domain::actor::Actor::System,
             CreateSubscription {
+                option: None,
                 subscription: SubscriptionNew {
                     customer_id: french_customer_id,
                     plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
@@ -319,6 +321,7 @@ async fn test_compute_invoice_with_reverse_charge(
         .insert_subscription(
             common_domain::actor::Actor::System,
             CreateSubscription {
+                option: None,
                 subscription: SubscriptionNew {
                     customer_id: german_customer_id,
                     plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
@@ -419,6 +422,7 @@ async fn test_compute_invoice_with_manual_tax_and_coupon(
         .insert_subscription(
             common_domain::actor::Actor::System,
             CreateSubscription {
+                option: None,
                 subscription: SubscriptionNew {
                     customer_id: custom_tax_customer_id,
                     plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
@@ -508,6 +512,7 @@ async fn test_compute_invoice_with_manual_tax_and_coupon(
         .insert_subscription(
             common_domain::actor::Actor::System,
             CreateSubscription {
+                option: None,
                 subscription: SubscriptionNew {
                     customer_id: custom_tax_customer_id,
                     plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
@@ -635,6 +640,7 @@ async fn test_compute_invoice_rounds_vat_once_over_the_invoice(
         .insert_subscription(
             common_domain::actor::Actor::System,
             CreateSubscription {
+                option: None,
                 subscription: SubscriptionNew {
                     customer_id,
                     plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
@@ -977,6 +983,8 @@ async fn test_compute_invoice_with_tax_category_custom_tax(
                     fee_type: None,
                     fee_structure: None,
                     tax_category_id: Some(Some(digital_services.id)),
+                    icon: None,
+                    color: None,
                 },
             )
             .await
@@ -1009,6 +1017,7 @@ async fn test_compute_invoice_with_tax_category_custom_tax(
         .insert_subscription(
             common_domain::actor::Actor::System,
             CreateSubscription {
+                option: None,
                 subscription: SubscriptionNew {
                     customer_id,
                     plan_version_id: PLAN_VERSION_1_LEETCODE_ID,

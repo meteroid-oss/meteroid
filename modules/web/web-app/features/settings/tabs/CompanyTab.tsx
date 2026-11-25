@@ -241,6 +241,7 @@ export const CompanyTab = () => {
             <InputFormField
               name="contactEmail"
               label="Email"
+              description="Customers reach you here from the portal when they need you, for a downgrade or more credit."
               control={methods.control}
               placeholder="billing@example.com"
               autoComplete="off"

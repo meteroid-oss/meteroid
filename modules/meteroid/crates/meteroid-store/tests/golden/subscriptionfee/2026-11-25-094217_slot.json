@@ -1,0 +1,9 @@
+{
+  "Slot": {
+    "unit": "seat",
+    "unit_rate": "10.00",
+    "min_slots": null,
+    "max_slots": null,
+    "initial_slots": 3
+  }
+}

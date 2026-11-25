@@ -10,7 +10,7 @@ use crate::services::clients::usage::{GroupedUsageData, UsageData};
 use crate::services::credit::invalid;
 use crate::services::credit::unit_wallets::OverageRates;
 use crate::services::invoice_lines::component::{
-    PinnedPrices, capacity_overage_lines, convert_usage_units, usage_lines,
+    PinnedPrices, capacity_overage_lines, convert_usage_units, rated_usage_lines, usage_lines,
 };
 use crate::services::invoice_lines::invoice_lines::{BilledSpan, MeteredFee};
 use crate::services::invoice_lines::invoice_lines::{build_tax_engine, rates_of};
@@ -49,6 +49,9 @@ pub struct PlannedWindow {
     /// A credit-priced window's money side: the credits its unit wallet leaves uncovered are
     /// billed in the subscription's currency (Studio's overage).
     pub overage: Option<MoneyOverage>,
+    /// The rates its usage is rated by dimension at: the entries of the rate card its price
+    /// names, or the price's own rates.
+    pub card: Option<billing_core::pricing::CardRates>,
 }
 
 /// What a credit-priced window bills in money for the credits no unit credit covers.
@@ -316,8 +319,16 @@ pub(crate) async fn windows_at(
                 currency: window_currency,
                 precision: window_precision,
                 overage,
+                card: None,
             });
         }
+        rate_windows(
+            conn,
+            subscription.tenant_id,
+            &subscription.currency,
+            &mut planned,
+        )
+        .await?;
         resolve_overage_rates(conn, details, &currency, &mut planned, credit_priced).await?;
         Ok(planned)
     })
@@ -357,6 +368,100 @@ async fn resolve_overage_rates(
     Ok(())
 }
 
+/// Each window rated by dimension gets its rates, a rate card's entries in the subscription's
+/// `currency` or its price's own, and reads its metric by the dimensions they key.
+async fn rate_windows(
+    conn: &mut PgConn,
+    tenant_id: common_domain::ids::TenantId,
+    currency: &str,
+    planned: &mut [PlannedWindow],
+) -> StoreResult<()> {
+    for window in planned.iter_mut() {
+        let MeteredFee::Usage(crate::domain::UsagePricingModel::DimensionRates(rates)) =
+            &window.fee
+        else {
+            continue;
+        };
+        let card = billing_core::pricing::CardRates {
+            on: window.start.date(),
+            ..rates.card_rates()
+        };
+        for dimension in &card.dimensions {
+            if !window.metric.rated_dimensions.contains(dimension) {
+                window.metric.rated_dimensions.push(dimension.clone());
+            }
+        }
+        window.card = Some(card);
+    }
+    let card_of = |window: &PlannedWindow| match &window.fee {
+        MeteredFee::Usage(crate::domain::UsagePricingModel::RateCard {
+            rate_card_id,
+            multiplier,
+        }) => Some((*rate_card_id, *multiplier)),
+        _ => None,
+    };
+    let ids: Vec<_> = planned
+        .iter()
+        .filter_map(|w| card_of(w).map(|(id, _)| id))
+        .collect();
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let cards =
+        crate::services::evaluate::load::card_rates(conn, tenant_id, ids.into_iter(), currency)
+            .await?;
+    for window in planned.iter_mut() {
+        let Some((id, multiplier)) = card_of(window) else {
+            continue;
+        };
+        let Some(card) = cards.get(&id) else {
+            continue;
+        };
+        for dimension in &card.dimensions {
+            if !window.metric.rated_dimensions.contains(dimension) {
+                window.metric.rated_dimensions.push(dimension.clone());
+            }
+        }
+        window.card = Some(billing_core::pricing::CardRates {
+            multiplier: multiplier.unwrap_or(rust_decimal::Decimal::ONE),
+            on: window.start.date(),
+            ..card.clone()
+        });
+    }
+    Ok(())
+}
+
+/// `groups` without the dimensions only the metric's rates key, for a price not rated by them: the
+/// metric is read broken down by its rates' keys for every price, and the invoice folds them away
+/// for the others (`evaluate::pricer::fee_of`), so a tiered price never bills them apart.
+fn folded(window: &PlannedWindow, groups: Vec<GroupedUsageData>) -> Vec<GroupedUsageData> {
+    if window.card.is_some() {
+        return groups;
+    }
+    let own = crate::services::usage_grouping::own_dimensions(&window.metric);
+    let away: Vec<&String> = window
+        .metric
+        .rated_dimensions
+        .iter()
+        .filter(|dimension| !own.contains(*dimension))
+        .collect();
+    if away.is_empty() {
+        return groups;
+    }
+    let mut folded: Vec<GroupedUsageData> = Vec::with_capacity(groups.len());
+    for mut group in groups {
+        group.dimensions.retain(|key, _| !away.contains(&key));
+        match folded
+            .iter_mut()
+            .find(|known| known.dimensions == group.dimensions)
+        {
+            Some(known) => known.value += group.value,
+            None => folded.push(group),
+        }
+    }
+    folded
+}
+
 /// What a window's usage, read as `groups` up to `until`, prices at, honouring `pinned` draft prices.
 pub fn price_window_groups(
     window: &PlannedWindow,
@@ -367,15 +472,21 @@ pub fn price_window_groups(
     let usage = convert_usage_units(
         &window.metric,
         UsageData {
-            data: groups,
+            data: folded(window, groups),
             period: UsagePeriod {
                 start: window.start,
                 end: until,
             },
         },
     );
-    let lines = match &window.fee {
-        MeteredFee::Usage(model) => {
+    let lines = match (&window.fee, &window.card) {
+        (MeteredFee::Usage(_), Some(card)) => rated_usage_lines(
+            &billing_core::pricing::UsageModel::RateCard(card.clone()),
+            &usage.data,
+            window.precision,
+            |_| None,
+        )?,
+        (MeteredFee::Usage(model), None) => {
             usage_lines(model, &usage.data, window.precision, |dimensions| {
                 pinned.unit_price(
                     window.metric.id,
@@ -385,10 +496,13 @@ pub fn price_window_groups(
                 )
             })?
         }
-        MeteredFee::CapacityOverage {
-            included,
-            overage_rate,
-        } => capacity_overage_lines(*included, overage_rate, &usage.data, window.precision)?,
+        (
+            MeteredFee::CapacityOverage {
+                included,
+                overage_rate,
+            },
+            _,
+        ) => capacity_overage_lines(*included, overage_rate, &usage.data, window.precision)?,
     };
     lines.iter().try_fold(0_i64, |total, line| {
         total

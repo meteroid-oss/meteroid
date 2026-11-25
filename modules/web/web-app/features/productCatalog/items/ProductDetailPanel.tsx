@@ -2,43 +2,52 @@ import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/conne
 import {
   Badge,
   Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Separator,
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
   Skeleton,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { ArchiveIcon, ArchiveRestoreIcon } from 'lucide-react'
+import { ArchiveIcon, ArchiveRestoreIcon, CopyIcon, MoreHorizontal } from 'lucide-react'
+import { Fragment, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
 
 import { Gate } from '@/components/Gate'
+import { ProductAppearancePicker } from '@/features/productCatalog/items/ProductAppearancePicker'
 import { ProductEntitlementsSection } from '@/features/productCatalog/items/ProductEntitlementsSection'
+import { ProductIcon } from '@/features/productCatalog/items/ProductIcon'
+import { ProductSeatsSection } from '@/features/productCatalog/items/ProductSeatsSection'
+import { ProductUsedInSection } from '@/features/productCatalog/items/ProductUsedInSection'
 import { useProductArchive } from '@/features/productCatalog/items/useProductArchive'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
-import { feeTypeLabel, formatCadence, formatPricingSummary } from '@/lib/mapping/prices'
-import { FeeStructure_BillingType, FeeStructure_UsageModel } from '@/rpc/api/prices/v1/models_pb'
-import { listPricesByProduct } from '@/rpc/api/prices/v1/prices-PricesService_connectquery'
-import { getProduct, updateProduct } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
+import { copyToClipboard } from '@/lib/helpers'
+import { FeeStructure_UsageModel } from '@/rpc/api/prices/v1/models_pb'
+import {
+  getProduct,
+  updateProduct,
+} from '@/rpc/api/products/v1/products-ProductsService_connectquery'
 import { listTaxCategories } from '@/rpc/api/taxes/v1/taxes-TaxesService_connectquery'
 import { parseAndFormatDate } from '@/utils/date'
 
 import { MatrixRowsSection } from './MatrixRowsSection'
+import { chargesForWords, colorLabel, iconLabel } from './productWords'
+
+import type { ProductAppearance } from '@/features/productCatalog/items/ProductIcon'
+import type { Product } from '@/rpc/api/products/v1/models_pb'
 
 interface ProductDetailPanelProps {
   productId: string | null
@@ -49,44 +58,8 @@ interface ProductDetailPanelProps {
 // fall back to the invoicing entity default" choice uses a sentinel mapped to ''.
 const ENTITY_DEFAULT_CATEGORY = '__entity_default__'
 
-function usageModelLabel(model: FeeStructure_UsageModel): string {
-  switch (model) {
-    case FeeStructure_UsageModel.PER_UNIT:
-      return 'Per Unit'
-    case FeeStructure_UsageModel.TIERED:
-      return 'Tiered'
-    case FeeStructure_UsageModel.VOLUME:
-      return 'Volume'
-    case FeeStructure_UsageModel.PACKAGE:
-      return 'Package'
-    case FeeStructure_UsageModel.MATRIX:
-      return 'Matrix'
-    default:
-      return 'Unknown'
-  }
-}
-
-function billingTypeLabel(bt: FeeStructure_BillingType): string {
-  switch (bt) {
-    case FeeStructure_BillingType.ARREAR:
-      return 'Arrear (Postpaid)'
-    case FeeStructure_BillingType.ADVANCE:
-      return 'Advance (Prepaid)'
-    default:
-      return 'Unknown'
-  }
-}
-
 export const ProductDetailPanel = ({ productId, onClose }: ProductDetailPanelProps) => {
-  const productQuery = useQuery(
-    getProduct,
-    productId ? { productId } : skipToken
-  )
-
-  const pricesQuery = useQuery(
-    listPricesByProduct,
-    productId ? { productId } : skipToken
-  )
+  const productQuery = useQuery(getProduct, productId ? { productId } : skipToken)
 
   const queryClient = useQueryClient()
   const productArchive = useProductArchive()
@@ -104,49 +77,86 @@ export const ProductDetailPanel = ({ productId, onClose }: ProductDetailPanelPro
     },
     onError: e => toast.error(`Failed to update tax category: ${e.message}`),
   })
+  // Pending until the product is read again, so the picker shows the pick meanwhile.
+  const appearanceMut = useMutation(updateProduct, {
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({ schema: updateProduct.parent, cardinality: undefined }),
+      }),
+    onError: e => toast.error(`Failed to update the product's icon: ${e.message}`),
+  })
 
   const product = productQuery.data?.product
   const metricName = productQuery.data?.metricName
   const currencies = productQuery.data?.currencies ?? []
-  const prices = pricesQuery.data?.prices ?? []
-  const isLoading = productQuery.isLoading || pricesQuery.isLoading
+  const picked = appearanceMut.isPending ? appearanceMut.variables : undefined
+  const appearance: ProductAppearance = picked
+    ? { icon: picked.icon || undefined, color: picked.color || undefined }
+    : { icon: product?.icon, color: product?.color }
+  const taxCategories = taxCategoriesQuery.data?.taxCategories ?? []
+  const structure = product?.feeStructure?.structure
 
   return (
     <Sheet open={!!productId} onOpenChange={() => onClose()}>
       <SheetContent size="medium">
-        <SheetHeader className="pb-2">
-          <div className="flex items-center justify-between gap-2 pr-8">
-            <SheetTitle>Product Details</SheetTitle>
+        <SheetHeader className="space-y-0 pb-2 pr-8">
+          <div className="flex items-start gap-3">
+            <ProductIcon {...appearance} className="mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <SheetTitle className="truncate">{product?.name ?? 'Product'}</SheetTitle>
+                {product?.archivedAt && (
+                  <Badge variant="secondary">
+                    Archived {parseAndFormatDate(product.archivedAt)}
+                  </Badge>
+                )}
+              </div>
+              {product && (
+                <SheetDescription>
+                  <ChargesForLine product={product} metricName={metricName} />
+                </SheetDescription>
+              )}
+            </div>
             {product && (
               <Gate perm="catalog:manage">
-                {product.archivedAt ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    hasIcon
-                    disabled={productArchive.isPending}
-                    onClick={() => productArchive.unarchive(product.id)}
-                  >
-                    <ArchiveRestoreIcon size={14} /> Unarchive
-                  </Button>
-                ) : (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    hasIcon
-                    disabled={productArchive.isPending}
-                    onClick={() => productArchive.archive(product.id)}
-                  >
-                    <ArchiveIcon size={14} /> Archive
-                  </Button>
-                )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 shrink-0"
+                      aria-label="Product actions"
+                    >
+                      <MoreHorizontal size={16} />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {product.archivedAt ? (
+                      <DropdownMenuItem
+                        disabled={productArchive.isPending}
+                        onSelect={() => productArchive.unarchive(product.id)}
+                      >
+                        <ArchiveRestoreIcon size={14} className="mr-2" /> Unarchive
+                      </DropdownMenuItem>
+                    ) : (
+                      <DropdownMenuItem
+                        disabled={productArchive.isPending}
+                        onSelect={() => productArchive.archive(product.id)}
+                      >
+                        <ArchiveIcon size={14} className="mr-2" /> Archive
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </Gate>
             )}
           </div>
-          <Separator />
+          {product?.description && (
+            <p className="pt-2 text-sm text-muted-foreground">{product.description}</p>
+          )}
         </SheetHeader>
 
-        {isLoading && (
+        {productQuery.isLoading && (
           <div className="flex flex-col gap-4 py-4">
             <Skeleton className="h-6 w-48" />
             <Skeleton className="h-4 w-64" />
@@ -155,139 +165,110 @@ export const ProductDetailPanel = ({ productId, onClose }: ProductDetailPanelPro
           </div>
         )}
 
-        {product && !isLoading && (
-          <div className="flex flex-col gap-6 py-4">
-            <section className="flex flex-col gap-3">
-              <h3 className="text-sm font-medium text-muted-foreground">Basic Information</h3>
-              <div className="flex flex-col gap-2">
-                <DetailRow label="Name" value={product.name} />
-                {product.archivedAt && (
-                  <DetailRow
-                    label="Status"
-                    value={
-                      <Badge variant="secondary">
-                        Archived {parseAndFormatDate(product.archivedAt)}
-                      </Badge>
-                    }
-                  />
-                )}
-                <DetailRow label="Local ID" value={product.localId} mono />
-                {product.description && (
-                  <DetailRow label="Description" value={product.description} />
-                )}
-                <DetailRow
-                  label="Fee Type"
-                  value={
-                    product.feeType !== undefined ? (
-                      <Badge variant="secondary">{feeTypeLabel(product.feeType)}</Badge>
-                    ) : (
-                      <span className="text-muted-foreground">-</span>
-                    )
-                  }
-                />
-                <DetailRow
-                  label="Tax category"
-                  value={
-                    <Select
-                      value={product.taxCategoryId || ENTITY_DEFAULT_CATEGORY}
-                      disabled={updateProductMut.isPending}
-                      onValueChange={v =>
-                        updateProductMut.mutate({
+        {product && !productQuery.isLoading && (
+          <div className="flex flex-col gap-8 py-4">
+            <dl className="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-x-4 gap-y-3 text-sm">
+              <Property label="Appearance">
+                <div className="flex items-center gap-2">
+                  <ProductIcon {...appearance} size="sm" />
+                  <span>
+                    {iconLabel(appearance.icon)} · {colorLabel(appearance.color)}
+                  </span>
+                  <Gate perm="catalog:manage">
+                    <ProductAppearancePicker
+                      {...appearance}
+                      onChange={next =>
+                        appearanceMut.mutate({
                           productId: product.id,
                           name: product.name,
-                          taxCategoryId: v === ENTITY_DEFAULT_CATEGORY ? '' : v,
+                          icon: next.icon ?? '',
+                          color: next.color ?? '',
                         })
                       }
                     >
-                      <SelectTrigger className="h-8 w-[240px] text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={ENTITY_DEFAULT_CATEGORY}>Entity default</SelectItem>
-                        {(taxCategoriesQuery.data?.taxCategories ?? []).map(c => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      <Button type="button" variant="link" size="sm" className="mt-0 h-auto px-1">
+                        Change
+                      </Button>
+                    </ProductAppearancePicker>
+                  </Gate>
+                </div>
+              </Property>
+              <Property label="Tax category">
+                <Gate
+                  perm="catalog:manage"
+                  fallback={
+                    taxCategories.find(c => c.id === product.taxCategoryId)?.name ??
+                    'Entity default'
                   }
+                >
+                  <Select
+                    value={product.taxCategoryId || ENTITY_DEFAULT_CATEGORY}
+                    disabled={updateProductMut.isPending}
+                    onValueChange={v =>
+                      updateProductMut.mutate({
+                        productId: product.id,
+                        name: product.name,
+                        taxCategoryId: v === ENTITY_DEFAULT_CATEGORY ? '' : v,
+                      })
+                    }
+                  >
+                    <SelectTrigger className="h-8 w-[240px] text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ENTITY_DEFAULT_CATEGORY}>Entity default</SelectItem>
+                      {taxCategories.map(c => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Gate>
+              </Property>
+              <Property label="API handle">
+                <button
+                  type="button"
+                  title="Copy"
+                  onClick={() =>
+                    copyToClipboard(product.localId, () => toast.success('Copied to clipboard'))
+                  }
+                  className="group inline-flex max-w-full items-center gap-1.5 font-mono text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <span className="truncate">{product.localId}</span>
+                  <CopyIcon size={11} className="shrink-0 opacity-60 group-hover:opacity-100" />
+                </button>
+              </Property>
+              {product.createdAt && (
+                <Property label="Created">{parseAndFormatDate(product.createdAt)}</Property>
+              )}
+            </dl>
+
+            {structure?.case === 'slot' && (
+              <section className="flex flex-col gap-3">
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <h3 className="text-sm font-semibold">Seats</h3>
+                  <span className="text-xs text-muted-foreground">
+                    When a change of seats takes effect
+                  </span>
+                </div>
+                <ProductSeatsSection unitName={structure.value.unitName} />
+              </section>
+            )}
+
+            {structure?.case === 'usage' &&
+              (structure.value.model === FeeStructure_UsageModel.DIMENSION_RATES ||
+                structure.value.model === FeeStructure_UsageModel.MATRIX) && (
+                <MatrixRowsSection
+                  productId={product.id}
+                  metricId={structure.value.metricId}
+                  currencies={currencies}
                 />
-                {product.createdAt && (
-                  <DetailRow
-                    label="Created"
-                    value={parseAndFormatDate(product.createdAt)}
-                  />
-                )}
-              </div>
-            </section>
-
-            {product.feeStructure?.structure.case && (
-              <>
-                <Separator />
-                <section className="flex flex-col gap-3">
-                  <h3 className="text-sm font-medium text-muted-foreground">Fee Structure</h3>
-                  <FeeStructureDetails
-                    structure={product.feeStructure.structure}
-                    metricName={metricName}
-                  />
-                </section>
-              </>
-            )}
-
-            {product.feeStructure?.structure.case === 'usage' &&
-              product.feeStructure.structure.value.model ===
-                FeeStructure_UsageModel.MATRIX && (
-                <>
-                  <Separator />
-                  <MatrixRowsSection
-                    productId={productId!}
-                    metricId={product.feeStructure.structure.value.metricId}
-                    currencies={currencies}
-                  />
-                </>
               )}
 
-            {env.entitlementsEnabled && (
-              <>
-                <Separator />
-                <section className="flex flex-col gap-3">
-                  <h3 className="text-sm font-medium text-muted-foreground">Entitlements</h3>
-                  <ProductEntitlementsSection productId={product.id} />
-                </section>
-              </>
-            )}
+            {env.entitlementsEnabled && <ProductEntitlementsSection productId={product.id} />}
 
-            <Separator />
-            <section className="flex flex-col gap-3">
-              <h3 className="text-sm font-medium text-muted-foreground">
-                Prices ({prices.length})
-              </h3>
-              {prices.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No prices defined for this product.</p>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Cadence</TableHead>
-                      <TableHead>Currency</TableHead>
-                      <TableHead>Pricing</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {prices.map(price => (
-                      <TableRow key={price.id}>
-                        <TableCell>{formatCadence(price.cadence)}</TableCell>
-                        <TableCell>
-                          <span className="font-mono text-xs">{price.currency.toUpperCase()}</span>
-                        </TableCell>
-                        <TableCell>{formatPricingSummary(price)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </section>
+            <ProductUsedInSection product={product} />
           </div>
         )}
       </SheetContent>
@@ -295,76 +276,31 @@ export const ProductDetailPanel = ({ productId, onClose }: ProductDetailPanelPro
   )
 }
 
-function DetailRow({
-  label,
-  value,
-  mono,
-}: {
-  label: string
-  value: React.ReactNode
-  mono?: boolean
-}) {
-  return (
-    <div className="flex items-baseline gap-2">
-      <span className="text-sm text-muted-foreground w-28 shrink-0">{label}</span>
-      <span className={`text-sm ${mono ? 'font-mono' : ''}`}>{value}</span>
-    </div>
-  )
-}
+const Property = ({ label, children }: { label: string; children: ReactNode }) => (
+  <>
+    <dt className="text-muted-foreground">{label}</dt>
+    <dd className="min-w-0">{children}</dd>
+  </>
+)
 
-function MetricLink({ metricId, metricName }: { metricId: string; metricName?: string }) {
+/** "Seats · counts seat", "Usage · Tokens · tiered": what it charges for, the metric a link. */
+const ChargesForLine = ({ product, metricName }: { product: Product; metricName?: string }) => {
   const basePath = useBasePath()
+  const words = chargesForWords(product.feeStructure, metricName)
   return (
-    <Link to={`${basePath}/metrics/${metricId}`} className="text-sm text-primary hover:underline">
-      {metricName ?? metricId}
-    </Link>
+    <span>
+      {words.map((word, i) => (
+        <Fragment key={i}>
+          {i > 0 && ' · '}
+          {typeof word === 'string' ? (
+            word
+          ) : (
+            <Link to={`${basePath}/metrics/${word.metricId}`} className="hover:underline">
+              {word.name}
+            </Link>
+          )}
+        </Fragment>
+      ))}
+    </span>
   )
-}
-
-function FeeStructureDetails({
-  structure,
-  metricName,
-}: {
-  structure: NonNullable<import('@/rpc/api/prices/v1/models_pb').FeeStructure['structure']>
-  metricName?: string
-}) {
-  switch (structure.case) {
-    case 'rate':
-      return <p className="text-sm text-muted-foreground">Flat rate pricing with no additional structure parameters.</p>
-    case 'slot':
-      return (
-        <div className="flex flex-col gap-2">
-          <DetailRow label="Unit Name" value={structure.value.unitName} />
-        </div>
-      )
-    case 'capacity':
-      return (
-        <div className="flex flex-col gap-2">
-          <DetailRow label="Metric" value={<MetricLink metricId={structure.value.metricId} metricName={metricName} />} />
-        </div>
-      )
-    case 'usage':
-      return (
-        <div className="flex flex-col gap-2">
-          <DetailRow label="Metric" value={<MetricLink metricId={structure.value.metricId} metricName={metricName} />} />
-          <DetailRow label="Model" value={usageModelLabel(structure.value.model)} />
-        </div>
-      )
-    case 'extraRecurring':
-      return (
-        <div className="flex flex-col gap-2">
-          <DetailRow label="Billing Type" value={billingTypeLabel(structure.value.billingType)} />
-        </div>
-      )
-    case 'oneTime':
-      return <p className="text-sm text-muted-foreground">One-time charge with no additional structure parameters.</p>
-    case 'credit':
-      return (
-        <p className="text-sm text-muted-foreground">
-          Credit pack: its price funds invoice credit once paid.
-        </p>
-      )
-    default:
-      return null
-  }
 }

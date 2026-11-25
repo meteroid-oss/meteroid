@@ -2,10 +2,12 @@ import { PlusIcon } from '@md/icons'
 import { Button } from '@md/ui'
 import { SortingState } from '@tanstack/react-table'
 import { FunctionComponent, useCallback, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useMatch, useNavigate, useParams, useResolvedPath } from 'react-router'
 
 import { Gate } from '@/components/Gate'
-import { ListPageLayout, ListToolbarSearch, RefreshButton } from '@/components/layouts'
+import { ListPageLayout, ListToolbarSearch, PanelHead, RefreshButton } from '@/components/layouts'
+import { AddonCreateForm } from '@/features/productCatalog/addons/AddonCreateForm'
+import { AddonDetailPanel } from '@/features/productCatalog/addons/AddonDetailPanel'
 import { AddonsTable } from '@/features/productCatalog/addons/AddonsTable'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { useQueryState } from '@/hooks/useQueryState'
@@ -16,6 +18,9 @@ import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquer
 
 export const AddonsPage: FunctionComponent = () => {
   const navigate = useNavigate()
+  // The add-on open beside the list, or "New add-on" in its place.
+  const { addonId } = useParams<{ addonId?: string }>()
+  const creating = useMatch(useResolvedPath('add-addon').pathname) !== null
   const [search, setSearch] = useQueryState<string | undefined>('q', undefined)
   const debouncedSearch = useDebounceValue(search, 400)
 
@@ -45,6 +50,27 @@ export const AddonsPage: FunctionComponent = () => {
     <ListPageLayout
       title="Add-ons"
       count={addonsQuery.data?.paginationMeta?.totalItems}
+      panel={
+        creating ? (
+          <div className="divide-y divide-border">
+            <PanelHead
+              title={<h2 className="text-base font-semibold">New add-on</h2>}
+              onClose={() => navigate('.')}
+            />
+            <div className="px-4 py-4">
+              <AddonCreateForm
+                submitLabel="Create add-on"
+                onCancel={() => navigate('.')}
+                onCreated={addOn => navigate(addOn.id)}
+              />
+            </div>
+          </div>
+        ) : (
+          addonId && (
+            <AddonDetailPanel key={addonId} addonId={addonId} onClose={() => navigate('.')} />
+          )
+        )
+      }
       actions={
         <Gate perm="catalog:manage">
           <Button variant="primary" size="sm" hasIcon onClick={() => navigate('add-addon')}>
@@ -70,6 +96,8 @@ export const AddonsPage: FunctionComponent = () => {
         setPagination={setPagination}
         sorting={sorting}
         onSortingChange={handleSortingChange}
+        // Narrower beside "New add-on" too, no row marked.
+        selectedId={creating ? '' : addonId}
       />
     </ListPageLayout>
   )

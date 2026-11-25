@@ -72,6 +72,8 @@ const buildPaymentMethodsConfig = (
 export interface QuoteEditorPayload {
   values: QuoteFormValues
   currency: string
+  /** The plan option quoted (its alias), as the lines show it. */
+  option?: string
   pricing: PriceComponentsState
   addOns: { addOnId: string; quantity?: number }[]
   coupons: { couponId: string }[]
@@ -85,6 +87,7 @@ export interface QuoteEditorPayload {
 export function buildCreateQuote({
   values: data,
   currency,
+  option,
   pricing,
   addOns,
   coupons,
@@ -96,7 +99,13 @@ export function buildCreateQuote({
   const { parameterized, overridden, extra, removed, usageExamples } = pricing.components
 
   const components = create(CreateSubscriptionComponentsSchema, {
-    parameterizedComponents: parameterized,
+    // A draft saved before options may still carry a per-charge `billingPeriod`: the option rules.
+    // A seat count beside a custom price is sent too: the override takes it.
+    parameterizedComponents: parameterized.map(p => ({
+      componentId: p.componentId,
+      initialSlotCount: p.initialSlotCount,
+      committedCapacity: p.committedCapacity,
+    })),
     overriddenComponents: overridden.map(c => {
       const pricingType = toPricingTypeFromFeeType(
         c.feeType,
@@ -133,6 +142,7 @@ export function buildCreateQuote({
     planVersionId: data.plan_version_id,
     customerId: data.customer_id,
     currency,
+    option,
     startDate: data.start_date ? mapDatev2(data.start_date) : undefined,
     billingStartDate: data.billing_start_date ? mapDatev2(data.billing_start_date) : undefined,
     endDate: data.end_date ? mapDatev2(data.end_date) : undefined,

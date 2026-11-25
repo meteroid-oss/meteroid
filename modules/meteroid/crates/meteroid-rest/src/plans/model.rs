@@ -3,8 +3,8 @@ use crate::entitlements::model::{
     Entitlement, EntitlementSpecRequest, validate_unique_feature_ids,
 };
 use common_domain::ids::{
-    AddOnId, BillableMetricId, PlanId, PlanVersionId, PriceComponentId, PriceId, ProductFamilyId,
-    ProductId, string_serde, string_serde_opt,
+    AddOnId, BillableMetricId, PlanId, PlanOptionId, PlanVersionId, PriceComponentId, PriceId,
+    ProductFamilyId, ProductId, string_serde, string_serde_opt,
 };
 use meteroid_rest_common::datetime::ApiDateTime;
 use meteroid_rest_common::model::PaginatedRequest;
@@ -93,6 +93,11 @@ pub struct Plan {
 
     pub trial: Option<TrialConfig>,
 
+    /// What a buyer picks when buying the plan, e.g. "Annual"; the first is the default. Pass an
+    /// option's `alias` as `option` when creating a subscription or a checkout session.
+    #[serde(default)]
+    pub options: Vec<PlanOption>,
+
     pub price_components: Vec<PriceComponent>,
 
     pub available_parameters: AvailableParameters,
@@ -171,6 +176,17 @@ pub struct TrialConfig {
     pub is_free: bool,
     #[serde(with = "string_serde_opt")]
     pub trialing_plan_id: Option<PlanId>,
+}
+
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub struct PlanOption {
+    #[serde(with = "string_serde")]
+    pub id: PlanOptionId,
+    pub name: String,
+    /// The option's handle in the API, kept across plan versions (e.g. `annual`).
+    pub alias: String,
+    /// Not on the pricing page or in the portal; still sold when named.
+    pub hidden: bool,
 }
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug, Default)]
@@ -262,19 +278,29 @@ pub struct UsagePlanFee {
 /// Extra recurring fee
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 pub struct ExtraRecurringPlanFee {
+    /// The price of each unit, or of the first tier or package when `model` prices the quantity.
     #[schema(value_type = String, format = "decimal")]
     pub unit_price: Decimal,
     pub quantity: u32,
     pub billing_type: BillingType,
     pub cadence: BillingPeriodEnum,
+    /// Per unit, tiered, volume or package pricing of `quantity`; `unit_price` × `quantity` when
+    /// absent. When set, `unit_price` is ignored on input.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<UsagePricingModel>,
 }
 
 /// One-time fee
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 pub struct OneTimePlanFee {
+    /// The price of each unit, or of the first tier or package when `model` prices the quantity.
     #[schema(value_type = String, format = "decimal")]
     pub unit_price: Decimal,
     pub quantity: u32,
+    /// Per unit, tiered, volume or package pricing of `quantity`; `unit_price` × `quantity` when
+    /// absent. When set, `unit_price` is ignored on input.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<UsagePricingModel>,
 }
 
 /// Credit pack: charged `unit_price` × `quantity` in advance each billing period, it grants
@@ -396,9 +422,129 @@ pub struct PackagePlanPricing {
     pub rate: Decimal,
 }
 
+/// Rates by dimension a matrix can hold: per unit, one or two dimensions, each key of exact
+/// values, `*` only as the second for a cell of one dimension. Returned for such rates, as before
+/// DIMENSION_RATES; other rates are returned as DIMENSION_RATES. Deprecated as input: read as
+/// DIMENSION_RATES of exact values.
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 pub struct MatrixPlanPricing {
     pub rates: Vec<MatrixRow>,
+}
+
+/// Usage rated by its dimensions at rates the price holds, matched as a rate card's keys are:
+/// the most specific key wins. Rates a matrix can hold are returned as MATRIX.
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub struct DimensionRatesPlanPricing {
+    /// In the order that decides between keys equally specific on an earlier one.
+    pub dimensions: Vec<String>,
+    pub rates: Vec<DimensionRate>,
+    /// Rates are per this many units of the metric (1000000: per 1M tokens); 1 when absent.
+    #[serde(default = "one")]
+    #[schema(value_type = String, format = "decimal")]
+    pub unit_size: Decimal,
+    #[serde(default)]
+    pub on_unmatched: crate::ratecards::model::RateCardUnmatched,
+}
+
+fn one() -> Decimal {
+    Decimal::ONE
+}
+
+impl MatrixPlanPricing {
+    /// The rates by dimension a matrix is read as: a key of exact values per row.
+    pub fn to_domain(&self) -> meteroid_store::domain::price_components::DimensionRates {
+        use meteroid_store::domain::price_components::{DimensionRates, MatrixDimension};
+        DimensionRates::from_matrix_cells(self.rates.iter().map(|row| {
+            let dimension1: MatrixDimension = row.dimension1.clone().into();
+            let dimension2: Option<MatrixDimension> = row.dimension2.clone().map(Into::into);
+            (dimension1, dimension2, row.per_unit_price)
+        }))
+    }
+
+    /// The matrix `rates` are, when a matrix can hold them: how the API returned them before
+    /// rates by dimension.
+    pub fn from_domain(
+        rates: &meteroid_store::domain::price_components::DimensionRates,
+    ) -> Option<Self> {
+        rates.as_matrix_cells().map(|cells| MatrixPlanPricing {
+            rates: cells
+                .into_iter()
+                .map(|(dimension1, dimension2, per_unit_price)| MatrixRow {
+                    dimension1: dimension1.into(),
+                    dimension2: dimension2.map(Into::into),
+                    per_unit_price,
+                })
+                .collect(),
+        })
+    }
+}
+
+impl From<meteroid_store::domain::price_components::DimensionRates> for DimensionRatesPlanPricing {
+    fn from(rates: meteroid_store::domain::price_components::DimensionRates) -> Self {
+        use crate::ratecards::model::RateCardUnmatched;
+        use meteroid_store::domain::rate_cards::RateCardUnmatched as Domain;
+        DimensionRatesPlanPricing {
+            dimensions: rates.dimensions,
+            rates: rates
+                .rates
+                .into_iter()
+                .map(|rate| DimensionRate {
+                    key: rate.key,
+                    rate: rate.rate,
+                    label: rate.label,
+                })
+                .collect(),
+            unit_size: rates.unit_size,
+            on_unmatched: match rates.on_unmatched {
+                Domain::Hold => RateCardUnmatched::Hold,
+                Domain::Ignore => RateCardUnmatched::Ignore,
+            },
+        }
+    }
+}
+
+impl From<DimensionRatesPlanPricing> for meteroid_store::domain::price_components::DimensionRates {
+    fn from(rates: DimensionRatesPlanPricing) -> Self {
+        use crate::ratecards::model::RateCardUnmatched;
+        use meteroid_store::domain::price_components::DimensionRate as Domain;
+        use meteroid_store::domain::rate_cards::RateCardUnmatched as DomainUnmatched;
+        meteroid_store::domain::price_components::DimensionRates {
+            dimensions: rates.dimensions,
+            rates: rates
+                .rates
+                .into_iter()
+                .map(|rate| Domain {
+                    key: rate.key,
+                    rate: rate.rate,
+                    label: rate.label,
+                })
+                .collect(),
+            unit_size: rates.unit_size,
+            on_unmatched: match rates.on_unmatched {
+                RateCardUnmatched::Hold => DomainUnmatched::Hold,
+                RateCardUnmatched::Ignore => DomainUnmatched::Ignore,
+            },
+        }
+    }
+}
+
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub struct DimensionRate {
+    /// A pattern per dimension: a value, a prefix ending in `*`, or `*`.
+    pub key: Vec<String>,
+    /// Per `unit_size` units.
+    #[schema(value_type = String, format = "decimal")]
+    pub rate: Decimal,
+    pub label: Option<String>,
+}
+
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub struct RateCardPlanPricing {
+    #[serde(with = "common_domain::ids::string_serde")]
+    #[schema(value_type = String)]
+    pub rate_card_id: common_domain::ids::RateCardId,
+    #[schema(value_type = Option<String>, format = "decimal")]
+    pub multiplier: Option<Decimal>,
 }
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
@@ -410,6 +556,8 @@ pub enum UsagePricingModel {
     Volume(VolumePlanPricing),
     Package(PackagePlanPricing),
     Matrix(MatrixPlanPricing),
+    RateCard(RateCardPlanPricing),
+    DimensionRates(DimensionRatesPlanPricing),
 }
 
 #[derive(o2o, Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
@@ -424,12 +572,9 @@ pub struct TierRow {
     pub flat_cap: Option<Decimal>,
 }
 
-#[derive(o2o, Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
-#[map_owned(meteroid_store::domain::price_components::MatrixRow)]
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 pub struct MatrixRow {
-    #[map(~.into())]
     pub dimension1: MatrixDimension,
-    #[map(~.map(| x | x.into()))]
     pub dimension2: Option<MatrixDimension>,
     #[schema(value_type = String, format = "decimal")]
     pub per_unit_price: Decimal,

@@ -33,6 +33,9 @@ const simpleAggregationSchema = z
   })
 
 const dimensionValues = z.array(z.string().nonempty()).nonempty()
+// A dimension's declared values are optional: they pre-fill a price's rate rows, and filter the
+// metric's usage only once every dimension lists some.
+const declaredValues = z.array(z.string().nonempty())
 
 // We specify some type explicitely to reduce complexity on ts compiler
 export type Dimension = {
@@ -41,7 +44,7 @@ export type Dimension = {
 }
 const dimensionSchema = z.object({
   key: z.string().nonempty('Required'),
-  values: dimensionValues,
+  values: declaredValues,
 })
 // caused typecript to lag
 // const _segmentationMatrixSchema = z.discriminatedUnion('matrixType', [
@@ -65,7 +68,7 @@ const simpleSegmentationMatrixSchema = z.object({
     .object({
       dimensionKey: z.string(),
       linkedDimensionKey: z.string(),
-      values: z.record(z.string(), dimensionValues),
+      values: z.record(z.string(), declaredValues),
     })
     .optional(),
   single: dimensionSchema.optional(),

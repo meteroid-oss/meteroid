@@ -58,16 +58,25 @@ function comboKey(c: DimensionCombo): string {
   return `${c.d1Key}:${c.d1Value}|${c.d2Key ?? ''}:${c.d2Value ?? ''}`
 }
 
+const isDimensionRates = (price: Price) =>
+  price.pricing.case === 'usagePricing' && price.pricing.value.model.case === 'dimensionRates'
+
+/** The keys of exact values (a second dimension may be any) a price's rates by dimension hold. */
 function extractMatrixRows(price: Price): DimensionCombo[] {
   if (price.pricing.case !== 'usagePricing') return []
   const model = price.pricing.value.model
-  if (model.case !== 'matrix') return []
-  return model.value.rows.map(r => ({
-    d1Key: r.dimension1?.key ?? '',
-    d1Value: r.dimension1?.value ?? '',
-    d2Key: r.dimension2?.key,
-    d2Value: r.dimension2?.value,
-  }))
+  if (model.case !== 'dimensionRates') return []
+  const [d1Key, d2Key] = model.value.dimensions
+  const exact = (pattern?: string) => !!pattern && !pattern.endsWith('*')
+  return model.value.rates
+    .filter(r => model.value.dimensions.length <= 2 && exact(r.key[0]))
+    .filter(r => !d2Key || exact(r.key[1]) || r.key[1] === '*')
+    .map(r => ({
+      d1Key: d1Key ?? '',
+      d1Value: r.key[0],
+      d2Key: d2Key && r.key[1] !== '*' ? d2Key : undefined,
+      d2Value: d2Key && r.key[1] !== '*' ? r.key[1] : undefined,
+    }))
 }
 
 function useMatrixDimensionCombos(metric: BillableMetric | undefined): {
@@ -157,9 +166,7 @@ export const MatrixRowsSection = ({ productId, metricId, currencies }: MatrixRow
   const prices = pricesQuery.data?.prices ?? []
 
   const priceCombos = useMemo(() => {
-    const matrixPrice = prices.find(
-      p => p.pricing.case === 'usagePricing' && p.pricing.value.model.case === 'matrix'
-    )
+    const matrixPrice = prices.find(isDimensionRates)
     return matrixPrice ? extractMatrixRows(matrixPrice) : []
   }, [prices])
 
@@ -271,10 +278,10 @@ export const MatrixRowsSection = ({ productId, metricId, currencies }: MatrixRow
   const applyMutation = useMutation(updateMatrixPrices, {
     onSuccess: async () => {
       await invalidate()
-      toast.success('Matrix rows updated')
+      toast.success('Rates updated')
       reset()
     },
-    onError: () => toast.error('Failed to apply matrix update'),
+    onError: () => toast.error('Failed to update the rates'),
   })
 
   // Start the "add missing" flow
@@ -349,7 +356,7 @@ export const MatrixRowsSection = ({ productId, metricId, currencies }: MatrixRow
   if (isLoading) {
     return (
       <section className="flex flex-col gap-3">
-        <h3 className="text-sm font-medium text-muted-foreground">Matrix Dimensions</h3>
+        <h3 className="text-sm font-medium text-muted-foreground">Rates by dimension</h3>
         <Skeleton className="h-20 w-full" />
       </section>
     )
@@ -358,7 +365,7 @@ export const MatrixRowsSection = ({ productId, metricId, currencies }: MatrixRow
   if (displayRows.length === 0 && validCombos.length === 0) {
     return (
       <section className="flex flex-col gap-3">
-        <h3 className="text-sm font-medium text-muted-foreground">Matrix Dimensions</h3>
+        <h3 className="text-sm font-medium text-muted-foreground">Rates by dimension</h3>
         <p className="text-sm text-muted-foreground">
           No dimension combinations defined on the linked metric.
         </p>
@@ -375,7 +382,7 @@ export const MatrixRowsSection = ({ productId, metricId, currencies }: MatrixRow
         onClick={() => setExpanded(e => !e)}
       >
         {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-        <span>Matrix Dimensions</span>
+        <span>Rates by dimension</span>
         <span className="text-xs font-normal">
           {activeRows.length} active
           {missingRows.length > 0 && (

@@ -9,6 +9,21 @@ import "common/v1/filters.proto";
 
 message CreateCustomerRequest {
   CustomerNew data = 1;
+  // Subscribes the customer to the sign-up plan of `signup_product_family_id`, or of the only
+  // product family that has one. Needs the customer portal's self-service.
+  bool subscribe_to_signup_plan = 2;
+  optional string signup_product_family_id = 3;
+  // The level each usage-levels charge of the sign-up plan starts on; a charge left out starts on
+  // its lowest, the level a pricing page reads the plan's price from. A pricing card's button
+  // passes the level its visitor picked as `capacity`: `{included: capacity}`, no product.
+  repeated SignupLevel signup_levels = 4;
+}
+
+// A level of a usage-levels charge, by the units it includes (e.g. 125000).
+message SignupLevel {
+  // The charge's product; unset: the plan's only usage-levels charge.
+  optional string product_id = 1;
+  uint64 included = 2;
 }
 
 message CreateCustomerResponse {

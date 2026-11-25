@@ -7,3 +7,4 @@ export {
   RefreshButton,
   type Crumb,
 } from './ListPageLayout'
+export { ListWithPanel, PanelHead, PanelSection } from './SidePanel'

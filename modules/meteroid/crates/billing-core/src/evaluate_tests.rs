@@ -55,6 +55,10 @@ impl Pricer<TestFee> for TestPricer {
         !fee.per_period
     }
 
+    fn shares_allowance(&self, earlier: &TestFee, later: &TestFee) -> bool {
+        earlier.included == later.included
+    }
+
     fn rates(&self, segment: &Segment<'_, TestFee>) -> Result<Vec<Rate>, PricingError> {
         segment
             .fees
@@ -1988,6 +1992,31 @@ fn a_capacity_split_mid_period_counts_its_allowance_once() {
     );
 }
 
+/// A capacity of 1000 units at 0.10 over, moved on Jan 16 to a level of 2000 units, 900 units used
+/// on each side: each part counts its usage against its own level's share of the days. January 1
+/// to 16 holds 15/31 of 1000, 483.87 units, so 416.13 over bill 4161; January 16 to February 1
+/// holds 16/31 of 2000, 1032.26 units, and 900 bill nothing. Read whole at the new level, the
+/// 1800 units would bill nothing.
+/// Rules: R-135, R-002
+#[test]
+fn a_capacity_level_changed_mid_period_counts_each_part_against_its_level() {
+    let (mut facts, entries) = split_usage(TestFee {
+        metric: Some(id(METRIC)),
+        unit: 10,
+        included: 1_000,
+        per_period: true,
+        ..TestFee::default()
+    });
+    facts.fees[1].fee.included = 2_000;
+    assert_eq!(
+        usage_charges(&facts, &entries),
+        vec![
+            ((d(2024, 1, 1), d(2024, 1, 16)), 4_161),
+            ((d(2024, 1, 16), d(2024, 2, 1)), 0),
+        ]
+    );
+}
+
 /// Graduated tiers of 0.10 up to 1000 units and 0.05 past them, the row replaced on Jan 16 with
 /// 900 units used on each side: the tiers run over January, 1000 × 10 + 800 × 5 = 14000.
 /// Rules: R-097
@@ -2583,6 +2612,7 @@ fn a_minimum_commits_its_period_when_the_period_closes() {
         id: id(800),
         from: d(2024, 1, 1),
         invoices: Some(3),
+        until: None,
     });
     let evaluation = run(&facts, at(2024, 2, 15, 0));
     let commitments: Vec<&Charge> = evaluation

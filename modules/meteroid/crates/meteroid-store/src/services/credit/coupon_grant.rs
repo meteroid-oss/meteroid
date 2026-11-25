@@ -20,11 +20,11 @@ use common_domain::ids::{AppliedCouponId, BaseId, CouponId, CustomerId, Subscrip
 use diesel_models::applied_coupons::{
     AppliedCouponDetailedRow, AppliedCouponRow, AppliedCouponRowNew,
 };
-use diesel_models::coupon_plans::CouponPlanRow;
 use diesel_models::coupons::CouponRow;
 use diesel_models::customer_credit::CustomerCreditGrantRow;
 use diesel_models::enums::SubscriptionStatusEnum;
 use diesel_models::plan_versions::PlanVersionRow;
+use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
 use itertools::Itertools;
@@ -378,13 +378,14 @@ async fn redeem_coupon_credit_code_tx(
         .ok_or_else(not_redeemable)?
         .id;
     // Locked so concurrent redemptions cannot exceed the redemption limit nor redeem twice.
-    let coupon: Coupon = CouponRow::list_by_ids_for_update(conn, &[coupon_id], &tenant_id)
+    let locked = CouponRow::list_by_ids_for_update(conn, &[coupon_id], &tenant_id)
         .await
-        .map_err(Into::<Report<StoreError>>::into)?
+        .map_err(Into::<Report<StoreError>>::into)?;
+    let coupon: Coupon = crate::repositories::coupons::coupons_with_scope(conn, locked)
+        .await?
         .into_iter()
         .next()
-        .ok_or_else(not_redeemable)?
-        .try_into()?;
+        .ok_or_else(not_redeemable)?;
     let CouponDiscount::Credit {
         currency, scope, ..
     } = &coupon.discount
@@ -401,6 +402,7 @@ async fn redeem_coupon_credit_code_tx(
     }
     if (replayed && coupon.created_at > at.naive_utc())
         || coupon.is_expired(at.naive_utc())
+        || !coupon.is_valid_yet(at.naive_utc())
         || coupon.archived_at.is_some()
         || coupon.disabled
         || coupon
@@ -411,22 +413,36 @@ async fn redeem_coupon_credit_code_tx(
     }
 
     subscriptions.retain(|subscription| subscription.currency == *currency);
-    let allowed_plans = CouponPlanRow::list_by_coupon_ids(conn, &[coupon.id])
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?
-        .remove(&coupon.id)
-        .unwrap_or_default();
-    if !allowed_plans.is_empty() && !subscriptions.is_empty() {
+    let scoped = !coupon.plan_ids.is_empty() || !coupon.add_on_ids.is_empty();
+    let mut plans = HashMap::new();
+    let mut add_ons: HashMap<SubscriptionId, Vec<common_domain::ids::AddOnId>> = HashMap::new();
+    if !subscriptions.is_empty() {
         let version_ids: Vec<_> = subscriptions.iter().map(|s| s.plan_version_id).collect();
-        let plans = PlanVersionRow::get_plan_ids_by_version_ids(conn, &version_ids)
+        plans = PlanVersionRow::get_plan_ids_by_version_ids(conn, &version_ids)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
-        subscriptions.retain(|subscription| {
-            plans
-                .get(&subscription.plan_version_id)
-                .is_some_and(|plan_id| allowed_plans.contains(plan_id))
-        });
     }
+    if scoped && !coupon.add_on_ids.is_empty() {
+        let ids: Vec<SubscriptionId> = subscriptions.iter().map(|s| s.id).collect();
+        let rows = SubscriptionAddOnRow::list_all_by_subscriptions(conn, tenant_id, &ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        for row in rows.into_iter().filter(|row| row.effective_to.is_none()) {
+            add_ons
+                .entry(row.subscription_id)
+                .or_default()
+                .push(row.add_on_id);
+        }
+    }
+    subscriptions.retain(|subscription| {
+        coupon.applies_to(
+            plans.get(&subscription.plan_version_id).copied(),
+            add_ons
+                .get(&subscription.id)
+                .map(Vec::as_slice)
+                .unwrap_or_default(),
+        )
+    });
     if let Some(named) = subscription_id {
         subscriptions.retain(|subscription| subscription.id == named);
     } else if *scope == CouponCreditScope::Subscription && subscriptions.len() > 1 {
@@ -451,6 +467,22 @@ async fn redeem_coupon_credit_code_tx(
         .into_iter()
         .next()
         .ok_or_else(not_redeemable)?;
+    crate::repositories::coupons::refuse_unredeemable(
+        conn,
+        tenant_id,
+        std::slice::from_ref(&coupon),
+        &crate::repositories::coupons::Redemption {
+            customer_id,
+            currency: &subscription.currency,
+            plan_id: plans.get(&subscription.plan_version_id).copied(),
+            add_on_ids: add_ons
+                .get(&subscription.id)
+                .map(Vec::as_slice)
+                .unwrap_or_default(),
+        },
+        at.naive_utc(),
+    )
+    .await?;
 
     let applied_coupon = AppliedCouponRowNew {
         id: AppliedCouponId::new(),

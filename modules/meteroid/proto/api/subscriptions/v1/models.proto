@@ -77,6 +77,8 @@ message Subscription {
   optional UsageFilter usage_filter = 46;
   // RFC 3339: when the current usage filter, or its removal, started to apply.
   optional string usage_filter_effective_from = 47;
+  // The plan option it bought; unset for a subscription made before options.
+  optional string plan_option_id = 48;
 }
 
 // The customer's events a subscription bills: those whose `property` is `value`. A subscription
@@ -106,6 +108,8 @@ message SubscriptionDetails {
   // Materialized minimum-commitment floor on this subscription (plan snapshot, quote
   // override, or operator override). Empty when the subscription has no floor.
   optional SubscriptionMinimum minimum_commitment = 9;
+  // The plan option the subscription bought, when it still exists.
+  optional meteroid.api.plans.v1.PlanOption plan_option = 10;
 }
 
 message SubscriptionMinimum {
@@ -204,6 +208,10 @@ message CreateSubscription {
   // JSON-encoded object of custom property values, validated against the tenant's subscription definitions.
   optional string custom_properties = 26;
   optional UsageFilter usage_filter = 27;
+  reserved 28, 29;
+  reserved "plan_variant_id", "price_book_id";
+  // The plan option bought, by alias or id; unset: the default option sold in the currency.
+  optional string option = 30;
 }
 
 enum ActivationCondition {
@@ -409,6 +417,8 @@ message SubscriptionFee {
     string rate = 1;
     uint32 quantity = 2;
     string total = 3;
+    // Prices the quantity through a model (per unit, tiered, volume, package); rate is then ignored.
+    optional meteroid.api.prices.v1.UsagePricing model = 4;
   }
 
 
@@ -431,6 +441,8 @@ message SubscriptionFee {
     uint32 quantity = 2;
     string total = 3;
     meteroid.api.prices.v1.FeeStructure.BillingType billing_type = 4;
+    // Prices the quantity through a model (per unit, tiered, volume, package); rate is then ignored.
+    optional meteroid.api.prices.v1.UsagePricing model = 5;
   }
 
   message CapacitySubscriptionFee {
@@ -442,12 +454,14 @@ message SubscriptionFee {
 
   message SlotSubscriptionFee {
     string unit = 1;
+    // The price of each seat; empty when `model` prices the count.
     string unit_rate = 2;
     optional uint32 min_slots = 3;
     optional uint32 max_slots = 4;
     uint32 initial_slots = 5;
     meteroid.api.prices.v1.FeeStructure.UpgradePolicy upgrade_policy = 6;
     meteroid.api.prices.v1.FeeStructure.DowngradePolicy downgrade_policy = 7;
+    optional meteroid.api.prices.v1.UsagePricing model = 8;
   }
 }
 

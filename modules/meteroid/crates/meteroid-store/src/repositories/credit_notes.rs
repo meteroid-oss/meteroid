@@ -44,7 +44,9 @@ use diesel_models::stored_object::StoredObjectRowNew;
 /// Specifies a line item to credit.
 #[derive(Debug, Clone)]
 pub enum CreditLineItem {
-    /// Credit `quantity × line.unit_price`. The line must have a unit_price.
+    /// Credit `quantity × line.unit_price`. A fee or seat line priced by tiers, a volume or a
+    /// package credits what its model priced less what it prices the units kept; any other line
+    /// must have a unit_price.
     Line { local_id: String, quantity: Decimal },
     /// Credit specific sub-lines; line subtotal is summed from their
     /// `quantity × unit_price`. Sub-lines not listed are dropped from the credited line.
@@ -321,6 +323,147 @@ fn negate_sub_lines(
             })
             .collect(),
     }
+}
+
+/// The rating model and per-instance quantity of an extra recurring or one-time fee priced by
+/// tiers or a package, or of a seat line so priced, as the engine billed it on a line.
+#[derive(Debug, Clone)]
+struct FixedQuantityModel {
+    model: crate::domain::price_components::RatingModel,
+    quantity: Decimal,
+    /// A seat line's minimum and maximum: the seats kept are billed within them, as billing
+    /// bills the seats held.
+    seats: Option<(Option<u32>, Option<u32>)>,
+}
+
+/// The models behind the lines credited by quantity, by line: read from the fee each line's
+/// subscription component or add-on snapshotted when it was billed.
+async fn fixed_quantity_models_tx(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    invoice: &Invoice,
+    requested: &[CreditLineItem],
+) -> StoreResult<HashMap<String, FixedQuantityModel>> {
+    use crate::domain::SubscriptionFee;
+    use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
+    use diesel_models::subscription_components::SubscriptionComponentRow;
+
+    let by_quantity: Vec<&LineItem> = invoice
+        .line_items
+        .iter()
+        .filter(|line| line.sub_component_id.is_some() || line.sub_add_on_id.is_some())
+        .filter(|line| {
+            requested.iter().any(|ci| {
+                matches!(ci, CreditLineItem::Line { local_id, .. } if *local_id == line.local_id)
+            })
+        })
+        .collect();
+    let Some(subscription_id) = invoice.subscription_id.filter(|_| !by_quantity.is_empty()) else {
+        return Ok(HashMap::new());
+    };
+    let components =
+        SubscriptionComponentRow::list_all_by_subscriptions(conn, tenant_id, &[subscription_id])
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+    let add_ons =
+        SubscriptionAddOnRow::list_all_by_subscriptions(conn, tenant_id, &[subscription_id])
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+    let modelled =
+        |fee: Option<&serde_json::Value>, line: &LineItem| -> Option<FixedQuantityModel> {
+            match serde_json::from_value::<SubscriptionFee>(fee?.clone()).ok()? {
+                SubscriptionFee::Recurring {
+                    quantity,
+                    model: Some(model),
+                    ..
+                }
+                | SubscriptionFee::OneTime {
+                    quantity,
+                    model: Some(model),
+                    ..
+                } => Some(FixedQuantityModel {
+                    model,
+                    quantity: Decimal::from(quantity),
+                    seats: None,
+                }),
+                // A seat line bills its seats through the model at once: one instance of them all.
+                SubscriptionFee::Slot {
+                    model,
+                    min_slots,
+                    max_slots,
+                    ..
+                } if model.per_unit_rate().is_none() => Some(FixedQuantityModel {
+                    model,
+                    quantity: line.quantity?,
+                    seats: Some((min_slots, max_slots)),
+                }),
+                _ => None,
+            }
+        };
+    Ok(by_quantity
+        .into_iter()
+        .filter_map(|line| {
+            let fee = match (line.sub_component_id, line.sub_add_on_id) {
+                (Some(id), _) => components
+                    .iter()
+                    .find(|c| c.id == id)
+                    .and_then(|c| c.legacy_fee.as_ref()),
+                (None, Some(id)) => add_ons
+                    .iter()
+                    .find(|a| a.id == id)
+                    .and_then(|a| a.legacy_fee.as_ref()),
+                (None, None) => None,
+            };
+            modelled(fee, line).map(|model| (line.local_id.clone(), model))
+        })
+        .collect())
+}
+
+/// What crediting `credited` of a modelled line's `units` gives back, in minor units: the
+/// model's price of the units less that of the units kept, each instance priced on its own
+/// quantity as the engine does, as a share of what the line `billed`. Rounded once; a prorated
+/// line credits its share and crediting every unit gives the line back exactly. A seat line's
+/// seats kept are billed within its minimum and maximum; seats are credited whole.
+fn modelled_quantity_credit(
+    fixed: &FixedQuantityModel,
+    units: Decimal,
+    credited: Decimal,
+    billed: i64,
+) -> Option<i64> {
+    use rust_decimal::prelude::ToPrimitive;
+    if credited == units {
+        return Some(billed);
+    }
+    if fixed.quantity <= Decimal::ZERO || units <= Decimal::ZERO {
+        return None;
+    }
+    let instances = units / fixed.quantity;
+    let model = if instances == Decimal::ONE {
+        fixed.model.clone()
+    } else {
+        fixed.model.scaled(instances)
+    };
+    let full = model.exact_amount(fixed.quantity);
+    if full <= Decimal::ZERO {
+        return None;
+    }
+    let kept_units = match fixed.seats {
+        Some((min_slots, max_slots)) => {
+            if !credited.fract().is_zero() {
+                return None;
+            }
+            let held = (units - credited).to_u64()?;
+            Decimal::from(billing_core::pricing::billed_slots(
+                held, min_slots, max_slots,
+            ))
+        }
+        None => units - credited,
+    };
+    let kept = model.exact_amount(fixed.quantity * kept_units / units);
+    (Decimal::from(billed) * (full - kept) / full)
+        .round_dp_with_strategy(0, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
+        .to_i64()
 }
 
 /// Per-line resolved credit instruction used by `negate_line_items`.
@@ -1342,6 +1485,7 @@ pub(crate) async fn create_credit_note_tx(
 
     // 2. Resolve which lines are being credited and how (full / partial qty / per-subline)
     let requested: Vec<CreditLineItem> = params.line_items.unwrap_or_default();
+    let fixed_models = fixed_quantity_models_tx(conn, tenant_id, &invoice, &requested).await?;
 
     // Map original invoice lines by local_id for lookup
     let invoice_lines_by_id: HashMap<&str, &LineItem> = invoice
@@ -1498,12 +1642,6 @@ pub(crate) async fn create_credit_note_tx(
                             item.name, credit.code
                         )));
                     }
-                    let unit_price = item.unit_price.ok_or_else(|| {
-                        Report::from(StoreError::InvalidArgument(format!(
-                            "\"{}\" has no unit price: credit it by sub-line or by amount",
-                            item.name
-                        )))
-                    })?;
                     let original_qty = item.quantity.unwrap_or(Decimal::ONE);
                     if original_qty <= Decimal::ZERO {
                         bail!(StoreError::InvalidArgument(format!(
@@ -1519,15 +1657,60 @@ pub(crate) async fn create_credit_note_tx(
                             original_qty.normalize()
                         )));
                     }
-                    let credit_cents =
-                        (unit_price * qty)
-                            .to_subunit_opt(precision)
-                            .ok_or_else(|| {
+                    let too_large = || {
+                        Report::from(StoreError::InvalidArgument(format!(
+                            "the amount to credit on \"{}\" is too large",
+                            item.name
+                        )))
+                    };
+                    // Tiers and packages do not price units alike: the units credited are the
+                    // last billed, worth what the model priced them, not the blended rate.
+                    let credit_cents = match fixed_models.get(&item.local_id) {
+                        Some(_) if already > 0 => {
+                            bail!(StoreError::InvalidArgument(format!(
+                                "\"{}\" is priced by tiers or a package and was already partly credited: credit the rest by amount",
+                                item.name
+                            )));
+                        }
+                        Some(fixed) if fixed.seats.is_some() && !qty.fract().is_zero() => {
+                            bail!(StoreError::InvalidArgument(format!(
+                                "\"{}\" bills whole seats: credit a whole number of them",
+                                item.name
+                            )));
+                        }
+                        Some(fixed) => {
+                            let credit = modelled_quantity_credit(
+                                fixed,
+                                original_qty,
+                                qty,
+                                item.amount_subtotal,
+                            )
+                            .ok_or_else(too_large)?;
+                            // A volume model may price fewer units higher, a minimum bill the
+                            // seats kept as many: nothing comes back by quantity.
+                            if credit <= 0 {
+                                bail!(StoreError::InvalidArgument(format!(
+                                    "crediting {} of \"{}\" gives nothing back: its price model bills what is kept as much; credit it by amount",
+                                    qty.normalize(),
+                                    item.name
+                                )));
+                            }
+                            credit
+                        }
+                        None => {
+                            // A model prices the units it billed: only a line without one needs
+                            // a unit price.
+                            let unit_price = item.unit_price.ok_or_else(|| {
                                 Report::from(StoreError::InvalidArgument(format!(
-                                    "the amount to credit on \"{}\" is too large",
+                                    "\"{}\" has no unit price: credit it by sub-line or by amount",
                                     item.name
                                 )))
                             })?;
+                            (unit_price * qty)
+                                .to_subunit_opt(precision)
+                                .ok_or_else(too_large)?
+                        }
+                    };
                     if credit_cents > remaining {
                         bail!(StoreError::InvalidArgument(format!(
                             "cannot credit {} on \"{}\": only {} of it is left to credit",
@@ -2274,6 +2457,115 @@ mod tests {
     use crate::domain::invoice_lines::{SubLineItem, TaxDetail};
     use chrono::NaiveDate;
     use rust_decimal_macros::dec;
+
+    fn volume_line(quantity: Decimal) -> FixedQuantityModel {
+        use crate::domain::price_components::{RatingModel, TierRow};
+        let tier = |first_unit: u64, rate: Decimal| TierRow {
+            first_unit,
+            rate,
+            flat_fee: None,
+            flat_cap: None,
+        };
+        FixedQuantityModel {
+            model: RatingModel::Volume {
+                tiers: vec![tier(0, dec!(10)), tier(10, dec!(8))],
+            },
+            quantity,
+            seats: None,
+        }
+    }
+
+    #[test]
+    fn a_partial_credit_on_a_volume_line_gives_back_what_the_model_priced() {
+        // 15 units bill at the volume rate of 8: 120.00.
+        let line = volume_line(dec!(15));
+        // 12 kept still bill at 8 (96.00): 3 credit 24.00.
+        assert_eq!(
+            modelled_quantity_credit(&line, dec!(15), dec!(3), 12_000),
+            Some(2_400)
+        );
+        // 8 kept fall back to 10 each (80.00): 7 credit 40.00, not 7 × 8.00.
+        assert_eq!(
+            modelled_quantity_credit(&line, dec!(15), dec!(7), 12_000),
+            Some(4_000)
+        );
+        // Every unit gives the line back, to the cent.
+        assert_eq!(
+            modelled_quantity_credit(&line, dec!(15), dec!(15), 12_000),
+            Some(12_000)
+        );
+        // A line prorated to half credits half.
+        assert_eq!(
+            modelled_quantity_credit(&line, dec!(15), dec!(3), 6_000),
+            Some(1_200)
+        );
+    }
+
+    #[test]
+    fn a_partial_credit_prices_each_instance_on_its_own_quantity() {
+        use crate::domain::price_components::{RatingModel, TierRow};
+        let tier = |first_unit: u64, rate: Decimal| TierRow {
+            first_unit,
+            rate,
+            flat_fee: None,
+            flat_cap: None,
+        };
+        // Two instances of 15 graduated units: 2 × (10 × 10 + 5 × 8) = 280.00 over 30 units.
+        let line = FixedQuantityModel {
+            model: RatingModel::Tiered {
+                tiers: vec![tier(0, dec!(10)), tier(10, dec!(8))],
+            },
+            quantity: dec!(15),
+            seats: None,
+        };
+        // 24 kept are 12 an instance, 2 × 116.00: 6 credit 48.00.
+        assert_eq!(
+            modelled_quantity_credit(&line, dec!(30), dec!(6), 28_000),
+            Some(4_800)
+        );
+    }
+
+    /// 15 seats at the volume rate of 8 (10 under 10 seats), at least 5 and at most 20.
+    fn volume_seats() -> FixedQuantityModel {
+        FixedQuantityModel {
+            seats: Some((Some(5), Some(20))),
+            ..volume_line(dec!(15))
+        }
+    }
+
+    #[test]
+    fn a_partial_credit_on_a_volume_seat_line_gives_back_what_the_model_priced() {
+        let seats = volume_seats();
+        // 8 seats kept bill 80.00: 7 credit 120.00 − 80.00 = 40.00, not 7 × 8.00.
+        assert_eq!(
+            modelled_quantity_credit(&seats, dec!(15), dec!(7), 12_000),
+            Some(4_000)
+        );
+        // 12 kept still bill at 8 (96.00): 3 credit 24.00.
+        assert_eq!(
+            modelled_quantity_credit(&seats, dec!(15), dec!(3), 12_000),
+            Some(2_400)
+        );
+        // 3 kept bill the minimum of 5 seats (50.00): 12 credit 70.00, not 120.00 − 30.00.
+        assert_eq!(
+            modelled_quantity_credit(&seats, dec!(15), dec!(12), 12_000),
+            Some(7_000)
+        );
+        // Every seat gives the line back, to the cent; a line prorated to half credits half.
+        assert_eq!(
+            modelled_quantity_credit(&seats, dec!(15), dec!(15), 12_000),
+            Some(12_000)
+        );
+        assert_eq!(
+            modelled_quantity_credit(&seats, dec!(15), dec!(7), 6_000),
+            Some(2_000)
+        );
+        // Seats are credited whole.
+        assert_eq!(
+            modelled_quantity_credit(&seats, dec!(15), dec!(1.5), 12_000),
+            None
+        );
+    }
 
     #[test]
     fn unit_amounts_group_their_digits_like_money() {

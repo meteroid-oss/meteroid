@@ -448,6 +448,7 @@ async fn a_price_component_is_removed_from_a_draft_only() {
                             api::prices::v1::OneTimePricing {
                                 unit_price: "1.00".to_string(),
                                 quantity: 1,
+                                model: None,
                             },
                         )),
                         credit_unit: None,
@@ -488,6 +489,104 @@ async fn a_price_component_is_removed_from_a_draft_only() {
             .iter()
             .all(|c| c.id != seats.id)
     );
+}
+
+/// "Included, no charge": a new product added without a price, and a priced charge left with
+/// none, are included, their features only.
+#[tokio::test]
+async fn a_charge_without_a_price_is_included() {
+    use crate::data::ids::{PLAN_VERSION_NOTION_ID, TENANT_ID};
+    use meteroid_grpc::meteroid::api::components::v1 as components;
+    use meteroid_grpc::meteroid::api::prices::v1 as prices;
+    use meteroid_store::repositories::PlansInterface;
+    use meteroid_store::repositories::price_components::PriceComponentInterfaceAuto;
+
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
+    let setup =
+        meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
+    let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
+    let clients = meteroid_it::clients::AllClients::from_channel(
+        setup.channel.clone(),
+        auth.token.clone().as_str(),
+        "TESTORG",
+        "testslug",
+    );
+    let draft = setup
+        .store
+        .copy_plan_version_to_draft(PLAN_VERSION_NOTION_ID, TENANT_ID)
+        .await
+        .expect("a draft");
+
+    let added = clients
+        .price_components
+        .clone()
+        .create_price_component(api::components::v1::CreatePriceComponentRequest {
+            plan_version_id: draft.id.as_proto(),
+            name: "Community workspace".to_string(),
+            product: Some(components::ProductRef {
+                r#ref: Some(components::product_ref::Ref::NewProduct(
+                    components::NewProduct {
+                        name: "Community workspace".into(),
+                        fee_type: prices::FeeType::Rate.into(),
+                        fee_structure: Some(prices::FeeStructure {
+                            structure: Some(prices::fee_structure::Structure::Rate(
+                                prices::fee_structure::RateStructure {},
+                            )),
+                        }),
+                    },
+                )),
+            }),
+            prices: vec![],
+        })
+        .await
+        .expect("a new product is added included")
+        .into_inner()
+        .component
+        .expect("the component");
+    assert!(added.prices.is_empty(), "{added:?}");
+
+    let seats = setup
+        .store
+        .list_price_components(draft.id, TENANT_ID)
+        .await
+        .expect("components")
+        .into_iter()
+        .find(|c| c.name == "Seats")
+        .expect("the draft's seats");
+    assert!(!seats.prices.is_empty());
+    let edited = clients
+        .price_components
+        .clone()
+        .edit_price_component(api::components::v1::EditPriceComponentRequest {
+            plan_version_id: draft.id.as_proto(),
+            component: Some(components::PriceComponent {
+                id: seats.id.as_proto(),
+                name: seats.name.clone(),
+                product_id: seats.product_id.map(|id| id.as_proto()),
+                ..Default::default()
+            }),
+            prices: vec![],
+        })
+        .await
+        .expect("a charge left without a price is included")
+        .into_inner()
+        .component
+        .expect("the component");
+    assert!(edited.prices.is_empty(), "{edited:?}");
+    let listed = setup
+        .store
+        .list_price_components(draft.id, TENANT_ID)
+        .await
+        .expect("components");
+    for id in [added.id, seats.id.as_proto()] {
+        let component = listed
+            .iter()
+            .find(|c| c.id.as_proto() == id)
+            .expect("still on the draft");
+        assert!(component.prices.is_empty(), "{component:?}");
+    }
 }
 
 /// The list carries the products its components reference and the metrics those products bill on,
@@ -536,4 +635,128 @@ async fn price_components_come_with_their_products_and_metrics() {
     assert_eq!(product_ids, expected);
     let metric_ids: Vec<_> = res.metrics.iter().map(|m| m.id.clone()).collect();
     assert_eq!(metric_ids, vec![METRIC_BANDWIDTH.as_proto()]);
+}
+
+#[tokio::test]
+async fn the_self_serve_ladder_orders_a_product_lines_plans() {
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PRODUCT).await;
+    let setup =
+        meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PRODUCT)
+            .await;
+    let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
+    let clients = meteroid_it::clients::AllClients::from_channel(
+        setup.channel.clone(),
+        auth.token.clone().as_str(),
+        "TESTORG",
+        "testslug",
+    );
+
+    let mut ids = vec![];
+    for name in ["Starter", "Team", "Business"] {
+        let plan = clients
+            .plans
+            .clone()
+            .create_draft_plan(api::plans::v1::CreateDraftPlanRequest {
+                name: name.into(),
+                product_family_local_id: "default".into(),
+                description: None,
+                plan_type: api::plans::v1::PlanType::Standard as i32,
+                currency: "EUR".to_string(),
+                entitlements: vec![],
+                tax_inclusive: false,
+            })
+            .await
+            .unwrap()
+            .into_inner()
+            .plan
+            .unwrap()
+            .plan
+            .unwrap();
+        ids.push(plan.id);
+    }
+    let (starter, team, business) = (ids[0].clone(), ids[1].clone(), ids[2].clone());
+    let family = clients
+        .plans
+        .clone()
+        .list_plans(api::plans::v1::ListPlansRequest {
+            product_family_local_id: None,
+            order_by: None,
+            pagination: None,
+            filters: None,
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .plans
+        .into_iter()
+        .find(|p| p.id == starter)
+        .unwrap()
+        .product_family_local_id;
+
+    let ladder = |plan_ids: Vec<String>| {
+        let mut plans = clients.plans.clone();
+        let family = family.clone();
+        async move {
+            plans
+                .set_self_serve_ladder(api::plans::v1::SetSelfServeLadderRequest {
+                    product_family_local_id: family.clone(),
+                    plan_ids,
+                })
+                .await
+        }
+    };
+    let ranks = || {
+        let mut plans = clients.plans.clone();
+        let family = family.clone();
+        async move {
+            plans
+                .list_plans(api::plans::v1::ListPlansRequest {
+                    product_family_local_id: Some(family.clone()),
+                    order_by: None,
+                    pagination: None,
+                    filters: None,
+                })
+                .await
+                .unwrap()
+                .into_inner()
+                .plans
+                .into_iter()
+                .map(|p| (p.id, p.self_service_rank))
+                .collect::<std::collections::HashMap<_, _>>()
+        }
+    };
+
+    ladder(vec![business.clone(), starter.clone()])
+        .await
+        .unwrap();
+    let r = ranks().await;
+    assert_eq!(r[&business], Some(1));
+    assert_eq!(r[&starter], Some(2));
+    assert_eq!(r[&team], None, "a plan left out is off the ladder");
+
+    let duplicate = ladder(vec![team.clone(), team.clone()]).await.unwrap_err();
+    assert_eq!(duplicate.code(), tonic::Code::InvalidArgument);
+    assert_eq!(
+        ranks().await[&business],
+        Some(1),
+        "a refused save changes nothing"
+    );
+
+    clients
+        .plans
+        .clone()
+        .archive_plan(api::plans::v1::ArchivePlanRequest {
+            id: business.clone(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        ranks().await[&business],
+        None,
+        "an archived plan leaves the ladder"
+    );
+    let archived = ladder(vec![business.clone()]).await.unwrap_err();
+    assert_eq!(archived.code(), tonic::Code::InvalidArgument);
 }

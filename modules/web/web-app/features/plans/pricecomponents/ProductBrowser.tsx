@@ -1,22 +1,15 @@
-import { skipToken } from '@connectrpc/connect-query'
 import { Badge, Input } from '@md/ui'
-import { ChevronDownIcon, ChevronUpIcon, Loader2Icon, SearchIcon } from 'lucide-react'
-import { ReactNode, createElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Loader2Icon, SearchIcon } from 'lucide-react'
+import { createElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { feeTypeIcon, priceSummaryBadges } from '@/features/plans/pricecomponents/utils'
 import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
+import { protoFeeTypeToComponentFeeType } from '@/features/pricing/formData'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { useQuery } from '@/lib/connectrpc'
-import { env } from '@/lib/env'
-import { getResolvedEntitlementsForProduct } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
-import { FeeStructure_UsageModel, FeeType } from '@/rpc/api/prices/v1/models_pb'
 import { listProductsWithPrices } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
 
-import { ProductPricingForm, type StructuralInfo } from './ProductPricingForm'
-
-import type { PendingEntitlementSpec } from '@/features/entitlements/creation/types'
 import type { ComponentFeeType } from '@/features/pricing/conversions'
-import type { FeeStructure } from '@/rpc/api/prices/v1/models_pb'
 import type { ProductWithPrice } from '@/rpc/api/products/v1/models_pb'
 
 function feeTypeColor(type: ComponentFeeType): { bg: string; text: string } {
@@ -38,55 +31,17 @@ function feeTypeColor(type: ComponentFeeType): { bg: string; text: string } {
   }
 }
 
-function protoFeeTypeToComponentFeeType(feeType: FeeType): ComponentFeeType {
-  switch (feeType) {
-    case FeeType.RATE:
-      return 'rate'
-    case FeeType.SLOT:
-      return 'slot'
-    case FeeType.CAPACITY:
-      return 'capacity'
-    case FeeType.USAGE:
-      return 'usage'
-    case FeeType.EXTRA_RECURRING:
-      return 'extraRecurring'
-    case FeeType.ONE_TIME:
-      return 'oneTime'
-    case FeeType.CREDIT:
-      return 'credit'
-  }
-}
-
-export type EntitlementSlotArgs = {
-  productId: string
-  productName: string
-  formData: Record<string, unknown>
-  feeType: ComponentFeeType
-  onBack: () => void
-  onConfirm: (entitlements: PendingEntitlementSpec[]) => void
-}
-
 interface ProductBrowserProps {
   currency: string
-  onAdd: (data: {
-    productId: string
-    componentName: string
-    formData: Record<string, unknown>
-    feeType: ComponentFeeType
-    entitlements?: PendingEntitlementSpec[]
-  }) => void
-  submitLabel?: string
-  /** Label for the submit button when the selected product has no entitlements and the step is skipped. */
-  finalSubmitLabel?: string
-  feeTypes?: FeeType[]
-  renderEntitlements?: (args: EntitlementSlotArgs) => ReactNode
+  /** The product picked: the caller prices it. */
+  onSelect: (item: ProductWithPrice) => void
 }
 
 const PAGE_SIZE = 10
 
-export const ProductBrowser = ({ currency, onAdd, submitLabel, finalSubmitLabel, feeTypes, renderEntitlements }: ProductBrowserProps) => {
+/** The catalog's products, searched and scrolled: one is picked to be priced. */
+export const ProductBrowser = ({ currency, onSelect }: ProductBrowserProps) => {
   const [search, setSearch] = useState('')
-  const [expandedId, setExpandedId] = useState<string | null>(null)
   const [page, setPage] = useState(0)
   const [allProducts, setAllProducts] = useState<ProductWithPrice[]>([])
   const debouncedSearch = useDebounceValue(search, 300)
@@ -96,7 +51,6 @@ export const ProductBrowser = ({ currency, onAdd, submitLabel, finalSubmitLabel,
     currency,
     query: debouncedSearch || undefined,
     pagination: { perPage: PAGE_SIZE, page },
-    feeTypes,
   })
 
   const paginationMeta = productsQuery.data?.paginationMeta
@@ -157,16 +111,11 @@ export const ProductBrowser = ({ currency, onAdd, submitLabel, finalSubmitLabel,
           const product = pwp.product
           if (!product) return null
           return (
-            <ProductCard
+            <SelectableProduct
               key={product.id}
               item={pwp}
-              isExpanded={expandedId === product.id}
-              onToggle={() => setExpandedId(expandedId === product.id ? null : product.id)}
               currency={currency}
-              onAdd={onAdd}
-              submitLabel={submitLabel}
-              finalSubmitLabel={finalSubmitLabel}
-              renderEntitlements={renderEntitlements}
+              onSelect={() => onSelect(pwp)}
             />
           )
         })}
@@ -190,60 +139,20 @@ export const ProductBrowser = ({ currency, onAdd, submitLabel, finalSubmitLabel,
   )
 }
 
-// --- Product Card ---
+// --- Selectable product row ---
 
-interface ProductCardProps {
-  item: ProductWithPrice
-  isExpanded: boolean
-  onToggle: () => void
-  currency: string
-  onAdd: ProductBrowserProps['onAdd']
-  submitLabel?: string
-  finalSubmitLabel?: string
-  renderEntitlements?: ProductBrowserProps['renderEntitlements']
-}
-
-const ProductCard = ({
+const SelectableProduct = ({
   item,
-  isExpanded,
-  onToggle,
   currency,
-  onAdd,
-  submitLabel,
-  finalSubmitLabel,
-  renderEntitlements,
-}: ProductCardProps) => {
+  onSelect,
+}: {
+  item: ProductWithPrice
+  currency: string
+  onSelect: () => void
+}) => {
   const product = item.product!
   const feeType =
     product.feeType !== undefined ? protoFeeTypeToComponentFeeType(product.feeType) : undefined
-
-  const [savedFormData, setSavedFormData] = useState<Record<string, unknown> | null>(null)
-
-  useEffect(() => {
-    if (!isExpanded) setSavedFormData(null)
-  }, [isExpanded])
-
-  const productEntitlementsQuery = useQuery(
-    getResolvedEntitlementsForProduct,
-    renderEntitlements && isExpanded && env.entitlementsEnabled
-      ? { productId: product.id }
-      : skipToken
-  )
-  const productHasEntitlements =
-    (productEntitlementsQuery.data?.entitlements?.length ?? 0) > 0
-  const entitlementsLoading =
-    !!renderEntitlements && isExpanded && env.entitlementsEnabled && productEntitlementsQuery.isLoading
-
-  const isFinalStep = !renderEntitlements || (!entitlementsLoading && !productHasEntitlements)
-
-  const effectiveSubmitLabel = isFinalStep ? (finalSubmitLabel ?? submitLabel) : submitLabel
-  const effectiveSubmitVariant = isFinalStep ? ('primary' as const) : ('brand' as const)
-
-  const structural = useMemo(
-    () => extractStructuralInfo(feeType, product.feeStructure),
-    [feeType, product.feeStructure]
-  )
-
   const creditUnits = useCreditUnits()
   const badges = useMemo(
     () =>
@@ -252,131 +161,40 @@ const ProductCard = ({
         : [],
     [feeType, item.latestPrice, currency, creditUnits]
   )
-
   const Icon = feeType ? feeTypeIcon(feeType) : null
   const colors = feeType ? feeTypeColor(feeType) : null
 
   return (
-    <div
-      className={`rounded-lg border overflow-hidden transition-colors ${isExpanded ? 'border-brand/40 bg-card' : 'border-border/60 bg-card hover:border-muted-foreground/30'}`}
+    <button
+      type="button"
+      onClick={onSelect}
+      className="flex w-full items-center gap-3 rounded-lg border border-border/60 bg-card p-3 text-left transition-colors hover:border-muted-foreground/30 hover:bg-accent/40"
     >
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center gap-3.5 p-4 text-left"
-      >
-        {Icon && colors && (
-          <div
-            className={`shrink-0 w-10 h-10 rounded-lg ${colors.bg} flex items-center justify-center ${colors.text}`}
-          >
-            {createElement(Icon, { size: 20 })}
-          </div>
-        )}
-
-        <div className="flex-1 min-w-0">
-          <span className="font-semibold text-sm leading-tight">{product.name}</span>
-          {product.description && (
-            <p
-              className={`text-xs text-muted-foreground mt-0.5 ${isExpanded ? '' : 'line-clamp-1'}`}
-            >
-              {product.description}
-            </p>
-          )}
-          {!isExpanded && badges.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-2">
-              {badges.map(b => (
-                <Badge
-                  key={b}
-                  variant="outline"
-                  size="sm"
-                  className="text-[11px] font-medium text-muted-foreground"
-                >
-                  {b}
-                </Badge>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <span className="shrink-0 text-muted-foreground">
-          {isExpanded ? <ChevronUpIcon size={16} /> : <ChevronDownIcon size={16} />}
-        </span>
-      </button>
-
-      {isExpanded && feeType && (
-        <div className="border-t border-border/60 px-4 pb-4 pt-4">
-          {renderEntitlements && savedFormData ? (
-            renderEntitlements({
-              productId: product.id,
-              productName: product.name,
-              formData: savedFormData,
-              feeType,
-              onBack: () => setSavedFormData(null),
-              onConfirm: entitlements =>
-                onAdd({
-                  productId: product.id,
-                  componentName: product.name,
-                  formData: savedFormData,
-                  feeType,
-                  entitlements,
-                }),
-            })
-          ) : (
-            <ProductPricingForm
-              feeType={feeType}
-              currency={currency}
-              existingPrice={item.latestPrice ?? undefined}
-              structuralInfo={structural}
-              onSubmit={formData => {
-                if (renderEntitlements && productHasEntitlements) {
-                  setSavedFormData(formData)
-                } else {
-                  onAdd({ productId: product.id, componentName: product.name, formData, feeType, entitlements: [] })
-                }
-              }}
-              submitLabel={effectiveSubmitLabel}
-              submitVariant={effectiveSubmitVariant}
-            />
-          )}
+      {Icon && colors && (
+        <div
+          className={`shrink-0 w-8 h-8 rounded-md ${colors.bg} flex items-center justify-center ${colors.text}`}
+        >
+          {createElement(Icon, { size: 16 })}
         </div>
       )}
-    </div>
+      <div className="flex-1 min-w-0">
+        <span className="font-medium text-sm leading-tight">{product.name}</span>
+        {product.description && (
+          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{product.description}</p>
+        )}
+      </div>
+      <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+        {badges.map(b => (
+          <Badge
+            key={b}
+            variant="outline"
+            size="sm"
+            className="text-[11px] font-medium text-muted-foreground"
+          >
+            {b}
+          </Badge>
+        ))}
+      </div>
+    </button>
   )
-}
-
-// --- Structural info extraction (properly typed) ---
-
-export function extractStructuralInfo(
-  feeType: ComponentFeeType | undefined,
-  feeStructure: FeeStructure | undefined
-): StructuralInfo {
-  const structure = feeStructure?.structure
-  if (!structure || !structure.case) return {}
-
-  switch (feeType) {
-    case 'slot':
-      return structure.case === 'slot' ? { slotUnitName: structure.value.unitName } : {}
-    case 'capacity':
-      return structure.case === 'capacity' ? { metricId: structure.value.metricId } : {}
-    case 'usage': {
-      if (structure.case !== 'usage') return {}
-      const usageModelMap: Record<number, string> = {
-        [FeeStructure_UsageModel.PER_UNIT]: 'per_unit',
-        [FeeStructure_UsageModel.TIERED]: 'tiered',
-        [FeeStructure_UsageModel.VOLUME]: 'volume',
-        [FeeStructure_UsageModel.PACKAGE]: 'package',
-        [FeeStructure_UsageModel.MATRIX]: 'matrix',
-      }
-      return {
-        metricId: structure.value.metricId,
-        usageModel: usageModelMap[structure.value.model ?? 0],
-      }
-    }
-    case 'extraRecurring':
-      return structure.case === 'extraRecurring'
-        ? { billingType: structure.value.billingType === 1 ? 'ADVANCE' : 'ARREAR' }
-        : {}
-    default:
-      return {}
-  }
 }

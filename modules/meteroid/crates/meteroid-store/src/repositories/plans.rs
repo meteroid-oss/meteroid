@@ -1,4 +1,5 @@
 use crate::StoreResult;
+use crate::constants::Currencies;
 use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::store::{PgConn, Store};
 
@@ -11,13 +12,16 @@ use crate::domain::prices::{
 use crate::domain::{
     FullPlan, FullPlanNew, PaginatedVec, PaginationRequest, Plan, PlanAndVersionPatch, PlanFilters,
     PlanOverview, PlanPatch, PlanStatusEnum, PlanVersion, PlanVersionFilter, PlanVersionNew,
-    PlanVersionNewInternal, PlanWithVersion, Price, PriceComponent, PriceComponentNew, Product,
+    PlanVersionNewInternal, PlanWithVersion, PriceComponent, PriceComponentNew, Product,
     ProductFamilyOverview, SelfServicePlan, TrialPatch,
 };
 use crate::errors::StoreError;
 use crate::hooks::USAGE_CONTROLS_UNAVAILABLE;
 use crate::repositories::entitlements::insert_entitlement_specs;
-use crate::repositories::price_components::resolve_component_internal;
+use crate::repositories::plan_options::{
+    copy_options, insert_options_and_links, options_by_version, version_options,
+};
+use crate::repositories::price_components::{attach_prices, resolve_component_internal};
 use common_domain::ids::{
     BaseId, PlanId, PlanVersionId, PriceComponentId, ProductFamilyId, ProductId, TenantId,
 };
@@ -32,12 +36,13 @@ use diesel_models::plans::{
     FullPlanRow, PlanRow, PlanRowNew, PlanRowOverview, PlanRowPatch, SelfServicePlanRow,
 };
 use diesel_models::price_components::PriceComponentRow;
-use diesel_models::prices::{PriceRow, PriceRowNew};
+use diesel_models::prices::PriceRowNew;
 use diesel_models::product_families::ProductFamilyRow;
 use diesel_models::products::{ProductRow, ProductRowNew};
 use diesel_models::tenants::TenantRow;
 use error_stack::Report;
 use meteroid_store_macros::with_conn_delegate;
+use rust_decimal::Decimal;
 use scoped_futures::ScopedFutureExt;
 use std::collections::HashMap;
 
@@ -154,12 +159,24 @@ pub trait PlansInterface {
     ) -> StoreResult<()>;
     async fn unarchive_plan(&self, id: PlanId, auth_tenant_id: TenantId) -> StoreResult<()>;
 
+    /// Ranks `plan_ids` 1..n on the product family's self-serve ladder; every other plan of the
+    /// family leaves it.
+    async fn set_self_serve_ladder(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        product_family_id: ProductFamilyId,
+        plan_ids: Vec<PlanId>,
+    ) -> StoreResult<()>;
+
     async fn list_self_service_plans(
         &self,
         tenant_id: TenantId,
         product_family_id: ProductFamilyId,
         currency: &str,
         exclude_plan_id: PlanId,
+        // Staff reading upsells also see the plans only sold by contacting sales.
+        with_sales_led: bool,
     ) -> StoreResult<Vec<SelfServicePlan>>;
 
     async fn list_published_versions_by_plan_ids(
@@ -222,44 +239,12 @@ async fn convert_full_plan_row(
         .map(|v| v.try_into())
         .collect::<StoreResult<Vec<_>>>()?;
 
-    // Load v2 prices
-    let component_ids: Vec<PriceComponentId> = price_components.iter().map(|c| c.id).collect();
-    let mut prices_by_component: HashMap<PriceComponentId, Vec<Price>> = HashMap::new();
-
-    if !component_ids.is_empty() {
-        let pcp_rows = PlanComponentPriceRow::list_by_component_ids(conn, &component_ids)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        if !pcp_rows.is_empty() {
-            let price_ids: Vec<PriceId> = pcp_rows.iter().map(|pcp| pcp.price_id).collect();
-            let price_rows = PriceRow::list_by_ids(conn, &price_ids, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-
-            let prices_by_id: HashMap<PriceId, Price> = price_rows
-                .into_iter()
-                .map(|r| {
-                    let id = r.id;
-                    Price::try_from(r).map(|p| (id, p))
-                })
-                .collect::<Result<HashMap<_, _>, _>>()?;
-
-            for pcp in &pcp_rows {
-                if let Some(price) = prices_by_id.get(&pcp.price_id) {
-                    prices_by_component
-                        .entry(pcp.plan_component_id)
-                        .or_default()
-                        .push(price.clone());
-                }
-            }
-        }
-    }
+    attach_prices(conn, tenant_id, &mut price_components).await?;
 
     // Extract legacy pricing for v1 components
     let has_v1 = price_components
         .iter()
-        .any(|c| !prices_by_component.contains_key(&c.id) && c.product_id.is_none());
+        .any(|c| c.prices.is_empty() && c.product_id.is_none());
 
     // For legacy components, we need to read legacy_fee from the raw rows
     // Since FullPlanRow gave us PriceComponentRows that we already converted,
@@ -268,7 +253,7 @@ async fn convert_full_plan_row(
     if has_v1 {
         let v1_ids: Vec<PriceComponentId> = price_components
             .iter()
-            .filter(|c| !prices_by_component.contains_key(&c.id) && c.product_id.is_none())
+            .filter(|c| c.prices.is_empty() && c.product_id.is_none())
             .map(|c| c.id)
             .collect();
 
@@ -288,11 +273,8 @@ async fn convert_full_plan_row(
         }
     }
 
-    // Attach prices and legacy data
+    // Attach legacy data
     for comp in &mut price_components {
-        if let Some(prices) = prices_by_component.remove(&comp.id) {
-            comp.prices = prices;
-        }
         if let Some(legacy) = legacy_by_component.remove(&comp.id) {
             comp.legacy_pricing = Some(legacy);
         }
@@ -333,6 +315,7 @@ async fn convert_full_plan_row(
     let mut version = version;
     version.entitlements = entitlements;
     version.minimum = load_plan_minimum(conn, version.id).await?;
+    load_options(conn, &mut version).await?;
 
     Ok(FullPlan {
         plan,
@@ -566,6 +549,7 @@ impl PlansInterface for Store {
 
                     // Insert price components via resolve_component_internal
                     let mut all_inserted_components = Vec::new();
+                    let mut linked = Vec::new();
 
                     for p in &price_components {
                         let (product_id, price_ids) = resolve_component_internal(
@@ -590,23 +574,19 @@ impl PlansInterface for Store {
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?;
 
-                        // Create plan_component_price join rows
-                        if !price_ids.is_empty() {
-                            let pcp_rows: Vec<PlanComponentPriceRowNew> = price_ids
-                                .iter()
-                                .map(|pid| PlanComponentPriceRowNew {
-                                    plan_component_id: inserted_row.id,
-                                    price_id: *pid,
-                                })
-                                .collect();
-                            PlanComponentPriceRowNew::insert_batch(conn, &pcp_rows)
-                                .await
-                                .map_err(Into::<Report<StoreError>>::into)?;
-                        }
+                        linked.push((inserted_row.id, price_ids));
 
                         let comp: crate::domain::PriceComponent = inserted_row.try_into()?;
                         all_inserted_components.push(comp);
                     }
+                    let options = insert_options_and_links(
+                        conn,
+                        inserted.tenant_id,
+                        inserted_plan_version_new.id,
+                        &linked,
+                    )
+                    .await?;
+                    inserted_plan_version_new.options = options.clone();
 
                     let inserted_price_components = all_inserted_components;
                     if !inserted_plan_version_new.is_draft_version {
@@ -627,6 +607,7 @@ impl PlansInterface for Store {
                         .map_err(Into::<Report<StoreError>>::into)?;
                         ensure_rated_beyond_credit(conn, &row).await?;
                         inserted_plan_version_new = row.into();
+                        inserted_plan_version_new.options = options;
                     }
 
                     if !version_entitlements.is_empty() {
@@ -705,6 +686,7 @@ impl PlansInterface for Store {
 
         if let Some(version) = plan.version.as_mut() {
             version.minimum = load_plan_minimum(&mut conn, version.id).await?;
+            load_options(&mut conn, version).await?;
         }
 
         Ok(plan)
@@ -724,6 +706,7 @@ impl PlansInterface for Store {
 
         if let Some(version) = plan.version.as_mut() {
             version.minimum = load_plan_minimum(conn, version.id).await?;
+            load_options(conn, version).await?;
         }
 
         Ok(plan)
@@ -736,10 +719,17 @@ impl PlansInterface for Store {
     ) -> StoreResult<PlanOverview> {
         let mut conn = self.get_conn().await?;
 
-        PlanRow::get_overview_by_id(&mut conn, id, auth_tenant_id)
+        let mut overview: PlanOverview = PlanRow::get_overview_by_id(&mut conn, id, auth_tenant_id)
             .await
-            .map_err(Into::into)
-            .map(Into::into)
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into();
+        fill_offers(
+            &mut conn,
+            auth_tenant_id,
+            std::slice::from_mut(&mut overview),
+        )
+        .await?;
+        Ok(overview)
     }
 
     async fn get_full_plan(
@@ -778,13 +768,15 @@ impl PlansInterface for Store {
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
-        let res: PaginatedVec<PlanOverview> = PaginatedVec {
-            items: rows.items.into_iter().map(Into::into).collect(),
+        let mut items: Vec<PlanOverview> = rows.items.into_iter().map(Into::into).collect();
+        fill_offers(&mut conn, auth_tenant_id, &mut items).await?;
+        fill_mrr(self, &mut conn, auth_tenant_id, &mut items).await?;
+
+        Ok(PaginatedVec {
+            items,
             total_pages: rows.total_pages,
             total_results: rows.total_results,
-        };
-
-        Ok(res)
+        })
     }
 
     async fn list_full_plans(
@@ -826,10 +818,13 @@ impl PlansInterface for Store {
         auth_tenant_id: TenantId,
     ) -> StoreResult<PlanVersion> {
         let mut conn = self.get_conn().await?;
-        PlanVersionRow::find_by_id_and_tenant_id(&mut conn, id, auth_tenant_id)
-            .await
-            .map(Into::into)
-            .map_err(Into::into)
+        let mut version: PlanVersion =
+            PlanVersionRow::find_by_id_and_tenant_id(&mut conn, id, auth_tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into();
+        load_options(&mut conn, &mut version).await?;
+        Ok(version)
     }
 
     async fn resolve_published_version_id(
@@ -952,6 +947,9 @@ impl PlansInterface for Store {
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
+                // The options keep their name, alias and position: plan + alias stays valid.
+                let option_copies = copy_options(conn, auth_tenant_id, original.id, new.id).await?;
+
                 // Clone plan_component_price entries: map old→new component IDs by matching on (name, product_id)
                 let src_component_ids: Vec<_> = src_components.iter().map(|c| c.id).collect();
                 let src_pcp_rows =
@@ -977,6 +975,7 @@ impl PlansInterface for Store {
                             Some(PlanComponentPriceRowNew {
                                 plan_component_id: *dst_id,
                                 price_id: pcp.price_id,
+                                option_id: *option_copies.get(&pcp.option_id)?,
                             })
                         })
                         .collect();
@@ -1004,6 +1003,12 @@ impl PlansInterface for Store {
                     let components_with_pcp: std::collections::HashSet<_> =
                         existing_pcp.iter().map(|p| p.plan_component_id).collect();
 
+                    let options: Vec<common_domain::ids::PlanOptionId> =
+                        version_options(conn, auth_tenant_id, new.id)
+                            .await?
+                            .into_iter()
+                            .map(|option| option.id)
+                            .collect();
                     let mut upgrade_pcp_rows = Vec::new();
                     for comp in &dst_components {
                         if components_with_pcp.contains(&comp.id) {
@@ -1040,10 +1045,18 @@ impl PlansInterface for Store {
                                     )?,
                                     catalog: true,
                                     tax_category_id: None,
+                                    icon: None,
+                                    color: None,
                                 }
                                 .insert(conn)
                                 .await
                                 .map_err(Into::<Report<StoreError>>::into)?;
+                                crate::repositories::products::register_quantity(
+                                    conn,
+                                    auth_tenant_id,
+                                    &fee_structure,
+                                )
+                                .await?;
 
                                 // Update the component's product_id
                                 let mut updated_comp = comp.clone();
@@ -1078,10 +1091,13 @@ impl PlansInterface for Store {
                                 .await
                                 .map_err(Into::<Report<StoreError>>::into)?;
 
-                                upgrade_pcp_rows.push(PlanComponentPriceRowNew {
-                                    plan_component_id: comp.id,
-                                    price_id: price_row.id,
-                                });
+                                upgrade_pcp_rows.extend(options.iter().map(|option_id| {
+                                    PlanComponentPriceRowNew {
+                                        plan_component_id: comp.id,
+                                        price_id: price_row.id,
+                                        option_id: *option_id,
+                                    }
+                                }));
                             }
                         }
                     }
@@ -1142,7 +1158,9 @@ impl PlansInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-                Ok(new.into())
+                let mut version: PlanVersion = new.into();
+                load_options(conn, &mut version).await?;
+                Ok(version)
             }
             .scope_boxed()
         })
@@ -1193,7 +1211,8 @@ impl PlansInterface for Store {
                     .map(Into::into)
                     .map_err(Into::<Report<StoreError>>::into)?;
 
-                    let version: PlanVersion = published.into();
+                    let mut version: PlanVersion = published.into();
+                    load_options(conn, &mut version).await?;
 
                     // Emit plan.published webhook inside transaction
                     let plan_event = crate::domain::outbox_event::PlanEvent::new(
@@ -1328,11 +1347,12 @@ impl PlansInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
-                let overview: PlanOverview =
+                let mut overview: PlanOverview =
                     PlanRow::get_overview_by_id(conn, plan.id, plan.tenant_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)
                         .map(Into::into)?;
+                fill_offers(conn, plan.tenant_id, std::slice::from_mut(&mut overview)).await?;
 
                 let mut changed: Vec<&'static str> = Vec::new();
                 if before.name != overview.name {
@@ -1410,11 +1430,14 @@ impl PlansInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
-                let result: PlanWithVersion =
+                let mut result: PlanWithVersion =
                     PlanRow::get_with_version(conn, patched_version.id, patched_version.tenant_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)
                         .map(Into::into)?;
+                if let Some(version) = result.version.as_mut() {
+                    load_options(conn, version).await?;
+                }
 
                 let activity = Activity::new(
                     ActivityType::EntityUpdated,
@@ -1463,11 +1486,14 @@ impl PlansInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
-                let result: PlanWithVersion =
+                let mut result: PlanWithVersion =
                     PlanRow::get_with_version(conn, patched_version.id, patched_version.tenant_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)
                         .map(Into::into)?;
+                if let Some(version) = result.version.as_mut() {
+                    load_options(conn, version).await?;
+                }
 
                 let activity = Activity::new(
                     ActivityType::EntityUpdated,
@@ -1584,12 +1610,88 @@ impl PlansInterface for Store {
             .map_err(Into::into)
     }
 
+    async fn set_self_serve_ladder(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        product_family_id: ProductFamilyId,
+        plan_ids: Vec<PlanId>,
+    ) -> StoreResult<()> {
+        let mut seen = std::collections::HashSet::new();
+        if let Some(duplicate) = plan_ids.iter().find(|id| !seen.insert(**id)) {
+            return Err(Report::new(StoreError::InvalidArgument(format!(
+                "Plan {duplicate} is listed twice on the ladder"
+            ))));
+        }
+
+        self.transaction(|conn| {
+            let actor = &actor;
+            let plan_ids = &plan_ids;
+            async move {
+                let family = PlanRow::lock_by_product_family(conn, product_family_id, tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                for plan_id in plan_ids {
+                    let Some(plan) = family.iter().find(|p| p.id == *plan_id) else {
+                        return Err(Report::new(StoreError::InvalidArgument(format!(
+                            "Plan {plan_id} is not in this product line"
+                        ))));
+                    };
+                    if matches!(plan.status, diesel_models::enums::PlanStatusEnum::Archived) {
+                        return Err(Report::new(StoreError::InvalidArgument(format!(
+                            "{} is archived and cannot be on the ladder",
+                            plan.name
+                        ))));
+                    }
+                    // The portal never offers custom plans: a rank on one would be invisible.
+                    if matches!(plan.plan_type, diesel_models::enums::PlanTypeEnum::Custom) {
+                        return Err(Report::new(StoreError::InvalidArgument(format!(
+                            "{} is a custom plan and cannot be on the ladder",
+                            plan.name
+                        ))));
+                    }
+                }
+
+                PlanRow::set_self_service_ranks(conn, product_family_id, tenant_id, plan_ids)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                for plan in &family {
+                    let rank = plan_ids
+                        .iter()
+                        .position(|id| *id == plan.id)
+                        .map(|index| index as i32 + 1);
+                    if rank == plan.self_service_rank {
+                        continue;
+                    }
+                    let activity = Activity::new(
+                        ActivityType::EntityUpdated,
+                        EntityType::Plan,
+                        plan.id.as_uuid(),
+                    )
+                    .with_metadata(serde_json::json!({
+                        "changes": [{ "field": "self_service_rank" }],
+                    }));
+                    self.internal
+                        .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
+                        .await?;
+                }
+
+                Ok(())
+            }
+            .scope_boxed()
+        })
+        .await
+    }
+
     async fn list_self_service_plans(
         &self,
         tenant_id: TenantId,
         product_family_id: ProductFamilyId,
         currency: &str,
         exclude_plan_id: PlanId,
+        with_sales_led: bool,
     ) -> StoreResult<Vec<SelfServicePlan>> {
         let mut conn = self.get_conn().await?;
 
@@ -1599,6 +1701,7 @@ impl PlansInterface for Store {
             product_family_id,
             currency,
             exclude_plan_id,
+            with_sales_led,
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
@@ -1752,6 +1855,7 @@ impl PlansInterface for Store {
                         String,
                         common_domain::ids::ProductId,
                     > = std::collections::HashMap::new();
+                    let mut linked = Vec::new();
                     for p in &price_components {
                         let (product_id, price_ids) = resolve_component_internal(
                             conn,
@@ -1786,19 +1890,10 @@ impl PlansInterface for Store {
                             ))));
                         }
 
-                        if !price_ids.is_empty() {
-                            let pcp_rows: Vec<PlanComponentPriceRowNew> = price_ids
-                                .iter()
-                                .map(|pid| PlanComponentPriceRowNew {
-                                    plan_component_id: inserted_row.id,
-                                    price_id: *pid,
-                                })
-                                .collect();
-                            PlanComponentPriceRowNew::insert_batch(conn, &pcp_rows)
-                                .await
-                                .map_err(Into::<Report<StoreError>>::into)?;
-                        }
+                        linked.push((inserted_row.id, price_ids));
                     }
+
+                    insert_options_and_links(conn, tenant_id, inserted_version.id, &linked).await?;
 
                     // Persist plan-level minimum commitment if requested.
                     if let Some(min_input) = minimum.as_ref() {
@@ -2162,4 +2257,97 @@ async fn ensure_plan_version_in_tenant(
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
     Ok(row.into())
+}
+
+/// Loads the options of `version`.
+async fn load_options(conn: &mut PgConn, version: &mut PlanVersion) -> StoreResult<()> {
+    version.options = options_by_version(conn, version.tenant_id, &[version.id])
+        .await?
+        .remove(&version.id)
+        .unwrap_or_default();
+    Ok(())
+}
+
+/// The options of each plan's active version, and the `(currency, option)` each is sold in with
+/// its headline price, read in a few bulk queries.
+/// Each plan's MRR, its subscriptions' currencies converted at today's rates; a currency
+/// without a rate is left out of the sum.
+async fn fill_mrr(
+    store: &Store,
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    plans: &mut [PlanOverview],
+) -> StoreResult<()> {
+    if plans.is_empty() {
+        return Ok(());
+    }
+    let ids: Vec<PlanId> = plans.iter().map(|plan| plan.id).collect();
+    let rows = diesel_models::plans::PlanMrrRow::list_by_plan_ids(conn, tenant_id, &ids)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    let today = common_clock::now().date_naive();
+    let fx = crate::services::fx::reporting_fx(store, tenant_id, today).await?;
+    let precision = Currencies::resolve_currency_precision(fx.target()).unwrap_or(2);
+    let mut cents: HashMap<PlanId, i64> = HashMap::new();
+    for row in rows {
+        let converted = fx.convert(row.mrr_cents, &row.currency);
+        if converted.is_none() {
+            log::warn!(
+                "no FX rate from {} to {}: MRR of plan {} left out",
+                row.currency,
+                fx.target(),
+                row.plan_id
+            );
+        }
+        *cents.entry(row.plan_id).or_default() += converted.unwrap_or(0);
+    }
+    for plan in plans {
+        let total = cents.get(&plan.id).copied().unwrap_or(0);
+        plan.mrr = Some(Decimal::new(total, u32::from(precision)));
+    }
+    Ok(())
+}
+
+async fn fill_offers(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    plans: &mut [PlanOverview],
+) -> StoreResult<()> {
+    let versions: Vec<PlanVersionId> = plans
+        .iter()
+        .filter_map(|plan| plan.active_version.as_ref().map(|v| v.id))
+        .collect();
+    if versions.is_empty() {
+        return Ok(());
+    }
+    let mut options = options_by_version(conn, tenant_id, &versions).await?;
+    let rows = PriceComponentRow::get_by_plan_version_ids(conn, &versions, tenant_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    let mut version_of: Vec<PlanVersionId> = Vec::new();
+    let mut components: Vec<PriceComponent> = Vec::new();
+    for (version, version_rows) in rows {
+        for row in version_rows {
+            version_of.push(version);
+            components.push(row.try_into()?);
+        }
+    }
+    attach_prices(conn, tenant_id, &mut components).await?;
+    for plan in plans {
+        let Some(version) = plan.active_version.as_ref().map(|v| v.id) else {
+            continue;
+        };
+        let own: Vec<PriceComponent> = version_of
+            .iter()
+            .zip(&components)
+            .filter(|(v, _)| **v == version)
+            .map(|(_, component)| component.clone())
+            .collect();
+        plan.options = options.remove(&version).unwrap_or_default();
+        plan.priced_options = crate::domain::price_headline::headline_prices(&plan.options, &own);
+        // As sign-up reads it (`product_family_journeys::signup_ready`).
+        plan.free = plan.plan_type == crate::domain::enums::PlanTypeEnum::Free
+            || crate::domain::price_components::charges_nothing(&own);
+    }
+    Ok(())
 }

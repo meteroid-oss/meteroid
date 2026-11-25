@@ -590,6 +590,30 @@ pub enum SubscriptionChangeKindEnum {
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[ExistingTypePath = "crate::schema::sql_types::RateCardUnmatchedEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum RateCardUnmatchedEnum {
+    Hold,
+    Ignore,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[ExistingTypePath = "crate::schema::sql_types::QuantityIncreaseEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum QuantityIncreaseEnum {
+    Immediately,
+    NextPeriod,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[ExistingTypePath = "crate::schema::sql_types::QuantityDecreaseEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum QuantityDecreaseEnum {
+    AtPeriodEnd,
+    Immediately,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq)]
 #[ExistingTypePath = "crate::schema::sql_types::SlotTransactionStatus"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum SlotTransactionStatusEnum {

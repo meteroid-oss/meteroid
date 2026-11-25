@@ -24,25 +24,67 @@ pub fn wall() -> DateTime<Utc> {
 pub mod test {
     use super::*;
     use chrono::Duration;
+    use std::cell::RefCell;
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicI64, Ordering};
 
+    /// The clock of a process running one test (cargo nextest).
     static OFFSET_MICROS: AtomicI64 = AtomicI64::new(0);
 
-    pub(super) fn offset() -> Duration {
-        Duration::microseconds(OFFSET_MICROS.load(Ordering::Relaxed))
+    thread_local! {
+        /// The clock of the test this thread runs, when tests share a process (cargo test).
+        static SCOPE: RefCell<Option<Clock>> = const { RefCell::new(None) };
     }
 
-    /// Moves the present to `at`; time keeps passing from there. The clock is per process, so
-    /// this needs a runner with one process per test (cargo nextest).
+    /// A test's clock, shared by the threads that run it.
+    #[derive(Clone, Default)]
+    pub struct Clock(Arc<AtomicI64>);
+
+    fn one_test_per_process() -> bool {
+        std::env::var_os("NEXTEST").is_some()
+    }
+
+    /// The clock of the test running on this thread, created on first use. A runtime of several
+    /// threads hands it to each of them with [`enter`] (`on_thread_start`).
+    pub fn scope() -> Clock {
+        SCOPE.with(|scope| {
+            scope
+                .borrow_mut()
+                .get_or_insert_with(Clock::default)
+                .clone()
+        })
+    }
+
+    /// Makes `clock` this thread's.
+    pub fn enter(clock: Clock) {
+        SCOPE.with(|scope| *scope.borrow_mut() = Some(clock));
+    }
+
+    pub(super) fn offset() -> Duration {
+        let micros = if one_test_per_process() {
+            OFFSET_MICROS.load(Ordering::Relaxed)
+        } else {
+            SCOPE.with(|scope| {
+                scope
+                    .borrow()
+                    .as_ref()
+                    .map_or(0, |clock| clock.0.load(Ordering::Relaxed))
+            })
+        };
+        Duration::microseconds(micros)
+    }
+
+    /// Moves the present to `at`; time keeps passing from there. The process's clock under
+    /// nextest, else the clock of the test running on this thread.
     pub fn set(at: DateTime<Utc>) {
-        assert!(
-            std::env::var_os("NEXTEST").is_some(),
-            "moving the clock needs cargo nextest: tests of one process would share it"
-        );
         let micros = (at - Utc::now())
             .num_microseconds()
             .expect("an instant within 292 000 years");
-        OFFSET_MICROS.store(micros, Ordering::Relaxed);
+        if one_test_per_process() {
+            OFFSET_MICROS.store(micros, Ordering::Relaxed);
+        } else {
+            scope().0.store(micros, Ordering::Relaxed);
+        }
     }
 
     /// Moves the present forward by `by`.
@@ -53,6 +95,27 @@ pub mod test {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "test-clock")]
+    #[test]
+    fn each_test_thread_has_its_own_clock() {
+        if std::env::var_os("NEXTEST").is_some() {
+            return;
+        }
+        let far = chrono::Utc::now() + chrono::Duration::days(400);
+        super::test::set(far);
+        assert!(super::now() >= far);
+        let other = std::thread::spawn(super::now).join().unwrap();
+        assert!(other < far, "another test's thread keeps its own present");
+        let clock = super::test::scope();
+        let shared = std::thread::spawn(move || {
+            super::test::enter(clock);
+            super::now()
+        })
+        .join()
+        .unwrap();
+        assert!(shared >= far, "a thread entering the test's clock reads it");
+    }
+
     #[test]
     fn the_present_has_no_sub_microsecond_part() {
         for _ in 0..1_000 {

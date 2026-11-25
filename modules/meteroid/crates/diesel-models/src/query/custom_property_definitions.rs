@@ -1,4 +1,6 @@
-use crate::custom_property_definitions::CustomPropertyDefinitionRow;
+use crate::custom_property_definitions::{
+    CustomPropertyDefinitionRow, CustomPropertyDefinitionRowNew,
+};
 use crate::enums::CustomPropertyEntityTypeEnum;
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
@@ -7,6 +9,21 @@ use diesel::{ExpressionMethods, QueryDsl};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 use tap::TapFallible;
+
+impl CustomPropertyDefinitionRowNew {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<CustomPropertyDefinitionRow> {
+        use crate::schema::custom_property_definition::dsl as t_dsl;
+
+        let query = diesel::insert_into(t_dsl::custom_property_definition).values(self);
+        crate::debug_sql(&query);
+
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while inserting custom_property_definition")
+            .into_db_result()
+    }
+}
 
 impl CustomPropertyDefinitionRow {
     pub async fn get_by_id(

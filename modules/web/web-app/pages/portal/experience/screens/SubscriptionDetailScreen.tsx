@@ -2,10 +2,14 @@ import { ChevronDown } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
+import { unitIsCurrency } from '@/features/plans/charges/kinds'
+import { levelSize, levelWords } from '@/features/subscriptions/capacityLevels'
 import { useQuery } from '@/lib/connectrpc'
 import { FeeType } from '@/rpc/api/prices/v1/models_pb'
+import { SubscriptionFeeBillingPeriod } from '@/rpc/api/subscriptions/v1/models_pb'
 import {
   previewAddOnQuantity,
+  previewLevelChange,
   previewSeats,
 } from '@/rpc/portal/subscription/v1/subscription-PortalSubscriptionService_connectquery'
 import { AdjustmentStatus, PendingEventType } from '@/rpc/portal/subscription/v1/subscription_pb'
@@ -32,10 +36,12 @@ import { boundaryDay } from '../walletFormat'
 
 import { UsageFilterTag } from './UsageFilterTag'
 
+import type { LevelUnit } from '@/features/subscriptions/capacityLevels'
 import type { LineItem } from '@/rpc/api/invoices/v1/models_pb'
 import type {
   AdjustableComponent,
   AvailableAddOn,
+  CapacityLevel,
   ComponentFee,
   SubscriptionDetails,
 } from '@/rpc/portal/subscription/v1/subscription_pb'
@@ -510,6 +516,7 @@ const CommitmentsCard = ({
 }) => {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<{ c: AdjustableComponent; target: number } | null>(null)
+  const [levelOf, setLevelOf] = useState<AdjustableComponent | null>(null)
   const components = sm.adjustableComponents
   if (components.length === 0) return null
 
@@ -561,11 +568,27 @@ const CommitmentsCard = ({
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0, flex: 1 }}>
               <span style={{ fontSize: 13.5, fontWeight: 500 }}>{c.name}</span>
               <span style={{ fontSize: 12, color: 'var(--mtp-text-3)' }}>
-                {feeLabel(c.unitFee, currency)}
-                {c.unit ? ` · ${current} ${c.unit}` : ''}
+                {isSeats || !c.unitFee
+                  ? `${feeLabel(c.unitFee, currency)}${c.unit ? ` · ${current} ${c.unit}` : ''}`
+                  : levelWords(
+                      { included: BigInt(c.current), rate: c.unitFee.amount },
+                      currency,
+                      c.unitFee.cadence,
+                      capacityUnit(c, currency)
+                    )}
               </span>
             </div>
-            {isSeats ? (
+            {!isSeats && c.levels.length > 1 ? (
+              <PButton
+                size="sm"
+                variant="secondary"
+                disabled={!sm.canSelfServe}
+                loading={busyId === c.componentId}
+                onClick={() => setLevelOf(c)}
+              >
+                Change level
+              </PButton>
+            ) : isSeats ? (
               <Stepper
                 value={current}
                 min={min}
@@ -586,12 +609,39 @@ const CommitmentsCard = ({
           </div>
         )
       })}
-      {(!sm.canSelfServe || components.some(c => c.kind === 'capacity')) && (
+      {!sm.canSelfServe && (
         <ManagedNote>
-          {!sm.canSelfServe
-            ? 'Managed by your account team — contact them to change seats or commitments.'
-            : 'Usage commitments are adjusted by your account team — reach out to change them.'}
+          Managed by your account team — contact them to change seats or commitments.
         </ManagedNote>
+      )}
+      {levelOf && (
+        <LevelChangeModal
+          component={levelOf}
+          subscriptionId={sm.subscription?.id ?? ''}
+          currency={currency}
+          periodEnd={sm.subscription?.currentPeriodEnd}
+          allowLower={sm.levelDowngrade}
+          busy={busyId === levelOf.componentId}
+          onClose={() => setLevelOf(null)}
+          onConfirm={async level => {
+            setBusyId(levelOf.componentId)
+            try {
+              const res = await sm.setLevel(levelOf.componentId, level.priceId)
+              toast.success(
+                res.status === AdjustmentStatus.ADJUSTMENT_SCHEDULED
+                  ? res.effectiveDate
+                    ? `Level changes on ${date(res.effectiveDate)}`
+                    : 'Level change scheduled for period end'
+                  : 'Level changed'
+              )
+              setLevelOf(null)
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : 'Unable to change level')
+            } finally {
+              setBusyId(null)
+            }
+          }}
+        />
       )}
       <QuantityChangeModal
         change={
@@ -618,6 +668,175 @@ const CommitmentsCard = ({
         }}
       />
     </PanelCard>
+  )
+}
+
+/** How a usage-levels charge's sizes read: money when its metric counts the currency. */
+const capacityUnit = (c: AdjustableComponent, currency: string): LevelUnit => ({
+  money: unitIsCurrency({ plural: c.unit ?? null }, currency),
+  plural: c.unit,
+})
+
+const levelOfFee = (level: CapacityLevel) => ({
+  included: level.included,
+  rate: level.fee?.amount ?? '0',
+})
+
+/**
+ * Moves a usage-levels charge to another level of the plan. The amounts are the server's preview,
+ * billed by the same path that applies the change: a higher level is billed now, prorated for the
+ * days left; a lower one takes effect at the end of the period, nothing charged now.
+ */
+const LevelChangeModal = ({
+  component,
+  subscriptionId,
+  currency,
+  periodEnd,
+  allowLower,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  component: AdjustableComponent
+  subscriptionId: string
+  currency: string
+  periodEnd?: string
+  allowLower: boolean
+  busy: boolean
+  onClose: () => void
+  onConfirm: (level: CapacityLevel) => void
+}) => {
+  const [picked, setPicked] = useState<CapacityLevel | null>(null)
+  const unit = capacityUnit(component, currency)
+  const held = BigInt(component.current)
+  const period = component.unitFee?.cadence ?? SubscriptionFeeBillingPeriod.MONTHLY
+  const preview = useQuery(
+    previewLevelChange,
+    { subscriptionId, componentId: component.componentId, priceId: picked?.priceId ?? '' },
+    { enabled: !!picked }
+  )
+  const p = preview.data?.preview
+  const raises = !!picked && picked.included > held
+  const immediate = p?.immediate ?? raises
+
+  return (
+    <Modal open onClose={onClose} maxWidth={460}>
+      <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: 16, fontWeight: 600 }}>Change {component.name}</span>
+          <ModalCloseButton onClose={onClose} />
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {component.levels.map(level => {
+            const lower = level.included < held
+            const unavailable = level.current || (lower && !allowLower)
+            const selected = picked?.priceId === level.priceId
+            return (
+              <button
+                key={level.priceId}
+                type="button"
+                disabled={unavailable}
+                onClick={() => setPicked(level)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                  padding: '11px 14px',
+                  borderRadius: 'var(--mtp-r-ctrl)',
+                  border: selected
+                    ? '1px solid var(--mtp-accent-ink)'
+                    : '1px solid var(--mtp-border)',
+                  background: selected ? 'var(--mtp-accent-weak)' : 'var(--mtp-surface)',
+                  color: 'var(--mtp-text)',
+                  fontFamily: 'inherit',
+                  fontSize: 13,
+                  textAlign: 'left',
+                  cursor: unavailable ? 'default' : 'pointer',
+                  opacity: unavailable && !level.current ? 0.55 : 1,
+                }}
+              >
+                <span>{levelWords(levelOfFee(level), currency, period, unit)}</span>
+                {level.current && <Pill badge={{ label: 'Current', tone: 'ok' }} />}
+              </button>
+            )
+          })}
+          {!allowLower && component.levels.some(l => l.included < held) && (
+            <span style={{ fontSize: 12, color: 'var(--mtp-text-3)' }}>
+              Lower levels are arranged with your account team.
+            </span>
+          )}
+        </div>
+
+        {picked && (
+          <div
+            style={{
+              border: '1px solid var(--mtp-border)',
+              borderRadius: 'var(--mtp-r-ctrl)',
+              padding: '14px 16px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+              background: 'var(--mtp-surface-2)',
+            }}
+          >
+            <SummaryLine
+              label="Level"
+              value={`${levelSize(held, currency, unit)} → ${levelSize(picked.included, currency, unit)}`}
+            />
+            {immediate ? (
+              <SummaryLine
+                label="Due today"
+                value={
+                  preview.isLoading ? 'Calculating…' : p ? money(p.immediateTotalCents, currency) : '—'
+                }
+                accent
+              />
+            ) : (
+              <SummaryLine
+                label="Takes effect"
+                value={date(p?.effectiveDate || periodEnd || '') || 'At period end'}
+              />
+            )}
+          </div>
+        )}
+
+        {picked && (
+          <p style={{ fontSize: 12.5, color: 'var(--mtp-text-2)', lineHeight: 1.5, margin: 0 }}>
+            {immediate
+              ? `Your new level starts today, billed now for the ${
+                  p?.proration ? `${p.proration.daysRemaining} ` : ''
+                }days left in your billing period. This period's usage counts against each level for the days you held it.`
+              : `Your level changes at the end of your current billing period${
+                  periodEnd ? ` (${date(periodEnd)})` : ''
+                }. You keep your current level until then; nothing is charged now.`}
+          </p>
+        )}
+        {preview.isError && (
+          <p style={{ fontSize: 12.5, color: 'var(--mtp-danger)', margin: 0 }}>
+            {preview.error instanceof Error ? preview.error.message : 'Unable to preview this change'}
+          </p>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 9 }}>
+          <PButton variant="secondary" onClick={onClose}>
+            Cancel
+          </PButton>
+          <PButton
+            loading={busy}
+            disabled={!picked || preview.isLoading || preview.isError}
+            onClick={() => picked && onConfirm(picked)}
+          >
+            {!immediate
+              ? 'Schedule change'
+              : p && p.immediateTotalCents > 0n
+                ? 'Confirm & pay'
+                : 'Confirm change'}
+          </PButton>
+        </div>
+      </div>
+    </Modal>
   )
 }
 

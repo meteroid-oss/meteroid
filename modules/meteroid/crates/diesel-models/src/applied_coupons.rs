@@ -1,5 +1,5 @@
 use crate::coupons::CouponRow;
-use common_domain::ids::{AppliedCouponId, CouponId, CustomerId, PlanId, SubscriptionId};
+use common_domain::ids::{AddOnId, AppliedCouponId, CouponId, CustomerId, PlanId, SubscriptionId};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 use rust_decimal::Decimal;
 
@@ -16,8 +16,15 @@ pub struct AppliedCouponRow {
     pub applied_count: Option<i32>,
     pub last_applied_at: Option<chrono::NaiveDateTime>,
     pub created_at: chrono::NaiveDateTime,
-    /// The coupon applies to invoices from this date.
+    /// The first paid period's start when redeemed: a coupon lasting months counts them from it.
     pub effective_from: chrono::NaiveDate,
+    /// A fixed discount's amount in the subscription's currency when redeemed, billed since.
+    pub fixed_amount: Option<Decimal>,
+    pub fixed_currency: Option<String>,
+    /// The add-ons whose lines alone it discounts, as its scope read when redeemed; NULL: all.
+    pub add_on_ids: Option<Vec<Option<AddOnId>>>,
+    /// The months it lasts, as the coupon read when redeemed; NULL: not a number of months.
+    pub duration_months: Option<i32>,
 }
 
 #[derive(Debug, Queryable, Identifiable, Selectable)]

@@ -41,6 +41,8 @@ pub struct CheckoutSession {
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub plan_version_id: Option<PlanVersionId>,
+    /// The plan option bought, by alias; none: the plan's default in the customer's currency.
+    pub option: Option<String>,
 
     // Basic subscription parameters
     pub billing_start_date: Option<NaiveDate>,
@@ -88,6 +90,34 @@ impl CheckoutSession {
             )
             .into()
         })
+    }
+
+    /// What a plan-change session moves to: its option of its plan version.
+    pub fn plan_target(
+        &self,
+    ) -> crate::StoreResult<crate::domain::subscription_changes::PlanTarget> {
+        Ok(crate::domain::subscription_changes::PlanTarget {
+            version: self.subscription_plan_version_id()?,
+            option: self.option_ref(),
+        })
+    }
+
+    /// The parameters a plan change checkout moves with: the levels its usage-levels charges land
+    /// on, as the customer picked them.
+    pub fn component_params(
+        &self,
+    ) -> Vec<crate::domain::subscription_components::ComponentParameterization> {
+        self.components
+            .as_ref()
+            .map(|c| c.parameterized_components.clone())
+            .unwrap_or_default()
+    }
+
+    /// The option bought, as subscription creation and plan changes name it.
+    pub fn option_ref(&self) -> Option<crate::domain::plan_options::PlanOptionRef> {
+        self.option
+            .clone()
+            .map(crate::domain::plan_options::PlanOptionRef::Alias)
     }
 
     pub fn is_expired(&self) -> bool {
@@ -154,6 +184,7 @@ impl CheckoutSession {
 
         Ok(CreateSubscription {
             subscription: self.to_subscription_new(start_date)?,
+            option: self.option_ref(),
             price_components: self.components.clone(),
             add_ons: self.add_ons.clone(),
             coupons,
@@ -206,6 +237,7 @@ impl From<CheckoutSessionRow> for CheckoutSession {
             tenant_id: row.tenant_id,
             customer_id: row.customer_id,
             plan_version_id: row.plan_version_id,
+            option: row.plan_option,
             billing_start_date: row.billing_start_date,
             billing_day_anchor: row.billing_day_anchor,
             net_terms: row.net_terms,
@@ -240,6 +272,8 @@ pub struct CreateCheckoutSession {
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub plan_version_id: PlanVersionId,
+    /// The plan option bought, by alias, of those sold in the customer's currency.
+    pub option: Option<String>,
 
     // Basic subscription parameters
     pub billing_start_date: Option<NaiveDate>,
@@ -305,6 +339,7 @@ impl CreateCheckoutSession {
             tenant_id: self.tenant_id,
             customer_id: self.customer_id,
             plan_version_id: Some(self.plan_version_id),
+            plan_option: self.option,
             billing_start_date: self.billing_start_date,
             billing_day_anchor: self.billing_day_anchor,
             net_terms: self.net_terms,

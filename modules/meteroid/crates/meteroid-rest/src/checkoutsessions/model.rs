@@ -39,6 +39,8 @@ pub struct CheckoutSession {
     pub customer_id: CustomerId,
     #[serde(with = "string_serde")]
     pub plan_version_id: PlanVersionId,
+    /// The alias of the plan option bought.
+    pub option: Option<String>,
     pub coupon_code: Option<String>,
     pub billing_start_date: Option<NaiveDate>,
     pub billing_day_anchor: Option<i32>,
@@ -65,6 +67,10 @@ pub struct CreateCheckoutSessionRequest {
     pub customer_id: String,
     #[serde(with = "string_serde")]
     pub plan_version_id: PlanVersionId,
+    /// The plan option bought, by alias (e.g. `annual`, as the plan names it) or id; one the plan
+    /// sells in the customer's currency, else refused with 400. Defaults to the plan's default
+    /// option sold in that currency.
+    pub option: Option<String>,
     /// Code of the coupon to apply, used only when `coupon_ids` is empty. It names the coupon with
     /// exactly that code, else the only live coupon equal to it ignoring the case of ASCII
     /// letters. An unknown or ambiguous code is refused with 400. If the code no longer names a

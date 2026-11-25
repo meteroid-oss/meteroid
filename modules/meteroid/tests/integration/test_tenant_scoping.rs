@@ -233,6 +233,7 @@ fn quote_new(tenant_id: TenantId, customer_id: CustomerId) -> QuoteNew {
         allow_questions: true,
         allow_change_requests: true,
         allow_decline: true,
+        plan_option: None,
     }
 }
 

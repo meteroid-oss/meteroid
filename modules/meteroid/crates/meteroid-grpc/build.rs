@@ -27,6 +27,10 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
         "connectors",
         "consolidation",
         "creditunits",
+        "quantities",
+        "ratecards",
+        "pricingpage",
+        "selfserve",
         "entitlements",
         "customers",
         "coupons",
@@ -86,6 +90,11 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
             println!("cargo:rerun-if-changed={}", models_path.display());
         }
     }
+    // Models-only packages, compiled through the protos importing them
+    println!(
+        "cargo:rerun-if-changed={}",
+        root.join("proto/api/eligibility/v1/models.proto").display()
+    );
     // Services of a package beside its main file
     proto_files.push(root.join("proto/api/quotes/v1/documents.proto"));
     // Internal service-to-service protos

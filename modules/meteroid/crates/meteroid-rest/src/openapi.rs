@@ -276,6 +276,10 @@ const BETA_TAGS: &[(&str, &str)] = &[
         "Beta: may change before general availability. Whether a customer may consume more of a feature right now.",
     ),
     (
+        "Rate cards",
+        "Beta: may change before general availability. The rates of a metric's usage by its dimensions (model, token type), a rate per currency for each key, that usage prices name with a multiplier.",
+    ),
+    (
         "Usage costs",
         "Beta: may change before general availability. A customer's or a subscription's usage events and usage over time, with what they cost.",
     ),
@@ -876,7 +880,8 @@ impl Modify for WebhooksAddon {
                             ),
                             expires_at: None,
                             redemption_limit: Some(100),
-                            recurring_value: Some(3),
+                            recurring_value: None,
+                            duration_months: Some(3),
                             reusable: false,
                             disabled: false,
                             created_at: Default::default(),

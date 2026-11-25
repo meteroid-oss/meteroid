@@ -15,6 +15,9 @@ message Product {
   bool catalog = 8;
   optional string tax_category_id = 9;
   optional string archived_at = 10;
+  // A lucide icon name and a color token; unset draws the default box, neutral.
+  optional string icon = 11;
+  optional string color = 12;
 }
 
 message ProductMeta {
@@ -26,6 +29,15 @@ message ProductMeta {
   string created_at = 6;
   bool catalog = 7;
   optional string archived_at = 8;
+  optional string icon = 9;
+  optional string color = 10;
+  // Filled by SearchProducts, for the catalog list: the latest price in each currency, the
+  // features it grants, the live plans that sell it, and what it reads.
+  repeated meteroid.api.prices.v1.Price latest_prices = 11;
+  uint32 feature_count = 12;
+  uint32 plan_count = 13;
+  optional string metric_name = 14;
+  optional meteroid.api.prices.v1.FeeStructure fee_structure = 15;
 }
 
 message ProductWithPrice {

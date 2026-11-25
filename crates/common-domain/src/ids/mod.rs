@@ -55,8 +55,13 @@ id_type!(SubscriptionPriceComponentId, "sub_price_");
 id_type!(SubscriptionAddOnId, "sub_add_");
 id_type!(PlanId, "plan_");
 id_type!(PlanVersionId, "plv_");
+// What a buyer picks when buying a plan version (Annual, Startup…).
+id_type!(PlanOptionId, "opt_");
 id_type!(StoredDocumentId, "doc_");
 id_type!(SlotTransactionId, "slot_tx_");
+id_type!(ManagedQuantityId, "mq_");
+id_type!(RateCardId, "rc_");
+id_type!(RateCardEntryId, "rce_");
 id_type!(CustomTaxId, "tax_");
 id_type!(TaxCategoryId, "txc_");
 id_type!(CheckoutSessionId, "che_");

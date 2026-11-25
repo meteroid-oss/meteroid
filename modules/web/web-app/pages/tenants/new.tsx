@@ -43,6 +43,7 @@ const environmentPlaceholders: Record<TenantEnvironmentEnum, string> = {
 const sandboxPresetLabels: Record<SandboxPreset, string> = {
   [SandboxPreset.DEFAULT]: 'Team collaboration SaaS',
   [SandboxPreset.AI_CREDITS]: 'AI API with prepaid credits (live usage)',
+  [SandboxPreset.CURRENCIES_AND_COUPONS]: 'Plans in three currencies, with coupons',
 }
 
 export const TenantNew: FunctionComponent = () => {
@@ -95,7 +96,13 @@ export const TenantNew: FunctionComponent = () => {
   const adminSandboxes = useEntitlement(entitlementCodes.ADMIN_SANDBOXES)
   const presets = useMemo(
     () =>
-      adminSandboxes ? [SandboxPreset.DEFAULT, SandboxPreset.AI_CREDITS] : [SandboxPreset.DEFAULT],
+      adminSandboxes
+        ? [
+            SandboxPreset.DEFAULT,
+            SandboxPreset.CURRENCIES_AND_COUPONS,
+            SandboxPreset.AI_CREDITS,
+          ]
+        : [SandboxPreset.DEFAULT, SandboxPreset.CURRENCIES_AND_COUPONS],
     [adminSandboxes]
   )
   useEffect(() => {

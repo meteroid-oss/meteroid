@@ -10,7 +10,23 @@ import "api/subscriptions/v1/models.proto";
 message OfferComponent {
   string name = 1;
   meteroid.api.subscriptions.v1.SubscriptionFeeBillingPeriod period = 2;
+  // A usage-levels charge's: at its lowest level, which the purchase starts on unless the buyer
+  // picks another.
   meteroid.api.subscriptions.v1.SubscriptionFee fee = 3;
+  // The charge's product, naming it in StartPurchaseRequest.levels.
+  optional string product_id = 4;
+  // A usage-levels charge sold at several levels: its fee at each, fewest units first. Empty for
+  // any other charge.
+  repeated meteroid.api.subscriptions.v1.SubscriptionFee levels = 5;
+  // What a usage-levels charge's units count, as its metric names them (plural).
+  optional string unit = 6;
+}
+
+// A level picked for a usage-levels charge, by the units it includes.
+message PurchaseLevel {
+  // OfferComponent.product_id; unset: the plan's only usage-levels charge.
+  optional string product_id = 1;
+  uint64 included = 2;
 }
 
 message PurchaseOffer {
@@ -40,6 +56,12 @@ message PurchaseOffer {
   // The seller requires complete billing information: the address with its postal code. Implies
   // require_billing_address.
   bool require_billing_information = 17;
+  reserved 18, 19, 20, 21;
+  reserved "variant_name", "needs_invitation_code", "price_book_name", "term";
+  // The coupon code the link applies when the buyer enters none.
+  optional string coupon_code = 22;
+  // The name of the plan option bought ("Annual"), when the plan has several.
+  optional string option_name = 23;
 }
 
 message GetPurchaseOfferRequest {
@@ -97,11 +119,24 @@ message StartPurchaseRequest {
   optional string vat_number = 12;
   // Company registration number. Companies only.
   optional string legal_number = 13;
+  reserved 14;
+  reserved "invitation_code";
+  // Entered by the buyer, when the offer allows coupon codes; unset: the offer's own, if any.
+  optional string coupon_code = 15;
+  // The level picked for each usage-levels charge; a charge left out starts on its lowest.
+  repeated PurchaseLevel levels = 16;
 }
 
 message StartPurchaseResponse {
-  // Checkout URL (carries a checkout-session portal token).
+  // Checkout URL (carries a checkout-session portal token). Empty when the purchase is refused
+  // for one of the reasons below, each in words for the buyer.
   string checkout_url = 1;
+  // The coupon code cannot be redeemed on this purchase.
+  optional string coupon_code_error = 2;
+  reserved 3;
+  reserved "invitation_code_error";
+  // The plan is not offered to this buyer (their country).
+  optional string ineligible = 4;
 }
 
 service PurchaseService {

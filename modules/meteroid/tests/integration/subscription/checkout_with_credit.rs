@@ -25,6 +25,7 @@ async fn leetcode_session_until(env: &TestEnv, end_date: Option<NaiveDate>) -> C
             tenant_id: TENANT_ID,
             customer_id: CUST_UBER_ID,
             plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
+            option: None,
             billing_start_date: Some(NaiveDate::from_ymd_opt(2024, 1, 15).unwrap()),
             billing_day_anchor: Some(15),
             net_terms: None,

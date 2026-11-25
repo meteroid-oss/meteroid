@@ -8,7 +8,8 @@ use crate::enums::{
     BillingPeriodEnum, SubscriptionActivationConditionEnum, SubscriptionStatusEnum,
 };
 use common_domain::ids::{
-    CustomerId, InvoicingEntityId, PlanId, PlanVersionId, QuoteId, SubscriptionId, TenantId,
+    CustomerId, InvoicingEntityId, PlanId, PlanOptionId, PlanVersionId, QuoteId, SubscriptionId,
+    TenantId,
 };
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 use rust_decimal::Decimal;
@@ -71,6 +72,8 @@ pub struct SubscriptionRow {
     pub billing_last_failed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub billing_last_error: Option<String>,
     pub billing_retry_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// The plan option bought; `None` only once it is gone.
+    pub plan_option_id: Option<PlanOptionId>,
 }
 
 #[derive(Insertable, Debug, Clone)]
@@ -112,6 +115,7 @@ pub struct SubscriptionRowNew {
     pub usage_filter_property: Option<String>,
     pub usage_filter_value: Option<String>,
     pub usage_filter_since: Option<NaiveDateTime>,
+    pub plan_option_id: Option<PlanOptionId>,
 }
 
 pub struct CancelSubscriptionParams {

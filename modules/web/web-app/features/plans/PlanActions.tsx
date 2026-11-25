@@ -9,7 +9,7 @@ import {
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAtom } from 'jotai'
-import { ArchiveIcon, ArchiveRestoreIcon, ChevronDown, PencilIcon } from 'lucide-react'
+import { ArchiveIcon, ArchiveRestoreIcon, HistoryIcon, MoreHorizontalIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
@@ -37,12 +37,14 @@ import {
   unarchivePlan,
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 
-export const PlanActions = () => {
+/** The header's actions: a draft is discarded or published, a published version drafted from. */
+export const PlanActions = ({ onHistory }: { onHistory?: () => void }) => {
   const isExpress = useIsExpressOrganization()
   const canManage = usePermissions().has('catalog:manage')
   const [editedComponents] = useAtom(editedComponentsAtom)
   const [isBusy, setIsBusy] = useState(false)
   const [isConfirmOpen, setConfirmOpen] = useState(false)
+  const [isPublishOpen, setPublishOpen] = useState(false)
   const queryClient = useQueryClient()
 
   const wip = editedComponents.length > 0
@@ -211,37 +213,54 @@ export const PlanActions = () => {
 
   if (isExpress || !canManage) return null
 
+  const number = planWithVersion.version?.version
+  const live = overview?.activeVersion
+  const subscriptions = overview?.subscriptionCount ?? 0
+
   return isDraft ? (
     <>
-      <div className="text-muted-foreground text-xs  self-center">
-        {wip ? 'Some components have not been saved' : ''}
-      </div>
-      <div className="flex ">
-        <Button
-          variant="destructiveGhost"
-          className={`py-1.5 ${isOutdatedDraft ? '' : '!rounded-r-none'}`}
-          onClick={confirmDiscardDraft}
-          size="sm"
-        >
+      {wip && (
+        <div className="text-warning text-xs self-center">A charge being edited is not saved</div>
+      )}
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" onClick={confirmDiscardDraft}>
           Discard draft
         </Button>
         {!isOutdatedDraft && (
           <Button
             variant="primary"
-            className="font-bold py-1.5 !rounded-l-none"
-            disabled={wip || isBusy}
-            onClick={publishPlan}
             size="sm"
+            disabled={wip || isBusy}
+            onClick={() => setPublishOpen(true)}
           >
-            Publish version
+            Review &amp; publish{number ? ` v${number}` : ''}
           </Button>
         )}
       </div>
       <ConfirmationModal
+        visible={isPublishOpen}
+        header={`Publish${number ? ` v${number}` : ' this version'}`}
+        buttonLabel="Publish"
+        onSelectCancel={() => setPublishOpen(false)}
+        onSelectConfirm={() => {
+          setPublishOpen(false)
+          void publishPlan().catch(() => setIsBusy(false))
+        }}
+      >
+        <Modal.Content>
+          <p className="py-4 text-sm text-muted-foreground">
+            New subscriptions get{number ? ` v${number}` : ' this version'} and its prices.
+            {live && subscriptions > 0
+              ? ` The ${subscriptions} ${subscriptions === 1 ? 'subscription' : 'subscriptions'} on v${live.version} stay on it until you migrate them.`
+              : ''}
+          </p>
+        </Modal.Content>
+      </ConfirmationModal>
+      <ConfirmationModal
         visible={isConfirmOpen}
         danger
-        header="Confirm to discard draft"
-        buttonLabel="Confirm"
+        header="Discard this draft"
+        buttonLabel="Discard"
         onSelectCancel={() => setConfirmOpen(false)}
         onSelectConfirm={() => {
           discardDraft()
@@ -250,38 +269,51 @@ export const PlanActions = () => {
       >
         <Modal.Content>
           <p className="py-4 text-sm text-muted-foreground">
-            Are you sure you want to discard this draft? Your changes will be lost.
+            Its changes are lost. The published version stays as it is.
           </p>
         </Modal.Content>
       </ConfirmationModal>
     </>
   ) : (
-    <>
-      <div className="flex gap-2">
-        <Button variant="outline" hasIcon className="py-1.5" onClick={copyToDraft}>
-          <PencilIcon size="12" /> New version
+    <div className="flex gap-2">
+      {onHistory && (
+        <Button variant="outline" size="sm" hasIcon onClick={onHistory}>
+          <HistoryIcon size={14} /> Version history
         </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="gap-2 py-1.5" size="sm" hasIcon>
-              Actions <ChevronDown className="w-4 h-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {planWithVersion.plan?.planStatus === PlanStatus.ARCHIVED ? (
-              <DropdownMenuItem onClick={handleUnarchive}>
-                <ArchiveRestoreIcon size={16} className="mr-2" />
-                Unarchive
-              </DropdownMenuItem>
-            ) : (
-              <DropdownMenuItem onClick={handleArchive}>
-                <ArchiveIcon size={16} className="mr-2" />
-                Archive
-              </DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    </>
+      )}
+      {overview?.hasDraftVersion ? (
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => navigate(`${basePath}/plans/${overview.localId}/draft`)}
+        >
+          Continue the draft
+        </Button>
+      ) : (
+        <Button variant="primary" size="sm" onClick={copyToDraft}>
+          Edit prices in a draft
+        </Button>
+      )}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="size-8" aria-label="Plan actions">
+            <MoreHorizontalIcon size={16} />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {planWithVersion.plan?.planStatus === PlanStatus.ARCHIVED ? (
+            <DropdownMenuItem onClick={handleUnarchive}>
+              <ArchiveRestoreIcon size={16} className="mr-2" />
+              Unarchive
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onClick={handleArchive}>
+              <ArchiveIcon size={16} className="mr-2" />
+              Archive
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   )
 }
