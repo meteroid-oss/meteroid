@@ -1054,6 +1054,48 @@ async fn a_cancellation_credits_the_unused_days_of_a_shortfall_charged_up_front(
     assert!(shortfalls(&last).is_empty(), "{:?}", lines(&last));
 }
 
+/// As above, previewed first: the preview credits the shortfall charged up front by its unused
+/// days as the cancellation then does (97100 × 21/31 = 65777), beside the fee (2900 × 21/31 =
+/// 1965): one note of 67742, line for line the one issued.
+#[tokio::test]
+async fn a_cancellation_preview_credits_the_shortfall_charged_up_front_as_issued() {
+    let (env, usage) = usage_env().await;
+    let plan = fee_and_usage_plan(&env).await;
+    let sub_id = start(&env, plan, day(2024, 9, 1)).await;
+    env.process_cycles().await;
+    let october = invoice_of(&env, sub_id, day(2024, 10, 1)).await;
+    redate_shortfall(&env, &october, day(2024, 10, 1), day(2024, 11, 1)).await;
+    set_usage(&usage, day(2024, 10, 1), day(2024, 10, 11), 100);
+
+    let on = day(2024, 10, 11);
+    // Previewed when the cancellation is requested, as `cancel_on` requests it.
+    env.set_now(on.and_hms_opt(9, 0, 0).unwrap().and_utc());
+    let preview = env
+        .services()
+        .preview_cancellation(sub_id, TENANT_ID, CancellationEffectiveAt::Date(on))
+        .await
+        .expect("cancellation preview");
+    let note = preview.credit_note.expect("the preview credits the period");
+    let mut previewed: Vec<(String, i64)> = note
+        .invoice_lines
+        .iter()
+        .map(|line| (line.name.clone(), line.amount_subtotal))
+        .collect();
+    previewed.sort();
+    assert_eq!(note.subtotal, -67_742, "{previewed:?}");
+
+    cancel_on(&env, sub_id, on).await;
+    let issued = note_lines(&env, &october).await;
+    assert_eq!(
+        issued,
+        vec![
+            ("Minimum commitment".to_owned(), -65_777),
+            ("Platform Fee".to_owned(), -1_965),
+        ]
+    );
+    assert_eq!(previewed, issued, "the preview credits what is issued");
+}
+
 /// As above while October's invoice (no auto-advance) is still a draft when cancelled: issued
 /// afterwards, it keeps the shortfall it charged up front, and the deferred note credits it with
 /// the fee. The final invoice owes nothing whether issued before or after that note.

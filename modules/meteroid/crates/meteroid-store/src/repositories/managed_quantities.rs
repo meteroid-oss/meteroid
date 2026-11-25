@@ -23,6 +23,31 @@ pub trait ManagedQuantitiesInterface {
         tenant_id: TenantId,
     ) -> StoreResult<Vec<ManagedQuantity>>;
 
+    /// The tenant's quantities after `after` in id order, at most `limit`, read as
+    /// `list_managed_quantities` reads them, the archived ones only when asked: a keyset page of
+    /// API v2.
+    async fn list_managed_quantities_after(
+        &self,
+        tenant_id: TenantId,
+        include_archived: bool,
+        after: Option<ManagedQuantityId>,
+        limit: usize,
+    ) -> StoreResult<Vec<ManagedQuantity>>;
+
+    /// Off the catalog for new charges; the subscriptions holding it keep counting and changing
+    /// it. Archiving an archived quantity changes nothing.
+    async fn archive_managed_quantity(
+        &self,
+        tenant_id: TenantId,
+        id: ManagedQuantityId,
+    ) -> StoreResult<ManagedQuantity>;
+
+    async fn unarchive_managed_quantity(
+        &self,
+        tenant_id: TenantId,
+        id: ManagedQuantityId,
+    ) -> StoreResult<ManagedQuantity>;
+
     /// A new quantity, refused when the tenant has one of its code.
     async fn create_managed_quantity(
         &self,
@@ -59,6 +84,35 @@ impl ManagedQuantitiesInterface for Store {
         for (quantity, feature) in list_feature_limits(&mut conn, tenant_id).await? {
             if let Some(found) = quantities.iter_mut().find(|q| q.id == quantity) {
                 found.per_unit_features.push(feature);
+            }
+        }
+        Ok(quantities)
+    }
+
+    async fn list_managed_quantities_after(
+        &self,
+        tenant_id: TenantId,
+        include_archived: bool,
+        after: Option<ManagedQuantityId>,
+        limit: usize,
+    ) -> StoreResult<Vec<ManagedQuantity>> {
+        let mut conn = self.get_conn().await?;
+        let mut quantities: Vec<ManagedQuantity> = ManagedQuantityRow::list_page(
+            &mut conn,
+            tenant_id,
+            include_archived,
+            after,
+            i64::try_from(limit).unwrap_or(i64::MAX),
+        )
+        .await?
+        .into_iter()
+        .map(Into::into)
+        .collect();
+        if !quantities.is_empty() {
+            for (quantity, feature) in list_feature_limits(&mut conn, tenant_id).await? {
+                if let Some(found) = quantities.iter_mut().find(|q| q.id == quantity) {
+                    found.per_unit_features.push(feature);
+                }
             }
         }
         Ok(quantities)
@@ -119,6 +173,22 @@ impl ManagedQuantitiesInterface for Store {
         )
     }
 
+    async fn archive_managed_quantity(
+        &self,
+        tenant_id: TenantId,
+        id: ManagedQuantityId,
+    ) -> StoreResult<ManagedQuantity> {
+        set_quantity_archived(self, tenant_id, id, true).await
+    }
+
+    async fn unarchive_managed_quantity(
+        &self,
+        tenant_id: TenantId,
+        id: ManagedQuantityId,
+    ) -> StoreResult<ManagedQuantity> {
+        set_quantity_archived(self, tenant_id, id, false).await
+    }
+
     async fn set_feature_limit_quantity(
         &self,
         tenant_id: TenantId,
@@ -145,6 +215,36 @@ impl ManagedQuantitiesInterface for Store {
         }
         Ok(set_feature_limit_quantity(&mut conn, feature, quantity).await?)
     }
+}
+
+/// Archives or restores the quantity, with the features counting their limit per unit of it;
+/// one already so is read back unchanged.
+async fn set_quantity_archived(
+    store: &Store,
+    tenant_id: TenantId,
+    id: ManagedQuantityId,
+    archived: bool,
+) -> StoreResult<ManagedQuantity> {
+    let mut conn = store.get_conn().await?;
+    let not_found = || Report::new(StoreError::ValueNotFound(format!("managed quantity {id}")));
+    let current = ManagedQuantityRow::find(&mut conn, tenant_id, id)
+        .await?
+        .ok_or_else(not_found)?;
+    let row = if current.archived_at.is_some() == archived {
+        current
+    } else {
+        ManagedQuantityRow::set_archived(&mut conn, tenant_id, id, archived.then(common_clock::now))
+            .await?
+            .ok_or_else(not_found)?
+    };
+    let mut quantity: ManagedQuantity = row.into();
+    quantity.per_unit_features = list_feature_limits(&mut conn, tenant_id)
+        .await?
+        .into_iter()
+        .filter(|(of, _)| *of == id)
+        .map(|(_, feature)| feature)
+        .collect();
+    Ok(quantity)
 }
 
 /// The tenant's quantities a seat unit names, read once for many units: see

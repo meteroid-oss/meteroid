@@ -1,5 +1,5 @@
 use crate::api_rest::AppState;
-use crate::api_rest::client::AuthorizedAsCustomer;
+use crate::api_rest::client::{AuthorizedAsCustomer, AuthorizedAsPublishable};
 use crate::api_rest::rate_limit::{
     build_client_rate_limit_state, build_rate_limit_state, build_rest_rate_limiters,
 };
@@ -94,11 +94,13 @@ where
     };
     let mut module_api = OpenApiRouter::new();
     let mut module_client = OpenApiRouter::new();
+    let mut module_v2 = OpenApiRouter::new();
     let mut module_other = Router::new();
     for module in &modules.api {
         let routes = module.rest(&module_ctx).await;
         module_api = module_api.merge(routes.api);
         module_client = module_client.merge(routes.client);
+        module_v2 = module_v2.merge(routes.v2);
         module_other = module_other.merge(routes.other);
     }
     // Same SSRF guards as the delivery worker, so an endpoint the worker would refuse
@@ -150,6 +152,7 @@ where
     // The modules' share of the specs as the edition publishes it (`ApiModule::openapi`).
     let (module_api, _) = module_api.split_for_parts();
     let (module_client, _) = module_client.split_for_parts();
+    let (module_v2, _) = module_v2.split_for_parts();
     let edition = modules.spec();
     let (api_router, mut open_api) = crate::api_rest::openapi::edition_spec(&edition);
     crate::api_rest::openapi::add_rate_limit_responses(&mut open_api);
@@ -161,6 +164,15 @@ where
         serde_json::to_vec(&crate::api_rest::openapi::spec_json(&open_api))
             .expect("Failed to serialize OpenAPI")
             .into();
+
+    // API v2 (ADR-0013), beside v1: its own routes and document, the modules' with core's.
+    let (v2_router, v2_open_api) = crate::api_rest::v2::api_v2(app_state.clone(), &edition);
+    let module_v2 = crate::api_rest::v2::module_routes(module_v2, app_state.clone());
+    let v2_openapi_json: bytes::Bytes = serde_json::to_vec(
+        &crate::api_rest::v2::published_spec_json(&v2_open_api, &edition),
+    )
+    .expect("Failed to serialize the v2 OpenAPI")
+    .into();
 
     let (client_router, client_open_api) = crate::api_rest::client::client_api(edition.client);
     let client_openapi_json: bytes::Bytes =
@@ -184,6 +196,15 @@ where
             }),
         )
         .route(
+            "/api-docs/v2/openapi.json",
+            get(|| async move {
+                (
+                    [(http::header::CONTENT_TYPE, "application/json")],
+                    v2_openapi_json,
+                )
+            }),
+        )
+        .route(
             "/api-docs/client/openapi.json",
             get(|| async move {
                 (
@@ -192,7 +213,9 @@ where
                 )
             }),
         )
-        .merge(Scalar::with_url("/scalar", open_api.clone()))
+        // The reference opens on v2; v1, frozen, stays readable beside it.
+        .merge(Scalar::with_url("/scalar", v2_open_api.clone()))
+        .merge(Scalar::with_url("/scalar/v1", open_api.clone()))
         //todo add "/api" to path and merge with api_routes
         .nest("/files", crate::api_rest::files::file_routes())
         .nest("/webhooks", crate::api_rest::webhooks::webhook_in_routes())
@@ -202,12 +225,14 @@ where
         .merge(crate::api_rest::oauth::oauth_routes())
         .merge(crate::api_rest::sso::sso_routes())
         .merge(api_router)
+        .merge(v2_router)
         .merge(client_router)
         .fallback(handler_404)
         .with_state(app_state)
         // Module routes come with their own state.
         .merge(module_api)
         .merge(module_client)
+        .merge(module_v2)
         .merge(module_other);
 
     let app = app
@@ -220,6 +245,11 @@ where
         .layer(RequestBodyLimitLayer::new(1024 * 1024)) // 1 MB
         .layer(axum::middleware::map_response(json_payload_too_large))
         .layer(CatchPanicLayer::custom(handle_500))
+        // v2's version, request id and problem responses, whoever answered: outside the auth,
+        // rate limit and body limit layers, and the panic handler.
+        .layer(axum::middleware::from_fn(
+            crate::api_rest::v2::envelope::v2_envelope,
+        ))
         // Log the final 4xx/5xx body (including extractor rejections that bypass RestApiError).
         .layer(axum::middleware::from_fn(log_error_responses))
         // include trace context as a header in the response
@@ -240,7 +270,11 @@ where
         // Outermost so browser preflight/origin reflection applies before auth,
         // rate limiting, etc. Needed for the browser-facing `/sso/*` handshake
         // (login page fetches these cross-origin).
-        .layer(cors());
+        .layer(cors())
+        // Around it: an origin a publishable key does not list gets no CORS header back.
+        .layer(axum::middleware::map_response(
+            crate::api_rest::client::strip_refused_cors,
+        ));
 
     tracing::info!("Starting REST API on {}", config.api.rest_api_addr);
 
@@ -338,6 +372,14 @@ async fn request_context(req: http::Request<Body>, next: axum::middleware::Next)
                 .map(|customer| RequestContext {
                     tenant_id: Some(customer.tenant_id),
                     customer_id: Some(customer.customer_id),
+                    ..RequestContext::default()
+                })
+        })
+        .or_else(|| {
+            req.extensions()
+                .get::<AuthorizedAsPublishable>()
+                .map(|publishable| RequestContext {
+                    tenant_id: Some(publishable.tenant_id),
                     ..RequestContext::default()
                 })
         });

@@ -110,7 +110,7 @@ pub(crate) async fn generate_api_key(channel: &Channel) -> CreateApiTokenRespons
         .into_inner()
 }
 
-fn build_tower_svc(
+pub(crate) fn build_tower_svc(
     channel: &Channel,
     api_key_value: &str,
 ) -> SetRequestHeader<Channel, HeaderValue> {
@@ -122,7 +122,7 @@ fn build_tower_svc(
         .service(channel.clone())
 }
 
-async fn list_customers(
+pub(crate) async fn list_customers(
     customers_svc: CustomersServiceClient<SetRequestHeader<Channel, HeaderValue>>,
 ) -> Result<Response<ListCustomerResponse>, Status> {
     customers_svc

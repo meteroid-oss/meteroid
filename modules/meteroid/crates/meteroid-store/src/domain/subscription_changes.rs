@@ -1,5 +1,6 @@
 use crate::domain::enums::SubscriptionFeeBillingPeriod;
 use crate::domain::subscription_components::SubscriptionFee;
+use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
 use chrono::NaiveDate;
 use common_domain::ids::{
     CreditNoteId, InvoiceId, PlanVersionId, PriceComponentId, ProductId, SubscriptionAddOnId,
@@ -118,6 +119,79 @@ pub struct PackChange {
     /// Decimal places of `credit_minor`: the unit's, or the currency's.
     pub credit_precision: u8,
     pub promotional: bool,
+}
+
+/// What cancelling a subscription would issue, nothing written: what the facts with its ending
+/// laid over them bill and give back.
+#[derive(Debug, Clone)]
+pub struct CancellationPreview {
+    /// The day it ends.
+    pub effective_date: NaiveDate,
+    /// Never activated: it is aborted at once and bills nothing.
+    pub aborts: bool,
+    /// The invoice settling the period it ends: what was consumed until the ending, and what its
+    /// day's invoice still bills; `None` when nothing is left to bill or it could not be priced.
+    pub final_invoice: Option<ComputedInvoiceContent>,
+    /// What the fees billed in advance give back for the time after the ending, as one note.
+    /// Its lines carry negative amounts.
+    pub credit_note: Option<ComputedInvoiceContent>,
+    /// What the facts could not price, left out: a document missing here is not one billing
+    /// nothing.
+    pub missing: Vec<PreviewPart>,
+}
+
+/// A part of a preview its facts could not price, left out of it (logged): the preview is
+/// incomplete, never read as a change issuing nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreviewPart {
+    /// The invoice the change issues.
+    Invoice,
+    /// The credit note it issues.
+    CreditNote,
+    /// The renewal under it.
+    NextInvoice,
+    /// The subscription it leaves and its MRR.
+    SubscriptionAfter,
+}
+
+/// A cancellation made: the subscription after it, and the documents its ending issued when it
+/// applied in the request (an ending reached already, as an immediate cancellation).
+#[derive(Debug, Clone)]
+pub struct CancellationOutcome {
+    pub subscription: crate::domain::Subscription,
+    /// The invoices the ending issued: the final one, or the ending day's recurring one.
+    pub invoice_ids: Vec<InvoiceId>,
+    /// The notes giving back what was billed in advance after the ending.
+    pub credit_note_ids: Vec<CreditNoteId>,
+    /// The ending was reached but did not apply in the request: the cancellation is recorded and
+    /// the controller applies it on its retry (R-121), its documents with it.
+    pub applies_later: bool,
+}
+
+/// What a plan change issues and how it leaves the subscription, read in full by a preview.
+#[derive(Debug, Clone, Default)]
+pub struct PlanChangeOutcome {
+    /// Issued when the change applies: its adjustment invoice, or the new plan's opening invoice
+    /// when it ends a free trial.
+    pub invoice: Option<ComputedInvoiceContent>,
+    /// What the change gives back of the finalized invoices, as one note. Lines are negative.
+    pub credit_note: Option<ComputedInvoiceContent>,
+    /// The renewal under the new plan.
+    pub next_invoice: Option<ComputedInvoiceContent>,
+    /// The subscription as the change leaves it from its date, in memory: its components and
+    /// add-ons, its minimum, its plan version and cadence.
+    pub subscription_after: Option<crate::domain::SubscriptionDetails>,
+    /// The MRR once the change applies, in minor units.
+    pub mrr_after_cents: Option<i64>,
+    /// What the facts could not price, left out.
+    pub missing: Vec<PreviewPart>,
+}
+
+/// A plan change preview with what it issues and leaves.
+#[derive(Debug, Clone)]
+pub struct PlanChangePreviewFull {
+    pub preview: PlanChangePreviewExtended,
+    pub outcome: PlanChangeOutcome,
 }
 
 #[derive(Debug, Clone)]

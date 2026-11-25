@@ -1,6 +1,6 @@
 use chrono::NaiveDateTime;
 
-use crate::enums::TenantEnvironmentEnum;
+use crate::enums::{ApiTokenKindEnum, TenantEnvironmentEnum};
 use common_domain::ids::{ApiTokenId, OrganizationId, TenantId};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
@@ -16,6 +16,10 @@ pub struct ApiTokenRow {
     pub hint: String,
     pub first_used_at: Option<NaiveDateTime>,
     pub last_used_at: Option<NaiveDateTime>,
+    pub kind: ApiTokenKindEnum,
+    #[diesel(deserialize_as = crate::extend::non_null_array::NonNullArray<String>)]
+    pub allowed_origins: Vec<String>,
+    pub publishable_key: Option<String>,
 }
 
 #[derive(Debug, Insertable)]
@@ -28,9 +32,12 @@ pub struct ApiTokenRowNew {
     pub tenant_id: TenantId,
     pub hash: String,
     pub hint: String,
+    pub kind: ApiTokenKindEnum,
+    pub allowed_origins: Vec<String>,
+    pub publishable_key: Option<String>,
 }
 
-// ApiTokenValidationRow
+// ApiTokenValidationRow: secret keys only (`find_by_id` filters on the kind).
 #[derive(Debug, Queryable, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::api_token)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
@@ -47,4 +54,19 @@ pub struct ApiTokenValidationRow {
     #[diesel(select_expression = crate::schema::tenant::keep_last_events)]
     #[diesel(select_expression_type = crate::schema::tenant::keep_last_events)]
     pub keep_last_events: bool,
+}
+
+/// A publishable key as the client API's public routes authenticate it.
+#[derive(Debug, Queryable, Identifiable, Selectable)]
+#[diesel(table_name = crate::schema::api_token)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct PublishableKeyRow {
+    pub id: ApiTokenId,
+    pub tenant_id: TenantId,
+    pub publishable_key: Option<String>,
+    #[diesel(deserialize_as = crate::extend::non_null_array::NonNullArray<String>)]
+    pub allowed_origins: Vec<String>,
+    #[diesel(select_expression = crate::schema::tenant::environment)]
+    #[diesel(select_expression_type = crate::schema::tenant::environment)]
+    pub environment: TenantEnvironmentEnum,
 }

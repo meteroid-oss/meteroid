@@ -23,8 +23,10 @@ jobs:
         # Each edition's published spec: OSS, and Enterprise where ee/ exists.
         run: |
           oasdiff() { docker run --rm -v "$RUNNER_TEMP/specs:/specs:ro" tufin/oasdiff:v1.33.0 "$@"; }
-          for spec in spec/api/v1/openapi.json ee/spec/api/v1/openapi.json; do
+          for spec in spec/api/v1/openapi.json ee/spec/api/v1/openapi.json spec/api/v2/openapi.json ee/spec/api/v2/openapi.json; do
             [ -f "$spec" ] || continue
+            # A spec the base branch does not have yet has nothing to break.
+            git cat-file -e "HEAD^1:$spec" 2>/dev/null || [[ "$spec" != */v2/* ]] || continue
             base="$spec"
             # Before the editions split, the single spec was the Enterprise one.
             git cat-file -e "HEAD^1:$base" 2>/dev/null || base=spec/api/v1/openapi.json

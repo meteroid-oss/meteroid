@@ -62,6 +62,10 @@ const READ_BY_THE_CONVERSION: &[&str] = &[
     "20261124204716",
     // Charges own their fee structure: the conversion reads a component's and an add-on's.
     "20261125093418",
+    // Catalog codes and a subscription's external id: the conversion loads plans and subscriptions.
+    "20261125142357",
+    // A subscription's updated_at: the conversion loads subscriptions.
+    "20261125171843",
 ];
 // A lock held by a long transaction of a running pod fails the release instead of queueing every
 // later query behind it; the whole release is retried.

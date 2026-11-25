@@ -48,6 +48,14 @@ pub trait PricingPagesInterface {
         plan_id: PlanId,
     ) -> StoreResult<PlanPricingPage>;
 
+    /// The copy of each of the tenant's plans among `plan_ids`, in one read; a plan not the
+    /// tenant's is left out.
+    async fn get_plan_pricing_pages(
+        &self,
+        tenant_id: TenantId,
+        plan_ids: &[PlanId],
+    ) -> StoreResult<HashMap<PlanId, PlanPricingPage>>;
+
     /// The charges of the plan's published version (else its draft) its card can be led by or
     /// leave off, one per product: fixed fees first, then seats, usage, one-time fees and packs.
     async fn plan_pricing_charges(
@@ -64,6 +72,15 @@ pub trait PricingPagesInterface {
         tenant_id: TenantId,
         page: PlanPricingPage,
     ) -> StoreResult<PlanPricingPage>;
+
+    /// A plan's live fields (`patch`) and its copy (`page`) written together, in one
+    /// transaction: both or neither. A `patch` changing nothing is not written.
+    async fn update_plan_listing(
+        &self,
+        actor: crate::domain::entity_activity::Actor,
+        patch: crate::domain::PlanPatch,
+        page: Option<PlanPricingPage>,
+    ) -> StoreResult<()>;
 
     /// The product line's active ladder priced in one currency in one option (see
     /// [`PricingPageRequest`]).
@@ -622,6 +639,22 @@ impl PricingPagesInterface for Store {
         page_of(&row)
     }
 
+    async fn get_plan_pricing_pages(
+        &self,
+        tenant_id: TenantId,
+        plan_ids: &[PlanId],
+    ) -> StoreResult<HashMap<PlanId, PlanPricingPage>> {
+        if plan_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let mut conn = self.get_conn().await?;
+        PlanRow::list_by_ids(&mut conn, plan_ids, tenant_id)
+            .await?
+            .iter()
+            .map(|row| -> StoreResult<(PlanId, PlanPricingPage)> { Ok((row.id, page_of(row)?)) })
+            .collect()
+    }
+
     async fn plan_pricing_charges(
         &self,
         tenant_id: TenantId,
@@ -662,115 +695,75 @@ impl PricingPagesInterface for Store {
         })
     }
 
+    async fn update_plan_listing(
+        &self,
+        actor: crate::domain::entity_activity::Actor,
+        patch: crate::domain::PlanPatch,
+        page: Option<PlanPricingPage>,
+    ) -> StoreResult<()> {
+        use crate::domain::entity_activity::{Activity, ActivityType, AuditInput, EntityType};
+        use common_domain::ids::BaseId;
+
+        let mut changed: Vec<&'static str> = Vec::new();
+        if patch.name.is_some() {
+            changed.push("name");
+        }
+        if patch.description.is_some() {
+            changed.push("description");
+        }
+        if patch.self_service_rank.is_some() {
+            changed.push("self_service_rank");
+        }
+        if patch.issues_license.is_some() {
+            changed.push("issues_license");
+        }
+        let changes_plan = !changed.is_empty() || patch.active_version_id.is_some();
+        let (plan_id, tenant_id) = (patch.id, patch.tenant_id);
+        let row_patch: diesel_models::plans::PlanRowPatch = patch.into();
+        self.transaction(|conn| {
+            let actor = &actor;
+            async move {
+                if changes_plan {
+                    row_patch.update(conn).await?;
+                    if !changed.is_empty() {
+                        let activity = Activity::new(
+                            ActivityType::EntityUpdated,
+                            EntityType::Plan,
+                            plan_id.as_uuid(),
+                        )
+                        .with_metadata(serde_json::json!({
+                            "changes": changed
+                                .iter()
+                                .map(|field| serde_json::json!({ "field": field }))
+                                .collect::<Vec<_>>(),
+                        }));
+                        self.internal
+                            .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
+                            .await?;
+                    }
+                }
+                if let Some(page) = page {
+                    if page.plan_id != plan_id {
+                        return Err(invalid("The copy is another plan's"));
+                    }
+                    self.write_plan_pricing_page_tx(conn, tenant_id, page)
+                        .await?;
+                }
+                Ok(())
+            }
+            .scope_boxed()
+        })
+        .await
+    }
+
     async fn update_plan_pricing_page(
         &self,
         tenant_id: TenantId,
         page: PlanPricingPage,
     ) -> StoreResult<PlanPricingPage> {
-        let tagline = checked_copy(page.tagline, "tagline")?;
-        let cta_label = checked_copy(page.cta_label, "button's text")?;
-        let highlights = checked_highlights(page.highlights)?;
-        let product_order = checked_order(page.product_order)?;
-        let hidden_product_ids = checked_hidden(page.hidden_product_ids)?;
-        let sales_led = page.sales_led;
-        // Hiding the price and the contact link only read for a sales-led plan (the cards gate
-        // them), but stay stored, so a plan sold self-serve for a while keeps them.
-        let hide_price = page.hide_price;
-        let contact_url = page
-            .contact_url
-            .map(|url| url.trim().to_owned())
-            .filter(|url| !url.is_empty());
-        validate_redirect_url("The contact link", contact_url.as_deref()).map_err(Report::new)?;
-        let highlights_json = serde_json::to_value(&highlights).map_err(|e| {
-            Report::new(StoreError::SerdeError(
-                "Failed to serialize pricing highlights".to_owned(),
-                e,
-            ))
-        })?;
-        let (plan_id, popular) = (page.plan_id, page.popular);
         self.transaction(|conn| {
-            async move {
-                let plan = PlanRow::find_by_id(conn, plan_id, tenant_id).await?;
-                let chosen: Vec<ProductId> = distinct(
-                    product_order
-                        .iter()
-                        .chain(hidden_product_ids.iter())
-                        .copied()
-                        .collect(),
-                );
-                if !chosen.is_empty() {
-                    // Products, not charges: the choice holds in every version pricing them.
-                    let known: HashSet<ProductId> =
-                        ProductRow::list_by_ids(conn, &chosen, tenant_id)
-                            .await?
-                            .into_iter()
-                            .map(|row| row.id)
-                            .collect();
-                    if chosen.iter().any(|id| !known.contains(id)) {
-                        return Err(invalid("Pick charges among the products of the catalog"));
-                    }
-                }
-                let feature_ids: Vec<FeatureId> = highlights
-                    .iter()
-                    .filter_map(|h| match h {
-                        Highlight::Feature(id) => Some(*id),
-                        Highlight::Text(_) => None,
-                    })
-                    .collect();
-                if !feature_ids.is_empty() {
-                    // Only what the published version grants: a highlight shows its value.
-                    let granted: HashMap<FeatureId, ResolvedEntitlement> =
-                        match plan.active_version_id {
-                            Some(version) => self
-                                .resolve_entitlements_for_entity(
-                                    conn,
-                                    tenant_id,
-                                    ResolveTarget::PlanVersion(version),
-                                )
-                                .await?
-                                .into_iter()
-                                .map(|entitlement| (entitlement.feature.id, entitlement))
-                                .collect(),
-                            None => HashMap::new(),
-                        };
-                    if feature_ids.iter().any(|id| {
-                        render_highlight(&Highlight::Feature(*id), &granted).is_none()
-                    }) {
-                        return Err(invalid(
-                            "Pick highlights among the features the plan's published version grants",
-                        ));
-                    }
-                }
-                if popular {
-                    // Locked, so two plans marked at once never both hold the flag.
-                    PlanRow::lock_by_product_family(conn, plan.product_family_id, tenant_id)
-                        .await?;
-                    PlanRow::clear_pricing_popular(
-                        conn,
-                        tenant_id,
-                        plan.product_family_id,
-                        plan.id,
-                    )
-                    .await?;
-                }
-                let row = PlanRow::update_pricing_page(
-                    conn,
-                    plan.id,
-                    tenant_id,
-                    tagline,
-                    popular,
-                    cta_label,
-                    highlights_json,
-                    sales_led,
-                    hide_price,
-                    contact_url,
-                    product_order,
-                    hidden_product_ids,
-                )
-                .await?;
-                page_of(&row)
-            }
-            .scope_boxed()
+            async move { self.write_plan_pricing_page_tx(conn, tenant_id, page).await }
+                .scope_boxed()
         })
         .await
     }
@@ -967,5 +960,109 @@ impl PricingPagesInterface for Store {
             cards,
             not_sold,
         })
+    }
+}
+
+impl Store {
+    /// `update_plan_pricing_page` inside the caller's transaction.
+    pub(crate) async fn write_plan_pricing_page_tx(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        page: PlanPricingPage,
+    ) -> StoreResult<PlanPricingPage> {
+        let tagline = checked_copy(page.tagline, "tagline")?;
+        let cta_label = checked_copy(page.cta_label, "button's text")?;
+        let highlights = checked_highlights(page.highlights)?;
+        let product_order = checked_order(page.product_order)?;
+        let hidden_product_ids = checked_hidden(page.hidden_product_ids)?;
+        let sales_led = page.sales_led;
+        // Hiding the price and the contact link only read for a sales-led plan (the cards gate
+        // them), but stay stored, so a plan sold self-serve for a while keeps them.
+        let hide_price = page.hide_price;
+        let contact_url = page
+            .contact_url
+            .map(|url| url.trim().to_owned())
+            .filter(|url| !url.is_empty());
+        validate_redirect_url("The contact link", contact_url.as_deref()).map_err(Report::new)?;
+        let highlights_json = serde_json::to_value(&highlights).map_err(|e| {
+            Report::new(StoreError::SerdeError(
+                "Failed to serialize pricing highlights".to_owned(),
+                e,
+            ))
+        })?;
+        let (plan_id, popular) = (page.plan_id, page.popular);
+        let plan = PlanRow::find_by_id(conn, plan_id, tenant_id).await?;
+        let chosen: Vec<ProductId> = distinct(
+            product_order
+                .iter()
+                .chain(hidden_product_ids.iter())
+                .copied()
+                .collect(),
+        );
+        if !chosen.is_empty() {
+            // Products, not charges: the choice holds in every version pricing them.
+            let known: HashSet<ProductId> = ProductRow::list_by_ids(conn, &chosen, tenant_id)
+                .await?
+                .into_iter()
+                .map(|row| row.id)
+                .collect();
+            if chosen.iter().any(|id| !known.contains(id)) {
+                return Err(invalid("Pick charges among the products of the catalog"));
+            }
+        }
+        let feature_ids: Vec<FeatureId> = highlights
+            .iter()
+            .filter_map(|h| match h {
+                Highlight::Feature(id) => Some(*id),
+                Highlight::Text(_) => None,
+            })
+            .collect();
+        if !feature_ids.is_empty() {
+            // Only what the published version grants: a highlight shows its value.
+            let granted: HashMap<FeatureId, ResolvedEntitlement> = match plan.active_version_id {
+                Some(version) => self
+                    .resolve_entitlements_for_entity(
+                        conn,
+                        tenant_id,
+                        ResolveTarget::PlanVersion(version),
+                    )
+                    .await?
+                    .into_iter()
+                    .map(|entitlement| (entitlement.feature.id, entitlement))
+                    .collect(),
+                None => HashMap::new(),
+            };
+            if feature_ids
+                .iter()
+                .any(|id| render_highlight(&Highlight::Feature(*id), &granted).is_none())
+            {
+                return Err(invalid(
+                    "Pick highlights among the features the plan's published version grants",
+                ));
+            }
+        }
+        if popular {
+            // Locked, so two plans marked at once never both hold the flag.
+            PlanRow::lock_by_product_family(conn, plan.product_family_id, tenant_id).await?;
+            PlanRow::clear_pricing_popular(conn, tenant_id, plan.product_family_id, plan.id)
+                .await?;
+        }
+        let row = PlanRow::update_pricing_page(
+            conn,
+            plan.id,
+            tenant_id,
+            tagline,
+            popular,
+            cta_label,
+            highlights_json,
+            sales_led,
+            hide_price,
+            contact_url,
+            product_order,
+            hidden_product_ids,
+        )
+        .await?;
+        page_of(&row)
     }
 }

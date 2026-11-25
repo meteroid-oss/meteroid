@@ -42,6 +42,8 @@ pub struct PlanRow {
     pub pricing_product_order: Vec<Option<ProductId>>,
     /// Usage charges the card leaves off, by product, read together as "+ usage".
     pub pricing_hidden_product_ids: Vec<Option<ProductId>>,
+    /// Unique per tenant and immutable; filled from the name on insert when not set (ADR-0013).
+    pub code: String,
 }
 
 #[derive(Debug, Default, Insertable)]

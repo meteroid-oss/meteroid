@@ -148,9 +148,14 @@ pub struct InvoiceRowPatch {
     pub customer_details: serde_json::Value,
     pub seller_details: serde_json::Value,
     pub discount: i64,
+    /// Built from the whole invoice: `None` clears the column (AsChangeset would skip it).
+    #[diesel(treat_none_as_null = true)]
     pub memo: Option<String>,
+    #[diesel(treat_none_as_null = true)]
     pub reference: Option<String>,
+    #[diesel(treat_none_as_null = true)]
     pub purchase_order: Option<String>,
+    #[diesel(treat_none_as_null = true)]
     pub due_at: Option<NaiveDateTime>,
     pub invoicing_entity_id: InvoicingEntityId,
     pub subtotal: i64,

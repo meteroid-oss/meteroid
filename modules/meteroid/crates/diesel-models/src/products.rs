@@ -25,6 +25,8 @@ pub struct ProductRow {
     pub tax_category_id: Option<TaxCategoryId>,
     pub icon: Option<String>,
     pub color: Option<String>,
+    /// Unique per tenant and immutable; filled from the name on insert when not set (ADR-0013).
+    pub code: String,
 }
 
 #[derive(Debug, Insertable)]

@@ -16,6 +16,7 @@ modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::Subscript
 modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionEndingRow::insert_batch | primitive | endings: a fixed term at insert
 modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionEndingRow::withdraw_cancellation | primitive | a cancellation withdrawn before it applied
 modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionEndingRow::record_cancellation | primitive | a cancellation, recorded or replaced when it is requested
+modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionEndingRow::record_completion | primitive | a live subscription's end date moved or withdrawn (R-140)
 modules/meteroid/crates/diesel-models/src/query/sandbox_seed.rs::backdate_sandbox_signatures | primitive | a seeded Sandbox's pending cancellations dated as given twelve days ahead
 modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::ScheduledRows::withdraw | primitive | withdraws what a scheduled change wrote dated its day (its window, the window it replaced, minimum, trial cut) when it is cancelled before it applies
 modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::ScheduledRows::defer | primitive | moves a scheduled amendment's rows to the renewal it waits for, withdrawing the plan window it opened

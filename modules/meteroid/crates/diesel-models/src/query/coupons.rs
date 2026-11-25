@@ -258,6 +258,88 @@ impl CouponRow {
             .into_db_result()
     }
 
+    /// A page of the tenant's coupons by keyset (API v2): those of `filter` after `after`, in id
+    /// order, at most `limit`. No filter: every coupon not archived; `INACTIVE`: disabled,
+    /// expired or used up, and not archived.
+    pub async fn list_page(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        filter: Option<CouponFilter>,
+        after: Option<CouponId>,
+        limit: i64,
+    ) -> DbResult<Vec<CouponRow>> {
+        use crate::schema::coupon::dsl as c_dsl;
+
+        let mut query = c_dsl::coupon
+            .filter(c_dsl::tenant_id.eq(tenant_id))
+            .into_boxed();
+        if let Some(after) = after {
+            query = query.filter(c_dsl::id.gt(after));
+        }
+
+        let is_expired = c_dsl::expires_at
+            .is_not_null()
+            .and(c_dsl::expires_at.lt(common_clock::now().naive_utc()));
+        let is_exhausted = c_dsl::redemption_limit
+            .is_not_null()
+            .and(c_dsl::redemption_limit.le(c_dsl::redemption_count.nullable()));
+        let is_archived = c_dsl::archived_at.is_not_null();
+        let is_disabled = c_dsl::disabled.eq(true);
+
+        query = match filter {
+            None => query.filter(not(is_archived)),
+            Some(CouponFilter::ALL) => query,
+            Some(CouponFilter::ACTIVE) => query.filter(
+                not(is_expired)
+                    .and(not(is_exhausted))
+                    .and(not(is_archived))
+                    .and(not(is_disabled)),
+            ),
+            Some(CouponFilter::INACTIVE) => query.filter(
+                is_disabled
+                    .or(is_expired)
+                    .or(is_exhausted)
+                    .and(not(is_archived)),
+            ),
+            Some(CouponFilter::ARCHIVED) => query.filter(is_archived),
+        };
+
+        let query = query.order(c_dsl::id.asc()).limit(limit);
+
+        crate::debug_sql(&query);
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while listing a page of coupons")
+            .into_db_result()
+    }
+
+    /// The newest archived coupon of the tenant with exactly `code`.
+    pub async fn find_archived_by_code(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        code: &str,
+    ) -> DbResult<Option<CouponRow>> {
+        use crate::schema::coupon::dsl as c_dsl;
+        use diesel::OptionalExtension;
+
+        let query = c_dsl::coupon
+            .filter(c_dsl::tenant_id.eq(tenant_id))
+            .filter(c_dsl::archived_at.is_not_null())
+            .filter(c_dsl::code.eq(code))
+            .order((c_dsl::archived_at.desc(), c_dsl::id.desc()));
+
+        crate::debug_sql(&query);
+
+        query
+            .first(conn)
+            .await
+            .optional()
+            .attach("Error while finding an archived coupon by code")
+            .into_db_result()
+    }
+
     pub async fn delete(conn: &mut PgConn, tenant_id: TenantId, id: CouponId) -> DbResult<usize> {
         use crate::schema::coupon::dsl as c_dsl;
 

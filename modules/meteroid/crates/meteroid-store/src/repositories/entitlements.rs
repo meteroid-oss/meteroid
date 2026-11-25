@@ -97,6 +97,16 @@ pub trait EntitlementsInterface {
         update: FeatureUpdate,
     ) -> StoreResult<Feature>;
 
+    /// `update_feature` when `update` is set, and `replace_entitlements` of the feature (its
+    /// default) when `default` is, in one transaction: a refusal of either writes neither.
+    async fn update_feature_with_default(
+        &self,
+        id: FeatureId,
+        tenant_id: TenantId,
+        update: Option<FeatureUpdate>,
+        default: Option<Vec<EntitlementSpec>>,
+    ) -> StoreResult<Feature>;
+
     /// Transition the feature status. Only Active entitlements resolve. Archiving releases the code
     /// and hides the feature's entitlements without deleting them, and restoring to Active brings
     /// them back; it fails with `FailedPrecondition` while another feature holds the code.
@@ -203,6 +213,161 @@ pub trait EntitlementsInterface {
         target: EntitlementEntityId,
         specs: Vec<EntitlementSpec>,
     ) -> StoreResult<Vec<Entitlement>>;
+
+    /// The tenant's features of `filter` in id order, those after `after`, at most `limit`, each
+    /// with its default entitlement: a keyset page of API v2.
+    async fn list_features_after(
+        &self,
+        tenant_id: TenantId,
+        filter: FeaturePageFilter,
+        after: Option<FeatureId>,
+        limit: usize,
+    ) -> StoreResult<Vec<Feature>>;
+
+    /// Makes the entity's entitlements of live features exactly `specs`, in one transaction:
+    /// creates the missing, updates the changed, deletes the others. Entitlements of archived
+    /// features are left as they are (hidden); naming an archived feature is refused. The entity
+    /// is an add-on, a plan, a draft plan version or a feature (its default) of the tenant.
+    async fn replace_entitlements(
+        &self,
+        tenant_id: TenantId,
+        entity: EntitlementEntityId,
+        specs: Vec<EntitlementSpec>,
+    ) -> StoreResult<Vec<Entitlement>>;
+
+    /// Sets the defaults of a product's live features to `specs`, in one transaction: each spec
+    /// names a feature of the product; a feature of the product left out loses its default.
+    async fn set_product_feature_defaults(
+        &self,
+        tenant_id: TenantId,
+        product_id: ProductId,
+        specs: Vec<EntitlementSpec>,
+    ) -> StoreResult<()>;
+}
+
+/// What a page of features is narrowed to.
+#[derive(Debug, Clone, Default)]
+pub struct FeaturePageFilter {
+    pub statuses: Option<Vec<FeatureStatusEnum>>,
+    pub product_id: Option<ProductId>,
+}
+
+/// Refuses an entity that is not the tenant's, or whose entitlements are not replaced whole.
+async fn ensure_replaceable_entity(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    entity: &EntitlementEntityId,
+) -> StoreResult<()> {
+    let not_found = || Report::new(StoreError::ValueNotFound(format!("{entity:?}")));
+    match entity {
+        EntitlementEntityId::AddOn(id) => {
+            if AddOnRow::list_by_ids(conn, &[*id], &tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .is_empty()
+            {
+                return Err(not_found());
+            }
+        }
+        EntitlementEntityId::Plan(id) => {
+            if PlanRow::list_by_ids(conn, &[*id], tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .is_empty()
+            {
+                return Err(not_found());
+            }
+        }
+        EntitlementEntityId::PlanVersion(id) => {
+            let version = PlanVersionRow::list_by_ids_and_tenant_id(conn, &[*id], tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into_iter()
+                .next()
+                .ok_or_else(not_found)?;
+            if !version.is_draft_version {
+                return Err(Report::new(StoreError::FailedPrecondition(
+                    "a published version's entitlements are fixed: write them through a draft"
+                        .into(),
+                )));
+            }
+        }
+        EntitlementEntityId::Feature(id) => {
+            if FeatureRow::find_by_ids(conn, tenant_id, &[*id])
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .is_empty()
+            {
+                return Err(not_found());
+            }
+        }
+        EntitlementEntityId::Customer(_)
+        | EntitlementEntityId::Subscription(_)
+        | EntitlementEntityId::Quote(_) => {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "only the entitlements of an add-on, a plan, a draft version or a feature are \
+                 replaced whole"
+                    .into(),
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Makes `entity`'s entitlements of live features exactly `specs`, inside a transaction.
+async fn replace_entity_entitlements_tx(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    entity: EntitlementEntityId,
+    specs: Vec<EntitlementSpec>,
+) -> StoreResult<()> {
+    let mut seen: HashSet<FeatureId> = HashSet::new();
+    if let Some(repeated) = specs.iter().find(|spec| !seen.insert(spec.feature_id)) {
+        return Err(Report::new(StoreError::InvalidArgument(format!(
+            "feature {} is granted twice",
+            repeated.feature_id
+        ))));
+    }
+    let wanted = build_entitlement_rows(conn, specs, &entity, tenant_id, false).await?;
+    let wanted_features: HashSet<FeatureId> = wanted.iter().map(|row| row.feature_id).collect();
+    // Live features only: an archived feature's entitlements stay hidden, untouched.
+    let existing = EntitlementRow::list_by_entity(conn, tenant_id, entity)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    for current in &existing {
+        if !wanted_features.contains(&current.feature_id) {
+            EntitlementRow::delete(conn, current.id, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+        }
+    }
+    let mut inserts = Vec::new();
+    for row in wanted {
+        match existing.iter().find(|e| e.feature_id == row.feature_id) {
+            Some(current) if current.value == row.value => {}
+            Some(current) => {
+                EntitlementRow::update(
+                    conn,
+                    current.id,
+                    tenant_id,
+                    EntitlementRowPatch {
+                        mode: None,
+                        value: Some(row.value),
+                        updated_at: Some(common_clock::now()),
+                    },
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+            }
+            None => inserts.push(row),
+        }
+    }
+    if !inserts.is_empty() {
+        EntitlementRowNew::insert_batch(&inserts, conn)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+    }
+    Ok(())
 }
 
 /// A feature may only be attached to a product of its own tenant.
@@ -602,102 +767,43 @@ impl EntitlementsInterface for Store {
         tenant_id: TenantId,
         update: FeatureUpdate,
     ) -> StoreResult<Feature> {
-        let mut conn = self.get_conn().await?;
-
-        let current: Feature = FeatureRow::find_by_id(&mut conn, id, tenant_id)
+        self.update_feature_with_default(id, tenant_id, Some(update), None)
             .await
-            .map_err(Into::<Report<StoreError>>::into)
-            .and_then(TryInto::try_into)?;
-        ensure_editable(&current)?;
-        ensure_product_in_tenant(&mut conn, tenant_id, update.product_id.flatten()).await?;
+    }
 
-        // When replacing a select feature's options, reject removing any option that an
-        // existing entitlement still references.
-        let config_options_patch = if let Some(new_options) = &update.config_options {
-            let FeatureType::Config {
-                value_type:
-                    ConfigValueType::Select {
-                        options: current_options,
-                    },
-            } = current.feature_type
-            else {
-                return Err(Report::new(StoreError::InvalidArgument(
-                    "config options can only be set on select config features".into(),
-                )));
-            };
-            if new_options.is_empty() {
-                return Err(Report::new(StoreError::InvalidArgument(
-                    "a select config feature requires at least one option".into(),
-                )));
-            }
-            let removed: Vec<String> = current_options
-                .into_iter()
-                .filter(|o| !new_options.contains(o))
-                .collect();
-            if !removed.is_empty() {
-                let rows = EntitlementRow::list_by_feature(&mut conn, id, tenant_id)
+    async fn update_feature_with_default(
+        &self,
+        id: FeatureId,
+        tenant_id: TenantId,
+        update: Option<FeatureUpdate>,
+        default: Option<Vec<EntitlementSpec>>,
+    ) -> StoreResult<Feature> {
+        self.transaction_bumping_tenant(tenant_id, |conn| {
+            async move {
+                let row = match update {
+                    Some(update) => update_feature_tx(conn, id, tenant_id, update).await?,
+                    None => FeatureRow::find_by_id(conn, id, tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?,
+                };
+                let entity = EntitlementEntityId::Feature(id);
+                if let Some(specs) = default {
+                    replace_entitlements_tx(conn, tenant_id, entity, specs).await?;
+                }
+                let mut feature: Feature = row.try_into()?;
+                let entitlement_rows = EntitlementRow::list_by_entity(conn, tenant_id, entity)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
-                let mut in_use: Vec<String> = Vec::new();
-                for row in rows {
-                    if let Ok(EntitlementValue::Config {
-                        value: ConfigValue::Text(t),
-                    }) = serde_json::from_value::<EntitlementValue>(row.value)
-                        && removed.contains(&t)
-                        && !in_use.contains(&t)
-                    {
-                        in_use.push(t);
-                    }
-                }
-                if !in_use.is_empty() {
-                    return Err(Report::new(StoreError::InvalidArgument(format!(
-                        "Cannot remove option(s) still used by entitlements: {}",
-                        in_use.join(", ")
-                    ))));
-                }
+                feature.entitlement = entitlement_rows
+                    .into_iter()
+                    .next()
+                    .map(TryInto::try_into)
+                    .transpose()?;
+                Ok(feature)
             }
-            Some(Some(new_options.iter().cloned().map(Some).collect()))
-        } else {
-            None
-        };
-
-        let patch = FeatureRowPatch {
-            name: update.name,
-            description: update.description,
-            product_id: update.product_id,
-            config_options: config_options_patch,
-            status: None,
-            updated_at: Some(common_clock::now()),
-        };
-
-        drop(conn);
-
-        let row = self
-            .transaction_bumping_tenant(tenant_id, |conn| {
-                async move {
-                    FeatureRow::update(conn, id, tenant_id, patch)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)
-                }
-                .scope_boxed()
-            })
-            .await?;
-
-        let mut feature: Feature = row.try_into()?;
-
-        let mut conn = self.get_conn().await?;
-        let entitlement_rows =
-            EntitlementRow::list_by_entity(&mut conn, tenant_id, EntitlementEntityId::Feature(id))
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-
-        feature.entitlement = entitlement_rows
-            .into_iter()
-            .next()
-            .map(TryInto::try_into)
-            .transpose()?;
-
-        Ok(feature)
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn set_feature_status(
@@ -1048,6 +1154,208 @@ impl EntitlementsInterface for Store {
             .await?;
         inserted.into_iter().map(TryInto::try_into).collect()
     }
+
+    async fn list_features_after(
+        &self,
+        tenant_id: TenantId,
+        filter: FeaturePageFilter,
+        after: Option<FeatureId>,
+        limit: usize,
+    ) -> StoreResult<Vec<Feature>> {
+        let mut conn = self.get_conn().await?;
+        let statuses = filter.statuses.map(|statuses| {
+            statuses
+                .into_iter()
+                .map(Into::<DbFeatureStatusEnum>::into)
+                .collect::<Vec<_>>()
+        });
+        let rows = FeatureRow::list_page(
+            &mut conn,
+            tenant_id,
+            statuses,
+            filter.product_id,
+            after,
+            i64::try_from(limit).unwrap_or(i64::MAX),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+        let feature_ids: Vec<FeatureId> = rows.iter().map(|r| r.feature.id).collect();
+        let entitlement_rows = EntitlementRow::list_feature_level_entitlements(
+            &mut conn,
+            tenant_id,
+            Some(&feature_ids),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+        let mut entitlement_map = build_feature_entitlement_map(entitlement_rows)?;
+        rows.into_iter()
+            .map(|row| {
+                let mut f: Feature = row.try_into()?;
+                f.entitlement = entitlement_map.remove(&f.id);
+                Ok(f)
+            })
+            .collect()
+    }
+
+    async fn replace_entitlements(
+        &self,
+        tenant_id: TenantId,
+        entity: EntitlementEntityId,
+        specs: Vec<EntitlementSpec>,
+    ) -> StoreResult<Vec<Entitlement>> {
+        self.transaction_bumping_tenant(tenant_id, |conn| {
+            async move { replace_entitlements_tx(conn, tenant_id, entity, specs).await }
+                .scope_boxed()
+        })
+        .await
+    }
+
+    async fn set_product_feature_defaults(
+        &self,
+        tenant_id: TenantId,
+        product_id: ProductId,
+        specs: Vec<EntitlementSpec>,
+    ) -> StoreResult<()> {
+        self.transaction_bumping_tenant(tenant_id, |conn| {
+            async move { set_product_feature_defaults_tx(conn, tenant_id, product_id, specs).await }
+                .scope_boxed()
+        })
+        .await
+    }
+}
+
+/// A feature's edit on the caller's transaction: its checks, then its row.
+async fn update_feature_tx(
+    conn: &mut PgConn,
+    id: FeatureId,
+    tenant_id: TenantId,
+    update: FeatureUpdate,
+) -> StoreResult<diesel_models::entitlements::FeatureWithProductRow> {
+    let current: Feature = FeatureRow::find_by_id(conn, id, tenant_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)
+        .and_then(TryInto::try_into)?;
+    ensure_editable(&current)?;
+    ensure_product_in_tenant(conn, tenant_id, update.product_id.flatten()).await?;
+
+    // When replacing a select feature's options, reject removing any option that an
+    // existing entitlement still references.
+    let config_options_patch = if let Some(new_options) = &update.config_options {
+        let FeatureType::Config {
+            value_type:
+                ConfigValueType::Select {
+                    options: current_options,
+                },
+        } = current.feature_type
+        else {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "config options can only be set on select config features".into(),
+            )));
+        };
+        if new_options.is_empty() {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "a select config feature requires at least one option".into(),
+            )));
+        }
+        let removed: Vec<String> = current_options
+            .into_iter()
+            .filter(|o| !new_options.contains(o))
+            .collect();
+        if !removed.is_empty() {
+            let rows = EntitlementRow::list_by_feature(conn, id, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+            let mut in_use: Vec<String> = Vec::new();
+            for row in rows {
+                if let Ok(EntitlementValue::Config {
+                    value: ConfigValue::Text(t),
+                }) = serde_json::from_value::<EntitlementValue>(row.value)
+                    && removed.contains(&t)
+                    && !in_use.contains(&t)
+                {
+                    in_use.push(t);
+                }
+            }
+            if !in_use.is_empty() {
+                return Err(Report::new(StoreError::InvalidArgument(format!(
+                    "Cannot remove option(s) still used by entitlements: {}",
+                    in_use.join(", ")
+                ))));
+            }
+        }
+        Some(Some(new_options.iter().cloned().map(Some).collect()))
+    } else {
+        None
+    };
+
+    let patch = FeatureRowPatch {
+        name: update.name,
+        description: update.description,
+        product_id: update.product_id,
+        config_options: config_options_patch,
+        status: None,
+        updated_at: Some(common_clock::now()),
+    };
+    FeatureRow::update(conn, id, tenant_id, patch)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)
+}
+
+/// `replace_entitlements` on the caller's transaction, so a write of the entity and of its
+/// entitlements commit together.
+pub(crate) async fn replace_entitlements_tx(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    entity: EntitlementEntityId,
+    specs: Vec<EntitlementSpec>,
+) -> StoreResult<Vec<Entitlement>> {
+    ensure_replaceable_entity(conn, tenant_id, &entity).await?;
+    replace_entity_entitlements_tx(conn, tenant_id, entity, specs).await?;
+    EntitlementRow::list_by_entity(conn, tenant_id, entity)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect::<Result<Vec<Entitlement>, _>>()
+}
+
+/// `set_product_feature_defaults` on the caller's transaction.
+pub(crate) async fn set_product_feature_defaults_tx(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    product_id: ProductId,
+    specs: Vec<EntitlementSpec>,
+) -> StoreResult<()> {
+    ProductRow::find_by_id_and_tenant_id(conn, product_id, tenant_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    let features = FeatureRow::list_live_by_product(conn, tenant_id, product_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    let mut specs = specs;
+    if let Some(stranger) = specs
+        .iter()
+        .find(|spec| !features.iter().any(|f| f.id == spec.feature_id))
+    {
+        return Err(Report::new(StoreError::InvalidArgument(format!(
+            "feature {} is not a live feature of product {product_id}",
+            stranger.feature_id
+        ))));
+    }
+    for feature in &features {
+        let (own, rest): (Vec<EntitlementSpec>, Vec<EntitlementSpec>) = std::mem::take(&mut specs)
+            .into_iter()
+            .partition(|spec| spec.feature_id == feature.id);
+        specs = rest;
+        replace_entity_entitlements_tx(
+            conn,
+            tenant_id,
+            EntitlementEntityId::Feature(feature.id),
+            own,
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 pub(crate) use crate::services::entitlements::limits::rules::{

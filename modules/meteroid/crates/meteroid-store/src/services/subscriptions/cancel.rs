@@ -2,11 +2,13 @@ use crate::StoreResult;
 use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::domain::enums::SubscriptionEventType;
 use crate::domain::outbox_event::SubscriptionUpdateType;
+use crate::domain::subscription_changes::CancellationOutcome;
 use crate::domain::{Subscription, SubscriptionDetails};
 use crate::errors::StoreError;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use diesel_models::query::credit_inputs;
 use error_stack::Report;
+use futures::FutureExt;
 use scoped_futures::ScopedFutureExt;
 use uuid::Uuid;
 
@@ -14,15 +16,44 @@ use crate::repositories::SubscriptionInterface;
 use crate::repositories::entity_activity::EntityActivityInterface;
 use crate::repositories::subscriptions::CancellationEffectiveAt;
 use diesel_models::checkout_sessions::CheckoutSessionRow;
+use diesel_models::credit_notes::CreditNoteRow;
 use diesel_models::enums::SubscriptionStatusEnum;
+use diesel_models::invoices::InvoiceRow;
 use diesel_models::subscription_events::SubscriptionEventRow;
+use diesel_models::subscription_facts::SubscriptionEndingRow;
 use diesel_models::subscriptions::{SubscriptionCycleRowPatch, SubscriptionRow};
 // TODO we need to always pass the tenant id and match it with the resource, if not within the resource.
 // and even within it's probably still unsafe no ? Ex: creating components against a wrong subscription within a different tenant
 use crate::services::Services;
 use crate::services::credit::scope::credit_ended_at;
 use crate::services::credit::subscription_end::end_subscription_credit_tx;
-use common_domain::ids::{BaseId, SubscriptionId, TenantId};
+use common_domain::ids::{BaseId, CreditNoteId, InvoiceId, SubscriptionId, TenantId};
+
+/// The ids of the subscription's invoices and credit notes: what a step issued is the difference
+/// of a read before it and one after.
+async fn documents_of(
+    conn: &mut crate::store::PgConn,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+) -> StoreResult<(Vec<InvoiceId>, Vec<CreditNoteId>)> {
+    let invoices = InvoiceRow::list_ids_of_subscription(conn, tenant_id, subscription_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    let notes = CreditNoteRow::list_ids_of_subscription(conn, tenant_id, subscription_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    Ok((invoices, notes))
+}
+
+/// An ended subscription (cancelled, completed or aborted) has nothing left to cancel (R-141).
+fn refuse_ended(details: &SubscriptionDetails) -> StoreResult<()> {
+    if details.subscription.status.is_terminal() {
+        return Err(Report::new(StoreError::Conflict(
+            "The subscription has ended: there is nothing to cancel".to_string(),
+        )));
+    }
+    Ok(())
+}
 
 impl Services {
     pub(in crate::services) async fn cancel_subscription(
@@ -55,12 +86,39 @@ impl Services {
         effective_at: CancellationEffectiveAt,
         requested_at: chrono::DateTime<chrono::Utc>,
     ) -> StoreResult<Subscription> {
+        self.cancel_subscription_outcome_at(
+            actor,
+            subscription_id,
+            tenant_id,
+            reason,
+            effective_at,
+            requested_at,
+        )
+        .await
+        .map(|outcome| outcome.subscription)
+    }
+
+    /// [`Self::cancel_subscription_at`] with the documents its ending issued in the request. An
+    /// ended subscription is refused; a cancellation still to apply is replaced, its one
+    /// `Cancelled` event moved to the new ending (R-141). Once its transaction commits the call
+    /// never fails: a retry would cancel again. What follows the commit (the ending applied in
+    /// the request, the read back) is best-effort: a step failing is the subscription's failure,
+    /// retried by the controller (R-121), and the committed subscription is answered.
+    pub(in crate::services) async fn cancel_subscription_outcome_at(
+        &self,
+        actor: Actor,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        reason: Option<String>,
+        effective_at: CancellationEffectiveAt,
+        requested_at: chrono::DateTime<chrono::Utc>,
+    ) -> StoreResult<CancellationOutcome> {
         if requested_at > common_clock::now() {
             return Err(Report::new(StoreError::InvalidArgument(
                 "a cancellation cannot be requested at a future moment".to_string(),
             )));
         }
-        let (db_subscription, ends_at) = self
+        let (subscription, reached) = self
             .store
             .transaction(|conn| {
                 let actor = &actor;
@@ -78,6 +136,28 @@ impl Services {
                         .await?;
                     let customer_id = subscription.subscription.customer_id;
                     let reason_for_audit = reason.clone();
+
+                    refuse_ended(&subscription)?;
+                    // A cancellation still to apply is replaced, but a customer never moves one
+                    // the account manager scheduled, as they never revoke it.
+                    if actor.is_customer()
+                        && SubscriptionEndingRow::list_pending_cancellations(
+                            conn,
+                            tenant_id,
+                            &[subscription_id],
+                        )
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?
+                        .iter()
+                        .any(|pending| {
+                            pending.actor_type != diesel_models::enums::ActorTypeEnum::Customer
+                        })
+                    {
+                        return Err(Report::new(StoreError::Conflict(
+                            "This subscription's cancellation was scheduled by your account manager: only they can change it"
+                                .to_string(),
+                        )));
+                    }
 
                     // A cancellation replaces the changes still to come.
                     crate::services::facts::pending::withdraw_pending_of_tx(
@@ -164,7 +244,8 @@ impl Services {
                             .await?;
                         }
 
-                        return Ok((res, None));
+                        let aborted: Subscription = res.try_into()?;
+                        return Ok((aborted, None));
                     }
 
                     // `usage_cutoff` is set only for an immediate cancel: it pins the terminal
@@ -222,6 +303,12 @@ impl Services {
 
                     let mrr = subscription.subscription.mrr_cents;
 
+                    // One `Cancelled` event per cancellation still to apply: one it replaces has
+                    // its event moved to this ending, never a second churn (R-141).
+                    SubscriptionEventRow::withdraw_pending_cancellation(conn, subscription_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
                     let event = SubscriptionEventRow {
                         id: Uuid::now_v7(),
                         subscription_id,
@@ -266,29 +353,251 @@ impl Services {
                     self.derive_state_tx(conn, actor, tenant_id, subscription_id, requested_at)
                         .await?;
 
-                    Ok((res, Some(ends_at.and_utc())))
+                    // Reached already, it applies in the request: what it issues is what the
+                    // subscription holds after less what it holds now.
+                    let reached = if ends_at.and_utc() <= requested_at {
+                        Some(documents_of(conn, tenant_id, subscription_id).await?)
+                    } else {
+                        None
+                    };
+                    let cancelled: Subscription = res.try_into()?;
+                    Ok((cancelled, reached))
                 }
                 .scope_boxed()
             })
             .await?;
 
-        // Reached already, the ending applies now, as the controller would: an ending past the
-        // stored period's end first renews each period before it, one boundary a step.
-        if ends_at.is_some_and(|at| at <= requested_at) {
-            self.step_until_idle(
+        let Some((invoices_before, notes_before)) = reached else {
+            return Ok(CancellationOutcome {
+                subscription,
+                invoice_ids: Vec::new(),
+                credit_note_ids: Vec::new(),
+                applies_later: false,
+            });
+        };
+
+        // Committed: nothing from here fails the call. The ending applies now, as the controller
+        // would: an ending past the stored period's end first renews each period before it, one
+        // boundary a step. A step failing (or panicking) is the subscription's failure, recorded
+        // and retried by the controller, which applies the ending then (R-121).
+        let stepped = std::panic::AssertUnwindSafe(self.step_until_idle(
+            tenant_id,
+            subscription_id,
+            crate::services::lifecycle::controller::CATCH_UP,
+            crate::services::lifecycle::controller::StepOf::Request,
+        ))
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|panic| Err(crate::services::lifecycle::controller::panicked(panic)));
+        let applies_later = match stepped {
+            Ok(_) => false,
+            Err(error) => {
+                log::error!(
+                    "The cancellation of subscription {subscription_id} is recorded but did not apply in its request; the controller retries it: {error:?}"
+                );
+                if let Err(error) = self
+                    .subscription_failed(tenant_id, subscription_id, &error)
+                    .await
+                {
+                    log::error!(
+                        "The failure of subscription {subscription_id}'s cancellation was not recorded: {error:?}"
+                    );
+                }
+                true
+            }
+        };
+
+        let read = async {
+            let mut conn = self.store.get_conn().await?;
+            let after: Subscription =
+                SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, subscription_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?
+                    .try_into()?;
+            let documents = documents_of(&mut conn, tenant_id, subscription_id).await?;
+            Ok::<_, Report<StoreError>>((after, documents))
+        }
+        .await;
+        Ok(match read {
+            Ok((after, (invoices, notes))) => CancellationOutcome {
+                subscription: after,
+                invoice_ids: invoices
+                    .into_iter()
+                    .filter(|id| !invoices_before.contains(id))
+                    .collect(),
+                credit_note_ids: notes
+                    .into_iter()
+                    .filter(|id| !notes_before.contains(id))
+                    .collect(),
+                applies_later,
+            },
+            Err(error) => {
+                log::warn!(
+                    "Subscription {subscription_id} was cancelled but is not read back: {error:?}"
+                );
+                CancellationOutcome {
+                    subscription,
+                    invoice_ids: Vec::new(),
+                    credit_note_ids: Vec::new(),
+                    applies_later,
+                }
+            }
+        })
+    }
+}
+
+impl Services {
+    /// What cancelling the subscription `effective_at` would issue, nothing written: its ending
+    /// laid over the facts as recording it would, the period's last invoice priced on the
+    /// ending's day (a final invoice of its own when that day's invoice is written already) and
+    /// the unused time of the fees billed in advance credited as the ending gives it back
+    /// (R-016, R-077). Each document is best-effort: one the facts cannot price is left out,
+    /// named in `missing`.
+    pub(in crate::services) async fn preview_cancellation(
+        &self,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        effective_at: CancellationEffectiveAt,
+    ) -> StoreResult<crate::domain::subscription_changes::CancellationPreview> {
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
+            use crate::domain::subscription_changes::{CancellationPreview, PreviewPart};
+            use crate::services::evaluate::load::Overlay;
+            use crate::services::invoice_lines::credit_units::CreditUnitCover;
+
+            let requested_at = common_clock::now();
+            let now = requested_at.naive_utc();
+            let mut conn = self.store.get_conn().await?;
+            let details: SubscriptionDetails = self
+                .store
+                .get_subscription_details_with_conn(&mut conn, tenant_id, subscription_id)
+                .await?;
+            refuse_ended(&details)?;
+            if details.subscription.activated_at.is_none() {
+                return Ok(CancellationPreview {
+                    effective_date: now.date(),
+                    aborts: true,
+                    final_invoice: None,
+                    credit_note: None,
+                    missing: Vec::new(),
+                });
+            }
+            // As `cancel_subscription_at` dates it.
+            let (mut on, usage_cutoff) = match effective_at {
+                CancellationEffectiveAt::EndOfBillingPeriod => (
+                    period_end_in_force(&mut conn, &details, requested_at)
+                        .await?
+                        .or_else(|| details.calculate_cancellable_end_of_period_date(now.date()))
+                        .ok_or(Report::from(StoreError::CancellationError))?,
+                    None,
+                ),
+                CancellationEffectiveAt::Date(date) => (date, None),
+                CancellationEffectiveAt::Immediate => (now.date(), Some(now)),
+            };
+            if let Some(end_date) = details.subscription.end_date {
+                on = on.min(end_date);
+            }
+            let at = usage_cutoff
+                .filter(|cutoff| cutoff.date() == on)
+                .unwrap_or_else(|| on.and_time(NaiveTime::MIN))
+                .and_utc();
+            let overlay = Overlay::of_cancellation(tenant_id, subscription_id, now.date(), at);
+
+            let final_on_its_own = diesel_models::invoices::InvoiceRow::find_existing_recurring_invoice(
+                &mut conn,
                 tenant_id,
                 subscription_id,
-                crate::services::lifecycle::controller::CATCH_UP,
-                crate::services::lifecycle::controller::StepOf::Request,
+                on,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .is_some();
+            let mut missing = Vec::new();
+            let invoice_type = if final_on_its_own {
+                crate::domain::enums::InvoiceType::Final
+            } else {
+                crate::domain::enums::InvoiceType::Recurring
+            };
+            let final_invoice = match self
+                .compute_invoice_from_facts_with(
+                    &mut conn,
+                    &on,
+                    &details,
+                    None,
+                    None,
+                    invoice_type,
+                    CreditUnitCover::Estimate { invoice_id: None },
+                    None,
+                    Some(&overlay),
+                )
+                .await
+            {
+                Ok(invoice) if !invoice.invoice_lines.is_empty() => Some(invoice),
+                Ok(_) => None,
+                Err(error) => {
+                    log::warn!(
+                        "The final invoice of a cancellation of subscription {subscription_id} was not previewed: {error:?}"
+                    );
+                    missing.push(PreviewPart::Invoice);
+                    None
+                }
+            };
+            // The note the ending issues (`issue_cancellation_refund`): none where it refunds
+            // nothing, else the fees' give-backs as the facts with the ending price them, and
+            // what the settlement credits beside them — a shortfall charged up front, each pack's
+            // fee capped by its unused paid credit — by the settlement's own computation.
+            let credit_note = match self
+                .preview_cancellation_note(&mut conn, &details, &overlay, on, at)
+                .await
+            {
+                Ok(note) => note.filter(|note| !note.invoice_lines.is_empty()),
+                Err(error) => {
+                    log::warn!(
+                        "The credit of a cancellation of subscription {subscription_id} was not previewed: {error:?}"
+                    );
+                    missing.push(PreviewPart::CreditNote);
+                    None
+                }
+            };
+            Ok(CancellationPreview {
+                effective_date: on,
+                aborts: false,
+                final_invoice,
+                credit_note,
+                missing,
+            })
+        })
+        .await
+    }
+}
+
+impl Services {
+    /// The credit note a cancellation ending on `on` (its usage at `at`) issues, nothing written.
+    async fn preview_cancellation_note(
+        &self,
+        conn: &mut crate::store::PgConn,
+        details: &SubscriptionDetails,
+        overlay: &crate::services::evaluate::load::Overlay,
+        on: NaiveDate,
+        at: chrono::DateTime<chrono::Utc>,
+    ) -> StoreResult<Option<crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent>>
+    {
+        if !super::terminate::refunds_on_cancellation(conn, &details.subscription, on).await? {
+            return Ok(None);
+        }
+        let beyond_fees = self
+            .preview_cancellation_credits(conn, details, on, at)
+            .await?;
+        let documents = self
+            .preview_change_documents(
+                conn,
+                details,
+                overlay,
+                crate::services::evaluate::change::Change::of_ending(on, at),
+                beyond_fees,
             )
             .await?;
-            let mut conn = self.store.get_conn().await?;
-            return SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, subscription_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .try_into();
-        }
-        db_subscription.try_into()
+        Ok(documents.credit_note)
     }
 }
 

@@ -1301,11 +1301,15 @@ pub struct CapacityThreshold {
     pub per_unit_overage: rust_decimal::Decimal,
 }
 
+/// Kept for the stored shape of seats only: the engine never reads it. When seats are added,
+/// how they bill is the managed quantity's `on_increase` (`ManagedQuantity`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum UpgradePolicy {
     Prorated,
 }
 
+/// Kept for the stored shape of seats only: the engine never reads it. When seats are removed,
+/// how they bill is the managed quantity's `on_decrease` (`ManagedQuantity`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DowngradePolicy {
     RemoveAtEndOfPeriod,

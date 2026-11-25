@@ -1,7 +1,7 @@
 //! Invoice-time customer credit: per-currency accounts, grants and their append-only entries.
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use common_domain::ids::{
-    CreditGrantId, CreditNoteId, CreditOperationId, CreditUnitId, CustomerId, InvoiceId,
+    BaseId, CreditGrantId, CreditNoteId, CreditOperationId, CreditUnitId, CustomerId, InvoiceId,
     LedgerEntryId, PaymentTransactionId, ProductId, SubscriptionId, TenantId, UsageSettlementId,
     WalletId,
 };
@@ -333,6 +333,38 @@ pub struct CustomerCreditStatementRow {
     pub grant_application: String,
     #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Uuid>)]
     pub grant_subscription_id: Option<SubscriptionId>,
+}
+
+/// Where a statement line stands in the statement's order: `(occurred_at, unrecorded,
+/// recorded_at, id)`, the order its `sequence` and `balance_after` run in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CustomerCreditStatementKey {
+    pub occurred_at: DateTime<Utc>,
+    /// 1 for an expiry the sweep has not recorded yet, which follows what was recorded at the
+    /// same instant; 0 otherwise.
+    pub unrecorded: i32,
+    pub recorded_at: DateTime<Utc>,
+    pub id: Uuid,
+}
+
+/// A statement line read by keyset, with what places it in the statement's order.
+#[derive(Debug, Clone, diesel::QueryableByName)]
+pub struct CustomerCreditStatementKeyedRow {
+    #[diesel(embed)]
+    pub statement: CustomerCreditStatementRow,
+    #[diesel(sql_type = diesel::sql_types::Integer)]
+    pub unrecorded: i32,
+}
+
+impl CustomerCreditStatementKeyedRow {
+    pub fn key(&self) -> CustomerCreditStatementKey {
+        CustomerCreditStatementKey {
+            occurred_at: self.statement.occurred_at,
+            unrecorded: self.unrecorded,
+            recorded_at: self.statement.recorded_at,
+            id: self.statement.id.as_uuid(),
+        }
+    }
 }
 
 /// Lifecycle state of a grant at a given instant, as grant listings filter it.

@@ -543,6 +543,7 @@ impl Halyard {
                 skip_past_invoices: false,
                 usage_filter: None,
                 custom_properties: serde_json::Value::Null,
+                external_id: None,
             },
             price_components: None,
             add_ons: None,

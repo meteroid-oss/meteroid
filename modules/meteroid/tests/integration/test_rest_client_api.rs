@@ -1,5 +1,6 @@
 //! Browser-facing client API (`/api/client/v1`): customer portal token auth, customer
-//! isolation, CORS and the published spec.
+//! isolation, the shapes of API v2, CORS and the published spec. Its public routes, read with a
+//! publishable key, are `test_rest_client_public`.
 
 use reqwest::StatusCode;
 use secrecy::SecretString;
@@ -86,11 +87,14 @@ impl Fixture {
         body
     }
 
+    /// Refused on every customer route, as a problem carrying the request id.
     async fn assert_rejected(&self, token: Option<&str>, status: StatusCode, code: &str) {
         for path in ["/customer", "/entitlements", "/subscriptions"] {
             let (actual, body) = self.client_get(path, token).await;
             assert_eq!(actual, status, "{path}: {body}");
             assert_eq!(body["code"], code, "{path}: {body}");
+            assert_eq!(body["status"], status.as_u16(), "{path}: {body}");
+            assert!(body["request_id"].is_string(), "{path}: {body}");
         }
     }
 }
@@ -195,30 +199,42 @@ async fn test_rest_client_api() {
         .await;
     let spotify_token = fx.mint(CUST_SPOTIFY_ID, json!({})).await;
 
-    // Customer: a minimal projection of the server resource.
+    // Customer: who it is, as API v2 reads the customer, nothing the merchant keeps to itself.
     let customer = fx.client_ok("/customer", &uber_token).await;
-    assert_eq!(
-        keys(&customer),
-        ["alias", "billing_email", "currency", "id", "name"]
-    );
     let server_customer = fx
-        .server_get(&format!("/api/v1/customers/{}", CUST_UBER_ID.as_base62()))
+        .server_get(&format!("/api/v2/customers/{}", CUST_UBER_ID.as_base62()))
         .await;
     for field in keys(&customer) {
+        assert!(
+            [
+                "alias",
+                "currency",
+                "email",
+                "first_name",
+                "id",
+                "last_name",
+                "name",
+                "type"
+            ]
+            .contains(&field),
+            "{field}"
+        );
         assert_eq!(customer[field], server_customer[field], "{field}");
     }
     assert_eq!(customer["id"], CUST_UBER_ID.as_base62());
     assert_eq!(customer["name"], "Uber");
+    assert_eq!(customer["type"], "company");
 
-    // Entitlements: the server API's payload, unchanged.
+    // Entitlements: API v2's customer entitlements, paged by cursor.
     let entitlements = fx.client_ok("/entitlements", &uber_token).await;
     let server_entitlements = fx
         .server_get(&format!(
-            "/api/v1/customers/{}/entitlements",
+            "/api/v2/customers/{}/entitlements",
             CUST_UBER_ID.as_base62()
         ))
         .await;
     assert_eq!(entitlements, server_entitlements);
+    assert_eq!(entitlements["has_more"], false);
     let sso_entitlement = entitlements["data"]
         .as_array()
         .unwrap()
@@ -227,44 +243,63 @@ async fn test_rest_client_api() {
         .expect("the subscribed plan grants sso");
     assert_eq!(
         sso_entitlement["value"],
-        json!({ "type": "BOOLEAN", "enabled": true })
+        json!({ "type": "boolean", "enabled": true })
     );
+    let first = fx.client_ok("/entitlements?limit=1", &uber_token).await;
+    assert_eq!(first["data"].as_array().unwrap().len(), 1, "{first}");
+    let (status, refused) = fx
+        .client_get("/entitlements?limit=0", Some(&uber_token))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
+    assert_eq!(refused["code"], "validation_failed");
 
-    // Subscriptions: a minimal projection of the server resource.
+    // Subscriptions: API v2's summary of each, less what only the merchant reads.
     let subscriptions = fx.client_ok("/subscriptions", &uber_token).await;
+    assert_eq!(subscriptions["has_more"], false, "{subscriptions}");
     let listed = subscriptions["data"].as_array().unwrap();
     assert_eq!(listed.len(), 1, "{subscriptions}");
     let listed = &listed[0];
+    let mut listed_keys = keys(listed);
+    listed_keys.retain(|key| *key != "trial");
     assert_eq!(
-        keys(listed),
+        listed_keys,
         [
-            "billing_period",
             "currency",
-            "current_period_end",
-            "current_period_start",
-            "end_date",
+            "current_period",
+            "dates",
             "id",
-            "plan_id",
-            "plan_name",
-            "plan_version",
-            "start_date",
+            "period",
+            "plan",
             "status",
         ]
     );
-    let server_subscription = fx
-        .server_get(&format!("/api/v1/subscriptions/{subscription_id}"))
+    let summary = fx
+        .server_get(&format!("/api/v2/subscriptions/{subscription_id}/summary"))
         .await;
     for field in keys(listed) {
-        let server_field = if field == "billing_period" {
-            "period"
-        } else {
-            field
-        };
-        assert_eq!(listed[field], server_subscription[server_field], "{field}");
+        if field == "plan" {
+            continue;
+        }
+        assert_eq!(listed[field], summary[field], "{field}");
+    }
+    for field in ["code", "version", "option"] {
+        assert_eq!(
+            listed["plan"][field], summary["plan"][field],
+            "plan.{field}"
+        );
     }
     assert_eq!(listed["id"], subscription_id);
-    assert_eq!(listed["plan_name"], "LeetCode");
-    assert_eq!(listed["billing_period"], "MONTHLY");
+    assert_eq!(listed["plan"]["name"], "LeetCode");
+    assert_eq!(listed["period"], "monthly");
+    for internal in [
+        "mrr",
+        "invoicing",
+        "custom_properties",
+        "usage_filter",
+        "customer",
+    ] {
+        assert!(listed.get(internal).is_none(), "{internal}: {listed}");
+    }
 
     // Another customer's token only ever sees that customer, whatever the query says.
     let spotify = fx
@@ -275,7 +310,10 @@ async fn test_rest_client_api() {
         .await;
     assert_eq!(spotify["id"], CUST_SPOTIFY_ID.as_base62());
     let spotify_subscriptions = fx.client_ok("/subscriptions", &spotify_token).await;
-    assert_eq!(spotify_subscriptions, json!({ "data": [] }));
+    assert_eq!(
+        spotify_subscriptions,
+        json!({ "data": [], "next_cursor": null, "has_more": false })
+    );
     let spotify_entitlements = fx.client_ok("/entitlements", &spotify_token).await;
     assert!(
         !spotify_entitlements.to_string().contains("\"sso\""),
@@ -302,7 +340,7 @@ async fn test_rest_client_api() {
         Some(chrono::Duration::minutes(-1)),
     );
     let expired = fx.hand_mint(expired_claims.clone());
-    fx.assert_rejected(Some(&expired), StatusCode::UNAUTHORIZED, "TOKEN_EXPIRED")
+    fx.assert_rejected(Some(&expired), StatusCode::UNAUTHORIZED, "token_expired")
         .await;
     let forged_expired = expired_claims
         .encode(&SecretString::new("not-the-secret".into()))
@@ -310,7 +348,7 @@ async fn test_rest_client_api() {
     fx.assert_rejected(
         Some(&forged_expired),
         StatusCode::UNAUTHORIZED,
-        "UNAUTHORIZED",
+        "unauthorized",
     )
     .await;
 
@@ -330,7 +368,7 @@ async fn test_rest_client_api() {
     fx.assert_rejected(
         Some(&stored_expired),
         StatusCode::UNAUTHORIZED,
-        "TOKEN_EXPIRED",
+        "token_expired",
     )
     .await;
     let dashboard_token = setup
@@ -338,12 +376,12 @@ async fn test_rest_client_api() {
         .dashboard_portal_token(TENANT_ID, SavedViewId::new())
         .await
         .unwrap();
-    fx.assert_rejected(Some(&dashboard_token), StatusCode::FORBIDDEN, "FORBIDDEN")
+    fx.assert_rejected(Some(&dashboard_token), StatusCode::FORBIDDEN, "forbidden")
         .await;
     fx.assert_rejected(
         Some(&"A".repeat(32)),
         StatusCode::UNAUTHORIZED,
-        "UNAUTHORIZED",
+        "unauthorized",
     )
     .await;
 
@@ -352,7 +390,7 @@ async fn test_rest_client_api() {
     fx.assert_rejected(
         Some(&never_expires),
         StatusCode::UNAUTHORIZED,
-        "UNAUTHORIZED",
+        "unauthorized",
     )
     .await;
     let invoice_token = fx.hand_mint(
@@ -367,7 +405,7 @@ async fn test_rest_client_api() {
     fx.assert_rejected(
         Some(&invoice_token),
         StatusCode::UNAUTHORIZED,
-        "UNAUTHORIZED",
+        "unauthorized",
     )
     .await;
 
@@ -384,7 +422,7 @@ async fn test_rest_client_api() {
     fx.assert_rejected(
         Some(&expiring_invoice_token),
         StatusCode::FORBIDDEN,
-        "FORBIDDEN",
+        "forbidden",
     )
     .await;
     let no_scopes = fx.hand_mint(customer_claims(
@@ -392,17 +430,17 @@ async fn test_rest_client_api() {
         Some(vec![]),
         Some(chrono::Duration::hours(1)),
     ));
-    fx.assert_rejected(Some(&no_scopes), StatusCode::FORBIDDEN, "FORBIDDEN")
+    fx.assert_rejected(Some(&no_scopes), StatusCode::FORBIDDEN, "forbidden")
         .await;
 
     // Tenant API keys, dashboard sessions and garbage never reach the client API.
-    fx.assert_rejected(Some(&fx.api_key), StatusCode::UNAUTHORIZED, "UNAUTHORIZED")
+    fx.assert_rejected(Some(&fx.api_key), StatusCode::UNAUTHORIZED, "unauthorized")
         .await;
-    fx.assert_rejected(Some(&auth.token), StatusCode::UNAUTHORIZED, "UNAUTHORIZED")
+    fx.assert_rejected(Some(&auth.token), StatusCode::UNAUTHORIZED, "unauthorized")
         .await;
-    fx.assert_rejected(Some("not-a-jwt"), StatusCode::UNAUTHORIZED, "UNAUTHORIZED")
+    fx.assert_rejected(Some("not-a-jwt"), StatusCode::UNAUTHORIZED, "unauthorized")
         .await;
-    fx.assert_rejected(None, StatusCode::UNAUTHORIZED, "UNAUTHORIZED")
+    fx.assert_rejected(None, StatusCode::UNAUTHORIZED, "unauthorized")
         .await;
 
     // A portal token is not an API key on the server API.
@@ -469,6 +507,8 @@ async fn test_rest_client_api() {
         "ratelimit-limit",
         "ratelimit-remaining",
         "ratelimit-reset",
+        "request-id",
+        "meteroid-version",
     ] {
         assert!(exposed.contains(header), "{header} not in {exposed}");
     }
@@ -483,10 +523,13 @@ async fn test_rest_client_api() {
         [
             "/api/client/v1/customer",
             "/api/client/v1/entitlements",
+            "/api/client/v1/pricing-pages/{family_code}",
             "/api/client/v1/subscriptions",
         ]
     );
     assert!(client_spec["components"]["securitySchemes"]["customer_token"].is_object());
+    assert!(client_spec["components"]["securitySchemes"]["publishable_key"].is_object());
+    assert!(client_spec["components"]["schemas"]["Problem"].is_object());
     let server_spec = fx.server_get("/api-docs/openapi.json").await;
     assert!(
         keys(&server_spec["paths"])

@@ -45,6 +45,7 @@ mod lock_order;
 mod lock_stress;
 mod metering_before_locks;
 mod migration;
+mod negative_prices;
 mod payment_double_charge;
 mod payment_hard_decline;
 mod payment_method_binding;

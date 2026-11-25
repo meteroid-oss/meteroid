@@ -198,6 +198,14 @@ fn ensure_customer_wide(metric: &BillableMetric, read: &str) -> StoreResult<()> 
     Ok(())
 }
 
+/// A metering call that did not answer within its deadline: metering is unavailable, which a
+/// caller may retry (REST reads it as `503`), as when the service enforces the deadline itself.
+fn timed_out(rpc: &str) -> Report<StoreError> {
+    Report::new(tonic::Status::deadline_exceeded(format!("{rpc} timed out")))
+        .change_context(StoreError::MeteringServiceError)
+        .attach(format!("{rpc} timed out"))
+}
+
 /// A metering service predating event discovery answers `Unimplemented`, reported as not ready so
 /// callers can tell a rollout from an empty answer.
 fn discovery_response<T>(
@@ -1320,8 +1328,7 @@ impl UsageClient for MeteringUsageClient {
                     "ingest_events timed out after {} seconds",
                     GRPC_TIMEOUT.as_secs()
                 );
-                return Err(error_stack::Report::new(StoreError::MeteringServiceError)
-                    .attach("ingest_events timed out"));
+                return Err(timed_out("ingest_events"));
             }
         };
 
@@ -1355,10 +1362,7 @@ impl UsageClient for MeteringUsageClient {
             self.usage_grpc_client.clone().lookup_event(request),
         )
         .await
-        .map_err(|_| {
-            error_stack::Report::new(StoreError::MeteringServiceError)
-                .attach("lookup_event timed out")
-        })?
+        .map_err(|_| timed_out("lookup_event"))?
         .change_context(StoreError::MeteringServiceError)
         .attach("Failed to look up the event")?
         .into_inner();
@@ -1411,10 +1415,7 @@ impl UsageClient for MeteringUsageClient {
                 .enqueue_event_change(grpc_request),
         )
         .await
-        .map_err(|_| {
-            error_stack::Report::new(StoreError::MeteringServiceError)
-                .attach("enqueue_event_change timed out")
-        })?;
+        .map_err(|_| timed_out("enqueue_event_change"))?;
         match result {
             Ok(_) => Ok(()),
             Err(status) if status.code() == tonic::Code::InvalidArgument => {

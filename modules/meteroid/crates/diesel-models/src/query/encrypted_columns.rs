@@ -25,6 +25,7 @@ pub const ENCRYPTED_COLUMNS: &[EncryptedColumn] = &[
     column("webhook_out_endpoint", "secret"),
     column("webhook_out_endpoint", "previous_secret"),
     column("webhook_out_endpoint", "sensitive_header_values"),
+    column("webhook_out_retired_secret", "secret"),
     column("organization_sso_connection", "client_secret"),
     EncryptedColumn {
         table: "instance_license",

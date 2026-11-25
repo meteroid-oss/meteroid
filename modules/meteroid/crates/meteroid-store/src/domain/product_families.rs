@@ -15,6 +15,8 @@ pub struct ProductFamily {
     pub updated_at: Option<NaiveDateTime>,
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: TenantId,
+    /// Unique per tenant and immutable (ADR-0013).
+    pub code: String,
 }
 
 #[derive(Clone, Debug, o2o)]

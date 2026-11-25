@@ -162,6 +162,7 @@ async fn create_endpoint(
                 max_in_flight: default_max_in_flight(env).await,
                 headers: vec![],
                 rate_limit_per_sec: None,
+                api_version: None,
             },
         )
         .await
@@ -555,6 +556,49 @@ async fn a_rotated_endpoint_signs_with_both_secrets(#[future] test_env_minimal: 
         expected_signature(&previous_secret, &message_id, timestamp, &request.body),
         "the rotated-out secret keeps verifying"
     );
+}
+
+/// Rotated twice within the grace window, every secret signs: the newest, then each rotated out,
+/// the most recent first. None is dropped by the second rotation.
+#[rstest]
+#[tokio::test]
+async fn a_twice_rotated_endpoint_signs_with_every_secret(#[future] test_env_minimal: TestEnv) {
+    let env = test_env_minimal.await;
+    let receiver = Receiver::spawn(vec![]).await;
+
+    let (endpoint, first_secret) = create_endpoint(&env, &receiver.url, vec![]).await;
+    let second_secret = env
+        .store()
+        .rotate_webhook_endpoint_secret(TENANT_ID, endpoint.id)
+        .await
+        .expect("rotate secret");
+    let third_secret = env
+        .store()
+        .rotate_webhook_endpoint_secret(TENANT_ID, endpoint.id)
+        .await
+        .expect("rotate secret again");
+
+    create_customer(&env, "Rotated Twice Co").await;
+    fan_out(&env).await;
+
+    let stats = worker(&env).run_tick().await;
+    assert_eq!(stats.succeeded, 1);
+
+    let requests = receiver.requests();
+    assert_eq!(requests.len(), 1);
+    let request = &requests[0];
+    let header = request.header("webhook-signature");
+    let signatures: Vec<&str> = header.split(' ').collect();
+    let message_id = deliveries(&env, endpoint.id).await[0]
+        .delivery
+        .message_id
+        .to_string();
+    let timestamp = request.header("webhook-timestamp");
+    let expected: Vec<String> = [&third_secret, &second_secret, &first_secret]
+        .into_iter()
+        .map(|secret| expected_signature(secret, &message_id, timestamp, &request.body))
+        .collect();
+    assert_eq!(signatures, expected, "every secret of the window signs");
 }
 
 /// Marks the delivery terminal the way an exhausted retry budget would.
@@ -1072,6 +1116,7 @@ async fn a_tenant_is_capped_at_fifty_endpoints(#[future] test_env_minimal: TestE
                 max_in_flight,
                 headers: vec![],
                 rate_limit_per_sec: None,
+                api_version: None,
             },
         )
         .await
@@ -1337,6 +1382,7 @@ async fn a_rate_limited_endpoint_is_claimed_up_to_its_rate(#[future] test_env_mi
                 max_in_flight: 8,
                 headers: vec![],
                 rate_limit_per_sec: Some(2),
+                api_version: None,
             },
         )
         .await

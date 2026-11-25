@@ -28,8 +28,8 @@ use meteroid_rest_common::error::RestErrorResponse;
 use meteroid_rest_common::model::PaginationExt;
 
 /// Same SSRF guards as the delivery worker, so a destination the worker would refuse
-/// is rejected at create/update time instead.
-fn validate_destination(app_state: &AppState, url: &str) -> Result<(), RestApiError> {
+/// is rejected at create/update time instead. API v2 checks with it too.
+pub(crate) fn validate_destination(app_state: &AppState, url: &str) -> Result<(), RestApiError> {
     let parsed =
         Url::parse(url).map_err(|e| RestApiError::InvalidInput(format!("invalid url: {e}")))?;
 
@@ -157,6 +157,7 @@ pub async fn create_webhook_endpoint(
                 max_in_flight,
                 headers,
                 rate_limit_per_sec: payload.rate_limit_per_sec,
+                api_version: None,
             },
         )
         .await
@@ -263,6 +264,7 @@ pub async fn update_webhook_endpoint(
                 disabled: payload.disabled,
                 headers,
                 rate_limit_per_sec: payload.rate_limit_per_sec,
+                api_version: None,
             },
         )
         .await

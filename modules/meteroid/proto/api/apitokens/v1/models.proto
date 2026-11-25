@@ -2,6 +2,13 @@ syntax = "proto3";
 
 package meteroid.api.apitokens.v1;
 
+// A secret key authenticates the server API and is shown once; a publishable key only reads the
+// client API's public routes (the pricing page) from a browser, and is shown again.
+enum ApiTokenKind {
+  API_TOKEN_KIND_SECRET = 0;
+  API_TOKEN_KIND_PUBLISHABLE = 1;
+}
+
 message ApiToken {
   string id = 1;
   string tenant_id = 2;
@@ -9,4 +16,9 @@ message ApiToken {
   string hint = 4;
   string created_at = 5;
   optional string last_used_at = 6;
+  ApiTokenKind kind = 7;
+  // The whole key of a publishable key; never set for a secret key.
+  optional string publishable_key = 8;
+  // The browser origins a publishable key is accepted from; none accepts any.
+  repeated string allowed_origins = 9;
 }

@@ -34,6 +34,30 @@ use rust_decimal::Decimal;
 use scoped_futures::ScopedFutureExt;
 use uuid::Uuid;
 
+/// The seats a change of `quantity` counts from, `active` being those in force at the change, and
+/// the delta it makes of them (None: it changes nothing). A count (`To`) holds the seats bought and
+/// still paying as held, so it buys only what they leave; a delta (`By`) is its own. The change and
+/// its preview count with it, so the preview bills what the change will.
+pub(crate) async fn seats_counted(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+    quantity: ManagedQuantityId,
+    change: SeatChange,
+    active: i32,
+) -> StoreResult<(i32, Option<i32>)> {
+    let held = match change {
+        SeatChange::To(_) => {
+            active
+                + SlotTransactionRow::pending_upgrades(conn, tenant_id, subscription_id, quantity)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?
+        }
+        SeatChange::By(_) => active,
+    };
+    Ok((held, change.delta(held)))
+}
+
 /// Where the periods of the charges counting a quantity end: the earliest, when a change waiting
 /// for the period's end takes effect, and each one's renewal, where the bounds hold too.
 struct SeatRenewals {
@@ -107,7 +131,7 @@ impl Services {
                 let customer_id = subscription.customer_id;
 
                 let at = now.min(period_end.and_time(chrono::NaiveTime::MIN));
-                let mut held = SlotTransactionRow::fetch_by_subscription_id_and_quantity_locked(
+                let active = SlotTransactionRow::fetch_by_subscription_id_and_quantity_locked(
                     conn,
                     lock,
                     subscription_id,
@@ -116,15 +140,17 @@ impl Services {
                 )
                 .await?
                 .current_active_slots;
-                // A count replaces the changes still waiting, and counts the seats still paying.
+                let (held, delta) = seats_counted(
+                    conn,
+                    tenant_id,
+                    subscription_id,
+                    slot.quantity_id,
+                    change,
+                    active,
+                )
+                .await?;
+                // A count replaces the changes still waiting.
                 let withdrawn = if matches!(change, SeatChange::To(_)) {
-                    held += SlotTransactionRow::pending_upgrades(
-                        conn,
-                        tenant_id,
-                        subscription_id,
-                        slot.quantity_id,
-                    )
-                    .await?;
                     SlotTransactionRow::delete_waiting_changes(
                         conn,
                         lock,
@@ -136,7 +162,7 @@ impl Services {
                 } else {
                     0
                 };
-                let Some(delta) = change.delta(held) else {
+                let Some(delta) = delta else {
                     if withdrawn > 0 {
                         return Ok(UpdateSlotsResult {
                             new_slot_count: held,

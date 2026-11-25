@@ -136,6 +136,7 @@ impl Stack {
                     name: "Model tokens".to_owned(),
                     description: None,
                     code: CODE.to_owned(),
+                    catalog_code: None,
                     aggregation_type: BillingMetricAggregateEnum::Sum,
                     aggregation_key: Some("tokens".to_owned()),
                     unit_conversion_factor: Some(1_000_000),
@@ -234,6 +235,7 @@ impl Stack {
                             UsageFilter::new(property.to_owned(), value.to_owned()).unwrap()
                         }),
                         custom_properties: serde_json::Value::Null,
+                        external_id: None,
                     },
                     price_components: Some(CreateSubscriptionComponents {
                         parameterized_components: vec![],

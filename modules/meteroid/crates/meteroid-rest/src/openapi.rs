@@ -73,12 +73,18 @@ pub fn assemble(
 }
 
 /// Adds the modules' operations and leaves out the webhooks no module of the edition emits; an
-/// edition that names its own license publishes under it. Leaves the unreferenced schemas.
+/// edition that names its own license publishes under it. Every operation is marked with the
+/// edition serving it (`x-meteroid-edition`). Leaves the unreferenced schemas.
 pub fn merge_edition(open_api: &mut utoipa::openapi::OpenApi, edition: &EditionSpec) {
     if let Some(license) = edition.api.info.license.clone() {
         open_api.info.license = Some(license);
     }
     open_api.merge(edition.api.clone());
+    // The modules' operations come marked with their edition (`Modules::spec`); core's are oss.
+    meteroid_rest_common::spec::mark_operations(
+        open_api,
+        meteroid_rest_common::spec::OperationEdition::Oss,
+    );
     let unemitted = WebhookOutEventTypeEnum::iter()
         .filter(|event| event.needs_module())
         .map(|event| event.to_string())
@@ -158,6 +164,22 @@ pub fn generate_spec(edition: EditionSpec, dir: &str) {
     std::fs::create_dir_all(format!("{dir}/api/v1")).expect("Unable to create the spec directory");
     std::fs::write(path, output).expect("Unable to write openapi.json file");
 
+    // API v2 (ADR-0013): its own document, with the edition's modules' v2 operations, refused
+    // when two types share a component name.
+    let v2_path = format!("{dir}/api/v2/openapi.json");
+    println!("Generating OpenAPI spec {v2_path:?}");
+    crate::v2::assert_one_type_per_component(&edition);
+    std::fs::create_dir_all(format!("{dir}/api/v2")).expect("Unable to create spec/api/v2");
+    std::fs::write(
+        v2_path,
+        serde_json::to_string_pretty(&crate::v2::published_spec_json(
+            &crate::v2::spec(&edition),
+            &edition,
+        ))
+        .expect("Failed to serialize the v2 OpenAPI"),
+    )
+    .expect("Unable to write the v2 openapi.json file");
+
     let client_path = format!("{dir}/client/v1/openapi.json");
     println!("Generating OpenAPI spec {client_path:?}");
     let (_router, client_api) = crate::client::client_api(edition.client);
@@ -218,9 +240,18 @@ pub struct ApiDoc;
 #[openapi(
     info(
         title = "Meteroid Client API",
-        description = "Browser-facing API, authenticated with a customer portal token."
+        description = "Browser-facing API. The customer's own routes are authenticated with a \
+            customer portal token; the public routes (pricing pages) with a publishable key \
+            (`pk_…`). It follows API v2's conventions: snake_case, prefixed ids, lists paged by \
+            cursor (`?limit=&after=`), errors as RFC 9457 problems (`application/problem+json`), \
+            and `Meteroid-Version: YYYY-MM-DD` to pin a version."
     ),
-    modifiers(&ClientSecurityAddon)
+    modifiers(&ClientSecurityAddon),
+    components(schemas(
+        crate::v2::problem::Problem,
+        crate::v2::problem::FieldError,
+        crate::v2::problem::ProblemCode
+    ))
 )]
 pub struct ClientApiDoc;
 
@@ -256,6 +287,22 @@ impl Modify for ClientSecurityAddon {
                             "Customer portal token, minted by your backend with \
                              `POST /api/v1/customers/{id_or_alias}/portal-token`. \
                              It needs the `read` scope.",
+                        ))
+                        .build(),
+                ),
+            );
+        openapi
+            .components
+            .get_or_insert_with(Default::default)
+            .add_security_scheme(
+                "publishable_key",
+                SecurityScheme::Http(
+                    HttpBuilder::new()
+                        .scheme(HttpAuthScheme::Bearer)
+                        .description(Some(
+                            "Publishable key (`pk_…`), created in Settings → API keys. \
+                             Read-only and safe in a browser: it reads the public routes only, \
+                             from its allowed origins when it lists any.",
                         ))
                         .build(),
                 ),
@@ -604,6 +651,19 @@ pub fn discriminate_tagged_variants(openapi: &mut utoipa::openapi::OpenApi) {
 /// object (i.e. after `split_for_parts()`), because utoipa modifiers run before
 /// routes are incorporated and would see an empty path list.
 pub fn add_rate_limit_responses(openapi: &mut utoipa::openapi::OpenApi) {
+    add_rate_limit_responses_as(openapi, "application/json", "RestErrorResponse");
+}
+
+/// As [`add_rate_limit_responses`], the `429` a problem: the client API's.
+pub fn add_problem_rate_limit_responses(openapi: &mut utoipa::openapi::OpenApi) {
+    add_rate_limit_responses_as(openapi, "application/problem+json", "Problem");
+}
+
+fn add_rate_limit_responses_as(
+    openapi: &mut utoipa::openapi::OpenApi,
+    content_type: &str,
+    schema: &str,
+) {
     use utoipa::openapi::content::ContentBuilder;
     use utoipa::openapi::response::ResponseBuilder;
     use utoipa::openapi::{Ref, RefOr};
@@ -612,9 +672,9 @@ pub fn add_rate_limit_responses(openapi: &mut utoipa::openapi::OpenApi) {
         ResponseBuilder::new()
             .description("Too many requests")
             .content(
-                "application/json",
+                content_type,
                 ContentBuilder::new()
-                    .schema(Some(RefOr::Ref(Ref::from_schema_name("RestErrorResponse"))))
+                    .schema(Some(RefOr::Ref(Ref::from_schema_name(schema))))
                     .build(),
             )
             .build(),
@@ -1399,6 +1459,8 @@ mod tests {
                 "type",
                 Some(untagged::<subscriptions::model::ProductRef>),
             ),
+            // The client API's entitlements read as v2's: `Reset` is v2's, response-only.
+            ("Reset", "type", None),
             (
                 "ResetPeriod",
                 "type",
@@ -1674,7 +1736,7 @@ mod tests {
         let client = spec_json(&crate::client::client_api(EditionSpec::core().client).1);
         assert!(
             client["paths"]
-                .get("/api/client/v1/entitlements/{feature_id_or_code}/check")
+                .get("/api/client/v1/entitlements/{feature}/check")
                 .is_none()
         );
 
@@ -1780,6 +1842,37 @@ mod tests {
                 })
                 .collect::<std::collections::BTreeSet<_>>();
             assert!(missing.is_empty(), "{name} spec: unresolved {missing:?}");
+        }
+    }
+
+    /// Core's specs serve every edition: each operation, v1's, v2's and the client API's, is
+    /// marked `oss` and its description carries no edition notice.
+    #[test]
+    fn every_core_operation_is_marked_oss() {
+        let published = serde_json::Value::Object(published_spec_root(&EditionSpec::core()));
+        let v2 = crate::v2::spec_json(&crate::v2::spec(&EditionSpec::core()));
+        let client = spec_json(&crate::client::client_api(EditionSpec::core().client).1);
+        for (name, spec) in [("v1", &published), ("v2", &v2), ("client", &client)] {
+            let paths = spec["paths"].as_object().expect("paths");
+            assert!(!paths.is_empty(), "{name}");
+            for (path, item) in paths {
+                for (method, op) in item.as_object().into_iter().flatten() {
+                    if !op.is_object() || method == "parameters" {
+                        continue;
+                    }
+                    assert_eq!(
+                        op["x-meteroid-edition"], "oss",
+                        "{name}: {method} {path} must be marked oss"
+                    );
+                    assert!(
+                        !op["description"]
+                            .as_str()
+                            .unwrap_or_default()
+                            .starts_with("Enterprise edition."),
+                        "{name}: {method} {path}"
+                    );
+                }
+            }
         }
     }
 }

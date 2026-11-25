@@ -292,7 +292,7 @@ async fn attempt_webhook_delivery(
     };
 
     let mut secrets: Vec<SecretString> = vec![endpoint.secret.clone()];
-    secrets.extend(endpoint.previous_secret.clone());
+    secrets.extend(endpoint.previous_secrets.iter().cloned());
 
     let attempt = match http::deliver(
         &egress,

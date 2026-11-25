@@ -79,6 +79,38 @@ impl ManagedQuantityRow {
             .map(|rows| rows.into_iter().collect())
     }
 
+    /// The tenant's quantities after `after` in id order, at most `limit` (API v2 keyset pages),
+    /// the archived ones only when asked.
+    pub async fn list_page(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        include_archived: bool,
+        after: Option<ManagedQuantityId>,
+        limit: i64,
+    ) -> DbResult<Vec<ManagedQuantityRow>> {
+        use crate::schema::managed_quantity::dsl as q;
+
+        let mut query = q::managed_quantity
+            .filter(q::tenant_id.eq(tenant_id))
+            .into_boxed();
+        if !include_archived {
+            query = query.filter(q::archived_at.is_null());
+        }
+        if let Some(after) = after {
+            query = query.filter(q::id.gt(after));
+        }
+        let query = query
+            .order(q::id.asc())
+            .limit(limit)
+            .select(ManagedQuantityRow::as_select());
+        crate::debug_sql(&query);
+        query
+            .load(conn)
+            .await
+            .attach("Error while fetching a page of managed quantities")
+            .into_db_result()
+    }
+
     pub async fn list(conn: &mut PgConn, tenant_id: TenantId) -> DbResult<Vec<ManagedQuantityRow>> {
         use crate::schema::managed_quantity::dsl as q;
 
@@ -176,6 +208,33 @@ impl ManagedQuantityRow {
             .await
             .optional()
             .attach("Error while creating a managed quantity")
+            .into_db_result()
+    }
+
+    /// Archives the quantity (`Some`) or restores it (`None`); None when the tenant has no such
+    /// quantity.
+    pub async fn set_archived(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        id: ManagedQuantityId,
+        archived_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> DbResult<Option<ManagedQuantityRow>> {
+        use crate::schema::managed_quantity::dsl as q;
+
+        let query = diesel::update(q::managed_quantity)
+            .filter(q::tenant_id.eq(tenant_id))
+            .filter(q::id.eq(id))
+            .set((
+                q::archived_at.eq(archived_at),
+                q::updated_at.eq(common_clock::now()),
+            ))
+            .returning(ManagedQuantityRow::as_returning());
+        crate::debug_sql(&query);
+        query
+            .get_result(conn)
+            .await
+            .optional()
+            .attach("Error while archiving managed quantity")
             .into_db_result()
     }
 

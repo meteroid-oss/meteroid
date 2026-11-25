@@ -36,6 +36,31 @@ pub struct WebhookOutEndpointRow {
     pub paused_until: Option<NaiveDateTime>,
     pub rate_limit_per_sec: Option<i32>,
     pub legacy_svix_headers: bool,
+    pub api_version: Option<String>,
+}
+
+/// A signing secret the endpoint rotated away from, still signing beside its current one until
+/// `expires_at`. Sealed with the store crypt key, as the endpoint's `secret` is.
+#[derive(Queryable, Selectable, Debug, Clone)]
+#[diesel(table_name = crate::schema::webhook_out_retired_secret)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct WebhookOutRetiredSecretRow {
+    pub id: uuid::Uuid,
+    pub tenant_id: TenantId,
+    pub endpoint_id: WebhookEndpointId,
+    pub secret: String,
+    pub expires_at: NaiveDateTime,
+    pub created_at: NaiveDateTime,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = crate::schema::webhook_out_retired_secret)]
+pub struct WebhookOutRetiredSecretRowNew {
+    pub id: uuid::Uuid,
+    pub tenant_id: TenantId,
+    pub endpoint_id: WebhookEndpointId,
+    pub secret: String,
+    pub expires_at: NaiveDateTime,
 }
 
 #[derive(Insertable, Debug)]
@@ -55,6 +80,7 @@ pub struct WebhookOutEndpointRowNew {
     pub disabled_at: Option<NaiveDateTime>,
     pub rate_limit_per_sec: Option<i32>,
     pub legacy_svix_headers: bool,
+    pub api_version: Option<String>,
 }
 
 #[derive(AsChangeset, Debug, Default)]
@@ -74,6 +100,7 @@ pub struct WebhookOutEndpointRowPatch {
     pub sensitive_header_values: Option<Option<String>>,
     pub rate_limit_per_sec: Option<Option<i32>>,
     pub paused_until: Option<Option<NaiveDateTime>>,
+    pub api_version: Option<String>,
     pub updated_at: Option<NaiveDateTime>,
 }
 

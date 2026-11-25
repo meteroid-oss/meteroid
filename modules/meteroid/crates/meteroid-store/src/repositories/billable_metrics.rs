@@ -41,17 +41,36 @@ pub trait BillableMetricInterface {
         search: Option<String>,
     ) -> StoreResult<PaginatedVec<domain::BillableMetricMeta>>;
 
+    /// The tenant's metrics after `after` in id order, at most `limit`, whole: a keyset page of
+    /// API v2.
+    async fn list_billable_metrics_after(
+        &self,
+        tenant_id: TenantId,
+        product_family_id: Option<ProductFamilyId>,
+        include_archived: bool,
+        after: Option<BillableMetricId>,
+        limit: usize,
+    ) -> StoreResult<Vec<domain::BillableMetric>>;
+
     async fn insert_billable_metric(
         &self,
         actor: Actor,
         billable_metric: domain::BillableMetricNew,
     ) -> StoreResult<domain::BillableMetric>;
 
+    /// The tenant's metrics reading the usage events of `code`, archived ones included.
     async fn list_billable_metrics_by_code(
         &self,
         tenant_id: TenantId,
         code: String,
     ) -> StoreResult<Vec<BillableMetric>>;
+
+    /// The tenant's metric of catalog code `code` (API v2's handle), archived ones included.
+    async fn find_billable_metric_by_catalog_code(
+        &self,
+        tenant_id: TenantId,
+        code: &str,
+    ) -> StoreResult<BillableMetric>;
 
     /// List all non-archived billable metrics for a tenant (full objects, no pagination).
     async fn list_active_billable_metrics(
@@ -150,6 +169,30 @@ impl BillableMetricInterface for Store {
         Ok(res)
     }
 
+    async fn list_billable_metrics_after(
+        &self,
+        tenant_id: TenantId,
+        product_family_id: Option<ProductFamilyId>,
+        include_archived: bool,
+        after: Option<BillableMetricId>,
+        limit: usize,
+    ) -> StoreResult<Vec<domain::BillableMetric>> {
+        let mut conn = self.get_conn().await?;
+        BillableMetricRow::list_page(
+            &mut conn,
+            tenant_id,
+            product_family_id,
+            include_archived,
+            after,
+            i64::try_from(limit).unwrap_or(i64::MAX),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect()
+    }
+
     async fn insert_billable_metric(
         &self,
         actor: Actor,
@@ -157,6 +200,9 @@ impl BillableMetricInterface for Store {
     ) -> StoreResult<BillableMetric> {
         validate_code(&billable_metric.code)
             .map_err(|e| Report::new(StoreError::InvalidArgument(e.to_string())))?;
+        if let Some(code) = billable_metric.catalog_code.as_deref() {
+            crate::domain::catalog_codes::validate_code(code, BillableMetricId::PREFIX)?;
+        }
         let usage_breakdown_key =
             normalize_usage_breakdown_key(billable_metric.usage_breakdown_key);
         validate_usage_breakdown_key(
@@ -175,6 +221,7 @@ impl BillableMetricInterface for Store {
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
+        crate::repositories::product_families::ensure_family_live(&family)?;
 
         // TODO create product if None ?
 
@@ -217,6 +264,7 @@ impl BillableMetricInterface for Store {
             tenant_id: billable_metric.tenant_id,
             product_family_id: family.id,
             product_id: billable_metric.product_id,
+            catalog_code: billable_metric.catalog_code,
         };
 
         let tenant_id = insertable_entity.tenant_id;
@@ -266,6 +314,20 @@ impl BillableMetricInterface for Store {
             .into_iter()
             .map(TryInto::try_into)
             .collect()
+    }
+
+    async fn find_billable_metric_by_catalog_code(
+        &self,
+        tenant_id: TenantId,
+        code: &str,
+    ) -> StoreResult<BillableMetric> {
+        let mut conn = self.get_conn().await?;
+
+        BillableMetricRow::find_by_catalog_code(&mut conn, tenant_id, code)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .ok_or_else(|| Report::new(StoreError::ValueNotFound(format!("metric {code}"))))
+            .and_then(TryInto::try_into)
     }
 
     async fn list_active_billable_metrics(

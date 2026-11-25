@@ -294,6 +294,7 @@ fn map_to_domain(
             skip_past_invoices: csv.skip_past_invoices,
             usage_filter: None,
             custom_properties: csv.custom_properties,
+            external_id: None,
         },
         price_components: None,
         add_ons: None,

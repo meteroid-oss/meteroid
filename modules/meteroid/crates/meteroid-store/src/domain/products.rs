@@ -11,6 +11,8 @@ use crate::errors::StoreError;
 #[derive(Clone, Debug)]
 pub struct Product {
     pub id: ProductId,
+    /// Unique per tenant and immutable (ADR-0013).
+    pub code: String,
     pub name: String,
     pub description: Option<String>,
     pub created_at: NaiveDateTime,
@@ -93,6 +95,7 @@ impl TryFrom<ProductRow> for Product {
     fn try_from(row: ProductRow) -> Result<Self, Self::Error> {
         Ok(Product {
             id: row.id,
+            code: row.code,
             name: row.name,
             description: row.description,
             created_at: row.created_at,

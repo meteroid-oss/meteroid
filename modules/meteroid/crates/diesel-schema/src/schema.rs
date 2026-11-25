@@ -22,6 +22,10 @@ pub mod sql_types {
     pub struct AlertSeverityEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "ApiTokenKindEnum"))]
+    pub struct ApiTokenKindEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "BankAccountFormat"))]
     pub struct BankAccountFormat;
 
@@ -396,6 +400,7 @@ diesel::table! {
         max_instances_per_subscription -> Nullable<Int4>,
         archived_at -> Nullable<Timestamp>,
         fee_structure -> Jsonb,
+        code -> Text,
     }
 }
 
@@ -526,10 +531,16 @@ diesel::table! {
         idempotency_key -> Text,
         request_fingerprint -> Bytea,
         created_at -> Timestamptz,
+        response_status -> Nullable<Int4>,
+        response_body -> Nullable<Bytea>,
+        response_content_type -> Nullable<Text>,
     }
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::ApiTokenKindEnum;
+
     api_token (id) {
         id -> Uuid,
         name -> Text,
@@ -539,6 +550,9 @@ diesel::table! {
         hint -> Text,
         first_used_at -> Nullable<Timestamp>,
         last_used_at -> Nullable<Timestamp>,
+        kind -> ApiTokenKindEnum,
+        allowed_origins -> Array<Nullable<Text>>,
+        publishable_key -> Nullable<Text>,
     }
 }
 
@@ -701,6 +715,7 @@ diesel::table! {
         unit_singular -> Nullable<Text>,
         unit_plural -> Nullable<Text>,
         usage_breakdown_key -> Nullable<Text>,
+        catalog_code -> Text,
     }
 }
 
@@ -2314,6 +2329,7 @@ diesel::table! {
         pricing_contact_url -> Nullable<Text>,
         pricing_product_order -> Array<Nullable<Uuid>>,
         pricing_hidden_product_ids -> Array<Nullable<Uuid>>,
+        code -> Text,
     }
 }
 
@@ -2483,6 +2499,7 @@ diesel::table! {
         tax_category_id -> Nullable<Uuid>,
         icon -> Nullable<Text>,
         color -> Nullable<Text>,
+        code -> Text,
     }
 }
 
@@ -2511,6 +2528,7 @@ diesel::table! {
         updated_at -> Nullable<Timestamp>,
         archived_at -> Nullable<Timestamp>,
         tenant_id -> Uuid,
+        code -> Text,
     }
 }
 
@@ -3153,6 +3171,15 @@ diesel::table! {
         billing_last_error -> Nullable<Text>,
         billing_retry_at -> Nullable<Timestamptz>,
         plan_option_id -> Nullable<Uuid>,
+        external_id -> Nullable<Text>,
+        updated_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    subscription_activity (subscription_id) {
+        subscription_id -> Uuid,
+        updated_at -> Timestamptz,
     }
 }
 
@@ -3553,6 +3580,7 @@ diesel::table! {
         paused_until -> Nullable<Timestamp>,
         rate_limit_per_sec -> Nullable<Int4>,
         legacy_svix_headers -> Bool,
+        api_version -> Nullable<Text>,
     }
 }
 
@@ -3562,6 +3590,17 @@ diesel::table! {
         tenant_id -> Uuid,
         event_type -> Text,
         payload -> Jsonb,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    webhook_out_retired_secret (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        endpoint_id -> Uuid,
+        secret -> Text,
+        expires_at -> Timestamp,
         created_at -> Timestamp,
     }
 }
@@ -3916,3 +3955,5 @@ diesel::joinable!(webhook_out_delivery -> webhook_out_endpoint (endpoint_id));
 diesel::joinable!(webhook_out_delivery -> webhook_out_message (message_id));
 diesel::joinable!(webhook_out_endpoint -> tenant (tenant_id));
 diesel::joinable!(webhook_out_message -> tenant (tenant_id));
+diesel::joinable!(webhook_out_retired_secret -> tenant (tenant_id));
+diesel::joinable!(webhook_out_retired_secret -> webhook_out_endpoint (endpoint_id));

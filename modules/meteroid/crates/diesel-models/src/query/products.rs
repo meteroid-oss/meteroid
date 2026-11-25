@@ -149,6 +149,44 @@ impl ProductRow {
             .into_db_result()
     }
 
+    /// The tenant's products after `after` in id order, at most `limit` (API v2 keyset pages).
+    pub async fn list_page(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        family_id: Option<ProductFamilyId>,
+        include_archived: bool,
+        after: Option<ProductId>,
+        limit: i64,
+    ) -> DbResult<Vec<ProductRow>> {
+        use crate::schema::product::dsl as p_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let mut query = p_dsl::product
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .into_boxed();
+        if !include_archived {
+            query = query.filter(p_dsl::archived_at.is_null());
+        }
+        if let Some(family_id) = family_id {
+            query = query.filter(p_dsl::product_family_id.eq(family_id));
+        }
+        if let Some(after) = after {
+            query = query.filter(p_dsl::id.gt(after));
+        }
+        let query = query
+            .order(p_dsl::id.asc())
+            .limit(limit)
+            .select(ProductRow::as_select());
+
+        crate::debug_sql(&query);
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while fetching a page of products")
+            .into_db_result()
+    }
+
     pub async fn search(
         conn: &mut PgConn,
         tenant_id: TenantId,

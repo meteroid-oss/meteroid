@@ -16,6 +16,7 @@ use diesel_models::applied_coupons::{AppliedCouponForDisplayRow, AppliedCouponRo
 use diesel_models::coupon_add_ons::{CouponAddOnRow, CouponAddOnRowNew};
 use diesel_models::coupon_plans::{CouponPlanRow, CouponPlanRowNew};
 use diesel_models::coupons::{CouponRow, CouponRowNew, CouponRowPatch, CouponStatusRowPatch};
+use diesel_models::plans::PlanRow;
 use diesel_models::query::coupons::CodeMatch;
 use diesel_models::quote_coupons::QuoteCouponRow;
 use error_stack::Report;
@@ -81,6 +82,23 @@ pub trait CouponInterface {
         tenant_id: TenantId,
         codes: &[String],
     ) -> StoreResult<Vec<CouponId>>;
+
+    /// A page of the tenant's coupons by keyset (API v2), with their scope: those of `filter`
+    /// after `after`, in id order, at most `limit`. No filter: those not archived.
+    async fn list_coupons_after(
+        &self,
+        tenant_id: TenantId,
+        filter: Option<CouponFilter>,
+        after: Option<CouponId>,
+        limit: usize,
+    ) -> StoreResult<Vec<Coupon>>;
+
+    /// The newest archived coupon with exactly `code`, its code being free for live ones.
+    async fn find_archived_coupon_by_code(
+        &self,
+        tenant_id: TenantId,
+        code: &str,
+    ) -> StoreResult<Option<Coupon>>;
 }
 
 /// Refuses, by name, the codes naming no live coupon or several (see [`CodeMatch::of`]).
@@ -292,6 +310,29 @@ async fn refuse_removing_redeemed_amounts(
         Some(currency) => Err(Report::new(StoreError::InvalidArgument(format!(
             "the coupon is redeemed on active subscriptions in {currency}: its amount in \
              {currency} cannot be removed"
+        )))),
+        None => Ok(()),
+    }
+}
+
+/// Refuses plans that are not the tenant's: a coupon is scoped to its own tenant's plans only.
+async fn refuse_foreign_plans(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    plan_ids: &[PlanId],
+) -> StoreResult<()> {
+    if plan_ids.is_empty() {
+        return Ok(());
+    }
+    let found = PlanRow::list_by_ids(conn, plan_ids, tenant_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    match plan_ids
+        .iter()
+        .find(|id| !found.iter().any(|row| row.id == **id))
+    {
+        Some(unknown) => Err(Report::new(StoreError::InvalidArgument(format!(
+            "plan {unknown} is not one of this tenant's plans"
         )))),
         None => Ok(()),
     }
@@ -511,6 +552,7 @@ impl CouponInterface for Store {
                             key: Some(coupon_row.code.clone()),
                         }));
                     }
+                    refuse_foreign_plans(conn, tenant_id, &plan_ids).await?;
                     let row = coupon_row
                         .insert(conn)
                         .await
@@ -641,6 +683,7 @@ impl CouponInterface for Store {
                     .map_err(Into::<Report<StoreError>>::into)?;
 
                 let final_plan_ids = if let Some(new_plan_ids) = plan_ids {
+                    refuse_foreign_plans(conn, tenant_id, &new_plan_ids).await?;
                     CouponPlanRow::delete_by_coupon_id(conn, coupon_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
@@ -788,6 +831,41 @@ impl CouponInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
         match_coupon_codes(codes, &rows)
+    }
+
+    async fn list_coupons_after(
+        &self,
+        tenant_id: TenantId,
+        filter: Option<CouponFilter>,
+        after: Option<CouponId>,
+        limit: usize,
+    ) -> StoreResult<Vec<Coupon>> {
+        let mut conn = self.get_conn().await?;
+        let rows = CouponRow::list_page(
+            &mut conn,
+            tenant_id,
+            filter.map(Into::into),
+            after,
+            i64::try_from(limit).unwrap_or(i64::MAX),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+        coupons_with_scope(&mut conn, rows).await
+    }
+
+    async fn find_archived_coupon_by_code(
+        &self,
+        tenant_id: TenantId,
+        code: &str,
+    ) -> StoreResult<Option<Coupon>> {
+        let mut conn = self.get_conn().await?;
+        match CouponRow::find_archived_by_code(&mut conn, tenant_id, code)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+        {
+            Some(row) => Ok(Some(coupon_with_scope(&mut conn, row).await?)),
+            None => Ok(None),
+        }
     }
 }
 

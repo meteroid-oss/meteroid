@@ -406,6 +406,48 @@ impl SubscriptionEndingRow {
             .into_db_result()
     }
 
+    /// A live subscription's fixed term: its end date recorded, replacing the one before, or, with
+    /// `None`, withdrawn (it renews until cancelled). The subscription's `end_date` is written beside
+    /// it by the same caller.
+    pub async fn record_completion(
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+        row: Option<&SubscriptionEndingRow>,
+    ) -> DbResult<()> {
+        use crate::schema::subscription_ending::dsl as e;
+
+        let Some(row) = row else {
+            return diesel::sql_query(format!(
+                "DELETE FROM subscription_ending e \
+                 WHERE e.subscription_id = $1 AND e.kind = 'COMPLETE' \
+                   AND EXISTS (SELECT 1 FROM subscription s WHERE s.id = $1 AND s.status IN {LIVE_SQL})"
+            ))
+            .bind::<SqlUuid, _>(subscription_id)
+            .execute(conn)
+            .await
+            .attach("Error while withdrawing an end date")
+            .map(|_| ())
+            .into_db_result();
+        };
+        diesel::insert_into(e::subscription_ending)
+            .values(row)
+            .on_conflict((e::subscription_id, e::kind))
+            .do_update()
+            .set((
+                e::at.eq(row.at),
+                e::actor_type.eq(row.actor_type),
+                e::actor_uuid.eq(row.actor_uuid),
+                e::actor_alias.eq(row.actor_alias.clone()),
+                e::created_at.eq(row.created_at),
+                e::requested_at.eq(row.requested_at),
+            ))
+            .execute(conn)
+            .await
+            .attach("Error while recording an end date")
+            .map(|_| ())
+            .into_db_result()
+    }
+
     /// The cancellations of the live subscriptions among `subscription_ids`, in the tenant: still
     /// to apply, since applying one ends its subscription.
     pub async fn list_pending_cancellations(

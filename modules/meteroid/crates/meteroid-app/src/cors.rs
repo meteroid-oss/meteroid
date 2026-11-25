@@ -3,7 +3,7 @@ use std::time::Duration;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 const DEFAULT_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
-const DEFAULT_EXPOSED_HEADERS: [&str; 7] = [
+const DEFAULT_EXPOSED_HEADERS: [&str; 9] = [
     "grpc-status",
     "grpc-message",
     "grpc-status-details-bin",
@@ -11,6 +11,9 @@ const DEFAULT_EXPOSED_HEADERS: [&str; 7] = [
     "ratelimit-limit",
     "ratelimit-remaining",
     "ratelimit-reset",
+    // API v2 and the client API: the version served and the id to quote to support.
+    "meteroid-version",
+    "request-id",
 ];
 const DEFAULT_ALLOW_HEADERS: [&str; 9] = [
     "x-grpc-web",

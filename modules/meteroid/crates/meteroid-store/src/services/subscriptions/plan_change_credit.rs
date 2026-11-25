@@ -546,6 +546,35 @@ fn ending_fee_items(
         .collect()
 }
 
+/// What an ending credits beside its fees' give-backs, from what it read: on a cancellation a
+/// shortfall charged up front by its unused days (R-077), then each ended pack's fee capped by its
+/// unused paid credit, each with the invoice that billed its line. The settlement issues these and
+/// its preview credits the same (`preview_cancellation_credits`), so the two notes agree.
+fn credits_beyond_fees(
+    ending: &Ending,
+    ctx: &PeriodCreditContext,
+    settled: &Settled,
+    packs: &[OutgoingPack],
+) -> Vec<(InvoiceId, CreditLineItem)> {
+    let shortfalls = shortfall_credit_items(ending, ctx, settled)
+        .into_iter()
+        .filter_map(|item| {
+            ctx.line_to_invoice
+                .get(item.local_id())
+                .map(|invoice| (*invoice, item))
+        });
+    let packs = packs.iter().filter(|pack| pack.fee_credit > 0).map(|pack| {
+        (
+            pack.invoice_id,
+            CreditLineItem::Amount {
+                local_id: pack.line_local_id.clone(),
+                amount_cents: pack.fee_credit,
+            },
+        )
+    });
+    shortfalls.chain(packs).collect()
+}
+
 /// On a cancellation, the credit of a shortfall charged up front that prepaid its period (R-077).
 fn shortfall_credit_items(
     ending: &Ending,
@@ -762,8 +791,36 @@ fn outgoing_packs(
 struct PlannedEnding {
     lock: CustomerLock,
     ctx: PeriodCreditContext,
+    /// The fees' give-backs, reconciled from the ending's facts.
     fee_items: Vec<CreditLineItem>,
+    /// What it credits beside them (`credits_beyond_fees`).
+    beyond_fees: Vec<CreditLineItem>,
     packs: Vec<OutgoingPack>,
+}
+
+/// What an ending reads before it settles anything, locked or not: the period's invoices, the
+/// lines its earlier notes credited, and its packs as the usage up to it leaves them.
+struct EndingReads {
+    ctx: PeriodCreditContext,
+    settled: Settled,
+    packs: Vec<OutgoingPack>,
+}
+
+/// What an immediate cancellation on `at` ends, and the invoices it is settled against; none when
+/// its day is the period's end. The cancellation's settlement and its preview both start here.
+async fn cancellation_ending(
+    conn: &mut PgConn,
+    details: &SubscriptionDetails,
+    at: NaiveDate,
+    settle_at: DateTime<Utc>,
+) -> StoreResult<Option<(Ending, EndingScope)>> {
+    let prepaid = minimum::up_front_shortfalls_prepaid(conn, details).await?;
+    let mut ending = Ending::of_cancellation(details, at, settle_at, prepaid);
+    if let Some(end) = details.subscription.current_period_end {
+        let reach = reach_of_rows_from(conn, details.subscription.id, at, end).await?;
+        ending.reach_months = ending.reach_months.max(reach);
+    }
+    Ok(EndingScope::of_subscription(&details.subscription, &ending).map(|scope| (ending, scope)))
 }
 
 impl Services {
@@ -805,13 +862,7 @@ impl Services {
         at: NaiveDate,
         settle_at: DateTime<Utc>,
     ) -> StoreResult<Vec<CreditNoteId>> {
-        let prepaid = minimum::up_front_shortfalls_prepaid(conn, details).await?;
-        let mut ending = Ending::of_cancellation(details, at, settle_at, prepaid);
-        if let Some(end) = details.subscription.current_period_end {
-            let reach = reach_of_rows_from(conn, details.subscription.id, at, end).await?;
-            ending.reach_months = ending.reach_months.max(reach);
-        }
-        let Some(scope) = EndingScope::of_subscription(&details.subscription, &ending) else {
+        let Some((ending, scope)) = cancellation_ending(conn, details, at, settle_at).await? else {
             return Ok(vec![]);
         };
         lock_customer_tx(conn, scope.tenant_id, scope.customer_id).await?;
@@ -1240,16 +1291,7 @@ impl Services {
             }
         };
         let mut items = planned.fee_items;
-        items.extend(
-            planned
-                .packs
-                .iter()
-                .filter(|pack| pack.fee_credit > 0)
-                .map(|pack| CreditLineItem::Amount {
-                    local_id: pack.line_local_id.clone(),
-                    amount_cents: pack.fee_credit,
-                }),
-        );
+        items.extend(planned.beyond_fees);
         let notes = self
             .issue_period_credit_notes_tx(
                 conn,
@@ -1369,6 +1411,48 @@ impl Services {
         scope: &EndingScope,
         ending: &Ending,
     ) -> StoreResult<Vec<OutgoingPack>> {
+        Ok(self
+            .preview_ending_reads(conn, usage_client, scope, ending)
+            .await?
+            .packs)
+    }
+
+    /// What an immediate cancellation on `at` credits beside its fees' give-backs, as its
+    /// settlement (`settle_cancelled_components_tx`) would issue it, nothing written: the same
+    /// ending and reads, the packs' usage settled in memory (`preview_ending_reads`), the same
+    /// `credits_beyond_fees`. A preview lays these on the note its fees' give-backs make. Metering
+    /// is read live, outside any transaction.
+    pub(crate) async fn preview_cancellation_credits(
+        &self,
+        conn: &mut PgConn,
+        details: &SubscriptionDetails,
+        at: NaiveDate,
+        settle_at: DateTime<Utc>,
+    ) -> StoreResult<Vec<(InvoiceId, CreditLineItem)>> {
+        let Some((ending, scope)) = cancellation_ending(conn, details, at, settle_at).await? else {
+            return Ok(Vec::new());
+        };
+        let reads = self
+            .preview_ending_reads(conn, self.usage_client.as_ref(), &scope, &ending)
+            .await?;
+        Ok(credits_beyond_fees(
+            &ending,
+            &reads.ctx,
+            &reads.settled,
+            &reads.packs,
+        ))
+    }
+
+    /// What `ending` reads before it settles, without a lock and writing nothing: the scope's
+    /// invoices, the lines earlier notes credited, and its packs as `preview_outgoing_packs`
+    /// describes them.
+    async fn preview_ending_reads(
+        &self,
+        conn: &mut PgConn,
+        usage_client: &dyn UsageClient,
+        scope: &EndingScope,
+        ending: &Ending,
+    ) -> StoreResult<EndingReads> {
         let EndingScope {
             tenant_id,
             customer_id,
@@ -1385,7 +1469,11 @@ impl Services {
             CustomerCreditGrantRow::list_for_customer(conn, tenant_id, customer_id).await?;
         let owed = owed_denominations(&ctx, ending, &settled, &grants);
         if owed.is_empty() {
-            return Ok(Vec::new());
+            return Ok(EndingReads {
+                ctx,
+                settled,
+                packs: Vec::new(),
+            });
         }
         let mut usage = HashMap::new();
         for denomination in owed {
@@ -1432,7 +1520,11 @@ impl Services {
                 currency_precision,
             ));
         }
-        Ok(packs)
+        Ok(EndingReads {
+            ctx,
+            settled,
+            packs,
+        })
     }
 
     /// Locks the customer, the scope's invoices and the grants of each denomination the ended
@@ -1548,12 +1640,16 @@ impl Services {
             ),
             None => None,
         };
-        let mut fee_items = ending_fee_items(&ctx, from_facts.as_deref());
-        fee_items.extend(shortfall_credit_items(ending, &ctx, &settled));
+        let fee_items = ending_fee_items(&ctx, from_facts.as_deref());
+        let beyond_fees = credits_beyond_fees(ending, &ctx, &settled, &packs)
+            .into_iter()
+            .map(|(_, item)| item)
+            .collect();
         Ok(Some(PlannedEnding {
             lock,
             ctx,
             fee_items,
+            beyond_fees,
             packs,
         }))
     }

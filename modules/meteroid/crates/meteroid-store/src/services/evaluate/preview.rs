@@ -433,19 +433,20 @@ impl Services {
         Ok((quote, bought))
     }
 
-    /// A change of `delta` seats of the slot fee of `charge` (a plan charge or an add-on),
-    /// priced today: an increase recorded today laid over the facts and billed as the change
-    /// bills it, by every fee counting its quantity; a decrease taking effect at the end of the
-    /// fee's period, billing nothing now.
+    /// A change of the seats of the slot fee of `charge` (a plan charge or an add-on), by a
+    /// number or to a count, priced today: an increase recorded today laid over the facts and
+    /// billed as the change bills it, by every fee counting its quantity; a decrease taking
+    /// effect at the end of the fee's period, billing nothing now. Its delta is counted as the
+    /// change counts it (`seats_counted`): a count holds the seats still paying as held.
     pub(in crate::services) async fn preview_seat_change(
         &self,
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
         charge: impl Into<crate::domain::slot_transactions::SeatCharge>,
-        delta: i32,
+        change: crate::domain::managed_quantities::SeatChange,
     ) -> StoreResult<SlotUpdatePreview> {
         let charge = charge.into();
-        if delta == 0 {
+        if change == crate::domain::managed_quantities::SeatChange::By(0) {
             return Err(StoreError::InvalidArgument(
                 "Delta cannot be zero - no slot change requested".to_string(),
             )
@@ -475,7 +476,39 @@ impl Services {
                 None,
             )
             .await? as i32;
-        crate::repositories::subscriptions::slots::validate_slot_limits(&slot, delta, current)?;
+        let (held, delta) = crate::services::subscriptions::slots::seats_counted(
+            &mut conn,
+            tenant_id,
+            subscription_id,
+            slot.quantity_id,
+            change,
+            current,
+        )
+        .await?;
+        let delta = delta.ok_or_else(|| {
+            Report::new(StoreError::InvalidArgument(format!(
+                "the subscription already holds {held} {}",
+                slot.unit
+            )))
+        })?;
+        // Seats bought and still paying count against the maximum, as the change counts them.
+        let paying = if delta > 0 {
+            diesel_models::slot_transactions::SlotTransactionRow::pending_upgrades(
+                &mut conn,
+                tenant_id,
+                subscription_id,
+                slot.quantity_id,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+        } else {
+            0
+        };
+        crate::repositories::subscriptions::slots::validate_slot_limits(
+            &slot,
+            delta,
+            current + paying,
+        )?;
         let precision = Currencies::resolve_currency_precision(&sub.currency).unwrap_or(2);
         let today = common_clock::now().date_naive();
         let new_slots = current + delta;
@@ -551,7 +584,28 @@ impl Services {
             (Decimal::ZERO, None)
         };
 
+        // The MRR once the count is held: every fee counting the quantity bills it (R-137).
+        let mrr_after_cents = match self
+            .mrr_after_change(
+                &mut conn,
+                &details,
+                &details,
+                today,
+                HashMap::from([(slot.quantity_id, i64::from(new_slots))]),
+            )
+            .await
+        {
+            Ok(mrr) => Some(mrr),
+            Err(error) => {
+                log::warn!(
+                    "The MRR after a seat change of subscription {subscription_id} was not previewed: {error:?}"
+                );
+                None
+            }
+        };
+
         Ok(SlotUpdatePreview {
+            mrr_after_cents,
             current_slots: current,
             new_slots,
             delta,

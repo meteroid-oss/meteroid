@@ -382,7 +382,9 @@ impl Services {
                 .as_ref()
                 .and_then(|documents| documents.credit_note.clone());
 
-            // The renewal under the amended subscription. Best-effort: a preview never fails on it.
+            // The renewal under the amended subscription. Best-effort: a preview never fails on it,
+            // it says what it left out.
+            let mut missing = Vec::new();
             let (next_invoice, subscription_after) = {
                 let mut hypothetical =
                     crate::services::evaluate::preview::details_after(&sub_details, &overlay)?;
@@ -396,11 +398,21 @@ impl Services {
                     );
                     sub.cycle_index = Some(cadence.cycle_index);
                 }
-                let invoice = self
+                let invoice = match self
                     .preview_next_invoice(&mut conn, &hypothetical, &overlay, None)
                     .await
-                    .ok();
-                (invoice, hypothetical.subscription)
+                {
+                    Ok(invoice) => Some(invoice),
+                    Err(error) => {
+                        log::warn!(
+                            "The renewal after an amendment of subscription {} was not previewed: {error:?}",
+                            sub_details.subscription.id
+                        );
+                        missing.push(crate::domain::subscription_changes::PreviewPart::NextInvoice);
+                        None
+                    }
+                };
+                (invoice, hypothetical)
             };
 
             let adjustment_period =
@@ -418,7 +430,8 @@ impl Services {
 
             Ok(AmendmentPreviewExtended {
                 adjustment_period,
-                subscription_after,
+                subscription_after: subscription_after.subscription.clone(),
+                details_after: subscription_after,
                 preview: resolved.preview,
                 proration,
                 change_direction,
@@ -427,6 +440,7 @@ impl Services {
                 adjustment_invoice,
                 credit_note,
                 next_invoice,
+                missing,
             })
         })
         .await

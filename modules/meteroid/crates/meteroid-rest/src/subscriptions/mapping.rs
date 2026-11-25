@@ -229,6 +229,7 @@ pub fn rest_to_domain_create_request(
             payment_methods_config: sub.payment_methods_config.map(Into::into),
             invoice_threshold: None,
             billing_start_date: None,
+            external_id: None,
         },
         price_components: sub.price_components.map(Into::into),
         add_ons: sub.add_ons.map(map_add_ons),

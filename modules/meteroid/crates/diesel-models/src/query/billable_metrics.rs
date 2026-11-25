@@ -65,6 +65,44 @@ impl BillableMetricRow {
             .into_db_result()
     }
 
+    /// The tenant's metrics after `after` in id order, at most `limit` (API v2 keyset pages).
+    pub async fn list_page(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        product_family_id: Option<ProductFamilyId>,
+        include_archived: bool,
+        after: Option<BillableMetricId>,
+        limit: i64,
+    ) -> DbResult<Vec<BillableMetricRow>> {
+        use crate::schema::billable_metric::dsl as bm_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let mut query = bm_dsl::billable_metric
+            .filter(bm_dsl::tenant_id.eq(tenant_id))
+            .into_boxed();
+        if !include_archived {
+            query = query.filter(bm_dsl::archived_at.is_null());
+        }
+        if let Some(product_family_id) = product_family_id {
+            query = query.filter(bm_dsl::product_family_id.eq(product_family_id));
+        }
+        if let Some(after) = after {
+            query = query.filter(bm_dsl::id.gt(after));
+        }
+        let query = query
+            .order(bm_dsl::id.asc())
+            .limit(limit)
+            .select(BillableMetricRow::as_select());
+
+        crate::debug_sql(&query);
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while fetching a page of billable metrics")
+            .into_db_result()
+    }
+
     pub async fn list(
         conn: &mut PgConn,
         param_tenant_id: TenantId,
@@ -158,6 +196,30 @@ impl BillableMetricRow {
             .into_db_result()
     }
 
+    /// The tenant's metric of catalog code `code`, archived ones included: the code API v2
+    /// names it by, unlike `code`, the one its usage events carry.
+    pub async fn find_by_catalog_code(
+        conn: &mut PgConn,
+        tenant_id_param: TenantId,
+        code: &str,
+    ) -> DbResult<Option<BillableMetricRow>> {
+        use crate::schema::billable_metric::dsl as m;
+        use diesel::OptionalExtension;
+        use diesel_async::RunQueryDsl;
+
+        let query = m::billable_metric
+            .filter(m::tenant_id.eq(tenant_id_param))
+            .filter(m::catalog_code.eq(code));
+        crate::debug_sql(&query);
+        query
+            .first(conn)
+            .await
+            .optional()
+            .attach("Error while finding a billable metric by code")
+            .into_db_result()
+    }
+
+    /// The tenant's metrics reading the usage events of `code`, archived ones included.
     pub async fn list_by_code(
         conn: &mut PgConn,
         tenant_id_param: &TenantId,

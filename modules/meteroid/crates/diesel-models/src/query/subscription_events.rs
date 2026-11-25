@@ -474,6 +474,31 @@ impl SubscriptionEventRow {
             .into_db_result()
     }
 
+    /// Drops the `Cancelled` events of a live subscription that no ending applied yet: neither
+    /// booked as churn nor settling its lines. A cancellation still to apply has one; a revoked or
+    /// replaced one leaves none (R-141).
+    pub async fn withdraw_pending_cancellation(
+        conn: &mut PgConn,
+        subscription_uid: SubscriptionId,
+    ) -> DbResult<usize> {
+        use diesel::sql_types::Uuid;
+        use diesel_async::RunQueryDsl;
+
+        diesel::sql_query(
+            "DELETE FROM subscription_event ev \
+             WHERE ev.subscription_id = $1 AND ev.event_type = 'CANCELLED' \
+               AND ev.bi_mrr_movement_log_id IS NULL \
+               AND (ev.details IS NULL OR NOT ev.details ? 'outgoing') \
+               AND EXISTS (SELECT 1 FROM subscription s WHERE s.id = $1 \
+                 AND s.status IN ('PENDING_ACTIVATION', 'TRIAL_ACTIVE', 'ACTIVE', 'TRIAL_EXPIRED'))",
+        )
+        .bind::<Uuid, _>(subscription_uid)
+        .execute(conn)
+        .await
+        .attach("Error while withdrawing the event of a pending cancellation")
+        .into_db_result()
+    }
+
     /// Marks the latest cancellation of the subscription on `at` as settling its lines, with what a
     /// later settlement needs (`record`). None was scheduled: 0.
     pub async fn record_settling_cancellation(

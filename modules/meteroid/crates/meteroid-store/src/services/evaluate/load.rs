@@ -208,6 +208,8 @@ pub struct Overlay {
     pub rows: PendingFacts,
     /// The billing day a change ending a free trial moves the grid to.
     pub billing_day_anchor: Option<u32>,
+    /// A cancellation not recorded yet, requested on `rows.on`: the ending a preview lays over.
+    pub ending: Option<Ending>,
 }
 
 impl Overlay {
@@ -215,6 +217,38 @@ impl Overlay {
         Self {
             rows,
             billing_day_anchor: None,
+            ending: None,
+        }
+    }
+
+    /// The subscription cancelled at `at`, requested on `requested_on`, nothing else changed.
+    pub fn of_cancellation(
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        requested_on: NaiveDate,
+        at: chrono::DateTime<chrono::Utc>,
+    ) -> Self {
+        Self {
+            rows: PendingFacts {
+                event_id: common_domain::ids::ScheduledEventId::new(),
+                tenant_id,
+                subscription_id,
+                on: requested_on,
+                plan_window: None,
+                closes_components: Vec::new(),
+                opens_components: Vec::new(),
+                closes_add_ons: Vec::new(),
+                opens_add_ons: Vec::new(),
+                seat_seeds: Vec::new(),
+                set_seats: Vec::new(),
+                scheduled_at: None,
+                minimum: MinimumChange::Kept,
+            },
+            billing_day_anchor: None,
+            ending: Some(Ending {
+                at,
+                kind: EndingKind::Cancel,
+            }),
         }
     }
 }
@@ -330,7 +364,23 @@ async fn load_facts_of(
         &ending_rows,
     )
     .await?;
-    let (ending, end_date, ending_recorded) = endings(ending_rows);
+    let (mut ending, end_date, mut ending_recorded) = endings(ending_rows);
+    let mut ending_day_invoiced = ending_day_invoiced;
+    // A cancellation previewed: requested now, after any invoice of its day already written.
+    if let Some(cancel) = overlay.and_then(|overlay| overlay.ending) {
+        ending = Some(cancel);
+        ending_recorded = overlay.map(|overlay| overlay.rows.on);
+        ending_day_invoiced = db(
+            diesel_models::invoices::InvoiceRow::find_existing_recurring_invoice(
+                conn,
+                tenant_id,
+                subscription_id,
+                cancel.on(),
+            )
+            .await,
+        )?
+        .is_some();
+    }
     let change = overlay.map(|overlay| &overlay.rows);
     if let Some(window) = change.and_then(|change| change.plan_window.as_ref()) {
         lay_plan_window(&mut plan_windows, window);

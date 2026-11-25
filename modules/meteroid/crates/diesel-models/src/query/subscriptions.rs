@@ -519,3 +519,89 @@ impl SubscriptionRow {
             .into_db_result()
     }
 }
+
+impl SubscriptionForDisplayRow {
+    /// A page of the tenant's subscriptions in id order, those after `after`, at most `limit`:
+    /// API v2's keyset over an unbounded collection (ADR-0013 §3).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn list_page(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_id: Option<CustomerId>,
+        plan_id: Option<PlanId>,
+        status: Option<Vec<crate::enums::SubscriptionStatusEnum>>,
+        updated_after: Option<chrono::DateTime<chrono::Utc>>,
+        after: Option<SubscriptionId>,
+        limit: i64,
+    ) -> DbResult<Vec<SubscriptionForDisplayRow>> {
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use crate::schema::subscription::dsl as s_dsl;
+
+        let mut query = s_dsl::subscription
+            .filter(s_dsl::tenant_id.eq(tenant_id))
+            .inner_join(crate::schema::customer::table)
+            .inner_join(
+                pv_dsl::plan_version.inner_join(p_dsl::plan.on(p_dsl::id.eq(pv_dsl::plan_id))),
+            )
+            .into_boxed();
+        if let Some(customer_id) = customer_id {
+            query = query.filter(s_dsl::customer_id.eq(customer_id));
+        }
+        if let Some(plan_id) = plan_id {
+            query = query.filter(p_dsl::id.eq(plan_id));
+        }
+        if let Some(status) = status {
+            query = query.filter(s_dsl::status.eq_any(status));
+        }
+        if let Some(updated_after) = updated_after {
+            // Changed after it: its own row, else it or what is read beside it as committed
+            // (`subscription_activity`).
+            use diesel::sql_types::Timestamptz;
+            query = query.filter(
+                diesel::dsl::sql::<diesel::sql_types::Bool>(
+                    "(coalesce(subscription.updated_at, subscription.created_at AT TIME ZONE 'UTC') > ",
+                )
+                .bind::<Timestamptz, _>(updated_after)
+                .sql(
+                    " OR EXISTS (SELECT 1 FROM subscription_activity a \
+                     WHERE a.subscription_id = subscription.id AND a.updated_at > ",
+                )
+                .bind::<Timestamptz, _>(updated_after)
+                .sql("))"),
+            );
+        }
+        if let Some(after) = after {
+            query = query.filter(s_dsl::id.gt(after));
+        }
+        let query = query
+            .order(s_dsl::id.asc())
+            .limit(limit)
+            .select(SubscriptionForDisplayRow::as_select());
+
+        crate::debug_sql(&query);
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while fetching a page of subscriptions")
+            .into_db_result()
+    }
+}
+
+/// When what API v2 reads beside a subscription last changed (ADR-0013 §10), for those of `ids`
+/// that changed since it was kept.
+pub async fn subscription_activity(
+    conn: &mut PgConn,
+    ids: &[SubscriptionId],
+) -> DbResult<Vec<(SubscriptionId, chrono::DateTime<chrono::Utc>)>> {
+    use crate::schema::subscription_activity::dsl as a_dsl;
+
+    a_dsl::subscription_activity
+        .filter(a_dsl::subscription_id.eq_any(ids))
+        .select((a_dsl::subscription_id, a_dsl::updated_at))
+        .get_results(conn)
+        .await
+        .attach("Error while reading when subscriptions last changed")
+        .into_db_result()
+}

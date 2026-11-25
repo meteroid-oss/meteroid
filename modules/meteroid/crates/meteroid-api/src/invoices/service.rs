@@ -1,7 +1,7 @@
 use super::{InvoiceServiceComponents, mapping};
 use crate::customers::mapping::customer::DomainAddressWrapper;
 use crate::invoices::error::InvoiceApiError;
-use chrono::{NaiveDate, NaiveTime};
+use chrono::NaiveDate;
 use common_domain::ids::{
     CreditNoteId, CustomerId, InvoiceId, PaymentTransactionId, SubscriptionId, TenantId,
 };
@@ -25,21 +25,19 @@ use meteroid_grpc::meteroid::api::invoices::v1::{
     VoidInvoiceResponse, invoices_service_server::InvoicesService,
 };
 use meteroid_grpc_mapping::utils::PaginationExt;
-use meteroid_store::Store;
+use meteroid_store::Services;
 use meteroid_store::domain::pgmq::{InvoicePdfRequestEvent, PgmqMessageNew, PgmqQueue};
 use meteroid_store::domain::{
-    ChargeType, InvoiceNew, InvoicingEntity, LineItem, UpdateInvoiceParams, UpdateLineItemParams,
+    InvoiceNew, InvoicingEntity, UpdateInvoiceParams, UpdateLineItemParams,
 };
 use meteroid_store::repositories::CreditNoteInterface;
 use meteroid_store::repositories::InvoiceInterface;
-use meteroid_store::repositories::customers::CustomersInterfaceAuto;
-use meteroid_store::repositories::invoices::apply_tax_rates_to_priced_lines;
-use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
 use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
 use meteroid_store::repositories::pgmq::PgmqInterface;
 use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
 use meteroid_store::services::{
-    CustomerDetailsUpdate, OfflineRefundCommand, RefundCommand, ReverseManualPaymentCommand,
+    CustomerDetailsUpdate, ManualInvoice, ManualInvoiceCustomer, ManualInvoiceLine,
+    OfflineRefundCommand, RefundCommand, ReverseManualPaymentCommand,
 };
 use meteroid_store::utils::local_id::{IdType, LocalId};
 use tonic::{Request, Response, Status};
@@ -441,7 +439,8 @@ impl InvoicesService for InvoiceServiceComponents {
             .invoice
             .ok_or_else(|| InvoiceApiError::InputError("Missing invoice data".to_string()))?;
 
-        let (new_invoice, _) = to_domain_invoice_new(tenant_id, invoice_req, &self.store).await?;
+        let (new_invoice, _) =
+            to_domain_invoice_new(tenant_id, invoice_req, &self.services).await?;
 
         let inserted = self
             .store
@@ -515,7 +514,7 @@ impl InvoicesService for InvoiceServiceComponents {
             .ok_or_else(|| InvoiceApiError::InputError("Missing invoice data".to_string()))?;
 
         let (new_invoice, inv_entity) =
-            to_domain_invoice_new(tenant_id, invoice_req, &self.store).await?;
+            to_domain_invoice_new(tenant_id, invoice_req, &self.services).await?;
 
         let svgs = self
             .preview_rendering
@@ -1167,10 +1166,11 @@ fn convert_sublines_from_proto(
         .collect()
 }
 
+/// The proto's one-off invoice as the store writes it (`manual_invoice_new`): the store prices it.
 async fn to_domain_invoice_new(
     tenant_id: TenantId,
     invoice_req: NewInvoice,
-    store: &Store,
+    services: &Services,
 ) -> Result<(InvoiceNew, InvoicingEntity), Status> {
     let customer_id = CustomerId::from_proto(invoice_req.customer_id.as_str())?;
     let invoice_date = NaiveDate::from_proto_ref(&invoice_req.invoice_date)?;
@@ -1179,198 +1179,66 @@ async fn to_domain_invoice_new(
         .as_ref()
         .map(NaiveDate::from_proto_ref)
         .transpose()?;
-    let currency_str = invoice_req.currency.as_str();
-    let currency = meteroid_money::iso::find(currency_str)
+    let currency = meteroid_money::iso::find(invoice_req.currency.as_str())
         .ok_or_else(|| InvoiceApiError::InputError("Invalid currency".to_string()))?;
 
     let discount = parse_as_minor_opt(invoice_req.discount.as_ref(), currency)?;
 
-    let customer = store
-        .find_customer_by_id(customer_id, tenant_id)
-        .await
-        .map_err(Into::<InvoiceApiError>::into)?;
-
-    // First create line items with initial calculations (before discount)
     let mut lines = vec![];
     for line in &invoice_req.line_items {
-        let tax_rate = rust_decimal::Decimal::from_proto_ref(&line.tax_rate)?;
-        let start_date = NaiveDate::from_proto_ref(&line.start_date)?;
-        let end_date = NaiveDate::from_proto_ref(&line.end_date)?;
-
-        // Handle optional quantity and unit_price (can be null for items with sublines)
-        let quantity = line
-            .quantity
-            .clone()
-            .map(rust_decimal::Decimal::from_proto)
-            .transpose()?;
-        let unit_price = line
-            .unit_price
-            .clone()
-            .map(rust_decimal::Decimal::from_proto)
-            .transpose()?;
-
-        // Convert sublines from proto to domain; recompute each total from qty * unit_price
-        // using the invoice currency precision (backend is authoritative on totals).
-        let mut sub_lines = convert_sublines_from_proto(&line.sub_line_items)?;
-        for sl in &mut sub_lines {
-            sl.total = (sl.quantity * sl.unit_price)
-                .to_subunit_opt(currency.exponent as u8)
-                .unwrap_or(0);
-        }
-
-        // Calculate amount_subtotal
-        // If we have sublines, sum their totals; otherwise calculate from quantity * unit_price
-        let amount_subtotal = if !sub_lines.is_empty() {
-            sub_lines.iter().map(|s| s.total).sum()
-        } else if let (Some(q), Some(p)) = (quantity, unit_price) {
-            (q * p).to_subunit_opt(currency.exponent as u8).unwrap_or(0)
-        } else {
-            0
-        };
-
-        let item = LineItem {
-            local_id: LocalId::generate_for(IdType::Other),
+        // Optional quantity and unit_price (null for items with sublines).
+        lines.push(ManualInvoiceLine {
             name: line.product.clone(),
-            // Manual one-off invoice line with no subscription component.
-            charge_type: Some(ChargeType::OneTime),
-            tax_rate,
-            tax_details: vec![], // Will be calculated after discount
-            amount_subtotal,
-            taxable_amount: amount_subtotal, // Will be updated by distribute_discount
-            tax_amount: 0,                   // Will be calculated after discount
-            amount_total: 0,                 // Will be calculated after discount
-            quantity,
-            unit_price,
-            start_date,
-            end_date,
-            sub_lines,
-            is_prorated: false,
-            price_component_id: None,
-            sub_component_id: None,
-            sub_add_on_id: None,
-            product_id: None,
-            metric_id: None,
             description: line.description.clone(),
-            group_by_dimensions: None,
-            kind: meteroid_store::domain::LineItemKind::Regular,
-            credit_grant_amount: None,
-            credit_grant_expiry: None,
-            credit_grant_included: false,
-            taxed_at_purchase: false,
-            tax_inclusive_quote: None,
-            credit_unit: None,
-            credit_grant_unit: None,
-            credit_grant_rollover: None,
-            promotional_credit: None,
-            subscription_id: None,
-            usage_ends_at: None,
-            usage_breakdown: None,
-        };
-
-        lines.push(item);
+            quantity: line
+                .quantity
+                .clone()
+                .map(rust_decimal::Decimal::from_proto)
+                .transpose()?,
+            unit_price: line
+                .unit_price
+                .clone()
+                .map(rust_decimal::Decimal::from_proto)
+                .transpose()?,
+            tax_rate: rust_decimal::Decimal::from_proto_ref(&line.tax_rate)?,
+            start_date: NaiveDate::from_proto_ref(&line.start_date)?,
+            end_date: NaiveDate::from_proto_ref(&line.end_date)?,
+            // Their totals are recomputed by the store from quantity × unit_price.
+            sub_lines: convert_sublines_from_proto(&line.sub_line_items)?,
+        });
     }
 
-    // A discount comes off the lines' positive subtotals, never more and never below zero (I25).
-    let discountable: i64 = lines.iter().map(|line| line.amount_subtotal.max(0)).sum();
-    if discount.is_some_and(|discount| discount < 0 || discount > discountable) {
-        return Err(InvoiceApiError::InputError(
-            "The discount must be between zero and the invoice's subtotal".to_string(),
-        )
-        .into());
-    }
+    // Custom customer details if provided, otherwise the customer's.
+    let customer_details = invoice_req
+        .customer_details
+        .map(|custom_details| {
+            let billing_address = custom_details
+                .billing_address
+                .map(DomainAddressWrapper::try_from)
+                .transpose()
+                .map_err(|_| InvoiceApiError::InputError("Invalid address".to_string()))?
+                .map(|w| w.0);
+            Ok::<_, InvoiceApiError>(ManualInvoiceCustomer {
+                name: custom_details.name,
+                billing_address,
+                vat_number: custom_details.vat_number,
+                email: custom_details.email,
+            })
+        })
+        .transpose()?;
 
-    // Apply discount proportionally across line items
-    if let Some(discount_amount) = discount {
-        lines = meteroid_store::services::invoice_lines::discount::distribute_discount(
-            lines,
-            discount_amount as u64,
-        );
-    }
-
-    // Tax after discount, rounded once per rate over the whole base like the tax engine.
-    // When the operator entered tax-included prices, the tax is carved out of them and the
-    // lines come back net, so the total stays the figure that was typed.
-    let tax_inclusive = invoice_req.tax_inclusive;
-    let (tax_breakdown, discount_tax) = apply_tax_rates_to_priced_lines(&mut lines, tax_inclusive);
-
-    let subtotal: i64 = lines.iter().map(|line| line.amount_subtotal).sum();
-    let total_tax_amount: i64 = lines.iter().map(|line| line.tax_amount).sum();
-    let total_taxable: i64 = lines.iter().map(|line| line.taxable_amount).sum();
-    let total = total_taxable + total_tax_amount;
-    // A manual draft has collected nothing and drawn no credit yet (R-087).
-    let amount_due = billing_core::amount_due(total, 0, 0);
-
-    let invoicing_entity = store
-        .get_invoicing_entity(tenant_id, Some(customer.invoicing_entity_id))
-        .await
-        .map_err(Into::<InvoiceApiError>::into)?;
-
-    // Use custom customer details if provided, otherwise use customer from DB
-    let customer_details = if let Some(custom_details) = invoice_req.customer_details {
-        let billing_address = custom_details
-            .billing_address
-            .map(DomainAddressWrapper::try_from)
-            .transpose()
-            .map_err(|_| InvoiceApiError::InputError("Invalid address".to_string()))?
-            .map(|w| w.0);
-
-        meteroid_store::domain::InlineCustomer {
-            id: customer_id,
-            name: custom_details.name,
-            billing_address,
-            snapshot_at: common_clock::now().naive_utc(),
-            vat_number: custom_details.vat_number,
-            legal_number: customer.legal_number.clone(),
-            buyer_reference: customer.buyer_reference.clone(),
-            email: custom_details.email,
-            alias: customer.alias,
-            preferred_locales: customer.preferred_locales.clone(),
-        }
-    } else {
-        customer.into()
-    };
-
-    let invoice_new = InvoiceNew {
-        status: meteroid_store::domain::InvoiceStatusEnum::Draft,
-        tenant_id,
+    let invoice = ManualInvoice {
         customer_id,
-        subscription_id: None,
-        plan_name: None,
-        plan_version_id: None,
-        invoice_type: meteroid_store::domain::InvoiceType::OneOff,
-        // Manual one-off: not a subscription period, so no cycle to pin.
-        cycle_index: None,
         currency: invoice_req.currency,
-        line_items: lines,
-        coupons: vec![],
-        data_updated_at: None,
         invoice_date,
-        billing_period_start: invoice_date,
-        tax_inclusive,
-        finalized_at: None,
-        total,
-        amount_due,
-        applied_credits: 0, // manual invoices don't use customer credits ?
-        promotional_credits: 0,
-        subtotal,
-        subtotal_recurring: 0, // no recurring items in manual invoices
-        tax_amount: total_tax_amount,
-        net_terms: invoicing_entity.net_terms, // todo derive from due_date?
-        discount: discount.unwrap_or(0) - discount_tax,
-        invoice_number: "draft".to_string(),
+        due_date,
+        lines,
+        discount,
+        tax_inclusive: invoice_req.tax_inclusive,
         reference: invoice_req.reference,
-        purchase_order: invoice_req.purchase_order.clone(),
+        purchase_order: invoice_req.purchase_order,
         memo: invoice_req.memo,
-        due_at: due_date.map(|d| d.and_time(NaiveTime::MIN)),
         customer_details,
-        seller_details: invoicing_entity.clone().into(),
-        auto_advance: false,
-        payment_status: meteroid_store::domain::InvoicePaymentStatus::Unpaid,
-        tax_breakdown,
-        manual: true,
-        invoicing_entity_id: invoicing_entity.id,
-        parent_invoice_id: None,
-        consolidated_into_invoice_id: None,
         annexes: mapping::invoices::server_annexes_to_domain(invoice_req.annexes)?,
         custom_properties: invoice_req
             .custom_properties
@@ -1381,7 +1249,11 @@ async fn to_domain_invoice_new(
             })?
             .unwrap_or(serde_json::Value::Null),
     };
-    Ok((invoice_new, invoicing_entity))
+    let built = services
+        .manual_invoice_new(tenant_id, invoice)
+        .await
+        .map_err(Into::<InvoiceApiError>::into)?;
+    Ok(built)
 }
 
 fn to_update_invoice_params(req: UpdateInvoiceRequest) -> Result<UpdateInvoiceParams, Status> {

@@ -8,9 +8,11 @@ use axum::extract::State;
 use axum::response::IntoResponse;
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
+use metering_grpc::meteroid::metering::v1 as grpc;
 use meteroid_app::errors::RestApiError;
 use meteroid_rest_common::error::RestErrorResponse;
 use meteroid_rest_common::extract::{ApiJson, ApiValid};
+use meteroid_store::clients::usage;
 
 /// Ingest events
 ///
@@ -40,10 +42,37 @@ pub async fn ingest_events(
     State(app_state): State<AppState>,
     ApiValid(ApiJson(request)): ApiValid<ApiJson<IngestEventsRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
+    let response = ingest(
+        &app_state,
+        &authorized_state,
+        request
+            .events
+            .into_iter()
+            .map(mapping::rest_event_to_grpc)
+            .collect(),
+        request.allow_backfilling.unwrap_or(false),
+        !request.allow_partial_failures.unwrap_or(false),
+    )
+    .await?;
+    Ok((
+        StatusCode::OK,
+        Json(mapping::usage_client_response_to_rest(response)),
+    ))
+}
+
+/// Metering's ingestion of `events`, already checked, counted against the tenant's events per
+/// second: v1's and v2's, each reading its own body into them.
+pub(crate) async fn ingest(
+    app_state: &AppState,
+    authorized_state: &AuthorizedAsTenant,
+    events: Vec<grpc::Event>,
+    allow_backfilling: bool,
+    fail_on_error: bool,
+) -> Result<usage::IngestEventsResult, RestApiError> {
     rate_limit_eps(
         &app_state.rest_rate_limiters,
-        &authorized_state,
-        request.events.len(),
+        authorized_state,
+        events.len(),
     )
     .await?;
 
@@ -53,16 +82,18 @@ pub async fn ingest_events(
         .await
         .map_err(RestApiError::from)?;
 
-    let usage_request = mapping::rest_request_to_usage_client(request, keep_last_events);
-
-    let response = app_state
+    app_state
         .services
         .usage_clients()
-        .ingest_events(&authorized_state.tenant_id, usage_request)
+        .ingest_events(
+            &authorized_state.tenant_id,
+            usage::IngestEventsRequest {
+                events,
+                allow_backfilling,
+                fail_on_error,
+                keep_last_events,
+            },
+        )
         .await
-        .map_err(RestApiError::from)?;
-
-    let rest_response = mapping::usage_client_response_to_rest(response);
-
-    Ok((StatusCode::OK, Json(rest_response)))
+        .map_err(RestApiError::from)
 }

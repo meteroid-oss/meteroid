@@ -311,6 +311,7 @@ impl ServicesEdge {
                 skip_past_invoices: false,
                 usage_filter: None,
                 custom_properties: serde_json::Value::Null,
+                external_id: None,
             },
             price_components: (!offer.levels.is_empty()).then(|| CreateSubscriptionComponents {
                 parameterized_components: offer.levels.clone(),

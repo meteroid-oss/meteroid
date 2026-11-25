@@ -485,6 +485,16 @@ pub enum SubscriptionEventType {
     Updated,
 }
 
+/// What an API key may do: a secret key the server API, a publishable key the client API's
+/// public routes only.
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[ExistingTypePath = "crate::schema::sql_types::ApiTokenKindEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum ApiTokenKindEnum {
+    Secret,
+    Publishable,
+}
+
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq)]
 #[ExistingTypePath = "crate::schema::sql_types::EmailDeliveryModeEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]

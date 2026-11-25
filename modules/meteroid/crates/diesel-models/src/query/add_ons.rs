@@ -168,6 +168,36 @@ impl AddOnRow {
         Ok(())
     }
 
+    /// The tenant's add-ons after `after` in id order, at most `limit` (API v2 keyset pages).
+    pub async fn list_page(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        include_archived: bool,
+        after: Option<AddOnId>,
+        limit: i64,
+    ) -> DbResult<Vec<AddOnRow>> {
+        use crate::schema::add_on::dsl as ao_dsl;
+
+        let mut query = ao_dsl::add_on
+            .filter(ao_dsl::tenant_id.eq(tenant_id))
+            .into_boxed();
+        if !include_archived {
+            query = query.filter(ao_dsl::archived_at.is_null());
+        }
+        if let Some(after) = after {
+            query = query.filter(ao_dsl::id.gt(after));
+        }
+        let query = query.order(ao_dsl::id.asc()).limit(limit);
+
+        crate::debug_sql(&query);
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while fetching a page of add-ons")
+            .into_db_result()
+    }
+
     pub async fn list_by_ids(
         conn: &mut PgConn,
         ids: &[AddOnId],

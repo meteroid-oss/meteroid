@@ -13,6 +13,8 @@ pub struct ProductFamilyRow {
     pub updated_at: Option<NaiveDateTime>,
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: TenantId,
+    /// Unique per tenant and immutable; filled from the name on insert when not set (ADR-0013).
+    pub code: String,
 }
 
 #[derive(Debug, Queryable, Selectable)]

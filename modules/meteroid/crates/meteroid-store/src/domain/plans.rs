@@ -147,6 +147,8 @@ impl PlanVersionNew {
 #[from_owned(PlanRow)]
 pub struct Plan {
     pub id: PlanId,
+    /// Unique per tenant and immutable (ADR-0013).
+    pub code: String,
     pub name: String,
     pub description: Option<String>,
     pub created_at: NaiveDateTime,

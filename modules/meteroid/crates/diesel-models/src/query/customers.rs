@@ -279,10 +279,11 @@ impl CustomerRow {
         }
 
         if let Some(param_query) = param_query {
+            let pattern = crate::extend::like::contains(&param_query);
             query = query.filter(
-                name.ilike(format!("%{param_query}%"))
-                    .or(alias.ilike(format!("%{param_query}%")))
-                    .or(billing_email.ilike(format!("%{param_query}%"))),
+                name.ilike(pattern.clone())
+                    .or(alias.ilike(pattern.clone()))
+                    .or(billing_email.ilike(pattern)),
             );
         }
 
@@ -398,7 +399,8 @@ impl CustomerRow {
             Some(false) => "active",
         }
         .to_string();
-        let search = param_query.unwrap_or_default();
+        // Matched literally: `%`, `_` and `\` in the search are no wildcards.
+        let search = crate::extend::like::escape_like(&param_query.unwrap_or_default());
 
         let raw_sql = format!(
             r#"
@@ -1278,4 +1280,57 @@ pub async fn connected_account_platform_org(
         .optional()
         .attach("Error while getting platform org id for connected account")
         .into_db_result()
+}
+
+impl CustomerRow {
+    /// A page of the tenant's customers in id order (API v2, ADR-0013 §3): those after `after`,
+    /// live or archived ones only, matching `search` on the name, alias or billing email, written
+    /// after `updated_after` (`store_committed_at`, which every write of the row bumps).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn list_page(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        search: Option<String>,
+        archived: bool,
+        updated_after: Option<chrono::DateTime<chrono::Utc>>,
+        after: Option<CustomerId>,
+        limit: i64,
+    ) -> DbResult<Vec<CustomerRow>> {
+        use crate::schema::customer::dsl as c_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let mut query = c_dsl::customer
+            .filter(c_dsl::tenant_id.eq(tenant_id))
+            .select(CustomerRow::as_select())
+            .into_boxed();
+        query = if archived {
+            query.filter(c_dsl::archived_at.is_not_null())
+        } else {
+            query.filter(c_dsl::archived_at.is_null())
+        };
+        if let Some(search) = search {
+            let pattern = crate::extend::like::contains(&search);
+            query = query.filter(
+                c_dsl::name
+                    .ilike(pattern.clone())
+                    .or(c_dsl::alias.ilike(pattern.clone()))
+                    .or(c_dsl::billing_email.ilike(pattern)),
+            );
+        }
+        if let Some(updated_after) = updated_after {
+            query = query.filter(c_dsl::store_committed_at.gt(updated_after));
+        }
+        if let Some(after) = after {
+            query = query.filter(c_dsl::id.gt(after));
+        }
+        let query = query.order(c_dsl::id.asc()).limit(limit);
+
+        crate::debug_sql(&query);
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while fetching a page of customers")
+            .into_db_result()
+    }
 }

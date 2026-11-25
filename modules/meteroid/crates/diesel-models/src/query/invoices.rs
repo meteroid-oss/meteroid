@@ -251,7 +251,10 @@ impl InvoiceRow {
         let query = diesel::update(i_dsl::invoice)
             .filter(i_dsl::tenant_id.eq(param_tenant_id))
             .filter(i_dsl::id.eq(param_invoice_id))
-            .set(i_dsl::custom_properties.eq(custom_properties));
+            .set((
+                i_dsl::custom_properties.eq(custom_properties),
+                i_dsl::updated_at.eq(common_clock::now().naive_utc()),
+            ));
 
         crate::debug_sql(&query);
 
@@ -1267,6 +1270,31 @@ impl InvoiceRow {
             .into_db_result()
     }
 
+    /// The ids of every invoice of the subscription, any status: what a step issued is the
+    /// difference of a read before it and one after.
+    pub async fn list_ids_of_subscription(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_subscription_id: SubscriptionId,
+    ) -> DbResult<Vec<InvoiceId>> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = i_dsl::invoice
+            .filter(i_dsl::tenant_id.eq(param_tenant_id))
+            .filter(i_dsl::subscription_id.eq(param_subscription_id))
+            .order(i_dsl::id.asc())
+            .select(i_dsl::id);
+
+        crate::debug_sql(&query);
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while listing the invoices of a subscription")
+            .into_db_result()
+    }
+
     /// The consolidated invoices the subscription's drafts were merged into: they bill it, though
     /// they carry no subscription of their own.
     pub async fn consolidated_parent_ids(
@@ -2097,6 +2125,83 @@ impl InvoiceRow {
             .execute(conn)
             .await
             .attach("Error while updating invoice annexes")
+            .into_db_result()
+    }
+}
+
+impl InvoiceRow {
+    /// A page of the tenant's invoices with their customer, in id order, those after `after`, at
+    /// most `limit` (API v2 lists by keyset). As in [`Self::list`], a subscription's page takes the
+    /// consolidated invoices its drafts were merged into, and any other page leaves a merged draft
+    /// to its consolidated invoice. `updated_after` reads `updated_at` (every edit of the row,
+    /// `invoice_touch`) and, for a row never written since its creation, `created_at`.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn list_page(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_customer_id: Option<CustomerId>,
+        param_subscription_id: Option<SubscriptionId>,
+        param_statuses: Option<Vec<InvoiceStatusEnum>>,
+        param_payment_statuses: Option<Vec<InvoicePaymentStatus>>,
+        param_currency: Option<String>,
+        param_issued_after: Option<NaiveDateTime>,
+        param_updated_after: Option<NaiveDateTime>,
+        after: Option<InvoiceId>,
+        limit: i64,
+    ) -> DbResult<Vec<InvoiceWithCustomerRow>> {
+        use crate::schema::customer::dsl as c_dsl;
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let mut query = i_dsl::invoice
+            .inner_join(c_dsl::customer.on(i_dsl::customer_id.eq(c_dsl::id)))
+            .filter(i_dsl::tenant_id.eq(param_tenant_id))
+            .select(InvoiceWithCustomerRow::as_select())
+            .into_boxed();
+        match param_subscription_id {
+            Some(subscription_id) => {
+                let parents =
+                    Self::consolidated_parent_ids(conn, param_tenant_id, subscription_id).await?;
+                query = query.filter(
+                    i_dsl::subscription_id
+                        .eq(subscription_id)
+                        .or(i_dsl::id.eq_any(parents)),
+                );
+            }
+            None => query = query.filter(i_dsl::consolidated_into_invoice_id.is_null()),
+        }
+        if let Some(customer_id) = param_customer_id {
+            query = query.filter(i_dsl::customer_id.eq(customer_id));
+        }
+        if let Some(statuses) = param_statuses {
+            query = query.filter(i_dsl::status.eq_any(statuses));
+        }
+        if let Some(payment_statuses) = param_payment_statuses {
+            query = query.filter(i_dsl::payment_status.eq_any(payment_statuses));
+        }
+        if let Some(currency) = param_currency {
+            query = query.filter(i_dsl::currency.eq(currency));
+        }
+        if let Some(at) = param_issued_after {
+            query = query.filter(i_dsl::finalized_at.gt(at));
+        }
+        // `updated_at` is set on every edit of the row (`invoice_touch`; migration
+        // `invoice_updated_at` carried a refresh older than it in), never by a refresh that moved
+        // no line; the creation reads a row never written since.
+        if let Some(at) = param_updated_after {
+            query = query.filter(i_dsl::updated_at.gt(at).or(i_dsl::created_at.gt(at)));
+        }
+        if let Some(after) = after {
+            query = query.filter(i_dsl::id.gt(after));
+        }
+        let query = query.order(i_dsl::id.asc()).limit(limit);
+
+        crate::debug_sql(&query);
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while fetching a page of invoices")
             .into_db_result()
     }
 }

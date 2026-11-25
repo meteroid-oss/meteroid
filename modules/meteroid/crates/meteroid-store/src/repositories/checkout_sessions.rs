@@ -58,6 +58,17 @@ pub trait CheckoutSessionsInterface {
         status: Option<CheckoutSessionStatus>,
     ) -> StoreResult<Vec<CheckoutSession>>;
 
+    /// A page of the tenant's plan checkouts by keyset (API v2): in id order, those after
+    /// `after`, at most `limit`. Top-up checkouts are left out.
+    async fn list_checkout_sessions_after(
+        &self,
+        tenant_id: TenantId,
+        customer_id: Option<CustomerId>,
+        status: Option<CheckoutSessionStatus>,
+        after: Option<CheckoutSessionId>,
+        limit: usize,
+    ) -> StoreResult<Vec<CheckoutSession>>;
+
     async fn cancel_checkout_session(
         &self,
         tenant_id: TenantId,
@@ -187,6 +198,30 @@ impl CheckoutSessionsInterface for Store {
         let rows = CheckoutSessionRow::list(&mut conn, tenant_id, customer_id, db_status)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(rows.into_iter().map(Into::into).collect())
+    }
+
+    async fn list_checkout_sessions_after(
+        &self,
+        tenant_id: TenantId,
+        customer_id: Option<CustomerId>,
+        status: Option<CheckoutSessionStatus>,
+        after: Option<CheckoutSessionId>,
+        limit: usize,
+    ) -> StoreResult<Vec<CheckoutSession>> {
+        let mut conn = self.get_conn().await?;
+
+        let rows = CheckoutSessionRow::list_page(
+            &mut conn,
+            tenant_id,
+            customer_id,
+            status.map(status_domain_to_db),
+            after,
+            i64::try_from(limit).unwrap_or(i64::MAX),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
         Ok(rows.into_iter().map(Into::into).collect())
     }

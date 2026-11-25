@@ -7,7 +7,9 @@ use crate::{DbResult, PgConn};
 
 use crate::extend::filtering::{ListFilter, render_list_filter};
 use crate::extend::order::{OrderByParam, OrderDirection};
-use common_domain::ids::{CreditNoteId, CustomerId, InvoiceId, StoredDocumentId, TenantId};
+use common_domain::ids::{
+    CreditNoteId, CustomerId, InvoiceId, StoredDocumentId, SubscriptionId, TenantId,
+};
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, JoinOnDsl, PgTextExpressionMethods, QueryDsl,
     SelectableHelper,
@@ -152,6 +154,27 @@ impl CreditNoteRow {
             .load(conn)
             .await
             .attach("Error while listing refund credit notes")
+            .into_db_result()
+    }
+
+    /// The ids of every credit note of the subscription, any status: what a step issued is the
+    /// difference of a read before it and one after.
+    pub async fn list_ids_of_subscription(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_subscription_id: SubscriptionId,
+    ) -> DbResult<Vec<CreditNoteId>> {
+        use crate::schema::credit_note::dsl as cn_dsl;
+        use diesel_async::RunQueryDsl;
+
+        cn_dsl::credit_note
+            .filter(cn_dsl::tenant_id.eq(param_tenant_id))
+            .filter(cn_dsl::subscription_id.eq(param_subscription_id))
+            .order(cn_dsl::id.asc())
+            .select(cn_dsl::id)
+            .load(conn)
+            .await
+            .attach("Error while listing the credit notes of a subscription")
             .into_db_result()
     }
 
@@ -604,6 +627,54 @@ impl CreditNoteRow {
             .load(conn)
             .await
             .attach("Error while listing the finalized credit notes of invoices")
+            .into_db_result()
+    }
+}
+
+impl CreditNoteRow {
+    /// A page of the tenant's credit notes in id order, those after `after`, at most `limit` (API
+    /// v2 lists by keyset).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn list_page(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_customer_id: Option<CustomerId>,
+        param_invoice_id: Option<InvoiceId>,
+        param_subscription_id: Option<common_domain::ids::SubscriptionId>,
+        param_statuses: Option<Vec<CreditNoteStatus>>,
+        after: Option<CreditNoteId>,
+        limit: i64,
+    ) -> DbResult<Vec<CreditNoteRow>> {
+        use crate::schema::credit_note::dsl as cn_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let mut query = cn_dsl::credit_note
+            .filter(cn_dsl::tenant_id.eq(param_tenant_id))
+            .select(CreditNoteRow::as_select())
+            .into_boxed();
+        if let Some(customer_id) = param_customer_id {
+            query = query.filter(cn_dsl::customer_id.eq(customer_id));
+        }
+        if let Some(invoice_id) = param_invoice_id {
+            query = query.filter(cn_dsl::invoice_id.eq(invoice_id));
+        }
+        if let Some(subscription_id) = param_subscription_id {
+            query = query.filter(cn_dsl::subscription_id.eq(subscription_id));
+        }
+        if let Some(statuses) = param_statuses {
+            query = query.filter(cn_dsl::status.eq_any(statuses));
+        }
+        if let Some(after) = after {
+            query = query.filter(cn_dsl::id.gt(after));
+        }
+        let query = query.order(cn_dsl::id.asc()).limit(limit);
+
+        crate::debug_sql(&query);
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while fetching a page of credit notes")
             .into_db_result()
     }
 }

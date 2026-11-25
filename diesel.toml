@@ -13,5 +13,6 @@ custom_type_derives = ["diesel::query_builder::QueryId"]
 allow_tables_to_appear_in_same_query_config = "none"
 # Partitions of the credit input feed, created and dropped daily: only the parent is mapped.
 # billing_controller_release has no primary key and is only read through raw SQL.
-filter = { except_tables = ["^credit_input_change_(default|p[0-9]{8})$", "^billing_controller_release$"] }
+# subscription_activity_pending is written and read by triggers only.
+filter = { except_tables = ["^credit_input_change_(default|p[0-9]{8})$", "^billing_controller_release$", "^subscription_activity_pending$"] }
 #generate_missing_sql_type_definitions = false

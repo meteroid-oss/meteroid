@@ -89,6 +89,36 @@ impl CreditUnitRow {
             .into_db_result()
     }
 
+    /// A page of the tenant's units by keyset (API v2): after `after`, in id order, at most
+    /// `limit`.
+    pub async fn list_page(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        include_archived: bool,
+        after: Option<CreditUnitId>,
+        limit: i64,
+    ) -> DbResult<Vec<CreditUnitRow>> {
+        use crate::schema::credit_unit::dsl as u;
+
+        let mut query = u::credit_unit
+            .filter(u::tenant_id.eq(tenant_id))
+            .select(CreditUnitRow::as_select())
+            .into_boxed();
+        if !include_archived {
+            query = query.filter(u::archived_at.is_null());
+        }
+        if let Some(after) = after {
+            query = query.filter(u::id.gt(after));
+        }
+        let query = query.order(u::id.asc()).limit(limit);
+        crate::debug_sql(&query);
+        query
+            .load(conn)
+            .await
+            .attach("Error while listing a page of credit units")
+            .into_db_result()
+    }
+
     /// Ordered by code.
     pub async fn list_for_tenant(
         conn: &mut PgConn,

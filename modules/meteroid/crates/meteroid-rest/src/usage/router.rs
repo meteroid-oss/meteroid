@@ -341,7 +341,8 @@ async fn load_metrics(
     }
 }
 
-async fn fetch_usage_for_metrics(
+/// Each metric's usage over `period`, the customer's or the tenant's; API v2 reads it too.
+pub(crate) async fn fetch_usage_for_metrics(
     app_state: &AppState,
     tenant_id: &common_domain::ids::TenantId,
     customer_id: Option<&CustomerId>,
@@ -388,7 +389,9 @@ async fn fetch_usage_for_metrics(
     Ok(usage_items)
 }
 
-async fn current_period_usage(
+/// The subscription's usage over its current period with its running costs; API v2 reads it
+/// too, through the same cache.
+pub(crate) async fn current_period_usage(
     app_state: &AppState,
     tenant_id: TenantId,
     subscription_id: SubscriptionId,

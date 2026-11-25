@@ -1,5 +1,5 @@
 use crate::checkout_sessions::{CheckoutSessionRow, CheckoutSessionRowNew};
-use crate::enums::{CheckoutSessionStatusEnum, PaymentStatusEnum};
+use crate::enums::{CheckoutSessionStatusEnum, CheckoutTypeEnum, PaymentStatusEnum};
 use crate::errors::IntoDbResult;
 use crate::lock::CustomerLock;
 use crate::{DbResult, PgConn};
@@ -491,6 +491,47 @@ impl CheckoutSessionRow {
             .execute(conn)
             .await
             .attach("Error while deleting old checkout sessions")
+            .into_db_result()
+    }
+
+    /// A page of the tenant's plan checkouts in id order (API v2), those after `after`, at most
+    /// `limit`. A top-up checkout buys credit, not a plan: it is not listed.
+    pub async fn list_page(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_id: Option<CustomerId>,
+        status: Option<CheckoutSessionStatusEnum>,
+        after: Option<CheckoutSessionId>,
+        limit: i64,
+    ) -> DbResult<Vec<CheckoutSessionRow>> {
+        use crate::schema::checkout_session::dsl as cs_dsl;
+
+        let mut query = cs_dsl::checkout_session
+            .filter(cs_dsl::tenant_id.eq(tenant_id))
+            .filter(cs_dsl::plan_version_id.is_not_null())
+            .filter(cs_dsl::checkout_type.ne(CheckoutTypeEnum::TopUp))
+            .into_boxed();
+
+        if let Some(cid) = customer_id {
+            query = query.filter(cs_dsl::customer_id.eq(cid));
+        }
+
+        if let Some(s) = status {
+            query = query.filter(cs_dsl::status.eq(s));
+        }
+
+        if let Some(after) = after {
+            query = query.filter(cs_dsl::id.gt(after));
+        }
+
+        let query = query.order(cs_dsl::id.asc()).limit(limit);
+
+        crate::debug_sql(&query);
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while fetching a page of checkout sessions")
             .into_db_result()
     }
 

@@ -3,9 +3,10 @@ use crate::customer_credit::{
     CreditUsageSettlementRow, CustomerCreditAccountRow, CustomerCreditAccountRowNew,
     CustomerCreditEntryRow, CustomerCreditEntryRowNew, CustomerCreditGrantProductRow,
     CustomerCreditGrantRow, CustomerCreditGrantRowNew, CustomerCreditGrantStateFilter,
-    CustomerCreditRosterRow, CustomerCreditStatementRow, DueExpiryCandidate,
-    EndedSubscriptionCredit, GrantRemaining, GrantSubscriptionFilter, HistoricalBalanceTxRow,
-    PlanCreditRuleRow, ScopedGrantRow, SubscriptionFilter,
+    CustomerCreditRosterRow, CustomerCreditStatementKey, CustomerCreditStatementKeyedRow,
+    CustomerCreditStatementRow, DueExpiryCandidate, EndedSubscriptionCredit, GrantRemaining,
+    GrantSubscriptionFilter, HistoricalBalanceTxRow, PlanCreditRuleRow, ScopedGrantRow,
+    SubscriptionFilter,
 };
 use crate::errors::IntoDbResult;
 use crate::lock::CustomerLock;
@@ -893,6 +894,41 @@ impl CustomerCreditGrantRow {
             .into_db_result()
     }
 
+    /// `page_for_customer` by keyset: the grants after `before` (a grant's `(created_at, id)`) in
+    /// the same order, newest first, so a grant recorded meanwhile shifts no page.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn page_for_customer_before(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        currency: Option<&str>,
+        subscription: Option<GrantSubscriptionFilter>,
+        state: Option<CustomerCreditGrantStateFilter>,
+        now: DateTime<Utc>,
+        before: Option<(DateTime<Utc>, CreditGrantId)>,
+        limit: i64,
+    ) -> DbResult<Vec<(Self, String)>> {
+        use crate::schema::customer_credit_account::dsl as a;
+        use crate::schema::customer_credit_grant::dsl as g;
+        let mut query =
+            grant_page_query!(tenant_id, customer_id, currency, subscription, state, now);
+        if let Some((created_at, id)) = before {
+            query = query.filter(
+                g::created_at
+                    .lt(created_at)
+                    .or(g::created_at.eq(created_at).and(g::id.lt(id))),
+            );
+        }
+        query
+            .order((g::created_at.desc(), g::id.desc()))
+            .limit(limit)
+            .select((Self::as_select(), a::currency))
+            .load(conn)
+            .await
+            .attach("Error while listing customer credit grants")
+            .into_db_result()
+    }
+
     pub async fn count_for_customer(
         conn: &mut PgConn,
         tenant_id: TenantId,
@@ -1543,6 +1579,52 @@ impl CustomerCreditStatementRow {
         .bind::<Timestamptz, _>(now)
         .bind::<BigInt, _>(limit)
         .bind::<BigInt, _>(offset)
+        .load(conn)
+        .await
+        .attach("Error while reading a customer credit statement")
+        .into_db_result()
+    }
+
+    /// `list_for_accounts` by keyset: the lines before `before` in the statement's order, newest
+    /// first. `sequence` and `balance_after` are computed over the whole statement first, then the
+    /// page is cut, so a line recorded meanwhile with an earlier date lands on the page its date
+    /// puts it on: no page skips or repeats a line.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn page_for_accounts_before(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        account_ids: &[WalletId],
+        rolling: &[(CreditGrantId, i64)],
+        now: DateTime<Utc>,
+        before: Option<CustomerCreditStatementKey>,
+        limit: i64,
+    ) -> DbResult<Vec<CustomerCreditStatementKeyedRow>> {
+        use diesel::sql_types::{Array, BigInt, Integer, Nullable, Timestamptz, Uuid as SqlUuid};
+        let (rolling_ids, carried) = rolling_arrays(rolling);
+        diesel::sql_query(format!(
+            "SELECT s.*
+             FROM (SELECT m.*,
+                          row_number() OVER w AS sequence,
+                          (sum(m.amount) OVER w)::bigint AS balance_after
+                   FROM ({STATEMENT_MOVEMENTS}) m
+                   WINDOW w AS (ORDER BY m.occurred_at, m.unrecorded, m.recorded_at, m.id
+                                ROWS UNBOUNDED PRECEDING)) s
+             WHERE $6::timestamptz IS NULL
+                OR (s.occurred_at, s.unrecorded, s.recorded_at, s.id)
+                   < ($6::timestamptz, $7::integer, $8::timestamptz, $9::uuid)
+             ORDER BY s.sequence DESC
+             LIMIT $10"
+        ))
+        .bind::<SqlUuid, _>(tenant_id.as_uuid())
+        .bind::<Array<SqlUuid>, _>(account_uuids(account_ids))
+        .bind::<Array<SqlUuid>, _>(rolling_ids)
+        .bind::<Array<BigInt>, _>(carried)
+        .bind::<Timestamptz, _>(now)
+        .bind::<Nullable<Timestamptz>, _>(before.map(|key| key.occurred_at))
+        .bind::<Nullable<Integer>, _>(before.map(|key| key.unrecorded))
+        .bind::<Nullable<Timestamptz>, _>(before.map(|key| key.recorded_at))
+        .bind::<Nullable<SqlUuid>, _>(before.map(|key| key.id))
+        .bind::<BigInt, _>(limit)
         .load(conn)
         .await
         .attach("Error while reading a customer credit statement")

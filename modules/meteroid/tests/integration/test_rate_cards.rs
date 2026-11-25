@@ -373,6 +373,7 @@ async fn a_rate_card_rates_a_metric_declaring_its_dimension_values() {
                 name: "Segmented tokens".to_owned(),
                 description: None,
                 code: "segmented_tokens".to_owned(),
+                catalog_code: None,
                 aggregation_type: BillingMetricAggregateEnum::Sum,
                 aggregation_key: Some("tokens".to_owned()),
                 unit_conversion_factor: None,

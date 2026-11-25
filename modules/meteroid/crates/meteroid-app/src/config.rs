@@ -390,6 +390,12 @@ pub struct RestRateLimitConfig {
     pub client_prod_rps: u64,
     #[envconfig(from = "RATE_LIMIT_REST_CLIENT_NON_PROD_RPS", default = "5")]
     pub client_non_prod_rps: u64,
+    /// Per publishable key, on the client API's public routes: every visitor of a site shares
+    /// it, so it is higher, and the answers are cacheable.
+    #[envconfig(from = "RATE_LIMIT_REST_PUBLISHABLE_PROD_RPS", default = "50")]
+    pub publishable_prod_rps: u64,
+    #[envconfig(from = "RATE_LIMIT_REST_PUBLISHABLE_NON_PROD_RPS", default = "10")]
+    pub publishable_non_prod_rps: u64,
     /// Per tenant, per minute, on the usage cost reads (they price live usage). An organization's
     /// `usage_costs_rate_limit` entitlement overrides it.
     #[envconfig(from = "RATE_LIMIT_REST_PROD_USAGE_COSTS_RPM", default = "600")]
@@ -409,6 +415,8 @@ impl Default for RestRateLimitConfig {
             non_prod_metering_eps: 1250,
             client_prod_rps: 20,
             client_non_prod_rps: 5,
+            publishable_prod_rps: 50,
+            publishable_non_prod_rps: 10,
             prod_usage_costs_rpm: 600,
             non_prod_usage_costs_rpm: 120,
         }

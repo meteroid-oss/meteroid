@@ -14,7 +14,8 @@ use crate::domain::scheduled_events::{
 use crate::domain::subscription_changes::PlanTarget;
 use crate::domain::subscription_changes::{
     AddedComponent, ChangeDirection, ImmediatePlanChangeResult, MatchedComponent, PlanChangeMode,
-    PlanChangePreview, PlanChangePreviewExtended, ProrationSummary, RemovedComponent,
+    PlanChangeOutcome, PlanChangePreview, PlanChangePreviewExtended, PlanChangePreviewFull,
+    PreviewPart, ProrationSummary, RemovedComponent,
 };
 use crate::domain::subscription_components::{
     ComponentParameterization, ComponentParameters, SubscriptionComponent,
@@ -473,121 +474,366 @@ impl Services {
         component_params: Vec<ComponentParameterization>,
         mode: Option<PlanChangeMode>,
     ) -> StoreResult<PlanChangePreviewExtended> {
-        let target: PlanTarget = target.into();
-        let new_plan_version_id = target.version;
-        let mut conn = self.store.get_conn().await?;
+        Ok(self
+            .preview_plan_change_with(
+                subscription_id,
+                tenant_id,
+                target.into(),
+                component_params,
+                mode,
+                false,
+            )
+            .await?
+            .preview)
+    }
 
-        let ctx = load_validated_plan_change_context(
-            &mut conn,
-            &self.store,
-            tenant_id,
+    /// [`Self::preview_plan_change`], with what the change issues (its documents, with their
+    /// lines), the renewal under it and the subscription it leaves.
+    pub(in crate::services) async fn preview_plan_change_in_full(
+        &self,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        target: impl Into<PlanTarget>,
+        component_params: Vec<ComponentParameterization>,
+        mode: Option<PlanChangeMode>,
+    ) -> StoreResult<PlanChangePreviewFull> {
+        self.preview_plan_change_with(
             subscription_id,
-            target.clone(),
+            tenant_id,
+            target.into(),
+            component_params,
+            mode,
+            true,
         )
-        .await?;
+        .await
+    }
 
-        let is_immediate = matches!(mode, Some(PlanChangeMode::Immediate));
-        let immediate_allowed = ctx.immediate_allowed();
+    async fn preview_plan_change_with(
+        &self,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        target: PlanTarget,
+        component_params: Vec<ComponentParameterization>,
+        mode: Option<PlanChangeMode>,
+        in_full: bool,
+    ) -> StoreResult<PlanChangePreviewFull> {
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
+            let new_plan_version_id = target.version;
+            let mut conn = self.store.get_conn().await?;
 
-        let effective_date = if is_immediate {
-            common_clock::now().naive_utc().date()
-        } else {
-            ctx.subscription_details
-                .subscription
-                .current_period_end
-                .unwrap_or(ctx.subscription_details.subscription.current_period_start)
-        };
+            let ctx = load_validated_plan_change_context(
+                &mut conn,
+                &self.store,
+                tenant_id,
+                subscription_id,
+                target.clone(),
+            )
+            .await?;
 
-        if is_immediate {
-            drop(ctx);
-            let prepared = self
-                .prepare_plan_change_inner(
-                    &mut conn,
-                    subscription_id,
-                    tenant_id,
-                    target,
-                    &component_params,
-                    effective_date,
-                )
-                .await?;
-            prepared.ensure_immediate_allowed()?;
-            // What the change bills and gives back: its rows laid over the facts at its date; a
-            // change ending a free trial bills the new plan's first invoice.
-            let (charged, credited, incoming) = if prepared.is_free_trial() {
-                let first = self
-                    .plan_change_quote(&mut conn, &prepared, new_plan_version_id, effective_date)
-                    .await?;
-                (
-                    first.subtotal,
-                    0,
-                    pack_charges(&first.invoice_lines, prepared.precision),
-                )
+            let is_immediate = matches!(mode, Some(PlanChangeMode::Immediate));
+            let immediate_allowed = ctx.immediate_allowed();
+
+            let effective_date = if is_immediate {
+                common_clock::now().naive_utc().date()
             } else {
-                let overlay = self
-                    .plan_change_overlay(&mut conn, &prepared, new_plan_version_id, effective_date)
-                    .await?;
-                let documents = self
-                    .preview_change_documents(
+                ctx.subscription_details
+                    .subscription
+                    .current_period_end
+                    .unwrap_or(ctx.subscription_details.subscription.current_period_start)
+            };
+
+            if is_immediate {
+                drop(ctx);
+                let prepared = self
+                    .prepare_plan_change_inner(
                         &mut conn,
-                        &prepared.subscription_details,
-                        &overlay,
-                        Change::of_rows(effective_date, GiveBack::Unused, "plan change"),
-                        Vec::new(),
+                        subscription_id,
+                        tenant_id,
+                        target,
+                        &component_params,
+                        effective_date,
                     )
                     .await?;
-                let incoming = documents
-                    .adjustment
-                    .as_ref()
-                    .map_or_else(Vec::new, |invoice| {
-                        pack_charges(&invoice.invoice_lines, prepared.precision)
-                    });
-                (documents.charged, documents.credited, incoming)
-            };
-            drop(conn);
-            let outgoing = if prepared.is_free_trial() {
-                Default::default()
-            } else {
-                self.estimate_outgoing_packs(&prepared, effective_date)
-                    .await?
-            };
-            let proration = prepared.proration_summary(charged, credited, incoming, &outgoing);
-            return Ok(PlanChangePreviewExtended {
-                preview: prepared.preview,
-                proration: Some(proration),
-                change_direction: prepared.direction,
-                immediate_allowed,
+                prepared.ensure_immediate_allowed()?;
+                let mut outcome = PlanChangeOutcome::default();
+                // What the change bills and gives back: its rows laid over the facts at its date; a
+                // change ending a free trial bills the new plan's first invoice.
+                let (charged, credited, incoming) = if prepared.is_free_trial() {
+                    let first = self
+                        .plan_change_quote(&mut conn, &prepared, new_plan_version_id, effective_date)
+                        .await?;
+                    let charged = (
+                        first.subtotal,
+                        0,
+                        pack_charges(&first.invoice_lines, prepared.precision),
+                    );
+                    if in_full {
+                        outcome.invoice = Some(first);
+                    }
+                    charged
+                } else {
+                    let overlay = self
+                        .plan_change_overlay(&mut conn, &prepared, new_plan_version_id, effective_date)
+                        .await?;
+                    let documents = self
+                        .preview_change_documents(
+                            &mut conn,
+                            &prepared.subscription_details,
+                            &overlay,
+                            Change::of_rows(effective_date, GiveBack::Unused, "plan change"),
+                            Vec::new(),
+                        )
+                        .await?;
+                    let incoming = documents
+                        .adjustment
+                        .as_ref()
+                        .map_or_else(Vec::new, |invoice| {
+                            pack_charges(&invoice.invoice_lines, prepared.precision)
+                        });
+                    if in_full {
+                        outcome.invoice = documents.adjustment.clone();
+                        outcome.credit_note = documents.credit_note.clone();
+                    }
+                    (documents.charged, documents.credited, incoming)
+                };
+                if in_full {
+                    self.lay_plan_change_after(
+                        &mut conn,
+                        &prepared,
+                        new_plan_version_id,
+                        effective_date,
+                        &mut outcome,
+                    )
+                    .await;
+                }
+                drop(conn);
+                let outgoing = if prepared.is_free_trial() {
+                    Default::default()
+                } else {
+                    self.estimate_outgoing_packs(&prepared, effective_date)
+                        .await?
+                };
+                let proration = prepared.proration_summary(charged, credited, incoming, &outgoing);
+                return Ok(PlanChangePreviewFull {
+                    preview: PlanChangePreviewExtended {
+                        preview: prepared.preview,
+                        proration: Some(proration),
+                        change_direction: prepared.direction,
+                        immediate_allowed,
+                    },
+                    outcome,
+                });
+            }
+
+            let mut preview = build_plan_change_preview(
+                &ctx.subscription_details.price_components,
+                &ctx.target_components,
+                &ctx.units,
+                &component_params,
+                effective_date,
+                &HashMap::new(),
+            )?;
+
+            resolve_preview_slot_counts(&mut conn, tenant_id, subscription_id, &mut preview).await?;
+
+            let precision = crate::constants::Currencies::resolve_currency_precision(
+                &ctx.subscription_details.subscription.currency,
+            )
+            .unwrap_or(2);
+
+            let change_direction = detect_change_direction(
+                &preview.matched,
+                &preview.added,
+                &preview.removed,
+                precision,
+            );
+
+            // At the period's end the change issues nothing of its own: its renewal bills it.
+            let mut outcome = PlanChangeOutcome::default();
+            if in_full {
+                drop(ctx);
+                match self
+                    .prepare_plan_change_inner(
+                        &mut conn,
+                        subscription_id,
+                        tenant_id,
+                        target,
+                        &component_params,
+                        effective_date,
+                    )
+                    .await
+                {
+                    Ok(prepared) => {
+                        self.lay_plan_change_after(
+                            &mut conn,
+                            &prepared,
+                            new_plan_version_id,
+                            effective_date,
+                            &mut outcome,
+                        )
+                        .await;
+                    }
+                    Err(error) => {
+                        log::warn!(
+                            "The plan change of subscription {subscription_id} at its period's end was not previewed in full: {error:?}"
+                        );
+                        outcome.missing = vec![PreviewPart::NextInvoice, PreviewPart::SubscriptionAfter];
+                    }
+                }
+            }
+
+            Ok(PlanChangePreviewFull {
+                preview: PlanChangePreviewExtended {
+                    preview,
+                    proration: None,
+                    change_direction,
+                    immediate_allowed,
+                },
+                outcome,
+            })
+        })
+        .await
+    }
+
+    /// The subscription `prepared` leaves from `on`, the renewal under it and its MRR, laid on
+    /// `outcome`; best-effort: a preview never fails on them.
+    async fn lay_plan_change_after(
+        &self,
+        conn: &mut PgConn,
+        prepared: &PreparedPlanChange,
+        new_plan_version_id: PlanVersionId,
+        on: NaiveDate,
+        outcome: &mut PlanChangeOutcome,
+    ) {
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        let laid: StoreResult<()> = Box::pin(async {
+            let overlay = self
+                .plan_change_overlay(conn, prepared, new_plan_version_id, on)
+                .await?;
+            let before = &prepared.subscription_details;
+            let mut after = crate::services::evaluate::preview::details_after(before, &overlay)?;
+            after.add_ons.retain(|a| {
+                !prepared
+                    .ending_add_ons
+                    .iter()
+                    .any(|ending| ending.id == a.id)
             });
+            after.minimum = prepared
+                .hypothetical_details(new_plan_version_id, before, on)
+                .minimum;
+            after.plan_option = prepared.target_option.clone();
+            match self
+                .preview_next_invoice(conn, &after, &overlay, None)
+                .await
+            {
+                Ok(invoice) => outcome.next_invoice = Some(invoice),
+                Err(error) => {
+                    log::warn!(
+                        "The renewal after a plan change of {} was not previewed: {error:?}",
+                        before.subscription.id
+                    );
+                    outcome.missing.push(PreviewPart::NextInvoice);
+                }
+            }
+            outcome.mrr_after_cents = Some(
+                self.mrr_after_change(conn, before, &after, on, HashMap::new())
+                    .await?,
+            );
+            outcome.subscription_after = Some(after);
+            Ok(())
+        })
+        .await;
+        if let Err(error) = laid {
+            log::warn!(
+                "The subscription after a plan change of {} was not previewed: {error:?}",
+                prepared.subscription_details.subscription.id
+            );
+            if outcome.next_invoice.is_none()
+                && !outcome.missing.contains(&PreviewPart::NextInvoice)
+            {
+                outcome.missing.push(PreviewPart::NextInvoice);
+            }
+            outcome.missing.push(PreviewPart::SubscriptionAfter);
         }
+    }
 
-        let mut preview = build_plan_change_preview(
-            &ctx.subscription_details.price_components,
-            &ctx.target_components,
-            &ctx.units,
-            &component_params,
-            effective_date,
-            &HashMap::new(),
-        )?;
-
-        resolve_preview_slot_counts(&mut conn, tenant_id, subscription_id, &mut preview).await?;
-
-        let precision = crate::constants::Currencies::resolve_currency_precision(
-            &ctx.subscription_details.subscription.currency,
-        )
-        .unwrap_or(2);
-
-        let change_direction = detect_change_direction(
-            &preview.matched,
-            &preview.added,
-            &preview.removed,
+    /// The MRR of `after`, the subscription `before` changed, stated as applying the change would:
+    /// both component sets floored by their minimum and netted, the difference laid on the stored
+    /// figure.
+    pub(in crate::services) async fn mrr_after_change(
+        &self,
+        conn: &mut PgConn,
+        before: &crate::domain::SubscriptionDetails,
+        after: &crate::domain::SubscriptionDetails,
+        on: NaiveDate,
+        seats_after: HashMap<common_domain::ids::ManagedQuantityId, i64>,
+    ) -> StoreResult<i64> {
+        use crate::services::subscriptions::utils::{subscription_mrr, with_add_on_lines};
+        let sub = &before.subscription;
+        let precision =
+            crate::constants::Currencies::resolve_currency_precision(&sub.currency).unwrap_or(2);
+        // Seat add-ons at their quantity's live count, after the change at the counts it sets.
+        let before_add_ons =
+            add_ons_at_live_seats(conn, sub.tenant_id, sub.id, &before.add_ons).await?;
+        let mut after_add_ons =
+            add_ons_at_live_seats(conn, sub.tenant_id, sub.id, &after.add_ons).await?;
+        let asked: HashMap<common_domain::ids::ManagedQuantityId, u32> = seats_after
+            .iter()
+            .map(|(quantity, count)| (*quantity, u32::try_from(*count).unwrap_or(0)))
+            .collect();
+        for add_on in &mut after_add_ons {
+            at_live_count(&mut add_on.fee, &asked);
+        }
+        let before_lines = with_add_on_lines(
+            &before_add_ons,
+            calculate_components_mrr_with_slots(
+                conn,
+                sub.tenant_id,
+                sub.id,
+                &before.price_components,
+                precision,
+            )
+            .await?,
             precision,
         );
-
-        Ok(PlanChangePreviewExtended {
-            preview,
-            proration: None,
-            change_direction,
-            immediate_allowed,
-        })
+        let after_lines = with_add_on_lines(
+            &after_add_ons,
+            calculate_components_mrr_with_counts(
+                conn,
+                sub.tenant_id,
+                sub.id,
+                &after.price_components,
+                precision,
+                seats_after,
+            )
+            .await?,
+            precision,
+        );
+        let rate_after = self
+            .tax_inclusive_rate_for(conn, after, &after_lines, on)
+            .await?;
+        let minimum_after = after
+            .minimum
+            .as_ref()
+            .map(|min| (min.amount_subunit, &min.scope));
+        let minimum_before = before
+            .minimum
+            .as_ref()
+            .map(|min| (min.amount_subunit, &min.scope));
+        Ok(sub.mrr_cents as i64
+            + subscription_mrr(
+                &after_lines,
+                minimum_after,
+                after.subscription.period,
+                rate_after,
+            )
+            - subscription_mrr(
+                &before_lines,
+                minimum_before,
+                sub.period,
+                sub.tax_inclusive_rate,
+            ))
     }
 
     pub(in crate::services) async fn cancel_plan_change(
@@ -2434,12 +2680,33 @@ pub(crate) async fn calculate_components_mrr_with_slots(
     components: &[crate::domain::subscription_components::SubscriptionComponent],
     precision: u8,
 ) -> StoreResult<Vec<crate::services::subscriptions::utils::MrrLine>> {
+    calculate_components_mrr_with_counts(
+        conn,
+        tenant_id,
+        subscription_id,
+        components,
+        precision,
+        HashMap::new(),
+    )
+    .await
+}
+
+/// [`calculate_components_mrr_with_slots`], the quantities of `counts` held at those counts
+/// instead of the ledger's: a change previewed before it writes them.
+pub(crate) async fn calculate_components_mrr_with_counts(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+    components: &[crate::domain::subscription_components::SubscriptionComponent],
+    precision: u8,
+    counts: HashMap<common_domain::ids::ManagedQuantityId, i64>,
+) -> StoreResult<Vec<crate::services::subscriptions::utils::MrrLine>> {
     use crate::services::subscriptions::utils::{
         MrrLine, calculate_mrr, fee_period_total_cents, monthly_share,
     };
 
     // Query the count of each quantity held once
-    let mut slot_counts: HashMap<common_domain::ids::ManagedQuantityId, i64> = HashMap::new();
+    let mut slot_counts: HashMap<common_domain::ids::ManagedQuantityId, i64> = counts;
     for c in components {
         if let Some(quantity) = c.fee.seat_quantity()
             && !slot_counts.contains_key(&quantity)

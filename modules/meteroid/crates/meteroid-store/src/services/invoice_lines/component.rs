@@ -555,6 +555,7 @@ mod unit_conversion_tests {
             name: "Tokens".to_owned(),
             description: None,
             code: "tokens".to_owned(),
+            catalog_code: "tokens".to_owned(),
             aggregation_type: BillingMetricAggregateEnum::Sum,
             aggregation_key: Some("tokens".to_owned()),
             unit_conversion_factor: Some(1_000_000),

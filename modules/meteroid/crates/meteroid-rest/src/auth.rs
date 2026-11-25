@@ -20,7 +20,7 @@ use meteroid_rest_common::error::{ErrorCode, RestErrorResponse};
 use meteroid_store::Store;
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::OrganizationsInterface;
-use meteroid_store::repositories::api_tokens::ApiTokensInterface;
+use meteroid_store::repositories::api_tokens::{ApiTokensInterface, is_publishable_key};
 use tracing::{error, log};
 
 /// Header of a platform's API key acting for one of its connected accounts.
@@ -48,11 +48,14 @@ const EXPRESS_ALLOWED_PATH_PREFIXES: &[&str] = &["/api/v1/customers", "/api/v1/i
 
 /// Customer routes that charge a card, grant credit or set spending controls. Delegated access
 /// (Connect tokens, a platform acting for a connected account) and express organizations never
-/// reach them, even under an allowed prefix.
+/// reach them, even under an allowed prefix. API v2 names them alike.
 const CUSTOMER_MONEY_ROUTES: &[&str] = &["top-ups", "credit-grants", "budgets"];
 
 pub fn is_customer_money_route(method: &http::Method, path: &str) -> bool {
-    let Some(rest) = path.strip_prefix("/api/v1/customers/") else {
+    let Some(rest) = path
+        .strip_prefix("/api/v1/customers/")
+        .or_else(|| path.strip_prefix("/api/v2/customers/"))
+    else {
         return false;
     };
     let mut segments = rest.split('/').skip(1);
@@ -63,7 +66,8 @@ pub fn is_customer_money_route(method: &http::Method, path: &str) -> bool {
     }
 }
 
-/// The customer money routes, plus the invoice writes that record, reverse or write off a payment.
+/// The customer money routes, plus the invoice writes that record, reverse or write off a payment,
+/// and issuing a credit note (it refunds or credits money back).
 fn is_restricted_money_route(method: &http::Method, path: &str) -> bool {
     if is_customer_money_route(method, path) {
         return true;
@@ -71,8 +75,12 @@ fn is_restricted_money_route(method: &http::Method, path: &str) -> bool {
     if *method != http::Method::POST {
         return false;
     }
+    if path.trim_end_matches('/') == "/api/v2/credit-notes" {
+        return true;
+    }
     let Some((_, action)) = path
         .strip_prefix("/api/v1/invoices/")
+        .or_else(|| path.strip_prefix("/api/v2/invoices/"))
         .and_then(|rest| rest.split_once('/'))
     else {
         return false;
@@ -105,19 +113,38 @@ pub async fn auth_middleware(
     }
 
     // OAuth endpoints are public (token exchange, introspection, revocation
-    // authenticate via client credentials in the request body / Basic auth).
-    if path.starts_with("/api/v1/oauth/") {
+    // authenticate via client credentials in the request body / Basic auth), in v1 as in v2.
+    if path.starts_with("/api/v1/oauth/") || path.starts_with(crate::v2::OAUTH_PREFIX) {
         return Ok(next.run(req).await);
     }
 
-    // The client API authenticates with a customer portal token (`client_auth_middleware`).
+    // The client API authenticates with a customer portal token or, on its public routes, a
+    // publishable key (`client_auth_middleware`); never with a secret key.
     if path.starts_with(CLIENT_API_PREFIX) {
         return Ok(next.run(req).await);
     }
 
     let (mut parts, body) = req.into_parts();
-    authenticate(&store, delegated.as_deref(), &mut parts).await?;
+    authenticate(&store, delegated.as_deref(), &mut parts)
+        .await
+        .map_err(challenged)?;
     Ok(next.run(Request::from_parts(parts, body)).await)
+}
+
+/// A `401` names the scheme the API authenticates with (RFC 9110 §11.6.1): `WWW-Authenticate:
+/// Bearer`, unless it names its own (OAuth's client authentication).
+pub fn challenged(mut response: Response) -> Response {
+    if response.status() == StatusCode::UNAUTHORIZED
+        && !response
+            .headers()
+            .contains_key(http::header::WWW_AUTHENTICATE)
+    {
+        response.headers_mut().insert(
+            http::header::WWW_AUTHENTICATE,
+            http::HeaderValue::from_static("Bearer"),
+        );
+    }
+    response
 }
 
 /// Checks the credentials and stores who the caller is acting as in the request extensions.
@@ -338,6 +365,18 @@ async fn validate_api_key(
             msg: Some("Invalid or missing Authorization header".to_string()),
         })?;
 
+    // A publishable key reads the client API's public routes only. Its row would not validate
+    // anyway (secret keys only, and it has no hash); refused here before any lookup.
+    if is_publishable_key(api_key) {
+        return Err(AuthStatus {
+            status: StatusCode::UNAUTHORIZED,
+            msg: Some(
+                "A publishable key only reads the client API's public routes; use a secret key"
+                    .to_string(),
+            ),
+        });
+    }
+
     let (validator, id) = ApiTokenValidator::parse_api_key(api_key)
         .and_then(|v| {
             v.extract_identifier()
@@ -373,6 +412,14 @@ mod tests {
             (Method::PATCH, "/api/v1/customers/acme/wallets/EUR"),
             (Method::GET, "/api/v1/customers/acme/budgets"),
             (Method::DELETE, "/api/v1/customers/acme/budgets/bdgt_1"),
+            (Method::POST, "/api/v2/customers/ext:acme/top-ups"),
+            (Method::POST, "/api/v2/customers/cus_1/credit-grants"),
+            (Method::PATCH, "/api/v2/customers/ext:acme/wallets/EUR"),
+            (Method::GET, "/api/v2/customers/ext:acme/budgets"),
+            (
+                Method::POST,
+                "/api/v2/customers/ext:acme/budgets/bdgt_1/archive",
+            ),
         ] {
             assert!(is_customer_money_route(&method, path), "{method} {path}");
         }
@@ -384,6 +431,11 @@ mod tests {
             (Method::POST, "/api/v1/customers"),
             (Method::GET, "/api/v1/invoices/inv_1"),
             (Method::GET, "/api/v1/customers/top-ups"),
+            (Method::GET, "/api/v2/customers/ext:acme/wallets/check"),
+            (
+                Method::GET,
+                "/api/v2/customers/ext:acme/entitlements/api/check",
+            ),
         ] {
             assert!(!is_customer_money_route(&method, path), "{method} {path}");
         }
@@ -396,10 +448,16 @@ mod tests {
             "/api/v1/invoices/inv_1/payments",
             "/api/v1/invoices/inv_1/payments/tx_1/reverse",
             "/api/v1/invoices/inv_1/mark-uncollectible",
+            "/api/v2/invoices/inv_1/mark-paid",
+            "/api/v2/invoices/inv_1/payments",
+            "/api/v2/invoices/inv_1/payments/pay_1/reverse",
+            "/api/v2/credit-notes",
         ] {
             assert!(is_restricted_money_route(&Method::POST, path), "{path}");
         }
         for (method, path) in [
+            (Method::GET, "/api/v2/credit-notes"),
+            (Method::POST, "/api/v2/invoices"),
             (Method::GET, "/api/v1/invoices/inv_1"),
             (Method::POST, "/api/v1/invoices/inv_1/refresh"),
             (Method::PATCH, "/api/v1/invoices/inv_1/custom-properties"),

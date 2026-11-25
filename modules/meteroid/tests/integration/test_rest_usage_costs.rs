@@ -453,6 +453,7 @@ impl Api {
                     name: code.to_owned(),
                     description: None,
                     code: code.to_owned(),
+                    catalog_code: None,
                     aggregation_type,
                     aggregation_key: Some("value".to_owned()),
                     unit_conversion_factor: None,

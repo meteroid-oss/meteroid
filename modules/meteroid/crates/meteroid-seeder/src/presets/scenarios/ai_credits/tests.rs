@@ -1285,6 +1285,7 @@ fn every_component_maps_to_an_engine_valid_price() {
         name: spec.name.clone(),
         description: None,
         code: spec.code.clone(),
+        catalog_code: spec.code.clone(),
         aggregation_type: spec.aggregation_type,
         aggregation_key: spec.aggregation_key.clone(),
         unit_conversion_factor: spec.unit_conversion_factor,

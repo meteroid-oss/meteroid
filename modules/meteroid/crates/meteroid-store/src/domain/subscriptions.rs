@@ -368,6 +368,9 @@ pub struct SubscriptionNew {
     /// the row falls back to an empty object); validated against tenant definitions at insert time.
     pub custom_properties: serde_json::Value,
     pub usage_filter: Option<UsageFilter>,
+    /// The integrator's own id, unique per tenant: written with the row, so a taken one fails
+    /// the insert (`StoreError::DuplicateValue`).
+    pub external_id: Option<String>,
 }
 
 pub struct SubscriptionNewEnriched<'a> {
@@ -460,6 +463,7 @@ impl SubscriptionNewEnriched<'_> {
                 .as_ref()
                 .map(|_| sub.start_date.and_time(chrono::NaiveTime::MIN)),
             plan_option_id: self.plan_option_id,
+            external_id: sub.external_id.clone(),
         })
     }
 }
@@ -566,6 +570,24 @@ pub struct SubscriptionPatch {
     pub custom_properties: Option<serde_json::Value>,
     /// None = no change, Some(None) = remove the filter.
     pub usage_filter: Option<Option<UsageFilter>>,
+}
+
+/// What API v2's PATCH changes of a subscription, written together or not at all: its end date
+/// (R-140), its patch, its external id. `None` leaves a part unchanged; `Some(None)` clears it.
+#[derive(Clone, Debug)]
+pub struct SubscriptionUpdate {
+    pub end_date: Option<Option<chrono::NaiveDate>>,
+    /// Written when it changes something (`SubscriptionPatch::id` is the subscription's).
+    pub patch: Option<SubscriptionPatch>,
+    /// Checked free under the transaction: one another subscription holds is a duplicate.
+    pub external_id: Option<Option<String>>,
+}
+
+/// Attached to the refusal of a `SubscriptionUpdate`: the part it refuses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubscriptionUpdatePart {
+    EndDate,
+    ExternalId,
 }
 
 golden::golden!(PaymentMethodsConfig, {

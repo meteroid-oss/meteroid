@@ -1,6 +1,6 @@
 use chrono::NaiveDateTime;
 use common_domain::ids::{EventId, TenantId, WebhookDeliveryId, WebhookEndpointId};
-use diesel::prelude::{ExpressionMethods, JoinOnDsl, NullableExpressionMethods, QueryDsl};
+use diesel::prelude::{ExpressionMethods, JoinOnDsl, QueryDsl};
 use diesel::{OptionalExtension, QueryableByName, SelectableHelper, sql_types};
 use error_stack::ResultExt;
 
@@ -11,7 +11,7 @@ use crate::webhooks_out::{
     WebhookOutAttemptRow, WebhookOutAttemptRowNew, WebhookOutDeliveryListRow,
     WebhookOutDeliveryRow, WebhookOutDeliveryRowNew, WebhookOutEndpointRow,
     WebhookOutEndpointRowNew, WebhookOutEndpointRowPatch, WebhookOutMessageRow,
-    WebhookOutMessageRowNew,
+    WebhookOutMessageRowNew, WebhookOutRetiredSecretRow, WebhookOutRetiredSecretRowNew,
 };
 use crate::{DbResult, PgConn};
 
@@ -30,6 +30,73 @@ impl WebhookOutEndpointRowNew {
             .get_result(conn)
             .await
             .attach("Error while inserting webhook endpoint")
+            .into_db_result()
+    }
+}
+
+impl WebhookOutRetiredSecretRowNew {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<usize> {
+        use crate::schema::webhook_out_retired_secret::dsl::webhook_out_retired_secret;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::insert_into(webhook_out_retired_secret).values(self);
+
+        crate::debug_sql(&query);
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while retiring a webhook endpoint secret")
+            .into_db_result()
+    }
+}
+
+impl WebhookOutRetiredSecretRow {
+    /// The endpoint's retired secrets still signing at `now`, the newest first.
+    pub async fn list_live(
+        conn: &mut PgConn,
+        endpoint_id: WebhookEndpointId,
+        now: NaiveDateTime,
+    ) -> DbResult<Vec<WebhookOutRetiredSecretRow>> {
+        use crate::schema::webhook_out_retired_secret::dsl as r_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = r_dsl::webhook_out_retired_secret
+            .filter(r_dsl::endpoint_id.eq(endpoint_id))
+            .filter(r_dsl::expires_at.gt(now))
+            .order(r_dsl::expires_at.desc())
+            .select(WebhookOutRetiredSecretRow::as_select());
+
+        crate::debug_sql(&query);
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while listing retired webhook endpoint secrets")
+            .into_db_result()
+    }
+
+    /// Forgets the endpoint's retired secrets that stopped signing by `now`.
+    pub async fn delete_expired(
+        conn: &mut PgConn,
+        endpoint_id: WebhookEndpointId,
+        now: NaiveDateTime,
+    ) -> DbResult<usize> {
+        use crate::schema::webhook_out_retired_secret::dsl as r_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::delete(
+            r_dsl::webhook_out_retired_secret
+                .filter(r_dsl::endpoint_id.eq(endpoint_id))
+                .filter(r_dsl::expires_at.le(now)),
+        );
+
+        crate::debug_sql(&query);
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while forgetting expired webhook endpoint secrets")
             .into_db_result()
     }
 }
@@ -194,12 +261,13 @@ impl WebhookOutEndpointRow {
             .into_db_result()
     }
 
+    /// The endpoint archived, none when there is no live one of this id.
     pub async fn archive(
         conn: &mut PgConn,
         tenant_uid: TenantId,
         endpoint_id: WebhookEndpointId,
         now: NaiveDateTime,
-    ) -> DbResult<usize> {
+    ) -> DbResult<Option<WebhookOutEndpointRow>> {
         use crate::schema::webhook_out_endpoint::dsl as e_dsl;
         use diesel_async::RunQueryDsl;
 
@@ -207,23 +275,52 @@ impl WebhookOutEndpointRow {
             .filter(e_dsl::id.eq(endpoint_id))
             .filter(e_dsl::tenant_id.eq(tenant_uid))
             .filter(e_dsl::archived_at.is_null())
-            .set((e_dsl::archived_at.eq(now), e_dsl::updated_at.eq(now)));
+            .set((e_dsl::archived_at.eq(now), e_dsl::updated_at.eq(now)))
+            .returning(WebhookOutEndpointRow::as_returning());
 
         crate::debug_sql(&query);
 
         query
-            .execute(conn)
+            .get_result(conn)
             .await
+            .optional()
             .attach("Error while archiving webhook endpoint")
             .into_db_result()
     }
 
+    /// The endpoint, its row locked until the transaction ends: two rotations at once each
+    /// retire the secret the other set, never the same one twice.
+    pub async fn lock_by_id(
+        conn: &mut PgConn,
+        tenant_uid: TenantId,
+        endpoint_id: WebhookEndpointId,
+    ) -> DbResult<WebhookOutEndpointRow> {
+        use crate::schema::webhook_out_endpoint::dsl as e_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = e_dsl::webhook_out_endpoint
+            .filter(e_dsl::id.eq(endpoint_id))
+            .filter(e_dsl::tenant_id.eq(tenant_uid))
+            .filter(e_dsl::archived_at.is_null())
+            .select(WebhookOutEndpointRow::as_select())
+            .for_update();
+
+        crate::debug_sql(&query);
+
+        query
+            .first(conn)
+            .await
+            .attach("Error while locking webhook endpoint")
+            .into_db_result()
+    }
+
+    /// Sets the endpoint's signing secret; the caller retires the one it replaces
+    /// (`WebhookOutRetiredSecretRowNew`) in the same transaction.
     pub async fn rotate_secret(
         conn: &mut PgConn,
         tenant_uid: TenantId,
         endpoint_id: WebhookEndpointId,
         encrypted_secret: String,
-        previous_secret_expires_at: NaiveDateTime,
         now: NaiveDateTime,
     ) -> DbResult<WebhookOutEndpointRow> {
         use crate::schema::webhook_out_endpoint::dsl as e_dsl;
@@ -234,8 +331,6 @@ impl WebhookOutEndpointRow {
             .filter(e_dsl::tenant_id.eq(tenant_uid))
             .filter(e_dsl::archived_at.is_null())
             .set((
-                e_dsl::previous_secret.eq(e_dsl::secret.nullable()),
-                e_dsl::previous_secret_expires_at.eq(previous_secret_expires_at),
                 e_dsl::secret.eq(encrypted_secret),
                 e_dsl::updated_at.eq(now),
             ))
@@ -494,6 +589,74 @@ impl WebhookOutDeliveryRow {
             .await
             .attach("Error while listing webhook deliveries")
             .into_db_result()
+    }
+
+    /// A page of an endpoint's deliveries newest first, those before the delivery `before`, at
+    /// most `limit` (API v2). Keyset over `(created_at, id)`, as the endpoint's index orders them.
+    /// None when `before` is not one of the endpoint's deliveries (purged since, or never one):
+    /// its `created_at` unknown, no page would be exact at a tie.
+    pub async fn list_page_by_endpoint(
+        conn: &mut PgConn,
+        tenant_uid: TenantId,
+        endpoint_id: WebhookEndpointId,
+        status: Option<WebhookDeliveryStatusEnum>,
+        before: Option<WebhookDeliveryId>,
+        limit: i64,
+    ) -> DbResult<Option<Vec<WebhookOutDeliveryListRow>>> {
+        use crate::schema::webhook_out_delivery::dsl as d_dsl;
+        use crate::schema::webhook_out_message::dsl as m_dsl;
+        use diesel::BoolExpressionMethods;
+        use diesel_async::RunQueryDsl;
+
+        let anchor: Option<NaiveDateTime> = match before {
+            Some(before) => d_dsl::webhook_out_delivery
+                .filter(d_dsl::id.eq(before))
+                .filter(d_dsl::tenant_id.eq(tenant_uid))
+                .filter(d_dsl::endpoint_id.eq(endpoint_id))
+                .select(d_dsl::created_at)
+                .first::<NaiveDateTime>(conn)
+                .await
+                .optional()
+                .attach("Error while reading a webhook delivery cursor")
+                .into_db_result()?,
+            None => None,
+        };
+
+        let mut query = d_dsl::webhook_out_delivery
+            .inner_join(m_dsl::webhook_out_message.on(m_dsl::id.eq(d_dsl::message_id)))
+            .filter(d_dsl::tenant_id.eq(tenant_uid))
+            .filter(d_dsl::endpoint_id.eq(endpoint_id))
+            .into_boxed();
+
+        if let Some(status) = status {
+            query = query.filter(d_dsl::status.eq(status));
+        }
+
+        match (before, anchor) {
+            (Some(before), Some(created_at)) => {
+                query = query.filter(
+                    d_dsl::created_at
+                        .lt(created_at)
+                        .or(d_dsl::created_at.eq(created_at).and(d_dsl::id.lt(before))),
+                );
+            }
+            (Some(_), None) => return Ok(None),
+            (None, _) => {}
+        }
+
+        let query = query
+            .order((d_dsl::created_at.desc(), d_dsl::id.desc()))
+            .select(WebhookOutDeliveryListRow::as_select())
+            .limit(limit);
+
+        crate::debug_sql(&query);
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while fetching a page of webhook deliveries")
+            .into_db_result()
+            .map(Some)
     }
 
     /// Re-queues a delivery for an immediate attempt. `reset_attempts` grants a fresh

@@ -35,6 +35,7 @@ async fn fine_tuning(h: &Halyard) -> ProductId {
                 name: "Training tokens".to_owned(),
                 description: None,
                 code: "halyard_training_tokens".to_owned(),
+                catalog_code: None,
                 aggregation_type: BillingMetricAggregateEnum::Sum,
                 aggregation_key: Some(TRAINING.to_owned()),
                 unit_conversion_factor: Some(1_000_000),

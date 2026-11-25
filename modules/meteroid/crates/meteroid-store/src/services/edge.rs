@@ -1438,6 +1438,133 @@ impl ServicesEdge {
             .await
     }
 
+    /// [`Self::cancel_subscription`] with the documents its ending issued when it applied in the
+    /// request (API v2). Committed, it never fails: what could not follow is logged and retried
+    /// by the controller (R-121, R-141).
+    pub async fn cancel_subscription_with_documents(
+        &self,
+        actor: Actor,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        reason: Option<String>,
+        effective_at: CancellationEffectiveAt,
+    ) -> StoreResult<crate::domain::subscription_changes::CancellationOutcome> {
+        self.services
+            .cancel_subscription_outcome_at(
+                actor,
+                subscription_id,
+                tenant_id,
+                reason,
+                effective_at,
+                common_clock::now(),
+            )
+            .await
+    }
+
+    /// Moves a live subscription's end date, or clears it (`None`): the day it stops renewing and
+    /// completes (R-140). Only what is not billed yet can move.
+    pub async fn change_subscription_end_date(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        end_date: Option<NaiveDate>,
+    ) -> StoreResult<Subscription> {
+        self.services
+            .change_subscription_end_date(actor, tenant_id, subscription_id, end_date)
+            .await
+    }
+
+    /// API v2's PATCH of a subscription, in one transaction: its end date moved (R-140), v1's
+    /// patch (`patch_subscription`) and its external id, checked free under the transaction, all
+    /// written or none. A refusal carries the part it refuses (`SubscriptionUpdatePart`) when it is
+    /// the end date's or the external id's; an external id another subscription holds is a
+    /// `DuplicateValue`.
+    pub async fn update_subscription(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        update: crate::domain::SubscriptionUpdate,
+    ) -> StoreResult<()> {
+        use crate::domain::SubscriptionUpdatePart;
+        use diesel_models::query::catalog_codes;
+        self.store
+            .transaction(|conn| {
+                let actor = &actor;
+                async move {
+                    // Customer first, as every transaction writing the subscription or its facts.
+                    SubscriptionRow::lock_customer_of_tenant(conn, tenant_id, subscription_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                    if let Some(Some(external_id)) = &update.external_id {
+                        if external_id.trim().is_empty() || external_id.len() > 255 {
+                            return Err(Report::new(StoreError::InvalidArgument(
+                                "an external id is 1 to 255 bytes".to_owned(),
+                            ))
+                            .attach_opaque(SubscriptionUpdatePart::ExternalId));
+                        }
+                        let holder = catalog_codes::subscription_id_by_external_id(
+                            conn,
+                            tenant_id,
+                            external_id,
+                        )
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                        if holder.is_some_and(|holder| holder != subscription_id) {
+                            return Err(Report::new(StoreError::DuplicateValue {
+                                entity: "subscription",
+                                key: Some(external_id.clone()),
+                            })
+                            .attach_opaque(SubscriptionUpdatePart::ExternalId));
+                        }
+                    }
+                    if let Some(end_date) = update.end_date {
+                        self.services
+                            .change_subscription_end_date_tx(
+                                conn,
+                                actor,
+                                tenant_id,
+                                subscription_id,
+                                end_date,
+                            )
+                            .await
+                            .map_err(|error| {
+                                error.attach_opaque(SubscriptionUpdatePart::EndDate)
+                            })?;
+                    }
+                    if let Some(patch) = update.patch {
+                        self.store
+                            .patch_subscription_tx(conn, tenant_id, patch, actor)
+                            .await?;
+                    }
+                    if let Some(external_id) = update.external_id {
+                        // Free when checked: only a write racing this one fails here, and with it
+                        // the whole update.
+                        let updated = catalog_codes::set_subscription_external_id(
+                            conn,
+                            tenant_id,
+                            subscription_id,
+                            external_id.as_deref(),
+                        )
+                        .await
+                        .map_err(|error| {
+                            Into::<Report<StoreError>>::into(error)
+                                .attach_opaque(SubscriptionUpdatePart::ExternalId)
+                        })?;
+                        if updated == 0 {
+                            return Err(Report::new(StoreError::ValueNotFound(format!(
+                                "subscription {subscription_id}"
+                            ))));
+                        }
+                    }
+                    Ok(())
+                }
+                .scope_boxed()
+            })
+            .await
+    }
+
     /// A cancellation requested at a past moment, as replays and models issue it: reached by
     /// then, it applies at once; later, at its date.
     pub async fn cancel_subscription_at(
@@ -1496,6 +1623,56 @@ impl ServicesEdge {
                 component_params,
                 mode,
             )
+            .await
+    }
+
+    /// [`Self::preview_plan_change`] with what the change issues, the renewal under it and the
+    /// subscription it leaves (API v2's previews).
+    pub async fn preview_plan_change_in_full(
+        &self,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        target: impl Into<PlanTarget>,
+        component_params: Vec<crate::domain::subscription_components::ComponentParameterization>,
+        mode: Option<crate::domain::subscription_changes::PlanChangeMode>,
+    ) -> StoreResult<crate::domain::subscription_changes::PlanChangePreviewFull> {
+        self.services
+            .preview_plan_change_in_full(subscription_id, tenant_id, target, component_params, mode)
+            .await
+    }
+
+    /// The option of `version` a plan change naming none moves the subscription to, as the change
+    /// picks it: the one of the alias it holds, else the one billing its fixed fees' cadence, else
+    /// the first sold in its currency. None for a version without options.
+    pub async fn plan_change_option(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        version: common_domain::ids::PlanVersionId,
+    ) -> StoreResult<Option<crate::domain::plan_options::PlanOption>> {
+        let mut conn = self.store.get_conn().await?;
+        let details = self
+            .store
+            .get_subscription_details_with_conn(&mut conn, tenant_id, subscription_id)
+            .await?;
+        crate::services::subscriptions::plan_change::unnamed_target_option(
+            &mut conn,
+            &self.store,
+            &details,
+            version,
+        )
+        .await
+    }
+
+    /// What cancelling the subscription would issue, nothing written.
+    pub async fn preview_cancellation(
+        &self,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        effective_at: CancellationEffectiveAt,
+    ) -> StoreResult<crate::domain::subscription_changes::CancellationPreview> {
+        self.services
+            .preview_cancellation(subscription_id, tenant_id, effective_at)
             .await
     }
 
@@ -1921,6 +2098,27 @@ impl ServicesEdge {
         self.services
             .finalize_invoice(actor, invoice_id, tenant_id)
             .await
+    }
+
+    /// A one-off invoice written by hand, priced as written (its discount spread, taxed by its
+    /// lines' rates), ready to insert or to preview, with the invoicing entity issuing it.
+    pub async fn manual_invoice_new(
+        &self,
+        tenant_id: TenantId,
+        invoice: crate::services::ManualInvoice,
+    ) -> StoreResult<(crate::domain::InvoiceNew, crate::domain::InvoicingEntity)> {
+        self.services.manual_invoice_new(tenant_id, invoice).await
+    }
+
+    /// A one-off invoice written by hand, inserted as a draft: [`Self::manual_invoice_new`]
+    /// inserted. It is issued by [`Self::finalize_invoice`], as every draft.
+    pub async fn create_manual_invoice(
+        &self,
+        tenant_id: TenantId,
+        invoice: crate::services::ManualInvoice,
+    ) -> StoreResult<Invoice> {
+        let (invoice, _) = self.services.manual_invoice_new(tenant_id, invoice).await?;
+        self.store.insert_invoice(invoice).await
     }
 
     pub async fn create_corrected_invoice_from(

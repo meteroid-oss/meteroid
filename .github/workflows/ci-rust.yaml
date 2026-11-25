@@ -113,9 +113,10 @@ jobs:
         run: |
           cargo build --profile test --config 'profile.dev.package."*".opt-level=3' --workspace --tests --bin openapi-generate
           ./target/debug/openapi-generate
-          if [[ -n "$(git status --porcelain spec/api/v1/openapi.json spec/client)" ]]; then
+          if [[ -n "$(git status --porcelain spec/api/v1/openapi.json spec/api/v2 spec/client)" ]]; then
             echo "The OpenAPI specs are not up to date. Please run 'cargo run -p meteroid-oss-openapi' and commit changes."
-            git --no-pager diff spec/api/v1/openapi.json spec/client
+            git --no-pager diff spec/api/v1/openapi.json spec/api/v2 spec/client
+            git status --porcelain spec/api/v2
             git status --porcelain spec/client
             exit 1
           fi
@@ -130,6 +131,10 @@ jobs:
             git status --porcelain ee/spec
             exit 1
           fi
+      # What breaks SDK generation: dangling references, discriminators mapping a tag to a missing
+      # or a shared schema. The Enterprise documents are checked when ee/ is there.
+      - name: Lint OpenAPI specs
+        run: .github/scripts/check-openapi-refs.sh
       - name: Wait for the test container images
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |

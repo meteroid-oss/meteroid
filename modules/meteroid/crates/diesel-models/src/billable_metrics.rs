@@ -29,6 +29,9 @@ pub struct BillableMetricRow {
     pub unit_singular: Option<String>,
     pub unit_plural: Option<String>,
     pub usage_breakdown_key: Option<String>,
+    /// The code API v2 names the metric by, unique per tenant and immutable; `code` is the one its
+    /// usage events carry, which several metrics may share (ADR-0013).
+    pub catalog_code: String,
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -52,6 +55,8 @@ pub struct BillableMetricRowNew {
     pub tenant_id: TenantId,
     pub product_family_id: ProductFamilyId,
     pub product_id: Option<ProductId>,
+    /// Filled from the event code, unique in the tenant, when none.
+    pub catalog_code: Option<String>,
 }
 
 #[derive(Debug, Identifiable, Queryable, Selectable)]

@@ -1,29 +1,49 @@
 use crate::AppState;
-use crate::client::{AuthorizedAsCustomer, CLIENT_API_PREFIX};
-use axum::Json;
+use crate::client::{
+    AuthorizedAsCustomer, AuthorizedAsPublishable, CLIENT_API_PREFIX, OriginRefused,
+    is_public_route,
+};
+use crate::v2::problem::{Problem, ProblemCode};
 use axum::extract::State;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use cached::proc_macro::cached;
 use common_domain::auth::PortalScope;
 use common_domain::ids::TenantId;
 use common_grpc::middleware::common::auth::BEARER_AUTH_HEADER;
 use common_grpc::middleware::server::auth::TenantEnv;
 use http::{HeaderMap, Request, StatusCode};
-use meteroid_rest_common::error::{ErrorCode, RestErrorResponse};
+use meteroid_store::Store;
+use meteroid_store::domain::PublishableKey;
 use meteroid_store::domain::enums::TenantEnvironmentEnum;
 use meteroid_store::domain::portal_tokens::{PortalTokenStatus, is_portal_token};
 use meteroid_store::errors::StoreError;
 use meteroid_store::jwt_claims::{PortalJwtClaims, PortalTokenError, ResourceAccess};
 use meteroid_store::repositories::TenantInterface;
+use meteroid_store::repositories::api_tokens::{ApiTokensInterface, is_publishable_key};
 use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
 use tracing::{error, log};
 
+/// Two kinds of routes, two credentials, never crossed: the public routes take a publishable key
+/// and nothing else, every other client route a customer token and never a publishable key.
 pub async fn client_auth_middleware(
     State(app_state): State<AppState>,
     mut req: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, Response> {
-    if !req.uri().path().starts_with(CLIENT_API_PREFIX) {
+    let path = req.uri().path();
+    if !path.starts_with(CLIENT_API_PREFIX) {
+        return Ok(next.run(req).await);
+    }
+
+    if is_public_route(req.method(), path) {
+        let authorized = authorize_publishable(req.headers(), &app_state.store)
+            .await
+            .map_err(|rejection| {
+                log::debug!("Public client API request rejected: {}", rejection.message);
+                rejection.into_response()
+            })?;
+        req.extensions_mut().insert(authorized);
         return Ok(next.run(req).await);
     }
 
@@ -38,17 +58,27 @@ pub async fn client_auth_middleware(
     Ok(next.run(req).await)
 }
 
+fn bearer(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(BEARER_AUTH_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer "))
+}
+
 async fn authorize(
     headers: &HeaderMap,
     app_state: &AppState,
 ) -> Result<AuthorizedAsCustomer, Rejection> {
-    let token = headers
-        .get(BEARER_AUTH_HEADER)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer "))
-        .ok_or(Rejection::unauthorized(
-            "Invalid or missing Authorization header",
-        ))?;
+    let token = bearer(headers).ok_or(Rejection::unauthorized(
+        "Invalid or missing Authorization header",
+    ))?;
+
+    // Neither a portal token nor a JWT, it would be refused below anyway: said plainly.
+    if is_publishable_key(token) {
+        return Err(Rejection::unauthorized(
+            "A publishable key only reads the public routes; this one takes a customer token",
+        ));
+    }
 
     let (tenant_id, resource, scopes) = if is_portal_token(token) {
         stored_token(token, app_state).await?
@@ -74,6 +104,87 @@ async fn authorize(
         scopes,
         tenant_env,
     })
+}
+
+/// A public route reads the tenant's public data: a publishable key names the tenant, and its
+/// origins, when it lists any, are the only sites a browser may read it from. A request without
+/// `Origin` is not a browser's cross-site one and is not held to them: an origin is no secret, it
+/// keeps another site from embedding the key, not anyone from reading what is public.
+async fn authorize_publishable(
+    headers: &HeaderMap,
+    store: &Store,
+) -> Result<AuthorizedAsPublishable, Rejection> {
+    let key = bearer(headers).ok_or(Rejection::unauthorized(
+        "A publishable key (pk_…) is required as a bearer token",
+    ))?;
+    if !is_publishable_key(key) {
+        // A secret key is never accepted where a browser sends credentials.
+        return Err(Rejection::unauthorized(
+            "This route takes a publishable key (pk_…), never a secret key or a customer token",
+        ));
+    }
+
+    let publishable = publishable_key_cached(store, key)
+        .await?
+        .ok_or(Rejection::unauthorized("Invalid publishable key"))?;
+
+    if let Some(origin) = headers.get(http::header::ORIGIN)
+        && !publishable.allowed_origins.is_empty()
+    {
+        let origin = origin.to_str().unwrap_or_default().trim_end_matches('/');
+        if !publishable
+            .allowed_origins
+            .iter()
+            .any(|allowed| allowed.eq_ignore_ascii_case(origin))
+        {
+            return Err(Rejection::origin_refused());
+        }
+    }
+
+    Ok(AuthorizedAsPublishable {
+        tenant_id: publishable.tenant_id,
+        key_id: publishable.id,
+        tenant_env: match publishable.environment {
+            TenantEnvironmentEnum::Production => TenantEnv::Production,
+            _ => TenantEnv::NonProduction,
+        },
+    })
+}
+
+/// A revoked key keeps working until its entry expires, a minute at most. The cache is keyed on
+/// the whole key, which is public; an unknown key is cached too, so a flood of them reads the
+/// database once each.
+#[cached(
+    result = true,
+    size = 10_000,
+    time = 60,
+    key = "String",
+    convert = r#"{ presented.to_string() }"#
+)]
+async fn publishable_key_cached(
+    store: &Store,
+    presented: &str,
+) -> Result<Option<PublishableKey>, Rejection> {
+    let found = store
+        .authenticate_publishable_key(presented)
+        .await
+        .map_err(|err| {
+            error!("Failed to resolve a publishable key: {err:?}");
+            Rejection::internal()
+        })?;
+
+    // Fire-and-forget usage stamp; debounced by this fn's cache TTL.
+    if let Some(found) = &found {
+        let store = store.clone();
+        let id = found.id;
+        tokio::spawn(async move {
+            if let Err(err) = store.report_api_token_usage(&id).await {
+                error!("Failed to record publishable key usage for {id}: {err:?}");
+            }
+        });
+    }
+
+    Ok(found)
 }
 
 type TokenGrant = (TenantId, ResourceAccess, Option<Vec<PortalScope>>);
@@ -147,52 +258,64 @@ async fn resolve_tenant_env(
     })
 }
 
+/// A refusal of the client API, answered as a problem (the envelope adds the request id).
+#[derive(Clone, Debug)]
 struct Rejection {
     status: StatusCode,
-    code: ErrorCode,
+    code: ProblemCode,
     message: &'static str,
+    /// The browser's origin is not one the key lists: no CORS header may let it read the answer.
+    origin_refused: bool,
 }
 
 impl Rejection {
-    fn unauthorized(message: &'static str) -> Self {
+    fn new(status: StatusCode, code: ProblemCode, message: &'static str) -> Self {
         Self {
-            status: StatusCode::UNAUTHORIZED,
-            code: ErrorCode::Unauthorized,
+            status,
+            code,
             message,
+            origin_refused: false,
         }
+    }
+
+    fn unauthorized(message: &'static str) -> Self {
+        Self::new(StatusCode::UNAUTHORIZED, ProblemCode::Unauthorized, message)
     }
 
     fn expired() -> Self {
-        Self {
-            status: StatusCode::UNAUTHORIZED,
-            code: ErrorCode::TokenExpired,
-            message: "Token expired",
-        }
+        Self::new(
+            StatusCode::UNAUTHORIZED,
+            ProblemCode::TokenExpired,
+            "Token expired",
+        )
     }
 
     fn internal() -> Self {
-        Self {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            code: ErrorCode::InternalServerError,
-            message: "Internal server error",
-        }
+        Self::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ProblemCode::InternalError,
+            "Internal server error",
+        )
     }
 
     fn forbidden(message: &'static str) -> Self {
+        Self::new(StatusCode::FORBIDDEN, ProblemCode::Forbidden, message)
+    }
+
+    fn origin_refused() -> Self {
         Self {
-            status: StatusCode::FORBIDDEN,
-            code: ErrorCode::Forbidden,
-            message,
+            origin_refused: true,
+            ..Self::forbidden("This publishable key is not accepted from this origin")
         }
     }
 }
 
 impl IntoResponse for Rejection {
     fn into_response(self) -> Response {
-        let body = Json(RestErrorResponse {
-            code: self.code,
-            message: self.message.to_string(),
-        });
-        (self.status, body).into_response()
+        let mut response = Problem::new(self.status, self.code, self.message).into_response();
+        if self.origin_refused {
+            response.extensions_mut().insert(OriginRefused);
+        }
+        response
     }
 }

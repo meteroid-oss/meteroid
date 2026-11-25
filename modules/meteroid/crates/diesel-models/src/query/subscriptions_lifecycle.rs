@@ -140,6 +140,27 @@ impl SubscriptionRow {
         Ok(())
     }
 
+    /// The subscription's end date, as its fixed term records it (`subscription_ending`).
+    pub async fn set_end_date(
+        conn: &mut PgConn,
+        tenant_id_param: TenantId,
+        subscription_id: SubscriptionId,
+        date: Option<NaiveDate>,
+    ) -> DbResult<()> {
+        use crate::schema::subscription::dsl::{end_date, id, subscription, tenant_id};
+
+        diesel::update(subscription)
+            .filter(id.eq(subscription_id))
+            .filter(tenant_id.eq(tenant_id_param))
+            .set(end_date.eq(date))
+            .execute(conn)
+            .await
+            .attach("Error while setting the subscription's end date")
+            .into_db_result()?;
+
+        Ok(())
+    }
+
     /// Locks the customer of the subscription, then the subscription (`crate::lock`).
     pub async fn lock_subscription_for_update(
         conn: &mut PgConn,

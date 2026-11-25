@@ -689,7 +689,7 @@ enum CellWrite {
 
 /// Refuses prices that cannot share a cell: another currency, or several that are not one
 /// capacity charge's levels (each its own commitment, all on one cadence).
-fn check_cell_prices(prices: &[PriceInput], currency: &str) -> StoreResult<()> {
+pub(crate) fn check_cell_prices(prices: &[PriceInput], currency: &str) -> StoreResult<()> {
     let invalid = |message: &str| Err(Report::new(StoreError::InvalidArgument(message.to_owned())));
     if prices.is_empty() {
         return invalid("a price is required");
@@ -703,6 +703,17 @@ fn check_cell_prices(prices: &[PriceInput], currency: &str) -> StoreResult<()> {
     if prices.len() == 1 {
         return Ok(());
     }
+    // An option is one way of buying the plan (monthly, annual): it bills a charge on one cadence
+    // per currency.
+    if prices
+        .iter()
+        .any(|price| price.cadence != prices[0].cadence)
+    {
+        return invalid(
+            "An option bills a charge on one cadence per currency: sell another cadence in \
+             another option",
+        );
+    }
     let mut levels: Vec<u64> = Vec::with_capacity(prices.len());
     for price in prices {
         let Pricing::Capacity { included, .. } = price.pricing else {
@@ -713,12 +724,6 @@ fn check_cell_prices(prices: &[PriceInput], currency: &str) -> StoreResult<()> {
     levels.sort_unstable();
     if levels.windows(2).any(|pair| pair[0] == pair[1]) {
         return invalid("Two levels include the same amount");
-    }
-    if prices
-        .iter()
-        .any(|price| price.cadence != prices[0].cadence)
-    {
-        return invalid("A charge's levels bill on one cadence");
     }
     Ok(())
 }

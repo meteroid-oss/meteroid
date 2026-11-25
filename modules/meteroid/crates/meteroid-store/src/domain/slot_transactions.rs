@@ -140,4 +140,6 @@ pub struct SlotUpdatePreview {
     /// same path that the apply route bills. `None` for decreases (deferred, no
     /// immediate charge).
     pub adjustment_invoice: Option<ComputedInvoiceContent>,
+    /// The MRR once the new count is held, in minor units; `None` when it could not be stated.
+    pub mrr_after_cents: Option<i64>,
 }

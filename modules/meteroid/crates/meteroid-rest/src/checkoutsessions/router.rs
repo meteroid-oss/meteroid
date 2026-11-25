@@ -292,8 +292,8 @@ pub async fn cancel_checkout_session(
 }
 
 /// Redirect targets are merchant-set and reflected to the customer's browser, so anything but an
-/// absolute http(s) URL is rejected up front.
-fn validate_redirect_url(field: &str, value: Option<&str>) -> Result<(), RestApiError> {
+/// absolute http(s) URL is rejected up front. API v2 checks with it too.
+pub(crate) fn validate_redirect_url(field: &str, value: Option<&str>) -> Result<(), RestApiError> {
     let Some(value) = value else {
         return Ok(());
     };
@@ -309,7 +309,8 @@ fn validate_redirect_url(field: &str, value: Option<&str>) -> Result<(), RestApi
     }
 }
 
-async fn generate_checkout_url(
+/// The hosted checkout page of the session; API v2 links it too.
+pub(crate) async fn generate_checkout_url(
     app_state: &AppState,
     tenant_id: TenantId,
     session_id: CheckoutSessionId,

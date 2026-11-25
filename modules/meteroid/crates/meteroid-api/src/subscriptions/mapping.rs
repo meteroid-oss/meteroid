@@ -243,6 +243,7 @@ pub mod subscriptions {
                     Status::invalid_argument(format!("Invalid custom_properties JSON: {e}"))
                 })?
                 .unwrap_or(serde_json::Value::Null),
+            external_id: None,
         };
 
         let entitlements = param

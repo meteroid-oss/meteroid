@@ -2,7 +2,8 @@ use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::apitokens::v1::{
-    CreateApiTokenRequest, CreateApiTokenResponse, ListApiTokensRequest, ListApiTokensResponse,
+    CreateApiTokenRequest, CreateApiTokenResponse, CreatePublishableKeyRequest,
+    CreatePublishableKeyResponse, ListApiTokensRequest, ListApiTokensResponse,
     RevokeApiTokenRequest, RevokeApiTokenResponse, api_tokens_service_server::ApiTokensService,
 };
 use meteroid_store::domain;
@@ -72,6 +73,33 @@ impl ApiTokensService for ApiTokensServiceComponents {
         };
 
         Ok(Response::new(response))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn create_publishable_key(
+        &self,
+        request: Request<CreatePublishableKeyRequest>,
+    ) -> Result<Response<CreatePublishableKeyResponse>, Status> {
+        let actor_typed = request.actor_typed()?;
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let res = self
+            .store
+            .insert_publishable_key(
+                actor_typed,
+                domain::ApiTokenNew {
+                    name: req.name,
+                    tenant_id,
+                },
+                req.allowed_origins,
+            )
+            .await
+            .map_err(ApiTokenApiError::from)?;
+
+        Ok(Response::new(CreatePublishableKeyResponse {
+            details: Some(mapping::api_token::domain_to_api(res)),
+        }))
     }
 
     #[tracing::instrument(skip_all)]

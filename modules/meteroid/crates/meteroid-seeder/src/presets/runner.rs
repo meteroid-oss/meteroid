@@ -366,6 +366,7 @@ async fn seed_sandbox_data(
                     tenant_id: tenant.id,
                     name: metric.name,
                     code: metric.code,
+                    catalog_code: None,
                     aggregation_type: metric.aggregation_type,
                     aggregation_key: metric.aggregation_key,
                     unit_conversion_factor: metric.unit_conversion_factor,
@@ -885,6 +886,7 @@ async fn seed_sandbox_data(
                 skip_past_invoices: false,
                 usage_filter: None,
                 custom_properties: serde_json::Value::Null,
+                external_id: None,
             };
 
             let parameterized_components = sub

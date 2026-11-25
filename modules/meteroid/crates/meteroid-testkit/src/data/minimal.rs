@@ -75,6 +75,9 @@ pub async fn run_minimal_seed(pool: &PgPool) {
             tenant_id: ids::TENANT_ID,
             hash: "$argon2id$v=19$m=19456,t=2,p=1$98CkbdqB8KNdlqryCBIx+g$nhTanF/4QsVnpPFvPHzshLPOGd7btYxXfq2UWB0xkiU".to_string(),
             hint: "pv_sand_9XzH...AbBG".to_string(),
+            kind: diesel_models::enums::ApiTokenKindEnum::Secret,
+            allowed_origins: vec![],
+            publishable_key: None,
         }.insert(tx).await?;
 
         // create invoicing entity

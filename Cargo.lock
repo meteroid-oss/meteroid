@@ -5267,10 +5267,13 @@ dependencies = [
  "secrecy",
  "serde",
  "serde-enum-str",
+ "serde_ignored",
  "serde_json",
+ "serde_path_to_error",
  "serde_with",
  "strum 0.28.0",
  "tokio",
+ "tonic",
  "tracing",
  "url",
  "uuid",
@@ -8288,6 +8291,16 @@ dependencies = [
  "itoa",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "serde_ignored"
+version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "115dffd5f3853e06e746965a20dcbae6ee747ae30b543d91b0e089668bb07798"
+dependencies = [
+ "serde",
+ "serde_core",
 ]
 
 [[package]]

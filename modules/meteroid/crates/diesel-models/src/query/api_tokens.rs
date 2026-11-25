@@ -1,5 +1,5 @@
-use crate::api_tokens::{ApiTokenRow, ApiTokenRowNew, ApiTokenValidationRow};
-use crate::enums::TenantStatusEnum;
+use crate::api_tokens::{ApiTokenRow, ApiTokenRowNew, ApiTokenValidationRow, PublishableKeyRow};
+use crate::enums::{ApiTokenKindEnum, TenantStatusEnum};
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
 use common_domain::ids::{ApiTokenId, TenantId};
@@ -124,9 +124,11 @@ impl ApiTokenValidationRow {
         use crate::schema::tenant::dsl as t_dsl;
         use diesel_async::RunQueryDsl;
 
+        // A publishable key never validates as a secret one, whatever the path reading it.
         let query = at_dsl::api_token
             .inner_join(t_dsl::tenant.on(t_dsl::id.eq(at_dsl::tenant_id)))
             .filter(at_dsl::id.eq(api_token_id))
+            .filter(at_dsl::kind.eq(ApiTokenKindEnum::Secret))
             .filter(t_dsl::status.ne_all([
                 TenantStatusEnum::MarkedForDeletion,
                 TenantStatusEnum::PendingDeletion,
@@ -139,6 +141,39 @@ impl ApiTokenValidationRow {
             .first(conn)
             .await
             .attach("Error while fetching api token by id")
+            .into_db_result()
+    }
+}
+
+impl PublishableKeyRow {
+    /// The publishable key of this id, none for a secret key, an unknown id or a tenant being
+    /// deleted.
+    pub async fn find_by_id(
+        conn: &mut PgConn,
+        api_token_id: &ApiTokenId,
+    ) -> DbResult<Option<PublishableKeyRow>> {
+        use crate::schema::api_token::dsl as at_dsl;
+        use crate::schema::tenant::dsl as t_dsl;
+        use diesel::OptionalExtension;
+        use diesel_async::RunQueryDsl;
+
+        let query = at_dsl::api_token
+            .inner_join(t_dsl::tenant.on(t_dsl::id.eq(at_dsl::tenant_id)))
+            .filter(at_dsl::id.eq(api_token_id))
+            .filter(at_dsl::kind.eq(ApiTokenKindEnum::Publishable))
+            .filter(t_dsl::status.ne_all([
+                TenantStatusEnum::MarkedForDeletion,
+                TenantStatusEnum::PendingDeletion,
+            ]))
+            .select(PublishableKeyRow::as_select());
+
+        crate::debug_sql(&query);
+
+        query
+            .first(conn)
+            .await
+            .optional()
+            .attach("Error while fetching publishable key by id")
             .into_db_result()
     }
 }

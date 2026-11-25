@@ -251,8 +251,13 @@ impl ServicesEdge {
         Ok((wallets, u64::try_from(total).unwrap_or_default()))
     }
 
-    /// Runs `write` under the claimed key. A request refused before it changed anything releases
-    /// the key, so the caller can correct it and retry under the same key.
+    /// Runs `write` under the claimed key. A refused request releases the key, whatever the
+    /// refusal (invalid, not found, a conflict, forbidden, a failed precondition), so the caller
+    /// can correct it and retry under the same key. Each write run here records under the key (an
+    /// id derived from it, or the key itself): a corrected request after a refusal that had
+    /// recorded something finds that record and is refused in turn, never recording twice. Any
+    /// other failure (a database or provider error: whether it wrote is unknown) keeps the claim,
+    /// and its retry runs the same write again.
     pub(crate) async fn once<T>(
         &self,
         tenant_id: TenantId,
@@ -269,16 +274,11 @@ impl ServicesEdge {
         let stored = claim.claim(&mut conn).await?;
         drop(conn);
         if stored.request_fingerprint != claim.request_fingerprint {
-            return Err(Report::new(StoreError::Conflict(
-                "this Idempotency-Key was already used with a different request".to_owned(),
-            )));
+            return Err(crate::repositories::api_idempotency::key_reused());
         }
         let outcome = write.await;
         if let Err(error) = &outcome
-            && matches!(
-                error.current_context(),
-                StoreError::InvalidArgument(_) | StoreError::ValueNotFound(_)
-            )
+            && is_refusal(error.current_context())
         {
             let mut conn = self.store.get_conn().await?;
             ApiIdempotencyKeyRow::release(
@@ -292,6 +292,20 @@ impl ServicesEdge {
         }
         outcome
     }
+}
+
+/// A refusal of the request, as opposed to a failure carrying it out: its key is released.
+fn is_refusal(error: &StoreError) -> bool {
+    matches!(
+        error,
+        StoreError::InvalidArgument(_)
+            | StoreError::ValueNotFound(_)
+            | StoreError::Conflict(_)
+            | StoreError::Forbidden(_)
+            | StoreError::FailedPrecondition(_)
+            | StoreError::DuplicateValue { .. }
+            | StoreError::InvalidPriceComponents(_)
+    )
 }
 
 impl Services {

@@ -608,6 +608,15 @@ pub enum BillingType {
     Arrears,
 }
 
+/// What an API key may do. A secret key (`pv_…`) authenticates the server API; a publishable key
+/// (`pk_…`) only the client API's public routes, from a browser.
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[map_owned(diesel_enums::ApiTokenKindEnum)]
+pub enum ApiTokenKind {
+    Secret,
+    Publishable,
+}
+
 /// Where a workspace's customer emails go.
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[map_owned(diesel_enums::EmailDeliveryModeEnum)]

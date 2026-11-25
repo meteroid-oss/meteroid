@@ -92,6 +92,7 @@ pub(super) fn build_subscription_from_quote(
         skip_past_invoices: false,
         usage_filter: None,
         custom_properties: serde_json::Value::Null,
+        external_id: None,
     };
 
     let components: Vec<SubscriptionComponentNewInternal> = detailed_quote

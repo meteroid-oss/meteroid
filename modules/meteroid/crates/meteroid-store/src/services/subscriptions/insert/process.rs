@@ -1537,7 +1537,10 @@ impl Services {
             .await?;
 
         // For pending_checkout subscriptions, generate checkout URLs
-        // (sessions were already created inside the transaction above)
+        // (sessions were already created inside the transaction above). Inserted in a
+        // transaction of its own, the subscriptions are committed by now: a link that cannot be
+        // issued is left out (logged) rather than failing a create a retry would make again. The
+        // session stays the subscription's, a link to it is issued again on asking.
         let mut inserted_with_checkout_urls = Vec::with_capacity(res.len());
 
         for mut sub in res {
@@ -1548,12 +1551,29 @@ impl Services {
                         .ok()
                         .flatten()
             {
-                let token = self
+                // A savepoint when the caller's transaction holds the insert: a failure here
+                // leaves that transaction whole.
+                let issued = self
                     .store
-                    .checkout_portal_token_tx(conn, &session, false)
-                    .await?;
-                let checkout_url = format!("{}/checkout?token={}", public_url, token);
-                sub.checkout_url = Some(checkout_url);
+                    .transaction_with(conn, |conn| {
+                        let session = &session;
+                        async move {
+                            self.store
+                                .checkout_portal_token_tx(conn, session, false)
+                                .await
+                        }
+                        .scope_boxed()
+                    })
+                    .await;
+                match issued {
+                    Ok(token) => {
+                        sub.checkout_url = Some(format!("{}/checkout?token={}", public_url, token));
+                    }
+                    Err(error) => log::error!(
+                        "No checkout link was issued for subscription {}: {error:?}",
+                        sub.id
+                    ),
+                }
             }
             inserted_with_checkout_urls.push(sub);
         }

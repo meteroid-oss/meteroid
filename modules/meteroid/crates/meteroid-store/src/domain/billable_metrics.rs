@@ -15,7 +15,10 @@ pub struct BillableMetric {
     pub id: BillableMetricId,
     pub name: String,
     pub description: Option<String>,
+    /// The code its usage events carry; several metrics may read one.
     pub code: String,
+    /// The code API v2 names it by: unique per tenant, immutable.
+    pub catalog_code: String,
     #[map(~.into())]
     pub aggregation_type: BillingMetricAggregateEnum,
     pub aggregation_key: Option<String>,
@@ -213,7 +216,10 @@ json_value_serde!(MetricFilters);
 pub struct BillableMetricNew {
     pub name: String,
     pub description: Option<String>,
+    /// The code its usage events carry.
     pub code: String,
+    /// Its own code, unique per tenant; the event code's, made unique, when none.
+    pub catalog_code: Option<String>,
     pub aggregation_type: BillingMetricAggregateEnum,
     pub aggregation_key: Option<String>,
     pub unit_conversion_factor: Option<i32>,

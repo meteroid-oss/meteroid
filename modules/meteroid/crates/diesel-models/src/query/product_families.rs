@@ -27,6 +27,38 @@ impl ProductFamilyRowNew {
 }
 
 impl ProductFamilyRow {
+    /// The tenant's families after `after` in id order, at most `limit` (API v2 keyset pages),
+    /// the archived ones only when asked.
+    pub async fn list_page(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        include_archived: bool,
+        after: Option<ProductFamilyId>,
+        limit: i64,
+    ) -> DbResult<Vec<ProductFamilyRow>> {
+        use crate::schema::product_family::dsl as pf_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let mut query = pf_dsl::product_family
+            .filter(pf_dsl::tenant_id.eq(tenant_id))
+            .into_boxed();
+        if !include_archived {
+            query = query.filter(pf_dsl::archived_at.is_null());
+        }
+        if let Some(after) = after {
+            query = query.filter(pf_dsl::id.gt(after));
+        }
+        let query = query.order(pf_dsl::id.asc()).limit(limit);
+
+        crate::debug_sql(&query);
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while fetching a page of product families")
+            .into_db_result()
+    }
+
     pub async fn list(
         conn: &mut PgConn,
         tenant_id: TenantId,
@@ -94,6 +126,53 @@ impl ProductFamilyRow {
             .get_result(conn)
             .await
             .attach("Error while renaming product family")
+            .into_db_result()
+    }
+
+    /// Archives the family (`Some`) or restores it (`None`).
+    pub async fn set_archived(
+        conn: &mut PgConn,
+        id: ProductFamilyId,
+        tenant_id: TenantId,
+        archived_at: Option<chrono::NaiveDateTime>,
+    ) -> DbResult<ProductFamilyRow> {
+        use crate::schema::product_family::dsl as pf_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(pf_dsl::product_family)
+            .filter(pf_dsl::id.eq(id))
+            .filter(pf_dsl::tenant_id.eq(tenant_id))
+            .set((
+                pf_dsl::archived_at.eq(archived_at),
+                pf_dsl::updated_at.eq(common_clock::now().naive_utc()),
+            ));
+        crate::debug_sql(&query);
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while archiving product family")
+            .into_db_result()
+    }
+
+    /// The tenant's first live family, by id: where what names no family goes.
+    pub async fn find_default(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+    ) -> DbResult<Option<ProductFamilyRow>> {
+        use crate::schema::product_family::dsl as pf_dsl;
+        use diesel::OptionalExtension;
+        use diesel_async::RunQueryDsl;
+
+        let query = pf_dsl::product_family
+            .filter(pf_dsl::tenant_id.eq(tenant_id))
+            .filter(pf_dsl::archived_at.is_null())
+            .order(pf_dsl::id.asc());
+        crate::debug_sql(&query);
+        query
+            .first(conn)
+            .await
+            .optional()
+            .attach("Error while finding the default product family")
             .into_db_result()
     }
 

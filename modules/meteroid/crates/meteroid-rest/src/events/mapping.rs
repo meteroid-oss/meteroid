@@ -5,14 +5,17 @@ use metering_grpc::meteroid::metering::v1 as grpc;
 use meteroid_store::clients::usage;
 use std::str::FromStr;
 
-pub fn rest_event_to_grpc(event: model::Event) -> grpc::Event {
-    let id_or_alias: AliasOr<CustomerId> =
-        AliasOr::from_str(event.customer_id.as_str()).unwrap_infallible();
-
-    let customer_id = match id_or_alias {
+/// An event's `customer_id` as v1 reads it: a Meteroid id, else the customer's alias, bare.
+fn customer_of(raw: &str) -> grpc::event::CustomerId {
+    let id_or_alias: AliasOr<CustomerId> = AliasOr::from_str(raw).unwrap_infallible();
+    match id_or_alias {
         AliasOr::Id(id) => grpc::event::CustomerId::MeteroidCustomerId(id.to_string()),
         AliasOr::Alias(alias) => grpc::event::CustomerId::ExternalCustomerAlias(alias),
-    };
+    }
+}
+
+pub fn rest_event_to_grpc(event: model::Event) -> grpc::Event {
+    let customer_id = customer_of(&event.customer_id);
 
     grpc::Event {
         id: event.event_id,
@@ -20,18 +23,6 @@ pub fn rest_event_to_grpc(event: model::Event) -> grpc::Event {
         customer_id: Some(customer_id),
         timestamp: event.timestamp.unwrap_or_default(),
         properties: event.properties,
-    }
-}
-
-pub fn rest_request_to_usage_client(
-    req: model::IngestEventsRequest,
-    keep_last_events: bool,
-) -> usage::IngestEventsRequest {
-    usage::IngestEventsRequest {
-        events: req.events.into_iter().map(rest_event_to_grpc).collect(),
-        allow_backfilling: req.allow_backfilling.unwrap_or(false),
-        fail_on_error: !req.allow_partial_failures.unwrap_or(false),
-        keep_last_events,
     }
 }
 

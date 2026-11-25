@@ -244,6 +244,13 @@ pub async fn spawn_workers(
     {
         let store = store.clone();
         join_set.spawn(async move {
+            misc::idempotency_key_cleanup::run_idempotency_key_cleanup_worker(store).await;
+        });
+    }
+
+    {
+        let store = store.clone();
+        join_set.spawn(async move {
             misc::customer_credit::run_customer_credit_worker(store).await;
         });
     }

@@ -1,4 +1,3 @@
-use common_utils::integers::ToNonNegativeU64;
 use rust_decimal::Decimal;
 
 use super::{PricedLine, PricingError, SubLine, SubLineAttributes, Tier, UsageModel, to_minor};
@@ -221,9 +220,16 @@ pub fn usage_price(
     let Some(amount) = usage_amount(model, usage_units) else {
         return Ok(None);
     };
-    let subunit = to_minor(amount, precision)?.to_non_negative_u64();
+    let minor = to_minor(amount, precision)?;
+    // Per-unit usage keeps its sign, as its line does (a reversal priced negative); the other
+    // models bill nothing below zero.
+    let minor = if matches!(model, UsageModel::PerUnit { .. }) {
+        minor
+    } else {
+        minor.max(0)
+    };
     let divisor = Decimal::from(10u64.pow(precision as u32));
-    Ok(Some(Decimal::from(subunit) / divisor))
+    Ok(Some(Decimal::from(minor) / divisor))
 }
 
 #[cfg(test)]
@@ -353,6 +359,8 @@ mod tests {
     fn per_unit_and_package() {
         let per_unit = UsageModel::PerUnit { rate: dec!(0.001) };
         assert_eq!(usage_price(&per_unit, dec!(100), 2), Ok(Some(dec!(0.10))));
+        let reversal = UsageModel::PerUnit { rate: dec!(-0.001) };
+        assert_eq!(usage_price(&reversal, dec!(100), 2), Ok(Some(dec!(-0.10))));
 
         let package = UsageModel::Package {
             block_size: 20,

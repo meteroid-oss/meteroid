@@ -276,10 +276,69 @@ impl Pricing {
     }
 }
 
+/// Refuses a negative amount anywhere in a price but a per-unit usage rate: a fixed fee, a seat
+/// or capacity price, a tier's rate, fee or cap, a package price, a level's fee or overage. The
+/// pricer bills those at 0 when negative (only per-unit usage keeps its sign), so a negative one
+/// would bill nothing, silently (R-142). Prices are checked as they are written; those stored
+/// before are read as they are.
+fn validate_not_negative(pricing: &Pricing) -> Result<(), StoreError> {
+    fn tiers_negative(tiers: &[super::price_components::TierRow]) -> bool {
+        tiers.iter().any(|tier| {
+            tier.rate < Decimal::ZERO
+                || tier.flat_fee.is_some_and(|fee| fee < Decimal::ZERO)
+                || tier.flat_cap.is_some_and(|cap| cap < Decimal::ZERO)
+        })
+    }
+    fn rating_negative(model: &super::price_components::RatingModel) -> bool {
+        use super::price_components::RatingModel;
+        match model {
+            RatingModel::PerUnit { rate } | RatingModel::Package { rate, .. } => {
+                *rate < Decimal::ZERO
+            }
+            RatingModel::Tiered { tiers } | RatingModel::Volume { tiers } => tiers_negative(tiers),
+        }
+    }
+    let negative = match pricing {
+        Pricing::Rate { rate } => *rate < Decimal::ZERO,
+        Pricing::Slot { model, .. } => rating_negative(model),
+        Pricing::Capacity {
+            rate, overage_rate, ..
+        } => *rate < Decimal::ZERO || *overage_rate < Decimal::ZERO,
+        Pricing::Usage(model) => match model {
+            // A per-unit usage rate may be negative: a reversal (a commission given back per
+            // unit) bills a negative line, its tax, coupons, minimum and credit all netting it
+            // (R-142). No other model bills a negative amount, so none takes one.
+            UsagePricingModel::PerUnit { .. } => false,
+            UsagePricingModel::Package { rate, .. } => *rate < Decimal::ZERO,
+            UsagePricingModel::Tiered { tiers, .. } | UsagePricingModel::Volume { tiers, .. } => {
+                tiers_negative(tiers)
+            }
+            // Checked by `DimensionRates::validate` and the multiplier's own rule.
+            UsagePricingModel::DimensionRates(_) | UsagePricingModel::RateCard { .. } => false,
+        },
+        Pricing::ExtraRecurring {
+            unit_price, model, ..
+        }
+        | Pricing::OneTime {
+            unit_price, model, ..
+        } => *unit_price < Decimal::ZERO || model.as_ref().is_some_and(rating_negative),
+        // Checked by `validate_credit_pack`.
+        Pricing::Credit { .. } => false,
+    };
+    if negative {
+        return Err(StoreError::InvalidArgument(
+            "a price is not negative".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 /// Refuses a credit pack that cannot fund an exact amount: the granted credit must be a whole,
 /// non-negative number of minor units of the price currency, with a positive quantity and a
-/// usable expiry. Refuses a usage price no quantity can be billed under.
+/// usable expiry. Refuses a usage price no quantity can be billed under, and any negative amount
+/// ([`validate_not_negative`]).
 pub fn validate_pricing(pricing: &Pricing, currency: &str) -> Result<(), StoreError> {
+    validate_not_negative(pricing)?;
     if let Pricing::Usage(model) = pricing {
         return validate_usage_model(model);
     }
@@ -427,6 +486,16 @@ pub fn validate_price_credit_unit(
     if unit.rate < Decimal::ZERO {
         return Err(StoreError::InvalidArgument(
             "a credit unit's rate to the price currency must not be negative".to_owned(),
+        ));
+    }
+    // A reversal (R-142) is decided and tested in money only: a negative rate drawing credits
+    // would give credits back from usage.
+    if matches!(
+        pricing,
+        Pricing::Usage(UsagePricingModel::PerUnit { rate }) if *rate < Decimal::ZERO
+    ) {
+        return Err(StoreError::InvalidArgument(
+            "a usage price in a credit unit is not negative".to_owned(),
         ));
     }
     Ok(())
@@ -1009,6 +1078,42 @@ mod tests {
     use crate::domain::price_components::*;
     use common_domain::ids::BaseId;
     use rust_decimal_macros::dec;
+
+    /// Only a per-unit usage rate may be negative (R-142); zero is a free price.
+    #[test]
+    fn a_negative_amount_is_refused_wherever_it_is() {
+        let refused = [
+            Pricing::Rate { rate: dec!(-1) },
+            Pricing::Usage(UsagePricingModel::Package {
+                block_size: 10,
+                rate: dec!(-1),
+            }),
+        ];
+        for pricing in refused {
+            assert!(validate_pricing(&pricing, "EUR").is_err(), "{pricing:?}");
+        }
+        assert!(validate_pricing(&Pricing::Rate { rate: dec!(0) }, "EUR").is_ok());
+        // A reversal: a negative per-unit usage rate (R-142).
+        assert!(
+            validate_pricing(
+                &Pricing::Usage(UsagePricingModel::PerUnit { rate: dec!(-0.01) }),
+                "EUR"
+            )
+            .is_ok()
+        );
+        // In money only: priced in a credit unit, a negative rate is refused.
+        let unit = crate::domain::credit_units::PriceCreditUnit {
+            unit_id: common_domain::ids::CreditUnitId::new(),
+            rate: dec!(1),
+        };
+        assert!(
+            validate_price_credit_unit(
+                &Pricing::Usage(UsagePricingModel::PerUnit { rate: dec!(-0.01) }),
+                Some(&unit)
+            )
+            .is_err()
+        );
+    }
 
     // -----------------------------------------------------------------------
     // resolve_subscription_fee tests

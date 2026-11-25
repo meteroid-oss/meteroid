@@ -93,6 +93,7 @@ fn segmented_metric(name: &str, aggregation_type: BillingMetricAggregateEnum) ->
         name: name.to_owned(),
         description: None,
         code: CODE.to_owned(),
+        catalog_code: None,
         aggregation_type,
         aggregation_key: Some("tokens".to_owned()),
         unit_conversion_factor: None,
@@ -212,6 +213,12 @@ async fn test_segmented_totals_over_backfilled_months() {
         )
         .await
         .unwrap();
+    // Two metrics of one event code, each aggregating it its own way: the second's own code is
+    // the event code numbered.
+    assert_eq!(
+        (tokens.catalog_code.as_str(), peak.catalog_code.as_str()),
+        (CODE, "llm_tokens-2")
+    );
 
     let now = Utc::now().naive_utc();
     let today = now.date().and_time(NaiveTime::MIN);

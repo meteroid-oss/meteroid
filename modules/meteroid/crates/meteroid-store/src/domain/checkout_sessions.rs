@@ -163,6 +163,7 @@ impl CheckoutSession {
             skip_past_invoices: false,
             usage_filter: None,
             custom_properties: serde_json::Value::Null,
+            external_id: None,
         })
     }
 
@@ -312,9 +313,19 @@ pub struct CreateCheckoutSession {
 
 impl CreateCheckoutSession {
     pub fn try_into_row(self) -> Result<CheckoutSessionRowNew, crate::errors::StoreError> {
+        // Checked: a term past what a date holds is refused, never a panic.
         let expires_at = self
             .expires_in_hours
-            .map(|h| common_clock::now() + Duration::hours(h as i64));
+            .map(|h| {
+                Duration::try_hours(i64::from(h))
+                    .and_then(|term| common_clock::now().checked_add_signed(term))
+                    .ok_or_else(|| {
+                        crate::errors::StoreError::InvalidArgument(
+                            "a checkout session's expiry is too far ahead".to_owned(),
+                        )
+                    })
+            })
+            .transpose()?;
 
         let components = self
             .components

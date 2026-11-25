@@ -305,6 +305,72 @@ async fn an_immediate_cancellation_credits_fees_and_pack_as_a_plan_change_does()
     }
 }
 
+/// S7 previewed: the cancellation's preview credits what it then issues, line for line. The pack's
+/// fee comes back capped by its unused paid credit in both (50000 × 16/31 = 25806 by time, the
+/// usage up to Jan 16 settled from the bonus then the paid credit, 50 + 350, leaving 15000), beside
+/// the fees by the time left (9900 × 16/31 = 5110, 2500 × 16/31 = 1290): 21400 in all.
+#[tokio::test]
+async fn an_immediate_cancellation_preview_credits_the_pack_as_issued() {
+    let (env, usage) = usage_env().await;
+    env.set_now(decided_later());
+    halyard(&env, CreditExpiry::BillingPeriod).await;
+    scale_usage(&env).await;
+    let sub_id = start(&env, CUST_UBER_ID, SCALE, date(2024, 1, 1)).await;
+    let january = invoice(&env, sub_id, 0).await;
+    pay(&env, &january).await;
+    fund_grant(
+        env.store(),
+        TENANT_ID,
+        CUST_UBER_ID,
+        Some("EUR"),
+        Grant::invoice(10_000),
+    )
+    .await;
+    set_usage(&usage, date(2024, 1, 1), date(2024, 1, 16), 4_000);
+
+    let remaining = |rows: Vec<CustomerCreditGrantRow>| -> Vec<(CreditGrantId, i64)> {
+        rows.into_iter()
+            .map(|grant| (grant.id, grant.remaining))
+            .collect()
+    };
+    let before = remaining(grant_rows(&env, CUST_UBER_ID).await);
+
+    let on = date(2024, 1, 16);
+    let preview = env
+        .services()
+        .preview_cancellation(sub_id, TENANT_ID, CancellationEffectiveAt::Date(on))
+        .await
+        .expect("cancellation preview");
+    let note = preview.credit_note.expect("the preview credits the period");
+    let mut previewed: Vec<_> = note
+        .invoice_lines
+        .iter()
+        .map(|l| (l.name.clone(), l.amount_subtotal, l.tax_amount))
+        .collect();
+    previewed.sort();
+    assert_eq!(
+        remaining(grant_rows(&env, CUST_UBER_ID).await),
+        before,
+        "the preview settles the pack's usage in memory, writing nothing"
+    );
+
+    cancel_on(&env, sub_id, CancellationEffectiveAt::Date(on)).await;
+    env.process_due_events().await;
+    env.process_due_events().await;
+
+    let ((_, subtotal, _, total), issued) = the_note(&env, &january).await;
+    assert_eq!(
+        issued,
+        vec![
+            ("Monthly credit".to_owned(), -15_000, 0),
+            ("Platform Fee".to_owned(), -5_110, 0),
+            ("Seats".to_owned(), -1_290, 0),
+        ]
+    );
+    assert_eq!(previewed, issued, "the preview credits what is issued");
+    assert_eq!((note.subtotal, note.total), (subtotal, total));
+}
+
 /// S7, late event: as above, then 20.00 of usage dated before Jan 16 reaches the metering store
 /// after the cancellation, within the settlement grace. The sweep settles it at the same bound
 /// from the welcome credit ending then (a second settlement after the cancellation's), lapses the

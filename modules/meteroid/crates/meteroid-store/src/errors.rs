@@ -6,6 +6,16 @@ use error_stack::IntoReport;
 #[derive(Debug, Clone)]
 pub struct RateLimited(pub String);
 
+/// Attached to a `Forbidden` refusing a feature the organization's plan does not include, so API
+/// v2 can answer `403 feature_not_available` rather than an authorization's `forbidden`.
+#[derive(Debug, Clone, Copy)]
+pub struct NotInPlan;
+
+/// Attached to the `Conflict` refusing an Idempotency-Key already used with another request, so
+/// API v2 can answer its documented `422 idempotency_key_reused` (v1 keeps its 409).
+#[derive(Debug, Clone, Copy)]
+pub struct IdempotencyKeyReused;
+
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
     #[error("Initialization Error: {0}")]
@@ -94,6 +104,15 @@ pub enum StoreError {
 }
 
 impl StoreError {
+    /// A row a query expected was not there: the resource asked for does not exist.
+    pub fn is_row_not_found(&self) -> bool {
+        matches!(
+            self,
+            StoreError::DatabaseError(db)
+                if matches!(db.current_context(), DatabaseError::NotFound)
+        )
+    }
+
     pub fn is_payment_error(&self) -> bool {
         matches!(
             self,

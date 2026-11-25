@@ -3,7 +3,7 @@ use rate_limiter::middleware::axum::RateLimitState;
 use rate_limiter::{RateLimitConfig, RateLimitResult, RateLimiter};
 
 use crate::AppState;
-use crate::client::{AuthorizedAsCustomer, CLIENT_API_PREFIX};
+use crate::client::{AuthorizedAsCustomer, AuthorizedAsPublishable, CLIENT_API_PREFIX};
 use meteroid_app::config::RestRateLimitConfig;
 use meteroid_app::errors::RestApiError;
 
@@ -15,6 +15,8 @@ pub struct TenantEnvRateLimiters {
     pub metering_eps: RateLimiter,
     /// Per customer, on the client API.
     pub client: RateLimiter,
+    /// Per publishable key, on the client API's public routes.
+    pub publishable: RateLimiter,
     pub usage_costs: RateLimiter,
 }
 
@@ -45,6 +47,10 @@ pub fn build_rest_rate_limiters(base: &RateLimiter, config: &RestRateLimitConfig
             client: base.with_config(
                 RateLimitConfig::per_second(config.client_prod_rps).with_bucket("rest:client"),
             ),
+            publishable: base.with_config(
+                RateLimitConfig::per_second(config.publishable_prod_rps)
+                    .with_bucket("rest:client:public"),
+            ),
             usage_costs: base.with_config(
                 RateLimitConfig::per_minute(config.prod_usage_costs_rpm)
                     .with_bucket(USAGE_COSTS_BUCKET),
@@ -66,6 +72,10 @@ pub fn build_rest_rate_limiters(base: &RateLimiter, config: &RestRateLimitConfig
                 RateLimitConfig::per_second(config.client_non_prod_rps)
                     .with_bucket("rest:non_prod:client"),
             ),
+            publishable: base.with_config(
+                RateLimitConfig::per_second(config.publishable_non_prod_rps)
+                    .with_bucket("rest:non_prod:client:public"),
+            ),
             usage_costs: base.with_config(
                 RateLimitConfig::per_minute(config.non_prod_usage_costs_rpm)
                     .with_bucket(NON_PROD_USAGE_COSTS_BUCKET),
@@ -79,7 +89,10 @@ pub fn build_rate_limit_state(limiters: &RateLimiters) -> RateLimitState<String>
     let limiters = limiters.clone();
     RateLimitState::new(move |req| {
         req.extensions().get::<AuthorizedAsTenant>().map(|auth| {
-            let is_metering = req.uri().path().starts_with("/api/v1/events/");
+            // v2 forwards v1's event routes, under the same limits.
+            let path = req.uri().path();
+            let is_metering =
+                path.starts_with("/api/v1/events/") || path.starts_with("/api/v2/events/");
 
             let limiter = match auth.tenant_env {
                 TenantEnv::Production => {
@@ -104,11 +117,12 @@ pub fn build_rate_limit_state(limiters: &RateLimiters) -> RateLimitState<String>
     .with_filter(|path| path.starts_with("/api/"))
 }
 
-/// Client API requests are limited per customer, as they carry no tenant credential.
+/// Client API requests are limited per customer, as they carry no tenant credential; the public
+/// routes per publishable key, which every visitor of a site shares.
 pub fn build_client_rate_limit_state(limiters: &RateLimiters) -> RateLimitState<String> {
     let limiters = limiters.clone();
     RateLimitState::new(move |req| {
-        req.extensions().get::<AuthorizedAsCustomer>().map(|auth| {
+        let customer = req.extensions().get::<AuthorizedAsCustomer>().map(|auth| {
             let limiter = match auth.tenant_env {
                 TenantEnv::Production => &limiters.prod.client,
                 TenantEnv::NonProduction => &limiters.non_prod.client,
@@ -117,6 +131,17 @@ pub fn build_client_rate_limit_state(limiters: &RateLimiters) -> RateLimitState<
                 format!("{}:{}", auth.tenant_id, auth.customer_id),
                 limiter.clone(),
             )
+        });
+        customer.or_else(|| {
+            req.extensions()
+                .get::<AuthorizedAsPublishable>()
+                .map(|auth| {
+                    let limiter = match auth.tenant_env {
+                        TenantEnv::Production => &limiters.prod.publishable,
+                        TenantEnv::NonProduction => &limiters.non_prod.publishable,
+                    };
+                    (format!("pk:{}", auth.key_id), limiter.clone())
+                })
         })
     })
     .with_filter(|path| path.starts_with(CLIENT_API_PREFIX))

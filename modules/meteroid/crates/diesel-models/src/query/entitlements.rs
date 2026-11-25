@@ -474,6 +474,85 @@ impl FeatureRow {
 }
 
 impl FeatureRow {
+    /// The tenant's features after `after` in id order, at most `limit` (API v2 keyset pages),
+    /// each with its product.
+    pub async fn list_page(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_statuses: Option<Vec<FeatureStatusEnum>>,
+        param_product_id: Option<ProductId>,
+        after: Option<FeatureId>,
+        limit: i64,
+    ) -> DbResult<Vec<FeatureWithProductRow>> {
+        use crate::schema::feature::dsl as f_dsl;
+        use crate::schema::product;
+        use diesel_async::RunQueryDsl;
+
+        let mut query = f_dsl::feature
+            .left_join(
+                product::table.on(f_dsl::product_id
+                    .eq(product::id.nullable())
+                    .and(product::tenant_id.eq(f_dsl::tenant_id))),
+            )
+            .filter(f_dsl::tenant_id.eq(param_tenant_id))
+            .select((
+                FeatureRow::as_select(),
+                (product::id, product::name).nullable(),
+            ))
+            .into_boxed();
+        if let Some(statuses) = param_statuses
+            && !statuses.is_empty()
+        {
+            query = query.filter(f_dsl::status.eq_any(statuses));
+        }
+        if let Some(pid) = param_product_id {
+            query = query.filter(f_dsl::product_id.eq(pid));
+        }
+        if let Some(after) = after {
+            query = query.filter(f_dsl::id.gt(after));
+        }
+        let query = query.order(f_dsl::id.asc()).limit(limit);
+        crate::debug_sql(&query);
+
+        let rows: Vec<(FeatureRow, Option<(ProductId, String)>)> = query
+            .get_results(conn)
+            .await
+            .attach("Error while fetching a page of features")
+            .into_db_result()?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(feature, product_opt)| FeatureWithProductRow {
+                feature,
+                product: product_opt.map(|(id, name)| FeatureProductMeta { id, name }),
+            })
+            .collect())
+    }
+
+    /// The live (non-archived) features of a product.
+    pub async fn list_live_by_product(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_product_id: ProductId,
+    ) -> DbResult<Vec<FeatureRow>> {
+        use crate::schema::feature::dsl as f_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = f_dsl::feature
+            .filter(f_dsl::tenant_id.eq(param_tenant_id))
+            .filter(f_dsl::product_id.eq(param_product_id))
+            .filter(f_dsl::status.ne(FeatureStatusEnum::Archived))
+            .order(f_dsl::id.asc())
+            .select(FeatureRow::as_select());
+        crate::debug_sql(&query);
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while listing the features of a product")
+            .into_db_result()
+    }
+
     /// How many features each product grants, archived ones left out.
     pub async fn count_by_products(
         conn: &mut PgConn,

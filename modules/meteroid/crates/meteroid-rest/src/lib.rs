@@ -63,6 +63,7 @@ pub mod sso;
 pub mod subscriptions;
 pub mod usage;
 pub mod usage_costs;
+pub mod v2;
 pub mod webhooks;
 
 pub fn api_routes() -> OpenApiRouter<AppState> {

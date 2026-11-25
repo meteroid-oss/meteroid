@@ -112,7 +112,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "post": {
         "tags": [
@@ -176,7 +177,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/addons/{addon_id}": {
@@ -243,7 +245,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "patch": {
         "tags": [
@@ -328,7 +331,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/addons/{addon_id}/archive": {
@@ -388,7 +392,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/addons/{addon_id}/entitlements": {
@@ -456,7 +461,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "post": {
         "tags": [
@@ -543,7 +549,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/addons/{addon_id}/unarchive": {
@@ -603,7 +610,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/batch-jobs": {
@@ -722,7 +730,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/batch-jobs/{batch_job_id}": {
@@ -800,7 +809,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/batch-jobs/{batch_job_id}/failures": {
@@ -906,7 +916,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/checkout-sessions": {
@@ -988,7 +999,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "post": {
         "tags": [
@@ -1062,7 +1074,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/checkout-sessions/{id}": {
@@ -1139,7 +1152,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/checkout-sessions/{id}/cancel": {
@@ -1226,7 +1240,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/coupons": {
@@ -1329,7 +1344,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "post": {
         "tags": [
@@ -1393,7 +1409,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/coupons/{coupon_id}": {
@@ -1460,7 +1477,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "patch": {
         "tags": [
@@ -1545,7 +1563,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/coupons/{coupon_id}/archive": {
@@ -1605,7 +1624,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/coupons/{coupon_id}/disable": {
@@ -1665,7 +1685,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/coupons/{coupon_id}/enable": {
@@ -1725,7 +1746,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/coupons/{coupon_id}/unarchive": {
@@ -1785,7 +1807,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/credit-notes": {
@@ -1917,7 +1940,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/credit-notes/{credit_note_id}": {
@@ -1996,7 +2020,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/credit-notes/{credit_note_id}/custom-properties": {
@@ -2095,7 +2120,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/credit-notes/{credit_note_id}/download": {
@@ -2174,7 +2200,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/credit-notes/{credit_note_id}/xml": {
@@ -2255,7 +2282,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/credit-units": {
@@ -2323,7 +2351,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "post": {
         "tags": [
@@ -2408,7 +2437,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/credit-units/{id}": {
@@ -2486,7 +2516,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "patch": {
         "tags": [
@@ -2592,7 +2623,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/credit-units/{id}/prices": {
@@ -2679,7 +2711,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/credit-units/{id}/prices/{currency}": {
@@ -2796,7 +2829,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "delete": {
         "tags": [
@@ -2881,7 +2915,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/custom-property-definitions": {
@@ -2980,7 +3015,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/custom-property-definitions/{id}": {
@@ -3047,7 +3083,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/customers": {
@@ -3154,7 +3191,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "post": {
         "tags": [
@@ -3238,7 +3276,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/customers/{id_or_alias}": {
@@ -3316,7 +3355,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "put": {
         "tags": [
@@ -3411,7 +3451,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "delete": {
         "tags": [
@@ -3480,7 +3521,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "patch": {
         "tags": [
@@ -3576,7 +3618,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/customers/{id_or_alias}/credit-grants": {
@@ -3737,7 +3780,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "post": {
         "tags": [
@@ -3852,7 +3896,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/customers/{id_or_alias}/credit-ledger": {
@@ -3981,7 +4026,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/customers/{id_or_alias}/entitlements": {
@@ -4049,7 +4095,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/customers/{id_or_alias}/portal-token": {
@@ -4147,7 +4194,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/customers/{id_or_alias}/top-ups": {
@@ -4264,7 +4312,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/customers/{id_or_alias}/unarchive": {
@@ -4334,7 +4383,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/customers/{id_or_alias}/wallets": {
@@ -4431,7 +4481,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/customers/{id_or_alias}/wallets/{currency}": {
@@ -4567,7 +4618,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/entitlements/{entitlement_id}": {
@@ -4634,7 +4686,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "delete": {
         "tags": [
@@ -4692,7 +4745,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "patch": {
         "tags": [
@@ -4778,7 +4832,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/events/ingest": {
@@ -4845,7 +4900,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/features": {
@@ -4946,7 +5002,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "post": {
         "tags": [
@@ -5020,7 +5077,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/features/{id_or_code}": {
@@ -5087,7 +5145,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "patch": {
         "tags": [
@@ -5173,7 +5232,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/features/{id_or_code}/archive": {
@@ -5234,7 +5294,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/features/{id_or_code}/unarchive": {
@@ -5305,7 +5366,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/invoices": {
@@ -5447,7 +5509,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/invoices/{invoice_id}": {
@@ -5526,7 +5589,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/invoices/{invoice_id}/custom-properties": {
@@ -5625,7 +5689,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/invoices/{invoice_id}/download": {
@@ -5706,7 +5771,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/invoices/{invoice_id}/mark-paid": {
@@ -5833,7 +5899,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/invoices/{invoice_id}/mark-uncollectible": {
@@ -5943,7 +6010,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/invoices/{invoice_id}/payments": {
@@ -6070,7 +6138,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/invoices/{invoice_id}/payments/{transaction_id}/reverse": {
@@ -6206,7 +6275,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/invoices/{invoice_id}/refresh": {
@@ -6295,7 +6365,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/invoices/{invoice_id}/xml": {
@@ -6376,7 +6447,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/metrics": {
@@ -6473,7 +6545,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "post": {
         "tags": [
@@ -6547,7 +6620,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/metrics/{metric_id}": {
@@ -6614,7 +6688,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "patch": {
         "tags": [
@@ -6710,7 +6785,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/metrics/{metric_id}/archive": {
@@ -6770,7 +6846,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/metrics/{metric_id}/unarchive": {
@@ -6830,7 +6907,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/plan-versions/{plan_version_id}/entitlements": {
@@ -6898,7 +6976,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "post": {
         "tags": [
@@ -6985,7 +7064,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/plans": {
@@ -7119,7 +7199,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "post": {
         "tags": [
@@ -7194,7 +7275,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/plans/versions/{plan_version_id}/minimum": {
@@ -7291,7 +7373,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "delete": {
         "tags": [
@@ -7349,7 +7432,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/plans/{plan_id}": {
@@ -7426,7 +7510,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "put": {
         "tags": [
@@ -7522,7 +7607,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "patch": {
         "tags": [
@@ -7608,7 +7694,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/plans/{plan_id}/archive": {
@@ -7668,7 +7755,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/plans/{plan_id}/publish": {
@@ -7746,7 +7834,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/plans/{plan_id}/unarchive": {
@@ -7806,7 +7895,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/plans/{plan_id}/versions": {
@@ -7896,7 +7986,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/product_families": {
@@ -7983,7 +8074,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "post": {
         "tags": [
@@ -8036,7 +8128,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/product_families/{id_or_alias}": {
@@ -8093,7 +8186,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/products": {
@@ -8189,7 +8283,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "post": {
         "tags": [
@@ -8253,7 +8348,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/products/{product_id}": {
@@ -8320,7 +8416,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "patch": {
         "tags": [
@@ -8406,7 +8503,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/products/{product_id}/archive": {
@@ -8466,7 +8564,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/products/{product_id}/entitlements": {
@@ -8534,7 +8633,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "post": {
         "tags": [
@@ -8621,7 +8721,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/products/{product_id}/unarchive": {
@@ -8681,7 +8782,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/rate-cards": {
@@ -8750,6 +8852,7 @@
             "bearer_auth": []
           }
         ],
+        "x-meteroid-edition": "oss",
         "x-beta": true
       },
       "post": {
@@ -8846,6 +8949,7 @@
             "bearer_auth": []
           }
         ],
+        "x-meteroid-edition": "oss",
         "x-beta": true
       }
     },
@@ -8935,6 +9039,7 @@
             "bearer_auth": []
           }
         ],
+        "x-meteroid-edition": "oss",
         "x-beta": true
       }
     },
@@ -9034,6 +9139,7 @@
             "bearer_auth": []
           }
         ],
+        "x-meteroid-edition": "oss",
         "x-beta": true
       }
     },
@@ -9169,7 +9275,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "post": {
         "tags": [
@@ -9244,7 +9351,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/subscriptions/{subscription_id}": {
@@ -9322,7 +9430,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "patch": {
         "tags": [
@@ -9418,7 +9527,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/subscriptions/{subscription_id}/cancel": {
@@ -9507,7 +9617,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/subscriptions/{subscription_id}/entitlements": {
@@ -9575,7 +9686,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/subscriptions/{subscription_id}/summary": {
@@ -9653,7 +9765,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/usage/customer/{customer_id}": {
@@ -9757,7 +9870,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/usage/customer/{customer_id}/costs": {
@@ -9907,6 +10021,7 @@
             "bearer_auth": []
           }
         ],
+        "x-meteroid-edition": "oss",
         "x-beta": true
       }
     },
@@ -10055,6 +10170,7 @@
             "bearer_auth": []
           }
         ],
+        "x-meteroid-edition": "oss",
         "x-beta": true
       }
     },
@@ -10163,7 +10279,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/usage/subscription/{subscription_id}": {
@@ -10267,7 +10384,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/usage/subscription/{subscription_id}/costs": {
@@ -10417,6 +10535,7 @@
             "bearer_auth": []
           }
         ],
+        "x-meteroid-edition": "oss",
         "x-beta": true
       }
     },
@@ -10565,6 +10684,7 @@
             "bearer_auth": []
           }
         ],
+        "x-meteroid-edition": "oss",
         "x-beta": true
       }
     },
@@ -10650,7 +10770,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/webhooks/deliveries/{delivery_id}/resend": {
@@ -10728,7 +10849,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/webhooks/endpoints": {
@@ -10774,7 +10896,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "post": {
         "tags": [
@@ -10849,7 +10972,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/webhooks/endpoints/{endpoint_id}": {
@@ -10916,7 +11040,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "delete": {
         "tags": [
@@ -10975,7 +11100,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       },
       "patch": {
         "tags": [
@@ -11061,7 +11187,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/webhooks/endpoints/{endpoint_id}/deliveries": {
@@ -11160,7 +11287,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/webhooks/endpoints/{endpoint_id}/rotate-secret": {
@@ -11228,7 +11356,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/webhooks/endpoints/{endpoint_id}/secret": {
@@ -11295,7 +11424,8 @@
           {
             "bearer_auth": []
           }
-        ]
+        ],
+        "x-meteroid-edition": "oss"
       }
     }
   },

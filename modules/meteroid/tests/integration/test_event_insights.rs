@@ -287,6 +287,7 @@ async fn test_event_insights_read_usage_like_billing() {
                 name: "Insight calls".to_owned(),
                 description: None,
                 code: CODE.to_owned(),
+                catalog_code: None,
                 aggregation_type: BillingMetricAggregateEnum::Sum,
                 aggregation_key: Some("tokens".to_owned()),
                 unit_conversion_factor: Some(1000),

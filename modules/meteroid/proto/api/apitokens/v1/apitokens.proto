@@ -20,6 +20,17 @@ message CreateApiTokenResponse {
   ApiToken details = 2;
 }
 
+message CreatePublishableKeyRequest {
+  string name = 1;
+  // scheme://host[:port], e.g. https://www.acme.com; none accepts any origin.
+  repeated string allowed_origins = 2;
+}
+
+message CreatePublishableKeyResponse {
+  // Carries the key in `publishable_key`.
+  ApiToken details = 1;
+}
+
 message RevokeApiTokenRequest {
   string id = 1;
 }
@@ -29,5 +40,6 @@ message RevokeApiTokenResponse {}
 service ApiTokensService {
   rpc ListApiTokens(ListApiTokensRequest) returns (ListApiTokensResponse) {}
   rpc CreateApiToken(CreateApiTokenRequest) returns (CreateApiTokenResponse) {}
+  rpc CreatePublishableKey(CreatePublishableKeyRequest) returns (CreatePublishableKeyResponse) {}
   rpc RevokeApiToken(RevokeApiTokenRequest) returns (RevokeApiTokenResponse) {}
 }

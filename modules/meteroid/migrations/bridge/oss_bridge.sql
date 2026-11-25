@@ -195,6 +195,7 @@ BEGIN
                 (connection_type = 'STANDARD' AND connected_organization_id IS NOT NULL) OR
                 (connection_type = 'EXPRESS' AND (
                     (status = 'PENDING' AND connected_organization_id IS NULL AND pending_email IS NOT NULL) OR
+                    (status = 'REVOKED' AND connected_organization_id IS NULL AND pending_email IS NOT NULL) OR
                     (status != 'PENDING' AND connected_organization_id IS NOT NULL)
                 ))
             );

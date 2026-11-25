@@ -89,6 +89,18 @@ pub trait PlansInterface {
         order_by: Option<String>,
     ) -> StoreResult<PaginatedVec<PlanOverview>>;
 
+    /// The tenant's plans after `after` in id order, at most `limit`: a keyset page of API v2.
+    /// Read as `list_plans` reads them, without what it fills after (`options`,
+    /// `priced_options`, `mrr`, `free`). Without `status`, archived plans are left out.
+    async fn list_plans_after(
+        &self,
+        tenant_id: TenantId,
+        product_family_id: Option<ProductFamilyId>,
+        status: Option<PlanStatusEnum>,
+        after: Option<PlanId>,
+        limit: usize,
+    ) -> StoreResult<Vec<PlanOverview>>;
+
     async fn list_full_plans(
         &self,
         auth_tenant_id: TenantId,
@@ -489,11 +501,12 @@ impl PlansInterface for Store {
         } = full_plan;
         let version_entitlements = version.entitlements.clone();
 
-        let product_family: ProductFamilyOverview =
+        let product_family_row =
             ProductFamilyRow::find_by_id(&mut conn, plan.product_family_id, plan.tenant_id)
                 .await
-                .map_err(|err| StoreError::DatabaseError(err.error))?
-                .into();
+                .map_err(|err| StoreError::DatabaseError(err.error))?;
+        crate::repositories::product_families::ensure_family_live(&product_family_row)?;
+        let product_family: ProductFamilyOverview = product_family_row.into();
 
         let tenant = TenantRow::find_by_id(&mut conn, plan.tenant_id)
             .await
@@ -747,6 +760,30 @@ impl PlansInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         convert_full_plan_row(&mut conn, row, auth_tenant_id).await
+    }
+
+    async fn list_plans_after(
+        &self,
+        tenant_id: TenantId,
+        product_family_id: Option<ProductFamilyId>,
+        status: Option<PlanStatusEnum>,
+        after: Option<PlanId>,
+        limit: usize,
+    ) -> StoreResult<Vec<PlanOverview>> {
+        let mut conn = self.get_conn().await?;
+        Ok(PlanRowOverview::list_page(
+            &mut conn,
+            tenant_id,
+            product_family_id,
+            status.map(Into::into),
+            after,
+            i64::try_from(limit).unwrap_or(i64::MAX),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .into_iter()
+        .map(Into::into)
+        .collect())
     }
 
     async fn list_plans(

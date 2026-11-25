@@ -19,6 +19,8 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct AddOn {
     pub id: AddOnId,
+    /// Unique per tenant and immutable (ADR-0013).
+    pub code: String,
     pub name: String,
     pub tenant_id: TenantId,
     pub created_at: NaiveDateTime,
@@ -52,6 +54,7 @@ impl From<AddOnRow> for AddOn {
             .ok();
         AddOn {
             id: row.id,
+            code: row.code,
             name: row.name,
             tenant_id: row.tenant_id,
             created_at: row.created_at,
@@ -440,6 +443,7 @@ mod tests {
     fn add_on(prices: Vec<Price>) -> AddOn {
         AddOn {
             id: AddOnId::new(),
+            code: "support".to_owned(),
             name: "Support".to_owned(),
             tenant_id: TenantId::default(),
             created_at: NaiveDateTime::default(),

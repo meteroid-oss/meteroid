@@ -29,6 +29,7 @@ modules/meteroid/crates/meteroid-store/src/services/lifecycle/controller.rs::Ser
 # Writers outside the controller: a change's own documents, an operator's, a purchase's.
 modules/meteroid/crates/meteroid-store/src/repositories/invoices.rs::Store::void_invoice_at | writer | an operator's void, its note taking back what was paid
 modules/meteroid/crates/meteroid-api/src/invoices/service.rs::InvoiceServiceComponents::create_invoice | writer | an operator's invoice through the API
+modules/meteroid/crates/meteroid-store/src/services/edge.rs::ServicesEdge::create_manual_invoice | writer | an operator's one-off invoice through API v2
 modules/meteroid/crates/meteroid-store/src/repositories/credit_notes.rs::Store::create_operator_credit_note | writer | an operator's credit note
 modules/meteroid/crates/meteroid-store/src/services/credit/purchase.rs::Services::record_credit_purchase | writer | a credit purchase's invoice, outside any subscription
 modules/meteroid/crates/meteroid-store/src/services/credit/wallet_purchase.rs::Services::draft_purchase_invoice | writer | a wallet top-up's invoice, outside any subscription

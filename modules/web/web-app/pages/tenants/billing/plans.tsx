@@ -33,14 +33,14 @@ const DEFAULT_TYPES = ['free', 'standard', 'custom']
 
 type PlansView = 'ladder' | 'pricing' | 'table'
 const VIEWS: { value: PlansView; label: string }[] = [
+  { value: 'table', label: 'Table' },
   { value: 'ladder', label: 'Ladder' },
   { value: 'pricing', label: 'Pricing page' },
-  { value: 'table', label: 'Table' },
 ]
 const VIEW_SERDE = {
   serialize: (value: PlansView) => value,
   deserialize: (value: string): PlansView =>
-    VIEWS.some(view => view.value === value) ? (value as PlansView) : 'ladder',
+    VIEWS.some(view => view.value === value) ? (value as PlansView) : 'table',
 }
 
 export const Plans: FunctionComponent = () => {
@@ -51,7 +51,7 @@ export const Plans: FunctionComponent = () => {
   const { has } = usePermissions()
   const canEdit = !isExpress && has('catalog:manage')
 
-  const [view, setView] = useQueryState<PlansView>('view', 'ladder', {
+  const [view, setView] = useQueryState<PlansView>('view', 'table', {
     ...VIEW_SERDE,
     replace: true,
   })

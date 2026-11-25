@@ -4,6 +4,7 @@ pub mod credit_input_feed;
 pub mod currency_rates_worker;
 pub mod customer_credit;
 pub mod hosted_payment_sweeper;
+pub mod idempotency_key_cleanup;
 pub mod instance_telemetry_worker;
 pub mod payment_reminder_sweeper;
 pub mod portal_token_cleanup;

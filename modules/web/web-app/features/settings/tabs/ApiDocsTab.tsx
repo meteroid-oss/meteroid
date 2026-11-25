@@ -11,12 +11,17 @@ export const ApiDocsTab: FunctionComponent = () => (
   <SettingsSection
     divided={false}
     title="API Documentation"
-    description="Explore and try the REST API used to build integrations and SDKs."
+    description="Explore and try the REST API used to build integrations and SDKs. v1 is frozen: new integrations use v2."
   >
-    <div>
+    <div className="flex flex-wrap items-center gap-2">
       <Button variant="secondary" size="sm" hasIcon asChild>
         <a href={`${env.meteroidRestApiUri}/scalar`} target="_blank" rel="noreferrer">
-          Open API docs <ExternalLinkIcon size={14} />
+          Open API v2 docs <ExternalLinkIcon size={14} />
+        </a>
+      </Button>
+      <Button variant="ghost" size="sm" hasIcon asChild>
+        <a href={`${env.meteroidRestApiUri}/scalar/v1`} target="_blank" rel="noreferrer">
+          API v1 (legacy) <ExternalLinkIcon size={14} />
         </a>
       </Button>
     </div>

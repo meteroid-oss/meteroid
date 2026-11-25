@@ -6,7 +6,8 @@ use diesel_models::enums::WebhookDeliveryStatusEnum;
 use diesel_models::webhooks_out::{
     WebhookOutAttemptRow, WebhookOutAttemptRowNew, WebhookOutDeliveryRow, WebhookOutDeliveryRowNew,
     WebhookOutEndpointRow, WebhookOutEndpointRowNew, WebhookOutEndpointRowPatch,
-    WebhookOutMessageRow, WebhookOutMessageRowNew,
+    WebhookOutMessageRow, WebhookOutMessageRowNew, WebhookOutRetiredSecretRow,
+    WebhookOutRetiredSecretRowNew,
 };
 use error_stack::{Report, ResultExt};
 use scoped_futures::ScopedFutureExt;
@@ -30,8 +31,13 @@ use crate::services::webhooks::out::secret::generate_secret;
 use crate::store::PgConn;
 use crate::{Store, StoreResult};
 
-/// A rotated-out secret keeps verifying consumer-side for this long.
+/// A rotated-out secret keeps verifying consumer-side for this long: every secret rotated out
+/// within it signs beside the current one.
 pub const PREVIOUS_SECRET_GRACE: Duration = Duration::hours(24);
+
+/// Rotated-out secrets an endpoint may have signing at once: each adds a signature to every
+/// delivery, so rotations past this within the grace wait for the oldest to expire.
+pub const MAX_RETIRED_SECRETS: usize = 10;
 
 /// Non-archived endpoints a tenant may create.
 pub const MAX_ENDPOINTS_PER_TENANT: i64 = 50;
@@ -72,11 +78,12 @@ pub trait WebhookOutInterface {
         patch: WebhookEndpointPatch,
     ) -> StoreResult<WebhookEndpoint>;
 
+    /// The endpoint archived, its pending deliveries cancelled.
     async fn archive_webhook_endpoint(
         &self,
         tenant_id: TenantId,
         id: WebhookEndpointId,
-    ) -> StoreResult<()>;
+    ) -> StoreResult<WebhookEndpoint>;
 
     async fn get_webhook_endpoint_secret(
         &self,
@@ -84,6 +91,9 @@ pub trait WebhookOutInterface {
         id: WebhookEndpointId,
     ) -> StoreResult<SecretString>;
 
+    /// A new signing secret; the one it replaces is retired, signing beside it for
+    /// `PREVIOUS_SECRET_GRACE`, as every other retired within that window still does. Refused
+    /// (`FailedPrecondition`) past `MAX_RETIRED_SECRETS` such secrets.
     async fn rotate_webhook_endpoint_secret(
         &self,
         tenant_id: TenantId,
@@ -143,6 +153,18 @@ pub trait WebhookOutInterface {
         status: Option<WebhookDeliveryStatus>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<WebhookDeliveryListItem>>;
+
+    /// A page of the endpoint's deliveries by keyset (API v2): newest first, those older than
+    /// `before`, at most `limit`; None when `before` is not one of the endpoint's deliveries.
+    /// `attempts` is not counted (`attempt_count` says it).
+    async fn list_webhook_deliveries_before(
+        &self,
+        tenant_id: TenantId,
+        endpoint_id: WebhookEndpointId,
+        status: Option<WebhookDeliveryStatus>,
+        before: Option<WebhookDeliveryId>,
+        limit: usize,
+    ) -> StoreResult<Option<Vec<WebhookDeliveryListItem>>>;
 
     async fn get_webhook_delivery(
         &self,
@@ -326,6 +348,7 @@ impl WebhookOutInterface for Store {
             disabled_at: None,
             rate_limit_per_sec: endpoint.rate_limit_per_sec,
             legacy_svix_headers: false,
+            api_version: endpoint.api_version,
         };
 
         let row = self
@@ -389,6 +412,7 @@ impl WebhookOutInterface for Store {
             disabled_at: endpoint.disabled.then_some(now),
             rate_limit_per_sec: endpoint.rate_limit_per_sec,
             legacy_svix_headers: true,
+            api_version: None,
         };
 
         self.transaction(|conn| {
@@ -468,6 +492,7 @@ impl WebhookOutInterface for Store {
             sensitive_header_values,
             rate_limit_per_sec: patch.rate_limit_per_sec,
             paused_until: reenabling.then_some(None),
+            api_version: patch.api_version,
             updated_at: Some(now),
         };
 
@@ -497,26 +522,25 @@ impl WebhookOutInterface for Store {
         &self,
         tenant_id: TenantId,
         id: WebhookEndpointId,
-    ) -> StoreResult<()> {
+    ) -> StoreResult<WebhookEndpoint> {
         let now = common_clock::wall().naive_utc();
 
         self.transaction(|conn| {
             async move {
                 let archived = WebhookOutEndpointRow::archive(conn, tenant_id, id, now)
                     .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-
-                if archived == 0 {
-                    return Err(Report::new(StoreError::ValueNotFound(
-                        "Webhook endpoint not found".to_string(),
-                    )));
-                }
+                    .map_err(Into::<Report<StoreError>>::into)?
+                    .ok_or_else(|| {
+                        Report::new(StoreError::ValueNotFound(
+                            "Webhook endpoint not found".to_string(),
+                        ))
+                    })?;
 
                 WebhookOutDeliveryRow::cancel_pending_for_endpoint(conn, id, now)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
-                Ok(())
+                Ok(archived.into())
             }
             .scope_boxed()
         })
@@ -546,18 +570,41 @@ impl WebhookOutInterface for Store {
         let encrypted = self.encrypt_webhook_secret(&secret)?;
         let now = common_clock::wall().naive_utc();
 
-        let mut conn = self.get_conn().await?;
-
-        WebhookOutEndpointRow::rotate_secret(
-            &mut conn,
-            tenant_id,
-            id,
-            encrypted,
-            now + PREVIOUS_SECRET_GRACE,
-            now,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+        self.transaction(|conn| {
+            async move {
+                let endpoint = WebhookOutEndpointRow::lock_by_id(conn, tenant_id, id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                WebhookOutRetiredSecretRow::delete_expired(conn, id, now)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                let live = WebhookOutRetiredSecretRow::list_live(conn, id, now)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                if live.len() >= MAX_RETIRED_SECRETS {
+                    return Err(Report::new(StoreError::FailedPrecondition(format!(
+                        "This endpoint's secret was rotated {MAX_RETIRED_SECRETS} times in 24 \
+                         hours, each still signing: rotate again once the oldest expires"
+                    ))));
+                }
+                WebhookOutRetiredSecretRowNew {
+                    id: uuid::Uuid::now_v7(),
+                    tenant_id,
+                    endpoint_id: id,
+                    secret: endpoint.secret,
+                    expires_at: now + PREVIOUS_SECRET_GRACE,
+                }
+                .insert(conn)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+                WebhookOutEndpointRow::rotate_secret(conn, tenant_id, id, encrypted, now)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                Ok(())
+            }
+            .scope_boxed()
+        })
+        .await?;
 
         Ok(secret)
     }
@@ -682,12 +729,22 @@ impl WebhookOutInterface for Store {
 
         let secret = self.decrypt_webhook_secret(&row.secret)?;
 
-        let previous_secret = match (&row.previous_secret, row.previous_secret_expires_at) {
-            (Some(previous), Some(expires_at)) if expires_at > common_clock::wall().naive_utc() => {
-                Some(self.decrypt_webhook_secret(previous)?)
-            }
-            _ => None,
-        };
+        // Every secret rotated out within the grace, the newest first; and the single one a
+        // release before `webhook_out_retired_secret` kept on the endpoint, while it lasts.
+        let now = common_clock::wall().naive_utc();
+        let mut previous_secrets = Vec::new();
+        for retired in WebhookOutRetiredSecretRow::list_live(&mut conn, endpoint_id, now)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+        {
+            previous_secrets.push(self.decrypt_webhook_secret(&retired.secret)?);
+        }
+        if let (Some(previous), Some(expires_at)) =
+            (&row.previous_secret, row.previous_secret_expires_at)
+            && expires_at > now
+        {
+            previous_secrets.push(self.decrypt_webhook_secret(previous)?);
+        }
 
         let sensitive = self.decrypt_sensitive_headers(row.sensitive_header_values.as_deref())?;
         let endpoint: WebhookEndpoint = row.into();
@@ -708,7 +765,7 @@ impl WebhookOutInterface for Store {
         Ok(Some(WebhookEndpointWithSecrets {
             endpoint,
             secret,
-            previous_secret,
+            previous_secrets,
             headers,
         }))
     }
@@ -887,6 +944,34 @@ impl WebhookOutInterface for Store {
             total_pages: rows.total_pages,
             total_results: rows.total_results,
         })
+    }
+
+    async fn list_webhook_deliveries_before(
+        &self,
+        tenant_id: TenantId,
+        endpoint_id: WebhookEndpointId,
+        status: Option<WebhookDeliveryStatus>,
+        before: Option<WebhookDeliveryId>,
+        limit: usize,
+    ) -> StoreResult<Option<Vec<WebhookDeliveryListItem>>> {
+        let mut conn = self.get_conn().await?;
+
+        let rows = WebhookOutDeliveryRow::list_page_by_endpoint(
+            &mut conn,
+            tenant_id,
+            endpoint_id,
+            status.map(Into::into),
+            before,
+            i64::try_from(limit).unwrap_or(i64::MAX),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(rows.map(|rows| {
+            rows.into_iter()
+                .map(WebhookDeliveryListItem::from)
+                .collect()
+        }))
     }
 
     async fn get_webhook_delivery(

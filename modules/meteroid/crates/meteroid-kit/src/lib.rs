@@ -25,7 +25,7 @@ use meteroid_grpc::meteroid::portal::customer::v1::{
 };
 use meteroid_middleware::server::auth::SharedSupportGrantReader;
 pub use meteroid_middleware::server::auth::rbac::{RouteAuth, RoutePolicy};
-pub use meteroid_rest_common::spec::EditionSpec;
+pub use meteroid_rest_common::spec::{EditionSpec, OperationEdition};
 use meteroid_store::clients::pending_usage::PendingUsageSource;
 use meteroid_store::hooks::{
     AnalyticsHook, CreditControlHooks, InstanceEdition, MemberHooks, OrganizationHooks,
@@ -84,6 +84,10 @@ pub struct RestRoutes {
     /// Part of the client API (`/api/client/v1`): authenticated with a customer portal token and
     /// published in the edition's client spec.
     pub client: OpenApiRouter,
+    /// Part of the public REST API v2 (`/api/v2`, ADR-0013): mounted beside core's v2 routes,
+    /// under v2's version, problem and idempotency middlewares, and published in the edition's v2
+    /// spec. Empty by default.
+    pub v2: OpenApiRouter,
     /// Outside the published API, e.g. protocol endpoints called by other installations.
     pub other: axum::Router,
 }
@@ -136,6 +140,17 @@ pub trait ApiModule: Send + Sync {
     /// The client API operations `rest` publishes.
     fn client_openapi(&self) -> Option<utoipa::openapi::OpenApi> {
         None
+    }
+
+    /// The API v2 operations `rest` publishes (`RestRoutes::v2`).
+    fn openapi_v2(&self) -> Option<utoipa::openapi::OpenApi> {
+        None
+    }
+
+    /// The edition serving the operations this module publishes, marked on each of them in the
+    /// specs (`x-meteroid-edition`); an Enterprise module's by default. Core's are `oss`.
+    fn spec_edition(&self) -> OperationEdition {
+        OperationEdition::Enterprise
     }
 
     /// The webhook events this module emits among those core documents but publishes only when
@@ -438,9 +453,32 @@ impl Modules {
             doc.info.license = license.clone();
             doc
         };
+        // Each module's operations marked with the edition serving them before they are merged.
+        let marked = |module: &Arc<dyn ApiModule>, doc: Option<utoipa::openapi::OpenApi>| {
+            doc.map(|mut doc| {
+                meteroid_rest_common::spec::mark_operations(&mut doc, module.spec_edition());
+                doc
+            })
+        };
         EditionSpec {
-            api: merged(self.api.iter().filter_map(|m| m.openapi()).collect()),
-            client: merged(self.api.iter().filter_map(|m| m.client_openapi()).collect()),
+            api: merged(
+                self.api
+                    .iter()
+                    .filter_map(|m| marked(m, m.openapi()))
+                    .collect(),
+            ),
+            client: merged(
+                self.api
+                    .iter()
+                    .filter_map(|m| marked(m, m.client_openapi()))
+                    .collect(),
+            ),
+            api_v2: merged(
+                self.api
+                    .iter()
+                    .filter_map(|m| marked(m, m.openapi_v2()))
+                    .collect(),
+            ),
             webhook_events: self.webhook_events(),
         }
     }

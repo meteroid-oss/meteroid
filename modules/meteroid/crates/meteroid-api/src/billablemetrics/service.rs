@@ -92,6 +92,7 @@ impl BillableMetricsService for BillableMetricsComponents {
                     name: inner.name,
                     description: inner.description,
                     code: inner.code,
+                    catalog_code: None,
                     aggregation_type: aggregation_type.unwrap(),
                     aggregation_key,
                     unit_conversion_factor: unit_conversion.as_ref().map(|u| u.factor as i32), // TODO allow float

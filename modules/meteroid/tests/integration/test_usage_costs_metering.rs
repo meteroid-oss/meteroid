@@ -131,6 +131,7 @@ async fn test_usage_series_and_event_paging_over_clickhouse() {
                 name: "Cost calls".to_owned(),
                 description: None,
                 code: CODE.to_owned(),
+                catalog_code: None,
                 aggregation_type: BillingMetricAggregateEnum::Sum,
                 aggregation_key: Some("tokens".to_owned()),
                 unit_conversion_factor: None,

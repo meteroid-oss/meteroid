@@ -177,6 +177,30 @@ impl PlanRow {
             .into_db_result()
     }
 
+    /// Locked, so two writes of the plan's draft run one after the other.
+    pub async fn lock_by_id(
+        conn: &mut PgConn,
+        id: PlanId,
+        tenant_id: TenantId,
+    ) -> DbResult<PlanRow> {
+        use crate::schema::plan::dsl as p_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = p_dsl::plan
+            .filter(p_dsl::id.eq(id))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .select(PlanRow::as_select())
+            .for_update();
+
+        crate::debug_sql(&query);
+
+        query
+            .first(conn)
+            .await
+            .attach("Error while locking plan")
+            .into_db_result()
+    }
+
     pub async fn find_by_id(
         conn: &mut PgConn,
         id: PlanId,
@@ -764,6 +788,100 @@ impl FullPlanRow {
 }
 
 impl PlanRowOverview {
+    /// The tenant's plans after `after` in id order, at most `limit` (API v2 keyset pages), read
+    /// as `list` reads them; of `status` when given, else every plan but the archived ones.
+    pub async fn list_page(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        product_family_id: Option<ProductFamilyId>,
+        status: Option<PlanStatusEnum>,
+        after: Option<PlanId>,
+        limit: i64,
+    ) -> DbResult<Vec<PlanRowOverview>> {
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version;
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use crate::schema::product_family::dsl as pf_dsl;
+        use crate::schema::subscription::dsl as s_dsl;
+        use diesel::dsl::today;
+        use diesel_async::RunQueryDsl;
+
+        let (active_version_alias, draft_version_alias) = alias!(
+            plan_version as active_version_alias,
+            plan_version as draft_version_alias
+        );
+
+        let active_subscriptions_count_subselect = s_dsl::subscription
+            .inner_join(pv_dsl::plan_version.on(s_dsl::plan_version_id.eq(pv_dsl::id)))
+            .filter(pv_dsl::plan_id.eq(p_dsl::id))
+            .filter(s_dsl::start_date.le(today))
+            .filter(
+                s_dsl::end_date
+                    .is_null()
+                    .or(s_dsl::end_date.nullable().ge(today)),
+            )
+            .count()
+            .single_value();
+
+        let mut query = p_dsl::plan
+            .inner_join(pf_dsl::product_family.on(p_dsl::product_family_id.eq(pf_dsl::id)))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .left_join(
+                active_version_alias.on(active_version_alias
+                    .field(plan_version::id)
+                    .nullable()
+                    .eq(p_dsl::active_version_id)),
+            )
+            .left_join(
+                draft_version_alias.on(draft_version_alias
+                    .field(plan_version::id)
+                    .nullable()
+                    .eq(p_dsl::draft_version_id)),
+            )
+            .select((
+                p_dsl::id,
+                p_dsl::name,
+                p_dsl::description,
+                p_dsl::created_at,
+                p_dsl::plan_type,
+                p_dsl::status,
+                pf_dsl::name,
+                pf_dsl::id,
+                active_version_alias
+                    .fields((pv_dsl::id, pv_dsl::version, pv_dsl::trial_duration_days))
+                    .nullable(),
+                draft_version_alias.field(pv_dsl::id).nullable(),
+                active_subscriptions_count_subselect,
+                p_dsl::self_service_rank,
+                p_dsl::issues_license,
+                p_dsl::eligibility,
+                p_dsl::pricing_sales_led,
+                p_dsl::pricing_hide_price,
+            ))
+            .into_boxed();
+
+        if let Some(product_family_id) = product_family_id {
+            query = query.filter(p_dsl::product_family_id.eq(product_family_id));
+        }
+        // Archived plans are left out unless asked for, as every v2 list leaves archived out.
+        query = match status {
+            Some(status) => query.filter(p_dsl::status.eq(status)),
+            None => query.filter(p_dsl::status.ne(PlanStatusEnum::Archived)),
+        };
+        if let Some(after) = after {
+            query = query.filter(p_dsl::id.gt(after));
+        }
+        let query = query.order(p_dsl::id.asc()).limit(limit);
+
+        crate::debug_sql(&query);
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while fetching a page of plans")
+            .into_db_result()
+    }
+
     pub async fn list(
         conn: &mut PgConn,
         tenant_id: TenantId,

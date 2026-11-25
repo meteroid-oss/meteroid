@@ -74,6 +74,12 @@ pub struct SubscriptionRow {
     pub billing_retry_at: Option<chrono::DateTime<chrono::Utc>>,
     /// The plan option bought; `None` only once it is gone.
     pub plan_option_id: Option<PlanOptionId>,
+    /// The integrator's own identifier, unique per tenant when set (ADR-0013).
+    pub external_id: Option<String>,
+    /// Trigger-maintained: when the subscription's own row last changed, bookkeeping aside; `None`
+    /// unchanged since before it was kept. `subscription_activity` has when it or what API v2
+    /// reads beside it last changed, stamped as the change committed.
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Insertable, Debug, Clone)]
@@ -116,6 +122,8 @@ pub struct SubscriptionRowNew {
     pub usage_filter_value: Option<String>,
     pub usage_filter_since: Option<NaiveDateTime>,
     pub plan_option_id: Option<PlanOptionId>,
+    /// The integrator's own id, unique per tenant (`subscription_tenant_external_id_key`).
+    pub external_id: Option<String>,
 }
 
 pub struct CancelSubscriptionParams {

@@ -31,6 +31,7 @@ async fn endpoint_with_stored_secret(env: &TestEnv, url: &str, stored: &str) -> 
                     .expect("resolve max in flight"),
                 headers: vec![],
                 rate_limit_per_sec: None,
+                api_version: None,
             },
         )
         .await

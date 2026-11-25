@@ -19,6 +19,8 @@ pub struct AddOnRow {
     pub archived_at: Option<NaiveDateTime>,
     /// How the add-on bills its product, fixed once created.
     pub fee_structure: serde_json::Value,
+    /// Unique per tenant and immutable; filled from the name on insert when not set (ADR-0013).
+    pub code: String,
 }
 
 #[derive(Debug, Insertable)]

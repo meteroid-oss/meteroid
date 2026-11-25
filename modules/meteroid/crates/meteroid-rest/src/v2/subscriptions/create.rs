@@ -1,0 +1,577 @@
+//! `POST /api/v2/subscriptions`: a subscription created on the store's create path, every code
+//! of the request resolved first — the customer, the plan version, its option and currency, the
+//! seat counts, levels, price overrides, own charges, add-ons and coupons. A checkout session
+//! resolves its purchase the same way (`resolve_purchase`).
+use super::changes::require_key;
+use super::model::{AddOnPurchase, CreateCharges, CreateSubscription, Subscription};
+use super::render;
+use super::resolve::{
+    cells, count, counts, not_found_at, option_named, override_price, own_charge, plan_charge,
+    plan_stored, published_version, sale, seats,
+};
+use crate::AppState;
+use crate::v2::bounds;
+use crate::v2::extract::Body;
+use crate::v2::idempotency::committed_write;
+use crate::v2::ids;
+use crate::v2::problem::{FieldError, Problem, ProblemCode, store_message};
+use axum::Extension;
+use axum::extract::State;
+use axum::response::Response;
+use common_domain::ids::{CouponId, ManagedQuantityId};
+use common_grpc::middleware::server::auth::AuthorizedAsTenant;
+use http::{HeaderMap, StatusCode};
+use meteroid_app::features::ensure_credit_pricing_allowed;
+use meteroid_store::domain::enums::BillingPeriodEnum;
+use meteroid_store::domain::plan_options::{PlanOption, PlanOptionRef};
+use meteroid_store::domain::price_cells::OptionPricing;
+use meteroid_store::domain::price_components::{PriceEntry, ProductRef};
+use meteroid_store::domain::prices::FeeStructure;
+use meteroid_store::domain::subscription_add_ons::{
+    CreateSubscriptionAddOn, CreateSubscriptionAddOns, SubscriptionAddOnCustomization,
+    SubscriptionAddOnParameterization,
+};
+use meteroid_store::domain::usage_levels::settle_levels;
+use meteroid_store::domain::{
+    ComponentOverride, ComponentParameterization, ComponentParameters,
+    CreateSubscription as DomainCreate, CreateSubscriptionComponents, CreateSubscriptionCoupon,
+    CreateSubscriptionCoupons, Customer, ExtraComponent, FullPlan, SubscriptionNew,
+};
+use meteroid_store::errors::StoreError;
+use meteroid_store::repositories::CatalogCodesInterface;
+use meteroid_store::repositories::add_ons::AddOnInterface;
+use meteroid_store::repositories::coupons::CouponInterface;
+use std::collections::{BTreeMap, HashMap};
+
+/// The integrator's id, checked free and unlike an id.
+async fn external_id(
+    state: &AppState,
+    auth: &AuthorizedAsTenant,
+    asked: Option<&str>,
+) -> Result<Option<String>, Problem> {
+    let Some(asked) = asked else {
+        return Ok(None);
+    };
+    let asked = asked.trim();
+    if asked.is_empty() || asked.len() > 255 {
+        return Err(Problem::field(
+            "/external_id",
+            "invalid",
+            "An external id is 1 to 255 bytes",
+        ));
+    }
+    if ids::reads_as_subscription_id(asked) {
+        return Err(Problem::field(
+            "/external_id",
+            "invalid",
+            "An external id never reads as a subscription id (a UUID or `sub_…`)",
+        ));
+    }
+    match state
+        .store
+        .find_subscription_id_by_external_id(auth.tenant_id, asked)
+        .await
+    {
+        Ok(_) => Err(taken(asked)),
+        Err(error) if matches!(error.current_context(), StoreError::ValueNotFound(_)) => {
+            Ok(Some(asked.to_owned()))
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn taken(external_id: &str) -> Problem {
+    let mut problem = Problem::conflict(
+        ProblemCode::CodeTaken,
+        format!("Another subscription has the external id '{external_id}'"),
+    );
+    problem.errors.push(FieldError {
+        path: "/external_id".to_owned(),
+        code: "duplicate".to_owned(),
+        message: format!("Another subscription has the external id '{external_id}'"),
+    });
+    problem
+}
+
+/// Create a subscription
+///
+/// The customer (its id, or `ext:<alias>`) on a plan (by code or id): its option by alias, seat
+/// counts by managed quantity code, usage levels by product code, price overrides, charges of its
+/// own, add-ons and coupons by code. It is sold in its customer's currency when the plan sells it,
+/// else in the plan's; a `currency` sent is checked against it. An `Idempotency-Key` is required:
+/// a retry never creates a second subscription.
+#[utoipa::path(
+    post,
+    tag = "Subscriptions",
+    path = "/api/v2/subscriptions",
+    request_body = CreateSubscription,
+    responses(
+        (status = 201, description = "Created", body = Subscription),
+        (status = 404, description = "The customer is not found", body = Problem, content_type = "application/problem+json"),
+        (status = 409, description = "The external id is taken (`code_taken`)", body = Problem, content_type = "application/problem+json"),
+        (status = 422, description = "A field is refused: an unknown option, a quantity no seat charge counts, a level the charge does not sell…; or no Idempotency-Key was sent", body = Problem, content_type = "application/problem+json"),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub async fn create_subscription(
+    Extension(auth): Extension<AuthorizedAsTenant>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Body(body): Body<CreateSubscription>,
+) -> Result<Response, Problem> {
+    require_key(&headers, "A subscription")?;
+    let tenant_id = auth.tenant_id;
+    check_terms(Terms {
+        trial_days: body.trial_days,
+        billing_day_anchor: body.billing_day_anchor,
+        net_terms: body.invoicing.net_terms,
+    })?;
+    let external_id = external_id(&state, &auth, body.external_id.as_deref()).await?;
+    let customer = ids::customer(&state, tenant_id, &body.customer)
+        .await
+        .map_err(not_found_at(
+            "/customer".to_owned(),
+            "customer",
+            &body.customer,
+        ))?;
+    let purchase = resolve_purchase(
+        &state,
+        &auth,
+        &customer,
+        PurchaseAsked {
+            plan: &body.plan,
+            version: body.version,
+            option: body.option.as_deref(),
+            currency: body.currency.as_deref(),
+            quantities: &body.quantities,
+            levels: &body.levels,
+            charges: &body.charges,
+            add_ons: &body.add_ons,
+            coupons: &body.coupons,
+        },
+    )
+    .await?;
+    let invoicing = body.invoicing;
+    let create = DomainCreate {
+        subscription: SubscriptionNew {
+            customer_id: customer.id,
+            plan_version_id: purchase.fp.version.id,
+            net_terms: invoicing.net_terms,
+            invoice_memo: invoicing.memo,
+            invoice_threshold: None,
+            start_date: body
+                .start_date
+                .unwrap_or_else(|| common_clock::now().date_naive()),
+            end_date: body.end_date,
+            billing_start_date: None,
+            activation_condition: body.activation.into(),
+            trial_duration: body.trial_days,
+            billing_day_anchor: body.billing_day_anchor,
+            payment_methods_config: None,
+            auto_advance_invoices: invoicing.auto_finalize.unwrap_or(true),
+            charge_automatically: invoicing.charge_automatically.unwrap_or(true),
+            purchase_order: invoicing.purchase_order,
+            backdate_invoices: false,
+            skip_checkout_session: false,
+            skip_past_invoices: false,
+            custom_properties: body.custom_properties.unwrap_or(serde_json::Value::Null),
+            usage_filter: None,
+            // Written with the row: a create racing another on it fails whole.
+            external_id: external_id.clone(),
+        },
+        // Named explicitly, so the store sells the option and currency checked here.
+        option: purchase
+            .option
+            .as_ref()
+            .map(|option| PlanOptionRef::Id(option.id)),
+        price_components: purchase.components,
+        add_ons: (!purchase.add_ons.is_empty()).then_some(CreateSubscriptionAddOns {
+            add_ons: purchase.add_ons,
+        }),
+        coupons: (!purchase.coupons.is_empty()).then(|| CreateSubscriptionCoupons {
+            coupons: purchase
+                .coupons
+                .into_iter()
+                .map(|coupon_id| CreateSubscriptionCoupon { coupon_id })
+                .collect(),
+        }),
+        entitlements: Vec::new(),
+        minimum_override: None,
+        drop_minimum: false,
+    };
+
+    let created = match state
+        .services
+        .insert_subscription(auth.as_actor(), create, tenant_id)
+        .await
+    {
+        Ok(created) => created,
+        Err(error) => {
+            return Err(insert_refused(&state, &auth, external_id.as_deref(), error).await);
+        }
+    };
+    // Written: a retry replays this answer, never a second subscription, whatever is read back.
+    // Whole, else as lists read it, else by its id alone.
+    let id = created.id;
+    let read = match render::subscription(&state, tenant_id, id).await {
+        Ok(subscription) => Ok(subscription),
+        Err(problem) => {
+            log::warn!(
+                "Subscription {id} was created but is not read back whole in v2: {problem:?}"
+            );
+            render::summary(&state, tenant_id, id).await
+        }
+    };
+    Ok(committed_write(
+        StatusCode::CREATED,
+        read,
+        || serde_json::json!({"id": id.to_string()}),
+    ))
+}
+
+/// The terms a new subscription is sold on beside its purchase, as `POST /subscriptions` and
+/// `POST /checkout-sessions` send them.
+pub(crate) struct Terms {
+    pub trial_days: Option<u32>,
+    pub billing_day_anchor: Option<u16>,
+    pub net_terms: Option<u32>,
+}
+
+/// Refuses terms out of their bounds, each at its pointer: a trial of 0 to 3650 days, a billing
+/// day of 1 to 31, net terms of 0 to 365 days.
+pub(crate) fn check_terms(terms: Terms) -> Result<(), Problem> {
+    if let Some(days) = terms.trial_days {
+        bounds::trial_days(days, "/trial_days")?;
+    }
+    if let Some(day) = terms.billing_day_anchor {
+        bounds::billing_day_anchor(day, "/billing_day_anchor")?;
+    }
+    if let Some(days) = terms.net_terms {
+        bounds::net_terms(days, "/invoicing/net_terms")?;
+    }
+    Ok(())
+}
+
+/// What a purchase of a plan names, as `POST /subscriptions` and `POST /checkout-sessions` send
+/// it.
+pub(crate) struct PurchaseAsked<'a> {
+    pub plan: &'a str,
+    pub version: Option<i32>,
+    pub option: Option<&'a str>,
+    pub currency: Option<&'a str>,
+    pub quantities: &'a BTreeMap<String, String>,
+    pub levels: &'a BTreeMap<String, String>,
+    pub charges: &'a CreateCharges,
+    pub add_ons: &'a [AddOnPurchase],
+    pub coupons: &'a [String],
+}
+
+/// A purchase resolved before anything is written: the published version bought, the option
+/// it is sold in (its currency checked), how its charges differ from the plan's (none when they do not),
+/// its add-ons and coupons.
+pub(crate) struct Purchase {
+    pub fp: FullPlan,
+    pub option: Option<PlanOption>,
+    pub components: Option<CreateSubscriptionComponents>,
+    pub add_ons: Vec<CreateSubscriptionAddOn>,
+    pub coupons: Vec<CouponId>,
+}
+
+/// Every code a purchase names, resolved for `customer` and checked at its JSON pointer: the
+/// plan version, its option and currency, the seat counts, levels, price overrides, own charges,
+/// add-ons and coupons.
+pub(crate) async fn resolve_purchase(
+    state: &AppState,
+    auth: &AuthorizedAsTenant,
+    customer: &Customer,
+    asked: PurchaseAsked<'_>,
+) -> Result<Purchase, Problem> {
+    let tenant_id = auth.tenant_id;
+    bounds::count(
+        asked.add_ons.len(),
+        bounds::MAX_ADD_ONS,
+        "/add_ons",
+        "add-ons",
+    )?;
+    bounds::count(
+        asked.coupons.len(),
+        bounds::MAX_COUPONS,
+        "/coupons",
+        "coupons",
+    )?;
+    bounds::count(
+        asked.charges.overrides.len(),
+        bounds::MAX_CHARGES,
+        "/charges/override",
+        "overrides",
+    )?;
+    bounds::count(
+        asked.charges.add.len(),
+        bounds::MAX_CHARGES,
+        "/charges/add",
+        "charges",
+    )?;
+    let plan_id = ids::plan_id(state, tenant_id, asked.plan)
+        .await
+        .map_err(not_found_at("/plan".to_owned(), "plan", asked.plan))?;
+    let fp = published_version(state, tenant_id, plan_id, asked.version, "").await?;
+
+    let named = match asked.option {
+        Some(alias) => Some(option_named(&fp, alias, "/option")?),
+        None => None,
+    };
+    let (currency, option) = sale(&customer.currency, &fp, named);
+    if let Some(sent) = asked.currency
+        && !sent.trim().eq_ignore_ascii_case(&currency)
+    {
+        return Err(Problem::field(
+            "/currency",
+            "invalid",
+            format!(
+                "This subscription is sold in {currency}: a subscription is sold in its \
+                 customer's currency ({}) when the plan sells it, else in the plan's",
+                customer.currency
+            ),
+        ));
+    }
+    let cells = cells(&fp, option.as_ref(), &currency);
+
+    let mut components = CreateSubscriptionComponents {
+        parameterized_components: Vec::new(),
+        overridden_components: Vec::new(),
+        extra_components: Vec::new(),
+        remove_components: Vec::new(),
+    };
+
+    for (index, raw) in asked.charges.remove.iter().enumerate() {
+        let component = plan_charge(&fp, &cells, raw, &format!("/charges/remove/{index}"))?;
+        components.remove_components.push(component.id);
+    }
+
+    // Add-ons first: a seat count may be theirs.
+    let mut add_ons = Vec::with_capacity(asked.add_ons.len());
+    for (index, purchase) in asked.add_ons.iter().enumerate() {
+        let path = format!("/add_ons/{index}");
+        if purchase.quantity == 0 {
+            return Err(Problem::field(
+                format!("{path}/quantity"),
+                "invalid",
+                "An add-on is held once at least",
+            ));
+        }
+        let quantity = i32::try_from(purchase.quantity).map_err(|_| {
+            Problem::field(
+                format!("{path}/quantity"),
+                "invalid",
+                format!("An add-on is held {} times at most", i32::MAX),
+            )
+        })?;
+        let add_on_id = ids::add_on_id(state, tenant_id, &purchase.add_on)
+            .await
+            .map_err(not_found_at(
+                format!("{path}/add_on"),
+                "add-on",
+                &purchase.add_on,
+            ))?;
+        let add_on = state
+            .store
+            .get_add_on_by_id(tenant_id, add_on_id)
+            .await
+            .map_err(|error| Problem::at(format!("{path}/add_on"), error))?;
+        add_ons.push((add_on, quantity));
+    }
+
+    let mut seat_counts: HashMap<ManagedQuantityId, u32> = HashMap::new();
+    for (code, raw) in asked.quantities {
+        let path = format!("/quantities/{code}");
+        let count = seats(raw, &path)?;
+        let quantity = ids::quantity(state, tenant_id, code)
+            .await
+            .map_err(not_found_at(path.clone(), "managed quantity", code))?;
+        let plan_seats: Vec<_> = cells
+            .iter()
+            .filter(|component| counts(component.fee_structure.as_ref(), &quantity))
+            .filter(|component| !components.remove_components.contains(&component.id))
+            .collect();
+        let add_on_seats = add_ons
+            .iter()
+            .any(|(add_on, _)| counts(add_on.fee_structure.as_ref(), &quantity));
+        if plan_seats.is_empty() && !add_on_seats {
+            return Err(Problem::field(
+                path,
+                "not_found",
+                format!("No seat charge of the plan or of its add-ons counts {code}"),
+            ));
+        }
+        for component in plan_seats {
+            components
+                .parameterized_components
+                .push(ComponentParameterization {
+                    component_id: component.id,
+                    parameters: ComponentParameters {
+                        initial_slot_count: Some(count),
+                        billing_period: None,
+                        committed_capacity: None,
+                    },
+                });
+        }
+        seat_counts.insert(quantity.id, count);
+    }
+
+    for (code, raw) in asked.levels {
+        let path = format!("/levels/{code}");
+        let included = count(raw, &path)?;
+        let component = plan_charge(&fp, &cells, code, &path)?;
+        if meteroid_store::domain::usage_levels::levels(component).is_empty() {
+            return Err(Problem::field(
+                path,
+                "not_found",
+                format!("The charge of {code} is not sold in levels"),
+            ));
+        }
+        components
+            .parameterized_components
+            .push(ComponentParameterization {
+                component_id: component.id,
+                parameters: ComponentParameters {
+                    initial_slot_count: None,
+                    billing_period: None,
+                    committed_capacity: Some(included),
+                },
+            });
+    }
+
+    for (index, wanted) in asked.charges.overrides.iter().enumerate() {
+        let path = format!("/charges/override/{index}");
+        let component = plan_charge(&fp, &cells, &wanted.charge, &format!("{path}/charge"))?;
+        let stored = plan_stored(component, &path)?;
+        // The cadence the cell bills on, unless the override names one.
+        let cadence = wanted.cadence.unwrap_or_else(|| {
+            option
+                .as_ref()
+                .and_then(|option| {
+                    OptionPricing::new(option.id, &currency)
+                        .prices(component)
+                        .first()
+                        .map(|price| price.cadence)
+                })
+                .or_else(|| component.prices.first().map(|price| price.cadence))
+                .unwrap_or(BillingPeriodEnum::Monthly)
+                .into()
+        });
+        let price =
+            override_price(state, tenant_id, &stored, wanted, cadence, &currency, &path).await?;
+        components.overridden_components.push(ComponentOverride {
+            component_id: component.id,
+            name: wanted
+                .name
+                .as_deref()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .unwrap_or(&component.name)
+                .to_owned(),
+            price_entry: PriceEntry::New(price),
+        });
+    }
+
+    for (index, charge) in asked.charges.add.iter().enumerate() {
+        let path = format!("/charges/add/{index}");
+        let (name, product_id, structure, price) =
+            own_charge(state, tenant_id, charge, &currency, &path).await?;
+        components.extra_components.push(ExtraComponent {
+            name,
+            product_ref: ProductRef::Existing(product_id),
+            price_entry: PriceEntry::New(price),
+            fee_structure: Some(structure),
+        });
+    }
+
+    // Each usage-levels charge on the level asked, checked against its cell, else its lowest.
+    settle_levels(&cells, &mut components)
+        .map_err(|error| Problem::field("/levels", "invalid", store_message(&error)))?;
+
+    let introduces_credit = components.extra_components.iter().any(|extra| {
+        extra
+            .fee_structure
+            .as_ref()
+            .is_some_and(FeeStructure::is_credit)
+    });
+    ensure_credit_pricing_allowed(
+        state.feature_resolver.as_ref(),
+        auth.organization_id,
+        introduces_credit,
+    )
+    .await
+    .map_err(Problem::gated)?;
+
+    let coupons = if asked.coupons.is_empty() {
+        Vec::new()
+    } else {
+        state
+            .store
+            .resolve_coupon_codes(tenant_id, asked.coupons)
+            .await
+            .map_err(|error| Problem::at("/coupons", error))?
+    };
+
+    let add_ons: Vec<CreateSubscriptionAddOn> = add_ons
+        .into_iter()
+        .map(|(add_on, quantity)| {
+            let seats = match &add_on.fee_structure {
+                Some(FeeStructure::Slot {
+                    quantity_id: Some(quantity_id),
+                    ..
+                }) => seat_counts.get(quantity_id).copied(),
+                _ => None,
+            };
+            CreateSubscriptionAddOn {
+                add_on_id: add_on.id,
+                customization: match seats {
+                    Some(count) => SubscriptionAddOnCustomization::Parameterization(
+                        SubscriptionAddOnParameterization {
+                            initial_slot_count: Some(count),
+                            billing_period: None,
+                            committed_capacity: None,
+                        },
+                    ),
+                    None => SubscriptionAddOnCustomization::None,
+                },
+                quantity,
+            }
+        })
+        .collect();
+
+    let changes_components = !(components.parameterized_components.is_empty()
+        && components.overridden_components.is_empty()
+        && components.extra_components.is_empty()
+        && components.remove_components.is_empty());
+
+    Ok(Purchase {
+        fp,
+        option,
+        components: changes_components.then_some(components),
+        add_ons,
+        coupons,
+    })
+}
+
+/// Why the insert failed: a duplicate is the external id taken by a create racing this one when
+/// another subscription now holds it, else the store's error.
+async fn insert_refused(
+    state: &AppState,
+    auth: &AuthorizedAsTenant,
+    external_id: Option<&str>,
+    error: error_stack::Report<StoreError>,
+) -> Problem {
+    if let Some(external_id) = external_id
+        && matches!(error.current_context(), StoreError::DuplicateValue { .. })
+        && state
+            .store
+            .find_subscription_id_by_external_id(auth.tenant_id, external_id)
+            .await
+            .is_ok()
+    {
+        return taken(external_id);
+    }
+    error.into()
+}

@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS api_idempotency_key_operation_created_at_idx;

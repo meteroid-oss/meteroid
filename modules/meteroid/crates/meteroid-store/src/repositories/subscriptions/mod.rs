@@ -417,11 +417,36 @@ impl SubscriptionInterface for Store {
         patch: SubscriptionPatch,
         actor: Actor,
     ) -> StoreResult<Subscription> {
+        // Patch and the resulting `subscription.updated` webhook must commit atomically:
+        // the transactional outbox guarantees the event is published iff the row changed.
+        use scoped_futures::ScopedFutureExt;
+        self.transaction(|conn| {
+            let actor = &actor;
+            async move {
+                self.patch_subscription_tx(conn, tenant_id, patch, actor)
+                    .await
+            }
+            .scope_boxed()
+        })
+        .await
+    }
+}
+
+impl Store {
+    /// [`SubscriptionInterface::patch_subscription`] in the caller's transaction, as a patch
+    /// writing other fields beside it takes it: refused on an ended subscription, automatic
+    /// charging checked against the invoicing entity's providers, custom properties validated and
+    /// merged.
+    pub(crate) async fn patch_subscription_tx(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        patch: SubscriptionPatch,
+        actor: &Actor,
+    ) -> StoreResult<Subscription> {
         use crate::domain::SubscriptionStatusEnum;
 
-        let mut conn = self.get_conn().await?;
-
-        let existing = SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, patch.id)
+        let existing = SubscriptionRow::get_subscription_by_id(conn, &tenant_id, patch.id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -465,7 +490,7 @@ impl SubscriptionInterface for Store {
 
         if effective_charge_automatically {
             let invoicing_entity = InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
-                &mut conn,
+                conn,
                 existing.invoicing_entity_id,
                 tenant_id,
             )
@@ -484,7 +509,7 @@ impl SubscriptionInterface for Store {
             Some(provided) => Some(
                 self.internal
                     .validate_and_normalize_custom_properties(
-                        &mut conn,
+                        conn,
                         tenant_id,
                         crate::domain::enums::CustomPropertyEntityType::Subscription,
                         provided,
@@ -496,10 +521,20 @@ impl SubscriptionInterface for Store {
             None => None,
         };
 
-        let row_patch = SubscriptionRowPatch {
+        let mut row_patch = SubscriptionRowPatch {
             charge_automatically: patch.charge_automatically,
             auto_advance_invoices: patch.auto_advance_invoices,
-            net_terms: patch.net_terms.map(|n| n as i32),
+            // Checked, never wrapped: 4294967295 days would store as -1.
+            net_terms: patch
+                .net_terms
+                .map(|n| {
+                    i32::try_from(n).map_err(|_| {
+                        Report::new(StoreError::InvalidArgument(
+                            "net terms are too many days".to_owned(),
+                        ))
+                    })
+                })
+                .transpose()?,
             invoice_memo: patch.invoice_memo,
             purchase_order: patch.purchase_order,
             payment_methods_config: patch
@@ -530,136 +565,117 @@ impl SubscriptionInterface for Store {
             .clone()
             .filter(|new| *new != before_usage_filter);
 
-        // Patch and the resulting `subscription.updated` webhook must commit atomically:
-        // the transactional outbox guarantees the event is published iff the row changed.
-        use scoped_futures::ScopedFutureExt;
-        self.transaction(|conn| {
-            let row_patch = &row_patch;
-            let actor = &actor;
-            let before_invoice_memo = &before_invoice_memo;
-            let before_purchase_order = &before_purchase_order;
-            let before_payment_methods_config = &before_payment_methods_config;
-            let before_usage_filter = &before_usage_filter;
-            let usage_filter_change = &usage_filter_change;
-            async move {
-                let mut row_patch = row_patch.clone();
-                // Serializes with the customer's other filter changes and creations.
-                let lock = crate::repositories::credit::customer_credit::lock_customer_tx(
+        // Serializes with the customer's other filter changes and creations.
+        let lock = crate::repositories::credit::customer_credit::lock_customer_tx(
+            conn,
+            tenant_id,
+            customer_id,
+        )
+        .await?;
+        diesel_models::query::credit_inputs::bump_customer(conn, &lock).await?;
+        if let Some(new) = &usage_filter_change {
+            let row = SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .subscription;
+            let from = usage_attribution::usage_filter_effective_from(
+                conn,
+                tenant_id,
+                &row,
+                usage_attribution::midnight(row.current_period_start),
+                new.as_ref(),
+                &std::collections::HashSet::new(),
+            )
+            .await?;
+            if let Some(filter) = new {
+                usage_attribution::ensure_usage_filter_available(
                     conn,
                     tenant_id,
                     customer_id,
+                    subscription_id,
+                    filter,
+                    from,
+                    usage_attribution::life_end(&row),
                 )
                 .await?;
-                diesel_models::query::credit_inputs::bump_customer(conn, &lock).await?;
-                if let Some(new) = usage_filter_change {
-                    let row =
-                        SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
-                            .await
-                            .map_err(Into::<Report<StoreError>>::into)?
-                            .subscription;
-                    let from = usage_attribution::usage_filter_effective_from(
-                        conn,
-                        tenant_id,
-                        &row,
-                        usage_attribution::midnight(row.current_period_start),
-                        new.as_ref(),
-                        &std::collections::HashSet::new(),
-                    )
-                    .await?;
-                    if let Some(filter) = new {
-                        usage_attribution::ensure_usage_filter_available(
-                            conn,
-                            tenant_id,
-                            customer_id,
-                            subscription_id,
-                            filter,
-                            from,
-                            usage_attribution::life_end(&row),
-                        )
-                        .await?;
-                    }
-                    usage_attribution::record_usage_filter_version(
-                        conn,
-                        tenant_id,
-                        subscription_id,
-                        new.as_ref(),
-                        from,
-                    )
-                    .await?;
-                    row_patch.usage_filter_property =
-                        Some(new.as_ref().map(|f| f.property.clone()));
-                    row_patch.usage_filter_value = Some(new.as_ref().map(|f| f.value.clone()));
-                    row_patch.usage_filter_since = Some(Some(from));
-                }
-                if !row_patch.is_empty() {
-                    SubscriptionRow::patch(conn, &tenant_id, subscription_id, &row_patch)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-                }
-
-                let updated: Subscription =
-                    SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?
-                        .try_into()?;
-
-                let mut changed_fields: Vec<&'static str> = Vec::new();
-                if before_charge_automatically != updated.charge_automatically {
-                    changed_fields.push("charge_automatically");
-                }
-                if before_auto_advance_invoices != updated.auto_advance_invoices {
-                    changed_fields.push("auto_advance_invoices");
-                }
-                if before_net_terms != updated.net_terms as i32 {
-                    changed_fields.push("net_terms");
-                }
-                if before_invoice_memo != &updated.invoice_memo {
-                    changed_fields.push("invoice_memo");
-                }
-                if before_purchase_order != &updated.purchase_order {
-                    changed_fields.push("purchase_order");
-                }
-                if before_payment_methods_config != &updated.payment_methods_config {
-                    changed_fields.push("payment_methods_config");
-                }
-                if before_usage_filter != &updated.usage_filter {
-                    changed_fields.push("usage_filter");
-                }
-
-                if !changed_fields.is_empty() {
-                    let activity = Activity::new(
-                        ActivityType::EntityUpdated,
-                        EntityType::Subscription,
-                        subscription_id.as_uuid(),
-                    )
-                    .agg_customer(updated.customer_id)
-                    .with_metadata(serde_json::json!({
-                        "changes": changed_fields
-                            .iter()
-                            .map(|f| serde_json::json!({ "field": f }))
-                            .collect::<Vec<_>>(),
-                    }));
-                    self.internal
-                        .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
-                        .await?;
-                }
-
-                let mut event: SubscriptionEvent = updated.clone().into();
-                event.change_type = Some(SubscriptionUpdateType::BillingConfigurationUpdated);
-                self.internal
-                    .record_outbox_batch_tx(
-                        conn,
-                        tenant_id,
-                        actor,
-                        vec![OutboxEvent::subscription_updated(event)],
-                    )
-                    .await?;
-
-                Ok(updated)
             }
-            .scope_boxed()
-        })
-        .await
+            usage_attribution::record_usage_filter_version(
+                conn,
+                tenant_id,
+                subscription_id,
+                new.as_ref(),
+                from,
+            )
+            .await?;
+            row_patch.usage_filter_property = Some(new.as_ref().map(|f| f.property.clone()));
+            row_patch.usage_filter_value = Some(new.as_ref().map(|f| f.value.clone()));
+            row_patch.usage_filter_since = Some(Some(from));
+        }
+        if !row_patch.is_empty() {
+            SubscriptionRow::patch(conn, &tenant_id, subscription_id, &row_patch)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+        }
+
+        let updated: Subscription =
+            SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .try_into()?;
+
+        let mut changed_fields: Vec<&'static str> = Vec::new();
+        if before_charge_automatically != updated.charge_automatically {
+            changed_fields.push("charge_automatically");
+        }
+        if before_auto_advance_invoices != updated.auto_advance_invoices {
+            changed_fields.push("auto_advance_invoices");
+        }
+        if before_net_terms != updated.net_terms as i32 {
+            changed_fields.push("net_terms");
+        }
+        if before_invoice_memo != updated.invoice_memo {
+            changed_fields.push("invoice_memo");
+        }
+        if before_purchase_order != updated.purchase_order {
+            changed_fields.push("purchase_order");
+        }
+        if before_payment_methods_config != updated.payment_methods_config {
+            changed_fields.push("payment_methods_config");
+        }
+        if before_usage_filter != updated.usage_filter {
+            changed_fields.push("usage_filter");
+        }
+
+        if !changed_fields.is_empty() {
+            let activity = Activity::new(
+                ActivityType::EntityUpdated,
+                EntityType::Subscription,
+                subscription_id.as_uuid(),
+            )
+            .agg_customer(updated.customer_id)
+            .with_metadata(serde_json::json!({
+                "changes": changed_fields
+                    .iter()
+                    .map(|f| serde_json::json!({ "field": f }))
+                    .collect::<Vec<_>>(),
+            }));
+            self.internal
+                .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
+                .await?;
+        }
+
+        let mut event: SubscriptionEvent = updated.clone().into();
+        event.change_type = Some(SubscriptionUpdateType::BillingConfigurationUpdated);
+        self.internal
+            .record_outbox_batch_tx(
+                conn,
+                tenant_id,
+                actor,
+                vec![OutboxEvent::subscription_updated(event)],
+            )
+            .await?;
+
+        Ok(updated)
     }
 }
 

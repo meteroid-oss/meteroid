@@ -90,6 +90,28 @@ pub(in crate::services) async fn ending_day_invoiced(
     }))
 }
 
+/// Whether a cancellation ending on `termination_date` gives back what was billed in advance.
+/// Only an open period, or one a backdated cancellation reaches into, can leave unused advance to
+/// refund: from its date, every period issued since comes back too (R-077). Ending on the period's
+/// end still ends a longer fee's period, billed past it. A free trial has billed nothing in
+/// advance; a paid trial did, like any period. The refund and its preview ask the same.
+pub(in crate::services) async fn refunds_on_cancellation(
+    conn: &mut PgConn,
+    sub: &crate::domain::Subscription,
+    termination_date: NaiveDate,
+) -> StoreResult<bool> {
+    let Some(period_end) = sub.current_period_end else {
+        return Ok(false);
+    };
+    if termination_date > period_end {
+        return Ok(false);
+    }
+    Ok(
+        !(sub.status == crate::domain::SubscriptionStatusEnum::TrialActive
+            && super::trial_is_free_tx(conn, sub).await?),
+    )
+}
+
 impl Services {
     /// Credits what a cancellation mid-period leaves unused: each fee's lines by their unused time
     /// (R-077), a shortfall charged up front, its period packs capped by their unused paid credit.
@@ -105,21 +127,11 @@ impl Services {
         // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
         Box::pin(async move {
             let sub = &details.subscription;
-
-            // Only an open period, or one a backdated cancellation reaches into, can leave unused
-            // advance to refund: from its date, every period issued since comes back too (R-077).
-            // Ending on the period's end still ends a longer fee's period, billed past it.
             let period_start = sub.current_period_start;
             let Some(period_end) = sub.current_period_end else {
                 return Ok(None);
             };
-            if termination_date > period_end {
-                return Ok(None);
-            }
-            // A free trial has billed nothing in advance; a paid trial did, like any period.
-            if sub.status == crate::domain::SubscriptionStatusEnum::TrialActive
-                && super::trial_is_free_tx(conn, sub).await?
-            {
+            if !refunds_on_cancellation(conn, sub, termination_date).await? {
                 return Ok(None);
             }
 

@@ -427,7 +427,7 @@ impl Services {
 
     /// A subscription's step failed: it alone waits for its retry, the invariant's after a day
     /// (R-095), the metering's without counting.
-    async fn subscription_failed(
+    pub(in crate::services) async fn subscription_failed(
         &self,
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
@@ -966,7 +966,7 @@ fn wake_of(due: &DueTimes, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
 }
 
 /// A panic of a run or a step, as its failure.
-fn panicked(panic: Box<dyn std::any::Any + Send>) -> Report<StoreError> {
+pub(in crate::services) fn panicked(panic: Box<dyn std::any::Any + Send>) -> Report<StoreError> {
     let message = panic
         .downcast_ref::<&str>()
         .map(|message| (*message).to_owned())

@@ -1534,6 +1534,7 @@ mod tests {
             name: "API calls".to_owned(),
             description: None,
             code: "api_calls".to_owned(),
+            catalog_code: "api_calls".to_owned(),
             aggregation_type: BillingMetricAggregateEnum::Sum,
             aggregation_key: Some("n".to_owned()),
             unit_conversion_factor: None,

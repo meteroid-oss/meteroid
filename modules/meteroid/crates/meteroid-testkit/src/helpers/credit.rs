@@ -479,6 +479,7 @@ pub async fn pack_subscription(
             usage_filter_value: None,
             usage_filter_since: None,
             plan_option_id: None,
+            external_id: None,
         }
         .insert(tx)
         .await?;

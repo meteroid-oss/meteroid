@@ -122,6 +122,10 @@ pub struct AmendmentPreviewExtended {
     pub adjustment_period: Option<crate::domain::Period>,
     /// The subscription as the amendment leaves it, the next invoice billing its period's end.
     pub subscription_after: crate::domain::Subscription,
+    /// The same, with the components and add-ons the amendment leaves.
+    pub details_after: crate::domain::SubscriptionDetails,
+    /// What the facts could not price, left out (the renewal under it).
+    pub missing: Vec<crate::domain::subscription_changes::PreviewPart>,
 }
 
 #[derive(Debug, Clone)]

@@ -240,6 +240,7 @@ impl SubscriptionBuilder {
                 skip_past_invoices: self.skip_past_invoices,
                 usage_filter: None,
                 custom_properties: serde_json::Value::Null,
+                external_id: None,
             },
             price_components: None,
             add_ons: None,

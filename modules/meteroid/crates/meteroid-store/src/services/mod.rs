@@ -69,7 +69,10 @@ pub use credit::unit_wallets::{CreditSaleQuote, UnitPriceSource, UnitSale};
 pub use credit::wallet_purchase::{ReplayedTopUp, TopUpWalletReceipt};
 pub use credit_paid_features::{CreditPaidFeature, CreditPayer};
 pub use edge::CheckoutPaymentOutcome;
-pub use invoices::{CustomerDetailsUpdate, InvoiceBillingMode, InvoiceDelivery, IssueAt};
+pub use invoices::{
+    CustomerDetailsUpdate, InvoiceBillingMode, InvoiceDelivery, IssueAt, ManualInvoice,
+    ManualInvoiceCustomer, ManualInvoiceLine,
+};
 pub use payment::hosted_payment_sweep::{HostedPaymentSweepOutcome, PendingHostedPaymentRef};
 pub use payment::hosted_return::HostedReturnOutcome;
 pub use payment::hosted_setup::DefaultMethodAdoption;
@@ -204,15 +207,17 @@ impl ServicesEdge {
             .await
     }
 
+    /// What a seat change would bill, nothing written: by a number of seats (an `i32`) or to a
+    /// count, counted from the seats held as `update_subscription_slots` counts them.
     pub async fn preview_slot_update(
         &self,
         tenant_id: common_domain::ids::TenantId,
         subscription_id: common_domain::ids::SubscriptionId,
         charge: impl Into<crate::domain::slot_transactions::SeatCharge>,
-        delta: i32,
+        change: impl Into<crate::domain::managed_quantities::SeatChange>,
     ) -> StoreResult<crate::domain::slot_transactions::SlotUpdatePreview> {
         self.services
-            .preview_seat_change(tenant_id, subscription_id, charge.into(), delta)
+            .preview_seat_change(tenant_id, subscription_id, charge.into(), change.into())
             .await
     }
 

@@ -6,7 +6,9 @@ use std::sync::Mutex;
 
 static PANICKING: Mutex<Vec<SubscriptionId>> = Mutex::new(Vec::new());
 
-/// Every step of `subscription_id` panics until [`clear`].
+/// Every step of `subscription_id` that writes its documents (the controller's, or a request's
+/// once its fact edit committed) panics until [`clear`]; a fact edit's own derive of the state
+/// does not.
 pub fn panic_in_steps_of(subscription_id: SubscriptionId) {
     PANICKING
         .lock()

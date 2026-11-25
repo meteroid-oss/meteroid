@@ -24,8 +24,9 @@ use common_domain::ids::{
 use diesel_models::credit_units::CreditUnitRow;
 use diesel_models::customer_credit::{
     CustomerCreditAccountRow, CustomerCreditEntryRow, CustomerCreditGrantProductRow,
-    CustomerCreditGrantRow, CustomerCreditGrantStateFilter, CustomerCreditStatementRow,
-    GrantSubscriptionFilter as DbGrantSubscriptionFilter, PlanCreditRuleRow,
+    CustomerCreditGrantRow, CustomerCreditGrantStateFilter, CustomerCreditStatementKey,
+    CustomerCreditStatementRow, GrantSubscriptionFilter as DbGrantSubscriptionFilter,
+    PlanCreditRuleRow,
 };
 use diesel_models::customers::CustomerRow;
 use diesel_models::subscriptions::SubscriptionRow;
@@ -74,6 +75,55 @@ pub struct WalletGrantsPage {
     pub total: u64,
     /// The wallet holds credits of a unit.
     pub credit_unit: bool,
+}
+
+/// Where a grant stands in a customer's grants, newest first: `(created_at, id)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GrantPosition {
+    pub created_at: DateTime<Utc>,
+    pub id: CreditGrantId,
+}
+
+impl GrantPosition {
+    pub fn of(grant: &CreditGrant) -> Self {
+        Self {
+            created_at: grant.created_at,
+            id: grant.id,
+        }
+    }
+}
+
+/// Where a line stands in its statement, whose order is `(effective_at, unrecorded,
+/// recorded_at, id)`: when it took effect, an expiry the sweep has not recorded yet after what was
+/// recorded at the same instant, then when it was recorded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LedgerPosition {
+    pub effective_at: DateTime<Utc>,
+    pub unrecorded: bool,
+    pub recorded_at: DateTime<Utc>,
+    pub id: Uuid,
+}
+
+impl From<CustomerCreditStatementKey> for LedgerPosition {
+    fn from(key: CustomerCreditStatementKey) -> Self {
+        Self {
+            effective_at: key.occurred_at,
+            unrecorded: key.unrecorded != 0,
+            recorded_at: key.recorded_at,
+            id: key.id,
+        }
+    }
+}
+
+impl From<LedgerPosition> for CustomerCreditStatementKey {
+    fn from(position: LedgerPosition) -> Self {
+        Self {
+            occurred_at: position.effective_at,
+            unrecorded: i32::from(position.unrecorded),
+            recorded_at: position.recorded_at,
+            id: position.id,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -133,6 +183,20 @@ pub trait CustomerCreditWalletsInterface {
         offset: i64,
     ) -> StoreResult<(Vec<CustomerCreditGrant>, u64)>;
 
+    /// `customer_credit_grants` paged by keyset: at most `limit` grants after `after` (the last
+    /// of the previous page), newest first.
+    #[allow(clippy::too_many_arguments)]
+    async fn customer_credit_grants_after(
+        &self,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        currency: Option<&str>,
+        subscription: Option<GrantSubscriptionFilter>,
+        state: Option<CreditGrantState>,
+        after: Option<GrantPosition>,
+        limit: i64,
+    ) -> StoreResult<Vec<CustomerCreditGrant>>;
+
     /// A page of the wallet's grants (only the depleted or expired ones when `used_up`), newest
     /// first, and the number matching. None when the wallet is not one of the customer's.
     #[allow(clippy::too_many_arguments)]
@@ -172,6 +236,18 @@ pub trait CustomerCreditWalletsInterface {
         limit: i64,
         offset: i64,
     ) -> StoreResult<(Vec<(CreditLedgerEntry, CreditApplication)>, u64)>;
+
+    /// `customer_credit_currency_ledger` paged by keyset: at most `limit` lines after `after`
+    /// (the last of the previous page) in the statement's order, newest first, each with its
+    /// position. Balances run over the whole statement.
+    async fn customer_credit_currency_ledger_after(
+        &self,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        currency: &str,
+        after: Option<LedgerPosition>,
+        limit: i64,
+    ) -> StoreResult<Vec<(CreditLedgerEntry, LedgerPosition)>>;
 
     /// Opens (or returns) the customer's wallet for a currency or credit unit.
     async fn create_customer_credit_wallet(
@@ -358,12 +434,7 @@ impl CustomerCreditWalletsInterface for Store {
         let mut conn = self.get_conn().await?;
         CustomerRow::find_by_id(&mut conn, &customer_id, &tenant_id).await?;
         let currency = currency.map(|currency| currency.trim().to_ascii_uppercase());
-        let state = state.map(|state| match state {
-            CreditGrantState::Pending => CustomerCreditGrantStateFilter::Pending,
-            CreditGrantState::Active => CustomerCreditGrantStateFilter::Active,
-            CreditGrantState::Depleted => CustomerCreditGrantStateFilter::Depleted,
-            CreditGrantState::Expired => CustomerCreditGrantStateFilter::Expired,
-        });
+        let state = state.map(db_state_filter);
         grants_page(
             &mut conn,
             tenant_id,
@@ -375,6 +446,35 @@ impl CustomerCreditWalletsInterface for Store {
             offset,
         )
         .await
+    }
+
+    async fn customer_credit_grants_after(
+        &self,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        currency: Option<&str>,
+        subscription: Option<GrantSubscriptionFilter>,
+        state: Option<CreditGrantState>,
+        after: Option<GrantPosition>,
+        limit: i64,
+    ) -> StoreResult<Vec<CustomerCreditGrant>> {
+        let mut conn = self.get_conn().await?;
+        CustomerRow::find_by_id(&mut conn, &customer_id, &tenant_id).await?;
+        let currency = currency.map(|currency| currency.trim().to_ascii_uppercase());
+        let now = common_clock::now();
+        let rows = CustomerCreditGrantRow::page_for_customer_before(
+            &mut conn,
+            tenant_id,
+            customer_id,
+            currency.as_deref(),
+            subscription.map(db_subscription_filter),
+            state.map(db_state_filter),
+            now,
+            after.map(|position| (position.created_at, position.id)),
+            limit.clamp(1, 1001),
+        )
+        .await?;
+        grant_views(&mut conn, tenant_id, customer_id, rows, now).await
     }
 
     async fn customer_wallet_grants(
@@ -488,6 +588,48 @@ impl CustomerCreditWalletsInterface for Store {
             })
             .collect::<StoreResult<Vec<_>>>()?;
         Ok((entries, u64::try_from(total).unwrap_or_default()))
+    }
+
+    async fn customer_credit_currency_ledger_after(
+        &self,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        currency: &str,
+        after: Option<LedgerPosition>,
+        limit: i64,
+    ) -> StoreResult<Vec<(CreditLedgerEntry, LedgerPosition)>> {
+        let mut conn = self.get_conn().await?;
+        CustomerRow::find_by_id(&mut conn, &customer_id, &tenant_id).await?;
+        let currency = currency.trim().to_ascii_uppercase();
+        let Some(account) = CustomerCreditAccountRow::find_by_currency(
+            &mut conn,
+            tenant_id,
+            customer_id,
+            &currency,
+        )
+        .await?
+        else {
+            return Ok(Vec::new());
+        };
+        let ids = vec![account.id];
+        let now = common_clock::now();
+        let rolling = rolling_tx(&mut conn, &ids, now).await?;
+        let rows = CustomerCreditStatementRow::page_for_accounts_before(
+            &mut conn,
+            tenant_id,
+            &ids,
+            &rolling,
+            now,
+            after.map(Into::into),
+            limit.clamp(1, 1001),
+        )
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                let position = LedgerPosition::from(row.key());
+                Ok((statement_entry(row.statement)?, position))
+            })
+            .collect()
     }
 
     async fn create_customer_credit_wallet(
@@ -828,10 +970,7 @@ async fn grants_page(
     offset: i64,
 ) -> StoreResult<(Vec<CustomerCreditGrant>, u64)> {
     let now = common_clock::now();
-    let subscription = subscription.map(|filter| match filter {
-        GrantSubscriptionFilter::Of(id) => DbGrantSubscriptionFilter::Of(id),
-        GrantSubscriptionFilter::UsableBy(id) => DbGrantSubscriptionFilter::UsableBy(id),
-    });
+    let subscription = subscription.map(db_subscription_filter);
     let rows = CustomerCreditGrantRow::page_for_customer(
         conn,
         tenant_id,
@@ -854,6 +993,34 @@ async fn grants_page(
         now,
     )
     .await?;
+    let grants = grant_views(conn, tenant_id, customer_id, rows, now).await?;
+    Ok((grants, u64::try_from(total).unwrap_or_default()))
+}
+
+fn db_subscription_filter(filter: GrantSubscriptionFilter) -> DbGrantSubscriptionFilter {
+    match filter {
+        GrantSubscriptionFilter::Of(id) => DbGrantSubscriptionFilter::Of(id),
+        GrantSubscriptionFilter::UsableBy(id) => DbGrantSubscriptionFilter::UsableBy(id),
+    }
+}
+
+fn db_state_filter(state: CreditGrantState) -> CustomerCreditGrantStateFilter {
+    match state {
+        CreditGrantState::Pending => CustomerCreditGrantStateFilter::Pending,
+        CreditGrantState::Active => CustomerCreditGrantStateFilter::Active,
+        CreditGrantState::Depleted => CustomerCreditGrantStateFilter::Depleted,
+        CreditGrantState::Expired => CustomerCreditGrantStateFilter::Expired,
+    }
+}
+
+/// The grants of a page as read at `now`: what lapsed of each, its products.
+async fn grant_views(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    customer_id: CustomerId,
+    rows: Vec<(CustomerCreditGrantRow, String)>,
+    now: DateTime<Utc>,
+) -> StoreResult<Vec<CustomerCreditGrant>> {
     let expiries = CustomerCreditEntryRow::list_amounts_for_customer(
         conn,
         tenant_id,
@@ -867,8 +1034,7 @@ async fn grants_page(
         &rows.iter().map(|(grant, _)| grant.id).collect::<Vec<_>>(),
     )
     .await?;
-    let grants = rows
-        .into_iter()
+    rows.into_iter()
         .map(|(grant, currency)| {
             let lapsed = expiries
                 .iter()
@@ -880,8 +1046,7 @@ async fn grants_page(
                 currency,
             })
         })
-        .collect::<StoreResult<Vec<_>>>()?;
-    Ok((grants, u64::try_from(total).unwrap_or_default()))
+        .collect()
 }
 
 /// What the plans of the customer's active subscriptions do once each denomination's credit

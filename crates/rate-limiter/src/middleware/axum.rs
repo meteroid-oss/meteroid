@@ -1,6 +1,13 @@
 //! Axum middleware for rate limiting
 //!
 //! Enable with the `axum` feature flag.
+//!
+//! Every response it lets through or refuses carries the bucket's state twice: as
+//! `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` (the bucket's capacity, what is
+//! left of it, and the Unix time it is full again), and as the IETF httpapi draft's structured
+//! fields, `RateLimit-Policy: "<policy>";q=<capacity>;w=<window seconds>` and
+//! `RateLimit: "<policy>";r=<remaining>;t=<seconds until full>`. A refusal adds `Retry-After`
+//! (seconds).
 
 use crate::{RateLimitResult, RateLimiter};
 use axum::{
@@ -10,9 +17,10 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use http::Request;
+use http::{HeaderMap, HeaderValue, Request};
 use serde_json::json;
 use std::sync::Arc;
+use std::time::UNIX_EPOCH;
 
 /// Key extractor: given a request, returns the rate-limit key and the
 /// pre-configured [`RateLimiter`] to use (which already carries its
@@ -84,13 +92,7 @@ where
                 reset,
             } => {
                 let mut response = next.run(req).await;
-                let headers = response.headers_mut();
-                headers.insert("RateLimit-Limit", limit.to_string().parse().unwrap());
-                headers.insert(
-                    "RateLimit-Remaining",
-                    remaining.to_string().parse().unwrap(),
-                );
-                headers.insert("RateLimit-Reset", reset.to_string().parse().unwrap());
+                insert_state(response.headers_mut(), &limiter, limit, remaining, reset);
                 Ok(response)
             }
             RateLimitResult::RateLimited {
@@ -103,24 +105,98 @@ where
                     key_str,
                     retry_after
                 );
-                Err((
+                let mut response = (
                     StatusCode::TOO_MANY_REQUESTS,
-                    [
-                        ("RateLimit-Limit", limit.to_string()),
-                        ("RateLimit-Remaining", "0".to_string()),
-                        ("RateLimit-Reset", reset.to_string()),
-                        ("Retry-After", retry_after.to_string()),
-                    ],
                     Json(json!({
                         "code": "TOO_MANY_REQUESTS",
                         "message": format!("Rate limit exceeded. Retry after {retry_after} seconds")
                     })),
                 )
-                    .into_response())
+                    .into_response();
+                let headers = response.headers_mut();
+                insert_state(headers, &limiter, limit, 0, reset);
+                headers.insert(http::header::RETRY_AFTER, HeaderValue::from(retry_after));
+                Err(response)
             }
         }
     } else {
         tracing::debug!("No rate limit key in request, skipping rate limiting");
         Ok(next.run(req).await)
+    }
+}
+
+/// The name a bucket's state is given in `RateLimit-Policy` and `RateLimit`: its bucket, else
+/// `default`.
+fn policy_name(limiter: &RateLimiter) -> &str {
+    limiter.config().bucket.as_deref().unwrap_or("default")
+}
+
+/// The bucket's state, in the legacy `RateLimit-*` triplet and in the draft's `RateLimit-Policy`
+/// and `RateLimit` structured fields.
+fn insert_state(
+    headers: &mut HeaderMap,
+    limiter: &RateLimiter,
+    limit: u64,
+    remaining: u64,
+    reset: u64,
+) {
+    let now = UNIX_EPOCH.elapsed().unwrap_or_default().as_secs();
+    headers.insert("RateLimit-Limit", HeaderValue::from(limit));
+    headers.insert("RateLimit-Remaining", HeaderValue::from(remaining));
+    headers.insert("RateLimit-Reset", HeaderValue::from(reset));
+    let (policy, state) = structured_fields(
+        policy_name(limiter),
+        limit,
+        limiter.config().window_seconds,
+        remaining,
+        reset.saturating_sub(now),
+    );
+    if let (Ok(policy), Ok(state)) = (
+        HeaderValue::from_str(&policy),
+        HeaderValue::from_str(&state),
+    ) {
+        headers.insert("RateLimit-Policy", policy);
+        headers.insert("RateLimit", state);
+    }
+}
+
+/// `RateLimit-Policy` and `RateLimit` for one policy: its quota over its window, and what is left
+/// of it with the seconds until it is whole again.
+fn structured_fields(
+    name: &str,
+    quota: u64,
+    window: u64,
+    remaining: u64,
+    seconds_left: u64,
+) -> (String, String) {
+    let name: String = name
+        .chars()
+        .filter(|c| c.is_ascii_graphic() && !matches!(c, '"' | '\\'))
+        .collect();
+    let policy = if window > 0 {
+        format!("\"{name}\";q={quota};w={window}")
+    } else {
+        format!("\"{name}\";q={quota}")
+    };
+    (policy, format!("\"{name}\";r={remaining};t={seconds_left}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_state_reads_as_the_drafts_structured_fields() {
+        assert_eq!(
+            structured_fields("rest:api", 100, 1, 42, 1),
+            (
+                "\"rest:api\";q=100;w=1".to_owned(),
+                "\"rest:api\";r=42;t=1".to_owned()
+            )
+        );
+        assert_eq!(
+            structured_fields("de\"fault", 10, 0, 0, 7).0,
+            "\"default\";q=10"
+        );
     }
 }

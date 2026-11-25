@@ -785,6 +785,7 @@ impl Engine {
                     name: "Lifecycle units".to_owned(),
                     description: None,
                     code: "lifecycle_units".to_owned(),
+                    catalog_code: None,
                     aggregation_type: BillingMetricAggregateEnum::Sum,
                     aggregation_key: Some(PROPERTY.to_owned()),
                     unit_conversion_factor: None,

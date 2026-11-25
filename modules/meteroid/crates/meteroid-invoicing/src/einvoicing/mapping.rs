@@ -183,8 +183,20 @@ impl<'a> From<&'a InvoiceLine> for LineView<'a> {
             taxable_amount: line.taxable_amount,
             // The money is a remainder of credits, not quantity × price: billed as one unit at
             // that remainder (PEPPOL-EN16931-R120), the usage quantity goes in the note.
-            quantity: line.quantity.filter(|_| line.credit.is_none()),
-            unit_price: line.unit_price,
+            // A negative per-unit rate (a reversal) is written as a positive net price on a
+            // negative quantity: BR-27 refuses a negative item net price (BT-146), the line's
+            // amount is the same.
+            quantity: line
+                .quantity
+                .filter(|_| line.credit.is_none())
+                .map(|quantity| {
+                    if line.unit_price.is_some_and(|price| price.is_negative()) {
+                        -quantity
+                    } else {
+                        quantity
+                    }
+                }),
+            unit_price: line.unit_price.map(|price| price.abs()),
             tax_rate: line.tax_rate,
             start_date: line.start_date,
             end_date: line.end_date,

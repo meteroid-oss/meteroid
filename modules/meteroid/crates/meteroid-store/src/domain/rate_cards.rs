@@ -42,6 +42,8 @@ pub struct RateCard {
     pub unit_size: Decimal,
     pub on_unmatched: RateCardUnmatched,
     pub created_at: DateTime<Utc>,
+    /// Off the catalog for new prices; the prices rated by it keep rating.
+    pub archived_at: Option<DateTime<Utc>>,
 }
 
 impl TryFrom<RateCardRow> for RateCard {
@@ -67,6 +69,7 @@ impl TryFrom<RateCardRow> for RateCard {
             unit_size: row.unit_size,
             on_unmatched: row.on_unmatched.into(),
             created_at: row.created_at,
+            archived_at: row.archived_at,
         })
     }
 }
@@ -576,6 +579,7 @@ mod tests {
             unit_size: Decimal::ONE,
             on_unmatched: RateCardUnmatched::Hold,
             created_at: common_clock::now(),
+            archived_at: None,
         }
     }
 

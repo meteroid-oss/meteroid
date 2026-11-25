@@ -1100,6 +1100,282 @@ async fn an_immediate_cancellation_is_effective_at_once(#[future] test_env: Test
     );
 }
 
+/// An immediate cancellation answers the documents its ending issued in the request: those the
+/// subscription holds after it and not before, here the note giving back February's unused days
+/// (3500 × 25/29 = 3017).
+/// Rules: R-141, R-077
+#[rstest]
+#[tokio::test]
+async fn an_immediate_cancellation_answers_its_documents(#[future] test_env: TestEnv) {
+    use std::collections::BTreeSet;
+    let env = test_env.await;
+    env.set_now(at(1, 15, 12));
+    let sub_id = leetcode_from_jan_1(&env).await;
+    env.set_now(at(2, 1, 13));
+    run(&env).await;
+    let invoices_before: BTreeSet<_> = env
+        .get_invoices(sub_id)
+        .await
+        .into_iter()
+        .map(|invoice| invoice.id)
+        .collect();
+
+    env.set_now(at(2, 5, 15));
+    let outcome = env
+        .services()
+        .cancel_subscription_with_documents(
+            Actor::System,
+            sub_id,
+            TENANT_ID,
+            None,
+            CancellationEffectiveAt::Immediate,
+        )
+        .await
+        .expect("cancelled at once");
+    assert!(!outcome.applies_later);
+    assert_eq!(
+        outcome.subscription.status,
+        SubscriptionStatusEnum::Cancelled.into()
+    );
+
+    let invoices = env.get_invoices(sub_id).await;
+    let issued: BTreeSet<_> = invoices
+        .iter()
+        .map(|invoice| invoice.id)
+        .filter(|id| !invoices_before.contains(id))
+        .collect();
+    assert_eq!(
+        outcome.invoice_ids.iter().copied().collect::<BTreeSet<_>>(),
+        issued
+    );
+    let mut notes = Vec::new();
+    for invoice in &invoices {
+        for note in env
+            .store()
+            .list_credit_notes_by_invoice_id(TENANT_ID, invoice.id)
+            .await
+            .expect("credit notes")
+        {
+            notes.push((note.id, note.total));
+        }
+    }
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(notes[0].1.abs(), 3017);
+    assert_eq!(outcome.credit_note_ids, vec![notes[0].0]);
+}
+
+/// A cancellation asked while another is still to apply replaces it: one `Cancelled` event, moved
+/// from Feb 1 to Feb 10, so February's renewal books no churn and the termination books one.
+/// Asked once the subscription is cancelled, it is refused and writes nothing.
+/// Rules: R-141
+#[rstest]
+#[tokio::test]
+async fn a_second_cancellation_moves_the_first(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.set_now(at(1, 15, 12));
+    let sub_id = leetcode_from_jan_1(&env).await;
+    for effective_at in [
+        CancellationEffectiveAt::EndOfBillingPeriod,
+        CancellationEffectiveAt::Date(day(2, 10)),
+    ] {
+        env.services()
+            .cancel_subscription(Actor::System, sub_id, TENANT_ID, None, effective_at)
+            .await
+            .expect("a cancellation to come");
+    }
+    let cancellations = |events: Vec<(String, NaiveDate)>| -> Vec<(String, NaiveDate)> {
+        events
+            .into_iter()
+            .filter(|(kind, _)| kind == "Cancelled")
+            .collect()
+    };
+    assert_eq!(
+        cancellations(events(&env, sub_id).await),
+        vec![("Cancelled".to_owned(), day(2, 10))],
+        "one event, moved"
+    );
+
+    env.set_now(at(2, 1, 13));
+    run(&env).await;
+    env.get_subscription(sub_id)
+        .await
+        .assert()
+        .is_active()
+        .has_period_start(day(2, 1));
+    assert!(
+        of_kind(&movements(&env, sub_id).await, "Churn").is_empty(),
+        "the renewal books no churn"
+    );
+
+    env.set_now(at(2, 12, 1));
+    run(&env).await;
+    env.get_subscription(sub_id)
+        .await
+        .assert()
+        .has_status(SubscriptionStatusEnum::Cancelled)
+        .has_period_start(day(2, 10));
+    assert_eq!(
+        of_kind(&movements(&env, sub_id).await, "Churn"),
+        vec![("Churn".to_owned(), -3500, day(2, 10))]
+    );
+
+    let again = env
+        .services()
+        .cancel_subscription(
+            Actor::System,
+            sub_id,
+            TENANT_ID,
+            None,
+            CancellationEffectiveAt::Immediate,
+        )
+        .await;
+    let Err(error) = again else {
+        panic!("an ended subscription is cancelled again");
+    };
+    assert!(
+        matches!(
+            error.current_context(),
+            meteroid_store::errors::StoreError::Conflict(_)
+        ),
+        "{error:?}"
+    );
+    assert_eq!(cancellations(events(&env, sub_id).await).len(), 1);
+    assert_eq!(of_kind(&movements(&env, sub_id).await, "Churn").len(), 1);
+    assert_eq!(count(&outbox(&env, sub_id).await, "cancelled"), 1);
+}
+
+/// A cancellation revoked before its date leaves no `Cancelled` event: the subscription renews on
+/// the day it would have ended, books no churn and keeps its MRR.
+/// Rules: R-141
+#[rstest]
+#[tokio::test]
+async fn a_revoked_cancellation_books_no_churn(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.set_now(at(1, 15, 12));
+    let sub_id = leetcode_from_jan_1(&env).await;
+    env.services()
+        .cancel_subscription(
+            Actor::System,
+            sub_id,
+            TENANT_ID,
+            None,
+            CancellationEffectiveAt::EndOfBillingPeriod,
+        )
+        .await
+        .expect("a cancellation on Feb 1");
+    assert!(
+        events(&env, sub_id)
+            .await
+            .contains(&("Cancelled".to_owned(), day(2, 1)))
+    );
+    let ids = [sub_id];
+    let pending =
+        SubscriptionEndingRow::list_pending_cancellations(&mut env.conn().await, TENANT_ID, &ids)
+            .await
+            .expect("pending cancellations");
+    let [pending] = pending.as_slice() else {
+        panic!("one cancellation to come: {pending:?}");
+    };
+    env.services()
+        .cancel_scheduled_event(
+            Actor::System,
+            common_domain::ids::ScheduledEventId::from(pending.id),
+            sub_id,
+            TENANT_ID,
+        )
+        .await
+        .expect("revoked");
+    assert!(
+        !events(&env, sub_id)
+            .await
+            .iter()
+            .any(|(kind, _)| kind == "Cancelled"),
+        "the revoked cancellation's event goes with it"
+    );
+
+    env.set_now(at(2, 1, 13));
+    run(&env).await;
+    let renewed = env.get_subscription(sub_id).await;
+    renewed
+        .assert()
+        .is_active()
+        .has_period_start(day(2, 1))
+        .has_period_end(day(3, 1));
+    assert!(of_kind(&movements(&env, sub_id).await, "Churn").is_empty());
+    assert_eq!(renewed.mrr_cents, 3500);
+}
+
+/// An immediate cancellation whose step panics once its transaction committed is recorded all the
+/// same: the request answers the subscription as it stands, the step is the subscription's
+/// failure, and the controller's retry applies the ending at its instant: one `Cancelled` event,
+/// one churn, one webhook, February's unused days given back once.
+/// Rules: R-141, R-121
+#[cfg(debug_assertions)]
+#[rstest]
+#[tokio::test]
+async fn a_cancellation_failing_after_its_commit_is_applied_by_the_controller(
+    #[future] test_env: TestEnv,
+) {
+    use meteroid_store::services::step_faults;
+    let env = test_env.await;
+    env.set_now(at(1, 15, 12));
+    let sub_id = leetcode_from_jan_1(&env).await;
+    env.set_now(at(2, 1, 13));
+    run(&env).await;
+
+    env.set_now(at(2, 5, 15));
+    step_faults::panic_in_steps_of(sub_id);
+    let returned = env
+        .services()
+        .cancel_subscription(
+            Actor::System,
+            sub_id,
+            TENANT_ID,
+            None,
+            CancellationEffectiveAt::Immediate,
+        )
+        .await;
+    step_faults::clear();
+    let returned = returned.expect("committed, a cancellation never fails its request");
+    assert_eq!(
+        returned.status,
+        SubscriptionStatusEnum::Active.into(),
+        "its step did not run"
+    );
+    let failed = env.get_subscription(sub_id).await;
+    assert_eq!(failed.billing_failures, 1);
+    assert!(of_kind(&movements(&env, sub_id).await, "Churn").is_empty());
+
+    env.set_now(at(2, 5, 16));
+    run(&env).await;
+    let cancelled = env.get_subscription(sub_id).await;
+    cancelled
+        .assert()
+        .has_status(SubscriptionStatusEnum::Cancelled)
+        .has_period_start(day(2, 5));
+    assert_eq!(
+        of_kind(&movements(&env, sub_id).await, "Churn"),
+        vec![("Churn".to_owned(), -3500, day(2, 5))]
+    );
+    assert_eq!(
+        events(&env, sub_id)
+            .await
+            .iter()
+            .filter(|(kind, _)| kind == "Cancelled")
+            .count(),
+        1
+    );
+    assert_eq!(count(&outbox(&env, sub_id).await, "cancelled"), 1);
+    assert_eq!(
+        documents(&env, sub_id).await,
+        vec![
+            "Recurring 2024-01-01: Subscription Rate 2024-01-01..2024-02-01 3500",
+            "Recurring 2024-02-01: Subscription Rate 2024-02-01..2024-03-01 3500",
+            "note: Subscription Rate 2024-02-01..2024-03-01 -3017",
+        ]
+    );
+}
+
 /// Decision 7: an immediate cancellation is stamped at its instant however late the controller
 /// applies it: `terminated_at` the instant, the period ending that day, the churn dated it.
 #[rstest]

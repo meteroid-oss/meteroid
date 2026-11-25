@@ -46,6 +46,10 @@ pub struct WebhookEndpoint {
     pub paused_until: Option<NaiveDateTime>,
     /// Deliveries started per second, at most.
     pub rate_limit_per_sec: Option<i32>,
+    /// The API version its payloads are rendered at, as `Meteroid-Version` names it; none for an
+    /// endpoint created through v1, the dashboard or before versions were recorded (v1's
+    /// payloads). Payloads are v1's whatever it says until v2 payloads ship (ADR-0013 §15).
+    pub api_version: Option<String>,
 }
 
 impl WebhookEndpoint {
@@ -114,6 +118,7 @@ impl From<WebhookOutEndpointRow> for WebhookEndpoint {
             unreachable_streak: row.unreachable_streak,
             paused_until: row.paused_until,
             rate_limit_per_sec: row.rate_limit_per_sec,
+            api_version: row.api_version,
         }
     }
 }
@@ -127,6 +132,8 @@ pub struct WebhookEndpointNew {
     pub max_in_flight: i32,
     pub headers: Vec<WebhookHeaderInput>,
     pub rate_limit_per_sec: Option<i32>,
+    /// The `Meteroid-Version` of the v2 request creating it; none through v1 or the dashboard.
+    pub api_version: Option<String>,
 }
 
 /// An endpoint brought over from a pre-2.0 Svix server, with the signing secret its
@@ -162,16 +169,18 @@ pub struct WebhookEndpointPatch {
     pub headers: Option<Vec<WebhookHeaderInput>>,
     /// `Some(None)` removes the rate limit.
     pub rate_limit_per_sec: Option<Option<i32>>,
+    /// Pins its payloads to another API version.
+    pub api_version: Option<String>,
 }
 
 /// Decrypted signing material for one endpoint, used only by the delivery worker.
-/// `previous_secret` is present only while the rotation grace window is open.
+/// `previous_secrets` holds every secret rotated out within the grace window, the newest first.
 /// `headers` holds every custom header that has a value, sensitive ones decrypted.
 #[derive(Clone, Debug)]
 pub struct WebhookEndpointWithSecrets {
     pub endpoint: WebhookEndpoint,
     pub secret: SecretString,
-    pub previous_secret: Option<SecretString>,
+    pub previous_secrets: Vec<SecretString>,
     pub headers: Vec<(String, SecretString)>,
 }
 

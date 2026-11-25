@@ -784,6 +784,7 @@ mod fan_out_tests {
             unreachable_streak: 0,
             paused_until: None,
             rate_limit_per_sec: None,
+            api_version: None,
         }
     }
 

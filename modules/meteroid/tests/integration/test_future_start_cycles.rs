@@ -571,6 +571,7 @@ async fn replay_entry_points_refuse_a_tenant_that_is_not_a_sandbox() {
             skip_past_invoices: false,
             usage_filter: None,
             custom_properties: serde_json::Value::Null,
+            external_id: None,
         },
         price_components: None,
         add_ons: None,

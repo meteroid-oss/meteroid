@@ -217,9 +217,14 @@ impl From<Report<StoreError>> for RestApiError {
             StoreError::UsageUnavailable | StoreError::MeteringNotReady => {
                 RestApiError::Unavailable(err.current_context().to_string())
             }
-            _ if err
-                .downcast_ref::<tonic::Status>()
-                .is_some_and(|status| status.code() == tonic::Code::Unavailable) =>
+            // Metering down, or not answering in time (ingestion, event corrections, reads):
+            // unavailable, retried, never an internal error.
+            _ if err.downcast_ref::<tonic::Status>().is_some_and(|status| {
+                matches!(
+                    status.code(),
+                    tonic::Code::Unavailable | tonic::Code::DeadlineExceeded
+                )
+            }) =>
             {
                 log::warn!("Upstream service unavailable while handling REST request: {err:?}");
                 RestApiError::Unavailable("please retry later".to_string())
@@ -280,6 +285,12 @@ mod tests {
             .change_context(StoreError::MeteringServiceError);
         assert!(matches!(
             RestApiError::from(unavailable),
+            RestApiError::Unavailable(_)
+        ));
+        let late = Report::new(tonic::Status::deadline_exceeded("ingest_events timed out"))
+            .change_context(StoreError::MeteringServiceError);
+        assert!(matches!(
+            RestApiError::from(late),
             RestApiError::Unavailable(_)
         ));
         let other = Report::new(tonic::Status::internal("boom"))

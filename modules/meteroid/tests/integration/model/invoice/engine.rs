@@ -186,6 +186,7 @@ impl Engine {
                     name: "Model units".to_owned(),
                     description: None,
                     code: "model_units".to_owned(),
+                    catalog_code: None,
                     aggregation_type: BillingMetricAggregateEnum::Sum,
                     aggregation_key: Some(PROPERTY.to_owned()),
                     unit_conversion_factor: None,

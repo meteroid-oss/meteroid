@@ -161,6 +161,7 @@ pub async fn create_metric(
                 name: payload.name,
                 description: payload.description,
                 code: payload.code,
+                catalog_code: None,
                 aggregation_type: payload.aggregation_type.into(),
                 aggregation_key: payload.aggregation_key,
                 unit_conversion_factor,

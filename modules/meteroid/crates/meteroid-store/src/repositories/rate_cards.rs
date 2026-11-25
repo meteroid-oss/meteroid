@@ -21,11 +21,32 @@ use scoped_futures::ScopedFutureExt;
 pub trait RateCardsInterface {
     async fn create_rate_card(&self, actor: Actor, new: RateCardNew) -> StoreResult<RateCard>;
 
+    /// Renames the card and sets what its unmatched usage does; a field left `None` stays. What it
+    /// rates (metric, dimensions, denomination, unit size) never changes.
+    async fn update_rate_card(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        id: RateCardId,
+        name: Option<String>,
+        on_unmatched: Option<crate::domain::rate_cards::RateCardUnmatched>,
+    ) -> StoreResult<RateCard>;
+
     /// Ordered by code, archived cards left out; only the metric's cards when one is given.
     async fn list_rate_cards(
         &self,
         tenant_id: TenantId,
         metric_id: Option<BillableMetricId>,
+    ) -> StoreResult<Vec<RateCard>>;
+
+    /// The tenant's cards after `after` in id order, at most `limit`: a keyset page of API v2.
+    async fn list_rate_cards_after(
+        &self,
+        tenant_id: TenantId,
+        metric_id: Option<BillableMetricId>,
+        include_archived: bool,
+        after: Option<RateCardId>,
+        limit: usize,
     ) -> StoreResult<Vec<RateCard>>;
 
     /// The card and all its entries, those scheduled included.
@@ -34,6 +55,19 @@ pub trait RateCardsInterface {
         tenant_id: TenantId,
         id: RateCardId,
     ) -> StoreResult<(RateCard, Vec<RateCardEntry>)>;
+
+    /// The card, without its entries.
+    async fn find_rate_card(&self, tenant_id: TenantId, id: RateCardId) -> StoreResult<RateCard>;
+
+    /// Off the catalog for new prices (`true`) or back on it (`false`), recorded in its activity
+    /// when it changes; the prices it rates keep rating, and its rates can still be set.
+    async fn set_rate_card_archived(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        id: RateCardId,
+        archived: bool,
+    ) -> StoreResult<RateCard>;
 
     /// The id of the tenant's card of `code`, archived ones included.
     async fn find_rate_card_id_by_code(
@@ -60,6 +94,51 @@ fn not_found(id: RateCardId) -> Report<StoreError> {
 
 #[async_trait::async_trait]
 impl RateCardsInterface for Store {
+    async fn update_rate_card(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        id: RateCardId,
+        name: Option<String>,
+        on_unmatched: Option<crate::domain::rate_cards::RateCardUnmatched>,
+    ) -> StoreResult<RateCard> {
+        let name = name.map(|name| name.trim().to_owned());
+        if name.as_deref().is_some_and(str::is_empty) {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "a rate card has a name".to_owned(),
+            )));
+        }
+        self.transaction(|conn| {
+            let (actor, name) = (&actor, name.clone());
+            async move {
+                let row = RateCardRow::update_terms(
+                    conn,
+                    tenant_id,
+                    id,
+                    name,
+                    on_unmatched.map(Into::into),
+                )
+                .await?
+                .ok_or_else(|| not_found(id))?;
+                let card: RateCard = row.try_into()?;
+                let activity = Activity::new(
+                    ActivityType::EntityUpdated,
+                    EntityType::RateCard,
+                    card.id.as_uuid(),
+                )
+                .with_metadata(serde_json::json!({
+                    "name": card.name,
+                }));
+                self.internal
+                    .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
+                    .await?;
+                Ok(card)
+            }
+            .scope_boxed()
+        })
+        .await
+    }
+
     async fn create_rate_card(&self, actor: Actor, new: RateCardNew) -> StoreResult<RateCard> {
         let mut dimensions = new.dimensions.clone();
         dimensions.sort();
@@ -157,6 +236,29 @@ impl RateCardsInterface for Store {
             .collect()
     }
 
+    async fn list_rate_cards_after(
+        &self,
+        tenant_id: TenantId,
+        metric_id: Option<BillableMetricId>,
+        include_archived: bool,
+        after: Option<RateCardId>,
+        limit: usize,
+    ) -> StoreResult<Vec<RateCard>> {
+        let mut conn = self.get_conn().await?;
+        RateCardRow::list_page(
+            &mut conn,
+            tenant_id,
+            metric_id,
+            include_archived,
+            after,
+            i64::try_from(limit).unwrap_or(i64::MAX),
+        )
+        .await?
+        .into_iter()
+        .map(|row| row.try_into().map_err(Report::new))
+        .collect()
+    }
+
     async fn get_rate_card(
         &self,
         tenant_id: TenantId,
@@ -173,6 +275,58 @@ impl RateCardsInterface for Store {
             .map(Into::into)
             .collect();
         Ok((card, entries))
+    }
+
+    async fn find_rate_card(&self, tenant_id: TenantId, id: RateCardId) -> StoreResult<RateCard> {
+        let mut conn = self.get_conn().await?;
+        Ok(RateCardRow::find(&mut conn, tenant_id, id)
+            .await?
+            .ok_or_else(|| not_found(id))?
+            .try_into()?)
+    }
+
+    async fn set_rate_card_archived(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        id: RateCardId,
+        archived: bool,
+    ) -> StoreResult<RateCard> {
+        self.transaction(|conn| {
+            let actor = &actor;
+            async move {
+                let current = RateCardRow::find_for_update(conn, tenant_id, id)
+                    .await?
+                    .ok_or_else(|| not_found(id))?;
+                if current.archived_at.is_some() == archived {
+                    let card: RateCard = current.try_into()?;
+                    return Ok(card);
+                }
+                let row = RateCardRow::set_archived(
+                    conn,
+                    tenant_id,
+                    id,
+                    archived.then(common_clock::now),
+                )
+                .await?
+                .ok_or_else(|| not_found(id))?;
+                let card: RateCard = row.try_into()?;
+                let activity = Activity::new(
+                    ActivityType::EntityUpdated,
+                    EntityType::RateCard,
+                    card.id.as_uuid(),
+                )
+                .with_metadata(serde_json::json!({
+                    "archived": archived,
+                }));
+                self.internal
+                    .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
+                    .await?;
+                Ok(card)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn find_rate_card_id_by_code(

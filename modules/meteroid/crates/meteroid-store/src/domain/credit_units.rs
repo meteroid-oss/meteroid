@@ -423,6 +423,19 @@ pub fn validate_credit_unit_price(unit_price: Decimal) -> StoreResult<Decimal> {
     Ok(unit_price)
 }
 
+/// A selling price as it is kept: in a supported currency (trimmed, upper-cased), the price
+/// checked by `validate_credit_unit_price`.
+pub fn credit_unit_price_in(currency: &str, unit_price: Decimal) -> StoreResult<(String, Decimal)> {
+    let unit_price = validate_credit_unit_price(unit_price)?;
+    let currency = currency.trim().to_ascii_uppercase();
+    if currency.len() != 3
+        || crate::constants::Currencies::resolve_currency_precision(&currency).is_none()
+    {
+        return Err(invalid(format!("unsupported currency {currency}")));
+    }
+    Ok((currency, unit_price))
+}
+
 /// A credit unit frozen where it is used (a pack's fee and line, a grant's funding), so a later
 /// rename never changes what was sold. Code and precision are immutable anyway.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

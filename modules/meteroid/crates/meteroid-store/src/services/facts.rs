@@ -186,11 +186,39 @@ pub(crate) async fn record_cancellation_tx(
     .await)
 }
 
-/// The subscription's cancellation withdrawn before it applied.
+/// The subscription's fixed term moved to `end_date` (its midnight), or withdrawn with `None`: it
+/// completes then, or renews until cancelled (R-140). Its `end_date` column is set beside it.
+pub(crate) async fn record_end_date_tx(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+    end_date: Option<NaiveDate>,
+    actor: &Actor,
+) -> StoreResult<()> {
+    let now = common_clock::now().naive_utc();
+    let row = end_date.map(|date| SubscriptionEndingRow {
+        subscription_id,
+        tenant_id,
+        kind: ENDING_COMPLETE.to_owned(),
+        at: date.and_time(chrono::NaiveTime::MIN),
+        reason: None,
+        actor_type: actor.actor_type().into(),
+        actor_uuid: actor.as_uuid(),
+        actor_alias: actor.actor_alias(),
+        created_at: now,
+        requested_at: now,
+    });
+    db(SubscriptionEndingRow::record_completion(conn, subscription_id, row.as_ref()).await)?;
+    db(SubscriptionRow::set_end_date(conn, tenant_id, subscription_id, end_date).await)
+}
+
+/// The subscription's cancellation withdrawn before it applied, its `Cancelled` event with it: a
+/// revoked cancellation books no churn (R-141).
 pub(crate) async fn withdraw_cancellation_tx(
     conn: &mut PgConn,
     subscription_id: SubscriptionId,
 ) -> StoreResult<()> {
+    db(SubscriptionEventRow::withdraw_pending_cancellation(conn, subscription_id).await)?;
     db(SubscriptionEndingRow::withdraw_cancellation(conn, subscription_id).await)
 }
 

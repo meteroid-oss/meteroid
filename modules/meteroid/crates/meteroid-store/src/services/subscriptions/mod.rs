@@ -4,6 +4,7 @@ pub(crate) mod cadence;
 pub(in crate::services) mod cancel;
 pub(crate) mod currency;
 mod effective_plan;
+pub(in crate::services) mod end_date;
 mod minimum;
 mod mrr;
 

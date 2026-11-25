@@ -447,6 +447,7 @@ async fn subscribe_with(
                     skip_past_invoices: false,
                     usage_filter,
                     custom_properties: serde_json::Value::Null,
+                    external_id: None,
                 },
                 price_components: Some(CreateSubscriptionComponents {
                     parameterized_components: vec![],

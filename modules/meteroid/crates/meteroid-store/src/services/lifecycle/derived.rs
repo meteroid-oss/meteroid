@@ -226,8 +226,12 @@ impl Services {
         now: DateTime<Utc>,
         issue: Issue,
     ) -> StoreResult<Option<Stepped>> {
+        // A fact edit's own derive of the state is not a step the tests fault: a fault lands in the
+        // step after the edit commits.
         #[cfg(all(feature = "test-faults", debug_assertions))]
-        crate::services::step_faults::step_of(subscription_id);
+        if !matches!(issue, Issue::StateOnly) {
+            crate::services::step_faults::step_of(subscription_id);
+        }
         let row =
             db(SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id).await)?
                 .subscription;

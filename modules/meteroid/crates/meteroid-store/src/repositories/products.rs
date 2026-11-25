@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::StoreResult;
+use crate::domain::entitlements::EntitlementSpec;
 use crate::domain::entity_activity::Actor;
 use crate::domain::enums::FeeTypeEnum;
 use crate::domain::outbox_event::{OutboxEvent, ProductEvent};
@@ -14,6 +15,7 @@ use crate::domain::{
 };
 use crate::errors::StoreError;
 use crate::repositories::add_ons::enrich_add_ons;
+use crate::repositories::entitlements::set_product_feature_defaults_tx;
 use crate::repositories::price_components::attach_prices;
 use crate::store::Store;
 use common_domain::ids::{
@@ -53,6 +55,60 @@ pub(crate) async fn validate_tax_category(
     }
 }
 
+/// A product's edit on the caller's transaction, its outbox event recorded with it.
+async fn update_product_tx(
+    store: &Store,
+    conn: &mut diesel_models::PgConn,
+    actor: &Actor,
+    update: ProductUpdate,
+) -> StoreResult<Product> {
+    let tenant_id = update.tenant_id;
+    ProductRow::find_by_id_and_tenant_id(conn, update.id, update.tenant_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+    validate_tax_category(conn, update.tax_category_id.flatten(), update.tenant_id).await?;
+    validate_product_appearance(
+        update.icon.as_ref().and_then(|i| i.as_deref()),
+        update.color.as_ref().and_then(|c| c.as_deref()),
+    )?;
+
+    let product: Product = ProductRowPatch {
+        id: update.id,
+        tenant_id: update.tenant_id,
+        name: update.name,
+        description: update.description,
+        tax_category_id: update.tax_category_id,
+        icon: update.icon,
+        color: update.color,
+    }
+    .patch(conn)
+    .await
+    .map_err(Into::<Report<StoreError>>::into)
+    .and_then(|row| row.try_into())?;
+
+    let event = ProductEvent::new(
+        product.id,
+        product.tenant_id,
+        product.name.clone(),
+        product.description.clone(),
+        None,
+        product.product_family_id,
+        product.created_at,
+    );
+    store
+        .internal
+        .record_outbox_batch_tx(
+            conn,
+            tenant_id,
+            actor,
+            vec![OutboxEvent::product_updated(event)],
+        )
+        .await?;
+
+    Ok(product)
+}
+
 /// A product's edit. How it is billed is its charges', never the product's.
 #[derive(Clone, Debug)]
 pub struct ProductUpdate {
@@ -70,7 +126,22 @@ pub struct ProductUpdate {
 #[async_trait::async_trait]
 pub trait ProductInterface {
     async fn create_product(&self, actor: Actor, product: ProductNew) -> StoreResult<Product>;
+    /// `create_product` under `code`, unique per tenant (ADR-0013); none: its name's slug.
+    async fn create_product_with_code(
+        &self,
+        actor: Actor,
+        product: ProductNew,
+        code: Option<String>,
+    ) -> StoreResult<Product>;
     async fn update_product(&self, actor: Actor, update: ProductUpdate) -> StoreResult<Product>;
+    /// `update_product` and, when `feature_defaults` is set, `set_product_feature_defaults`, in
+    /// one transaction: a refusal of either writes neither.
+    async fn update_product_with_feature_defaults(
+        &self,
+        actor: Actor,
+        update: ProductUpdate,
+        feature_defaults: Option<Vec<EntitlementSpec>>,
+    ) -> StoreResult<Product>;
     async fn find_product_by_id(
         &self,
         id: ProductId,
@@ -80,6 +151,16 @@ pub trait ProductInterface {
         &self,
         ids: &[ProductId],
         auth_tenant_id: TenantId,
+    ) -> StoreResult<Vec<Product>>;
+    /// The tenant's products after `after` in id order, at most `limit`: a keyset page of
+    /// API v2.
+    async fn list_products_after(
+        &self,
+        tenant_id: TenantId,
+        family_id: Option<ProductFamilyId>,
+        include_archived: bool,
+        after: Option<ProductId>,
+        limit: usize,
     ) -> StoreResult<Vec<Product>>;
     async fn list_products(
         &self,
@@ -139,12 +220,26 @@ pub trait ProductInterface {
 #[async_trait::async_trait]
 impl ProductInterface for Store {
     async fn create_product(&self, actor: Actor, product: ProductNew) -> StoreResult<Product> {
+        self.create_product_with_code(actor, product, None).await
+    }
+
+    async fn create_product_with_code(
+        &self,
+        actor: Actor,
+        product: ProductNew,
+        code: Option<String>,
+    ) -> StoreResult<Product> {
+        if let Some(code) = code.as_deref() {
+            crate::domain::catalog_codes::validate_code(code, ProductId::PREFIX)
+                .map_err(Report::new)?;
+        }
         let mut conn = self.get_conn().await?;
         let tenant_id = product.tenant_id;
 
         let family = ProductFamilyRow::find_by_id(&mut conn, product.family_id, product.tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
+        crate::repositories::product_families::ensure_family_live(&family)?;
 
         validate_tax_category(&mut conn, product.tax_category_id, product.tenant_id).await?;
         validate_product_appearance(product.icon.as_deref(), product.color.as_deref())?;
@@ -164,11 +259,19 @@ impl ProductInterface for Store {
         self.transaction_with(&mut conn, |conn| {
             let actor = &actor;
             async move {
-                let product: Product = insertable
+                let mut product: Product = insertable
                     .insert(conn)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)
                     .and_then(|row| row.try_into())?;
+                if let Some(code) = code {
+                    diesel_models::query::catalog_codes::set_product_code(
+                        conn, tenant_id, product.id, &code,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                    product.code = code;
+                }
 
                 let event = ProductEvent::new(
                     product.id,
@@ -196,54 +299,25 @@ impl ProductInterface for Store {
     }
 
     async fn update_product(&self, actor: Actor, update: ProductUpdate) -> StoreResult<Product> {
+        self.update_product_with_feature_defaults(actor, update, None)
+            .await
+    }
+
+    async fn update_product_with_feature_defaults(
+        &self,
+        actor: Actor,
+        update: ProductUpdate,
+        feature_defaults: Option<Vec<EntitlementSpec>>,
+    ) -> StoreResult<Product> {
         let tenant_id = update.tenant_id;
 
         self.transaction_bumping_tenant(tenant_id, |conn| {
             let actor = &actor;
             async move {
-                ProductRow::find_by_id_and_tenant_id(conn, update.id, update.tenant_id)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-
-                validate_tax_category(conn, update.tax_category_id.flatten(), update.tenant_id)
-                    .await?;
-                validate_product_appearance(
-                    update.icon.as_ref().and_then(|i| i.as_deref()),
-                    update.color.as_ref().and_then(|c| c.as_deref()),
-                )?;
-
-                let product: Product = ProductRowPatch {
-                    id: update.id,
-                    tenant_id: update.tenant_id,
-                    name: update.name,
-                    description: update.description,
-                    tax_category_id: update.tax_category_id,
-                    icon: update.icon,
-                    color: update.color,
+                let product = update_product_tx(self, conn, actor, update).await?;
+                if let Some(specs) = feature_defaults {
+                    set_product_feature_defaults_tx(conn, tenant_id, product.id, specs).await?;
                 }
-                .patch(conn)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)
-                .and_then(|row| row.try_into())?;
-
-                let event = ProductEvent::new(
-                    product.id,
-                    product.tenant_id,
-                    product.name.clone(),
-                    product.description.clone(),
-                    None,
-                    product.product_family_id,
-                    product.created_at,
-                );
-                self.internal
-                    .record_outbox_batch_tx(
-                        conn,
-                        tenant_id,
-                        actor,
-                        vec![OutboxEvent::product_updated(event)],
-                    )
-                    .await?;
-
                 Ok(product)
             }
             .scope_boxed()
@@ -276,6 +350,30 @@ impl ProductInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         rows.into_iter().map(|r| r.try_into()).collect()
+    }
+
+    async fn list_products_after(
+        &self,
+        tenant_id: TenantId,
+        family_id: Option<ProductFamilyId>,
+        include_archived: bool,
+        after: Option<ProductId>,
+        limit: usize,
+    ) -> StoreResult<Vec<Product>> {
+        let mut conn = self.get_conn().await?;
+        ProductRow::list_page(
+            &mut conn,
+            tenant_id,
+            family_id,
+            include_archived,
+            after,
+            i64::try_from(limit).unwrap_or(i64::MAX),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .into_iter()
+        .map(Product::try_from)
+        .collect()
     }
 
     async fn list_products(

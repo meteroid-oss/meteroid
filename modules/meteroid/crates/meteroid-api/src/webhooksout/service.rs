@@ -155,6 +155,7 @@ impl WebhooksService for WebhooksServiceComponents {
                     max_in_flight,
                     headers,
                     rate_limit_per_sec: req.rate_limit_per_sec,
+                    api_version: None,
                 },
             )
             .await
@@ -216,6 +217,7 @@ impl WebhooksService for WebhooksServiceComponents {
                     disabled: req.disabled,
                     headers,
                     rate_limit_per_sec,
+                    api_version: None,
                 },
             )
             .await

@@ -904,6 +904,9 @@ pub struct BillableMetricEvent {
     pub name: String,
     pub description: Option<String>,
     pub code: String,
+    /// API v2's code of the metric; empty in an event recorded before metrics had one.
+    #[serde(default)]
+    pub catalog_code: String,
     pub aggregation_type: BillingMetricAggregateEnum,
     pub aggregation_key: Option<String>,
     pub unit_conversion_factor: Option<i32>,

@@ -9,10 +9,12 @@ use meteroid_grpc::meteroid::portal::checkout::v1::GetCheckoutRequest;
 use meteroid_grpc::meteroid::portal::checkout::v1::portal_checkout_service_client::PortalCheckoutServiceClient;
 use meteroid_it::container::SeedLevel;
 use meteroid_rest_common::error::{ErrorCode, RestErrorResponse};
+use meteroid_store::domain::ApiTokenNew;
 use meteroid_store::domain::CreateCheckoutSession;
 use meteroid_store::domain::checkout_sessions::CheckoutType;
 use meteroid_store::domain::coupons::{CouponDiscount, CouponNew};
 use meteroid_store::jwt_claims::{PortalJwtClaims, ResourceAccess};
+use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 use meteroid_store::repositories::checkout_sessions::CheckoutSessionsInterface;
 use meteroid_store::repositories::coupons::CouponInterface;
 use rust_decimal::Decimal;
@@ -54,6 +56,8 @@ async fn test_rate_limit() {
                 non_prod_metering_eps: 100,
                 client_prod_rps: 2,
                 client_non_prod_rps: 2,
+                publishable_prod_rps: 2,
+                publishable_non_prod_rps: 2,
                 prod_usage_costs_rpm: 100,
                 non_prod_usage_costs_rpm: 100,
             },
@@ -120,6 +124,23 @@ async fn test_rate_limit() {
     assert!(
         headers.contains_key("RateLimit-Reset"),
         "RateLimit-Reset header must be present"
+    );
+    // The same state as the IETF httpapi draft's structured fields.
+    let policy = headers
+        .get("RateLimit-Policy")
+        .and_then(|v| v.to_str().ok())
+        .expect("RateLimit-Policy header must be present");
+    assert!(
+        policy.starts_with("\"rest:") && policy.ends_with(";q=2;w=1"),
+        "{policy}"
+    );
+    let state = headers
+        .get("RateLimit")
+        .and_then(|v| v.to_str().ok())
+        .expect("RateLimit header must be present");
+    assert!(
+        state.starts_with("\"rest:") && state.contains(";r=0;t="),
+        "{state}"
     );
 
     let retry_after_secs = headers
@@ -197,9 +218,10 @@ async fn test_rate_limit() {
         .expect("Expected a 429 from the client API within 10 requests of one customer");
     let headers = resp.headers();
     assert!(headers.contains_key("Retry-After"));
+    // The client API answers in v2's conventions: a problem.
     assert_eq!(
         headers.get("content-type").and_then(|v| v.to_str().ok()),
-        Some("application/json")
+        Some("application/problem+json")
     );
     let exposed = headers
         .get("access-control-expose-headers")
@@ -207,10 +229,10 @@ async fn test_rate_limit() {
         .expect("CORS exposes headers on a 429");
     assert!(exposed.contains("retry-after"), "{exposed}");
     let body = resp
-        .json::<RestErrorResponse>()
+        .json::<serde_json::Value>()
         .await
         .expect("Failed to deserialize body");
-    assert_eq!(body.code, ErrorCode::TooManyRequests);
+    assert_eq!(body["code"], "rate_limited", "{body}");
 
     let other_customer = http_client
         .get(&client_url)
@@ -222,6 +244,64 @@ async fn test_rate_limit() {
         other_customer.status(),
         reqwest::StatusCode::OK,
         "Each customer has its own bucket"
+    );
+
+    // ── Public routes, per publishable key ──────────────────────────────────
+
+    // Written by the store: the gRPC API has its own, tight, limit in this test.
+    let publishable = |name: &str| {
+        let store = setup.store.clone();
+        let name = name.to_string();
+        async move {
+            store
+                .insert_publishable_key(
+                    Actor::System,
+                    ApiTokenNew {
+                        name,
+                        tenant_id: TENANT_ID,
+                    },
+                    vec![],
+                )
+                .await
+                .unwrap()
+                .publishable_key
+                .unwrap()
+        }
+    };
+    let limited_key = publishable("limited").await;
+    // No such family: answered after the limit, so every request counts.
+    let public_url = format!(
+        "{}/api/client/v1/pricing-pages/no-such-family",
+        setup.config.rest_api_external_url
+    );
+    let mut public_rate_limited = None;
+    for _ in 0..10 {
+        let resp = http_client
+            .get(&public_url)
+            .bearer_auth(&limited_key)
+            .send()
+            .await
+            .expect("HTTP request failed");
+        if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            public_rate_limited = Some(resp);
+            break;
+        }
+        assert_eq!(resp.status(), reqwest::StatusCode::NOT_FOUND);
+    }
+    let resp = public_rate_limited
+        .expect("Expected a 429 from a public route within 10 requests of one key");
+    assert!(resp.headers().contains_key("Retry-After"));
+
+    let other_key = http_client
+        .get(&public_url)
+        .bearer_auth(publishable("other").await)
+        .send()
+        .await
+        .expect("HTTP request failed");
+    assert_eq!(
+        other_key.status(),
+        reqwest::StatusCode::NOT_FOUND,
+        "Each publishable key has its own bucket"
     );
 
     // ── gRPC rate limit ──────────────────────────────────────────────────────

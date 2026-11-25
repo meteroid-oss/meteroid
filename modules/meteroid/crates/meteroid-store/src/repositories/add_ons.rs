@@ -11,7 +11,7 @@ use crate::domain::price_components::{
 use crate::domain::prices::FeeStructure;
 use crate::domain::{PaginatedVec, PaginationRequest, Price};
 use crate::errors::StoreError;
-use crate::repositories::entitlements::insert_entitlement_specs;
+use crate::repositories::entitlements::{insert_entitlement_specs, replace_entitlements_tx};
 use crate::repositories::price_components::{
     charge_structure_tx, ensure_prices_fit_charge, resolve_component_internal,
 };
@@ -42,6 +42,16 @@ pub trait AddOnInterface {
         include_archived: bool,
         order_by: Option<String>,
     ) -> StoreResult<PaginatedVec<AddOn>>;
+
+    /// The tenant's add-ons after `after` in id order, at most `limit`, loaded as `list_add_ons`
+    /// loads them: a keyset page of API v2.
+    async fn list_add_ons_after(
+        &self,
+        tenant_id: TenantId,
+        include_archived: bool,
+        after: Option<AddOnId>,
+        limit: usize,
+    ) -> StoreResult<Vec<AddOn>>;
 
     #[delegated]
     async fn list_add_ons_by_ids(
@@ -86,6 +96,24 @@ pub trait AddOnInterface {
         entitlements: Vec<EntitlementSpec>,
     ) -> StoreResult<AddOn>;
 
+    /// `create_add_on_with_prices` under `code`, unique per tenant (ADR-0013); none: its name's
+    /// slug.
+    #[allow(clippy::too_many_arguments)]
+    async fn create_add_on_with_code(
+        &self,
+        name: String,
+        code: Option<String>,
+        product_ref: ProductRef,
+        fee_structure: Option<FeeStructure>,
+        prices: Vec<PriceEntry>,
+        description: Option<String>,
+        self_serviceable: bool,
+        max_instances_per_subscription: Option<i32>,
+        tenant_id: TenantId,
+        product_family_id: ProductFamilyId,
+        entitlements: Vec<EntitlementSpec>,
+    ) -> StoreResult<AddOn>;
+
     /// Edits an add-on; `price_entry` replaces the price of its cell.
     async fn update_add_on(
         &self,
@@ -99,6 +127,16 @@ pub trait AddOnInterface {
         actor: Actor,
         patch: AddOnPatch,
         prices: Option<AddOnPriceChange>,
+    ) -> StoreResult<AddOn>;
+
+    /// `update_add_on_with_prices` and, when `entitlements` is set, `replace_entitlements` of
+    /// the add-on, in one transaction: a refusal of either writes neither.
+    async fn update_add_on_with_entitlements(
+        &self,
+        actor: Actor,
+        patch: AddOnPatch,
+        prices: Option<AddOnPriceChange>,
+        entitlements: Option<Vec<EntitlementSpec>>,
     ) -> StoreResult<AddOn>;
 
     async fn archive_add_on(
@@ -489,6 +527,26 @@ impl AddOnInterface for Store {
         })
     }
 
+    async fn list_add_ons_after(
+        &self,
+        tenant_id: TenantId,
+        include_archived: bool,
+        after: Option<AddOnId>,
+        limit: usize,
+    ) -> StoreResult<Vec<AddOn>> {
+        let mut conn = self.get_conn().await?;
+        let rows = AddOnRow::list_page(
+            &mut conn,
+            tenant_id,
+            include_archived,
+            after,
+            i64::try_from(limit).unwrap_or(i64::MAX),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+        enrich_add_ons(&mut conn, rows, tenant_id).await
+    }
+
     async fn list_add_ons_by_ids_with_conn(
         &self,
         conn: &mut PgConn,
@@ -623,6 +681,41 @@ impl AddOnInterface for Store {
         product_family_id: ProductFamilyId,
         entitlements: Vec<EntitlementSpec>,
     ) -> StoreResult<AddOn> {
+        self.create_add_on_with_code(
+            name,
+            None,
+            product_ref,
+            fee_structure,
+            prices,
+            description,
+            self_serviceable,
+            max_instances_per_subscription,
+            tenant_id,
+            product_family_id,
+            entitlements,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn create_add_on_with_code(
+        &self,
+        name: String,
+        code: Option<String>,
+        product_ref: ProductRef,
+        fee_structure: Option<FeeStructure>,
+        prices: Vec<PriceEntry>,
+        description: Option<String>,
+        self_serviceable: bool,
+        max_instances_per_subscription: Option<i32>,
+        tenant_id: TenantId,
+        product_family_id: ProductFamilyId,
+        entitlements: Vec<EntitlementSpec>,
+    ) -> StoreResult<AddOn> {
+        if let Some(code) = code.as_deref() {
+            crate::domain::catalog_codes::validate_code(code, AddOnId::PREFIX)
+                .map_err(Report::new)?;
+        }
         let fee_structure = fee_structure
             .or_else(|| product_ref.new_product_structure().cloned())
             .ok_or_else(|| {
@@ -668,10 +761,18 @@ impl AddOnInterface for Store {
                     })?,
                 };
 
-                let row = row_new
+                let mut row = row_new
                     .insert(conn)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
+                if let Some(code) = code {
+                    diesel_models::query::catalog_codes::set_add_on_code(
+                        conn, tenant_id, row.id, &code,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                    row.code = code;
+                }
                 link_add_on_prices(conn, row.id, &row.name, &price_ids, tenant_id).await?;
 
                 let mut enriched = enrich_add_ons(conn, vec![row], tenant_id).await?;
@@ -712,6 +813,17 @@ impl AddOnInterface for Store {
         patch: AddOnPatch,
         prices: Option<AddOnPriceChange>,
     ) -> StoreResult<AddOn> {
+        self.update_add_on_with_entitlements(actor, patch, prices, None)
+            .await
+    }
+
+    async fn update_add_on_with_entitlements(
+        &self,
+        actor: Actor,
+        patch: AddOnPatch,
+        prices: Option<AddOnPriceChange>,
+        entitlements: Option<Vec<EntitlementSpec>>,
+    ) -> StoreResult<AddOn> {
         let tenant_id = patch.tenant_id;
         let add_on_id = patch.id;
 
@@ -741,6 +853,15 @@ impl AddOnInterface for Store {
                     .patch(conn)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
+                if let Some(specs) = entitlements {
+                    replace_entitlements_tx(
+                        conn,
+                        tenant_id,
+                        EntitlementEntityId::AddOn(add_on_id),
+                        specs,
+                    )
+                    .await?;
+                }
 
                 let mut enriched = enrich_add_ons(conn, vec![row], tenant_id).await?;
                 let addon = enriched.pop().ok_or_else(|| {
