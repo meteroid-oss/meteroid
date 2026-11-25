@@ -13,13 +13,10 @@ use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
 use meteroid_store::clients::usage::{
     GroupedUsageData, MockUsageDataParams, MutableMockUsageClient, UsageData,
 };
-use meteroid_store::domain::enums::FeeTypeEnum;
 use meteroid_store::domain::price_components::{
     DimensionRate, DimensionRates, MatrixDimension, UsagePricingModel,
 };
-use meteroid_store::domain::prices::{
-    FeeStructure, MatrixDimensionKey, MatrixPriceUpdate, MatrixRowAdd, UsageModel,
-};
+use meteroid_store::domain::prices::{MatrixDimensionKey, MatrixPriceUpdate, MatrixRowAdd};
 use meteroid_store::domain::products::ProductNew;
 use meteroid_store::domain::{Invoice, UsagePeriod};
 use meteroid_store::repositories::CreditNoteInterface;
@@ -88,11 +85,6 @@ async fn matrix_plan(env: &TestEnv, name: &'static str) -> (ProductId, PlanVersi
                 description: None,
                 tenant_id: TENANT_ID,
                 family_id: PRODUCT_FAMILY_ID,
-                fee_type: FeeTypeEnum::Usage,
-                fee_structure: FeeStructure::Usage {
-                    metric_id: METRIC_BANDWIDTH,
-                    model: UsageModel::DimensionRates,
-                },
                 catalog: true,
                 tax_category_id: None,
                 icon: None,

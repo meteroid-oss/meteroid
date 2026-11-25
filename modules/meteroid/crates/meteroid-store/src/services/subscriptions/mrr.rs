@@ -104,7 +104,15 @@ impl Services {
         precision: u8,
         date: NaiveDate,
     ) -> StoreResult<i64> {
-        let lines = with_add_on_lines(sub_details, component_lines, precision);
+        // A seat add-on bills its quantity's live count, as the components' lines read it.
+        sub_details.add_ons = crate::services::subscriptions::plan_change::add_ons_at_live_seats(
+            conn,
+            sub_details.subscription.tenant_id,
+            sub_details.subscription.id,
+            &sub_details.add_ons,
+        )
+        .await?;
+        let lines = with_add_on_lines(&sub_details.add_ons, component_lines, precision);
         let rate = self
             .tax_inclusive_rate_for(conn, sub_details, &lines, date)
             .await?;

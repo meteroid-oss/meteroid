@@ -3,6 +3,7 @@ syntax = "proto3";
 package meteroid.api.addons.v1;
 
 import "api/addons/v1/models.proto";
+import "api/prices/v1/models.proto";
 import "api/entitlements/v1/models.proto";
 import "api/pricecomponents/v1/models.proto";
 import "common/v1/pagination.proto";
@@ -34,6 +35,9 @@ message CreateAddOnRequest {
   // Every price of the add-on, one per currency and billing period; when set, `price` is
   // ignored. The first is the add-on's `price_id`.
   repeated meteroid.api.components.v1.PriceInput prices = 10;
+  // How the add-on bills its product; unset takes a new product's. Fixed once created. An
+  // add-on charging per seat has at most one instance per subscription.
+  optional meteroid.api.prices.v1.FeeStructure fee_structure = 11;
 }
 
 message CreateAddOnResponse {

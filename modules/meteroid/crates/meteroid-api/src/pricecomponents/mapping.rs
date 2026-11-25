@@ -3,11 +3,14 @@ pub mod components {
     use crate::prices::mapping::prices::{
         PriceWrapper, cadence_from_proto, pricing_from_proto, pricing_to_proto,
     };
-    use crate::productitems::mapping::products::{fee_structure_from_proto, fee_type_from_proto};
+    use crate::productitems::mapping::products::{
+        fee_structure_from_proto, fee_structure_to_proto,
+    };
     use common_domain::ids::{PriceId, ProductId};
     use meteroid_grpc::meteroid::api::components::v1 as api;
     use meteroid_grpc::meteroid::api::prices::v1 as proto;
     use meteroid_store::domain::price_components as domain;
+    use meteroid_store::domain::prices::FeeStructure;
     use meteroid_store::repositories::price_components::PriceInput;
     use tonic::Status;
 
@@ -20,6 +23,7 @@ pub mod components {
                 price_id: link.price_id.as_proto(),
             })
             .collect();
+        let fee_structure = comp.structure().cloned().map(fee_structure_to_proto);
         let prices = if !comp.prices.is_empty() {
             // V2: real prices
             comp.prices
@@ -51,13 +55,24 @@ pub mod components {
             local_id: comp.id.as_proto(),
             name: comp.name.to_string(),
             product_id: comp.product_id.map(|p| p.as_proto()),
+            fee_structure,
             prices,
             option_prices,
         }
     }
 
+    /// The charge's structure a request sets, if any.
+    pub fn charge_structure_from_proto(
+        fee_structure: Option<proto::FeeStructure>,
+    ) -> Result<Option<FeeStructure>, Status> {
+        fee_structure.map(fee_structure_from_proto).transpose()
+    }
+
+    /// A new product holds no structure: the one it is sent with is the charge's, else the
+    /// charge's own (`charge_structure`) stands for it.
     pub fn product_ref_from_proto(
         product: Option<api::ProductRef>,
+        charge_structure: Option<&FeeStructure>,
     ) -> Result<domain::ProductRef, Status> {
         let product = product.ok_or_else(|| Status::invalid_argument("product is required"))?;
         match product.r#ref {
@@ -66,11 +81,14 @@ pub mod components {
                 Ok(domain::ProductRef::Existing(product_id))
             }
             Some(api::product_ref::Ref::NewProduct(np)) => {
-                let fee_type = fee_type_from_proto(np.fee_type)?;
-                let fee_structure = np
-                    .fee_structure
-                    .ok_or_else(|| Status::invalid_argument("fee_structure is required"))?;
-                let fee_structure = fee_structure_from_proto(fee_structure)?;
+                let fee_structure = match np.fee_structure {
+                    Some(fee_structure) => fee_structure_from_proto(fee_structure)?,
+                    None => charge_structure.cloned().ok_or_else(|| {
+                        Status::invalid_argument("the charge names how it bills its product")
+                    })?,
+                };
+                // The kind follows the structure; the request's fee_type is not read.
+                let fee_type = fee_structure.fee_type();
                 Ok(domain::ProductRef::New {
                     name: np.name,
                     fee_type,

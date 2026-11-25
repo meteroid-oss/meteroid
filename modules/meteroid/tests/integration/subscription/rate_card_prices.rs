@@ -11,9 +11,7 @@ use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
 use meteroid_store::clients::usage::{
     GroupedUsageData, MockUsageDataParams, MutableMockUsageClient, UsageData,
 };
-use meteroid_store::domain::enums::FeeTypeEnum;
 use meteroid_store::domain::price_components::UsagePricingModel;
-use meteroid_store::domain::prices::{FeeStructure, UsageModel};
 use meteroid_store::domain::products::ProductNew;
 use meteroid_store::domain::rate_cards::{
     RateCardDenomination, RateCardNew, RateCardRateInput, RateCardRatesSet, RateCardUnmatched,
@@ -155,11 +153,6 @@ async fn card_plan(env: &TestEnv, card: RateCardId, currency: &'static str) -> P
                 description: None,
                 tenant_id: TENANT_ID,
                 family_id: PRODUCT_FAMILY_ID,
-                fee_type: FeeTypeEnum::Usage,
-                fee_structure: FeeStructure::Usage {
-                    metric_id: METRIC_BANDWIDTH,
-                    model: UsageModel::RateCard,
-                },
                 catalog: true,
                 tax_category_id: None,
                 icon: None,
@@ -468,5 +461,103 @@ async fn a_key_without_a_rate_in_the_prices_currency_is_unmatched() {
         lines(subscriptions[1]).await,
         ["Tokens 750", "  a/x 600", "  b 150"],
         "USD: 100 × 0.06 + 10 × 0.15"
+    );
+}
+
+/// A price no longer knows its metric: the charge it is linked to does. A card on bandwidth
+/// prices a charge billing bandwidth, and is refused on a charge billing the database size, both
+/// when the charge is created with it and when it is set in a cell.
+/// Rules: R-139, R-132
+#[tokio::test]
+async fn a_rate_card_price_is_refused_on_a_charge_of_another_metric() {
+    use meteroid_store::domain::enums::{BillingPeriodEnum, FeeTypeEnum};
+    use meteroid_store::domain::price_components::{PriceEntry, PriceInput, ProductRef};
+    use meteroid_store::domain::prices::{FeeStructure, Pricing, UsageModel};
+    use meteroid_store::repositories::price_components::PriceComponentInterface;
+
+    let env =
+        test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(MutableMockUsageClient::new()))
+            .await;
+    let card = rate_card(
+        &env,
+        "bandwidth-models",
+        Decimal::ONE,
+        RateCardUnmatched::Hold,
+    )
+    .await;
+    let version = PlanVersionId::new();
+    PlanSeed::new(PlanId::new(), "Draft", PlanVersionId::new())
+        .draft(version, 2)
+        .seed(&mut env.conn().await)
+        .await
+        .expect("a plan with a draft");
+    let by_card = || PriceInput {
+        cadence: BillingPeriodEnum::Monthly,
+        currency: "EUR".to_string(),
+        pricing: Pricing::Usage(UsagePricingModel::RateCard {
+            rate_card_id: card,
+            multiplier: None,
+        }),
+        credit_unit: None,
+    };
+    let usage_of = |name: &str, metric_id| ProductRef::New {
+        name: name.to_string(),
+        fee_type: FeeTypeEnum::Usage,
+        fee_structure: FeeStructure::Usage {
+            metric_id,
+            model: UsageModel::RateCard,
+        },
+    };
+
+    let refused = env
+        .store()
+        .create_charge_from_ref(
+            "Storage".to_string(),
+            usage_of("Storage", METRIC_DATABASE_SIZE),
+            None,
+            vec![PriceEntry::New(by_card())],
+            version,
+            TENANT_ID,
+        )
+        .await;
+    assert!(
+        refused.is_err_and(|err| format!("{err:?}").contains("rates another metric")),
+        "a bandwidth card on a database-size charge"
+    );
+
+    env.store()
+        .create_charge_from_ref(
+            "Bandwidth".to_string(),
+            usage_of("Bandwidth", METRIC_BANDWIDTH),
+            None,
+            vec![PriceEntry::New(by_card())],
+            version,
+            TENANT_ID,
+        )
+        .await
+        .expect("a bandwidth card on a bandwidth charge");
+
+    let storage = env
+        .store()
+        .create_charge_from_ref(
+            "Storage".to_string(),
+            usage_of("Storage", METRIC_DATABASE_SIZE),
+            None,
+            vec![PriceEntry::New(PriceInput {
+                pricing: Pricing::Usage(UsagePricingModel::PerUnit { rate: dec!(0.10) }),
+                ..by_card()
+            })],
+            version,
+            TENANT_ID,
+        )
+        .await
+        .expect("a database-size charge at a unit rate");
+    let refused = env
+        .store()
+        .set_component_price(TENANT_ID, storage.id, vec![], by_card())
+        .await;
+    assert!(
+        refused.is_err_and(|err| format!("{err:?}").contains("rates another metric")),
+        "a bandwidth card set in a database-size charge's cell"
     );
 }

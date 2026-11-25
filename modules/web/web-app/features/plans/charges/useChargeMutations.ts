@@ -20,6 +20,7 @@ import type {
   PriceInput,
   ProductRef,
 } from '@/rpc/api/pricecomponents/v1/models_pb'
+import type { FeeStructure } from '@/rpc/api/prices/v1/models_pb'
 
 /** The writes of the plan editor's pricing: one cell, or the charge's structure. */
 export const useChargeMutations = () => {
@@ -83,17 +84,46 @@ export const useChargeMutations = () => {
         component: { id: component.id, name, productId: component.productId },
         prices: existingPriceEntries(component.prices.map(price => price.id)),
       }),
-    /** A new kind: its prices are replaced by `prices` (none: included, no price). */
-    restructure: (component: PriceComponent, name: string, prices: PriceInput[]) =>
+    /**
+     * A new kind: its prices are replaced by `prices` (none: included, no price), the charge
+     * billing as `feeStructure` (unset: as it did).
+     */
+    restructure: (
+      component: PriceComponent,
+      name: string,
+      prices: PriceInput[],
+      feeStructure?: FeeStructure
+    ) =>
       edit.mutateAsync({
         planVersionId,
         component: { id: component.id, name, productId: component.productId },
         prices: wrapAsNewPriceEntries(prices),
+        feeStructure,
+      }),
+    /** The same kind on another metric or quantity: every price kept, the structure replaced. */
+    reshape: (component: PriceComponent, name: string, feeStructure: FeeStructure) =>
+      edit.mutateAsync({
+        planVersionId,
+        component: { id: component.id, name, productId: component.productId },
+        prices: existingPriceEntries(component.prices.map(price => price.id)),
+        feeStructure,
       }),
     remove: (component: Pick<PriceComponent, 'id'>) =>
       drop.mutateAsync({ priceComponentId: component.id }),
-    create: (name: string, product: ProductRef, prices: PriceInput[]) =>
-      add.mutateAsync({ planVersionId, name, product, prices: wrapAsNewPriceEntries(prices) }),
+    /** A charge of `product` billing as `feeStructure`; none, with no price: included. */
+    create: (
+      name: string,
+      product: ProductRef,
+      prices: PriceInput[],
+      feeStructure?: FeeStructure
+    ) =>
+      add.mutateAsync({
+        planVersionId,
+        name,
+        product,
+        prices: wrapAsNewPriceEntries(prices),
+        feeStructure,
+      }),
   }
 }
 

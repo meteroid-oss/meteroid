@@ -59,6 +59,7 @@ async fn test_add_ons_basic() {
             product_family_local_id: None,
             entitlements: vec![],
             prices: vec![],
+            fee_structure: None,
         })
         .await
         .unwrap()
@@ -259,6 +260,7 @@ async fn test_add_on_skips_archived_feature_entitlement() {
                     )),
                 }),
             }],
+            fee_structure: None,
         })
         .await
         .expect("granting an archived feature does not fail the add-on")

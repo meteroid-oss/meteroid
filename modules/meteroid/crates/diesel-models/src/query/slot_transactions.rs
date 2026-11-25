@@ -5,15 +5,16 @@ use crate::slot_transactions::SlotTransactionRow;
 use crate::{DbResult, PgConn};
 use chrono::NaiveDateTime;
 
-use common_domain::ids::{InvoiceId, SubscriptionId, TenantId};
+use common_domain::ids::{InvoiceId, ManagedQuantityId, SubscriptionId, TenantId};
 use diesel::QueryableByName;
 use diesel::{OptionalExtension, sql_types};
 use error_stack::ResultExt;
 
-/// The active rows of a unit's seat ledger effective by $4, of subscription $2 of tenant $1.
+/// The active rows of the seat ledger of managed quantity $3 effective by $4, of subscription $2
+/// of tenant $1: seats are counted by their quantity, never by a unit's name (R-137).
 pub(crate) const ACTIVE_SLOT_ROWS: &str = "SELECT st.delta, st.prev_active_slots, st.effective_at, st.transaction_at \
     FROM slot_transaction st INNER JOIN subscription s ON st.subscription_id = s.id \
-    WHERE s.tenant_id = $1 AND st.subscription_id = $2 AND st.unit = $3 \
+    WHERE s.tenant_id = $1 AND st.subscription_id = $2 AND st.managed_quantity_id = $3 \
     AND st.status = 'ACTIVE' AND st.effective_at <= $4";
 
 /// The seats `active` holds: the latest row of no seats sets the count, the rows changing seats
@@ -99,13 +100,13 @@ impl SlotTransactionRow {
             .map(|_| ())
     }
 
-    /// Active slots of `unit` at `at_ts` without locking the ledger (read paths, previews);
-    /// `None` when the subscription never had a slot transaction for that unit.
+    /// Active seats of `quantity` at `at_ts` without locking the ledger (read paths, previews);
+    /// `None` when the subscription never had a slot transaction for that quantity.
     pub async fn fetch_active_slots(
         conn: &mut PgConn,
         tenant_id: common_domain::ids::TenantId,
         subscription_uid: SubscriptionId,
-        unit: String,
+        quantity: ManagedQuantityId,
         at_ts: NaiveDateTime,
     ) -> DbResult<Option<i32>> {
         use diesel_async::RunQueryDsl;
@@ -118,7 +119,7 @@ impl SlotTransactionRow {
         diesel::sql_query(raw_sql)
             .bind::<sql_types::Uuid, _>(tenant_id)
             .bind::<sql_types::Uuid, _>(subscription_uid)
-            .bind::<sql_types::VarChar, _>(unit)
+            .bind::<sql_types::Uuid, _>(quantity)
             .bind::<sql_types::Timestamp, _>(at_ts)
             .get_result::<FetchTransactionResult>(conn)
             .await
@@ -128,13 +129,13 @@ impl SlotTransactionRow {
             .into_db_result()
     }
 
-    /// Withdraws the changes of `unit`'s seats waiting to take effect after `after` (a renewal's
-    /// removal or increase); seat counts set by a scheduled change stay.
+    /// Withdraws the changes of `quantity`'s seats waiting to take effect after `after` (a
+    /// renewal's removal or increase); seat counts set by a scheduled change stay.
     pub async fn delete_waiting_changes(
         conn: &mut PgConn,
         lock: &CustomerLock,
         subscription_uid: SubscriptionId,
-        unit: &str,
+        quantity: ManagedQuantityId,
         after: NaiveDateTime,
     ) -> DbResult<usize> {
         use crate::enums::SlotTransactionStatusEnum;
@@ -146,7 +147,7 @@ impl SlotTransactionRow {
         let query = diesel::delete(
             slot_transaction::table
                 .filter(slot_transaction::subscription_id.eq(subscription_uid))
-                .filter(slot_transaction::unit.eq(unit))
+                .filter(slot_transaction::managed_quantity_id.eq(quantity))
                 .filter(slot_transaction::status.eq(SlotTransactionStatusEnum::Active))
                 .filter(slot_transaction::delta.ne(0))
                 .filter(slot_transaction::effective_at.gt(after))
@@ -164,13 +165,13 @@ impl SlotTransactionRow {
             .into_db_result()
     }
 
-    /// Seats of `unit` bought but not active yet (their payment is in flight): the maximum counts
-    /// them, or concurrent purchases could each pass it.
+    /// Seats of `quantity` bought but not active yet (their payment is in flight): the maximum
+    /// counts them, or concurrent purchases could each pass it.
     pub async fn pending_upgrades(
         conn: &mut PgConn,
         tenant_id: common_domain::ids::TenantId,
         subscription_uid: SubscriptionId,
-        unit: String,
+        quantity: ManagedQuantityId,
     ) -> DbResult<i32> {
         use crate::enums::SlotTransactionStatusEnum;
         use crate::schema::{slot_transaction, subscription};
@@ -181,7 +182,7 @@ impl SlotTransactionRow {
             .inner_join(subscription::table)
             .filter(subscription::tenant_id.eq(tenant_id))
             .filter(slot_transaction::subscription_id.eq(subscription_uid))
-            .filter(slot_transaction::unit.eq(unit))
+            .filter(slot_transaction::managed_quantity_id.eq(quantity))
             .filter(slot_transaction::status.eq(SlotTransactionStatusEnum::Pending))
             .filter(slot_transaction::delta.gt(0))
             .select(diesel::dsl::sum(slot_transaction::delta))
@@ -192,11 +193,12 @@ impl SlotTransactionRow {
             .into_db_result()
     }
 
-    pub async fn fetch_by_subscription_id_and_unit_locked(
+    /// The seats of `quantity` at `at_ts` (now when None), its ledger rows locked.
+    pub async fn fetch_by_subscription_id_and_quantity_locked(
         conn: &mut PgConn,
         lock: &CustomerLock,
         subscription_uid: SubscriptionId,
-        unit: String,
+        quantity: ManagedQuantityId,
         at_ts: Option<NaiveDateTime>,
     ) -> DbResult<FetchTransactionResult> {
         use diesel_async::RunQueryDsl;
@@ -217,9 +219,9 @@ impl SlotTransactionRow {
         let tenant_id = lock.tenant_id();
         let at_ts = at_ts.unwrap_or_else(|| common_clock::now().naive_utc());
 
-        // The unit's rows are locked, then counted as `fetch_active_slots` does.
+        // The quantity's rows are locked, then counted as `fetch_active_slots` does.
         let raw_sql = format!(
-            "WITH locked AS (SELECT st.id FROM slot_transaction st WHERE st.subscription_id = $2 AND st.unit = $3 FOR UPDATE), \
+            "WITH locked AS (SELECT st.id FROM slot_transaction st WHERE st.subscription_id = $2 AND st.managed_quantity_id = $3 FOR UPDATE), \
              active AS ({ACTIVE_SLOT_ROWS}) \
              SELECT slots::integer AS current_active_slots FROM ({SLOT_COUNT}) c \
              WHERE (SELECT count(*) FROM locked) >= 0"
@@ -228,7 +230,7 @@ impl SlotTransactionRow {
         let query = diesel::sql_query(raw_sql)
             .bind::<sql_types::Uuid, _>(tenant_id)
             .bind::<sql_types::Uuid, _>(subscription_uid)
-            .bind::<sql_types::VarChar, _>(unit)
+            .bind::<sql_types::Uuid, _>(quantity)
             .bind::<sql_types::Timestamp, _>(at_ts);
 
         crate::debug_sql(&query);
@@ -326,12 +328,12 @@ impl SlotTransactionRow {
             .into_db_result()
     }
 
-    /// Adds `delta` to the seat counts `seeds` set from after `after` for `unit`: seats changed
-    /// before a change setting its seats takes effect carry into its count.
+    /// Adds `delta` to the seat counts `seeds` set from after `after` for `quantity`: seats
+    /// changed before a change setting its seats takes effect carry into its count.
     pub async fn carry_into_seeds(
         conn: &mut PgConn,
         seeds: &[common_domain::ids::SlotTransactionId],
-        unit: &str,
+        quantity: ManagedQuantityId,
         after: NaiveDateTime,
         delta: i32,
     ) -> DbResult<usize> {
@@ -345,7 +347,7 @@ impl SlotTransactionRow {
         let query = diesel::update(
             slot_transaction::table
                 .filter(slot_transaction::id.eq_any(seeds))
-                .filter(slot_transaction::unit.eq(unit))
+                .filter(slot_transaction::managed_quantity_id.eq(quantity))
                 .filter(slot_transaction::delta.eq(0))
                 .filter(slot_transaction::effective_at.gt(after)),
         )
@@ -364,7 +366,7 @@ impl SlotTransactionRow {
         conn: &mut PgConn,
         tenant_id: common_domain::ids::TenantId,
         subscription_id: SubscriptionId,
-        unit: Option<String>,
+        quantity: Option<ManagedQuantityId>,
         status: Option<crate::enums::SlotTransactionStatusEnum>,
     ) -> DbResult<Vec<SlotTransactionRow>> {
         use crate::schema::{slot_transaction, subscription};
@@ -381,8 +383,8 @@ impl SlotTransactionRow {
             .order(slot_transaction::transaction_at.desc())
             .into_boxed();
 
-        if let Some(unit) = unit {
-            query = query.filter(slot_transaction::unit.eq(unit));
+        if let Some(quantity) = quantity {
+            query = query.filter(slot_transaction::managed_quantity_id.eq(quantity));
         }
 
         if let Some(status) = status {

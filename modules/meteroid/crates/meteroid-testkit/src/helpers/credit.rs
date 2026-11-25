@@ -560,11 +560,6 @@ pub async fn reduced_tax_unit_product(
         description: None,
         tenant_id: TENANT_ID,
         product_family_id: PRODUCT_FAMILY_ID,
-        fee_type: diesel_models::enums::FeeTypeEnum::Credit,
-        fee_structure: serde_json::to_value(
-            &meteroid_store::domain::prices::FeeStructure::Credit {},
-        )
-        .expect("fee structure"),
         catalog: true,
         tax_category_id: Some(reduced.id),
         icon: None,

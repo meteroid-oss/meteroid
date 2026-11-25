@@ -120,6 +120,7 @@ async fn test_main() {
                         },
                     )),
                 }],
+                fee_structure: None,
             },
         ))
         .await

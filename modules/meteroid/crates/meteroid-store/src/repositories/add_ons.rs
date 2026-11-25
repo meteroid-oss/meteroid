@@ -1,17 +1,20 @@
 use crate::domain::add_ons::{
-    AddOn, AddOnNew, AddOnPatch, AddOnPriceChange, ensure_one_price_per_cell, same_cell,
+    AddOn, AddOnNew, AddOnPatch, AddOnPriceChange, ensure_one_price_per_cell, instances_allowed,
+    same_cell,
 };
 use crate::domain::entitlements::{Entitlement, EntitlementSpec};
 use crate::domain::entity_activity::Actor;
-use crate::domain::enums::FeeTypeEnum;
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::price_components::{
     PriceComponentNewInternal, PriceEntry, PriceInput, ProductRef,
 };
+use crate::domain::prices::FeeStructure;
 use crate::domain::{PaginatedVec, PaginationRequest, Price};
 use crate::errors::StoreError;
 use crate::repositories::entitlements::insert_entitlement_specs;
-use crate::repositories::price_components::resolve_component_internal;
+use crate::repositories::price_components::{
+    charge_structure_tx, ensure_prices_fit_charge, resolve_component_internal,
+};
 use crate::store::PgConn;
 use crate::{Store, StoreResult};
 use common_domain::ids::{
@@ -66,12 +69,14 @@ pub trait AddOnInterface {
     ) -> StoreResult<AddOn>;
 
     /// `create_add_on_from_ref` with a price per currency and billing period, the first one its
-    /// `price_id`.
+    /// `price_id`, and the add-on's structure (None: the new product's). `create_add_on_from_ref`
+    /// bills as its new product's structure says.
     #[allow(clippy::too_many_arguments)]
     async fn create_add_on_with_prices(
         &self,
         name: String,
         product_ref: ProductRef,
+        fee_structure: Option<FeeStructure>,
         prices: Vec<PriceEntry>,
         description: Option<String>,
         self_serviceable: bool,
@@ -105,7 +110,7 @@ pub trait AddOnInterface {
     async fn unarchive_add_on(&self, id: AddOnId, tenant_id: TenantId) -> StoreResult<()>;
 }
 
-/// Eagerly load fee_type and prices for a list of add-on rows
+/// Eagerly load prices, product appearance and entitlements for a list of add-on rows
 pub(crate) async fn enrich_add_ons(
     conn: &mut crate::store::PgConn,
     rows: Vec<AddOnRow>,
@@ -156,9 +161,6 @@ pub(crate) async fn enrich_add_ons(
         .into_iter()
         .map(|row| {
             let product = products.get(&row.product_id);
-            let fee_type: Option<FeeTypeEnum> = product.map(|p| p.fee_type.clone().into());
-            let fee_structure =
-                product.and_then(|p| serde_json::from_value(p.fee_structure.clone()).ok());
             let product_icon = product.and_then(|p| p.icon.clone());
             let product_color = product.and_then(|p| p.color.clone());
             let price = prices.get(&row.price_id).cloned();
@@ -174,8 +176,6 @@ pub(crate) async fn enrich_add_ons(
             let all: Vec<Price> = price.iter().cloned().chain(own).collect();
             let entitlements = entitlements_by_entity.remove(&*row.id).unwrap_or_default();
             let mut addon: AddOn = row.into();
-            addon.fee_type = fee_type;
-            addon.fee_structure = fee_structure;
             addon.product_icon = product_icon;
             addon.product_color = product_color;
             addon.price = price;
@@ -204,12 +204,14 @@ async fn load_prices(
         .collect()
 }
 
-/// The prices `entries` give an add-on, under `product_ref` (created by the first entry when
-/// new), each validated in its own currency.
+/// The prices `entries` give an add-on billing as `fee_structure` says, under `product_ref`
+/// (created by the first entry when new), each validated in its own currency and against the
+/// structure.
 async fn resolve_add_on_prices(
     conn: &mut PgConn,
     name: &str,
     product_ref: ProductRef,
+    fee_structure: &FeeStructure,
     entries: Vec<PriceEntry>,
     tenant_id: TenantId,
     product_family_id: ProductFamilyId,
@@ -235,9 +237,10 @@ async fn resolve_add_on_prices(
         let internal = PriceComponentNewInternal {
             name: name.to_owned(),
             product_ref: product_ref.clone(),
+            fee_structure: Some(fee_structure.clone()),
             prices: vec![entry],
         };
-        let (resolved_product, ids) = resolve_component_internal(
+        let charge = resolve_component_internal(
             conn,
             &internal,
             tenant_id,
@@ -246,9 +249,9 @@ async fn resolve_add_on_prices(
             true,
         )
         .await?;
-        product_ref = ProductRef::Existing(resolved_product);
-        product_id = Some(resolved_product);
-        price_ids.extend(ids);
+        product_ref = ProductRef::Existing(charge.product_id);
+        product_id = Some(charge.product_id);
+        price_ids.extend(charge.price_ids);
     }
     let product_id = product_id.ok_or_else(|| {
         Report::new(StoreError::InvalidArgument(
@@ -277,13 +280,6 @@ async fn insert_add_on_price(
         conn,
         tenant_id,
         &input.currency,
-        [&input.pricing],
-    )
-    .await?;
-    crate::repositories::price_components::ensure_product_dimension_rates_add_up(
-        conn,
-        tenant_id,
-        product_id,
         [&input.pricing],
     )
     .await?;
@@ -434,6 +430,21 @@ async fn reprice_add_on(
     };
     kept.sort();
     kept.dedup();
+    let structure: FeeStructure =
+        serde_json::from_value(add_on.fee_structure.clone()).map_err(|e| {
+            Report::new(StoreError::SerdeError(
+                "Failed to deserialize FeeStructure".to_string(),
+                e,
+            ))
+        })?;
+    let priced = load_prices(conn, &kept, tenant_id).await?;
+    ensure_prices_fit_charge(
+        conn,
+        tenant_id,
+        &structure,
+        priced.iter().map(|p| &p.pricing),
+    )
+    .await?;
 
     AddOnPriceRow::delete_except(conn, add_on.id, &kept)
         .await
@@ -520,11 +531,19 @@ impl AddOnInterface for Store {
 
         let tenant_id = add_on.tenant_id;
         let entitlements = add_on.entitlements.clone();
-        let row_new: AddOnRowNew = add_on.into();
+        let price = Price::try_from(price_row)?;
+        let mut add_on = add_on;
+        add_on.max_instances_per_subscription =
+            instances_allowed(&add_on.fee_structure, add_on.max_instances_per_subscription)?;
 
         self.transaction_with(&mut conn, |conn| {
             let actor = &actor;
             async move {
+                add_on.fee_structure =
+                    charge_structure_tx(conn, tenant_id, add_on.fee_structure).await?;
+                ensure_prices_fit_charge(conn, tenant_id, &add_on.fee_structure, [&price.pricing])
+                    .await?;
+                let row_new = AddOnRowNew::try_from(add_on)?;
                 let row = row_new
                     .insert(conn)
                     .await
@@ -578,6 +597,7 @@ impl AddOnInterface for Store {
         self.create_add_on_with_prices(
             name,
             product_ref,
+            None,
             vec![price_entry],
             description,
             self_serviceable,
@@ -594,6 +614,7 @@ impl AddOnInterface for Store {
         &self,
         name: String,
         product_ref: ProductRef,
+        fee_structure: Option<FeeStructure>,
         prices: Vec<PriceEntry>,
         description: Option<String>,
         self_serviceable: bool,
@@ -602,12 +623,23 @@ impl AddOnInterface for Store {
         product_family_id: ProductFamilyId,
         entitlements: Vec<EntitlementSpec>,
     ) -> StoreResult<AddOn> {
+        let fee_structure = fee_structure
+            .or_else(|| product_ref.new_product_structure().cloned())
+            .ok_or_else(|| {
+                Report::new(StoreError::InvalidArgument(format!(
+                    "{name}: an add-on names how it bills its product"
+                )))
+            })?;
+        let max_instances_per_subscription =
+            instances_allowed(&fee_structure, max_instances_per_subscription)?;
         self.transaction(|conn| {
             async move {
+                let fee_structure = charge_structure_tx(conn, tenant_id, fee_structure).await?;
                 let (product_id, price_ids) = resolve_add_on_prices(
                     conn,
                     &name,
                     product_ref,
+                    &fee_structure,
                     prices,
                     tenant_id,
                     product_family_id,
@@ -628,6 +660,12 @@ impl AddOnInterface for Store {
                     description,
                     self_serviceable,
                     max_instances_per_subscription,
+                    fee_structure: serde_json::to_value(&fee_structure).map_err(|e| {
+                        Report::new(StoreError::SerdeError(
+                            "Failed to serialize fee_structure".to_string(),
+                            e,
+                        ))
+                    })?,
                 };
 
                 let row = row_new
@@ -683,6 +721,14 @@ impl AddOnInterface for Store {
                 let existing = AddOnRow::get_by_id(conn, tenant_id, add_on_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
+                let mut patch = patch;
+                if let Some(max) = patch.max_instances_per_subscription
+                    && let Ok(structure) =
+                        serde_json::from_value::<FeeStructure>(existing.fee_structure.clone())
+                {
+                    patch.max_instances_per_subscription =
+                        Some(instances_allowed(&structure, max)?);
+                }
 
                 let new_price_id = match prices {
                     Some(change) => Some(reprice_add_on(conn, &existing, change, tenant_id).await?),
@@ -759,5 +805,90 @@ impl AddOnInterface for Store {
         AddOnRow::unarchive(&mut conn, id, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)
+    }
+}
+
+impl Store {
+    /// How an add-on of `product_id` priced by `price_id` bills its product when its creator
+    /// names no structure (REST v1, whose add-ons billed as their product): as the charges the
+    /// price is linked to, when they agree; else as the product's stored structure, else its live
+    /// charges', when it fits the price; else as the pricing alone tells it: a rate, a one-time
+    /// fee, a credit pack, or per seat of the quantity the product's name names (normalised as a
+    /// charge naming no quantity is, `ensure_quantity_of_unit`). None when it stays ambiguous (a
+    /// usage, capacity or recurring price no charge tells).
+    pub async fn add_on_structure_of_price(
+        &self,
+        tenant_id: TenantId,
+        product_id: ProductId,
+        price_id: PriceId,
+    ) -> StoreResult<Option<FeeStructure>> {
+        use crate::domain::price_components::{DowngradePolicy, UpgradePolicy};
+        use crate::domain::prices::{Pricing, validate_pricing_fits};
+        use crate::domain::products::single_structure;
+
+        let mut conn = self.get_conn().await?;
+        let price = Price::try_from(
+            PriceRow::find_by_id_and_tenant_id(&mut conn, price_id, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?,
+        )?;
+        if price.product_id != product_id {
+            return Err(Report::new(StoreError::InvalidArgument(format!(
+                "Price {price_id} belongs to product {}, not {product_id}",
+                price.product_id
+            ))));
+        }
+        let fits =
+            |structure: &FeeStructure| validate_pricing_fits(structure, &price.pricing).is_ok();
+
+        let linked: Vec<FeeStructure> =
+            diesel_models::query::price_components::charge_structures_of_prices(
+                &mut conn,
+                tenant_id,
+                &[price_id],
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .filter_map(|(_, json)| serde_json::from_value(json).ok())
+            .collect();
+        if let Some(structure) = single_structure(&linked).filter(|s| fits(s)) {
+            return Ok(Some(structure.clone()));
+        }
+
+        let product = ProductRow::find_by_id_and_tenant_id(&mut conn, product_id, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        let stored: Option<FeeStructure> = product
+            .fee_structure
+            .clone()
+            .and_then(|json| serde_json::from_value(json).ok());
+        if let Some(structure) = stored.filter(|s| fits(s)) {
+            return Ok(Some(structure));
+        }
+        let charges = crate::repositories::products::charge_structures_of_products(
+            &mut conn,
+            tenant_id,
+            &[product_id],
+        )
+        .await?
+        .remove(&product_id)
+        .unwrap_or_default();
+        if let Some(structure) = single_structure(&charges).filter(|s| fits(s)) {
+            return Ok(Some(structure.clone()));
+        }
+
+        Ok(match price.pricing {
+            Pricing::Rate { .. } => Some(FeeStructure::Rate {}),
+            Pricing::OneTime { .. } => Some(FeeStructure::OneTime {}),
+            Pricing::Credit { .. } => Some(FeeStructure::Credit {}),
+            Pricing::Slot { .. } => Some(FeeStructure::Slot {
+                unit_name: product.name,
+                quantity_id: None,
+                upgrade_policy: UpgradePolicy::Prorated,
+                downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
+            }),
+            Pricing::Capacity { .. } | Pricing::Usage(_) | Pricing::ExtraRecurring { .. } => None,
+        })
     }
 }

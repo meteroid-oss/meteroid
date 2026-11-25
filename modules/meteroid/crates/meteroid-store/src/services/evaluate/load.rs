@@ -10,8 +10,8 @@ use billing_core::facts::{
 };
 use chrono::{Datelike, NaiveDate};
 use common_domain::ids::{
-    BaseId, BillableMetricId, CustomerId, PriceId, ProductId, RateCardId, SlotTransactionId,
-    SubscriptionId, TenantId,
+    BaseId, BillableMetricId, CustomerId, ManagedQuantityId, PriceId, ProductId, RateCardId,
+    SlotTransactionId, SubscriptionId, TenantId,
 };
 use diesel_models::billable_metrics::BillableMetricRow;
 use diesel_models::enums::SlotTransactionStatusEnum;
@@ -44,8 +44,9 @@ use crate::domain::{
     SubscriptionComponent, SubscriptionDetails, SubscriptionFee,
 };
 use crate::errors::StoreError;
+use crate::repositories::subscriptions::slots::name_seat_quantities;
 use crate::repositories::subscriptions::{
-    fetch_price_credit_units, fetch_price_lineages, fetch_prices_and_products, price_in_force,
+    ChargeShapes, fetch_price_credit_units, fetch_price_lineages, price_in_force,
     resolve_fee_from_maps, restore_stored_fee_credit_units, usage_attribution,
 };
 use crate::services::facts::pending::{MinimumChange, PendingFacts, PlanWindowFact, SeatSeed};
@@ -691,15 +692,19 @@ pub(crate) fn add_on_row_of(row: &SubscriptionAddOnRowNew) -> SubscriptionAddOnR
     }
 }
 
-/// The seats a change records on `on` for each slot fee of their unit, as the slot transactions
-/// it writes would read: the day's last step counts.
+/// The seats a change records on `on` for each slot fee of their quantity, as the slot
+/// transactions it writes would read: the day's last step counts.
 fn lay_seat_seeds(seats: &mut Vec<SeatStep>, rows: &[Row], seeds: &[SeatSeed], on: NaiveDate) {
     for seed in seeds {
         let mut lineages: Vec<Fee> = rows
             .iter()
-            .filter(
-                |row| matches!(row.fee(), SubscriptionFee::Slot { unit, .. } if *unit == seed.unit),
-            )
+            .filter(|row| match (row.fee(), seed.quantity_id) {
+                (SubscriptionFee::Slot { quantity_id, .. }, Some(seeded)) => {
+                    *quantity_id == Some(seeded)
+                }
+                (SubscriptionFee::Slot { unit, .. }, None) => *unit == seed.unit,
+                _ => false,
+            })
             .map(Row::lineage)
             .collect();
         lineages.sort();
@@ -774,16 +779,8 @@ async fn fee_rows(
         .chain(add_ons.iter().filter_map(|r| r.price_id))
         .collect();
     let lineages = fetch_price_lineages(conn, tenant_id, &roots).await?;
-    let (_, products) = fetch_prices_and_products(
-        conn,
-        tenant_id,
-        std::iter::empty(),
-        components
-            .iter()
-            .filter_map(|r| r.product_id)
-            .chain(add_ons.iter().filter_map(|r| r.product_id)),
-    )
-    .await?;
+    // A priced row is priced in its charge's structure (R-139).
+    let shapes = ChargeShapes::load(conn, tenant_id, &components, &add_ons).await?;
     // Every member of each lineage, by its own id: a part is priced from the one in force.
     let mut prices: HashMap<PriceId, Price> = HashMap::new();
     for row in lineages.values().flatten() {
@@ -818,9 +815,10 @@ async fn fee_rows(
         if parts.is_empty() {
             return Err(unpriced(row.id.as_uuid()));
         }
+        let shape = shapes.of_component(&row);
         for (from, to, member) in parts {
             let (period, fee) =
-                resolve_fee_from_maps(Some(member), row.product_id, &prices, &products, &units)
+                resolve_fee_from_maps(Some(member), shape.as_ref(), &prices, &units)
                     .ok_or_else(|| unpriced(row.id.as_uuid()))?;
             rows.push(Row::Component(SubscriptionComponent {
                 id: row.id,
@@ -851,9 +849,10 @@ async fn fee_rows(
         if parts.is_empty() {
             return Err(unpriced(row.id.as_uuid()));
         }
+        let shape = shapes.of_add_on(&row);
         for (from, to, member) in parts {
             let (period, fee) =
-                resolve_fee_from_maps(Some(member), row.product_id, &prices, &products, &units)
+                resolve_fee_from_maps(Some(member), shape.as_ref(), &prices, &units)
                     .ok_or_else(|| unpriced(row.id.as_uuid()))?;
             rows.push(Row::AddOn(SubscriptionAddOn {
                 id: row.id,
@@ -882,6 +881,18 @@ async fn fee_rows(
             .map(|(_, row)| match row {
                 Row::Component(c) => (c.price_id, &mut c.fee),
                 Row::AddOn(a) => (a.price_id, &mut a.fee),
+            })
+            .collect(),
+    )
+    .await?;
+    // Seats are counted by quantity: a fee recorded before quantities were named gets its own.
+    name_seat_quantities(
+        conn,
+        tenant_id,
+        rows.iter_mut()
+            .map(|row| match row {
+                Row::Component(c) => &mut c.fee,
+                Row::AddOn(a) => &mut a.fee,
             })
             .collect(),
     )
@@ -1038,32 +1049,36 @@ async fn metrics_of(
         .collect()
 }
 
-/// The seats each slot fee bills from the day an active transaction changed them, the day's last
-/// counting: one of no seats sets the count (first at its instant), the others add theirs, as the
-/// ledger's reads do. Pending upgrades are no fact until their payment settles.
+/// The seats each slot fee bills from the day an active transaction of its managed quantity
+/// changed them, the day's last counting: one of no seats sets the count (first at its instant),
+/// the others add theirs, as the ledger's reads do. Fees counting one quantity share its count,
+/// whatever their unit (R-137). Pending upgrades are no fact until their payment settles.
 fn seat_steps(rows: &[Row], transactions: &[SlotTransactionRow]) -> Vec<SeatStep> {
-    let mut lineages: Vec<(&str, Fee)> = rows
+    let mut lineages: Vec<(ManagedQuantityId, Fee)> = rows
         .iter()
         .filter_map(|row| match row.fee() {
-            SubscriptionFee::Slot { unit, .. } => Some((unit.as_str(), row.lineage())),
+            SubscriptionFee::Slot {
+                quantity_id: Some(quantity),
+                ..
+            } => Some((*quantity, row.lineage())),
             _ => None,
         })
         .collect();
-    lineages.sort();
+    lineages.sort_by(|a, b| (a.0.as_uuid(), &a.1).cmp(&(b.0.as_uuid(), &b.1)));
     lineages.dedup();
     let mut active: Vec<&SlotTransactionRow> = transactions
         .iter()
         .filter(|t| t.status == SlotTransactionStatusEnum::Active)
         .collect();
     active.sort_by_key(|t| (t.effective_at, t.delta != 0, t.transaction_at));
-    let mut counts: BTreeMap<&str, i32> = BTreeMap::new();
+    let mut counts: HashMap<ManagedQuantityId, i32> = HashMap::new();
     let mut by_day: BTreeMap<(Fee, NaiveDate), SeatStep> = BTreeMap::new();
     for transaction in active {
-        let count = match counts.get(transaction.unit.as_str()) {
+        let count = match counts.get(&transaction.managed_quantity_id) {
             Some(count) if transaction.delta != 0 => count + transaction.delta,
             _ => transaction.prev_active_slots + transaction.delta,
         };
-        counts.insert(transaction.unit.as_str(), count);
+        counts.insert(transaction.managed_quantity_id, count);
         let quantity = u64::try_from(count).unwrap_or(0);
         let removed = if transaction.removal_waits_for_renewal {
             u64::try_from(-transaction.delta).unwrap_or(0)
@@ -1072,7 +1087,7 @@ fn seat_steps(rows: &[Row], transactions: &[SlotTransactionRow]) -> Vec<SeatStep
         };
         for (_, lineage) in lineages
             .iter()
-            .filter(|(unit, _)| *unit == transaction.unit)
+            .filter(|(quantity, _)| *quantity == transaction.managed_quantity_id)
         {
             let at = transaction.effective_at.date();
             let earlier = by_day

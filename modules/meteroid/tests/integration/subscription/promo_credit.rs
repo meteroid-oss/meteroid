@@ -44,9 +44,10 @@ async fn add_once_credit(
     crate::helpers::plans::as_draft(
         env.store(),
         plan_version_id,
-        env.store().create_price_component_from_ref(
+        env.store().create_charge_from_ref(
             name.to_owned(),
             product,
+            Some(FeeStructure::Credit {}),
             vec![PriceEntry::New(PriceInput {
                 cadence: BillingPeriodEnum::Monthly,
                 currency: "EUR".to_owned(),
@@ -914,6 +915,7 @@ async fn a_once_credit_added_on_the_first_day_is_billed_at_the_first_renewal(
                             pricing: once_credit(dec!(20)),
                             credit_unit: None,
                         }),
+                        fee_structure: None,
                     }],
                     removed: vec![],
                 },

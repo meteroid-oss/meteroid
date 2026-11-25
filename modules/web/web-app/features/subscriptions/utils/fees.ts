@@ -403,3 +403,10 @@ export const formatSubscriptionFeeCompact = (
   const formatted = formatSubscriptionFee(fee, currency, units)
   return `${formatted.type}: ${formatted.amount}`
 }
+
+/**
+ * The key a seat count is read under: the managed quantity the seats count (charges counting it
+ * share the count), else, for a fee recorded before quantities were named, its unit.
+ */
+export const seatCountKey = (slot: { unit: string; quantityId?: string }) =>
+  slot.quantityId || slot.unit

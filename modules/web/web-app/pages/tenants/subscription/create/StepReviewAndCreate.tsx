@@ -19,6 +19,7 @@ import { serializeCustomProperties } from '@/features/customproperties/CustomPro
 import { resolveEntitlementSpecs } from '@/features/entitlements/creation/resolveEntitlementSpecs'
 import {
   buildExistingProductRef,
+  buildFeeStructure,
   buildNewProductRef,
   buildPriceInputs,
   toPricingTypeFromFeeType,
@@ -146,8 +147,9 @@ const buildCreateSubscriptionMessage = (
           name: c.name,
           product: c.productId
             ? buildExistingProductRef(c.productId)
-            : buildNewProductRef(c.name, c.feeType, c.formData),
+            : buildNewProductRef(c.name),
           price: priceEntries[0],
+          feeStructure: buildFeeStructure(c.feeType, c.formData),
         }
       }),
       removeComponents: state.components.removed,

@@ -8327,7 +8327,7 @@
           "Products"
         ],
         "summary": "Update a product",
-        "description": "Partially update product fields. The fee_type is immutable and cannot be changed.",
+        "description": "Partially update product fields. A `fee_structure` is ignored: the charges using the product\nown how it is billed.",
         "operationId": "update_product",
         "parameters": [
           {
@@ -13221,6 +13221,17 @@
               "null"
             ]
           },
+          "fee_structure": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ProductFeeStructure",
+                "description": "How the add-on bills its product. When absent, as the charges its price or product is\nlinked to bill it, else as its pricing tells (a rate, a one-time fee, a credit pack, seats\nof the quantity the product names); required when that stays ambiguous. An add-on\ncharging per seat has one instance at most."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "max_instances_per_subscription": {
             "type": [
               "integer",
@@ -13844,8 +13855,7 @@
         "type": "object",
         "required": [
           "name",
-          "product_family_id",
-          "fee_structure"
+          "product_family_id"
         ],
         "properties": {
           "catalog": {
@@ -13858,7 +13868,8 @@
             ]
           },
           "fee_structure": {
-            "$ref": "#/components/schemas/ProductFeeStructure"
+            "$ref": "#/components/schemas/ProductFeeStructure",
+            "description": "Ignored: the charges using the product own how it is billed."
           },
           "name": {
             "type": "string"
@@ -20457,8 +20468,6 @@
         "required": [
           "id",
           "name",
-          "fee_type",
-          "fee_structure",
           "product_family_id",
           "catalog",
           "created_at"
@@ -20495,7 +20504,8 @@
             "$ref": "#/components/schemas/ProductFeeStructure"
           },
           "fee_type": {
-            "$ref": "#/components/schemas/ProductFeeTypeEnum"
+            "$ref": "#/components/schemas/ProductFeeTypeEnum",
+            "description": "How the product's charges bill it, when they all bill it one way; absent otherwise. A\nproduct has no structure of its own: each plan charge and add-on owns one."
           },
           "icon": {
             "type": [
@@ -20547,7 +20557,6 @@
         "required": [
           "product_id",
           "name",
-          "fee_type",
           "product_family_id",
           "created_at"
         ],
@@ -20563,7 +20572,15 @@
             ]
           },
           "fee_type": {
-            "$ref": "#/components/schemas/ProductFeeTypeEnum"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ProductFeeTypeEnum",
+                "description": "Unset: a product's charges own how it is billed."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "name": {
             "type": "string"
@@ -23990,7 +24007,8 @@
           "fee_structure": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/ProductFeeStructure"
+                "$ref": "#/components/schemas/ProductFeeStructure",
+                "description": "Ignored: the charges using the product own how it is billed."
               },
               {
                 "type": "null"
@@ -26707,7 +26725,6 @@
                 "product_id": "prd_7n42DGM5Tflk9n8mt7Fhc7",
                 "name": "API Calls Product",
                 "description": "Usage-based API calls product",
-                "fee_type": "USAGE",
                 "product_family_id": "pf_7n42DGM5Tflk9n8mt7Fhc7",
                 "created_at": "1970-01-01T00:00:00.000Z",
                 "timestamp": "1970-01-01T00:00:00.000Z"
@@ -26743,7 +26760,6 @@
                 "product_id": "prd_7n42DGM5Tflk9n8mt7Fhc7",
                 "name": "API Calls Product",
                 "description": "Usage-based API calls product",
-                "fee_type": "USAGE",
                 "product_family_id": "pf_7n42DGM5Tflk9n8mt7Fhc7",
                 "created_at": "1970-01-01T00:00:00.000Z",
                 "timestamp": "1970-01-01T00:00:00.000Z"
@@ -26779,7 +26795,6 @@
                 "product_id": "prd_7n42DGM5Tflk9n8mt7Fhc7",
                 "name": "API Calls Product",
                 "description": "Usage-based API calls product",
-                "fee_type": "USAGE",
                 "product_family_id": "pf_7n42DGM5Tflk9n8mt7Fhc7",
                 "created_at": "1970-01-01T00:00:00.000Z",
                 "timestamp": "1970-01-01T00:00:00.000Z"

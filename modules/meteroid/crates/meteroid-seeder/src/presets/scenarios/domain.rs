@@ -1073,13 +1073,15 @@ impl PriceComponent {
             })
             .collect();
 
+        // The charge owns its structure: it stays when the product is reused by name.
         Ok(meteroid_store::domain::PriceComponentNewInternal {
             name: self.name.clone(),
             product_ref: ProductRef::New {
                 name: self.name.clone(),
                 fee_type: fee_type_enum,
-                fee_structure,
+                fee_structure: fee_structure.clone(),
             },
+            fee_structure: Some(fee_structure),
             prices,
         })
     }

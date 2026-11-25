@@ -783,6 +783,7 @@ fn extra_eur_rate_component(name: &str, rate_cents: i64) -> ExtraComponent {
             },
             credit_unit: None,
         }),
+        fee_structure: None,
     }
 }
 
@@ -980,8 +981,6 @@ async fn test_compute_invoice_with_tax_category_custom_tax(
                     tenant_id: TENANT_ID,
                     name: None,
                     description: None,
-                    fee_type: None,
-                    fee_structure: None,
                     tax_category_id: Some(Some(digital_services.id)),
                     icon: None,
                     color: None,

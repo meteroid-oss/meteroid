@@ -1666,7 +1666,7 @@ async fn scale_by_quantities(
     }
     let now = common_clock::now().naive_utc();
     for entitlement in resolved.iter_mut() {
-        let Some(code) = per.get(&entitlement.feature.id) else {
+        let Some(quantity) = per.get(&entitlement.feature.id) else {
             continue;
         };
         if let ResolvedEntitlementValue::Metered {
@@ -1677,7 +1677,7 @@ async fn scale_by_quantities(
                 conn,
                 tenant_id,
                 subscription,
-                code.clone(),
+                *quantity,
                 now,
             )
             .await

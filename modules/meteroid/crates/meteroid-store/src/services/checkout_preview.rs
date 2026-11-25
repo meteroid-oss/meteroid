@@ -1,5 +1,4 @@
 use crate::StoreResult;
-use crate::domain::Product;
 use crate::domain::plan_minimums::{CreateMinimumScope, MinimumScope};
 use crate::domain::subscription_add_ons::SubscriptionAddOn;
 use crate::domain::subscription_coupons::AppliedCoupon;
@@ -26,11 +25,10 @@ use crate::utils::periods::calculate_advance_period_range;
 use chrono::Duration;
 use chrono::{Datelike, NaiveDate};
 use common_domain::ids::{
-    AddOnId, AppliedCouponId, BaseId, CouponId, ProductId, SubscriptionAddOnId, SubscriptionId,
+    AddOnId, AppliedCouponId, BaseId, CouponId, SubscriptionAddOnId, SubscriptionId,
     SubscriptionPriceComponentId, TenantId,
 };
 use diesel_models::invoicing_entities::InvoicingEntityProvidersRow;
-use diesel_models::products::ProductRow;
 use error_stack::Report;
 use std::collections::HashMap;
 
@@ -104,32 +102,12 @@ impl Services {
 
         let invoicing_entity: InvoicingEntity = invoicing_entity_providers.entity.clone().into();
 
-        // Load products referenced by price components for v2 resolution
-        let product_ids: Vec<ProductId> = price_components
-            .iter()
-            .filter_map(|c| c.product_id)
-            .collect();
-        let products_map: HashMap<ProductId, Product> = if product_ids.is_empty() {
-            HashMap::new()
-        } else {
-            ProductRow::list_by_ids(conn, &product_ids, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .into_iter()
-                .map(|row| {
-                    let id = row.id;
-                    Product::try_from(row).map(|p| (id, p))
-                })
-                .collect::<Result<HashMap<_, _>, _>>()?
-        };
-
         // Resolve overrides and extras (read-only fee computation, no row creation)
         let resolved_custom = self
             .resolve_preview_custom_components(
                 conn,
                 session.components.as_ref(),
                 &price_components,
-                &products_map,
                 tenant_id,
             )
             .await?;
@@ -148,7 +126,6 @@ impl Services {
         let subscription_components = self.build_preview_components(
             &price_components,
             session.components.as_ref(),
-            &products_map,
             &units,
             &resolved_custom,
         )?;
@@ -397,30 +374,11 @@ impl Services {
         let offer_currency = Some(sold_in.currency.clone());
         let plan_option = sold_in.option.clone();
 
-        let product_ids: Vec<ProductId> = price_components
-            .iter()
-            .filter_map(|c| c.product_id)
-            .collect();
-        let products_map: HashMap<ProductId, Product> = if product_ids.is_empty() {
-            HashMap::new()
-        } else {
-            ProductRow::list_by_ids(conn, &product_ids, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .into_iter()
-                .map(|row| {
-                    let id = row.id;
-                    Product::try_from(row).map(|p| (id, p))
-                })
-                .collect::<Result<HashMap<_, _>, _>>()?
-        };
-
         let resolved_custom = self
             .resolve_preview_custom_components(
                 conn,
                 create.price_components.as_ref(),
                 &price_components,
-                &products_map,
                 tenant_id,
             )
             .await?;
@@ -438,7 +396,6 @@ impl Services {
         let subscription_components = self.build_preview_components(
             &price_components,
             create.price_components.as_ref(),
-            &products_map,
             &units,
             &resolved_custom,
         )?;
@@ -739,10 +696,9 @@ impl Services {
     fn build_subscription_component_from_price_component(
         &self,
         pc: crate::domain::PriceComponent,
-        products: &HashMap<ProductId, Product>,
         units: &crate::domain::credit_units::CreditUnitsById,
     ) -> StoreResult<SubscriptionComponent> {
-        let resolved = pc.resolve_fee(products, units, None).map_err(Report::new)?;
+        let resolved = pc.resolve_fee(units, None).map_err(Report::new)?;
         Ok(SubscriptionComponent {
             id: SubscriptionPriceComponentId::new(),
             name: pc.name,
@@ -764,7 +720,6 @@ impl Services {
         &self,
         price_components: &[PriceComponent],
         components: Option<&CreateSubscriptionComponents>,
-        products: &HashMap<ProductId, Product>,
         units: &crate::domain::credit_units::CreditUnitsById,
         resolved_custom: &crate::services::subscriptions::insert::context::ResolvedCustomComponents,
     ) -> StoreResult<Vec<SubscriptionComponent>> {
@@ -809,9 +764,7 @@ impl Services {
                     billing_period: param.parameters.billing_period,
                     committed_capacity: param.parameters.committed_capacity,
                 };
-                let resolved = pc
-                    .resolve_fee(products, units, Some(&params))
-                    .map_err(Report::new)?;
+                let resolved = pc.resolve_fee(units, Some(&params)).map_err(Report::new)?;
                 processed_components.push(SubscriptionComponent {
                     id: SubscriptionPriceComponentId::new(),
                     name: pc.name.clone(),
@@ -829,11 +782,7 @@ impl Services {
                 continue;
             }
 
-            let comp = self.build_subscription_component_from_price_component(
-                pc.clone(),
-                products,
-                units,
-            )?;
+            let comp = self.build_subscription_component_from_price_component(pc.clone(), units)?;
             processed_components.push(comp);
         }
 
@@ -871,7 +820,6 @@ impl Services {
         conn: &mut PgConn,
         components: Option<&CreateSubscriptionComponents>,
         price_components: &[PriceComponent],
-        products_map: &HashMap<ProductId, Product>,
         tenant_id: TenantId,
     ) -> StoreResult<crate::services::subscriptions::insert::context::ResolvedCustomComponents>
     {
@@ -902,16 +850,16 @@ impl Services {
                     )))
                 })?;
 
-                let product = products_map.get(&product_id).ok_or_else(|| {
+                let fee_structure = plan_comp.structure().cloned().ok_or_else(|| {
                     Report::new(StoreError::InvalidArgument(format!(
-                        "Product {} not found for override component {}",
-                        product_id, plan_comp.id
+                        "Cannot override component {}: it includes its product with no charge",
+                        plan_comp.id
                     )))
                 })?;
 
                 let (fee, period) = resolve_fee_read_only(
                     conn,
-                    &product.fee_structure,
+                    &fee_structure,
                     &ov.price_entry,
                     tenant_id,
                     Some(product_id),
@@ -928,25 +876,20 @@ impl Services {
                         price_component_id: Some(plan_comp.id),
                         product_ref: ProductRef::Existing(product_id),
                         price_entry: ov.price_entry.clone(),
+                        fee_structure,
                     },
                 );
             }
 
             for extra in &components.extra_components {
-                let fee_structure = match &extra.product_ref {
-                    ProductRef::Existing(pid) => {
-                        if let Some(p) = products_map.get(pid) {
-                            p.fee_structure.clone()
-                        } else {
-                            let row = ProductRow::find_by_id_and_tenant_id(conn, *pid, tenant_id)
-                                .await
-                                .map_err(Into::<Report<StoreError>>::into)?;
-                            let product = Product::try_from(row)?;
-                            product.fee_structure
-                        }
-                    }
-                    ProductRef::New { fee_structure, .. } => fee_structure.clone(),
-                };
+                let fee_structure = crate::repositories::price_components::extra_charge_structure(
+                    conn,
+                    tenant_id,
+                    &extra.product_ref,
+                    &extra.price_entry,
+                    extra.fee_structure.as_ref(),
+                )
+                .await?;
 
                 if matches!(extra.product_ref, ProductRef::New { .. })
                     && matches!(extra.price_entry, PriceEntry::Existing(_))
@@ -973,6 +916,7 @@ impl Services {
                     price_component_id: None,
                     product_ref: extra.product_ref.clone(),
                     price_entry: extra.price_entry.clone(),
+                    fee_structure,
                 });
             }
         }
@@ -1004,21 +948,7 @@ impl Services {
             .list_add_ons_by_ids_with_conn(conn, tenant_id, add_on_ids)
             .await?;
 
-        // Load products and prices referenced by add-ons
-        let ao_product_ids: Vec<ProductId> = add_ons.iter().map(|a| a.product_id).collect();
-        let ao_products_map: HashMap<ProductId, Product> = if ao_product_ids.is_empty() {
-            HashMap::new()
-        } else {
-            ProductRow::list_by_ids(conn, &ao_product_ids, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .into_iter()
-                .map(|row| {
-                    let id = row.id;
-                    Product::try_from(row).map(|p| (id, p))
-                })
-                .collect::<Result<HashMap<_, _>, _>>()?
-        };
+        // Load prices referenced by add-ons
 
         let ao_price_ids: Vec<common_domain::ids::PriceId> =
             add_ons.iter().flat_map(|a| a.price_ids()).collect();
@@ -1060,7 +990,6 @@ impl Services {
 
             let resolved = crate::services::subscriptions::utils::resolve_add_on_sold_in(
                 add_on,
-                &ao_products_map,
                 &ao_prices_map,
                 &units,
                 &create_ao.customization,

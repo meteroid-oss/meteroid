@@ -287,6 +287,7 @@ async fn studio_with_batch_api(h: &Halyard) -> (CustomerId, SubscriptionId) {
                     rate: dec!(0.01),
                 }),
             }),
+            fee_structure: None,
         }],
         remove_components: vec![],
     });

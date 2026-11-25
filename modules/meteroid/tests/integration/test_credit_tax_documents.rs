@@ -574,8 +574,6 @@ async fn an_exemption_never_lands_on_a_rated_row_paid_whole_by_promotion() -> Te
                 tenant_id: TENANT_ID,
                 name: None,
                 description: None,
-                fee_type: None,
-                fee_structure: None,
                 tax_category_id: Some(Some(nontaxable.id)),
                 icon: None,
                 color: None,

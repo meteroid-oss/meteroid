@@ -406,7 +406,12 @@ async fn test_quote_conversion_happy_path() {
     let subscription_id = SubscriptionId::from_proto(&subscription.id).unwrap();
     let active_seats = setup
         .store
-        .get_active_slots_value(ids::TENANT_ID, subscription_id, "Seats".to_string(), None)
+        .get_active_slots_value(
+            ids::TENANT_ID,
+            subscription_id,
+            ids::QUANTITY_SEATS_ID,
+            None,
+        )
         .await
         .expect("Failed to read active seats");
     assert_eq!(active_seats, 5);
@@ -553,7 +558,12 @@ async fn test_quote_custom_priced_seats_keep_their_count() {
 
     let active_seats = setup
         .store
-        .get_active_slots_value(ids::TENANT_ID, subscription_id, "Seats".to_string(), None)
+        .get_active_slots_value(
+            ids::TENANT_ID,
+            subscription_id,
+            ids::QUANTITY_SEATS_ID,
+            None,
+        )
         .await
         .expect("Failed to read active seats");
     assert_eq!(active_seats, 4);

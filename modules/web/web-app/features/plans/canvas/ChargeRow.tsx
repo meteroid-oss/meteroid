@@ -10,10 +10,7 @@ import { MoreHorizontalIcon, Trash2Icon } from 'lucide-react'
 
 import { metricUnitFromProto } from '@/features/billing/metrics/units'
 import { optionCell, sameInEveryOption } from '@/features/plans/currencies/priceCells'
-import {
-  useComponentMetric,
-  useComponentProduct,
-} from '@/features/plans/pricecomponents/componentRefs'
+import { useComponentMetric } from '@/features/plans/pricecomponents/componentRefs'
 
 import { chipParts, countsWords, rowWords } from './billingWords'
 
@@ -22,15 +19,15 @@ import type { OptionLike } from '@/features/plans/currencies/priceCells'
 import type { PriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
 import type { Price } from '@/rpc/api/prices/v1/models_pb'
 
+/** How the charge bills: its own structure, and the metric it reads. */
 export const useChargeContext = (component: PriceComponent): ChargeContext => {
-  const product = useComponentProduct(component.productId)
-  const structure = product?.feeStructure?.structure
+  const structure = component.feeStructure?.structure
   const metricId =
     structure?.case === 'usage' || structure?.case === 'capacity'
       ? structure.value.metricId
       : undefined
   const metric = useComponentMetric(metricId)
-  return { product, metric, unit: metricUnitFromProto(metric) }
+  return { product: component, metric, unit: metricUnitFromProto(metric) }
 }
 
 type Props = {

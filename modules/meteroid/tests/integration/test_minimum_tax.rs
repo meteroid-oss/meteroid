@@ -213,8 +213,6 @@ async fn a_product_scoped_shortfall_is_taxed_by_its_products(#[future] test_env:
                 tenant_id: TENANT_ID,
                 name: None,
                 description: None,
-                fee_type: None,
-                fee_structure: None,
                 tax_category_id: Some(Some(reduced.id)),
                 icon: None,
                 color: None,

@@ -11,6 +11,7 @@ message AddOn {
   reserved 4;
   string price_id = 5;
   string product_id = 6;
+  // How the add-on bills its product (its own, never its product's).
   meteroid.api.prices.v1.FeeType fee_type = 7;
   meteroid.api.prices.v1.Price price = 8;
   bool self_serviceable = 9;

@@ -745,6 +745,7 @@ impl From<meteroid_store::domain::subscription_components::SubscriptionFee> for 
                 min_slots,
                 max_slots,
                 initial_slots,
+                ..
             } => SubscriptionFee::Slot(SlotFee {
                 unit,
                 unit_rate: model.headline_rate(),
@@ -825,8 +826,10 @@ impl TryFrom<SubscriptionFee> for meteroid_store::domain::subscription_component
                 metric_id: f.metric_id,
                 credit_unit: None,
             },
+            // Counts the quantity coded as its unit (REST v1 names no quantity).
             SubscriptionFee::Slot(f) => DomainFee::Slot {
                 unit: f.unit,
+                quantity_id: None,
                 model: fixed_quantity_model_from_rest(f.model)?.unwrap_or(
                     meteroid_store::domain::price_components::RatingModel::PerUnit {
                         rate: f.unit_rate,
@@ -1249,6 +1252,8 @@ impl From<ExtraComponent> for meteroid_store::domain::subscription_components::E
             name: val.name,
             product_ref: val.product_ref.into(),
             price_entry: val.price_entry.into(),
+            // A new product's structure is the charge's; an existing price's charge gives one.
+            fee_structure: None,
         }
     }
 }

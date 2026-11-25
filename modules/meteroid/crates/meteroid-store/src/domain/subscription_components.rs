@@ -223,6 +223,10 @@ pub struct ExtraComponent {
     pub name: String,
     pub product_ref: crate::domain::price_components::ProductRef,
     pub price_entry: crate::domain::price_components::PriceEntry,
+    /// How the charge bills the product; None takes a new product's, else the structure of the
+    /// charge an existing price is linked to (`charge_structure_of_extra`).
+    #[serde(default)]
+    pub fee_structure: Option<crate::domain::prices::FeeStructure>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -285,7 +289,13 @@ pub enum SubscriptionFee {
         credit_unit: Option<crate::domain::credit_units::FeeCreditUnit>,
     },
     Slot {
+        /// The seats' label.
         unit: String,
+        /// The managed quantity the seats count. A fee recorded before quantities were named
+        /// has none: its seats count the quantity of its tenant coded as `unit` (I32), which
+        /// `name_seat_quantities` fills in when it is loaded.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        quantity_id: Option<common_domain::ids::ManagedQuantityId>,
         #[serde(
             alias = "unit_rate",
             deserialize_with = "crate::domain::price_components::RatingModel::rate_or_model"
@@ -341,6 +351,7 @@ golden::golden!(SubscriptionFee, {
     },
     "slot" => SubscriptionFee::Slot {
         unit: "seat".to_string(),
+        quantity_id: None,
         model: crate::domain::price_components::RatingModel::PerUnit {
             rate: rust_decimal::Decimal::new(1000, 2),
         },
@@ -436,6 +447,15 @@ impl SubscriptionFee {
         match self {
             SubscriptionFee::Usage { metric_id, .. } => Some(*metric_id),
             SubscriptionFee::Capacity { metric_id, .. } => Some(*metric_id),
+            _ => None,
+        }
+    }
+
+    /// The managed quantity a seat fee counts; None for another fee, or a seat fee recorded
+    /// before quantities were named and not loaded through `name_seat_quantities`.
+    pub fn seat_quantity(&self) -> Option<common_domain::ids::ManagedQuantityId> {
+        match self {
+            SubscriptionFee::Slot { quantity_id, .. } => *quantity_id,
             _ => None,
         }
     }
@@ -541,6 +561,7 @@ mod tests {
         .unwrap();
         let SubscriptionFee::Slot {
             unit,
+            quantity_id,
             model,
             min_slots,
             max_slots,
@@ -550,7 +571,32 @@ mod tests {
             panic!("a seat fee");
         };
         assert_eq!(unit, "seat");
+        assert_eq!(quantity_id, None);
         assert!(matches!(model, RatingModel::PerUnit { rate } if rate == dec!(10.00)));
         assert_eq!((min_slots, max_slots, initial_slots), (None, None, 3));
+    }
+
+    /// A seat fee naming its quantity keeps it through storage; one stored before reads none.
+    /// Rules: R-137
+    #[test]
+    fn a_seat_fee_keeps_the_quantity_it_counts() {
+        let quantity = common_domain::ids::ManagedQuantityId::from(uuid::Uuid::from_u128(7));
+        let fee = SubscriptionFee::Slot {
+            unit: "editor".to_string(),
+            quantity_id: Some(quantity),
+            model: RatingModel::PerUnit { rate: dec!(4) },
+            min_slots: None,
+            max_slots: None,
+            initial_slots: 2,
+        };
+        let stored = serde_json::to_value(&fee).unwrap();
+        let read: SubscriptionFee = serde_json::from_value(stored).unwrap();
+        assert_eq!(read.seat_quantity(), Some(quantity));
+
+        let old: SubscriptionFee = serde_json::from_str(
+            r#"{"Slot":{"unit":"seat","unit_rate":"4.00","min_slots":null,"max_slots":null,"initial_slots":2}}"#,
+        )
+        .unwrap();
+        assert_eq!(old.seat_quantity(), None);
     }
 }

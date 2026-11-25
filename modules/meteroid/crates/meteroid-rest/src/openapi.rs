@@ -857,7 +857,7 @@ impl Modify for WebhooksAddon {
                             product_id: ProductId::default(),
                             name: "API Calls Product".to_string(),
                             description: Some("Usage-based API calls product".to_string()),
-                            fee_type: ProductFeeTypeEnum::Usage,
+                            fee_type: None,
                             product_family_id: ProductFamilyId::default(),
                             created_at: Default::default(),
                         },

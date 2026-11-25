@@ -455,6 +455,7 @@ async fn a_price_component_is_removed_from_a_draft_only() {
                     },
                 )),
             }],
+            fee_structure: None,
         })
         .await
         .expect_err("a published version takes no new component");
@@ -497,7 +498,6 @@ async fn a_price_component_is_removed_from_a_draft_only() {
 async fn a_charge_without_a_price_is_included() {
     use crate::data::ids::{PLAN_VERSION_NOTION_ID, TENANT_ID};
     use meteroid_grpc::meteroid::api::components::v1 as components;
-    use meteroid_grpc::meteroid::api::prices::v1 as prices;
     use meteroid_store::repositories::PlansInterface;
     use meteroid_store::repositories::price_components::PriceComponentInterfaceAuto;
 
@@ -529,16 +529,12 @@ async fn a_charge_without_a_price_is_included() {
                 r#ref: Some(components::product_ref::Ref::NewProduct(
                     components::NewProduct {
                         name: "Community workspace".into(),
-                        fee_type: prices::FeeType::Rate.into(),
-                        fee_structure: Some(prices::FeeStructure {
-                            structure: Some(prices::fee_structure::Structure::Rate(
-                                prices::fee_structure::RateStructure {},
-                            )),
-                        }),
+                        ..Default::default()
                     },
                 )),
             }),
             prices: vec![],
+            fee_structure: None,
         })
         .await
         .expect("a new product is added included")
@@ -568,6 +564,7 @@ async fn a_charge_without_a_price_is_included() {
                 ..Default::default()
             }),
             prices: vec![],
+            fee_structure: None,
         })
         .await
         .expect("a charge left without a price is included")
@@ -586,6 +583,10 @@ async fn a_charge_without_a_price_is_included() {
             .find(|c| c.id.as_proto() == id)
             .expect("still on the draft");
         assert!(component.prices.is_empty(), "{component:?}");
+        assert!(
+            component.fee_structure.is_none(),
+            "an included charge has no shape: {component:?}"
+        );
     }
 }
 

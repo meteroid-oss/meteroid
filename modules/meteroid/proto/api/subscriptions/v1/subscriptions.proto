@@ -8,6 +8,7 @@ import "api/invoices/v1/models.proto";
 import "api/plans/v1/models.proto";
 import "api/shared/v1/shared.proto";
 import "api/pricecomponents/v1/models.proto";
+import "api/prices/v1/models.proto";
 import "common/v1/pagination.proto";
 import "common/v1/filters.proto";
 import "api/billablemetrics/v1/models.proto";
@@ -98,12 +99,16 @@ message ListSubscriptionsResponse {
 
 message UpdateSlotsRequest {
   string subscription_id = 1;
+  // The plan charge billing the seats; empty when `add_on_id` names an add-on's.
   string price_component_id = 2;
   // The seats to add or remove; 0 when `target` is set.
   int32 delta = 3;
   optional SlotUpgradeBillingMode billing_mode = 4;
   // The seat count to reach instead of a delta: an absolute set, e.g. from a CRM sync.
   optional uint32 target = 5;
+  // An add-on of the subscription charging per seat, instead of `price_component_id`. Charges
+  // counting the same quantity share the count.
+  optional string add_on_id = 6;
 }
 
 message UpdateSlotsResponse {
@@ -112,7 +117,9 @@ message UpdateSlotsResponse {
 
 message GetSlotsValueRequest {
   string subscription_id = 1;
+  // The code of the quantity; ignored when `quantity_id` is set.
   string unit = 2;
+  optional string quantity_id = 3;
 }
 
 message GetSlotsValueResponse {
@@ -131,6 +138,7 @@ message ListSlotTransactionsRequest {
   string subscription_id = 1;
   optional string unit = 2;
   optional SlotTransactionStatus status = 3;
+  optional string quantity_id = 4;
 }
 
 message ListSlotTransactionsResponse {
@@ -146,8 +154,10 @@ message CancelSlotTransactionResponse {}
 
 message PreviewSlotUpdateRequest {
   string subscription_id = 1;
+  // Empty when `add_on_id` names an add-on's seat charge.
   string price_component_id = 2;
   int32 delta = 3;
+  optional string add_on_id = 4;
 }
 
 message PreviewSlotUpdateResponse {
@@ -328,6 +338,9 @@ message AmendmentAddComponent {
   string name = 1;
   meteroid.api.components.v1.ProductRef product = 2;
   meteroid.api.components.v1.PriceEntry price = 3;
+  // How the charge bills the product; unset takes a new product's, or an existing price's
+  // charge's.
+  optional meteroid.api.prices.v1.FeeStructure fee_structure = 4;
 }
 
 message AmendmentComponentChanges {

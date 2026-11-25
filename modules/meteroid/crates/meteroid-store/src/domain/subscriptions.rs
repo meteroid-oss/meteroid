@@ -596,6 +596,7 @@ mod default_net_terms_tests {
         PriceComponent {
             id: PriceComponentId::new(),
             name: "c".to_owned(),
+            fee_structure: None,
             product_id: None,
             prices: vec![Price {
                 id: PriceId::new(),

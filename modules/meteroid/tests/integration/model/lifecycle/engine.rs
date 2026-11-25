@@ -393,6 +393,7 @@ impl Engine {
                                 },
                                 credit_unit: None,
                             }),
+                            fee_structure: None,
                         }],
                         removed: vec![],
                     },
@@ -830,6 +831,7 @@ impl Engine {
                             })
                         })
                         .collect(),
+                    fee_structure: None,
                 }
             };
             let created = h
@@ -918,6 +920,9 @@ impl Engine {
                                 },
                             );
                             if let Some(product) = seat_product {
+                                // The product holds no structure: the charge keeps its own.
+                                seats.fee_structure =
+                                    seats.product_ref.new_product_structure().cloned();
                                 seats.product_ref = ProductRef::Existing(product);
                             }
                             seats
@@ -1149,6 +1154,7 @@ impl Engine {
                                 })
                             })
                             .collect(),
+                        fee_structure: None,
                     }],
                 },
             )

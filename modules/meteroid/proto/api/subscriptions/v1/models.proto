@@ -313,6 +313,9 @@ message CreateSubscriptionComponents {
     string name = 1;
     meteroid.api.components.v1.ProductRef product = 2;
     meteroid.api.components.v1.PriceEntry price = 3;
+    // How the charge bills the product; unset takes a new product's, or an existing price's
+    // charge's.
+    optional meteroid.api.prices.v1.FeeStructure fee_structure = 4;
   }
 }
 
@@ -372,6 +375,7 @@ enum SlotTransactionStatus {
 message SlotTransaction {
   string id = 1;
   string subscription_id = 2;
+  // The code of `quantity_id`.
   string unit = 3;
   int32 delta = 4;
   int32 prev_active_slots = 5;
@@ -380,6 +384,8 @@ message SlotTransaction {
   string transaction_at = 8;
   SlotTransactionStatus status = 9;
   optional string invoice_id = 10;
+  // The managed quantity the seats count.
+  string quantity_id = 11;
 }
 
 message SubscriptionFee {
@@ -462,6 +468,8 @@ message SubscriptionFee {
     meteroid.api.prices.v1.FeeStructure.UpgradePolicy upgrade_policy = 6;
     meteroid.api.prices.v1.FeeStructure.DowngradePolicy downgrade_policy = 7;
     optional meteroid.api.prices.v1.UsagePricing model = 8;
+    // The managed quantity the seats count.
+    optional string quantity_id = 9;
   }
 }
 

@@ -27,6 +27,7 @@ const ChargeFormBase = z.object({
   term: Cadence.default('MONTHLY'),
   metricId: z.string().optional(),
   slotUnitName: z.string().optional(),
+  quantityId: z.string().optional(),
   quantity: z.coerce.number().optional(),
   rate: z.string().optional(),
   unitPrice: z.string().optional(),
@@ -81,7 +82,7 @@ export function hasDuplicateLevels(thresholds: unknown): boolean {
 
 export interface ChargeSchemaOptions {
   creditPack?: CreditPackContext
-  /** A new product names its metric and seat unit; an existing one already has them. */
+  /** The charge's metric and seat quantity are picked in the form (its shape is not fixed). */
   newProduct?: boolean
 }
 
@@ -93,7 +94,7 @@ export function chargeFormSchema(shape: ChargeShape, options: ChargeSchemaOption
       refineCreditUnitPricing(data, ctx)
     }
     if (s.source === 'seats' && options.newProduct) {
-      requireText(data.slotUnitName, 'slotUnitName', 'Name the unit, e.g. Seats', ctx)
+      requireText(data.quantityId, 'quantityId', 'Choose what the seats count', ctx)
     }
     if (s.source === 'fixed' && s.model !== 'flat' && s.model !== 'credit_pack') {
       check(Quantity, data, ctx)

@@ -48,6 +48,8 @@ pub struct PendingMaterialization {
     pub name: String,
     pub product_ref: ProductRef,
     pub price_entry: PriceEntry,
+    /// How the charge bills its product, its new price checked against it.
+    pub fee_structure: Option<crate::domain::prices::FeeStructure>,
     pub product_family_id: ProductFamilyId,
     pub currency: String,
 }
@@ -451,7 +453,7 @@ pub fn floor_subscription_mrr(
     precision: u8,
 ) -> i64 {
     subscription_mrr(
-        &with_add_on_lines(sub_details, component_lines, precision),
+        &with_add_on_lines(&sub_details.add_ons, component_lines, precision),
         sub_details
             .minimum
             .as_ref()
@@ -461,13 +463,14 @@ pub fn floor_subscription_mrr(
     )
 }
 
-/// The subscription's MRR lines: its components' (slot-aware) ones, then its add-ons'.
+/// The subscription's MRR lines: its components' (slot-aware) ones, then its add-ons' (a seat
+/// add-on's at its quantity's live count when read through `add_ons_at_live_seats`).
 pub(crate) fn with_add_on_lines(
-    sub_details: &SubscriptionDetails,
+    add_ons: &[crate::domain::SubscriptionAddOn],
     mut component_lines: Vec<MrrLine>,
     precision: u8,
 ) -> Vec<MrrLine> {
-    component_lines.extend(sub_details.add_ons.iter().map(|a| {
+    component_lines.extend(add_ons.iter().map(|a| {
         let quantity = i64::from(a.quantity);
         MrrLine::new(
             &a.fee,
@@ -551,12 +554,14 @@ pub(crate) fn scale_fee(fee: &SubscriptionFee, quantity: i32) -> SubscriptionFee
         },
         SubscriptionFee::Slot {
             unit,
+            quantity_id,
             model,
             min_slots,
             max_slots,
             initial_slots,
         } => SubscriptionFee::Slot {
             unit: unit.clone(),
+            quantity_id: *quantity_id,
             model: model.clone(),
             min_slots: *min_slots,
             max_slots: *max_slots,
@@ -569,7 +574,6 @@ pub(crate) fn scale_fee(fee: &SubscriptionFee, quantity: i32) -> SubscriptionFee
 pub fn process_create_subscription_add_ons(
     create: &Option<CreateSubscriptionAddOns>,
     add_ons: &[AddOn],
-    products: &HashMap<common_domain::ids::ProductId, crate::domain::Product>,
     prices: &HashMap<common_domain::ids::PriceId, crate::domain::prices::Price>,
     units: &crate::domain::credit_units::CreditUnitsById,
     product_family_id: ProductFamilyId,
@@ -588,6 +592,14 @@ pub fn process_create_subscription_add_ons(
     let currency = sold_in.currency.as_str();
 
     if let Some(create) = create {
+        // A seat add-on is held once (R-138).
+        ensure_seat_add_ons_once(
+            create
+                .add_ons
+                .iter()
+                .filter_map(|cs_ao| add_ons.iter().find(|x| x.id == cs_ao.add_on_id)),
+            &[],
+        )?;
         for cs_ao in &create.add_ons {
             let add_on = add_ons.iter().find(|x| x.id == cs_ao.add_on_id).ok_or(
                 StoreError::ValueNotFound(format!("add-on {} not found", cs_ao.add_on_id)),
@@ -608,16 +620,10 @@ pub fn process_create_subscription_add_ons(
                     cs_ao.add_on_id, cs_ao.quantity, max
                 ))));
             }
+            ensure_seat_add_on_instances(add_on, cs_ao.quantity)?;
 
-            let resolved = resolve_add_on_sold_in(
-                add_on,
-                products,
-                prices,
-                units,
-                &cs_ao.customization,
-                sold_in,
-                term,
-            )?;
+            let resolved =
+                resolve_add_on_sold_in(add_on, prices, units, &cs_ao.customization, sold_in, term)?;
 
             let idx = processed_add_ons.len();
 
@@ -630,6 +636,7 @@ pub fn process_create_subscription_add_ons(
                     name: resolved.name.clone(),
                     product_ref: ProductRef::Existing(add_on.product_id),
                     price_entry: resolved.price_entry.clone().unwrap(),
+                    fee_structure: add_on.fee_structure.clone(),
                     product_family_id,
                     currency: currency.to_string(),
                 });
@@ -651,13 +658,67 @@ pub fn process_create_subscription_add_ons(
     Ok((processed_add_ons, pending_materializations))
 }
 
+/// An add-on charging per seat has one instance at most: it bills its quantity's count, never
+/// its instances (R-138).
+pub(crate) fn ensure_seat_add_on_instances(add_on: &AddOn, quantity: i32) -> StoreResult<()> {
+    if add_on.charges_seats() && quantity > 1 {
+        return Err(Report::new(StoreError::InvalidArgument(format!(
+            "{} charges per seat: one instance at most, its seats are changed instead",
+            add_on.name
+        ))));
+    }
+    Ok(())
+}
+
+/// An add-on charging per seat is held once by a subscription (R-138): refused when a request
+/// adds it twice, or adds it while the subscription holds it (`held`, the add-ons it keeps), as
+/// a second one would bill every seat again.
+pub(crate) fn ensure_seat_add_ons_once<'a>(
+    added: impl IntoIterator<Item = &'a AddOn>,
+    held: &[AddOnId],
+) -> StoreResult<()> {
+    let mut seen: Vec<AddOnId> = held.to_vec();
+    for add_on in added.into_iter().filter(|add_on| add_on.charges_seats()) {
+        seat_add_on_once(&mut seen, add_on.id, &add_on.name)?;
+    }
+    Ok(())
+}
+
+/// The same for add-ons already priced (a quote's), by their fee, with their instances: one.
+pub(crate) fn ensure_seat_fees_once<'a>(
+    added: impl IntoIterator<Item = (AddOnId, &'a str, &'a SubscriptionFee, i32)>,
+) -> StoreResult<()> {
+    let mut seen: Vec<AddOnId> = Vec::new();
+    for (id, name, _, instances) in added
+        .into_iter()
+        .filter(|(_, _, fee, _)| matches!(fee, SubscriptionFee::Slot { .. }))
+    {
+        if instances > 1 {
+            return Err(Report::new(StoreError::InvalidArgument(format!(
+                "{name} charges per seat: one instance at most, its seats are changed instead"
+            ))));
+        }
+        seat_add_on_once(&mut seen, id, name)?;
+    }
+    Ok(())
+}
+
+fn seat_add_on_once(seen: &mut Vec<AddOnId>, id: AddOnId, name: &str) -> StoreResult<()> {
+    if seen.contains(&id) {
+        return Err(Report::new(StoreError::InvalidArgument(format!(
+            "{name} charges per seat: a subscription holds it once, its seats are changed instead"
+        ))));
+    }
+    seen.push(id);
+    Ok(())
+}
+
 /// `add_on` as a subscription sold in `sold_in` on `term` buys it: at its catalog price in that
 /// currency, on the cadence its parameters ask else the term; refused when it has none there. A
 /// price override keeps its own price, in that currency only.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_add_on_sold_in(
     add_on: &AddOn,
-    products: &HashMap<common_domain::ids::ProductId, crate::domain::Product>,
     prices: &HashMap<common_domain::ids::PriceId, crate::domain::prices::Price>,
     units: &crate::domain::credit_units::CreditUnitsById,
     customization: &SubscriptionAddOnCustomization,
@@ -674,7 +735,7 @@ pub(crate) fn resolve_add_on_sold_in(
             .map_err(Report::new)?,
     };
     let resolved = priced
-        .resolve_customized(products, prices, units, customization)
+        .resolve_customized(prices, units, customization)
         .map_err(Report::new)?;
     check_add_on_price(&priced, resolved.price_id, prices, sold_in)?;
     Ok(resolved)
@@ -1136,7 +1197,6 @@ pub fn process_create_subscription_components(
     param: &Option<CreateSubscriptionComponents>,
     map: &HashMap<PlanVersionId, Vec<PriceComponent>>,
     sub: &SubscriptionNew,
-    products: &HashMap<common_domain::ids::ProductId, crate::domain::Product>,
     units: &crate::domain::credit_units::CreditUnitsById,
     resolved: &ResolvedCustomComponents,
     product_family_id: ProductFamilyId,
@@ -1200,6 +1260,7 @@ pub fn process_create_subscription_components(
                     name: resolved_override.name.clone(),
                     product_ref: resolved_override.product_ref.clone(),
                     price_entry: resolved_override.price_entry.clone(),
+                    fee_structure: Some(resolved_override.fee_structure.clone()),
                     product_family_id,
                     currency: currency.to_string(),
                 });
@@ -1222,9 +1283,7 @@ pub fn process_create_subscription_components(
                 billing_period: parameterized.parameters.billing_period,
                 committed_capacity: parameterized.parameters.committed_capacity,
             };
-            let resolved = c
-                .resolve_fee(products, units, Some(&params))
-                .map_err(Report::new)?;
+            let resolved = c.resolve_fee(units, Some(&params)).map_err(Report::new)?;
 
             processed_components.push(SubscriptionComponentNewInternal {
                 price_component_id: Some(c.id),
@@ -1245,7 +1304,7 @@ pub fn process_create_subscription_components(
         }
 
         // Default: resolve via v2 path or legacy path
-        let resolved = c.resolve_fee(products, units, None).map_err(Report::new)?;
+        let resolved = c.resolve_fee(units, None).map_err(Report::new)?;
 
         processed_components.push(SubscriptionComponentNewInternal {
             price_component_id: Some(c.id),
@@ -1278,6 +1337,7 @@ pub fn process_create_subscription_components(
                 name: extra.name.clone(),
                 product_ref: extra.product_ref.clone(),
                 price_entry: extra.price_entry.clone(),
+                fee_structure: Some(extra.fee_structure.clone()),
                 product_family_id,
                 currency: currency.to_string(),
             });
@@ -1618,6 +1678,7 @@ mod mrr_rounding_tests {
             calculate_mrr(
                 &SubscriptionFee::Slot {
                     unit: "seat".to_string(),
+                    quantity_id: None,
                     model: crate::domain::price_components::RatingModel::PerUnit {
                         rate: dec!(100.05)
                     },

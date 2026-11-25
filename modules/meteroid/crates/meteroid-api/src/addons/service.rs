@@ -82,11 +82,19 @@ impl AddOnsService for AddOnsServiceComponents {
         let organization_id = request.organization()?;
         let req = request.into_inner();
 
-        let product_ref = product_ref_from_proto(req.product)?;
+        // The add-on's own shape; a new product's for clients that send it there.
+        let fee_structure =
+            crate::pricecomponents::mapping::components::charge_structure_from_proto(
+                req.fee_structure,
+            )?;
+        let product_ref = product_ref_from_proto(req.product, fee_structure.as_ref())?;
         ensure_credit_pricing_allowed(
             self.feature_resolver.as_ref(),
             organization_id,
-            product_ref.creates_credit_product(),
+            fee_structure
+                .as_ref()
+                .or_else(|| product_ref.new_product_structure())
+                .is_some_and(|fs| fs.is_credit()),
         )
         .await?;
         let price_entries: Vec<PriceEntry> = if req.prices.is_empty() {
@@ -123,6 +131,7 @@ impl AddOnsService for AddOnsServiceComponents {
             .create_add_on_with_prices(
                 req.name,
                 product_ref,
+                fee_structure,
                 price_entries,
                 req.description,
                 req.self_serviceable,

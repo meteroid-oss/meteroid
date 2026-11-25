@@ -12,6 +12,9 @@ pub struct PriceComponentRow {
     pub plan_version_id: PlanVersionId,
     pub product_id: Option<ProductId>,
     pub billable_metric_id: Option<BillableMetricId>,
+    /// How the charge bills its product; None for a product included with no price, and for a
+    /// v1 component (`legacy_fee`).
+    pub fee_structure: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Insertable)]
@@ -24,6 +27,9 @@ pub struct PriceComponentRowNew {
     pub plan_version_id: PlanVersionId,
     pub product_id: Option<ProductId>,
     pub billable_metric_id: Option<BillableMetricId>,
+    /// How the charge bills its product; None for a product included with no price, and for a
+    /// v1 component (`legacy_fee`).
+    pub fee_structure: Option<serde_json::Value>,
 }
 
 // the changeset one

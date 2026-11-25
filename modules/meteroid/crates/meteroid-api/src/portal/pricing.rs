@@ -323,12 +323,15 @@ pub fn subscription_plan_price(
                 fixed_quantity_amount(*rate, Decimal::from(*quantity), model.as_ref()),
             ),
             SubscriptionFee::Slot {
-                unit,
+                quantity_id,
                 model,
                 initial_slots,
                 ..
             } => {
-                let seats = inputs.slots.get(unit).copied().unwrap_or(*initial_slots);
+                // The seats its quantity holds, shared by every charge counting it.
+                let seats = quantity_id
+                    .and_then(|quantity| inputs.slots.get(&quantity).copied())
+                    .unwrap_or(*initial_slots);
                 builder.add(cadence, model.exact_amount(Decimal::from(seats)));
             }
             SubscriptionFee::Capacity { rate, .. } => {
@@ -453,24 +456,8 @@ pub fn plan_price(
 ) -> Result<PlanPrice, Status> {
     let mut builder = Builder::new(currency, cadence.as_subscription_billing_period())?;
     for component in &plan.price_components {
-        let metric_id =
-            component
-                .product_id
-                .and_then(|id| plan.products.get(&id))
-                .and_then(|product| match &product.fee_structure {
-                    FeeStructure::Usage { metric_id, .. }
-                    | FeeStructure::Capacity { metric_id } => Some(*metric_id),
-                    _ => None,
-                })
-                .or_else(|| {
-                    component.legacy_pricing.as_ref().and_then(|legacy| {
-                        match &legacy.fee_structure {
-                            FeeStructure::Usage { metric_id, .. }
-                            | FeeStructure::Capacity { metric_id } => Some(*metric_id),
-                            _ => None,
-                        }
-                    })
-                });
+        // The charge's own structure (a v1 component's included).
+        let metric_id = component.structure().and_then(FeeStructure::metric_id);
         let metric = metric_id.map(|id| (id, metrics.get(&id)));
         let prices = component
             .prices
@@ -519,14 +506,9 @@ pub fn plan_price(
 
 /// The metrics a plan's usage prices are measured by.
 pub fn plan_metric_ids(plan: &FullPlan) -> Vec<BillableMetricId> {
-    plan.products
-        .values()
-        .filter_map(|product| match &product.fee_structure {
-            FeeStructure::Usage { metric_id, .. } | FeeStructure::Capacity { metric_id } => {
-                Some(*metric_id)
-            }
-            _ => None,
-        })
+    plan.price_components
+        .iter()
+        .filter_map(|component| component.structure().and_then(FeeStructure::metric_id))
         .collect::<HashSet<_>>()
         .into_iter()
         .collect()

@@ -6,7 +6,7 @@ use crate::errors::StoreError;
 use crate::store::{PgConn, Store};
 use chrono::NaiveTime;
 use common_domain::ids::SlotTransactionId;
-use common_domain::ids::{BaseId, InvoiceId, SubscriptionId, TenantId};
+use common_domain::ids::{BaseId, InvoiceId, ManagedQuantityId, SubscriptionId, TenantId};
 use diesel_models::lock::CustomerLock;
 use diesel_models::managed_quantities::ManagedQuantityRow;
 use diesel_models::slot_transactions::SlotTransactionRow;
@@ -16,12 +16,13 @@ use scoped_futures::ScopedFutureExt;
 
 #[with_conn_delegate]
 pub trait SubscriptionSlotsInterface {
+    /// The seats of `quantity` the subscription holds at `at_ts` (now when None).
     #[delegated]
     async fn get_active_slots_value(
         &self,
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
-        unit: String,
+        quantity: ManagedQuantityId,
         // default to now
         at_ts: Option<chrono::NaiveDateTime>,
     ) -> StoreResult<u32>;
@@ -31,7 +32,7 @@ pub trait SubscriptionSlotsInterface {
         &self,
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
-        unit: Option<String>,
+        quantity: Option<ManagedQuantityId>,
         status: Option<SlotTransactionStatusEnum>,
     ) -> StoreResult<Vec<SlotTransactionRow>>;
 
@@ -45,7 +46,9 @@ pub trait SubscriptionSlotsInterface {
 
 impl Store {
     /// A change of `delta` seats: in force at `ts` (at most the period's end), or from the
-    /// period's end when `deferred`. Only a deferred removal waits for the renewal (R-108).
+    /// period's end when `deferred`. Only a deferred removal waits for the renewal (R-108). The
+    /// period's end is the earliest of the charges counting the quantity; `renewals` are each
+    /// one's, where the bounds hold too (R-137).
     #[allow(clippy::too_many_arguments)]
     pub async fn add_slot_transaction_tx(
         &self,
@@ -53,6 +56,7 @@ impl Store {
         lock: &CustomerLock,
         subscription_id: SubscriptionId,
         current_period_end: chrono::NaiveDate,
+        renewals: &[chrono::NaiveDate],
         delta: i32,
         slot: &SlotForTransaction,
         ts: Option<chrono::NaiveDateTime>,
@@ -64,6 +68,7 @@ impl Store {
             subscription_id,
             None,
             current_period_end,
+            renewals,
             delta,
             slot,
             ts,
@@ -79,6 +84,7 @@ impl Store {
         lock: &CustomerLock,
         subscription_id: SubscriptionId,
         current_period_end: chrono::NaiveDate,
+        renewals: &[chrono::NaiveDate],
         delta: i32,
         slot: &SlotForTransaction,
         invoice_id: InvoiceId,
@@ -90,6 +96,7 @@ impl Store {
             subscription_id,
             Some(invoice_id),
             current_period_end,
+            renewals,
             delta,
             slot,
             at_ts,
@@ -106,6 +113,7 @@ impl Store {
         subscription_id: SubscriptionId,
         invoice_id: Option<InvoiceId>,
         current_period_end: chrono::NaiveDate,
+        renewals: &[chrono::NaiveDate],
         delta: i32,
         slot: &SlotForTransaction,
         ts: Option<chrono::NaiveDateTime>,
@@ -121,11 +129,11 @@ impl Store {
             now.min(period_end)
         };
 
-        let current_slots = SlotTransactionRow::fetch_by_subscription_id_and_unit_locked(
+        let current_slots = SlotTransactionRow::fetch_by_subscription_id_and_quantity_locked(
             conn,
             lock,
             subscription_id,
-            slot.unit.clone(),
+            slot.quantity_id,
             Some(effective_at),
         )
         .await?
@@ -137,32 +145,41 @@ impl Store {
                 conn,
                 lock.tenant_id(),
                 subscription_id,
-                slot.unit.clone(),
+                slot.quantity_id,
             )
             .await?
         } else {
             0
         };
         validate_slot_limits(slot, delta, current_slots + pending)?;
-        // A change waiting for the renewal moves the count from there: the bounds hold there too.
-        if effective_at < period_end {
-            let at_renewal = SlotTransactionRow::fetch_by_subscription_id_and_unit_locked(
+        // A change waiting for a renewal moves the count from there: the bounds hold at the
+        // renewal of every charge counting the quantity too.
+        let mut renewals: Vec<chrono::NaiveDateTime> = renewals
+            .iter()
+            .map(|day| day.and_time(NaiveTime::MIN))
+            .chain(std::iter::once(period_end))
+            .filter(|at| *at > effective_at)
+            .collect();
+        renewals.sort();
+        renewals.dedup();
+        for renewal in renewals {
+            let at_renewal = SlotTransactionRow::fetch_by_subscription_id_and_quantity_locked(
                 conn,
                 lock,
                 subscription_id,
-                slot.unit.clone(),
-                Some(period_end),
+                slot.quantity_id,
+                Some(renewal),
             )
             .await?
             .current_active_slots;
             validate_slot_limits(slot, delta, at_renewal + pending)?;
         }
 
-        let managed_quantity_id =
-            ManagedQuantityRow::ensure_codes(conn, lock.tenant_id(), &[slot.unit.as_str()])
-                .await?
-                .remove(&slot.unit)
-                .ok_or_else(|| StoreError::ValueNotFound(format!("quantity {}", slot.unit)))?;
+        // The ledger's unit is its quantity's code (I32).
+        let code = ManagedQuantityRow::codes_of(conn, lock.tenant_id(), &[slot.quantity_id])
+            .await?
+            .remove(&slot.quantity_id)
+            .ok_or_else(|| StoreError::ValueNotFound(format!("quantity {}", slot.quantity_id)))?;
         let transaction = SlotTransactionRow {
             id: SlotTransactionId::new(),
             subscription_id,
@@ -170,10 +187,10 @@ impl Store {
             prev_active_slots: current_slots,
             effective_at,
             transaction_at: now,
-            unit: slot.unit.clone(),
+            unit: code,
             status: status.into(),
             invoice_id,
-            managed_quantity_id,
+            managed_quantity_id: slot.quantity_id,
             removal_waits_for_renewal: delta < 0 && deferred,
         };
 
@@ -217,7 +234,7 @@ impl SubscriptionSlotsInterface for Store {
         conn: &mut PgConn,
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
-        unit: String,
+        quantity: ManagedQuantityId,
         at_ts: Option<chrono::NaiveDateTime>,
     ) -> StoreResult<u32> {
         // A read: slot changes serialize on the subscription's customer (`add_slot_transaction_tx`).
@@ -225,7 +242,7 @@ impl SubscriptionSlotsInterface for Store {
             conn,
             tenant_id,
             subscription_id,
-            unit,
+            quantity,
             at_ts.unwrap_or_else(|| common_clock::now().naive_utc()),
         )
         .await
@@ -238,14 +255,14 @@ impl SubscriptionSlotsInterface for Store {
         conn: &mut PgConn,
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
-        unit: Option<String>,
+        quantity: Option<ManagedQuantityId>,
         status: Option<SlotTransactionStatusEnum>,
     ) -> StoreResult<Vec<SlotTransactionRow>> {
         SlotTransactionRow::list_by_subscription_id(
             conn,
             tenant_id,
             subscription_id,
-            unit,
+            quantity,
             status.map(Into::into),
         )
         .await
@@ -306,7 +323,9 @@ pub fn validate_slot_limits(
     Ok(())
 }
 
-/// The ledger rows of new seat transactions, each counting the managed quantity of its unit.
+/// The ledger rows of new seat transactions, each counting the managed quantity it names, else
+/// (a fee recorded before quantities were named) the one its unit names (`ensure_quantity_of_unit`);
+/// a row's unit is its quantity's code (I32).
 pub(crate) async fn ledger_rows<'a>(
     conn: &mut PgConn,
     tenant_id: TenantId,
@@ -318,19 +337,44 @@ pub(crate) async fn ledger_rows<'a>(
     >,
 ) -> StoreResult<Vec<SlotTransactionRow>> {
     let transactions: Vec<_> = transactions.into_iter().collect();
-    let mut codes: Vec<&str> = transactions
+    let mut units: Vec<&str> = transactions
         .iter()
+        .filter(|(_, tx)| tx.quantity_id.is_none())
         .map(|(_, tx)| tx.unit.as_str())
         .collect();
-    codes.sort_unstable();
-    codes.dedup();
-    let ids = ManagedQuantityRow::ensure_codes(conn, tenant_id, &codes).await?;
+    units.sort_unstable();
+    units.dedup();
+    // The quantity each unit names, as a charge naming none counts it.
+    let mut by_unit = std::collections::HashMap::new();
+    for unit in units {
+        let row =
+            crate::repositories::managed_quantities::ensure_quantity_of_unit(conn, tenant_id, unit)
+                .await?;
+        by_unit.insert(unit.to_owned(), (row.id, row.code));
+    }
+    let mut named: Vec<ManagedQuantityId> = transactions
+        .iter()
+        .filter_map(|(_, tx)| tx.quantity_id)
+        .collect();
+    named.sort_by_key(|id| id.as_uuid());
+    named.dedup();
+    let code_of = ManagedQuantityRow::codes_of(conn, tenant_id, &named).await?;
     transactions
         .into_iter()
         .map(|(subscription_id, tx)| {
-            let quantity = *ids
-                .get(&tx.unit)
-                .ok_or_else(|| StoreError::ValueNotFound(format!("quantity {}", tx.unit)))?;
+            let (quantity, code) = match tx.quantity_id {
+                Some(id) => (
+                    id,
+                    code_of
+                        .get(&id)
+                        .cloned()
+                        .ok_or_else(|| StoreError::ValueNotFound(format!("quantity {id}")))?,
+                ),
+                None => by_unit
+                    .get(&tx.unit)
+                    .cloned()
+                    .ok_or_else(|| StoreError::ValueNotFound(format!("quantity {}", tx.unit)))?,
+            };
             Ok(SlotTransactionRow {
                 id: tx.id,
                 subscription_id: *subscription_id,
@@ -338,7 +382,7 @@ pub(crate) async fn ledger_rows<'a>(
                 prev_active_slots: tx.prev_active_slots,
                 effective_at: tx.effective_at,
                 transaction_at: tx.transaction_at,
-                unit: tx.unit.clone(),
+                unit: code,
                 status: SlotTransactionStatusEnum::Active.into(),
                 invoice_id: None,
                 managed_quantity_id: quantity,
@@ -346,4 +390,55 @@ pub(crate) async fn ledger_rows<'a>(
             })
         })
         .collect()
+}
+
+/// Names the quantity of each seat fee recorded before quantities were named: its tenant's
+/// quantity its unit names (`quantity_of_unit`: coded as it first, which counted its seats so
+/// far, I32). A fee naming one is left alone; a unit with no quantity has no seat ledger either,
+/// so stays unnamed.
+pub(crate) async fn name_seat_quantities<'a>(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    // Collected by the caller: an iterator of closures held across the await would not be Send.
+    fees: Vec<&'a mut crate::domain::SubscriptionFee>,
+) -> StoreResult<()> {
+    use crate::domain::SubscriptionFee;
+
+    let unnamed: Vec<&'a mut SubscriptionFee> = fees
+        .into_iter()
+        .filter(|fee| {
+            matches!(
+                fee,
+                SubscriptionFee::Slot {
+                    quantity_id: None,
+                    ..
+                }
+            )
+        })
+        .collect();
+    if unnamed.is_empty() {
+        return Ok(());
+    }
+    let mut units: Vec<String> = unnamed
+        .iter()
+        .filter_map(|fee| match &**fee {
+            SubscriptionFee::Slot { unit, .. } => Some(unit.clone()),
+            _ => None,
+        })
+        .collect();
+    units.sort_unstable();
+    units.dedup();
+    let unit_refs: Vec<&str> = units.iter().map(String::as_str).collect();
+    let quantities =
+        crate::repositories::managed_quantities::quantities_of_units(conn, tenant_id, &unit_refs)
+            .await?;
+    for fee in unnamed {
+        if let SubscriptionFee::Slot {
+            unit, quantity_id, ..
+        } = fee
+        {
+            *quantity_id = quantities.get(unit.as_str()).map(|row| row.id);
+        }
+    }
+    Ok(())
 }

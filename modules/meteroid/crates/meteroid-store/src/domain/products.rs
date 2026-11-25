@@ -3,11 +3,11 @@ use common_domain::ids::{BaseId, ProductFamilyId, ProductId, TaxCategoryId, Tena
 use diesel_models::products::{ProductRow, ProductRowNew};
 use error_stack::Report;
 
-use super::enums::FeeTypeEnum;
 use super::prices::Price;
-use crate::domain::prices::FeeStructure;
 use crate::errors::StoreError;
 
+/// What is sold. How it is billed is its charges' (a plan's price components, add-ons): a
+/// product has no fee structure.
 #[derive(Clone, Debug)]
 pub struct Product {
     pub id: ProductId,
@@ -18,8 +18,6 @@ pub struct Product {
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: TenantId,
     pub product_family_id: ProductFamilyId,
-    pub fee_type: FeeTypeEnum,
-    pub fee_structure: FeeStructure,
     pub catalog: bool,
     pub tax_category_id: Option<TaxCategoryId>,
     pub icon: Option<String>,
@@ -93,14 +91,6 @@ impl TryFrom<ProductRow> for Product {
     type Error = Report<StoreError>;
 
     fn try_from(row: ProductRow) -> Result<Self, Self::Error> {
-        let fee_structure =
-            serde_json::from_value::<FeeStructure>(row.fee_structure).map_err(|e| {
-                Report::new(StoreError::SerdeError(
-                    "Failed to deserialize FeeStructure".to_string(),
-                    e,
-                ))
-            })?;
-
         Ok(Product {
             id: row.id,
             name: row.name,
@@ -110,8 +100,6 @@ impl TryFrom<ProductRow> for Product {
             archived_at: row.archived_at,
             tenant_id: row.tenant_id,
             product_family_id: row.product_family_id,
-            fee_type: row.fee_type.into(),
-            fee_structure,
             catalog: row.catalog,
             tax_category_id: row.tax_category_id,
             icon: row.icon,
@@ -126,8 +114,6 @@ pub struct ProductNew {
     pub description: Option<String>,
     pub tenant_id: TenantId,
     pub family_id: ProductFamilyId,
-    pub fee_type: FeeTypeEnum,
-    pub fee_structure: FeeStructure,
     pub catalog: bool,
     pub tax_category_id: Option<TaxCategoryId>,
     pub icon: Option<String>,
@@ -147,6 +133,20 @@ pub struct ProductListFacts {
     pub latest_prices: Vec<Price>,
     pub feature_count: i64,
     pub plan_count: i64,
+    /// Every distinct way its charges (plan charges, add-ons) bill it.
+    pub charge_structures: Vec<super::prices::FeeStructure>,
+}
+
+/// The one way every structure of `structures` bills, if they agree: what a product's charges
+/// say of it where a single fee type is shown (REST v1, the catalog).
+pub fn single_structure(
+    structures: &[super::prices::FeeStructure],
+) -> Option<&super::prices::FeeStructure> {
+    let first = structures.first()?;
+    structures
+        .iter()
+        .all(|other| other.same_shape(first))
+        .then_some(first)
 }
 
 /// Where a product is sold: the live plan versions with a charge of it, and its live add-ons.
@@ -176,21 +176,12 @@ impl TryFrom<ProductNew> for ProductRowNew {
     type Error = Report<StoreError>;
 
     fn try_from(new: ProductNew) -> Result<Self, Self::Error> {
-        let fee_structure = serde_json::to_value(&new.fee_structure).map_err(|e| {
-            Report::new(StoreError::SerdeError(
-                "Failed to serialize FeeStructure".to_string(),
-                e,
-            ))
-        })?;
-
         Ok(ProductRowNew {
             id: ProductId::new(),
             name: new.name,
             description: new.description,
             tenant_id: new.tenant_id,
             product_family_id: new.family_id,
-            fee_type: new.fee_type.into(),
-            fee_structure,
             catalog: new.catalog,
             tax_category_id: new.tax_category_id,
             icon: new.icon,

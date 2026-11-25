@@ -3,8 +3,9 @@ use crate::domain::credit_units::CreditUnitsById;
 use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::domain::enums::SubscriptionFeeBillingPeriod;
 use crate::domain::outbox_event::{OutboxEvent, SubscriptionEvent, SubscriptionUpdateType};
-use crate::domain::prices::{Price, fee_type_billing_period, resolve_subscription_fee};
-use crate::domain::products::Product;
+use crate::domain::prices::{
+    FeeStructure, Price, fee_type_billing_period, resolve_subscription_fee,
+};
 use crate::domain::subscriptions::{AmendmentSummary, PaymentMethodsConfig, PendingScheduledEvent};
 use crate::domain::{
     BillableMetric, ConnectorProviderEnum, Customer, InvoicingEntity, PaginatedVec,
@@ -14,7 +15,7 @@ use crate::domain::{
 use crate::repositories::credit_units::load_credit_units;
 use chrono::NaiveDate;
 use common_domain::ids::{
-    BaseId, ConnectorId, CreditUnitId, CustomerId, EntitlementEntityId, PlanId, PriceId, ProductId,
+    BaseId, ConnectorId, CreditUnitId, CustomerId, EntitlementEntityId, PlanId, PriceId,
     SubscriptionId, TenantId,
 };
 use std::collections::HashMap;
@@ -31,7 +32,6 @@ use diesel_models::applied_coupons::AppliedCouponDetailedRow;
 use diesel_models::billable_metrics::BillableMetricRow;
 use diesel_models::entitlements::EntitlementRow;
 use diesel_models::prices::PriceRow;
-use diesel_models::products::ProductRow;
 use diesel_models::schedules::ScheduleRow;
 use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
 use diesel_models::subscription_components::SubscriptionComponentRow;
@@ -732,19 +732,22 @@ impl Store {
             .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<_>, Report<_>>>()?;
 
-        // Resolve new-style components and add-ons from Products + Prices
+        // Resolve new-style components and add-ons from their charges' structures + prices
         if !comp_rows_with_price.is_empty() || !addon_rows_with_price.is_empty() {
-            let (prices_by_id, products_by_id) = fetch_prices_and_products(
+            let prices_by_id = fetch_prices(
                 conn,
                 tenant_id,
                 comp_rows_with_price
                     .iter()
                     .filter_map(|r| r.price_id)
                     .chain(addon_rows_with_price.iter().filter_map(|r| r.price_id)),
-                comp_rows_with_price
-                    .iter()
-                    .filter_map(|r| r.product_id)
-                    .chain(addon_rows_with_price.iter().filter_map(|r| r.product_id)),
+            )
+            .await?;
+            let shapes = ChargeShapes::load(
+                conn,
+                tenant_id,
+                &comp_rows_with_price,
+                &addon_rows_with_price,
             )
             .await?;
             let units = fetch_price_credit_units(conn, tenant_id, &prices_by_id).await?;
@@ -752,9 +755,8 @@ impl Store {
             for row in comp_rows_with_price {
                 let resolved = resolve_fee_from_maps(
                     row.price_id,
-                    row.product_id,
+                    shapes.of_component(&row).as_ref(),
                     &prices_by_id,
-                    &products_by_id,
                     &units,
                 );
 
@@ -783,9 +785,8 @@ impl Store {
             for row in addon_rows_with_price {
                 let resolved = resolve_fee_from_maps(
                     row.price_id,
-                    row.product_id,
+                    shapes.of_add_on(&row).as_ref(),
                     &prices_by_id,
-                    &products_by_id,
                     &units,
                 );
 
@@ -813,6 +814,18 @@ impl Store {
                 subscription_add_ons.push(add_on);
             }
         }
+
+        // Seats are counted by quantity: a fee recorded before quantities were named gets its own.
+        slots::name_seat_quantities(
+            conn,
+            tenant_id,
+            subscription_components
+                .iter_mut()
+                .map(|c| &mut c.fee)
+                .chain(subscription_add_ons.iter_mut().map(|a| &mut a.fee))
+                .collect(),
+        )
+        .await?;
 
         let mut metric_ids = subscription_components
             .iter()
@@ -1118,20 +1131,103 @@ pub(crate) async fn plan_option_of(
 }
 
 /// The prices `price_ids` name, each as its lineage prices today (R-097), and the products.
-pub(crate) async fn fetch_prices_and_products(
+/// Each price of `price_ids` as in force today, keyed by its lineage's root.
+pub(crate) async fn fetch_prices(
     conn: &mut PgConn,
     tenant_id: TenantId,
     price_ids: impl Iterator<Item = PriceId>,
-    product_ids: impl Iterator<Item = ProductId>,
-) -> StoreResult<(HashMap<PriceId, Price>, HashMap<ProductId, Product>)> {
-    fetch_prices_and_products_on(
-        conn,
-        tenant_id,
-        price_ids,
-        product_ids,
-        common_clock::now().date_naive(),
-    )
-    .await
+) -> StoreResult<HashMap<PriceId, Price>> {
+    fetch_prices_on(conn, tenant_id, price_ids, common_clock::now().date_naive()).await
+}
+
+/// The structures subscription rows' fees are priced in: a row's charge (its plan component,
+/// its add-on) owns it. An ad hoc component (no charge) keeps the one its stored fee recorded,
+/// which every structure field is on.
+#[derive(Debug, Default)]
+pub struct ChargeShapes {
+    components: HashMap<common_domain::ids::PriceComponentId, FeeStructure>,
+    add_ons: HashMap<common_domain::ids::AddOnId, FeeStructure>,
+}
+
+impl ChargeShapes {
+    pub async fn load(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        components: &[SubscriptionComponentRow],
+        add_ons: &[SubscriptionAddOnRow],
+    ) -> StoreResult<Self> {
+        let component_ids: Vec<_> = components
+            .iter()
+            .filter_map(|row| row.price_component_id)
+            .unique()
+            .collect();
+        let add_on_ids: Vec<_> = add_ons.iter().map(|row| row.add_on_id).unique().collect();
+        Self::load_ids(conn, tenant_id, &component_ids, &add_on_ids).await
+    }
+
+    pub async fn load_ids(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        component_ids: &[common_domain::ids::PriceComponentId],
+        add_on_ids: &[common_domain::ids::AddOnId],
+    ) -> StoreResult<Self> {
+        let (components, add_ons) =
+            diesel_models::query::price_components::charge_structures_by_ids(
+                conn,
+                tenant_id,
+                component_ids,
+                add_on_ids,
+            )
+            .await?;
+        let read = |json: serde_json::Value| {
+            serde_json::from_value::<FeeStructure>(json).map_err(|e| {
+                Report::new(StoreError::SerdeError(
+                    "Failed to deserialize FeeStructure".to_string(),
+                    e,
+                ))
+            })
+        };
+        Ok(ChargeShapes {
+            components: components
+                .into_iter()
+                .map(|(id, json)| read(json).map(|s| (id, s)))
+                .collect::<StoreResult<_>>()?,
+            add_ons: add_ons
+                .into_iter()
+                .map(|(id, json)| read(json).map(|s| (id, s)))
+                .collect::<StoreResult<_>>()?,
+        })
+    }
+
+    /// A component row's structure: its charge's, else its stored fee's.
+    pub fn of_component(&self, row: &SubscriptionComponentRow) -> Option<FeeStructure> {
+        self.of_charge(row.price_component_id, None, row.legacy_fee.as_ref())
+    }
+
+    /// An add-on row's structure: its add-on's, else its stored fee's.
+    pub fn of_add_on(&self, row: &SubscriptionAddOnRow) -> Option<FeeStructure> {
+        self.of_charge(None, Some(row.add_on_id), row.legacy_fee.as_ref())
+    }
+
+    /// The structure of a row of the plan component or the add-on it names, else the one its
+    /// stored fee keeps.
+    pub fn of_charge(
+        &self,
+        component: Option<common_domain::ids::PriceComponentId>,
+        add_on: Option<common_domain::ids::AddOnId>,
+        stored: Option<&serde_json::Value>,
+    ) -> Option<FeeStructure> {
+        component
+            .and_then(|id| self.components.get(&id).cloned())
+            .or_else(|| add_on.and_then(|id| self.add_ons.get(&id).cloned()))
+            .or_else(|| stored_structure(stored))
+    }
+}
+
+/// The structure a stored fee was resolved from.
+fn stored_structure(legacy_fee: Option<&serde_json::Value>) -> Option<FeeStructure> {
+    let fee: crate::domain::SubscriptionFee = serde_json::from_value(legacy_fee?.clone()).ok()?;
+    Some(FeeStructure::of_fee(&fee))
 }
 
 /// Each lineage root of `roots` with its dated successors, in the order they take over (R-097).
@@ -1166,16 +1262,14 @@ pub(crate) fn price_in_force(lineage: &[PriceRow], on: NaiveDate) -> Option<&Pri
         .find(|row| row.effective_from.is_none_or(|from| from <= on))
 }
 
-/// [`fetch_prices_and_products`] with each price's lineage read on `on`, keyed by the root.
-pub(crate) async fn fetch_prices_and_products_on(
+/// [`fetch_prices`] with each price's lineage read on `on`, keyed by the root.
+pub(crate) async fn fetch_prices_on(
     conn: &mut PgConn,
     tenant_id: TenantId,
     price_ids: impl Iterator<Item = PriceId>,
-    product_ids: impl Iterator<Item = ProductId>,
     on: NaiveDate,
-) -> StoreResult<(HashMap<PriceId, Price>, HashMap<ProductId, Product>)> {
+) -> StoreResult<HashMap<PriceId, Price>> {
     let price_ids: Vec<PriceId> = price_ids.unique().collect();
-    let product_ids: Vec<ProductId> = product_ids.unique().collect();
 
     let lineages = fetch_price_lineages(conn, tenant_id, &price_ids).await?;
     let mut prices_by_id: HashMap<PriceId, Price> = HashMap::new();
@@ -1188,19 +1282,7 @@ pub(crate) async fn fetch_prices_and_products_on(
         prices_by_id.insert(root, price);
     }
 
-    let product_rows = ProductRow::list_by_ids(conn, &product_ids, tenant_id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-    let products_by_id: HashMap<ProductId, Product> = product_rows
-        .into_iter()
-        .map(|row| {
-            let id = row.id;
-            Product::try_from(row).map(|p| (id, p))
-        })
-        .collect::<Result<HashMap<_, _>, _>>()?;
-
-    Ok((prices_by_id, products_by_id))
+    Ok(prices_by_id)
 }
 
 /// The credit units the prices are expressed in, or their credit packs grant, by id.
@@ -1294,17 +1376,16 @@ pub(crate) async fn restore_stored_fee_credit_units(
     Ok(())
 }
 
-/// `None` when the price, its product or the credit unit it is expressed in is missing.
+/// `None` when the price, the structure of its charge or the credit unit it is expressed in is
+/// missing.
 pub(crate) fn resolve_fee_from_maps(
     price_id: Option<PriceId>,
-    product_id: Option<ProductId>,
+    fee_structure: Option<&FeeStructure>,
     prices_by_id: &HashMap<PriceId, Price>,
-    products_by_id: &HashMap<ProductId, Product>,
     units: &CreditUnitsById,
 ) -> Option<(SubscriptionFeeBillingPeriod, crate::domain::SubscriptionFee)> {
     let price = prices_by_id.get(&price_id?)?;
-    let product = products_by_id.get(&product_id?)?;
-    let fee_structure = &product.fee_structure;
+    let fee_structure = fee_structure?;
     let fee = resolve_subscription_fee(
         fee_structure,
         &price.pricing,

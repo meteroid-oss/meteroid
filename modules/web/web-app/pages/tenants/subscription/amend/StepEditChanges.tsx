@@ -152,7 +152,7 @@ const periodToCadence = (
   }
 }
 
-/** What a live fee lets its custom price be (its product's kind), and its metric or seat unit. */
+/** What a live fee lets its custom price be (its own kind), and its metric or seat label. */
 const feeCharge = (fee?: SubscriptionFee): { lock: ChargeLock; product: ChargeBodyContext } => {
   const lock: ChargeLock = { feeType: feeTypeFromSubscriptionFee(fee) }
   switch (fee?.fee.case) {
@@ -222,6 +222,7 @@ export const subscriptionFeeToFormData = (
       return {
         term,
         slotUnitName: f.value.unit,
+        quantityId: f.value.quantityId,
         unitRate: f.value.unitRate,
         minSlots: f.value.minSlots,
         maxSlots: f.value.maxSlots,

@@ -3,6 +3,7 @@ import { create } from '@bufbuild/protobuf'
 import { serializeCustomProperties } from '@/features/customproperties/CustomPropertiesFields'
 import {
   buildExistingProductRef,
+  buildFeeStructure,
   buildNewProductRef,
   buildPriceInputs,
   toPricingTypeFromFeeType,
@@ -126,9 +127,8 @@ export function buildCreateQuote({
       )
       return create(CreateSubscriptionComponents_ExtraComponentSchema, {
         name: c.name,
-        product: c.productId
-          ? buildExistingProductRef(c.productId)
-          : buildNewProductRef(c.name, c.feeType, c.formData as Record<string, unknown>),
+        product: c.productId ? buildExistingProductRef(c.productId) : buildNewProductRef(c.name),
+        feeStructure: buildFeeStructure(c.feeType, c.formData as Record<string, unknown>),
         price: wrapAsNewPriceEntries(
           buildPriceInputs(pricingType, c.formData as Record<string, unknown>, currency)
         )[0],

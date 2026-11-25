@@ -2539,6 +2539,7 @@ async fn test_resolved_entitlements_for_addon_includes_product_features() {
             product_family_local_id: None,
             entitlements: vec![],
             prices: vec![],
+            fee_structure: None,
         })
         .await
         .unwrap()
@@ -3119,6 +3120,7 @@ async fn make_single_instance_add_on(
             product_family_local_id: None,
             entitlements: vec![],
             prices: vec![],
+            fee_structure: None,
         })
         .await
         .unwrap()
@@ -4299,6 +4301,7 @@ async fn test_feature_status_contract_for_new_entities() {
                 product_family_local_id: None,
                 entitlements: spec(),
                 prices: vec![],
+                fee_structure: None,
             })
             .await
             .unwrap_or_else(|e| panic!("{label}: add-on with a body grant: {e:?}"))

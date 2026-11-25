@@ -1,5 +1,6 @@
 use crate::StoreResult;
 use crate::domain::LineItemKind;
+use crate::domain::SubscriptionDetails;
 use crate::domain::SubscriptionStatusEnum;
 use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::domain::enums::InvoiceStatusEnum;
@@ -23,7 +24,6 @@ use crate::domain::subscription_components::{
     SubscriptionComponent, SubscriptionComponentNew, SubscriptionComponentNewInternal,
     SubscriptionFee,
 };
-use crate::domain::{Product, SubscriptionDetails};
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
 use crate::repositories::credit_notes::{
@@ -31,7 +31,7 @@ use crate::repositories::credit_notes::{
 };
 use crate::repositories::entity_activity::EntityActivityInterface;
 use crate::repositories::price_components::resolve_component_internal;
-use crate::repositories::subscriptions::fetch_prices_and_products;
+use crate::repositories::subscriptions::fetch_prices;
 use crate::services::Services;
 use crate::services::evaluate::change::{Change, GiveBack};
 use crate::services::subscriptions::insert::context::resolve_fee_read_only;
@@ -69,6 +69,8 @@ struct PendingComponentInsert {
     price_component_id: Option<PriceComponentId>,
     product_ref: ProductRef,
     price_entry: PriceEntry,
+    /// How the charge bills its product, its new price checked against it.
+    fee_structure: FeeStructure,
     name: String,
     period: SubscriptionFeeBillingPeriod,
     fee: SubscriptionFee,
@@ -89,6 +91,8 @@ struct PendingAddOnInsert {
     add_on_id: AddOnId,
     product_id: ProductId,
     price_entry: Option<PriceEntry>,
+    /// The add-on's structure, a new override price checked against it.
+    fee_structure: Option<FeeStructure>,
     price_id: Option<PriceId>,
     name: String,
     period: SubscriptionFeeBillingPeriod,
@@ -248,7 +252,27 @@ impl Services {
                 precision,
             )
             .await?;
-            let before_lines = with_add_on_lines(&sub_details, component_lines.clone(), precision);
+            // A seat add-on bills its quantity's live count, kept or added (R-137, R-138).
+            let live_add_ons = crate::services::subscriptions::plan_change::add_ons_at_live_seats(
+                &mut conn,
+                tenant_id,
+                subscription_id,
+                &sub_details.add_ons,
+            )
+            .await?;
+            let added_quantities = resolved
+                .addon_inserts
+                .iter()
+                .filter_map(|a| a.fee.seat_quantity())
+                .collect();
+            let added_counts = crate::services::subscriptions::plan_change::live_seat_counts(
+                &mut conn,
+                tenant_id,
+                subscription_id,
+                added_quantities,
+            )
+            .await?;
+            let before_lines = with_add_on_lines(&live_add_ons, component_lines.clone(), precision);
             let after_lines: Vec<MrrLine> = sub_details
                 .price_components
                 .iter()
@@ -268,8 +292,7 @@ impl Services {
                     .with_period_total(fee_period_total_cents(&c.fee, precision))
                 }))
                 .chain(
-                    sub_details
-                        .add_ons
+                    live_add_ons
                         .iter()
                         .filter(|a| !resolved.addon_close.contains(&a.id))
                         .map(|a| {
@@ -284,12 +307,17 @@ impl Services {
                 )
                 .chain(resolved.addon_inserts.iter().map(|a| {
                     let quantity = i64::from(a.quantity);
+                    let mut fee = a.fee.clone();
+                    crate::services::subscriptions::plan_change::at_live_count(
+                        &mut fee,
+                        &added_counts,
+                    );
                     MrrLine::new(
-                        &a.fee,
-                        calculate_mrr(&a.fee, &a.period, precision) * quantity,
+                        &fee,
+                        calculate_mrr(&fee, &a.period, precision) * quantity,
                         Some(a.product_id),
                     )
-                    .with_period_total(fee_period_total_cents(&a.fee, precision) * quantity)
+                    .with_period_total(fee_period_total_cents(&fee, precision) * quantity)
                 }))
                 .collect();
             // The rate apply will store: re-resolved on the lines the amendment leaves.
@@ -922,6 +950,30 @@ impl Services {
         addon_insert: &[ResolvedAddOnInsert],
         settles: bool,
     ) -> StoreResult<()> {
+        // The quantities held before the change: a new seat fee of one binds to its count.
+        let held = {
+            let components: Vec<SubscriptionComponentRow> =
+                SubscriptionComponentRow::list_fact_rows(conn, subscription_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?
+                    .into_iter()
+                    .filter(|row| row.effective_to.is_none())
+                    .collect();
+            let add_ons: Vec<SubscriptionAddOnRow> =
+                SubscriptionAddOnRow::list_fact_rows(conn, subscription_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?
+                    .into_iter()
+                    .filter(|row| row.effective_to.is_none())
+                    .collect();
+            crate::services::facts::pending::held_seat_quantities(
+                conn,
+                tenant_id,
+                &components,
+                &add_ons,
+            )
+            .await?
+        };
         crate::services::facts::close_components_tx(conn, component_close, change_date).await?;
         crate::services::facts::close_add_ons_tx(conn, addon_close, change_date).await?;
 
@@ -1015,7 +1067,8 @@ impl Services {
         )
         .await?;
 
-        // Overrides and edited add-ons keep their unit's ledger: a seed would reset the live count.
+        // Overrides and edited add-ons keep their quantity's ledger, and a new seat fee of a
+        // quantity held binds to its count (R-137): a seed would reset the live count.
         use crate::domain::slot_transactions::SlotTransactionNewInternal;
         let seeds: Vec<_> = component_insert
             .iter()
@@ -1027,6 +1080,7 @@ impl Services {
                     .filter(|a| a.lineage_id.is_none())
                     .map(|a| &a.fee),
             )
+            .filter(|fee| !fee.seat_quantity().is_some_and(|q| held.contains(&q)))
             .filter_map(|fee| SlotTransactionNewInternal::from_fee(fee, change_date))
             .map(|tx| (subscription_id, tx))
             .collect();
@@ -1282,7 +1336,8 @@ async fn cancel_pending_amendments(
     .await
 }
 
-/// Patch a Slot fee's `initial_slots` with the live count from the slot_transaction ledger.
+/// Patch a Slot fee's `initial_slots` with the live count of its quantity from the
+/// slot_transaction ledger.
 async fn resolve_live_slot_count(
     conn: &mut PgConn,
     tenant_id: TenantId,
@@ -1290,7 +1345,7 @@ async fn resolve_live_slot_count(
     fee: &mut SubscriptionFee,
 ) -> StoreResult<()> {
     if let SubscriptionFee::Slot {
-        unit,
+        quantity_id: Some(quantity),
         initial_slots,
         ..
     } = fee
@@ -1299,7 +1354,7 @@ async fn resolve_live_slot_count(
             conn,
             tenant_id,
             subscription_id,
-            unit.clone(),
+            *quantity,
             common_clock::now().naive_utc(),
         )
         .await
@@ -1737,7 +1792,8 @@ async fn resolve_amendment(
                 "Cannot override a component without a product (legacy pricing). Create a new plan version and migrate this subscription first.".to_string(),
             ))
         })?;
-        let fee_structure = load_product_fee_structure(conn, tenant_id, product_id).await?;
+        // A new price of the charge keeps its shape: the one its row was resolved from.
+        let fee_structure = FeeStructure::of_fee(&current.fee);
         let (mut new_fee, new_period) = resolve_fee_read_only(
             conn,
             &fee_structure,
@@ -1803,6 +1859,7 @@ async fn resolve_amendment(
             price_component_id: current.price_component_id,
             product_ref: ProductRef::Existing(product_id),
             price_entry: edit.price_entry.clone(),
+            fee_structure,
             name: new_name,
             period: new_period,
             fee: new_fee,
@@ -1814,10 +1871,14 @@ async fn resolve_amendment(
 
     // --- Extra components (add) ---
     for extra in &amendment.component_changes.added {
-        let fee_structure = match &extra.product {
-            ProductRef::New { fee_structure, .. } => fee_structure.clone(),
-            ProductRef::Existing(pid) => load_product_fee_structure(conn, tenant_id, *pid).await?,
-        };
+        let fee_structure = crate::repositories::price_components::extra_charge_structure(
+            conn,
+            tenant_id,
+            &extra.product,
+            &extra.price_entry,
+            extra.fee_structure.as_ref(),
+        )
+        .await?;
         let (fee, period) = resolve_fee_read_only(
             conn,
             &fee_structure,
@@ -1849,6 +1910,7 @@ async fn resolve_amendment(
             price_component_id: None,
             product_ref: extra.product.clone(),
             price_entry: extra.price_entry.clone(),
+            fee_structure,
             name: extra.name.clone(),
             period,
             fee,
@@ -1897,12 +1959,28 @@ async fn resolve_amendment(
         }
     }
 
-    let (addons, addon_products, addon_prices, addon_units) =
+    let (addons, addon_prices, addon_units) =
         load_addon_catalog(conn, tenant_id, &catalog_addon_ids, amendment).await?;
     let sold_in = crate::services::subscriptions::currency::SubscriptionCurrency::new(
         &sub_details.subscription.currency,
     );
     let term = Some(sub_details.subscription.period);
+
+    // A seat add-on is held once (R-138): not added again while kept, nor twice here.
+    let held: Vec<AddOnId> = sub_details
+        .add_ons
+        .iter()
+        .filter(|a| !amendment.add_on_changes.removed.contains(&a.id))
+        .map(|a| a.add_on_id)
+        .collect();
+    crate::services::subscriptions::utils::ensure_seat_add_ons_once(
+        amendment
+            .add_on_changes
+            .added
+            .iter()
+            .filter_map(|cs_ao| addons.iter().find(|a| a.id == cs_ao.add_on_id)),
+        &held,
+    )?;
 
     // Added add-ons
     for cs_ao in &amendment.add_on_changes.added {
@@ -1929,9 +2007,9 @@ async fn resolve_amendment(
                 cs_ao.add_on_id, cs_ao.quantity, max
             ))));
         }
+        crate::services::subscriptions::utils::ensure_seat_add_on_instances(addon, cs_ao.quantity)?;
         let resolved = resolve_add_on_sold_in(
             addon,
-            &addon_products,
             &addon_prices,
             &addon_units,
             &cs_ao.customization,
@@ -1956,6 +2034,7 @@ async fn resolve_amendment(
             add_on_id: addon.id,
             product_id: addon.product_id,
             price_entry: resolved.price_entry.clone(),
+            fee_structure: addon.fee_structure.clone(),
             price_id: resolved.price_id,
             name: resolved.name,
             period: resolved.period,
@@ -1992,13 +2071,18 @@ async fn resolve_amendment(
                 new_quantity, max
             ))));
         }
+        if let Some(addon) = addon {
+            crate::services::subscriptions::utils::ensure_seat_add_on_instances(
+                addon,
+                new_quantity,
+            )?;
+        }
 
         // New fee/period: either re-resolve from a new customization, or keep current.
         let (new_fee, new_period, new_name, price_entry, price_id, product_id) =
             if let (Some(addon), Some(cust)) = (addon, &e.customization) {
                 let resolved = resolve_add_on_sold_in(
                     addon,
-                    &addon_products,
                     &addon_prices,
                     &addon_units,
                     cust,
@@ -2055,6 +2139,9 @@ async fn resolve_amendment(
             add_on_id: current.add_on_id,
             product_id,
             price_entry,
+            fee_structure: addon
+                .and_then(|a| a.fee_structure.clone())
+                .or_else(|| Some(FeeStructure::of_fee(&current.fee))),
             price_id,
             name: new_name,
             period: new_period,
@@ -2101,29 +2188,6 @@ async fn resolve_amendment(
     })
 }
 
-async fn load_product_fee_structure(
-    conn: &mut PgConn,
-    tenant_id: TenantId,
-    product_id: ProductId,
-) -> StoreResult<FeeStructure> {
-    let (_, products) = fetch_prices_and_products(
-        conn,
-        tenant_id,
-        std::iter::empty(),
-        std::iter::once(product_id),
-    )
-    .await?;
-    products
-        .get(&product_id)
-        .map(|p| p.fee_structure.clone())
-        .ok_or_else(|| {
-            Report::new(StoreError::ValueNotFound(format!(
-                "Product {} not found",
-                product_id
-            )))
-        })
-}
-
 #[allow(clippy::type_complexity)]
 async fn load_addon_catalog(
     conn: &mut PgConn,
@@ -2132,14 +2196,12 @@ async fn load_addon_catalog(
     amendment: &SubscriptionAmendment,
 ) -> StoreResult<(
     Vec<crate::domain::add_ons::AddOn>,
-    HashMap<ProductId, Product>,
     HashMap<PriceId, crate::domain::prices::Price>,
     crate::domain::credit_units::CreditUnitsById,
 )> {
     if add_on_ids.is_empty() {
         return Ok((
             Vec::new(),
-            HashMap::new(),
             HashMap::new(),
             crate::domain::credit_units::CreditUnitsById::new(),
         ));
@@ -2150,8 +2212,7 @@ async fn load_addon_catalog(
         .map_err(Into::<Report<StoreError>>::into)?;
     let addons = crate::repositories::add_ons::enrich_add_ons(conn, rows, tenant_id).await?;
 
-    // Collect product/price ids: the add-on definitions + any Existing override prices.
-    let product_ids: Vec<ProductId> = addons.iter().map(|a| a.product_id).collect();
+    // Collect price ids: the add-on definitions + any Existing override prices.
     let mut price_ids: Vec<PriceId> = addons.iter().flat_map(|a| a.price_ids()).collect();
 
     let collect_override =
@@ -2174,14 +2235,8 @@ async fn load_addon_catalog(
         }
     }
 
-    // fetch_prices_and_products dedups the ids internally.
-    let (prices, products) = fetch_prices_and_products(
-        conn,
-        tenant_id,
-        price_ids.into_iter(),
-        product_ids.into_iter(),
-    )
-    .await?;
+    // fetch_prices dedups the ids internally.
+    let prices = fetch_prices(conn, tenant_id, price_ids.into_iter()).await?;
     let new_price_units = amendment
         .add_on_changes
         .added
@@ -2206,7 +2261,7 @@ async fn load_addon_catalog(
     )
     .await?;
 
-    Ok((addons, products, prices, units))
+    Ok((addons, prices, units))
 }
 
 /// Materialize any New prices/products in the pending inserts and produce the
@@ -2232,9 +2287,10 @@ async fn materialize_inserts(
         let internal = PriceComponentNewInternal {
             name: c.name.clone(),
             product_ref: c.product_ref.clone(),
+            fee_structure: Some(c.fee_structure.clone()),
             prices: vec![c.price_entry.clone()],
         };
-        let (product_id, price_ids) = resolve_component_internal(
+        let charge = resolve_component_internal(
             conn,
             &internal,
             tenant_id,
@@ -2243,11 +2299,11 @@ async fn materialize_inserts(
             false,
         )
         .await?;
-        let price_id = price_ids.into_iter().next();
+        let price_id = charge.price_ids.into_iter().next();
 
         resolved_components.push(ResolvedComponentInsert {
             price_component_id: c.price_component_id,
-            product_id: Some(product_id),
+            product_id: Some(charge.product_id),
             name: c.name,
             period: c.period,
             fee: c.fee,
@@ -2265,9 +2321,10 @@ async fn materialize_inserts(
             let internal = PriceComponentNewInternal {
                 name: a.name.clone(),
                 product_ref: ProductRef::Existing(a.product_id),
+                fee_structure: a.fee_structure.clone(),
                 prices: vec![a.price_entry.clone().unwrap()],
             };
-            let (pid, price_ids) = resolve_component_internal(
+            let charge = resolve_component_internal(
                 conn,
                 &internal,
                 tenant_id,
@@ -2276,7 +2333,7 @@ async fn materialize_inserts(
                 false,
             )
             .await?;
-            (Some(pid), price_ids.into_iter().next())
+            (Some(charge.product_id), charge.price_ids.into_iter().next())
         } else {
             (Some(a.product_id), a.price_id)
         };
@@ -2322,6 +2379,7 @@ mod tests {
     fn scale_slot_multiplies_initial_slots() {
         let fee = SubscriptionFee::Slot {
             unit: "seat".into(),
+            quantity_id: None,
             model: crate::domain::price_components::RatingModel::PerUnit {
                 rate: Decimal::from(5),
             },

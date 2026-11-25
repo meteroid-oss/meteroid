@@ -553,7 +553,11 @@ pub mod price_components {
             .extra_components
             .into_iter()
             .map(|c| {
-                let product_ref = product_ref_from_proto(c.product)?;
+                let fee_structure =
+                    crate::pricecomponents::mapping::components::charge_structure_from_proto(
+                        c.fee_structure,
+                    )?;
+                let product_ref = product_ref_from_proto(c.product, fee_structure.as_ref())?;
                 let price_entry = price_entries_from_proto(vec![c.price.ok_or_else(|| {
                     Status::invalid_argument("Missing extra component price entry".to_string())
                 })?])?
@@ -567,6 +571,7 @@ pub mod price_components {
                     name: c.name,
                     product_ref,
                     price_entry,
+                    fee_structure,
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -771,6 +776,7 @@ pub mod price_components {
             },
             domain::SubscriptionFee::Slot {
                 unit,
+                quantity_id,
                 model,
                 min_slots,
                 max_slots,
@@ -790,6 +796,7 @@ pub mod price_components {
                         initial_slots: *initial_slots,
                         upgrade_policy: 0, // TODO add to domain
                         downgrade_policy: 0,
+                        quantity_id: quantity_id.map(|id| id.as_proto()),
                     },
                 )),
             },
@@ -1188,10 +1195,15 @@ pub mod amendment {
                     .added
                     .into_iter()
                     .map(|a| {
+                        let fee_structure =
+                            crate::pricecomponents::mapping::components::charge_structure_from_proto(
+                                a.fee_structure,
+                            )?;
                         Ok::<_, Status>(AddExtraComponent {
                             name: a.name,
-                            product: product_ref_from_proto(a.product)?,
+                            product: product_ref_from_proto(a.product, fee_structure.as_ref())?,
                             price_entry: one_price_entry(a.price)?,
+                            fee_structure,
                         })
                     })
                     .collect::<Result<Vec<_>>>()?;
@@ -1332,6 +1344,7 @@ pub mod slot_transactions {
             transaction_at: transaction.transaction_at.as_proto(),
             status: proto_status.into(),
             invoice_id: transaction.invoice_id.map(|id| id.to_string()),
+            quantity_id: transaction.managed_quantity_id.as_proto(),
         })
     }
 

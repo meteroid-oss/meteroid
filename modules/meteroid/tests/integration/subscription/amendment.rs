@@ -137,6 +137,7 @@ fn extra_rate_component(name: &str, rate_cents: i64) -> AddExtraComponent {
             },
             credit_unit: None,
         }),
+        fee_structure: None,
     }
 }
 
@@ -161,6 +162,7 @@ fn extra_arrears_component(name: &str, rate_cents: i64) -> AddExtraComponent {
             },
             credit_unit: None,
         }),
+        fee_structure: None,
     }
 }
 
@@ -184,6 +186,7 @@ fn extra_onetime_component(name: &str, rate_cents: i64) -> AddExtraComponent {
             },
             credit_unit: None,
         }),
+        fee_structure: None,
     }
 }
 
@@ -2009,7 +2012,7 @@ async fn active_seats(env: &TestEnv, sub_id: SubscriptionId, at: NaiveDate) -> u
         .get_active_slots_value(
             TENANT_ID,
             sub_id,
-            "Seats".to_string(),
+            QUANTITY_SEATS_ID,
             Some(at.and_time(NaiveTime::MIN)),
         )
         .await

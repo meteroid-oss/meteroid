@@ -205,11 +205,12 @@ fn touched(facts: &Facts<StoreFee>, change: &Change) -> BTreeSet<Fee> {
     }
 }
 
-/// Seats of a slot fee bought on a change's day and not paid yet, or removed at once when
-/// negative: evaluated as held from it.
+/// Seats of a managed quantity bought on a change's day and not paid yet, or removed at once
+/// when negative: evaluated as held from it by every slot fee counting the quantity, which share
+/// its count (R-137).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::services) struct Bought {
-    pub lineage: Fee,
+    pub lineages: Vec<Fee>,
     pub seats: i64,
 }
 
@@ -221,26 +222,28 @@ pub(in crate::services) struct Hypothesis {
     pub only: BTreeSet<Fee>,
 }
 
-/// `facts` with `bought` held from `on`, on top of the seats its fee holds that day.
+/// `facts` with `bought` held from `on`, on top of the seats each of its fees holds that day.
 fn with_bought(facts: &mut Facts<StoreFee>, bought: &Bought, on: NaiveDate) {
-    let (held, removed_at_renewal) = facts.seats_on(&bought.lineage, on).map_or((0, 0), |step| {
-        let today = if step.at == on {
-            step.removed_at_renewal
-        } else {
-            0
-        };
-        (step.quantity, today)
-    });
-    facts
-        .seats
-        .retain(|step| !(step.lineage == bought.lineage && step.at == on));
-    facts.seats.push(SeatStep {
-        id: SlotTransactionId::new(),
-        lineage: bought.lineage.clone(),
-        at: on,
-        quantity: held.saturating_add_signed(bought.seats),
-        removed_at_renewal,
-    });
+    for lineage in &bought.lineages {
+        let (held, removed_at_renewal) = facts.seats_on(lineage, on).map_or((0, 0), |step| {
+            let today = if step.at == on {
+                step.removed_at_renewal
+            } else {
+                0
+            };
+            (step.quantity, today)
+        });
+        facts
+            .seats
+            .retain(|step| !(step.lineage == *lineage && step.at == on));
+        facts.seats.push(SeatStep {
+            id: SlotTransactionId::new(),
+            lineage: lineage.clone(),
+            at: on,
+            quantity: held.saturating_add_signed(bought.seats),
+            removed_at_renewal,
+        });
+    }
 }
 
 /// The invoices of seat purchases still paying: their seats are no fact, so neither are they.
@@ -682,7 +685,7 @@ async fn evaluated(
     let touched = match bought {
         Some(bought) => {
             with_bought(&mut loaded.facts, bought, change.on);
-            BTreeSet::from([bought.lineage.clone()])
+            bought.lineages.iter().cloned().collect()
         }
         None if !hypothesis.only.is_empty() => hypothesis.only.clone(),
         None => touched(&loaded.facts, change),
@@ -961,10 +964,12 @@ async fn bills_of(
             &no_usage,
             &lineages,
         )?;
-        lines.push(match bought.filter(|bought| bought.lineage == key.fee) {
-            Some(bought) => as_seat_line(line, row, bought, *amount),
-            None => as_change_line(line, row, first, *amount, repriced),
-        });
+        lines.push(
+            match bought.filter(|bought| bought.lineages.contains(&key.fee)) {
+                Some(bought) => as_seat_line(line, row, bought, *amount),
+                None => as_change_line(line, row, first, *amount, repriced),
+            },
+        );
     }
     // As adjustment invoices list them: components, then add-ons, packs last.
     lines.sort_by_key(|line| {
@@ -1110,7 +1115,7 @@ pub(in crate::services) async fn seat_purchase(
         &evaluated.evaluation,
         &evaluated.own,
         &evaluated.planned,
-        &bought.lineage,
+        &bought.lineages,
     ) else {
         return Ok(None);
     };
@@ -1127,31 +1132,36 @@ pub(in crate::services) async fn seat_purchase(
     }))
 }
 
-/// The period of `lineage` on its own grid holding `on`, as the facts bill it: a run carried
-/// through a change of the subscription's cadence keeps its own (R-084). None when no charge of
-/// the fee holds `on` (a free trial).
-pub(in crate::services) async fn fee_period_on(
+/// The period of each of `lineages` on its own grid holding `on`, in their order, as the facts
+/// bill it: a run carried through a change of the subscription's cadence keeps its own (R-084).
+/// None for a fee no charge of which holds `on` (a free trial).
+pub(in crate::services) async fn fee_periods_on(
     conn: &mut PgConn,
     tenant_id: TenantId,
     subscription_id: SubscriptionId,
     on: NaiveDate,
-    lineage: &Fee,
-) -> StoreResult<Option<(NaiveDate, NaiveDate)>> {
+    lineages: &[Fee],
+) -> StoreResult<Vec<Option<(NaiveDate, NaiveDate)>>> {
     let mut loaded = load_facts_with(conn, tenant_id, subscription_id, on, None, None).await?;
     as_written(&mut loaded.facts, midnight(on));
     let evaluation =
         evaluate(&loaded.facts, midnight(on), None, &StorePricer).map_err(pricing_error)?;
-    Ok(evaluation
-        .charges
+    Ok(lineages
         .iter()
-        .filter(|charge| {
-            charge.key.fee == *lineage
-                && charge.key.kind == ChargeKind::Fee
-                && charge.key.from <= on
-                && on < charge.key.until
+        .map(|lineage| {
+            evaluation
+                .charges
+                .iter()
+                .filter(|charge| {
+                    charge.key.fee == *lineage
+                        && charge.key.kind == ChargeKind::Fee
+                        && charge.key.from <= on
+                        && on < charge.key.until
+                })
+                .map(|charge| (charge.key.from, charge.key.until))
+                .max()
         })
-        .map(|charge| (charge.key.from, charge.key.until))
-        .max())
+        .collect())
 }
 
 /// What the add-ons `overlay` opens bill on its day's documents: the stubs of their own fees from
@@ -1189,9 +1199,9 @@ fn purchase_of(
     evaluation: &Evaluation,
     own: &[DocumentSlot],
     planned: &Planned,
-    lineage: &Fee,
+    lineages: &[Fee],
 ) -> Option<SeatPurchase> {
-    let bills = |key: &ChargeKey| key.fee == *lineage && key.kind == ChargeKind::Fee;
+    let bills = |key: &ChargeKey| lineages.contains(&key.fee) && key.kind == ChargeKind::Fee;
     let windows: Vec<(NaiveDate, NaiveDate)> = evaluation
         .charges
         .iter()
@@ -1740,6 +1750,7 @@ mod tests {
         let mut slot = row(n, n * 10, rate, from, None);
         slot.fee.fee = SubscriptionFee::Slot {
             unit: "Seats".to_owned(),
+            quantity_id: None,
             model: crate::domain::price_components::RatingModel::PerUnit {
                 rate: Decimal::from(rate),
             },
@@ -1770,13 +1781,13 @@ mod tests {
         own: &[DocumentSlot],
     ) -> Option<SeatPurchase> {
         let bought = Bought {
-            lineage: lineage(n),
+            lineages: vec![lineage(n)],
             seats: i64::try_from(added).unwrap_or(i64::MAX),
         };
         with_bought(&mut facts, &bought, on);
         let change = Change::of_rows(on, GiveBack::LatestFirst, "seats");
         let evaluation = evaluate(&facts, change.at, None, &StorePricer).unwrap();
-        let touched = BTreeSet::from([bought.lineage.clone()]);
+        let touched: BTreeSet<Fee> = bought.lineages.iter().cloned().collect();
         let planned = plan(
             &evaluation,
             lines,
@@ -1789,7 +1800,7 @@ mod tests {
             &BTreeSet::new(),
             None,
         );
-        purchase_of(&evaluation, own, &planned, &bought.lineage)
+        purchase_of(&evaluation, own, &planned, &bought.lineages)
     }
 
     /// A fee of 31.00 a month ended on Jan 20 by a plan change, billed by a finalized line of
@@ -1913,7 +1924,7 @@ mod tests {
         with_bought(
             &mut facts,
             &Bought {
-                lineage: lineage(1),
+                lineages: vec![lineage(1)],
                 seats: 2,
             },
             d(1, 16),

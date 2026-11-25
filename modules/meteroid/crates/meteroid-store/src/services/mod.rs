@@ -175,7 +175,7 @@ impl ServicesEdge {
         &self,
         tenant_id: common_domain::ids::TenantId,
         subscription_id: common_domain::ids::SubscriptionId,
-        price_component_id: common_domain::ids::PriceComponentId,
+        charge: impl Into<crate::domain::slot_transactions::SeatCharge>,
         change: impl Into<crate::domain::managed_quantities::SeatChange>,
         billing_mode: SlotUpgradeBillingMode,
         actor: Actor,
@@ -184,7 +184,7 @@ impl ServicesEdge {
             .update_subscription_slots(
                 tenant_id,
                 subscription_id,
-                price_component_id,
+                charge.into(),
                 change.into(),
                 billing_mode,
                 actor,
@@ -208,11 +208,11 @@ impl ServicesEdge {
         &self,
         tenant_id: common_domain::ids::TenantId,
         subscription_id: common_domain::ids::SubscriptionId,
-        price_component_id: common_domain::ids::PriceComponentId,
+        charge: impl Into<crate::domain::slot_transactions::SeatCharge>,
         delta: i32,
     ) -> StoreResult<crate::domain::slot_transactions::SlotUpdatePreview> {
         self.services
-            .preview_seat_change(tenant_id, subscription_id, price_component_id, delta)
+            .preview_seat_change(tenant_id, subscription_id, charge.into(), delta)
             .await
     }
 
@@ -220,7 +220,7 @@ impl ServicesEdge {
         &self,
         tenant_id: common_domain::ids::TenantId,
         subscription_id: common_domain::ids::SubscriptionId,
-        price_component_id: common_domain::ids::PriceComponentId,
+        charge: impl Into<crate::domain::slot_transactions::SeatCharge>,
         delta: i32,
         payment_method_id: common_domain::ids::CustomerPaymentMethodId,
         at_ts: Option<chrono::NaiveDateTime>,
@@ -233,7 +233,7 @@ impl ServicesEdge {
             .complete_slot_upgrade_checkout(
                 tenant_id,
                 subscription_id,
-                price_component_id,
+                charge.into(),
                 delta,
                 payment_method_id,
                 at_ts,
@@ -410,7 +410,7 @@ impl ServicesEdge {
         &self,
         tenant_id: common_domain::ids::TenantId,
         subscription_id: common_domain::ids::SubscriptionId,
-        price_component_id: common_domain::ids::PriceComponentId,
+        charge: impl Into<crate::domain::slot_transactions::SeatCharge>,
         change: impl Into<crate::domain::managed_quantities::SeatChange>,
         billing_mode: SlotUpgradeBillingMode,
         at_ts: Option<chrono::NaiveDateTime>,
@@ -419,7 +419,7 @@ impl ServicesEdge {
             .update_subscription_slots(
                 tenant_id,
                 subscription_id,
-                price_component_id,
+                charge.into(),
                 change.into(),
                 billing_mode,
                 Actor::System,

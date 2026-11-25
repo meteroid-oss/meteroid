@@ -16,6 +16,7 @@ import { countsWords, priceWords } from '@/features/plans/canvas/billingWords'
 import { feeTypeToHuman } from '@/features/plans/pricecomponents/utils'
 import { protoFeeTypeToComponentFeeType } from '@/features/pricing/formData'
 import { ProductIcon } from '@/features/productCatalog/items/ProductIcon'
+import { chargeKindsWords } from '@/features/productCatalog/items/productWords'
 import { useProductArchive } from '@/features/productCatalog/items/useProductArchive'
 import { env } from '@/lib/env'
 import { ProductMeta } from '@/rpc/api/products/v1/models_pb'
@@ -28,8 +29,14 @@ const contextOf = (product: ProductMeta): ChargeContext => ({
   metric: product.metricName ? { name: product.metricName } : undefined,
 })
 
-/** What it charges, in the plan editor's words: "Flat fee", "Usage of Tokens", "Per seat". */
+/**
+ * What it charges, in the plan editor's words: "Flat fee", "Usage of Tokens", "Per seat"; from
+ * the charges using it, which may bill it several ways ("Flat fee or seats").
+ */
 const chargesWords = (product: ProductMeta) => {
+  if (product.feeStructure === undefined && product.chargeStructures.length > 1) {
+    return chargeKindsWords(product.chargeStructures)
+  }
   const ctx = contextOf(product)
   const [price] = product.latestPrices
   if (price) return countsWords(price, ctx)

@@ -352,6 +352,7 @@ pub fn metric_component(
             pricing: Pricing::Usage(model),
             credit_unit: None,
         }),
+        fee_structure: None,
     }
 }
 

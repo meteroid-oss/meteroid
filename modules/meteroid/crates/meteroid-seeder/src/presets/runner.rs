@@ -1191,11 +1191,7 @@ async fn create_feature_products(
                     .map(|c| (plan, c))
             })
             .ok_or_else(|| StoreError::ValueNotFound(format!("No plan sells {wanted}")))?;
-        let store_domain::price_components::ProductRef::New {
-            name,
-            fee_type,
-            fee_structure,
-        } = component
+        let store_domain::price_components::ProductRef::New { name, .. } = component
             .to_domain(metrics, &plan.currency, credit_units)?
             .product_ref
         else {
@@ -1209,8 +1205,6 @@ async fn create_feature_products(
                     description: None,
                     tenant_id,
                     family_id: product_family_id,
-                    fee_type,
-                    fee_structure,
                     catalog: true,
                     tax_category_id: None,
                     icon: None,
@@ -2159,9 +2153,7 @@ async fn seed_quotes(
             .price_components
             .iter()
             .filter_map(|pc| {
-                let resolved = pc
-                    .resolve_subscription_fee(&full.products, &units, None)
-                    .ok()?;
+                let resolved = pc.resolve_subscription_fee(&units, None).ok()?;
                 Some(QuotePriceComponentNew {
                     name: pc.name.clone(),
                     quote_id,

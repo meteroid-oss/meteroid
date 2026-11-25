@@ -21,16 +21,16 @@ fn recurs(pricing: &Pricing) -> bool {
     !matches!(pricing, Pricing::Usage(_) | Pricing::OneTime { .. })
 }
 
-/// What the charges' products bill and their metrics count; empty, extras name no unit.
+/// What the charges' metrics count; empty, extras name no metric unit.
 #[derive(Default)]
 pub(crate) struct Catalog {
-    pub(crate) products: HashMap<ProductId, FeeStructure>,
     pub(crate) metrics: HashMap<BillableMetricId, BillableMetricRow>,
 }
 
 impl Catalog {
-    fn fee_structure(&self, component: &PriceComponent) -> Option<&FeeStructure> {
-        self.products.get(&component.product_id?)
+    /// How the charge bills its product: its own structure.
+    fn fee_structure<'a>(&self, component: &'a PriceComponent) -> Option<&'a FeeStructure> {
+        component.structure()
     }
 
     /// The metric a usage charge counts.
@@ -602,6 +602,7 @@ mod tests {
             id: PriceComponentId::new(),
             name: "charge".to_owned(),
             product_id: Some(ProductId::default()),
+            fee_structure: None,
             option_prices: cells
                 .iter()
                 .flat_map(|(options, price)| {

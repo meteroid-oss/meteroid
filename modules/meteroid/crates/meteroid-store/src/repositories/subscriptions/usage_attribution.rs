@@ -1,4 +1,4 @@
-use super::{fetch_price_credit_units, fetch_prices_and_products, resolve_fee_from_maps};
+use super::{ChargeShapes, fetch_price_credit_units, fetch_prices, resolve_fee_from_maps};
 use crate::StoreResult;
 use crate::domain::subscription_add_ons::SubscriptionAddOn;
 use crate::domain::{
@@ -129,19 +129,16 @@ pub async fn attributed_subscriptions(
     let add_ons = SubscriptionAddOnRow::list_all_by_subscriptions(conn, tenant_id, &ids)
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
-    let (prices, products) = fetch_prices_and_products(
+    let prices = fetch_prices(
         conn,
         tenant_id,
         components
             .iter()
             .filter_map(|row| row.price_id)
             .chain(add_ons.iter().filter_map(|row| row.price_id)),
-        components
-            .iter()
-            .filter_map(|row| row.product_id)
-            .chain(add_ons.iter().filter_map(|row| row.product_id)),
     )
     .await?;
+    let shapes = ChargeShapes::load(conn, tenant_id, &components, &add_ons).await?;
     let units = fetch_price_credit_units(conn, tenant_id, &prices).await?;
 
     let lives = rows
@@ -162,21 +159,21 @@ pub async fn attributed_subscriptions(
     for row in components {
         let (subscription_id, from, to) =
             (row.subscription_id, row.effective_from, row.effective_to);
-        let metric_id =
-            match resolve_fee_from_maps(row.price_id, row.product_id, &prices, &products, &units) {
-                Some((_, fee)) => fee.metric_id(),
-                None => TryInto::<SubscriptionComponent>::try_into(row)?.metric_id(),
-            };
+        let shape = shapes.of_component(&row);
+        let metric_id = match resolve_fee_from_maps(row.price_id, shape.as_ref(), &prices, &units) {
+            Some((_, fee)) => fee.metric_id(),
+            None => TryInto::<SubscriptionComponent>::try_into(row)?.metric_id(),
+        };
         push(subscription_id, metric_id, from, to);
     }
     for row in add_ons {
         let (subscription_id, from, to) =
             (row.subscription_id, row.effective_from, row.effective_to);
-        let metric_id =
-            match resolve_fee_from_maps(row.price_id, row.product_id, &prices, &products, &units) {
-                Some((_, fee)) => fee.metric_id(),
-                None => TryInto::<SubscriptionAddOn>::try_into(row)?.fee.metric_id(),
-            };
+        let shape = shapes.of_add_on(&row);
+        let metric_id = match resolve_fee_from_maps(row.price_id, shape.as_ref(), &prices, &units) {
+            Some((_, fee)) => fee.metric_id(),
+            None => TryInto::<SubscriptionAddOn>::try_into(row)?.fee.metric_id(),
+        };
         push(subscription_id, metric_id, from, to);
     }
 

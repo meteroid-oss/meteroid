@@ -4,9 +4,10 @@ package meteroid.api.quantities.v1;
 
 import "api/quantities/v1/models.proto";
 
-// The tenant's managed quantities. They are created with the seat products that use them.
+// The tenant's managed quantities. A seat charge names the one it counts.
 service ManagedQuantitiesService {
   rpc ListManagedQuantities(ListManagedQuantitiesRequest) returns (ListManagedQuantitiesResponse) {}
+  rpc CreateManagedQuantity(CreateManagedQuantityRequest) returns (CreateManagedQuantityResponse) {}
   rpc UpdateManagedQuantity(UpdateManagedQuantityRequest) returns (UpdateManagedQuantityResponse) {}
   rpc SetFeatureLimitQuantity(SetFeatureLimitQuantityRequest) returns (SetFeatureLimitQuantityResponse) {}
 }
@@ -14,6 +15,18 @@ service ManagedQuantitiesService {
 message ListManagedQuantitiesRequest {}
 message ListManagedQuantitiesResponse {
   repeated ManagedQuantity quantities = 1;
+}
+
+// A new quantity; refused when the tenant has one of `code` already.
+message CreateManagedQuantityRequest {
+  // Immutable: lowercase letters, digits, `_` and `-`.
+  string code = 1;
+  string name = 2;
+  optional QuantityIncrease on_increase = 3;
+  optional QuantityDecrease on_decrease = 4;
+}
+message CreateManagedQuantityResponse {
+  ManagedQuantity quantity = 1;
 }
 
 // Each optional field left unset leaves that property unchanged.

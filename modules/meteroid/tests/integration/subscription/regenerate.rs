@@ -530,6 +530,7 @@ async fn a_void_forgives_the_arrears_it_billed() {
                         },
                         credit_unit: None,
                     }),
+                    fee_structure: None,
                 }],
                 removed: vec![],
             }),

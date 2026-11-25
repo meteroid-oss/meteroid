@@ -552,7 +552,7 @@ impl PlansInterface for Store {
                     let mut linked = Vec::new();
 
                     for p in &price_components {
-                        let (product_id, price_ids) = resolve_component_internal(
+                        let charge = resolve_component_internal(
                             conn,
                             p,
                             inserted.tenant_id,
@@ -561,12 +561,14 @@ impl PlansInterface for Store {
                             true,
                         )
                         .await?;
+                        let price_ids = charge.price_ids;
 
                         let row_new: diesel_models::price_components::PriceComponentRowNew =
                             PriceComponentNew {
                                 plan_version_id: inserted_plan_version_new.id,
                                 name: p.name.clone(),
-                                product_id: Some(product_id),
+                                product_id: Some(charge.product_id),
+                                fee_structure: charge.fee_structure,
                             }
                             .try_into()?;
 
@@ -1024,25 +1026,25 @@ impl PlansInterface for Store {
                                     ))
                                 })?;
 
+                            // The v1 fee's structure becomes the charge's, its product created
+                            // without one when it has none.
+                            let (_, fee_structure) = extract_fee_structure(&fee);
+                            let fee_structure =
+                                crate::repositories::price_components::charge_structure_tx(
+                                    conn,
+                                    auth_tenant_id,
+                                    fee_structure,
+                                )
+                                .await?;
                             let product_id = if let Some(pid) = comp.product_id {
                                 pid
                             } else {
-                                let (fee_type_enum, fee_structure) = extract_fee_structure(&fee);
-                                let product_row = ProductRowNew {
+                                ProductRowNew {
                                     id: ProductId::new(),
                                     name: comp.name.clone(),
                                     description: None,
                                     tenant_id: auth_tenant_id,
                                     product_family_id,
-                                    fee_type: fee_type_enum.into(),
-                                    fee_structure: serde_json::to_value(&fee_structure).map_err(
-                                        |e| {
-                                            Report::new(StoreError::SerdeError(
-                                                "Failed to serialize fee_structure".to_string(),
-                                                e,
-                                            ))
-                                        },
-                                    )?,
                                     catalog: true,
                                     tax_category_id: None,
                                     icon: None,
@@ -1050,24 +1052,19 @@ impl PlansInterface for Store {
                                 }
                                 .insert(conn)
                                 .await
-                                .map_err(Into::<Report<StoreError>>::into)?;
-                                crate::repositories::products::register_quantity(
-                                    conn,
-                                    auth_tenant_id,
-                                    &fee_structure,
-                                )
-                                .await?;
-
-                                // Update the component's product_id
-                                let mut updated_comp = comp.clone();
-                                updated_comp.product_id = Some(product_row.id);
-                                updated_comp
-                                    .update(conn, auth_tenant_id)
-                                    .await
-                                    .map_err(Into::<Report<StoreError>>::into)?;
-
-                                product_row.id
+                                .map_err(Into::<Report<StoreError>>::into)?
+                                .id
                             };
+                            let mut updated_comp = comp.clone();
+                            updated_comp.product_id = Some(product_id);
+                            updated_comp.fee_structure =
+                                crate::domain::price_components::structure_json(Some(
+                                    &fee_structure,
+                                ))?;
+                            updated_comp
+                                .update(conn, auth_tenant_id)
+                                .await
+                                .map_err(Into::<Report<StoreError>>::into)?;
 
                             let pricing_list = extract_pricing(&fee);
                             for (cadence, pricing) in &pricing_list {
@@ -1857,7 +1854,7 @@ impl PlansInterface for Store {
                     > = std::collections::HashMap::new();
                     let mut linked = Vec::new();
                     for p in &price_components {
-                        let (product_id, price_ids) = resolve_component_internal(
+                        let charge = resolve_component_internal(
                             conn,
                             p,
                             tenant_id,
@@ -1866,12 +1863,14 @@ impl PlansInterface for Store {
                             true,
                         )
                         .await?;
+                        let (product_id, price_ids) = (charge.product_id, charge.price_ids);
 
                         let row_new: diesel_models::price_components::PriceComponentRowNew =
                             PriceComponentNew {
                                 plan_version_id: inserted_version.id,
                                 name: p.name.clone(),
                                 product_id: Some(product_id),
+                                fee_structure: charge.fee_structure,
                             }
                             .try_into()?;
 

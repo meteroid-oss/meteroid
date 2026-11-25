@@ -1,5 +1,7 @@
 use chrono::NaiveDateTime;
-use common_domain::ids::{BillableMetricId, CreditUnitId, PriceId, ProductId, TenantId};
+use common_domain::ids::{
+    BillableMetricId, CreditUnitId, ManagedQuantityId, PriceId, ProductId, TenantId,
+};
 use diesel_models::prices::PriceRow;
 use error_stack::Report;
 use rust_decimal::Decimal;
@@ -12,13 +14,21 @@ use super::price_components::{DowngradePolicy, FeeType, UpgradePolicy, UsagePric
 use super::subscription_components::SubscriptionFee;
 use crate::errors::StoreError;
 
-// structural billing config stored on Product.fee_structure
+/// How a charge bills its product, owned by the charge (a plan's price component, an add-on):
+/// one product can be a flat fee in one plan and per seat in another. A price linked to the
+/// charge must fit it (`validate_pricing_fits`).
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type")]
 pub enum FeeStructure {
     Rate {},
     Slot {
+        /// The seats' label on invoices.
         unit_name: String,
+        /// The managed quantity the seats count: charges naming it share one count. None on a
+        /// structure stored before quantities were named (a product's, a v1 component's): its
+        /// seats count the quantity coded as `unit_name` (I32).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        quantity_id: Option<ManagedQuantityId>,
         upgrade_policy: UpgradePolicy,
         downgrade_policy: DowngradePolicy,
     },
@@ -65,6 +75,98 @@ impl From<&UsagePricingModel> for UsageModel {
 impl FeeStructure {
     pub fn is_credit(&self) -> bool {
         matches!(self, FeeStructure::Credit {})
+    }
+
+    pub fn fee_type(&self) -> FeeTypeEnum {
+        match self {
+            FeeStructure::Rate {} => FeeTypeEnum::Rate,
+            FeeStructure::Slot { .. } => FeeTypeEnum::Slot,
+            FeeStructure::Capacity { .. } => FeeTypeEnum::Capacity,
+            FeeStructure::Usage { .. } => FeeTypeEnum::Usage,
+            FeeStructure::ExtraRecurring { .. } => FeeTypeEnum::ExtraRecurring,
+            FeeStructure::OneTime {} => FeeTypeEnum::OneTime,
+            FeeStructure::Credit {} => FeeTypeEnum::Credit,
+        }
+    }
+
+    /// The metric a usage or capacity charge bills.
+    pub fn metric_id(&self) -> Option<BillableMetricId> {
+        match self {
+            FeeStructure::Usage { metric_id, .. } | FeeStructure::Capacity { metric_id } => {
+                Some(*metric_id)
+            }
+            _ => None,
+        }
+    }
+
+    /// The managed quantity a seat charge counts, when it names one.
+    pub fn quantity_id(&self) -> Option<ManagedQuantityId> {
+        match self {
+            FeeStructure::Slot { quantity_id, .. } => *quantity_id,
+            _ => None,
+        }
+    }
+
+    /// Whether two structures bill alike: same kind, metric, quantity and billing type. A usage
+    /// structure's model is only a hint of its prices', so it does not count.
+    pub fn same_shape(&self, other: &FeeStructure) -> bool {
+        match (self, other) {
+            (
+                FeeStructure::Slot {
+                    unit_name,
+                    quantity_id,
+                    ..
+                },
+                FeeStructure::Slot {
+                    unit_name: other_unit,
+                    quantity_id: other_quantity,
+                    ..
+                },
+            ) => match (quantity_id, other_quantity) {
+                (Some(a), Some(b)) => a == b,
+                _ => unit_name == other_unit,
+            },
+            (
+                FeeStructure::ExtraRecurring { billing_type },
+                FeeStructure::ExtraRecurring {
+                    billing_type: other,
+                },
+            ) => std::mem::discriminant(billing_type) == std::mem::discriminant(other),
+            _ => {
+                std::mem::discriminant(self) == std::mem::discriminant(other)
+                    && self.metric_id() == other.metric_id()
+            }
+        }
+    }
+
+    /// The structure a fee was resolved from: every field of a structure is on the fee it
+    /// resolves to, so a stored fee keeps its charge's shape (an ad hoc component's).
+    pub fn of_fee(fee: &SubscriptionFee) -> FeeStructure {
+        match fee {
+            SubscriptionFee::Rate { .. } => FeeStructure::Rate {},
+            SubscriptionFee::OneTime { .. } => FeeStructure::OneTime {},
+            SubscriptionFee::Credit { .. } => FeeStructure::Credit {},
+            SubscriptionFee::Recurring { billing_type, .. } => FeeStructure::ExtraRecurring {
+                billing_type: billing_type.clone(),
+            },
+            SubscriptionFee::Capacity { metric_id, .. } => FeeStructure::Capacity {
+                metric_id: *metric_id,
+            },
+            SubscriptionFee::Slot {
+                unit, quantity_id, ..
+            } => FeeStructure::Slot {
+                unit_name: unit.clone(),
+                quantity_id: *quantity_id,
+                upgrade_policy: UpgradePolicy::Prorated,
+                downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
+            },
+            SubscriptionFee::Usage {
+                metric_id, model, ..
+            } => FeeStructure::Usage {
+                metric_id: *metric_id,
+                model: UsageModel::from(model),
+            },
+        }
     }
 
     fn kind(&self) -> &'static str {
@@ -580,7 +682,11 @@ fn resolve_fee_shape(
             Ok(SubscriptionFee::Rate { rate: *rate })
         }
         (
-            FeeStructure::Slot { unit_name, .. },
+            FeeStructure::Slot {
+                unit_name,
+                quantity_id,
+                ..
+            },
             Pricing::Slot {
                 model,
                 min_slots,
@@ -592,6 +698,7 @@ fn resolve_fee_shape(
                 .unwrap_or_else(|| min_slots.unwrap_or(0));
             Ok(SubscriptionFee::Slot {
                 unit: unit_name.clone(),
+                quantity_id: *quantity_id,
                 model: model.clone(),
                 min_slots: *min_slots,
                 max_slots: *max_slots,
@@ -685,6 +792,7 @@ pub fn extract_fee_structure(fee: &FeeType) -> (FeeTypeEnum, FeeStructure) {
             FeeTypeEnum::Slot,
             FeeStructure::Slot {
                 unit_name: slot_unit_name.clone(),
+                quantity_id: None,
                 upgrade_policy: upgrade_policy.clone(),
                 downgrade_policy: downgrade_policy.clone(),
             },
@@ -1060,6 +1168,7 @@ mod tests {
     fn test_resolve_slot() {
         let structure = FeeStructure::Slot {
             unit_name: "seat".to_string(),
+            quantity_id: None,
             upgrade_policy: UpgradePolicy::Prorated,
             downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
         };
@@ -1076,6 +1185,7 @@ mod tests {
                 min_slots,
                 max_slots,
                 initial_slots,
+                ..
             } => {
                 assert_eq!(unit, "seat");
                 assert_eq!(model.per_unit_rate(), Some(dec!(10.00)));
@@ -1091,6 +1201,7 @@ mod tests {
     fn test_resolve_slot_with_initial_slot_count() {
         let structure = FeeStructure::Slot {
             unit_name: "seat".to_string(),
+            quantity_id: None,
             upgrade_policy: UpgradePolicy::Prorated,
             downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
         };
@@ -1448,6 +1559,7 @@ mod tests {
             FeeStructure::Rate {},
             FeeStructure::Slot {
                 unit_name: "seat".to_string(),
+                quantity_id: None,
                 upgrade_policy: UpgradePolicy::Prorated,
                 downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
             },
@@ -1883,5 +1995,134 @@ mod tests {
                 "{refused:?}"
             );
         }
+    }
+
+    fn seat_structure(
+        unit: &str,
+        quantity: Option<common_domain::ids::ManagedQuantityId>,
+    ) -> FeeStructure {
+        FeeStructure::Slot {
+            unit_name: unit.to_owned(),
+            quantity_id: quantity,
+            upgrade_policy: UpgradePolicy::Prorated,
+            downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
+        }
+    }
+
+    /// A fee keeps every field of the structure it was resolved from: an ad hoc row is priced in
+    /// the shape its stored fee records.
+    /// Rules: R-139
+    #[test]
+    fn a_fee_gives_back_the_structure_it_was_resolved_from() {
+        let quantity = common_domain::ids::ManagedQuantityId::new();
+        let metric_id = BillableMetricId::new();
+        let cases = vec![
+            (FeeStructure::Rate {}, Pricing::Rate { rate: dec!(10) }),
+            (
+                seat_structure("Seats", Some(quantity)),
+                Pricing::Slot {
+                    model: RatingModel::PerUnit { rate: dec!(10) },
+                    min_slots: None,
+                    max_slots: None,
+                },
+            ),
+            (
+                FeeStructure::Usage {
+                    metric_id,
+                    model: UsageModel::PerUnit,
+                },
+                Pricing::Usage(UsagePricingModel::PerUnit { rate: dec!(0.1) }),
+            ),
+            (
+                FeeStructure::Capacity { metric_id },
+                Pricing::Capacity {
+                    rate: dec!(10),
+                    included: 100,
+                    overage_rate: dec!(0.1),
+                },
+            ),
+            (
+                FeeStructure::ExtraRecurring {
+                    billing_type: BillingType::Arrears,
+                },
+                Pricing::ExtraRecurring {
+                    unit_price: dec!(5),
+                    quantity: 2,
+                    model: None,
+                },
+            ),
+        ];
+        for (structure, pricing) in cases {
+            let fee = resolve_subscription_fee(&structure, &pricing, None, &no_units(), None)
+                .expect("a fee");
+            let back = FeeStructure::of_fee(&fee);
+            assert!(
+                back.same_shape(&structure),
+                "{structure:?} came back as {back:?}"
+            );
+            assert_eq!(back.quantity_id(), structure.quantity_id());
+            assert_eq!(back.metric_id(), structure.metric_id());
+        }
+    }
+
+    /// Two seat structures are one shape only when they count one quantity, whatever their
+    /// label; a structure naming none compares by unit, the quantity coded as it. Kinds,
+    /// metrics and billing types tell shapes apart.
+    /// Rules: R-137, R-139
+    #[test]
+    fn shapes_compare_by_quantity_metric_and_billing() {
+        use common_domain::ids::ManagedQuantityId;
+        let (seats, editors) = (ManagedQuantityId::new(), ManagedQuantityId::new());
+        assert!(
+            seat_structure("Seats", Some(seats)).same_shape(&seat_structure("Users", Some(seats)))
+        );
+        assert!(
+            !seat_structure("Seats", Some(seats))
+                .same_shape(&seat_structure("Seats", Some(editors)))
+        );
+        assert!(seat_structure("Seats", None).same_shape(&seat_structure("Seats", Some(seats))));
+        assert!(!FeeStructure::Rate {}.same_shape(&seat_structure("Seats", None)));
+        let (a, b) = (BillableMetricId::new(), BillableMetricId::new());
+        assert!(
+            !FeeStructure::Capacity { metric_id: a }
+                .same_shape(&FeeStructure::Capacity { metric_id: b })
+        );
+        assert!(
+            FeeStructure::Usage {
+                metric_id: a,
+                model: UsageModel::PerUnit
+            }
+            .same_shape(&FeeStructure::Usage {
+                metric_id: a,
+                model: UsageModel::Tiered
+            })
+        );
+        assert!(
+            !FeeStructure::ExtraRecurring {
+                billing_type: BillingType::Advance
+            }
+            .same_shape(&FeeStructure::ExtraRecurring {
+                billing_type: BillingType::Arrears
+            })
+        );
+    }
+
+    /// A structure stored before quantities were named reads without one; one naming it keeps it.
+    /// Rules: R-137
+    #[test]
+    fn a_seat_structure_keeps_its_quantity_through_storage() {
+        let quantity = common_domain::ids::ManagedQuantityId::new();
+        let stored = serde_json::to_value(seat_structure("Seats", Some(quantity))).unwrap();
+        let read: FeeStructure = serde_json::from_value(stored).unwrap();
+        assert_eq!(read.quantity_id(), Some(quantity));
+        let old: FeeStructure = serde_json::from_value(serde_json::json!({
+            "type": "Slot",
+            "unit_name": "seat",
+            "upgrade_policy": "Prorated",
+            "downgrade_policy": "RemoveAtEndOfPeriod"
+        }))
+        .unwrap();
+        assert_eq!(old.quantity_id(), None);
+        assert_eq!(old.fee_type(), FeeTypeEnum::Slot);
     }
 }

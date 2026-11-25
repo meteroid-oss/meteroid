@@ -81,22 +81,36 @@ impl PriceComponentsService for PriceComponentServiceComponents {
         let req = request.into_inner();
 
         let plan_version_id = PlanVersionId::from_proto(&req.plan_version_id)?;
-        let product_ref = mapping::components::product_ref_from_proto(req.product)?;
+        // The charge's shape; a new product's is taken for clients that send it there.
+        let fee_structure = mapping::components::charge_structure_from_proto(req.fee_structure)?;
+        let product_ref = self
+            .charge_product_ref(
+                tenant_id,
+                actor.clone(),
+                plan_version_id,
+                req.product,
+                fee_structure.as_ref(),
+                req.prices.is_empty(),
+            )
+            .await?;
         ensure_credit_pricing_allowed(
             self.feature_resolver.as_ref(),
             organization_id,
-            product_ref.creates_credit_product(),
+            fee_structure
+                .as_ref()
+                .or_else(|| product_ref.new_product_structure())
+                .is_some_and(FeeStructure::is_credit),
         )
         .await?;
         let price_entries = mapping::components::price_entries_from_proto(req.prices)?;
 
-        // No price includes the product, its features only: a new one keeps the structure it is
-        // created with, for when it is priced.
+        // No price includes the product, its features only (see `charge_product_ref`).
         let component = self
             .store
-            .create_price_component_from_ref(
+            .create_charge_from_ref(
                 req.name,
                 product_ref,
+                fee_structure,
                 price_entries,
                 plan_version_id,
                 tenant_id,
@@ -128,6 +142,7 @@ impl PriceComponentsService for PriceComponentServiceComponents {
     ) -> Result<Response<EditPriceComponentResponse>, Status> {
         let actor = request.actor_typed()?;
         let tenant_id = request.tenant()?;
+        let organization_id = request.organization()?;
         let req = request.into_inner();
 
         let plan_version_id = PlanVersionId::from_proto(&req.plan_version_id)?;
@@ -154,9 +169,33 @@ impl PriceComponentsService for PriceComponentServiceComponents {
             .transpose()?
             .ok_or_else(|| Status::invalid_argument("product_id is required"))?;
 
+        // A new shape when the request sets one (drafts only), else the charge keeps its own.
+        let stored = self
+            .store
+            .get_price_component_by_id(tenant_id, component_id)
+            .await
+            .map_err(PriceComponentApiError::from)?
+            .fee_structure;
+        let fee_structure =
+            match mapping::components::charge_structure_from_proto(req.fee_structure)? {
+                Some(structure) => {
+                    // Turning a charge into a credit pack introduces credit pricing.
+                    ensure_credit_pricing_allowed(
+                        self.feature_resolver.as_ref(),
+                        organization_id,
+                        structure.is_credit()
+                            && !stored.as_ref().is_some_and(FeeStructure::is_credit),
+                    )
+                    .await?;
+                    Some(structure)
+                }
+                None => stored,
+            };
+
         let component = domain::PriceComponent {
             name: edit_comp.name,
             product_id: Some(product_id),
+            fee_structure,
             id: component_id,
             prices: Vec::new(),
             option_prices: Vec::new(),
@@ -312,6 +351,59 @@ fn option_ids_from_proto(ids: &[String]) -> Result<Vec<PlanOptionId>, Status> {
 }
 
 impl PriceComponentServiceComponents {
+    /// The product a new charge bills. A new product with no structure, neither its own nor
+    /// the charge's, is a product included with no price: created first, as it holds none.
+    async fn charge_product_ref(
+        &self,
+        tenant_id: TenantId,
+        actor: common_domain::actor::Actor,
+        plan_version_id: PlanVersionId,
+        product: Option<meteroid_grpc::meteroid::api::components::v1::ProductRef>,
+        fee_structure: Option<&FeeStructure>,
+        no_price: bool,
+    ) -> Result<domain::ProductRef, Status> {
+        use meteroid_grpc::meteroid::api::components::v1::product_ref::Ref;
+        use meteroid_store::repositories::plans::PlansInterfaceAuto;
+
+        let included = match product.as_ref().and_then(|p| p.r#ref.as_ref()) {
+            Some(Ref::NewProduct(np)) if np.fee_structure.is_none() && fee_structure.is_none() => {
+                Some(np.name.clone())
+            }
+            _ => None,
+        };
+        let Some(name) = included else {
+            return mapping::components::product_ref_from_proto(product, fee_structure);
+        };
+        if !no_price {
+            return Err(Status::invalid_argument(
+                "a priced charge names how it bills its product",
+            ));
+        }
+        let plan = self
+            .store
+            .get_plan_by_version_id(plan_version_id, tenant_id)
+            .await
+            .map_err(PriceComponentApiError::from)?;
+        let product = self
+            .store
+            .create_product(
+                actor,
+                meteroid_store::domain::ProductNew {
+                    name,
+                    description: None,
+                    tenant_id,
+                    family_id: plan.plan.product_family_id,
+                    catalog: true,
+                    tax_category_id: None,
+                    icon: None,
+                    color: None,
+                },
+            )
+            .await
+            .map_err(PriceComponentApiError::from)?;
+        Ok(domain::ProductRef::Existing(product.id))
+    }
+
     async fn referenced_products_and_metrics(
         &self,
         components: &[domain::PriceComponent],
@@ -340,14 +432,10 @@ impl PriceComponentServiceComponents {
             .await
             .map_err(|err| store_error("products", err))?;
 
-        let metric_ids: Vec<BillableMetricId> = products
+        // The metrics the charges bill, each read from its own structure.
+        let metric_ids: Vec<BillableMetricId> = components
             .iter()
-            .filter_map(|p| match &p.fee_structure {
-                FeeStructure::Capacity { metric_id } | FeeStructure::Usage { metric_id, .. } => {
-                    Some(*metric_id)
-                }
-                _ => None,
-            })
+            .filter_map(|c| c.structure().and_then(FeeStructure::metric_id))
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();

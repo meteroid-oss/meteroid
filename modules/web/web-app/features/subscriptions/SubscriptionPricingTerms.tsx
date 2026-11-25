@@ -21,15 +21,24 @@ import type {
   SubscriptionComponent,
   SubscriptionDetails,
   SubscriptionFee,
+  SubscriptionFee_SlotSubscriptionFee,
 } from '@/rpc/api/subscriptions/v1/models_pb'
 
+/** A seat charge to change: a plan charge, or an add-on of the subscription. */
 export interface SlotUpdateData {
-  priceComponentId: string
+  priceComponentId?: string
+  addOnId?: string
   unit: string
   currentSlots: number
   unitRate: string
   minSlots?: number
   maxSlots?: number
+}
+
+/** A seat ledger: the managed quantity counted (a fee recorded before quantities: its unit). */
+export interface SeatLedger {
+  unit: string
+  quantityId?: string
 }
 
 const periodLabel: Record<SubscriptionFeeBillingPeriod, string> = {
@@ -127,6 +136,67 @@ const TermsRow = ({
   </div>
 )
 
+/** A seat charge's count, read by its quantity: charges counting one quantity share it. */
+const useSeats = (subscriptionId: string, slot: SubscriptionFee_SlotSubscriptionFee | null) =>
+  useQuery(
+    getSlotsValue,
+    { subscriptionId, unit: slot?.unit ?? '', quantityId: slot?.quantityId || undefined },
+    { enabled: !!slot && Boolean(subscriptionId), refetchOnWindowFocus: false }
+  )
+
+/** Its ledger, then "change the seats" for those who manage subscriptions. */
+const SeatActions = ({
+  slot,
+  target,
+  current,
+  loading,
+  canManage,
+  onUpdateSlot,
+  onViewTransactions,
+}: {
+  slot: SubscriptionFee_SlotSubscriptionFee
+  target: { priceComponentId?: string; addOnId?: string }
+  current?: number
+  loading: boolean
+  canManage: boolean
+  onUpdateSlot: (data: SlotUpdateData) => void
+  onViewTransactions: (ledger: SeatLedger) => void
+}) => (
+  <div className="flex items-center gap-1">
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={() => onViewTransactions({ unit: slot.unit, quantityId: slot.quantityId })}
+      disabled={loading}
+      className="h-7 w-7 p-0"
+      title="View slot transactions"
+    >
+      <Clock className="h-4 w-4" />
+    </Button>
+    {canManage && (
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() =>
+          onUpdateSlot({
+            ...target,
+            unit: slot.unit,
+            currentSlots: current ?? slot.initialSlots,
+            unitRate: slot.unitRate,
+            minSlots: slot.minSlots,
+            maxSlots: slot.maxSlots,
+          })
+        }
+        disabled={loading}
+        className="h-7 px-2 text-brand"
+        title="Upgrade or downgrade"
+      >
+        <ArrowUpDownIcon className="h-4 w-4" />
+      </Button>
+    )}
+  </div>
+)
+
 const PriceComponentRow = ({
   component,
   subscriptionId,
@@ -140,50 +210,21 @@ const PriceComponentRow = ({
   currency: string
   canManage: boolean
   onUpdateSlot: (data: SlotUpdateData) => void
-  onViewTransactions: (unit: string) => void
+  onViewTransactions: (ledger: SeatLedger) => void
 }) => {
   const slot = component.fee?.fee.case === 'slot' ? component.fee.fee.value : null
-  const slotsValueQuery = useQuery(
-    getSlotsValue,
-    { subscriptionId, unit: slot?.unit ?? '' },
-    { enabled: !!slot && Boolean(subscriptionId), refetchOnWindowFocus: false }
-  )
+  const slotsValueQuery = useSeats(subscriptionId, slot)
 
   const actions = slot && component.priceComponentId && (
-    <div className="flex items-center gap-1">
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => onViewTransactions(slot.unit)}
-        disabled={slotsValueQuery.isLoading}
-        className="h-7 w-7 p-0"
-        title="View slot transactions"
-      >
-        <Clock className="h-4 w-4" />
-      </Button>
-      {canManage && (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() =>
-            component.priceComponentId &&
-            onUpdateSlot({
-              priceComponentId: component.priceComponentId,
-              unit: slot.unit,
-              currentSlots: slotsValueQuery.data?.currentValue ?? slot.initialSlots,
-              unitRate: slot.unitRate,
-              minSlots: slot.minSlots,
-              maxSlots: slot.maxSlots,
-            })
-          }
-          disabled={slotsValueQuery.isLoading}
-          className="h-7 px-2 text-brand"
-          title="Upgrade or downgrade"
-        >
-          <ArrowUpDownIcon className="h-4 w-4" />
-        </Button>
-      )}
-    </div>
+    <SeatActions
+      slot={slot}
+      target={{ priceComponentId: component.priceComponentId }}
+      current={slotsValueQuery.data?.currentValue}
+      loading={slotsValueQuery.isLoading}
+      canManage={canManage}
+      onUpdateSlot={onUpdateSlot}
+      onViewTransactions={onViewTransactions}
+    />
   )
 
   return (
@@ -199,6 +240,53 @@ const PriceComponentRow = ({
         />
       }
       action={actions || undefined}
+    />
+  )
+}
+
+/** An add-on: one charging per seat bills its quantity's count, changed as a plan's seats. */
+const AddOnRow = ({
+  addOn,
+  subscriptionId,
+  currency,
+  canManage,
+  onUpdateSlot,
+  onViewTransactions,
+}: {
+  addOn: SubscriptionDetails['addOns'][number]
+  subscriptionId: string
+  currency: string
+  canManage: boolean
+  onUpdateSlot: (data: SlotUpdateData) => void
+  onViewTransactions: (ledger: SeatLedger) => void
+}) => {
+  const slot = addOn.fee?.fee.case === 'slot' ? addOn.fee.fee.value : null
+  const slotsValueQuery = useSeats(subscriptionId, slot)
+  return (
+    <TermsRow
+      name={addOn.name}
+      kind={`${periodLabel[feeBillingPeriod(addOn.period, addOn.fee)]} · Add-on`}
+      value={
+        <SubscriptionFeeDetail
+          fee={addOn.fee}
+          currency={currency}
+          currentSlots={slot ? slotsValueQuery.data?.currentValue : undefined}
+          isLoadingSlots={!!slot && slotsValueQuery.isLoading}
+        />
+      }
+      action={
+        slot && addOn.addOnId ? (
+          <SeatActions
+            slot={slot}
+            target={{ addOnId: addOn.addOnId }}
+            current={slotsValueQuery.data?.currentValue}
+            loading={slotsValueQuery.isLoading}
+            canManage={canManage}
+            onUpdateSlot={onUpdateSlot}
+            onViewTransactions={onViewTransactions}
+          />
+        ) : undefined
+      }
     />
   )
 }
@@ -221,7 +309,7 @@ export const SubscriptionPricingTerms = ({
   paymentTerms: ReactNode
   onAmend?: () => void
   onUpdateSlot: (data: SlotUpdateData) => void
-  onViewTransactions: (unit: string) => void
+  onViewTransactions: (ledger: SeatLedger) => void
 }) => {
   const subscription = details.subscription
   if (!subscription) return null
@@ -261,11 +349,14 @@ export const SubscriptionPricingTerms = ({
           />
         ))}
         {details.addOns.map((addOn, i) => (
-          <TermsRow
+          <AddOnRow
             key={addOn.id || i}
-            name={addOn.name}
-            kind={`${periodLabel[feeBillingPeriod(addOn.period, addOn.fee)]} · Add-on`}
-            value={<SubscriptionFeeDetail fee={addOn.fee} currency={currency} />}
+            addOn={addOn}
+            subscriptionId={subscription.id}
+            currency={currency}
+            canManage={canManage}
+            onUpdateSlot={onUpdateSlot}
+            onViewTransactions={onViewTransactions}
           />
         ))}
         {details.appliedCoupons.map((coupon, i) => (

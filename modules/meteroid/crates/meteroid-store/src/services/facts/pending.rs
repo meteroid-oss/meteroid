@@ -5,8 +5,9 @@ use std::collections::{HashMap, HashSet};
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use common_domain::ids::{
-    AddOnId, BaseId, PlanVersionId, PriceComponentId, PriceId, ProductId, ScheduledEventId,
-    SlotTransactionId, SubscriptionAddOnId, SubscriptionId, SubscriptionPriceComponentId, TenantId,
+    AddOnId, BaseId, ManagedQuantityId, PlanVersionId, PriceComponentId, PriceId, ProductId,
+    ScheduledEventId, SlotTransactionId, SubscriptionAddOnId, SubscriptionId,
+    SubscriptionPriceComponentId, TenantId,
 };
 use diesel_models::enums::BillingPeriodEnum as DbBillingPeriod;
 use diesel_models::enums::SubscriptionChangeKindEnum;
@@ -92,6 +93,9 @@ pub struct PlanWindowFact {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SeatSeed {
     pub unit: String,
+    /// The quantity the seats count; None for a fee recorded before quantities were named,
+    /// counting the quantity coded as `unit`.
+    pub quantity_id: Option<ManagedQuantityId>,
     pub slots: i32,
 }
 
@@ -148,6 +152,8 @@ struct Context<'a> {
     on: NaiveDate,
     open_components: HashSet<SubscriptionPriceComponentId>,
     open_add_ons: Vec<(SubscriptionAddOnId, AddOnId)>,
+    /// The quantities the open seat fees count: a new seat fee of one carries its seats.
+    held_quantities: HashSet<ManagedQuantityId>,
 }
 
 impl Context<'_> {
@@ -197,14 +203,21 @@ async fn resolve_change_with(
                 .await,
         )?
         .subscription;
-    let open_components = db(SubscriptionComponentRow::list_fact_rows(conn, sub.id).await)?
-        .into_iter()
-        .filter(|row| row.effective_to.is_none())
-        .map(|row| row.id)
-        .collect();
-    let open_add_ons = db(SubscriptionAddOnRow::list_fact_rows(conn, sub.id).await)?
-        .into_iter()
-        .filter(|row| row.effective_to.is_none())
+    let component_rows: Vec<SubscriptionComponentRow> =
+        db(SubscriptionComponentRow::list_fact_rows(conn, sub.id).await)?
+            .into_iter()
+            .filter(|row| row.effective_to.is_none())
+            .collect();
+    let add_on_rows: Vec<SubscriptionAddOnRow> =
+        db(SubscriptionAddOnRow::list_fact_rows(conn, sub.id).await)?
+            .into_iter()
+            .filter(|row| row.effective_to.is_none())
+            .collect();
+    let held_quantities =
+        held_seat_quantities(conn, event.tenant_id, &component_rows, &add_on_rows).await?;
+    let open_components = component_rows.iter().map(|row| row.id).collect();
+    let open_add_ons = add_on_rows
+        .iter()
         .map(|row| (row.id, row.add_on_id))
         .collect();
     let ctx = Context {
@@ -214,6 +227,7 @@ async fn resolve_change_with(
         on: event.scheduled_time.date(),
         open_components,
         open_add_ons,
+        held_quantities,
     };
     match &event.event_data {
         ScheduledEventData::ApplyPlanChange {
@@ -363,12 +377,7 @@ async fn resolve_plan_change(
                 seats,
             } => {
                 facts.closes_components.push(*current_component_id);
-                if let (Some(slots), SubscriptionFee::Slot { unit, .. }) = (seats, fee) {
-                    facts.set_seats.push(SeatSeed {
-                        unit: unit.clone(),
-                        slots: i32::try_from(*slots).unwrap_or(i32::MAX),
-                    });
-                }
+                lay_target_seats(&mut facts, &ctx.held_quantities, fee, *seats, true, on);
                 SubscriptionComponentNewInternal {
                     price_component_id: Some(*target_component_id),
                     product_id: Some(*product_id),
@@ -387,8 +396,9 @@ async fn resolve_plan_change(
                 name,
                 fee,
                 period,
+                seats,
             } => {
-                facts.seat_seeds.extend(seat_seed(fee, on));
+                lay_target_seats(&mut facts, &ctx.held_quantities, fee, *seats, false, on);
                 SubscriptionComponentNewInternal {
                     price_component_id: Some(*target_component_id),
                     product_id: *product_id,
@@ -621,7 +631,8 @@ async fn resolve_amendment(
         row.lineage_id = c.lineage_id;
         row.added_by_amendment = true;
         facts.opens_components.push(row);
-        if !c.is_override {
+        // A seat fee of a quantity held binds to its count (R-137): no seed resets it.
+        if !c.is_override && !holds(&ctx.held_quantities, &c.fee) {
             facts.seat_seeds.extend(seat_seed(&c.fee, on));
         }
     }
@@ -643,7 +654,7 @@ async fn resolve_amendment(
         row.lineage_id = a.lineage_id;
         row.added_by_amendment = true;
         facts.opens_add_ons.push(row);
-        if a.lineage_id.is_none() {
+        if a.lineage_id.is_none() && !holds(&ctx.held_quantities, &a.fee) {
             facts.seat_seeds.extend(seat_seed(&a.fee, on));
         }
     }
@@ -728,22 +739,96 @@ async fn catalog_gone(
 fn seat_seed(fee: &SubscriptionFee, on: NaiveDate) -> Option<SeatSeed> {
     SlotTransactionNewInternal::from_fee(fee, on).map(|seed| SeatSeed {
         unit: seed.unit,
+        quantity_id: seed.quantity_id,
         slots: seed.prev_active_slots,
     })
 }
 
-/// What a count set for `at` holds beyond itself so the ledger reads it plus the seats of `unit`
-/// changed since `scheduled_at` (now when `None`): those changed since and effective before `at`,
-/// less those changed before and effective at `at`, which the ledger's reads add at `at` (R-108).
+/// Whether `fee` counts seats of a quantity the subscription holds.
+fn holds(held: &HashSet<ManagedQuantityId>, fee: &SubscriptionFee) -> bool {
+    fee.seat_quantity().is_some_and(|q| held.contains(&q))
+}
+
+/// The seats a plan change's target fee starts from: a quantity the subscription holds carries
+/// its count, whatever charge or product counted it, unless the change sets one (R-108, R-137);
+/// another starts at the fee's initial count. A fee scheduled before quantities were named
+/// (none on it) is read as then: a matched fee carries, an added one starts anew.
+fn lay_target_seats(
+    facts: &mut PendingFacts,
+    held: &HashSet<ManagedQuantityId>,
+    fee: &SubscriptionFee,
+    sets: Option<u32>,
+    matched: bool,
+    on: NaiveDate,
+) {
+    let Some(mut seed) = seat_seed(fee, on) else {
+        return;
+    };
+    let carried = match fee.seat_quantity() {
+        Some(quantity) => held.contains(&quantity),
+        None => matched,
+    };
+    match (carried, sets) {
+        (true, Some(slots)) => {
+            seed.slots = i32::try_from(slots).unwrap_or(i32::MAX);
+            facts.set_seats.push(seed);
+        }
+        (true, None) => {}
+        // A quantity not held opens at what the change sets, else the fee's initial count, as
+        // `plan_change_seat_seed` writes it.
+        (false, Some(slots)) => {
+            seed.slots = i32::try_from(slots).unwrap_or(i32::MAX);
+            facts.seat_seeds.push(seed);
+        }
+        (false, None) => facts.seat_seeds.push(seed),
+    }
+}
+
+/// The quantities the open seat fees of `components` and `add_ons` count, as stored.
+pub(crate) async fn held_seat_quantities(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    components: &[SubscriptionComponentRow],
+    add_ons: &[SubscriptionAddOnRow],
+) -> StoreResult<HashSet<ManagedQuantityId>> {
+    let mut fees: Vec<SubscriptionFee> = components
+        .iter()
+        .filter_map(|row| row.legacy_fee.clone())
+        .chain(add_ons.iter().filter_map(|row| row.legacy_fee.clone()))
+        .filter_map(|json| serde_json::from_value::<SubscriptionFee>(json).ok())
+        .filter(|fee| matches!(fee, SubscriptionFee::Slot { .. }))
+        .collect();
+    crate::repositories::subscriptions::slots::name_seat_quantities(
+        conn,
+        tenant_id,
+        fees.iter_mut().collect(),
+    )
+    .await?;
+    Ok(fees
+        .iter()
+        .filter_map(SubscriptionFee::seat_quantity)
+        .collect())
+}
+
+/// What a count set for `at` holds beyond itself so the ledger reads it plus the seats of its
+/// quantity changed since `scheduled_at` (now when `None`): those changed since and effective
+/// before `at`, less those changed before and effective at `at`, which the ledger's reads add at
+/// `at` (R-108).
 fn set_seats_carry(
     ledger: &[SlotTransactionRow],
-    unit: &str,
+    seed: &SeatSeed,
     at: NaiveDateTime,
     scheduled_at: Option<NaiveDateTime>,
 ) -> i32 {
     ledger
         .iter()
-        .filter(|row| row.unit == unit && row.delta != 0)
+        .filter(|row| {
+            row.delta != 0
+                && match seed.quantity_id {
+                    Some(quantity) => row.managed_quantity_id == quantity,
+                    None => row.unit == seed.unit,
+                }
+        })
         .map(|row| {
             let since = scheduled_at.is_some_and(|scheduled| row.transaction_at > scheduled);
             match (since, row.effective_at.cmp(&at)) {
@@ -781,10 +866,14 @@ pub(crate) async fn carry_into_set_seats_tx(
             .map_err(|error| Report::new(StoreError::SerdeError("written facts".into(), error)))?;
         seeds.extend(written.set_seats.into_iter().map(SlotTransactionId::from));
     }
-    db(
-        SlotTransactionRow::carry_into_seeds(conn, &seeds, &row.unit, row.effective_at, row.delta)
-            .await,
-    )?;
+    db(SlotTransactionRow::carry_into_seeds(
+        conn,
+        &seeds,
+        row.managed_quantity_id,
+        row.effective_at,
+        row.delta,
+    )
+    .await)?;
     Ok(())
 }
 
@@ -953,6 +1042,7 @@ async fn write_facts(
         let seed = SlotTransactionNewInternal {
             id: SlotTransactionId::new(),
             unit: seed.unit.clone(),
+            quantity_id: seed.quantity_id,
             delta: 0,
             prev_active_slots: seed.slots,
             effective_at: at,
@@ -981,9 +1071,10 @@ async fn write_facts(
             let seed = SlotTransactionNewInternal {
                 id: SlotTransactionId::new(),
                 unit: set.unit.clone(),
+                quantity_id: set.quantity_id,
                 delta: 0,
                 prev_active_slots: set.slots
-                    + set_seats_carry(&ledger, &set.unit, at, facts.scheduled_at),
+                    + set_seats_carry(&ledger, set, at, facts.scheduled_at),
                 effective_at: at,
                 transaction_at: at,
             };

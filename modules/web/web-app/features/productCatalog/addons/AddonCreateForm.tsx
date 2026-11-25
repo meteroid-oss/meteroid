@@ -17,6 +17,7 @@ import { NewChargeForm } from '@/features/plans/charges/ChargeForm'
 import { TERMS } from '@/features/plans/currencies/priceCells'
 import {
   buildExistingProductRef,
+  buildFeeStructure,
   buildNewProductRef,
   buildPriceInputs,
 } from '@/features/pricing/conversions'
@@ -85,12 +86,12 @@ export const AddonCreateForm = ({
       const created = await create.mutateAsync({
         name,
         description: description.trim() || undefined,
-        product: product
-          ? buildExistingProductRef(product.id)
-          : buildNewProductRef(name, charge.feeType, charge.formData),
+        product: product ? buildExistingProductRef(product.id) : buildNewProductRef(name),
+        feeStructure: buildFeeStructure(charge.feeType, charge.formData),
         prices: [first],
         selfServiceable,
-        maxInstancesPerSubscription: maxInstances,
+        // Its seats are counted by their quantity: a subscription takes it once.
+        maxInstancesPerSubscription: charge.feeType === 'slot' ? 1 : maxInstances,
         productFamilyLocalId: family,
         entitlements: [],
       })
@@ -145,6 +146,9 @@ export const AddonCreateForm = ({
 
       <div className="space-y-2.5">
         <PerSubscriptionField value={maxInstances} onChange={setMaxInstances} />
+        <p className="text-xs text-muted-foreground">
+          An add-on charging per seat is taken once per subscription.
+        </p>
         <SelfServiceField value={selfServiceable} onChange={setSelfServiceable} />
       </div>
 
@@ -194,8 +198,6 @@ export const AddonCreateForm = ({
             familyLocalId={family}
             anyFamily
             creditPack
-            // An add-on's seats would share the plan's count and ignore its quantity.
-            hiddenKinds={['seat']}
             context={`First price · ${currency}`}
             submitLabel={submitLabel}
             pending={create.isPending}

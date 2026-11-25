@@ -16,21 +16,22 @@ import type { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 // The plan editor's read-only lines, derived from the charges: where an option is not sold yet,
 // and what its first invoice holds.
 
-type Charge = Pick<PriceComponent, 'id' | 'name' | 'prices' | 'optionPrices' | 'productId'>
+type Charge = Pick<
+  PriceComponent,
+  'id' | 'name' | 'prices' | 'optionPrices' | 'productId' | 'feeStructure'
+>
 export type ContextOf = (component: Charge) => ChargeContext
 
-/** Each charge's product and metric from the list, for the lines read across charges. */
+/** How each charge bills (its own structure) and its metric, for the lines read across charges. */
 export const contextFrom = (list: ListPriceComponentResponse | undefined) => {
-  const products = new Map(list?.products.map(p => [p.id, p]))
   const metrics = new Map(list?.metrics.map(m => [m.id, m]))
-  return (component: Pick<PriceComponent, 'productId'>): ChargeContext => {
-    const product = component.productId ? products.get(component.productId) : undefined
-    const structure = product?.feeStructure?.structure
+  return (component: Pick<PriceComponent, 'feeStructure'>): ChargeContext => {
+    const structure = component.feeStructure?.structure
     const metric =
       structure?.case === 'usage' || structure?.case === 'capacity'
         ? metrics.get(structure.value.metricId)
         : undefined
-    return { product, metric, unit: metricUnitFromProto(metric) }
+    return { product: component, metric, unit: metricUnitFromProto(metric) }
   }
 }
 

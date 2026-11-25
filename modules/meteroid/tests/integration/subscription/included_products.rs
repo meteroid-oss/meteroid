@@ -3,8 +3,6 @@ use common_domain::actor::Actor;
 use common_domain::ids::{BaseId, PlanId, PlanVersionId, PriceComponentId, PriceId};
 use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
 use meteroid_store::domain::entitlements::{EntitlementValue, FeatureNew, FeatureType};
-use meteroid_store::domain::enums::FeeTypeEnum;
-use meteroid_store::domain::prices::FeeStructure;
 use meteroid_store::domain::products::ProductNew;
 use meteroid_store::repositories::entitlements::{EntitlementsInterface, ResolveTarget};
 use meteroid_store::repositories::products::ProductInterface;
@@ -27,8 +25,6 @@ async fn an_included_product_brings_its_features_and_no_fee() {
                 description: None,
                 tenant_id: TENANT_ID,
                 family_id: PRODUCT_FAMILY_ID,
-                fee_type: FeeTypeEnum::Rate,
-                fee_structure: FeeStructure::Rate {},
                 catalog: true,
                 tax_category_id: None,
                 icon: None,
@@ -121,8 +117,6 @@ async fn an_included_product_removed_at_creation_brings_no_features() {
                 description: None,
                 tenant_id: TENANT_ID,
                 family_id: PRODUCT_FAMILY_ID,
-                fee_type: FeeTypeEnum::Rate,
-                fee_structure: FeeStructure::Rate {},
                 catalog: true,
                 tax_category_id: None,
                 icon: None,

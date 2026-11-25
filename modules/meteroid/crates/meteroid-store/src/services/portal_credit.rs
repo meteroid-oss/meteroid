@@ -1228,7 +1228,7 @@ impl ServicesEdge {
         let today = now.date_naive();
         let (components, minimums, seats) = {
             let mut conn = self.store.get_conn().await?;
-            let components =
+            let mut components =
                 SubscriptionComponentRow::list_subscription_components_by_subscriptions(
                     &mut conn,
                     &tenant_id,
@@ -1249,18 +1249,27 @@ impl ServicesEdge {
                         })
                 })
                 .collect::<StoreResult<HashMap<_, _>>>()?;
+            crate::repositories::subscriptions::slots::name_seat_quantities(
+                &mut conn,
+                tenant_id,
+                components
+                    .values_mut()
+                    .flat_map(|components| components.iter_mut().map(|c| &mut c.fee))
+                    .collect(),
+            )
+            .await?;
             let minimums =
                 SubscriptionAdjustmentRow::list_by_subscription_ids(&mut conn, subscription_ids)
                     .await?;
             let pairs = components
                 .iter()
                 .flat_map(|(id, components)| {
-                    components
-                        .iter()
-                        .filter_map(move |component| match &component.fee {
-                            SubscriptionFee::Slot { unit, .. } => Some((*id, unit.clone())),
-                            _ => None,
-                        })
+                    components.iter().filter_map(move |component| {
+                        component
+                            .fee
+                            .seat_quantity()
+                            .map(|quantity| (*id, quantity))
+                    })
                 })
                 .collect::<HashSet<_>>()
                 .into_iter()
@@ -1285,17 +1294,14 @@ impl ServicesEdge {
         for (id, components) in components {
             let slots = components
                 .iter()
-                .filter_map(|component| match &component.fee {
-                    SubscriptionFee::Slot { unit, .. } => Some(unit.clone()),
-                    _ => None,
-                })
-                .map(|unit| {
-                    // A seat unit without transactions has none in use, as billing reads it.
+                .filter_map(|component| component.fee.seat_quantity())
+                .map(|quantity| {
+                    // A quantity without transactions has none in use, as billing reads it.
                     let count = seats
                         .iter()
-                        .find(|row| row.subscription_id == id && row.unit == unit)
+                        .find(|row| row.subscription_id == id && row.quantity_id == quantity)
                         .map_or(0, |row| u32::try_from(row.active_slots).unwrap_or(0));
-                    (unit, count)
+                    (quantity, count)
                 })
                 .collect();
             let subscription_metrics = components

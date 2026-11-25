@@ -358,6 +358,7 @@ mod tests {
         PriceComponent {
             id: PriceComponentId::new(),
             name: name.to_owned(),
+            fee_structure: None,
             product_id: Some(ProductId::default()),
             option_prices: cells
                 .iter()

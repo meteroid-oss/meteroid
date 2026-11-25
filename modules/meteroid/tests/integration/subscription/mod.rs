@@ -65,6 +65,7 @@ mod promo_credit;
 mod rate_card_prices;
 mod regenerate;
 mod rest_credit_contract;
+mod seat_quantities;
 mod signup_eligibility;
 mod term_end_changes;
 mod trials;

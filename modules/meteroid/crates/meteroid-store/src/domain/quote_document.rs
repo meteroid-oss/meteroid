@@ -484,6 +484,7 @@ mod tests {
         let fee = discount_fee(
             &SubscriptionFee::Slot {
                 unit: "seat".into(),
+                quantity_id: None,
                 model: crate::domain::price_components::RatingModel::PerUnit { rate: dec!(25) },
                 min_slots: None,
                 max_slots: None,

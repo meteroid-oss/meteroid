@@ -160,8 +160,8 @@ pub struct PortalUsageLimit {
 pub struct PortalPlanInputs {
     /// The components in effect today.
     pub components: Vec<SubscriptionComponent>,
-    /// Seats in use, by slot unit.
-    pub slots: HashMap<String, u32>,
+    /// Seats in use, by the managed quantity they count.
+    pub slots: HashMap<common_domain::ids::ManagedQuantityId, u32>,
     pub minimum_minor: Option<i64>,
     /// The coupons still applying to its invoices, oldest first.
     pub coupons: Vec<AppliedCouponDetailed>,

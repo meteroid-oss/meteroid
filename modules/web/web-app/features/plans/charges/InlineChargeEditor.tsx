@@ -8,7 +8,7 @@ import {
 } from '@/features/plans/currencies/priceCells'
 import { usePlanOverview } from '@/features/plans/hooks/usePlan'
 import { useComponentMetric } from '@/features/plans/pricecomponents/componentRefs'
-import { buildPriceInputs } from '@/features/pricing/conversions'
+import { buildFeeStructure, buildPriceInputs } from '@/features/pricing/conversions'
 import { buildDefaultsFromPrices } from '@/features/pricing/formData'
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 import { useConfirmationModal } from 'providers/ConfirmationProvider'
@@ -47,7 +47,8 @@ export const InlineChargeEditor = ({
 }: Props) => {
   const confirm = useConfirmationModal()
   const familyLocalId = usePlanOverview()?.productFamilyLocalId
-  const { feeType, structural, lock } = useChargeLock(component)
+  // A draft's charge may bill its product another way: its shape is not locked.
+  const { feeType, structural } = useChargeLock(component)
   const metric = useComponentMetric(structural.metricId)
   const wasIncluded = component.prices.length === 0
   const [same, setSame] = useState(merged)
@@ -71,6 +72,7 @@ export const InlineChargeEditor = ({
       ...buildDefaultsFromPrices(feeType, template),
       metricId: structural.metricId,
       slotUnitName: structural.slotUnitName,
+      quantityId: structural.quantityId,
       billingType: structural.billingType,
       term: termFormValue(cadence),
     },
@@ -86,8 +88,11 @@ export const InlineChargeEditor = ({
   const chip = own ? `${option.name} · ${currency}` : options.length > 1 ? `Every option · ${currency}` : currency
   const targets = same ? [] : [option.id]
 
-  const restructure = async (inputs: ReturnType<typeof buildPriceInputs>) => {
-    await mutations.restructure(component, trimmed, inputs)
+  const restructure = async (
+    inputs: ReturnType<typeof buildPriceInputs>,
+    structure?: ReturnType<typeof buildFeeStructure>
+  ) => {
+    await mutations.restructure(component, trimmed, inputs, structure)
     onClose()
   }
 
@@ -107,12 +112,19 @@ export const InlineChargeEditor = ({
     // Rates in the plan and a rate card's are one model kind, priced apart.
     const sameKind =
       !wasIncluded &&
-      chargeTarget(result.shape, lock).kind === chargeTarget(initialShape, lock).kind &&
+      result.feeType === initial.feeType &&
+      chargeTarget(result.shape).kind === chargeTarget(initialShape).kind &&
       result.formData.usageModel === initial.formData.usageModel
+    const structure = buildFeeStructure(result.feeType, result.formData)
+    // Another metric, seat quantity or billing: the charge's structure changes, its prices kept.
+    const reshaped =
+      result.formData.metricId !== initial.formData.metricId ||
+      result.formData.quantityId !== initial.formData.quantityId ||
+      (result.formData.billingType ?? undefined) !== (initial.formData.billingType ?? undefined)
     const inputs = buildPriceInputs(result.pricingType, result.formData, currency)
     if (!inputs[0]) return
     if (!sameKind) {
-      const run = () => void restructure(inputs).catch(() => undefined)
+      const run = () => void restructure(inputs, structure).catch(() => undefined)
       if (wasIncluded) return run()
       confirm(run, {
         header: `Change how ${trimmed} is priced`,
@@ -121,7 +133,8 @@ export const InlineChargeEditor = ({
       return
     }
     const write = async () => {
-      if (renamed) await mutations.rename(component, trimmed)
+      if (reshaped) await mutations.reshape(component, trimmed, structure)
+      else if (renamed) await mutations.rename(component, trimmed)
       // A capacity charge's cell is all its levels, written at once: those removed leave it.
       if (result.feeType === 'capacity') await mutations.setCellPrices(component, targets, inputs)
       else await mutations.setCell(component, targets, inputs[0])
@@ -160,9 +173,7 @@ export const InlineChargeEditor = ({
         currency={currency}
         cadence={cadence}
         name={trimmed}
-        lock={lock}
         product={{ metric, metricId: structural.metricId, slotUnitName: structural.slotUnitName }}
-        newProduct={false}
         initial={initial}
         familyLocalId={familyLocalId}
         includable

@@ -28,7 +28,7 @@ import type { Price } from '@/rpc/api/prices/v1/models_pb'
 /** A fee added on top of the plan: the extra component of a subscription, quote or amendment. */
 export interface FeeDraft extends StoredCharge {
   name: string
-  /** The product reused; none: one is made from the fee (buildNewProductRef). */
+  /** The product reused; none: one is made by name (buildNewProductRef). The fee owns its shape. */
   productId?: string
 }
 
@@ -86,7 +86,7 @@ const ChargeDialog = ({
   </Dialog>
 )
 
-// --- A custom price: the charge's kind stays its product's ---
+// --- A custom price: the charge's kind stays its own ---
 
 interface CustomPriceProps {
   name: string
@@ -164,15 +164,6 @@ export const PlanChargePriceForm = ({
   const { feeType, structural, lock } = useChargeLock(component)
   const metric = useComponentMetric(structural.metricId)
   const name = override?.name || component.name
-  // What the price may be is the product's: the form waits for it.
-  if (component.productId && !lock) {
-    return (
-      <>
-        <FixedName name={name} chip={`Custom price · ${currency}`} />
-        <p className="text-sm text-muted-foreground">Loading the product…</p>
-      </>
-    )
-  }
   const initial: StoredCharge = override
     ? { feeType: override.feeType, formData: override.formData }
     : {
@@ -181,6 +172,7 @@ export const PlanChargePriceForm = ({
           ...buildDefaults(feeType, price),
           metricId: structural.metricId,
           slotUnitName: structural.slotUnitName,
+          quantityId: structural.quantityId,
           billingType: structural.billingType,
         },
       }
@@ -225,8 +217,8 @@ interface FeeProps<F extends FeeDraft> {
 }
 
 /**
- * "Add a fee": an existing product of the family, reused with its kind, or a new charge by name.
- * With `fee`, that fee's name and price.
+ * "Add a fee": an existing product of the family, reused, or a new charge by name; either way the
+ * fee bills it any way. With `fee`, that fee's name and price.
  */
 export const FeeForm = <F extends FeeDraft>({
   fee,
@@ -296,16 +288,6 @@ const EditFee = <F extends FeeDraft>({
   const [name, setName] = useState(fee.name)
   const metricId = fee.formData.metricId as string | undefined
   const metric = useComponentMetric(metricId)
-  // A reused product keeps its kind; a fee making its own product may become any.
-  const lock: ChargeLock | undefined = fee.productId
-    ? {
-        feeType: fee.feeType,
-        billingType:
-          fee.feeType === 'extraRecurring'
-            ? (fee.formData.billingType as ChargeLock['billingType'])
-            : undefined,
-      }
-    : undefined
 
   return (
     <>
@@ -321,13 +303,11 @@ const EditFee = <F extends FeeDraft>({
         currency={currency}
         cadence={cadence}
         name={name.trim() || fee.name}
-        lock={lock}
         product={{
           metric,
           metricId,
           slotUnitName: fee.formData.slotUnitName as string | undefined,
         }}
-        newProduct={!fee.productId}
         initial={{
           feeType: fee.feeType,
           formData: { term: termFormValue(cadence), ...fee.formData },

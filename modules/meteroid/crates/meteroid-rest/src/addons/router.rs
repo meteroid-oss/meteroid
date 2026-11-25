@@ -127,6 +127,27 @@ pub async fn create_addon(
     State(app_state): State<AppState>,
     ApiValid(ApiJson(payload)): ApiValid<ApiJson<CreateAddOnRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
+    use meteroid_store::domain::prices::FeeStructure;
+    // The add-on owns its structure; without one, it bills as its price tells it unambiguously
+    // (as v1 add-ons billed as their product).
+    let fee_structure = match payload.fee_structure {
+        Some(structure) => FeeStructure::from(structure),
+        None => app_state
+            .store
+            .add_on_structure_of_price(
+                authorized_state.tenant_id,
+                payload.product_id,
+                payload.price_id,
+            )
+            .await
+            .map_err(RestApiError::from)?
+            .ok_or_else(|| {
+                RestApiError::InvalidInput(
+                    "fee_structure is required for this price: no charge tells how it bills"
+                        .to_string(),
+                )
+            })?,
+    };
     let addon = app_state
         .store
         .create_add_on(
@@ -136,6 +157,7 @@ pub async fn create_addon(
                 tenant_id: authorized_state.tenant_id,
                 product_id: payload.product_id,
                 price_id: payload.price_id,
+                fee_structure,
                 description: payload.description,
                 self_serviceable: payload.self_serviceable,
                 max_instances_per_subscription: payload.max_instances_per_subscription,

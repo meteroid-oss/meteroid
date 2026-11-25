@@ -211,7 +211,7 @@ impl ScheduledEventData {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ComponentMapping {
-    /// Component matched by product_id between current and target plans
+    /// Component matched between current and target plans: the same product billed the same way
     Matched {
         current_component_id: SubscriptionPriceComponentId,
         target_component_id: PriceComponentId,
@@ -232,6 +232,10 @@ pub enum ComponentMapping {
         name: String,
         fee: SubscriptionFee,
         period: SubscriptionFeeBillingPeriod,
+        /// The seats the change sets on a seat fee, when it sets them: a quantity the
+        /// subscription holds carries its count otherwise (R-108, R-137).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seats: Option<u32>,
     },
     /// Component in current plan but not in target (to be removed)
     Removed {

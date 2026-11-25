@@ -851,6 +851,7 @@ async fn yearly_arrears_billed_after_a_voided_consolidated_renewal(env: &TestEnv
                         },
                         credit_unit: None,
                     }),
+                    fee_structure: None,
                 }],
                 removed: vec![],
             }),

@@ -3366,6 +3366,7 @@ async fn a_voided_one_time_fee_is_owed_no_more_when_its_renewal_is_finalized() {
                             },
                             credit_unit: None,
                         }),
+                        fee_structure: None,
                     }],
                     removed: vec![],
                 },
@@ -3470,6 +3471,7 @@ async fn a_draft_finalized_after_a_change_ending_a_one_time_fee_is_credited() {
                             },
                             credit_unit: None,
                         }),
+                        fee_structure: None,
                     }],
                     removed: vec![],
                 },
@@ -4751,6 +4753,7 @@ async fn a_one_time_fee_ended_on_its_day_by_a_plan_change_stays_billed() {
                     },
                     credit_unit: None,
                 }),
+                fee_structure: None,
             }],
             removed: vec![],
         },
@@ -5057,6 +5060,7 @@ async fn a_one_time_fee_added_on_the_day_a_cancellation_ends_from_is_given_back(
                     },
                     credit_unit: None,
                 }),
+                fee_structure: None,
             }],
             removed: vec![],
         },
@@ -5244,6 +5248,7 @@ async fn an_amendment_for_the_period_end_a_removal_moved_waits_for_the_renewal()
             pricing: Pricing::Rate { rate: dec!(19) },
             credit_unit: None,
         }),
+        fee_structure: None,
     };
     env.services()
         .apply_amendment_immediate_at(

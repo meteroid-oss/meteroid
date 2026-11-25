@@ -31,8 +31,11 @@ pub struct SlotTransaction {
 #[derive(Debug)]
 pub struct SlotTransactionNewInternal {
     pub id: SlotTransactionId,
-    /// The code of the managed quantity the seats count.
+    /// The seats' unit: the code of the quantity they count when `quantity_id` is None (a fee
+    /// recorded before quantities were named, I32).
     pub unit: String,
+    /// The managed quantity the seats count.
+    pub quantity_id: Option<ManagedQuantityId>,
     pub delta: i32,
     pub prev_active_slots: i32,
     pub effective_at: NaiveDateTime,
@@ -46,10 +49,12 @@ impl SlotTransactionNewInternal {
             SubscriptionFee::Slot {
                 initial_slots,
                 unit,
+                quantity_id,
                 ..
             } => Some(Self {
                 id: SlotTransactionId::new(),
                 unit: unit.clone(),
+                quantity_id: *quantity_id,
                 delta: 0,
                 prev_active_slots: *initial_slots as i32,
                 effective_at: effective_date.and_time(NaiveTime::MIN),
@@ -57,6 +62,26 @@ impl SlotTransactionNewInternal {
             }),
             _ => None,
         }
+    }
+}
+
+/// The charge a seat change is asked through: a plan charge of the subscription, or one of its
+/// add-ons charging per seat. Charges counting one managed quantity share its count (R-137).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SeatCharge {
+    Component(common_domain::ids::PriceComponentId),
+    AddOn(common_domain::ids::AddOnId),
+}
+
+impl From<common_domain::ids::PriceComponentId> for SeatCharge {
+    fn from(id: common_domain::ids::PriceComponentId) -> Self {
+        SeatCharge::Component(id)
+    }
+}
+
+impl From<common_domain::ids::AddOnId> for SeatCharge {
+    fn from(id: common_domain::ids::AddOnId) -> Self {
+        SeatCharge::AddOn(id)
     }
 }
 
@@ -88,8 +113,11 @@ pub struct UpdateSlotsResult {
     pub slots_active: bool,
 }
 
+/// The seats a change writes to: the quantity they count, its label, and the bounds every
+/// charge of the subscription counting it sets (the strictest of each).
 pub struct SlotForTransaction {
     pub unit: String,
+    pub quantity_id: ManagedQuantityId,
     pub min_slots: Option<u32>,
     pub max_slots: Option<u32>,
 }

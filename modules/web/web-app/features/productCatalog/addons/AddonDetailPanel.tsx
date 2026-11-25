@@ -366,6 +366,7 @@ const CellPriceForm = ({
         ),
         metricId: structural.metricId,
         slotUnitName: structural.slotUnitName,
+        quantityId: structural.quantityId,
         billingType: structural.billingType,
         term: termFormValue(cell.period),
       },

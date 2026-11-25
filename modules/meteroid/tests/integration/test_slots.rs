@@ -260,9 +260,8 @@ async fn seat_policies_date_a_change_and_a_target_count_is_reached() {
             .unwrap()
             .and_time(NaiveTime::MIN)
     };
-    let count_on = |at| {
-        store.get_active_slots_value(TENANT_ID, subscription_id, SLOT_UNIT.to_string(), Some(at))
-    };
+    let count_on =
+        |at| store.get_active_slots_value(TENANT_ID, subscription_id, QUANTITY_SEATS_ID, Some(at));
 
     let removed = services
         .update_subscription_slots_for_test(
@@ -612,7 +611,7 @@ async fn test_optimistic_upgrade(services: &Services, store: &Store) {
     );
 
     let count = store
-        .get_active_slots_value(TENANT_ID, subscription_id, SLOT_UNIT.to_string(), None)
+        .get_active_slots_value(TENANT_ID, subscription_id, QUANTITY_SEATS_ID, None)
         .await
         .expect("Failed to get current slots");
 
@@ -681,7 +680,7 @@ async fn test_on_invoice_paid_upgrade(services: &Services, store: &Store) {
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            SLOT_UNIT.to_string(),
+            QUANTITY_SEATS_ID,
             NaiveDate::from_ymd_opt(2024, 1, 30).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -741,7 +740,7 @@ async fn test_slot_downgrade(services: &Services, store: &Store, _conn: &mut PgC
     .await;
 
     let initial_count = store
-        .get_active_slots_value(TENANT_ID, subscription_id, SLOT_UNIT.to_string(), None)
+        .get_active_slots_value(TENANT_ID, subscription_id, QUANTITY_SEATS_ID, None)
         .await
         .expect("Failed to get current slots");
 
@@ -771,7 +770,7 @@ async fn test_slot_downgrade(services: &Services, store: &Store, _conn: &mut PgC
         store.get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            SLOT_UNIT.to_string(),
+            QUANTITY_SEATS_ID,
             NaiveDate::from_ymd_opt(2024, month, day).map(|d| d.and_time(NaiveTime::MIN)),
         )
     };
@@ -933,7 +932,7 @@ async fn test_concurrent_upgrades(services: &Services, store: &Store, _conn: &mu
     .await;
 
     let initial_count = store
-        .get_active_slots_value(TENANT_ID, subscription_id, SLOT_UNIT.to_string(), None)
+        .get_active_slots_value(TENANT_ID, subscription_id, QUANTITY_SEATS_ID, None)
         .await
         .expect("Failed to get initial count");
 
@@ -996,7 +995,7 @@ async fn test_concurrent_upgrades(services: &Services, store: &Store, _conn: &mu
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            SLOT_UNIT.to_string(),
+            QUANTITY_SEATS_ID,
             NaiveDate::from_ymd_opt(2024, 1, 15).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -1024,7 +1023,7 @@ async fn test_temporal_slot_changes(services: &Services, store: &Store) {
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            SLOT_UNIT.to_string(),
+            QUANTITY_SEATS_ID,
             NaiveDate::from_ymd_opt(2024, 1, 1).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -1066,7 +1065,7 @@ async fn test_temporal_slot_changes(services: &Services, store: &Store) {
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            SLOT_UNIT.to_string(),
+            QUANTITY_SEATS_ID,
             NaiveDate::from_ymd_opt(2024, 1, 15).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -1121,7 +1120,7 @@ async fn test_temporal_slot_changes(services: &Services, store: &Store) {
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            SLOT_UNIT.to_string(),
+            QUANTITY_SEATS_ID,
             NaiveDate::from_ymd_opt(2024, 1, 15).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -1161,7 +1160,7 @@ async fn test_temporal_slot_changes(services: &Services, store: &Store) {
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            SLOT_UNIT.to_string(),
+            QUANTITY_SEATS_ID,
             NaiveDate::from_ymd_opt(2024, 2, 1).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -1200,7 +1199,7 @@ async fn test_mixed_pending_and_active(services: &Services, store: &Store) {
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            SLOT_UNIT.to_string(),
+            QUANTITY_SEATS_ID,
             NaiveDate::from_ymd_opt(2024, 1, 1).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -1232,7 +1231,7 @@ async fn test_mixed_pending_and_active(services: &Services, store: &Store) {
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            SLOT_UNIT.to_string(),
+            QUANTITY_SEATS_ID,
             NaiveDate::from_ymd_opt(2024, 1, 2).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -1267,7 +1266,7 @@ async fn test_mixed_pending_and_active(services: &Services, store: &Store) {
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            SLOT_UNIT.to_string(),
+            QUANTITY_SEATS_ID,
             NaiveDate::from_ymd_opt(2024, 1, 3).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -1305,7 +1304,7 @@ async fn test_mixed_pending_and_active(services: &Services, store: &Store) {
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            SLOT_UNIT.to_string(),
+            QUANTITY_SEATS_ID,
             NaiveDate::from_ymd_opt(2024, 1, 4).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -1339,7 +1338,7 @@ async fn test_mixed_pending_and_active(services: &Services, store: &Store) {
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            SLOT_UNIT.to_string(),
+            QUANTITY_SEATS_ID,
             NaiveDate::from_ymd_opt(2024, 1, 4).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -1371,7 +1370,7 @@ async fn test_mixed_pending_and_active(services: &Services, store: &Store) {
 
     // Final verification: count should be initial + 8 (10 + 1 + 5 + 1 + 1 = 18)
     let final_count = store
-        .get_active_slots_value(TENANT_ID, subscription_id, SLOT_UNIT.to_string(), None)
+        .get_active_slots_value(TENANT_ID, subscription_id, QUANTITY_SEATS_ID, None)
         .await
         .expect("Failed to get final slots count");
     assert_eq!(

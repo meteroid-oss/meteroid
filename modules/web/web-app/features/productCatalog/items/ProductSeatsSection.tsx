@@ -19,6 +19,8 @@ import {
   updateManagedQuantity,
 } from '@/rpc/api/quantities/v1/quantities-ManagedQuantitiesService_connectquery'
 
+import type { ManagedQuantity } from '@/rpc/api/quantities/v1/models_pb'
+
 const INCREASES: [QuantityIncrease, string][] = [
   [QuantityIncrease.IMMEDIATELY, 'At once'],
   [QuantityIncrease.NEXT_PERIOD, 'From the next period'],
@@ -33,12 +35,14 @@ const labelOf = <T,>(options: [T, string][], value: T) =>
   options.find(([v]) => v === value)?.[1] ?? ''
 
 /**
- * When a seat change takes effect. The rules belong to the managed quantity the seat product
- * counts (its code is the product's unit), so every product counting that unit shares them.
+ * When a seat change takes effect, for each managed quantity the product's seat charges count.
+ * The rules are the quantity's: every charge counting it shares them.
  */
-export const ProductSeatsSection = ({ unitName }: { unitName: string }) => {
+export const ProductSeatsSection = ({ quantityIds }: { quantityIds: string[] }) => {
   const quantitiesQuery = useQuery(listManagedQuantities, {})
-  const quantity = quantitiesQuery.data?.quantities.find(q => q.code === unitName)
+  const quantities = (quantitiesQuery.data?.quantities ?? []).filter(q =>
+    quantityIds.includes(q.id)
+  )
 
   const update = useMutation(updateManagedQuantity, {
     onSuccess: () => {
@@ -64,7 +68,7 @@ export const ProductSeatsSection = ({ unitName }: { unitName: string }) => {
     )
   }
 
-  if (!quantity) {
+  if (quantities.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
         Added seats apply at once, removed seats at the period end.
@@ -73,28 +77,56 @@ export const ProductSeatsSection = ({ unitName }: { unitName: string }) => {
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <SeatRule
-        label="Adding seats"
-        value={quantity.onIncrease}
-        options={INCREASES}
-        disabled={update.isPending}
-        onChange={onIncrease => update.mutate({ id: quantity.id, onIncrease })}
-      />
-      <SeatRule
-        label="Removing seats"
-        value={quantity.onDecrease}
-        options={DECREASES}
-        disabled={update.isPending}
-        onChange={onDecrease => update.mutate({ id: quantity.id, onDecrease })}
-      />
-      <p className="text-xs text-muted-foreground">
-        Shared by every product that counts{' '}
-        <span className="font-mono">{quantity.code}</span>.
-      </p>
+    <div className="flex flex-col gap-4">
+      {quantities.map(quantity => (
+        <QuantityRules
+          key={quantity.id}
+          quantity={quantity}
+          named={quantities.length > 1}
+          disabled={update.isPending}
+          onIncrease={onIncrease => update.mutate({ id: quantity.id, onIncrease })}
+          onDecrease={onDecrease => update.mutate({ id: quantity.id, onDecrease })}
+        />
+      ))}
     </div>
   )
 }
+
+const QuantityRules = ({
+  quantity,
+  named,
+  disabled,
+  onIncrease,
+  onDecrease,
+}: {
+  quantity: ManagedQuantity
+  /** Several quantities: each says which it is. */
+  named: boolean
+  disabled: boolean
+  onIncrease: (value: QuantityIncrease) => void
+  onDecrease: (value: QuantityDecrease) => void
+}) => (
+  <div className="flex flex-col gap-3">
+    {named && <span className="text-xs font-medium text-foreground">{quantity.name}</span>}
+    <SeatRule
+      label="Adding seats"
+      value={quantity.onIncrease}
+      options={INCREASES}
+      disabled={disabled}
+      onChange={onIncrease}
+    />
+    <SeatRule
+      label="Removing seats"
+      value={quantity.onDecrease}
+      options={DECREASES}
+      disabled={disabled}
+      onChange={onDecrease}
+    />
+    <p className="text-xs text-muted-foreground">
+      Shared by every charge that counts <span className="font-mono">{quantity.code}</span>.
+    </p>
+  </div>
+)
 
 function SeatRule<T extends number>({
   label,

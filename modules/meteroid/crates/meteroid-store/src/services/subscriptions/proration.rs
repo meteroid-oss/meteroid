@@ -465,6 +465,7 @@ mod tests {
     fn slot_fee(slots: u32, rate: i64) -> SubscriptionFee {
         SubscriptionFee::Slot {
             unit: "seat".to_string(),
+            quantity_id: None,
             model: crate::domain::price_components::RatingModel::PerUnit {
                 rate: Decimal::new(rate, 0),
             },

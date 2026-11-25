@@ -188,6 +188,8 @@ message CreditPackExpiry {
   uint32 value = 2;
 }
 
+// How a charge bills its product: a plan's charge and an add-on each own one, so one product
+// can be charged as a flat fee in one plan and per seat in another.
 message FeeStructure {
   oneof structure {
     RateStructure rate = 1;
@@ -202,10 +204,15 @@ message FeeStructure {
   message RateStructure {}
 
   message SlotStructure {
+    // The seats' label on invoices ("seat", "editor").
     string unit_name = 1;
     reserved 2, 3;
     UpgradePolicy upgrade_policy = 4;
     DowngradePolicy downgrade_policy = 5;
+    // The managed quantity the seats count: charges naming the same quantity share one count.
+    // Required on a charge; unset on a structure stored before quantities were named, counted
+    // by the quantity whose code is `unit_name`.
+    optional string quantity_id = 6;
   }
 
   enum UpgradePolicy {

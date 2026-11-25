@@ -4,12 +4,12 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { useWatch } from 'react-hook-form'
 
 import { termFormValue } from '@/features/plans/currencies/priceCells'
-import { useComponentProduct } from '@/features/plans/pricecomponents/componentRefs'
 import { feeTypeToHuman } from '@/features/plans/pricecomponents/utils'
 import { feeTypeFromPrice } from '@/features/pricing/conversions'
 import {
   buildDefaults,
   extractStructuralInfo,
+  feeTypeOfStructure,
   protoFeeTypeToComponentFeeType,
 } from '@/features/pricing/formData'
 import { ProductIcon } from '@/features/productCatalog/items/ProductIcon'
@@ -65,11 +65,11 @@ export interface ChargeFormProps {
   cadence: BillingPeriod
   /** The charge's name, its invoice line's in the preview. */
   name?: string
-  /** What the product is sold as: only the kinds compiling to it are offered. */
+  /** A charge whose shape is fixed (a fee overridden): only the kinds compiling to it are offered. */
   lock?: ChargeLock
-  /** The product's metric and seat unit, shown read-only. */
+  /** The fixed shape's metric and seat label, shown read-only. */
   product?: ChargeBodyContext
-  /** A new product names its metric and seat unit in the form. Default: no `lock`. */
+  /** The charge's metric and seat quantity are picked in the form. Default: no `lock`. */
   newProduct?: boolean
   /** The charge it starts from; none: a new charge, priced once its kind is picked. */
   initial?: StoredCharge
@@ -238,46 +238,41 @@ export const ChargeForm = ({
   )
 }
 
-/** What the product lets the charge become: its fee type and billing. */
-export const useChargeLock = (component: PriceComponent) => {
-  const product = useComponentProduct(component.productId)
-  return useMemo(() => {
+/**
+ * How a plan charge bills, from its own structure (its first price's kind for a server sending
+ * none): its fee type, metric or seat quantity, and the lock keeping a fee of it to that shape.
+ */
+export const useChargeLock = (component: PriceComponent) =>
+  useMemo(() => {
     const first = component.prices[0]
-    const feeType: ComponentFeeType = first
-      ? feeTypeFromPrice(first)
-      : product?.feeType !== undefined
-        ? protoFeeTypeToComponentFeeType(product.feeType)
-        : 'rate'
-    const structural: StructuralInfo = product
-      ? extractStructuralInfo(feeType, product.feeStructure)
-      : {}
-    const lock: ChargeLock | undefined = product
-      ? {
-          feeType,
-          billingType: structural.billingType as ChargeLock['billingType'],
-        }
+    const feeType: ComponentFeeType =
+      feeTypeOfStructure(component.feeStructure) ?? (first ? feeTypeFromPrice(first) : 'rate')
+    const structural: StructuralInfo = extractStructuralInfo(feeType, component.feeStructure)
+    const lock: ChargeLock | undefined = component.feeStructure
+      ? { feeType, billingType: structural.billingType as ChargeLock['billingType'] }
       : undefined
     return { feeType, structural, lock }
-  }, [component.prices, product])
-}
+  }, [component.prices, component.feeStructure])
 
-/** What an existing product lets a charge be, and the charge it starts from. */
+/**
+ * The charge a reused product starts from: how its charges bill it when they all agree. It is
+ * no lock: a charge of the product may bill it any other way.
+ */
 export const productCharge = (
   item: Pick<ProductWithPrice, 'product' | 'latestPrice'>
-): { lock: ChargeLock; product: ChargeBodyContext; initial: StoredCharge } | undefined => {
+): { initial: StoredCharge } | undefined => {
   const product = item.product
   if (!product || product.feeType === undefined) return undefined
   const feeType = protoFeeTypeToComponentFeeType(product.feeType)
   const structural = extractStructuralInfo(feeType, product.feeStructure)
   return {
-    lock: { feeType, billingType: structural.billingType as ChargeLock['billingType'] },
-    product: { metricId: structural.metricId, slotUnitName: structural.slotUnitName },
     initial: {
       feeType,
       formData: {
         ...buildDefaults(feeType, item.latestPrice ?? undefined, false, structural.usageModel),
         metricId: structural.metricId,
         slotUnitName: structural.slotUnitName,
+        quantityId: structural.quantityId,
         billingType: structural.billingType,
       },
     },
@@ -412,9 +407,6 @@ export const NewChargeForm = ({
           currency={currency}
           cadence={cadence}
           name={chargeName}
-          lock={reused?.lock}
-          product={reused?.product}
-          newProduct={!product}
           initial={
             reused && {
               ...reused.initial,

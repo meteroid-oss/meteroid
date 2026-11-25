@@ -82,7 +82,48 @@ fn removed_component_to_grpc(
     }
 }
 
+/// The charge a seat request names: an add-on of the subscription when `add_on_id` is set,
+/// else its plan charge.
+fn seat_charge_from_proto(
+    price_component_id: String,
+    add_on_id: Option<String>,
+) -> Result<meteroid_store::domain::slot_transactions::SeatCharge, Status> {
+    use meteroid_store::domain::slot_transactions::SeatCharge;
+    match add_on_id.filter(|id| !id.is_empty()) {
+        Some(id) => Ok(SeatCharge::AddOn(common_domain::ids::AddOnId::from_proto(
+            id,
+        )?)),
+        None => Ok(SeatCharge::Component(PriceComponentId::from_proto(
+            price_component_id,
+        )?)),
+    }
+}
+
 impl SubscriptionServiceComponents {
+    /// The managed quantity a seat request names: by id, else by code (a unit of a client
+    /// predating quantity ids). None when neither is set or the code has no quantity.
+    async fn requested_quantity(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        quantity_id: Option<String>,
+        unit: Option<String>,
+    ) -> Result<Option<common_domain::ids::ManagedQuantityId>, Status> {
+        use meteroid_store::repositories::ManagedQuantitiesInterface;
+        if let Some(id) = quantity_id.filter(|id| !id.is_empty()) {
+            return Ok(Some(common_domain::ids::ManagedQuantityId::from_proto(id)?));
+        }
+        let Some(unit) = unit.filter(|unit| !unit.is_empty()) else {
+            return Ok(None);
+        };
+        Ok(self
+            .store
+            .list_managed_quantities(tenant_id)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?
+            .into_iter()
+            .find(|quantity| quantity.code == unit)
+            .map(|quantity| quantity.id))
+    }
     /// Taking the plan's minimum or dropping it stays open; an override introduces one.
     async fn ensure_minimum_overrides_allowed(
         &self,
@@ -96,10 +137,10 @@ impl SubscriptionServiceComponents {
         }
         let credit_products = creates.iter().any(|c| {
             c.price_components.as_ref().is_some_and(|components| {
-                components
-                    .extra_components
-                    .iter()
-                    .any(|e| e.product_ref.creates_credit_product())
+                components.extra_components.iter().any(|e| {
+                    e.fee_structure.as_ref().is_some_and(|fs| fs.is_credit())
+                        || e.product_ref.creates_credit_product()
+                })
             })
         });
         ensure_credit_pricing_allowed(
@@ -118,11 +159,10 @@ impl SubscriptionServiceComponents {
         ensure_credit_pricing_allowed(
             self.feature_resolver.as_ref(),
             organization_id,
-            amendment
-                .component_changes
-                .added
-                .iter()
-                .any(|a| a.product.creates_credit_product()),
+            amendment.component_changes.added.iter().any(|a| {
+                a.fee_structure.as_ref().is_some_and(|fs| fs.is_credit())
+                    || a.product.creates_credit_product()
+            }),
         )
         .await
     }
@@ -339,7 +379,8 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let inner = request.into_inner();
 
         let subscription_id = SubscriptionId::from_proto(inner.subscription_id.clone())?;
-        let price_component_id = PriceComponentId::from_proto(inner.price_component_id.clone())?;
+        let charge =
+            seat_charge_from_proto(inner.price_component_id.clone(), inner.add_on_id.clone())?;
 
         use meteroid_grpc::meteroid::api::subscriptions::v1::SlotUpgradeBillingMode as ProtoMode;
         use meteroid_store::domain::SlotUpgradeBillingMode;
@@ -357,7 +398,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .update_subscription_slots(
                 tenant_id,
                 subscription_id,
-                price_component_id,
+                charge,
                 match inner.target {
                     Some(target) if inner.delta == 0 => SeatChange::To(target),
                     Some(_) => {
@@ -388,11 +429,18 @@ impl SubscriptionsService for SubscriptionServiceComponents {
 
         let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
 
-        let slots = self
-            .store
-            .get_active_slots_value(tenant_id, subscription_id, inner.unit, None)
-            .await
-            .map_err(Into::<SubscriptionApiError>::into)?;
+        // A unit with no quantity holds no seats.
+        let slots = match self
+            .requested_quantity(tenant_id, inner.quantity_id, Some(inner.unit))
+            .await?
+        {
+            Some(quantity) => self
+                .store
+                .get_active_slots_value(tenant_id, subscription_id, quantity, None)
+                .await
+                .map_err(Into::<SubscriptionApiError>::into)?,
+            None => 0,
+        };
 
         Ok(Response::new(GetSlotsValueResponse {
             current_value: slots,
@@ -522,11 +570,19 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             None
         };
 
-        let transactions = self
-            .store
-            .list_slot_transactions(tenant_id, subscription_id, inner.unit, status)
-            .await
-            .map_err(Into::<SubscriptionApiError>::into)?;
+        let filtered = inner.quantity_id.is_some() || inner.unit.is_some();
+        let quantity = self
+            .requested_quantity(tenant_id, inner.quantity_id, inner.unit)
+            .await?;
+        let transactions = if filtered && quantity.is_none() {
+            // A unit with no quantity has no ledger.
+            Vec::new()
+        } else {
+            self.store
+                .list_slot_transactions(tenant_id, subscription_id, quantity, status)
+                .await
+                .map_err(Into::<SubscriptionApiError>::into)?
+        };
 
         let proto_transactions = transactions
             .into_iter()
@@ -569,11 +625,11 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let inner = request.into_inner();
 
         let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
-        let price_component_id = PriceComponentId::from_proto(inner.price_component_id)?;
+        let charge = seat_charge_from_proto(inner.price_component_id, inner.add_on_id)?;
 
         let preview = self
             .services
-            .preview_slot_update(tenant_id, subscription_id, price_component_id, inner.delta)
+            .preview_slot_update(tenant_id, subscription_id, charge, inner.delta)
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
 

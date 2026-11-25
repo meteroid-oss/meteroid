@@ -13,7 +13,7 @@ modules/meteroid/crates/diesel-models/src/query/checkout_sessions.rs::CheckoutSe
 
 # A customer's rows: locked only under its CustomerLock, in any order among themselves.
 modules/meteroid/crates/diesel-models/src/query/subscriptions_lifecycle.rs::SubscriptionRow::lock_subscription | dependent | subscription, NO KEY UPDATE (events, invoices and seats reference it)
-modules/meteroid/crates/diesel-models/src/query/slot_transactions.rs::SlotTransactionRow::fetch_by_subscription_id_and_unit_locked | dependent | the seat checkpoint of a slot change; reads take no lock
+modules/meteroid/crates/diesel-models/src/query/slot_transactions.rs::SlotTransactionRow::fetch_by_subscription_id_and_quantity_locked | dependent | the seat checkpoint of a slot change, by managed quantity; reads take no lock
 modules/meteroid/crates/diesel-models/src/query/invoices.rs::InvoiceRow::lock_by_id | dependent | invoice, FOR UPDATE (drafts are deleted)
 modules/meteroid/crates/diesel-models/src/query/invoices.rs::InvoiceRow::find_consolidation_candidates | dependent | the customer's mergeable drafts, in id order
 modules/meteroid/crates/diesel-models/src/query/applied_coupons.rs::AppliedCouponDetailedRow::list_by_ids_for_update | dependent | the customer's applied coupons with their coupons (tenant rows), in coupon id order

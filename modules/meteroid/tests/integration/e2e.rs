@@ -420,6 +420,7 @@ async fn test_metering_e2e() {
                         },
                     )),
                 }],
+                fee_structure: None,
             },
         ))
         .await

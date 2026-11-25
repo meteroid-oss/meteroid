@@ -258,6 +258,7 @@ mod tests {
         PriceComponent {
             id: PriceComponentId::new(),
             name: "Managed revenue".to_owned(),
+            fee_structure: None,
             product_id: Some(product),
             prices: sizes.iter().map(|s| level(product, *s)).collect(),
             option_prices: vec![],

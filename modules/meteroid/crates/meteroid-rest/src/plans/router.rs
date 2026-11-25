@@ -83,7 +83,6 @@ pub async fn list_plans(
                 fp.version,
                 fp.price_components,
                 fp.product_family.name,
-                &fp.products,
             )
         })
         .collect::<Result<_, _>>()?;
@@ -140,7 +139,6 @@ pub async fn get_plan_details(
         fp.version,
         fp.price_components,
         fp.product_family.name,
-        &fp.products,
     )?))
 }
 
@@ -181,7 +179,7 @@ pub async fn create_plan(
         authorized_state.organization_id,
         components
             .iter()
-            .any(|c| c.product_ref.creates_credit_product()),
+            .any(|c| c.structure().is_some_and(|fs| fs.is_credit())),
     )
     .await?;
 
@@ -304,7 +302,6 @@ pub async fn create_plan(
             fp.version,
             fp.price_components,
             fp.product_family.name,
-            &fp.products,
         )?),
     ))
 }
@@ -370,7 +367,7 @@ pub async fn replace_plan(
         authorized_state.organization_id,
         components
             .iter()
-            .any(|c| c.product_ref.creates_credit_product()),
+            .any(|c| c.structure().is_some_and(|fs| fs.is_credit())),
     )
     .await?;
 
@@ -474,7 +471,6 @@ pub async fn replace_plan(
         fp.version,
         fp.price_components,
         fp.product_family.name,
-        &fp.products,
     )?))
 }
 
@@ -690,7 +686,6 @@ pub async fn patch_plan(
         fp.version,
         fp.price_components,
         fp.product_family.name,
-        &fp.products,
     )?))
 }
 
@@ -764,7 +759,6 @@ pub async fn publish_plan(
         fp.version,
         fp.price_components,
         fp.product_family.name,
-        &fp.products,
     )?))
 }
 

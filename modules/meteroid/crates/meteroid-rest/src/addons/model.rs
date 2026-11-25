@@ -42,6 +42,12 @@ pub struct CreateAddOnRequest {
     pub product_id: ProductId,
     #[serde(with = "string_serde")]
     pub price_id: PriceId,
+    /// How the add-on bills its product. When absent, as the charges its price or product is
+    /// linked to bill it, else as its pricing tells (a rate, a one-time fee, a credit pack, seats
+    /// of the quantity the product names); required when that stays ambiguous. An add-on
+    /// charging per seat has one instance at most.
+    #[serde(default)]
+    pub fee_structure: Option<crate::products::model::ProductFeeStructure>,
     pub description: Option<String>,
     #[serde(default)]
     pub self_serviceable: bool,

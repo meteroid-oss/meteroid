@@ -1299,6 +1299,12 @@ async fn insert_quote_children(
     coupons: Vec<QuoteCouponNew>,
     pending_addon_materializations: &[crate::services::PendingMaterialization],
 ) -> StoreResult<()> {
+    // A seat add-on is held once by the subscription the quote makes (R-138).
+    crate::services::subscriptions::utils::ensure_seat_fees_once(
+        add_ons
+            .iter()
+            .map(|ao| (ao.add_on_id, ao.name.as_str(), &ao.fee, ao.quantity)),
+    )?;
     // Insert components if any
     if !components.is_empty() {
         let component_rows: Vec<QuoteComponentRowNew> = components
@@ -1341,9 +1347,10 @@ async fn insert_quote_children(
         let internal = PriceComponentNewInternal {
             name: mat.name.clone(),
             product_ref: mat.product_ref.clone(),
+            fee_structure: mat.fee_structure.clone(),
             prices: vec![mat.price_entry.clone()],
         };
-        let (_product_id, price_ids) = resolve_component_internal(
+        let charge = resolve_component_internal(
             conn,
             &internal,
             tenant_id,
@@ -1352,7 +1359,7 @@ async fn insert_quote_children(
             false,
         )
         .await?;
-        if let Some(price_id) = price_ids.into_iter().next() {
+        if let Some(price_id) = charge.price_ids.into_iter().next() {
             materialized_addon_prices.insert(mat.component_index, price_id);
         }
     }
@@ -1691,35 +1698,33 @@ pub(crate) async fn detailed_quote_tx(
         .map(std::convert::TryInto::try_into)
         .collect::<Result<Vec<_>, _>>()?;
 
-    // Resolve v2 rows from Products + Prices
+    // Resolve v2 rows from their charges' structures + prices
     if !comp_rows_with_price.is_empty() || !addon_rows_with_price.is_empty() {
         use crate::repositories::subscriptions::{
-            fetch_price_credit_units, fetch_prices_and_products, resolve_fee_from_maps,
+            ChargeShapes, fetch_price_credit_units, fetch_prices, resolve_fee_from_maps,
         };
 
-        let (prices_by_id, products_by_id) = fetch_prices_and_products(
+        let prices_by_id = fetch_prices(
             conn,
             tenant_id,
             comp_rows_with_price
                 .iter()
                 .filter_map(|r| r.price_id)
                 .chain(addon_rows_with_price.iter().filter_map(|r| r.price_id)),
-            comp_rows_with_price
-                .iter()
-                .filter_map(|r| r.product_id)
-                .chain(addon_rows_with_price.iter().filter_map(|r| r.product_id)),
         )
         .await?;
+        let component_ids: Vec<_> = comp_rows_with_price
+            .iter()
+            .filter_map(|r| r.price_component_id)
+            .collect();
+        let add_on_ids: Vec<_> = addon_rows_with_price.iter().map(|r| r.add_on_id).collect();
+        let shapes = ChargeShapes::load_ids(conn, tenant_id, &component_ids, &add_on_ids).await?;
         let units = fetch_price_credit_units(conn, tenant_id, &prices_by_id).await?;
 
         for row in comp_rows_with_price {
-            let resolved = resolve_fee_from_maps(
-                row.price_id,
-                row.product_id,
-                &prices_by_id,
-                &products_by_id,
-                &units,
-            );
+            let shape = shapes.of_charge(row.price_component_id, None, row.legacy_fee.as_ref());
+            let resolved =
+                resolve_fee_from_maps(row.price_id, shape.as_ref(), &prices_by_id, &units);
 
             let component = if let Some((period, mut fee)) = resolved {
                 if let Some(snapshot) = row
@@ -1753,13 +1758,9 @@ pub(crate) async fn detailed_quote_tx(
         }
 
         for row in addon_rows_with_price {
-            let resolved = resolve_fee_from_maps(
-                row.price_id,
-                row.product_id,
-                &prices_by_id,
-                &products_by_id,
-                &units,
-            );
+            let shape = shapes.of_charge(None, Some(row.add_on_id), row.legacy_fee.as_ref());
+            let resolved =
+                resolve_fee_from_maps(row.price_id, shape.as_ref(), &prices_by_id, &units);
 
             let add_on = if let Some((period, fee)) = resolved {
                 QuoteAddOn {

@@ -52,6 +52,9 @@ pub struct AddExtraComponent {
     pub name: String,
     pub product: ProductRef,
     pub price_entry: PriceEntry,
+    /// How the charge bills the product; None takes a new product's, or an existing price's
+    /// charge's.
+    pub fee_structure: Option<crate::domain::prices::FeeStructure>,
 }
 
 #[derive(Debug, Clone, Default)]

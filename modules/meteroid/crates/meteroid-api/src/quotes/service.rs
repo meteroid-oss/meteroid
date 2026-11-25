@@ -2,9 +2,7 @@ use super::{QuoteServiceComponents, mapping};
 use crate::entitlements::mapping::entitlement_spec_from_proto;
 use crate::quotes::error::QuoteApiError;
 use common_domain::ids::QuoteDraftId;
-use common_domain::ids::{
-    AddOnId, BaseId, CouponId, CustomerId, PlanVersionId, PriceId, ProductId, QuoteId,
-};
+use common_domain::ids::{AddOnId, BaseId, CouponId, CustomerId, PlanVersionId, PriceId, QuoteId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_app::conversions::FromProtoOpt;
 use meteroid_app::features::{
@@ -55,7 +53,6 @@ use common_utils::rng::UPPER_ALPHANUMERIC;
 use meteroid_store::repositories::add_ons::AddOnInterfaceAuto;
 use meteroid_store::repositories::price_components::PriceComponentInterfaceAuto;
 use meteroid_store::repositories::prices::PriceInterface;
-use meteroid_store::repositories::products::ProductInterface;
 
 #[tonic::async_trait]
 impl QuotesService for QuoteServiceComponents {
@@ -1378,38 +1375,12 @@ impl QuoteServiceComponents {
                 }
                 pricing.narrow(std::slice::from_mut(component));
             }
-            creates_credit_product = create_components
-                .extra_components
-                .iter()
-                .any(|e| e.product_ref.creates_credit_product());
-
-            // Load products referenced by price components and extra components
-            let pc_product_ids: Vec<ProductId> = price_components
-                .iter()
-                .filter_map(|c| c.product_id)
-                .chain(create_components.extra_components.iter().filter_map(|ex| {
-                    if let meteroid_store::domain::price_components::ProductRef::Existing(pid) =
-                        &ex.product_ref
-                    {
-                        Some(*pid)
-                    } else {
-                        None
-                    }
-                }))
-                .collect();
-
-            let products_map: std::collections::HashMap<ProductId, _> = if pc_product_ids.is_empty()
-            {
-                std::collections::HashMap::new()
-            } else {
-                self.store
-                    .find_products_by_ids(&pc_product_ids, tenant_id)
-                    .await
-                    .map_err(Into::<QuoteApiError>::into)?
-                    .into_iter()
-                    .map(|p| (p.id, p))
-                    .collect()
-            };
+            creates_credit_product = create_components.extra_components.iter().any(|e| {
+                e.fee_structure
+                    .as_ref()
+                    .or_else(|| e.product_ref.new_product_structure())
+                    .is_some_and(|fs| fs.is_credit())
+            });
 
             // Batch-load all existing prices from overrides and extras
             let existing_price_ids: Vec<PriceId> = create_components
@@ -1469,7 +1440,6 @@ impl QuoteServiceComponents {
             process_quote_components(
                 &create_components,
                 &price_components,
-                &products_map,
                 &prices_map,
                 &units,
                 quote_id,
@@ -1529,17 +1499,8 @@ impl QuoteServiceComponents {
                     .await
                     .map_err(Into::<QuoteApiError>::into)?;
 
-                // Collect product_ids and price_ids from add-ons for fee resolution
-                let product_ids: Vec<ProductId> = add_ons.iter().map(|a| a.product_id).collect();
+                // Collect price_ids from add-ons for fee resolution (each its own structure)
                 let price_ids: Vec<PriceId> = add_ons.iter().flat_map(|a| a.price_ids()).collect();
-
-                let products = self
-                    .store
-                    .find_products_by_ids(&product_ids, tenant_id)
-                    .await
-                    .map_err(Into::<QuoteApiError>::into)?;
-                let products_map: std::collections::HashMap<ProductId, _> =
-                    products.into_iter().map(|p| (p.id, p)).collect();
 
                 let prices = self
                     .store
@@ -1575,7 +1536,6 @@ impl QuoteServiceComponents {
                 process_quote_add_ons(
                     &create_add_ons,
                     &add_ons,
-                    &products_map,
                     &prices_map,
                     &units,
                     quote_id,
@@ -1651,7 +1611,6 @@ impl QuoteServiceComponents {
 fn process_quote_components(
     components: &CreateSubscriptionComponents,
     price_components: &[PriceComponent],
-    products: &std::collections::HashMap<ProductId, meteroid_store::domain::Product>,
     prices: &std::collections::HashMap<PriceId, meteroid_store::domain::Price>,
     units: &meteroid_store::domain::credit_units::CreditUnitsById,
     quote_id: QuoteId,
@@ -1681,7 +1640,7 @@ fn process_quote_components(
                 committed_capacity: parameterized.parameters.committed_capacity,
             };
             let resolved = price_component
-                .resolve_subscription_fee(products, units, Some(&params))
+                .resolve_subscription_fee(units, Some(&params))
                 .map_err(|e| Status::internal(format!("Failed to process component fee: {e}")))?;
 
             processed_components.push(QuotePriceComponentNew {
@@ -1715,20 +1674,18 @@ fn process_quote_components(
                 ))
             })?;
 
-            let product = products.get(&product_id).ok_or_else(|| {
-                Status::internal(format!(
-                    "Product {} not found for override component {}",
-                    product_id, price_component.id
+            let fee_structure = price_component.structure().ok_or_else(|| {
+                Status::invalid_argument(format!(
+                    "Cannot override component {}: it includes its product with no charge",
+                    price_component.id
                 ))
             })?;
 
-            let (mut fee, period) = resolve_fee_from_entry(
-                &product.fee_structure,
-                &overridden.price_entry,
-                prices,
-                units,
-            )
-            .map_err(|e| Status::internal(format!("Failed to resolve override fee: {e}")))?;
+            let (mut fee, period) =
+                resolve_fee_from_entry(fee_structure, &overridden.price_entry, prices, units)
+                    .map_err(|e| {
+                        Status::internal(format!("Failed to resolve override fee: {e}"))
+                    })?;
             if let Some(parameterized) = components
                 .parameterized_components
                 .iter()
@@ -1757,15 +1714,25 @@ fn process_quote_components(
 
     // Process extra components
     for extra in &components.extra_components {
-        let fee_structure = match &extra.product_ref {
-            ProductRef::Existing(pid) => {
-                let product = products.get(pid).ok_or_else(|| {
-                    Status::internal(format!("Product {} not found for extra component", pid))
-                })?;
-                product.fee_structure.clone()
-            }
-            ProductRef::New { fee_structure, .. } => fee_structure.clone(),
-        };
+        // The charge's own shape, else its new product's, else that of the plan charge its
+        // existing price is linked to.
+        let linked = extra.price_entry.existing_price_id().and_then(|price_id| {
+            price_components
+                .iter()
+                .find(|pc| pc.prices.iter().any(|p| p.id == price_id))
+                .and_then(|pc| pc.structure().cloned())
+        });
+        let fee_structure = extra
+            .fee_structure
+            .clone()
+            .or_else(|| extra.product_ref.new_product_structure().cloned())
+            .or(linked)
+            .ok_or_else(|| {
+                Status::invalid_argument(format!(
+                    "{}: name how the charge bills its product",
+                    extra.name
+                ))
+            })?;
 
         if matches!(extra.product_ref, ProductRef::New { .. })
             && matches!(extra.price_entry, PriceEntry::Existing(_))
@@ -1820,7 +1787,7 @@ fn process_quote_components(
         }
 
         let resolved = price_component
-            .resolve_subscription_fee(products, units, None)
+            .resolve_subscription_fee(units, None)
             .map_err(|e| {
                 Status::internal(format!("Failed to process default component fee: {e}"))
             })?;
@@ -1848,10 +1815,6 @@ fn process_quote_components(
 fn process_quote_add_ons(
     create_add_ons: &CreateSubscriptionAddOns,
     add_ons: &[AddOn],
-    products: &std::collections::HashMap<
-        common_domain::ids::ProductId,
-        meteroid_store::domain::Product,
-    >,
     prices: &std::collections::HashMap<common_domain::ids::PriceId, meteroid_store::domain::Price>,
     units: &meteroid_store::domain::credit_units::CreditUnitsById,
     quote_id: QuoteId,
@@ -1877,6 +1840,13 @@ fn process_quote_add_ons(
             .iter()
             .find(|x| x.id == cs_ao.add_on_id)
             .ok_or_else(|| Status::not_found(format!("Add-on {} not found", cs_ao.add_on_id)))?;
+        // A seat add-on bills its quantity's count: one instance at most.
+        if add_on.charges_seats() && cs_ao.quantity > 1 {
+            return Err(Status::invalid_argument(format!(
+                "{} charges per seat: one instance at most",
+                add_on.name
+            )));
+        }
 
         // Quoted at its price in the quote's currency on its term (the one asked, else the
         // plan's); a price override keeps its own.
@@ -1891,7 +1861,7 @@ fn process_quote_add_ons(
         };
         let add_on = &add_on;
         let resolved = add_on
-            .resolve_customized(products, prices, units, &cs_ao.customization)
+            .resolve_customized(prices, units, &cs_ao.customization)
             .map_err(|e| Status::internal(format!("Failed to resolve add-on fee: {e}")))?;
 
         let idx = processed_add_ons.len();
@@ -1904,6 +1874,7 @@ fn process_quote_add_ons(
                 name: resolved.name.clone(),
                 product_ref: ProductRef::Existing(add_on.product_id),
                 price_entry: resolved.price_entry.clone().unwrap(),
+                fee_structure: add_on.fee_structure.clone(),
                 product_family_id,
                 currency: currency.to_string(),
             });

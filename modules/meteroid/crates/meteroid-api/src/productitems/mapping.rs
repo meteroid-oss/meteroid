@@ -2,7 +2,7 @@ pub mod products {
     use crate::prices::mapping::prices::PriceWrapper;
     use meteroid_app::conversions::{AsProtoOpt, ProtoConv};
 
-    use common_domain::ids::BillableMetricId;
+    use common_domain::ids::{BillableMetricId, ManagedQuantityId};
     use meteroid_grpc::meteroid::api::prices::v1 as prices_proto;
     use meteroid_grpc::meteroid::api::products::v1::{
         ListProductUsageResponse, Product, ProductAddOnUsage, ProductMeta, ProductPlanUsage,
@@ -17,6 +17,8 @@ pub mod products {
 
     pub struct ProductWrapper(pub Product);
 
+    /// A product has no fee structure: its charges own one. `fee_type`/`fee_structure` are set
+    /// by `with_charges` when every charge using it bills it one way.
     impl From<domain::Product> for ProductWrapper {
         fn from(product: domain::Product) -> Self {
             ProductWrapper(Product {
@@ -25,8 +27,8 @@ pub mod products {
                 name: product.name,
                 description: product.description,
                 created_at: product.created_at.as_proto(),
-                fee_type: Some(fee_type_to_proto(product.fee_type)),
-                fee_structure: Some(fee_structure_to_proto(product.fee_structure)),
+                fee_type: None,
+                fee_structure: None,
                 catalog: product.catalog,
                 tax_category_id: product.tax_category_id.map(|id| id.as_proto()),
                 archived_at: product.archived_at.as_proto(),
@@ -43,7 +45,7 @@ pub mod products {
                 id: product.id.as_proto(),
                 local_id: product.id.as_proto(),
                 name: product.name,
-                fee_type: Some(fee_type_to_proto(product.fee_type)),
+                fee_type: None,
                 description: product.description,
                 created_at: product.created_at.as_proto(),
                 catalog: product.catalog,
@@ -54,19 +56,41 @@ pub mod products {
                 feature_count: 0,
                 plan_count: 0,
                 metric_name: None,
-                fee_structure: Some(fee_structure_to_proto(product.fee_structure)),
+                fee_structure: None,
+                charge_structures: vec![],
             })
         }
     }
 
-    /// A catalog list row: the product with what the list says of it.
+    impl ProductWrapper {
+        /// The product as its charges bill it: their one structure when they agree.
+        pub fn with_charges(product: domain::Product, structures: &[FeeStructure]) -> Product {
+            let single = domain::products::single_structure(structures);
+            Product {
+                fee_type: single.map(|fs| fee_type_to_proto(fs.fee_type())),
+                fee_structure: single.cloned().map(fee_structure_to_proto),
+                ..ProductWrapper::from(product).0
+            }
+        }
+    }
+
+    /// A catalog list row: the product with what the list says of it, how it is billed read
+    /// from the charges using it.
     pub fn product_list_row(
         product: domain::Product,
         facts: Option<domain::ProductListFacts>,
         metric_name: Option<String>,
     ) -> ProductMeta {
         let facts = facts.unwrap_or_default();
+        let single = domain::products::single_structure(&facts.charge_structures).cloned();
         ProductMeta {
+            fee_type: single.as_ref().map(|fs| fee_type_to_proto(fs.fee_type())),
+            fee_structure: single.map(fee_structure_to_proto),
+            charge_structures: facts
+                .charge_structures
+                .into_iter()
+                .map(fee_structure_to_proto)
+                .collect(),
             latest_prices: facts
                 .latest_prices
                 .into_iter()
@@ -108,6 +132,7 @@ pub mod products {
                         .map(|p| PriceWrapper::from(p).0)
                         .collect(),
                     add_on_id: add_on.id.as_proto(),
+                    fee_structure: add_on.fee_structure.clone().map(fee_structure_to_proto),
                     name: add_on.name,
                 })
                 .collect(),
@@ -157,12 +182,14 @@ pub mod products {
             FeeStructure::Rate {} => Structure::Rate(RateStructure {}),
             FeeStructure::Slot {
                 unit_name,
+                quantity_id,
                 upgrade_policy,
                 downgrade_policy,
             } => Structure::Slot(SlotStructure {
                 unit_name,
                 upgrade_policy: upgrade_policy_to_proto(&upgrade_policy).into(),
                 downgrade_policy: downgrade_policy_to_proto(&downgrade_policy).into(),
+                quantity_id: quantity_id.map(|id| id.as_proto()),
             }),
             FeeStructure::Capacity { metric_id } => Structure::Capacity(CapacityStructure {
                 metric_id: metric_id.as_proto(),
@@ -192,6 +219,11 @@ pub mod products {
             Some(Structure::Rate(_)) => Ok(FeeStructure::Rate {}),
             Some(Structure::Slot(s)) => Ok(FeeStructure::Slot {
                 unit_name: s.unit_name,
+                quantity_id: s
+                    .quantity_id
+                    .filter(|id| !id.is_empty())
+                    .map(ManagedQuantityId::from_proto)
+                    .transpose()?,
                 upgrade_policy: upgrade_policy_from_proto(s.upgrade_policy),
                 downgrade_policy: downgrade_policy_from_proto(s.downgrade_policy),
             }),

@@ -3,8 +3,7 @@ use common_domain::ids::*;
 use diesel_async::AsyncConnection;
 use diesel_models::PgConn;
 use diesel_models::enums::{
-    BillingPeriodEnum as DieselBillingPeriodEnum, FeeTypeEnum as DieselFeeTypeEnum, PlanStatusEnum,
-    PlanTypeEnum,
+    BillingPeriodEnum as DieselBillingPeriodEnum, PlanStatusEnum, PlanTypeEnum,
 };
 use diesel_models::errors::DatabaseErrorContainer;
 use diesel_models::plan_component_prices::PlanComponentPriceRowNew;
@@ -376,20 +375,13 @@ pub async fn run_plans_seed(pool: &PgPool) {
 // Product catalog
 // ---------------------------------------------------------------------------
 
-fn product(
-    id: ProductId,
-    name: &str,
-    fee_type: DieselFeeTypeEnum,
-    fee_structure: impl serde::Serialize,
-) -> ProductRowNew {
+fn product(id: ProductId, name: &str) -> ProductRowNew {
     ProductRowNew {
         id,
         name: name.to_string(),
         description: None,
         tenant_id: ids::TENANT_ID,
         product_family_id: ids::PRODUCT_FAMILY_ID,
-        fee_type,
-        fee_structure: serde_json::to_value(&fee_structure).unwrap(),
         catalog: true,
         tax_category_id: None,
         icon: None,
@@ -397,84 +389,80 @@ fn product(
     }
 }
 
+/// How the charges of the shared catalog bill each product: a product holds no structure, its
+/// charges do. A seat charge counts the catalog's "Seats" quantity.
+pub fn catalog_structure(product_id: ProductId) -> Option<FeeStructure> {
+    let structure = match product_id {
+        id if id == ids::PRODUCT_PLATFORM_FEE_ID => FeeStructure::Rate {},
+        id if id == ids::PRODUCT_SEATS_ID => FeeStructure::Slot {
+            unit_name: "Seats".to_string(),
+            quantity_id: Some(ids::QUANTITY_SEATS_ID),
+            upgrade_policy: UpgradePolicy::Prorated,
+            downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
+        },
+        id if id == ids::PRODUCT_BANDWIDTH_ID || id == ids::PRODUCT_API_CALLS_ID => {
+            FeeStructure::Usage {
+                metric_id: ids::METRIC_BANDWIDTH,
+                model: UsageModel::PerUnit,
+            }
+        }
+        id if id == ids::PRODUCT_DB_STORAGE_ID => FeeStructure::Usage {
+            metric_id: ids::METRIC_DATABASE_SIZE,
+            model: UsageModel::PerUnit,
+        },
+        id if id == ids::PRODUCT_CAPACITY_ID => FeeStructure::Capacity {
+            metric_id: ids::METRIC_BANDWIDTH,
+        },
+        id if id == ids::PRODUCT_RECURRING_ARREARS_ID => FeeStructure::ExtraRecurring {
+            billing_type: BillingType::Arrears,
+        },
+        id if id == ids::PRODUCT_ONETIME_SETUP_ID => FeeStructure::OneTime {},
+        id if id == ids::PRODUCT_EXTRA_ADVANCE_ID => FeeStructure::ExtraRecurring {
+            billing_type: BillingType::Advance,
+        },
+        _ => return None,
+    };
+    Some(structure)
+}
+
+/// How a fixture's charge of an existing product priced by `pricing` bills it: the catalog's
+/// structure, else what the pricing alone tells (a flat fee, a one-time fee, a credit pack).
+pub fn charge_structure_of(product_id: ProductId, pricing: &Pricing) -> Option<FeeStructure> {
+    catalog_structure(product_id).or(match pricing {
+        Pricing::Rate { .. } => Some(FeeStructure::Rate {}),
+        Pricing::OneTime { .. } => Some(FeeStructure::OneTime {}),
+        Pricing::Credit { .. } => Some(FeeStructure::Credit {}),
+        Pricing::ExtraRecurring { .. } => Some(FeeStructure::ExtraRecurring {
+            billing_type: BillingType::Advance,
+        }),
+        Pricing::Slot { .. } | Pricing::Capacity { .. } | Pricing::Usage(_) => None,
+    })
+}
+
 async fn seed_product_catalog(tx: &mut PgConn) -> Result<(), DatabaseErrorContainer> {
     for p in [
-        product(
-            ids::PRODUCT_PLATFORM_FEE_ID,
-            "Platform Fee",
-            DieselFeeTypeEnum::Rate,
-            FeeStructure::Rate {},
-        ),
-        product(
-            ids::PRODUCT_SEATS_ID,
-            "Seats",
-            DieselFeeTypeEnum::Slot,
-            FeeStructure::Slot {
-                unit_name: "Seats".to_string(),
-                upgrade_policy: UpgradePolicy::Prorated,
-                downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
-            },
-        ),
-        product(
-            ids::PRODUCT_BANDWIDTH_ID,
-            "Bandwidth",
-            DieselFeeTypeEnum::Usage,
-            FeeStructure::Usage {
-                metric_id: ids::METRIC_BANDWIDTH,
-                model: UsageModel::PerUnit,
-            },
-        ),
-        product(
-            ids::PRODUCT_API_CALLS_ID,
-            "API Calls",
-            DieselFeeTypeEnum::Usage,
-            FeeStructure::Usage {
-                metric_id: ids::METRIC_BANDWIDTH,
-                model: UsageModel::PerUnit,
-            },
-        ),
-        product(
-            ids::PRODUCT_DB_STORAGE_ID,
-            "DB Storage",
-            DieselFeeTypeEnum::Usage,
-            FeeStructure::Usage {
-                metric_id: ids::METRIC_DATABASE_SIZE,
-                model: UsageModel::PerUnit,
-            },
-        ),
-        product(
-            ids::PRODUCT_CAPACITY_ID,
-            "Capacity Bandwidth",
-            DieselFeeTypeEnum::Capacity,
-            FeeStructure::Capacity {
-                metric_id: ids::METRIC_BANDWIDTH,
-            },
-        ),
-        product(
-            ids::PRODUCT_RECURRING_ARREARS_ID,
-            "Recurring Arrears",
-            DieselFeeTypeEnum::ExtraRecurring,
-            FeeStructure::ExtraRecurring {
-                billing_type: BillingType::Arrears,
-            },
-        ),
-        product(
-            ids::PRODUCT_ONETIME_SETUP_ID,
-            "Setup Fee",
-            DieselFeeTypeEnum::OneTime,
-            FeeStructure::OneTime {},
-        ),
-        product(
-            ids::PRODUCT_EXTRA_ADVANCE_ID,
-            "Extra Advance",
-            DieselFeeTypeEnum::ExtraRecurring,
-            FeeStructure::ExtraRecurring {
-                billing_type: BillingType::Advance,
-            },
-        ),
+        product(ids::PRODUCT_PLATFORM_FEE_ID, "Platform Fee"),
+        product(ids::PRODUCT_SEATS_ID, "Seats"),
+        product(ids::PRODUCT_BANDWIDTH_ID, "Bandwidth"),
+        product(ids::PRODUCT_API_CALLS_ID, "API Calls"),
+        product(ids::PRODUCT_DB_STORAGE_ID, "DB Storage"),
+        product(ids::PRODUCT_CAPACITY_ID, "Capacity Bandwidth"),
+        product(ids::PRODUCT_RECURRING_ARREARS_ID, "Recurring Arrears"),
+        product(ids::PRODUCT_ONETIME_SETUP_ID, "Setup Fee"),
+        product(ids::PRODUCT_EXTRA_ADVANCE_ID, "Extra Advance"),
     ] {
         p.insert(tx).await?;
     }
+    diesel_models::managed_quantities::ManagedQuantityRow::insert(
+        tx,
+        &diesel_models::managed_quantities::ManagedQuantityRowNew {
+            id: ids::QUANTITY_SEATS_ID,
+            tenant_id: ids::TENANT_ID,
+            code: "Seats".to_string(),
+            name: "Seats".to_string(),
+        },
+    )
+    .await?;
     Ok(())
 }
 
@@ -705,6 +693,10 @@ impl PlanSeed {
                 plan_version_id: version_id,
                 product_id: Some(comp.product_id),
                 billable_metric_id: comp.billable_metric_id,
+                // A priced charge bills as its product's catalog structure, else its own.
+                fee_structure: comp.structure().map(|structure| {
+                    serde_json::to_value(structure).expect("a fee structure serializes")
+                }),
             }
             .insert(tx)
             .await?;
@@ -771,9 +763,32 @@ pub struct SeedComp {
     pub billable_metric_id: Option<BillableMetricId>,
     pub legacy_fee: FeeType,
     pub prices: Vec<SeedPrice>,
+    /// How the charge bills its product when not as the catalog does (`with_structure`).
+    pub fee_structure: Option<FeeStructure>,
 }
 
 impl SeedComp {
+    /// How the charge bills its product: none when it includes it with no price; else the
+    /// catalog's structure of its product, or the one its v1 fee describes for another product.
+    pub fn structure(&self) -> Option<FeeStructure> {
+        if self.prices.is_empty() {
+            return None;
+        }
+        if let Some(structure) = &self.fee_structure {
+            return Some(structure.clone());
+        }
+        catalog_structure(self.product_id).or_else(|| {
+            Some(meteroid_store::domain::prices::extract_fee_structure(&self.legacy_fee).1)
+        })
+    }
+
+    /// The charge billing its product as `structure` says: a product charged another way than
+    /// the catalog's charges do, or seats counting another quantity.
+    pub fn with_structure(mut self, structure: FeeStructure) -> Self {
+        self.fee_structure = Some(structure);
+        self
+    }
+
     /// A product the plan includes with no price: its features, no fee.
     pub fn included(id: PriceComponentId, name: &'static str, product_id: ProductId) -> Self {
         Self {
@@ -783,6 +798,7 @@ impl SeedComp {
             billable_metric_id: None,
             legacy_fee: FeeType::Rate { rates: vec![] },
             prices: vec![],
+            fee_structure: None,
         }
     }
 
@@ -811,6 +827,7 @@ impl SeedComp {
                 cadence,
                 pricing: Pricing::Rate { rate: amount },
             }],
+            fee_structure: None,
         }
     }
 
@@ -868,6 +885,7 @@ impl SeedComp {
                 downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
             },
             prices,
+            fee_structure: None,
         }
     }
 
@@ -896,6 +914,7 @@ impl SeedComp {
                 cadence,
                 pricing: Pricing::Usage(model),
             }],
+            fee_structure: None,
         }
     }
 
@@ -935,6 +954,7 @@ impl SeedComp {
                     overage_rate,
                 },
             }],
+            fee_structure: None,
         }
     }
 
@@ -969,6 +989,7 @@ impl SeedComp {
                     model: None,
                 },
             }],
+            fee_structure: None,
         }
     }
 
@@ -998,6 +1019,7 @@ impl SeedComp {
                     model: None,
                 },
             }],
+            fee_structure: None,
         }
     }
 }

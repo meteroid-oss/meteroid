@@ -1083,7 +1083,7 @@ async fn seats_with(
 async fn active_seats(env: &TestEnv, sub: common_domain::ids::SubscriptionId) -> u32 {
     use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
     env.store()
-        .get_active_slots_value(TENANT_ID, sub, "Seats".to_string(), None)
+        .get_active_slots_value(TENANT_ID, sub, QUANTITY_SEATS_ID, None)
         .await
         .expect("active seats")
 }

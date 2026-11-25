@@ -478,6 +478,7 @@ async fn a_scheduled_amendment_resolves_to_the_rows_it_writes(#[future] test_env
                             fee_structure: FeeStructure::Rate {},
                         },
                         price_entry: monthly_rate(5000),
+                        fee_structure: None,
                     }],
                     removed: vec![],
                 },

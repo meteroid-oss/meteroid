@@ -563,28 +563,11 @@ impl Store {
         tenant_id: TenantId,
         plans: &[LadderPlan],
     ) -> StoreResult<Catalog> {
-        let product_ids: Vec<ProductId> = plans
+        // The metrics the charges bill, each charge reading its own structure.
+        let metric_ids: Vec<BillableMetricId> = plans
             .iter()
             .flat_map(|p| p.components.iter())
-            .filter_map(|c| c.product_id)
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .collect();
-        let mut products = HashMap::new();
-        if !product_ids.is_empty() {
-            for row in ProductRow::list_by_ids(conn, &product_ids, tenant_id).await? {
-                let product: crate::domain::Product = row.try_into()?;
-                products.insert(product.id, product.fee_structure);
-            }
-        }
-        let metric_ids: Vec<BillableMetricId> = products
-            .values()
-            .filter_map(|fee| match fee {
-                FeeStructure::Usage { metric_id, .. } | FeeStructure::Capacity { metric_id } => {
-                    Some(*metric_id)
-                }
-                _ => None,
-            })
+            .filter_map(|c| c.structure().and_then(FeeStructure::metric_id))
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
@@ -597,7 +580,7 @@ impl Store {
                 .map(|metric| (metric.id, metric))
                 .collect()
         };
-        Ok(Catalog { products, metrics })
+        Ok(Catalog { metrics })
     }
 }
 
@@ -657,30 +640,21 @@ impl PricingPagesInterface for Store {
             .await?
             .remove(&version)
             .unwrap_or_default();
-        let product_ids: Vec<ProductId> = rows
-            .iter()
-            .filter_map(|row| row.product_id)
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .collect();
-        let mut fees: HashMap<ProductId, FeeStructure> = HashMap::new();
-        for row in ProductRow::list_by_ids(&mut conn, &product_ids, tenant_id).await? {
-            let product: crate::domain::Product = row.try_into()?;
-            fees.insert(product.id, product.fee_structure);
-        }
-        // Named as the version's charge; a product charged twice is chosen once.
+        // Named as the version's charge, read as it bills; a product charged twice is chosen
+        // once. An included product (no structure) charges nothing to show.
         let mut seen = HashSet::new();
-        let mut charges: Vec<PricingCharge> = rows
-            .into_iter()
-            .filter_map(|row| {
-                let product_id = row.product_id.filter(|id| seen.insert(*id))?;
-                Some(PricingCharge::of(
-                    product_id,
-                    row.name,
-                    fees.get(&product_id)?,
-                ))
-            })
-            .collect();
+        let mut charges: Vec<PricingCharge> = Vec::new();
+        for row in rows {
+            let Some(structure) =
+                crate::domain::price_components::structure_of_json(row.fee_structure)?
+            else {
+                continue;
+            };
+            let Some(product_id) = row.product_id.filter(|id| seen.insert(*id)) else {
+                continue;
+            };
+            charges.push(PricingCharge::of(product_id, row.name, &structure));
+        }
         charges.sort_by(|a, b| a.kind.cmp(&b.kind).then_with(|| a.name.cmp(&b.name)));
         Ok(PlanPricingCharges {
             product_family_id,
@@ -726,15 +700,13 @@ impl PricingPagesInterface for Store {
                 );
                 if !chosen.is_empty() {
                     // Products, not charges: the choice holds in every version pricing them.
-                    let mut charges: HashMap<ProductId, PricingCharge> = HashMap::new();
-                    for row in ProductRow::list_by_ids(conn, &chosen, tenant_id).await? {
-                        let product: crate::domain::Product = row.try_into()?;
-                        charges.insert(
-                            product.id,
-                            PricingCharge::of(product.id, product.name, &product.fee_structure),
-                        );
-                    }
-                    if chosen.iter().any(|id| !charges.contains_key(id)) {
+                    let known: HashSet<ProductId> =
+                        ProductRow::list_by_ids(conn, &chosen, tenant_id)
+                            .await?
+                            .into_iter()
+                            .map(|row| row.id)
+                            .collect();
+                    if chosen.iter().any(|id| !known.contains(id)) {
                         return Err(invalid("Pick charges among the products of the catalog"));
                     }
                 }

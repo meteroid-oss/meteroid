@@ -17,6 +17,8 @@ pub struct AddOnRow {
     pub self_serviceable: bool,
     pub max_instances_per_subscription: Option<i32>,
     pub archived_at: Option<NaiveDateTime>,
+    /// How the add-on bills its product, fixed once created.
+    pub fee_structure: serde_json::Value,
 }
 
 #[derive(Debug, Insertable)]
@@ -31,6 +33,7 @@ pub struct AddOnRowNew {
     pub description: Option<String>,
     pub self_serviceable: bool,
     pub max_instances_per_subscription: Option<i32>,
+    pub fee_structure: serde_json::Value,
 }
 
 #[derive(AsChangeset)]

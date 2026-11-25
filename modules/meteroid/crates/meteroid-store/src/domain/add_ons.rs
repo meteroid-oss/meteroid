@@ -1,3 +1,4 @@
+use crate::domain::Price;
 use crate::domain::credit_units::CreditUnitsById;
 use crate::domain::entitlements::Entitlement;
 use crate::domain::enums::{BillingPeriodEnum, FeeTypeEnum, SubscriptionFeeBillingPeriod};
@@ -9,7 +10,6 @@ use crate::domain::subscription_add_ons::{
     SubscriptionAddOnCustomization, SubscriptionAddOnParameterization,
 };
 use crate::domain::subscription_components::SubscriptionFee;
-use crate::domain::{Price, Product};
 use crate::errors::StoreError;
 use chrono::NaiveDateTime;
 use common_domain::ids::{AddOnId, BaseId, PriceId, ProductId, TenantId};
@@ -29,9 +29,11 @@ pub struct AddOn {
     pub self_serviceable: bool,
     pub max_instances_per_subscription: Option<i32>,
     pub archived_at: Option<NaiveDateTime>,
-    // Eagerly loaded
+    /// How the add-on bills its product, its own; `fee_type` is its kind. None only when the
+    /// stored structure does not read.
     pub fee_type: Option<FeeTypeEnum>,
     pub fee_structure: Option<FeeStructure>,
+    // Eagerly loaded
     /// Its product's icon and color.
     pub product_icon: Option<String>,
     pub product_color: Option<String>,
@@ -43,6 +45,11 @@ pub struct AddOn {
 
 impl From<AddOnRow> for AddOn {
     fn from(row: AddOnRow) -> Self {
+        let fee_structure: Option<FeeStructure> = serde_json::from_value(row.fee_structure)
+            .inspect_err(|error| {
+                tracing::error!(add_on = %row.id, %error, "unreadable add-on fee structure");
+            })
+            .ok();
         AddOn {
             id: row.id,
             name: row.name,
@@ -55,8 +62,8 @@ impl From<AddOnRow> for AddOn {
             self_serviceable: row.self_serviceable,
             max_instances_per_subscription: row.max_instances_per_subscription,
             archived_at: row.archived_at,
-            fee_type: None,
-            fee_structure: None,
+            fee_type: fee_structure.as_ref().map(FeeStructure::fee_type),
+            fee_structure,
             product_icon: None,
             product_color: None,
             price: None,
@@ -135,20 +142,26 @@ impl AddOn {
         Ok(priced)
     }
 
-    /// Centralized resolution — uses the linked product + price to resolve fee.
+    /// The add-on's structure, refused when it does not read.
+    pub fn structure(&self) -> Result<&FeeStructure, StoreError> {
+        self.fee_structure.as_ref().ok_or_else(|| {
+            StoreError::InvalidArgument(format!("Add-on {} has no fee structure", self.name))
+        })
+    }
+
+    /// Whether the add-on charges per seat: it then has one instance at most, billing the
+    /// count of its quantity.
+    pub fn charges_seats(&self) -> bool {
+        matches!(self.fee_structure, Some(FeeStructure::Slot { .. }))
+    }
+
+    /// Centralized resolution — the add-on's structure and its price.
     pub fn resolve_subscription_fee(
         &self,
-        products: &HashMap<ProductId, Product>,
         prices: &HashMap<PriceId, Price>,
         units: &CreditUnitsById,
         params: Option<&ComponentParameters>,
     ) -> Result<ResolvedFee, StoreError> {
-        let product = products.get(&self.product_id).ok_or_else(|| {
-            StoreError::InvalidArgument(format!(
-                "Product {} not found for add-on {}",
-                self.product_id, self.id
-            ))
-        })?;
         let price = prices
             .get(&self.price_id)
             .or_else(|| self.prices.iter().find(|p| p.id == self.price_id))
@@ -159,7 +172,7 @@ impl AddOn {
                 ))
             })?;
 
-        let fee_structure = &product.fee_structure;
+        let fee_structure = self.structure()?;
 
         let fee = prices::resolve_subscription_fee(
             fee_structure,
@@ -186,14 +199,13 @@ impl AddOn {
     /// Handles None, PriceOverride, and Parameterization variants.
     pub fn resolve_customized(
         &self,
-        products: &HashMap<ProductId, Product>,
         prices: &HashMap<PriceId, Price>,
         units: &CreditUnitsById,
         customization: &SubscriptionAddOnCustomization,
     ) -> Result<ResolvedAddOn, StoreError> {
         match customization {
             SubscriptionAddOnCustomization::None => {
-                let resolved = self.resolve_subscription_fee(products, prices, units, None)?;
+                let resolved = self.resolve_subscription_fee(prices, units, None)?;
                 Ok(ResolvedAddOn {
                     name: self.name.clone(),
                     period: resolved.period,
@@ -204,13 +216,7 @@ impl AddOn {
                 })
             }
             SubscriptionAddOnCustomization::PriceOverride { name, price_entry } => {
-                let product = products.get(&self.product_id).ok_or_else(|| {
-                    StoreError::InvalidArgument(format!(
-                        "Product {} not found for add-on {}",
-                        self.product_id, self.id
-                    ))
-                })?;
-                let fee_structure = &product.fee_structure;
+                let fee_structure = self.structure()?;
 
                 match price_entry {
                     PriceEntry::Existing(price_id) => {
@@ -263,8 +269,7 @@ impl AddOn {
             }
             SubscriptionAddOnCustomization::Parameterization(param) => {
                 let params = Self::params_from_addon_parameterization(param);
-                let resolved =
-                    self.resolve_subscription_fee(products, prices, units, Some(&params))?;
+                let resolved = self.resolve_subscription_fee(prices, units, Some(&params))?;
                 Ok(ResolvedAddOn {
                     name: self.name.clone(),
                     period: resolved.period,
@@ -288,6 +293,24 @@ impl AddOn {
     }
 }
 
+/// The instances an add-on of `structure` may have on a subscription: one at most when it
+/// charges per seat (it bills its quantity's count, not instances), refused above.
+pub fn instances_allowed(
+    structure: &FeeStructure,
+    max_instances_per_subscription: Option<i32>,
+) -> Result<Option<i32>, StoreError> {
+    match structure {
+        FeeStructure::Slot { .. } => match max_instances_per_subscription {
+            None | Some(1) => Ok(Some(1)),
+            Some(_) => Err(StoreError::InvalidArgument(
+                "An add-on charging per seat has one instance at most: its seats are its quantity"
+                    .to_string(),
+            )),
+        },
+        _ => Ok(max_instances_per_subscription),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ResolvedAddOn {
     pub name: String,
@@ -305,15 +328,22 @@ pub struct AddOnNew {
     pub tenant_id: TenantId,
     pub product_id: ProductId,
     pub price_id: PriceId,
+    /// How the add-on bills its product.
+    pub fee_structure: FeeStructure,
     pub description: Option<String>,
     pub self_serviceable: bool,
     pub max_instances_per_subscription: Option<i32>,
     pub entitlements: Vec<crate::domain::entitlements::EntitlementSpec>,
 }
 
-impl From<AddOnNew> for AddOnRowNew {
-    fn from(new: AddOnNew) -> Self {
-        AddOnRowNew {
+impl TryFrom<AddOnNew> for AddOnRowNew {
+    type Error = StoreError;
+
+    fn try_from(new: AddOnNew) -> Result<Self, Self::Error> {
+        let fee_structure = serde_json::to_value(&new.fee_structure).map_err(|e| {
+            StoreError::SerdeError("Failed to serialize fee_structure".to_string(), e)
+        })?;
+        Ok(AddOnRowNew {
             id: AddOnId::new(),
             name: new.name,
             tenant_id: new.tenant_id,
@@ -322,7 +352,8 @@ impl From<AddOnNew> for AddOnRowNew {
             description: new.description,
             self_serviceable: new.self_serviceable,
             max_instances_per_subscription: new.max_instances_per_subscription,
-        }
+            fee_structure,
+        })
     }
 }
 
@@ -419,8 +450,8 @@ mod tests {
             self_serviceable: true,
             max_instances_per_subscription: None,
             archived_at: None,
-            fee_type: None,
-            fee_structure: None,
+            fee_type: Some(FeeTypeEnum::Rate),
+            fee_structure: Some(FeeStructure::Rate {}),
             product_icon: None,
             product_color: None,
             price: Some(prices[0].clone()),
@@ -498,5 +529,28 @@ mod tests {
             price("EUR", BillingPeriodEnum::Annual, 90),
         ];
         assert!(ensure_one_price_per_cell("Support", &prices).is_ok());
+    }
+
+    /// An add-on charging per seat has one instance at most; others keep their maximum.
+    /// Rules: R-138
+    #[test]
+    fn a_seat_add_on_has_one_instance_at_most() {
+        let seats = FeeStructure::Slot {
+            unit_name: "Seats".to_owned(),
+            quantity_id: None,
+            upgrade_policy: crate::domain::price_components::UpgradePolicy::Prorated,
+            downgrade_policy: crate::domain::price_components::DowngradePolicy::RemoveAtEndOfPeriod,
+        };
+        assert_eq!(instances_allowed(&seats, None).unwrap(), Some(1));
+        assert_eq!(instances_allowed(&seats, Some(1)).unwrap(), Some(1));
+        assert!(instances_allowed(&seats, Some(2)).is_err());
+        assert_eq!(
+            instances_allowed(&FeeStructure::Rate {}, Some(10)).unwrap(),
+            Some(10)
+        );
+        assert_eq!(
+            instances_allowed(&FeeStructure::Rate {}, None).unwrap(),
+            None
+        );
     }
 }

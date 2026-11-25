@@ -45,9 +45,12 @@ pub async fn add_component(
     crate::helpers::plans::as_draft(
         env.store(),
         plan_version_id,
-        env.store().create_price_component_from_ref(
+        env.store().create_charge_from_ref(
             name.to_owned(),
-            product,
+            product.clone(),
+            product
+                .existing_product_id()
+                .and_then(|id| crate::data::plans::charge_structure_of(id, &pricing)),
             vec![PriceEntry::New(PriceInput {
                 cadence: BillingPeriodEnum::Monthly,
                 currency: "EUR".to_owned(),

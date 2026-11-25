@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { usePlanOverview } from '@/features/plans/hooks/usePlan'
 import {
   buildExistingProductRef,
+  buildFeeStructure,
   buildNewProductRef,
   buildPriceInputs,
 } from '@/features/pricing/conversions'
@@ -40,19 +41,19 @@ export const AddProductDialog = ({
   const familyLocalId = usePlanOverview()?.productFamilyLocalId
 
   const add = async ({ name, product, charge }: NewCharge) => {
+    const ref = product ? buildExistingProductRef(product.id) : buildNewProductRef(name)
     if (charge.included) {
-      // A new product included with no price is made a fixed fee: priced later, it stays one.
-      const ref = product
-        ? buildExistingProductRef(product.id)
-        : buildNewProductRef(name, 'rate', {})
+      // Included with no price: neither the product nor the charge bills anything.
       const added = await mutations.create(name, ref, [])
       return onAdded(added.component?.id)
     }
     const inputs = buildPriceInputs(charge.pricingType, charge.formData, currency)
-    const ref = product
-      ? buildExistingProductRef(product.id)
-      : buildNewProductRef(name, charge.feeType, charge.formData)
-    const added = await mutations.create(name, ref, inputs)
+    const added = await mutations.create(
+      name,
+      ref,
+      inputs,
+      buildFeeStructure(charge.feeType, charge.formData)
+    )
     onAdded(added.component?.id)
   }
 

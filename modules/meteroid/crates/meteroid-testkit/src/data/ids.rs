@@ -52,6 +52,10 @@ pub const PRODUCT_ONETIME_SETUP_ID: ProductId =
 pub const PRODUCT_EXTRA_ADVANCE_ID: ProductId =
     ProductId::from_const(uuid!("019438e0-00d3-7000-8000-000000000001"));
 
+/// The managed quantity the seat charges of the catalog count, coded as their unit.
+pub const QUANTITY_SEATS_ID: ManagedQuantityId =
+    ManagedQuantityId::from_const(uuid!("019438e0-00e0-7000-8000-000000000001"));
+
 // ── Plans ────────────────────────────────────────────────────────────────────
 
 // LeetCode (Rate, with draft v2)

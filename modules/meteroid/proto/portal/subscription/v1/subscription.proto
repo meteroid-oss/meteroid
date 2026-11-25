@@ -431,6 +431,9 @@ message AdjustableComponent {
   // A usage-levels charge ("capacity"): the levels of its plan it may move to, fewest units
   // first. Empty when the plan sells it at a single level.
   repeated CapacityLevel levels = 10;
+  // Seats charged by an add-on of the subscription: `component_id` is then empty. Charges
+  // counting one quantity share its count and are listed once.
+  optional string add_on_id = 11;
 }
 
 // A level of a usage-levels charge: `included` units for `fee`, overage above them.
@@ -479,6 +482,8 @@ message UpdateSeatsRequest {
   string subscription_id = 1;
   string component_id = 2;
   uint32 quantity = 3;
+  // An add-on's seat charge, as AdjustableComponent.add_on_id, instead of `component_id`.
+  optional string add_on_id = 4;
 }
 
 message UpdateSeatsResponse {
@@ -523,6 +528,7 @@ message PreviewSeatsRequest {
   string subscription_id = 1;
   string component_id = 2;
   uint32 quantity = 3;
+  optional string add_on_id = 4;
 }
 
 message PreviewSeatsResponse {

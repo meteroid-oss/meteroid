@@ -7,7 +7,7 @@ use crate::domain::managed_quantities::{
     ManagedQuantity, QuantityDecrease, QuantityIncrease, SeatChange,
 };
 use crate::domain::payment_transactions::PaymentNextAction;
-use crate::domain::slot_transactions::{SlotUpgradeBillingMode, UpdateSlotsResult};
+use crate::domain::slot_transactions::{SeatCharge, SlotUpgradeBillingMode, UpdateSlotsResult};
 use crate::domain::{
     LineItem, PaymentTransaction, SlotForTransaction, SubscriptionFee, SubscriptionFeeInterface,
 };
@@ -18,11 +18,11 @@ use crate::repositories::subscriptions::SubscriptionSlotsInterface as RepoInterf
 use crate::repositories::subscriptions::slots::validate_slot_limits;
 use crate::services::Services;
 use crate::services::evaluate::change::{
-    Bought, SeatDocuments, adjustment_dated, fee_period_on, seat_purchase,
+    Bought, SeatDocuments, adjustment_dated, fee_periods_on, seat_purchase,
 };
 use crate::store::PgConn;
 use chrono::NaiveDateTime;
-use common_domain::ids::{BaseId, InvoiceId, PriceComponentId, SubscriptionId, TenantId};
+use common_domain::ids::{BaseId, InvoiceId, ManagedQuantityId, SubscriptionId, TenantId};
 use diesel_models::enums::SubscriptionEventType;
 use diesel_models::lock::CustomerLock;
 use diesel_models::managed_quantities::ManagedQuantityRow;
@@ -34,6 +34,13 @@ use rust_decimal::Decimal;
 use scoped_futures::ScopedFutureExt;
 use uuid::Uuid;
 
+/// Where the periods of the charges counting a quantity end: the earliest, when a change waiting
+/// for the period's end takes effect, and each one's renewal, where the bounds hold too.
+struct SeatRenewals {
+    first: chrono::NaiveDate,
+    all: Vec<chrono::NaiveDate>,
+}
+
 /// Seats priced for purchase: what they bill, in major units, and the adjustment's lines.
 struct PricedSeats {
     amount: Decimal,
@@ -43,13 +50,15 @@ struct PricedSeats {
 impl Services {
     /// A change of the seats of a slot fee, as its managed quantity's policies say: an increase in
     /// force at once is billed as `billing_mode` says; one for the next period, and a decrease at
-    /// the period's end, bill nothing now; a decrease at once gives its unused time back.
+    /// the period's end, bill nothing now; a decrease at once gives its unused time back. The
+    /// fee is a plan charge or an add-on of the subscription; every charge counting its quantity
+    /// bills the new count (R-137).
     #[allow(clippy::too_many_arguments)]
     pub async fn update_subscription_slots(
         &self,
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
-        price_component_id: PriceComponentId,
+        charge: impl Into<SeatCharge>,
         change: SeatChange,
         billing_mode: SlotUpgradeBillingMode,
         actor: Actor,
@@ -62,6 +71,7 @@ impl Services {
             .into());
         }
 
+        let charge = charge.into();
         let mut conn = self.store.get_conn().await?;
         self.transaction_reading_usage_first(&mut conn, |services, conn| {
             let actor = &actor;
@@ -85,22 +95,23 @@ impl Services {
 
                 let subscription = &subscription_details.subscription;
 
-                let slot = services.extract_slot(&subscription_details, price_component_id)?;
+                let slot = services.extract_slot(&subscription_details, charge)?;
 
                 let now = at_ts.unwrap_or(common_clock::now().naive_utc());
                 let now_date = now.date();
-                let period_end = services
-                    .slot_period_end(conn, &subscription_details, price_component_id, now_date)
+                let renewals = services
+                    .slot_period_end(conn, &subscription_details, slot.quantity_id, now_date)
                     .await?;
+                let period_end = renewals.first;
 
                 let customer_id = subscription.customer_id;
 
                 let at = now.min(period_end.and_time(chrono::NaiveTime::MIN));
-                let mut held = SlotTransactionRow::fetch_by_subscription_id_and_unit_locked(
+                let mut held = SlotTransactionRow::fetch_by_subscription_id_and_quantity_locked(
                     conn,
                     lock,
                     subscription_id,
-                    slot.unit.clone(),
+                    slot.quantity_id,
                     Some(at),
                 )
                 .await?
@@ -111,14 +122,14 @@ impl Services {
                         conn,
                         tenant_id,
                         subscription_id,
-                        slot.unit.clone(),
+                        slot.quantity_id,
                     )
                     .await?;
                     SlotTransactionRow::delete_waiting_changes(
                         conn,
                         lock,
                         subscription_id,
-                        &slot.unit,
+                        slot.quantity_id,
                         at,
                     )
                     .await?
@@ -141,7 +152,8 @@ impl Services {
                     ))
                     .into());
                 };
-                let deferred = deferred_to_period_end(conn, tenant_id, &slot.unit, delta).await?;
+                let deferred =
+                    deferred_to_period_end(conn, tenant_id, slot.quantity_id, delta).await?;
 
                 let result = if delta < 0 || deferred {
                     let new_slot_count = self
@@ -151,6 +163,7 @@ impl Services {
                             lock,
                             subscription_id,
                             period_end,
+                            &renewals.all,
                             delta,
                             &slot,
                             at_ts,
@@ -199,7 +212,7 @@ impl Services {
                     // Held from the day their step is written, at most the fee period's end.
                     let on = now_date.min(period_end);
                     let priced = services
-                        .price_seats(conn, &subscription_details, price_component_id, delta, on)
+                        .price_seats(conn, &subscription_details, slot.quantity_id, delta, on)
                         .await?;
 
                     match billing_mode {
@@ -228,7 +241,7 @@ impl Services {
                                     &slot,
                                     priced,
                                     on,
-                                    period_end,
+                                    &renewals,
                                     at_ts,
                                 )
                                 .await?
@@ -245,7 +258,7 @@ impl Services {
                                     &slot,
                                     priced,
                                     on,
-                                    period_end,
+                                    &renewals,
                                     at_ts,
                                 )
                                 .await?
@@ -303,21 +316,23 @@ impl Services {
         &self,
         conn: &mut PgConn,
         details: &crate::domain::SubscriptionDetails,
-        price_component_id: PriceComponentId,
+        quantity: ManagedQuantityId,
         delta: i32,
         on: chrono::NaiveDate,
     ) -> StoreResult<Option<SeatDocuments>> {
-        let component = details
-            .price_components
-            .iter()
-            .find(|c| c.price_component_id() == Some(price_component_id))
-            .ok_or_else(|| {
-                StoreError::ValueNotFound(format!(
-                    "Price component {price_component_id} not found in subscription"
-                ))
-            })?;
+        // Every charge counting the quantity bills the seats bought: they share its count.
+        let lineages: Vec<billing_core::charge::Fee> = seat_fees(details)
+            .filter(|(_, fee)| fee.seat_quantity() == Some(quantity))
+            .map(|(lineage, _)| lineage)
+            .collect();
+        if lineages.is_empty() {
+            return Err(StoreError::ValueNotFound(format!(
+                "no seat charge of the subscription counts quantity {quantity}"
+            ))
+            .into());
+        }
         let bought = Bought {
-            lineage: billing_core::charge::Fee::Component(component.lineage()),
+            lineages,
             seats: i64::from(delta),
         };
         seat_purchase(
@@ -335,7 +350,7 @@ impl Services {
         &self,
         conn: &mut PgConn,
         details: &crate::domain::SubscriptionDetails,
-        price_component_id: PriceComponentId,
+        quantity: ManagedQuantityId,
         delta: i32,
         on: chrono::NaiveDate,
     ) -> StoreResult<PricedSeats> {
@@ -344,7 +359,7 @@ impl Services {
             StoreError::ValueNotFound(format!("Currency {} not found", subscription.currency))
         })?;
         let bought = self
-            .seat_purchase_documents(conn, details, price_component_id, delta, on)
+            .seat_purchase_documents(conn, details, quantity, delta, on)
             .await?;
         Ok(match bought {
             Some(bought) => PricedSeats {
@@ -417,7 +432,7 @@ impl Services {
                 conn,
                 tenant_id,
                 subscription_id,
-                slot.unit.clone(),
+                slot.quantity_id,
                 at_ts,
             )
             .await?;
@@ -441,13 +456,13 @@ impl Services {
         slot: &SlotForTransaction,
         priced: PricedSeats,
         start_date: chrono::NaiveDate,
-        end_date: chrono::NaiveDate,
+        renewals: &SeatRenewals,
         at_ts: Option<chrono::NaiveDateTime>,
     ) -> StoreResult<UpdateSlotsResult> {
         let tenant_id = lock.tenant_id();
         // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
         Box::pin(async move {
-            let unit = slot.unit.clone();
+            let quantity = slot.quantity_id;
 
             let invoice_id = self
                 .seat_purchase_invoice_tx(
@@ -469,7 +484,8 @@ impl Services {
                     conn,
                     lock,
                     subscription_id,
-                    end_date,
+                    renewals.first,
+                    &renewals.all,
                     delta,
                     slot,
                     invoice_id,
@@ -479,7 +495,7 @@ impl Services {
 
             let current_slots = self
                 .store
-                .get_active_slots_value_with_conn(conn, tenant_id, subscription_id, unit, at_ts)
+                .get_active_slots_value_with_conn(conn, tenant_id, subscription_id, quantity, at_ts)
                 .await?;
 
             Ok(UpdateSlotsResult {
@@ -503,7 +519,7 @@ impl Services {
         slot: &SlotForTransaction,
         priced: PricedSeats,
         start_date: chrono::NaiveDate,
-        end_date: chrono::NaiveDate,
+        renewals: &SeatRenewals,
         at_ts: Option<chrono::NaiveDateTime>,
     ) -> StoreResult<UpdateSlotsResult> {
         let tenant_id = lock.tenant_id();
@@ -515,7 +531,8 @@ impl Services {
                     conn,
                     lock,
                     subscription_id,
-                    end_date,
+                    renewals.first,
+                    &renewals.all,
                     delta,
                     slot,
                     at_ts,
@@ -582,82 +599,102 @@ impl Services {
         .await
     }
 
-    /// Where the slot fee's period holding `on` ends, as the facts bill it on its own grid, up to
-    /// the term's end (R-084, R-108): an upgrade is held from at most then, a downgrade leaves
-    /// then. With no charge holding it (a free trial), the subscription's current period's end.
+    /// Where the periods holding `on` of the seat fees counting `quantity` end, as the facts bill
+    /// each on its own grid, up to the term's end (R-084, R-108): an upgrade is held from at most
+    /// the earliest, a downgrade leaves then, whichever charge it was asked through; the later
+    /// grids keep billing it to their first renewal on or after it. With no charge holding a fee
+    /// (a free trial), the subscription's current period's end.
     async fn slot_period_end(
         &self,
         conn: &mut PgConn,
         details: &crate::domain::SubscriptionDetails,
-        price_component_id: PriceComponentId,
+        quantity: ManagedQuantityId,
         on: chrono::NaiveDate,
-    ) -> StoreResult<chrono::NaiveDate> {
+    ) -> StoreResult<SeatRenewals> {
         let subscription = &details.subscription;
         let current_end = subscription.current_period_end.ok_or_else(|| {
             StoreError::InvalidArgument(
                 "Cannot modify slots for subscription without active billing period".to_string(),
             )
         })?;
-        let lineage = details
-            .price_components
-            .iter()
-            .find(|c| c.price_component_id() == Some(price_component_id))
-            .map(|c| billing_core::charge::Fee::Component(c.lineage()))
-            .ok_or_else(|| {
-                StoreError::ValueNotFound(format!(
-                    "Price component {price_component_id} not found in subscription"
-                ))
-            })?;
+        let lineages: Vec<billing_core::charge::Fee> = seat_fees(details)
+            .filter(|(_, fee)| fee.seat_quantity() == Some(quantity))
+            .map(|(lineage, _)| lineage)
+            .collect();
         let held = on
             .min(current_end.pred_opt().unwrap_or(current_end))
             .max(subscription.current_period_start);
-        let end = fee_period_on(
+        let periods = fee_periods_on(
             conn,
             subscription.tenant_id,
             subscription.id,
             held,
-            &lineage,
+            &lineages,
         )
-        .await?
-        .map_or(current_end, |(_, until)| until);
-        Ok(subscription
-            .end_date
-            .map_or(end, |term_end| term_end.min(end)))
+        .await?;
+        let mut all: Vec<chrono::NaiveDate> = periods
+            .into_iter()
+            .map(|period| period.map_or(current_end, |(_, until)| until))
+            .map(|end| {
+                subscription
+                    .end_date
+                    .map_or(end, |term_end| term_end.min(end))
+            })
+            .collect();
+        if all.is_empty() {
+            all.push(
+                subscription
+                    .end_date
+                    .map_or(current_end, |term_end| term_end.min(current_end)),
+            );
+        }
+        all.sort();
+        all.dedup();
+        Ok(SeatRenewals { first: all[0], all })
     }
 
-    fn extract_slot(
+    /// The seats `charge` changes: the quantity it counts, under the strictest bounds of the
+    /// subscription's charges counting it.
+    pub(crate) fn extract_slot(
         &self,
         subscription_details: &crate::domain::SubscriptionDetails,
-        price_component_id: PriceComponentId,
+        charge: SeatCharge,
     ) -> StoreResult<SlotForTransaction> {
-        let slot_component = subscription_details
-            .price_components
-            .iter()
-            .find(|c| c.price_component_id() == Some(price_component_id))
-            .ok_or_else(|| {
-                StoreError::ValueNotFound(format!(
-                    "Price component {} not found in subscription",
-                    price_component_id
-                ))
-            })?;
-
-        match slot_component.fee_ref() {
-            SubscriptionFee::Slot {
-                unit,
+        let (_, fee) = seat_charge_of(subscription_details, charge)?;
+        let SubscriptionFee::Slot {
+            unit, quantity_id, ..
+        } = fee
+        else {
+            return Err(StoreError::InvalidArgument(format!(
+                "{charge:?} does not charge per seat"
+            ))
+            .into());
+        };
+        let quantity_id = quantity_id
+            .ok_or_else(|| StoreError::ValueNotFound(format!("the quantity counted as {unit}")))?;
+        let mut slot = SlotForTransaction {
+            unit: unit.clone(),
+            quantity_id,
+            min_slots: None,
+            max_slots: None,
+        };
+        for (_, fee) in seat_fees(subscription_details) {
+            if let SubscriptionFee::Slot {
+                quantity_id: Some(other),
                 min_slots,
                 max_slots,
                 ..
-            } => Ok(SlotForTransaction {
-                unit: unit.clone(),
-                min_slots: *min_slots,
-                max_slots: *max_slots,
-            }),
-            _ => Err(StoreError::InvalidArgument(format!(
-                "Price component {} is not a slot component",
-                price_component_id
-            ))
-            .into()),
+            } = fee
+                && *other == quantity_id
+            {
+                slot.min_slots = slot.min_slots.max(*min_slots);
+                slot.max_slots = match (slot.max_slots, max_slots) {
+                    (Some(a), Some(b)) => Some(a.min(*b)),
+                    (a, b) => a.or(*b),
+                };
+            }
         }
+        Ok(slot)
     }
 
     /// Activate pending slot transactions when invoice is paid
@@ -713,7 +750,7 @@ impl Services {
         &self,
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
-        price_component_id: PriceComponentId,
+        charge: impl Into<SeatCharge>,
         delta: i32,
         payment_method_id: common_domain::ids::CustomerPaymentMethodId,
         at_ts: Option<chrono::NaiveDateTime>,
@@ -727,7 +764,8 @@ impl Services {
             .into());
         }
 
-        let (invoice_id, unit_name, claim) = self
+        let charge = charge.into();
+        let (invoice_id, quantity, claim) = self
             .store
             .transaction(|conn| {
                 async move {
@@ -750,16 +788,17 @@ impl Services {
                     let now = at_ts.unwrap_or(common_clock::now().naive_utc());
                     let now_date = now.date();
 
-                    let slot = self.extract_slot(&subscription_details, price_component_id)?;
-                    let period_end = self
-                        .slot_period_end(conn, &subscription_details, price_component_id, now_date)
+                    let slot = self.extract_slot(&subscription_details, charge)?;
+                    let renewals = self
+                        .slot_period_end(conn, &subscription_details, slot.quantity_id, now_date)
                         .await?;
+                    let period_end = renewals.first;
 
-                    let unit_name = slot.unit.clone();
+                    let quantity = slot.quantity_id;
 
                     let on = now_date.min(period_end);
                     let priced = self
-                        .price_seats(conn, &subscription_details, price_component_id, delta, on)
+                        .price_seats(conn, &subscription_details, quantity, delta, on)
                         .await?;
 
                     let active_slots = self
@@ -768,7 +807,7 @@ impl Services {
                             conn,
                             tenant_id,
                             subscription_id,
-                            unit_name.clone(),
+                            quantity,
                             None,
                         )
                         .await?;
@@ -797,6 +836,7 @@ impl Services {
                             &lock,
                             subscription_id,
                             period_end,
+                            &renewals.all,
                             delta,
                             &slot,
                             invoice_id,
@@ -814,7 +854,7 @@ impl Services {
                             None,
                         )
                         .await?;
-                    Ok((invoice_id, unit_name, claim))
+                    Ok((invoice_id, quantity, claim))
                 }
                 .scope_boxed()
             })
@@ -862,7 +902,7 @@ impl Services {
                     invoice_id,
                     &row,
                     answered,
-                    unit_name,
+                    quantity,
                     at_ts,
                 )
                 .await
@@ -880,7 +920,7 @@ impl Services {
         invoice_id: InvoiceId,
         row: &diesel_models::payments::PaymentTransactionRow,
         answered: Option<(crate::domain::payment_transactions::PaymentIntent, i64)>,
-        unit_name: String,
+        quantity: ManagedQuantityId,
         at_ts: Option<chrono::NaiveDateTime>,
     ) -> StoreResult<(PaymentTransaction, i32, Option<PaymentNextAction>)> {
         use crate::repositories::payment_transactions::PaymentTransactionInterface;
@@ -957,7 +997,7 @@ impl Services {
                 &mut self.store.get_conn().await?,
                 tenant_id,
                 subscription_id,
-                unit_name,
+                quantity,
                 None,
             )
             .await?;
@@ -1029,15 +1069,15 @@ impl Services {
     }
 }
 
-/// Whether a change of `delta` seats of `unit` waits for the period's end, as its quantity's
-/// policies say; a quantity not yet in the catalog has the default ones.
+/// Whether a change of `delta` seats of `quantity` waits for the period's end, as its policies
+/// say.
 pub(crate) async fn deferred_to_period_end(
     conn: &mut PgConn,
     tenant_id: TenantId,
-    unit: &str,
+    quantity: ManagedQuantityId,
     delta: i32,
 ) -> StoreResult<bool> {
-    let quantity = ManagedQuantityRow::find_by_code(conn, tenant_id, unit)
+    let quantity = ManagedQuantityRow::find(conn, tenant_id, quantity)
         .await?
         .map(ManagedQuantity::from);
     let on_increase = quantity.as_ref().map(|q| q.on_increase).unwrap_or_default();
@@ -1046,5 +1086,44 @@ pub(crate) async fn deferred_to_period_end(
         on_decrease == QuantityDecrease::AtPeriodEnd
     } else {
         on_increase == QuantityIncrease::NextPeriod
+    })
+}
+
+/// Every seat fee of the subscription, plan charges then add-ons, with its lineage.
+pub(crate) fn seat_fees(
+    details: &crate::domain::SubscriptionDetails,
+) -> impl Iterator<Item = (billing_core::charge::Fee, &SubscriptionFee)> {
+    details
+        .price_components
+        .iter()
+        .map(|c| (billing_core::charge::Fee::Component(c.lineage()), &c.fee))
+        .chain(
+            details
+                .add_ons
+                .iter()
+                .map(|a| (billing_core::charge::Fee::AddOn(a.lineage()), &a.fee)),
+        )
+        .filter(|(_, fee)| matches!(fee, SubscriptionFee::Slot { .. }))
+}
+
+/// The subscription's fee of `charge`, with its lineage.
+pub(crate) fn seat_charge_of(
+    details: &crate::domain::SubscriptionDetails,
+    charge: SeatCharge,
+) -> StoreResult<(billing_core::charge::Fee, &SubscriptionFee)> {
+    let found = match charge {
+        SeatCharge::Component(id) => details
+            .price_components
+            .iter()
+            .find(|c| c.price_component_id() == Some(id))
+            .map(|c| (billing_core::charge::Fee::Component(c.lineage()), &c.fee)),
+        SeatCharge::AddOn(id) => details
+            .add_ons
+            .iter()
+            .find(|a| a.add_on_id == id)
+            .map(|a| (billing_core::charge::Fee::AddOn(a.lineage()), &a.fee)),
+    };
+    found.ok_or_else(|| {
+        StoreError::ValueNotFound(format!("{charge:?} not found in subscription")).into()
     })
 }

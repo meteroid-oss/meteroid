@@ -335,6 +335,7 @@ async fn s18_a_unit_pack_paid_after_its_period_credits_back_what_it_would_have_p
                 },
                 credit_unit: None,
             }),
+            fee_structure: None,
         }],
         remove_components: vec![],
     });

@@ -8,11 +8,13 @@ import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { listProductUsage } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
 
+import { chargesForWords } from './productWords'
 import { chargeLines, gapLabel, linesKey } from './usedIn'
 
 import type { UsedInLine } from './usedIn'
 import type { ChargeContext } from '@/features/plans/canvas/billingWords'
-import type { Price } from '@/rpc/api/prices/v1/models_pb'
+import type { PriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
+import type { FeeStructure, Price } from '@/rpc/api/prices/v1/models_pb'
 import type { Product } from '@/rpc/api/products/v1/models_pb'
 import type { ProductAddOnUsage, ProductPlanUsage } from '@/rpc/api/products/v1/products_pb'
 
@@ -54,31 +56,73 @@ const CurrencyLine = ({ line, ctx }: { line: UsedInLine; ctx: ChargeContext }) =
   </div>
 )
 
-/** The version's charges of the product: an included one says so, a priced one its cells. */
-const VersionPrices = ({ usage, ctx }: { usage: ProductPlanUsage; ctx: ChargeContext }) => (
+/** How a charge bills the product, its own structure, and the metric it reads. */
+const useStructureContext = (feeStructure: FeeStructure | undefined): ChargeContext => {
+  const structure = feeStructure?.structure
+  const metricId =
+    structure?.case === 'usage' || structure?.case === 'capacity'
+      ? structure.value.metricId
+      : undefined
+  const metric = useComponentMetric(metricId)
+  return { product: { feeStructure }, metric, unit: metricUnitFromProto(metric) }
+}
+
+/** A charge of the product: how it bills it, then its cells; an included one says so. */
+const ComponentPrices = ({
+  component,
+  usage,
+  named,
+}: {
+  component: PriceComponent
+  usage: ProductPlanUsage
+  named: boolean
+}) => {
+  const ctx = useStructureContext(component.feeStructure)
+  const how = chargesForWords(component.feeStructure, ctx.metric?.name)
+    .map(word => (typeof word === 'string' ? word : word.name))
+    .join(' · ')
+  return (
+    <div className="space-y-1.5">
+      {(named || how) && (
+        <p className="text-xs text-muted-foreground">
+          {named && <span className="font-medium">{component.name}</span>}
+          {named && how && ' · '}
+          {how}
+        </p>
+      )}
+      {component.prices.length === 0 ? (
+        <span className={cn(chip, 'border-success/30 bg-success/10 py-0.5 text-xs text-success')}>
+          Included in the plan
+        </span>
+      ) : (
+        chargeLines(component, usage.options, usage.currencies).map(line => (
+          <CurrencyLine key={line.currency} line={line} ctx={ctx} />
+        ))
+      )}
+    </div>
+  )
+}
+
+/** The version's charges of the product, each billing it its own way. */
+const VersionPrices = ({ usage }: { usage: ProductPlanUsage }) => (
   <div className="space-y-2">
     {usage.components.map(component => (
-      <div key={component.id} className="space-y-1.5">
-        {usage.components.length > 1 && (
-          <p className="text-xs font-medium text-muted-foreground">{component.name}</p>
-        )}
-        {component.prices.length === 0 ? (
-          <span className={cn(chip, 'border-success/30 bg-success/10 py-0.5 text-xs text-success')}>
-            Included in the plan
-          </span>
-        ) : (
-          chargeLines(component, usage.options, usage.currencies).map(line => (
-            <CurrencyLine key={line.currency} line={line} ctx={ctx} />
-          ))
-        )}
-      </div>
+      <ComponentPrices
+        key={component.id}
+        component={component}
+        usage={usage}
+        named={usage.components.length > 1}
+      />
     ))}
   </div>
 )
 
-const pricesKey = (usage: ProductPlanUsage, ctx: ChargeContext) =>
+const pricesKey = (usage: ProductPlanUsage) =>
   usage.components
-    .map(c => `${c.name}|${linesKey(chargeLines(c, usage.options, usage.currencies), ctx)}`)
+    .map(
+      c =>
+        `${c.name}|${linesKey(chargeLines(c, usage.options, usage.currencies), { product: c })}`
+    )
     .join('#')
 
 const DraftTag = ({ version }: { version: number }) => (
@@ -91,16 +135,14 @@ const DraftTag = ({ version }: { version: number }) => (
 const PlanRow = ({
   active,
   draft,
-  ctx,
 }: {
   active?: ProductPlanUsage
   draft?: ProductPlanUsage
-  ctx: ChargeContext
 }) => {
   const basePath = useBasePath()
   const lead = (active ?? draft)!
   const planPath = `${basePath}/plans/${lead.planId}`
-  const draftDiffers = !!active && !!draft && pricesKey(active, ctx) !== pricesKey(draft, ctx)
+  const draftDiffers = !!active && !!draft && pricesKey(active) !== pricesKey(draft)
   return (
     <div className="space-y-2.5 px-4 py-3">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -121,13 +163,13 @@ const PlanRow = ({
           </Link>
         )}
       </div>
-      <VersionPrices usage={lead} ctx={ctx} />
+      <VersionPrices usage={lead} />
       {draftDiffers && (
         <div className="space-y-2 border-t border-dashed border-border pt-2.5">
           <p className="text-xs text-muted-foreground">
             In <DraftTag version={draft!.version} />
           </p>
-          <VersionPrices usage={draft!} ctx={ctx} />
+          <VersionPrices usage={draft!} />
         </div>
       )}
     </div>
@@ -164,7 +206,10 @@ const AddOnRow = ({ addOn, ctx }: { addOn: ProductAddOnUsage; ctx: ChargeContext
   )
 }
 
-/** Where the product is sold, read-only: each plan's price of it, and the add-ons selling it. */
+/**
+ * Where the product is sold, read-only: each plan's charges of it (each billing it its own way),
+ * and the add-ons selling it.
+ */
 export const ProductUsedInSection = ({ product }: { product: Product }) => {
   const usageQuery = useQuery(listProductUsage, { productId: product.id })
   const structure = product.feeStructure?.structure
@@ -173,6 +218,7 @@ export const ProductUsedInSection = ({ product }: { product: Product }) => {
       ? structure.value.metricId
       : undefined
   const metric = useComponentMetric(metricId)
+  // An add-on's prices read as the product's charges do when they all bill it one way.
   const ctx: ChargeContext = { product, metric, unit: metricUnitFromProto(metric) }
 
   // A plan's active version and its draft read as one row.
@@ -208,7 +254,7 @@ export const ProductUsedInSection = ({ product }: { product: Product }) => {
           ) : (
             <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
               {[...plans.entries()].map(([planId, row]) => (
-                <PlanRow key={planId} active={row.active} draft={row.draft} ctx={ctx} />
+                <PlanRow key={planId} active={row.active} draft={row.draft} />
               ))}
             </div>
           )}

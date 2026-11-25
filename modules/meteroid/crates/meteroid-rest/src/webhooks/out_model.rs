@@ -372,8 +372,9 @@ pub struct WebhookOutProductEventData {
     pub product_id: ProductId,
     pub name: String,
     pub description: Option<String>,
-    #[from(~.into())]
-    pub fee_type: ProductFeeTypeEnum,
+    /// Unset: a product's charges own how it is billed.
+    #[from(~.map(Into::into))]
+    pub fee_type: Option<ProductFeeTypeEnum>,
     #[serde(serialize_with = "string_serde::serialize")]
     pub product_family_id: ProductFamilyId,
     #[from(~.into())]

@@ -2,12 +2,12 @@ use common_domain::ids::{FeatureId, ManagedQuantityId};
 use common_grpc::middleware::server::auth::RequestExt;
 use error_stack::Report;
 use meteroid_grpc::meteroid::api::quantities::v1::{
-    ListManagedQuantitiesRequest, ListManagedQuantitiesResponse, QuantityDecrease,
-    QuantityIncrease, SetFeatureLimitQuantityRequest, SetFeatureLimitQuantityResponse,
-    UpdateManagedQuantityRequest, UpdateManagedQuantityResponse,
-    managed_quantities_service_server::ManagedQuantitiesService,
+    CreateManagedQuantityRequest, CreateManagedQuantityResponse, ListManagedQuantitiesRequest,
+    ListManagedQuantitiesResponse, QuantityDecrease, QuantityIncrease,
+    SetFeatureLimitQuantityRequest, SetFeatureLimitQuantityResponse, UpdateManagedQuantityRequest,
+    UpdateManagedQuantityResponse, managed_quantities_service_server::ManagedQuantitiesService,
 };
-use meteroid_store::domain::managed_quantities::ManagedQuantityPatch;
+use meteroid_store::domain::managed_quantities::{ManagedQuantityNew, ManagedQuantityPatch};
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::ManagedQuantitiesInterface;
 use tonic::{Request, Response, Status};
@@ -29,6 +29,47 @@ impl ManagedQuantitiesService for ManagedQuantitiesServiceComponents {
             .map_err(store_status)?;
         Ok(Response::new(ListManagedQuantitiesResponse {
             quantities: quantities.into_iter().map(mapping::to_proto).collect(),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn create_managed_quantity(
+        &self,
+        request: Request<CreateManagedQuantityRequest>,
+    ) -> Result<Response<CreateManagedQuantityResponse>, Status> {
+        let tenant = request.tenant()?;
+        let inner = request.into_inner();
+        let on_increase = inner
+            .on_increase
+            .map(|value| {
+                QuantityIncrease::try_from(value)
+                    .map(mapping::increase_from_proto)
+                    .map_err(|_| Status::invalid_argument("unknown increase policy"))
+            })
+            .transpose()?
+            .unwrap_or_default();
+        let on_decrease = inner
+            .on_decrease
+            .map(|value| {
+                QuantityDecrease::try_from(value)
+                    .map(mapping::decrease_from_proto)
+                    .map_err(|_| Status::invalid_argument("unknown decrease policy"))
+            })
+            .transpose()?
+            .unwrap_or_default();
+        let quantity = self
+            .store
+            .create_managed_quantity(ManagedQuantityNew {
+                tenant_id: tenant,
+                code: inner.code,
+                name: inner.name,
+                on_increase,
+                on_decrease,
+            })
+            .await
+            .map_err(store_status)?;
+        Ok(Response::new(CreateManagedQuantityResponse {
+            quantity: Some(mapping::to_proto(quantity)),
         }))
     }
 
@@ -94,6 +135,9 @@ fn store_status(report: Report<StoreError>) -> Status {
     match report.current_context() {
         StoreError::InvalidArgument(message) => Status::invalid_argument(message.clone()),
         StoreError::ValueNotFound(message) => Status::not_found(message.clone()),
+        StoreError::DuplicateValue { .. } => {
+            Status::already_exists("A quantity of this code exists already")
+        }
         _ => Status::internal("Error in managed quantities service"),
     }
 }

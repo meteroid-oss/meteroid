@@ -113,6 +113,7 @@ fn fee(name: &str, cents: i64) -> ExtraComponent {
             },
             credit_unit: None,
         }),
+        fee_structure: None,
     }
 }
 
@@ -517,7 +518,7 @@ async fn a_draft_paid_in_full_by_promotional_credit_still_draws_it() {
 async fn the_next_invoice_applies_a_scheduled_plan_change_as_executing_it_will(
     #[future] test_env: TestEnv,
 ) {
-    use crate::data::ids::{COMP_STARTER_SEATS_ID, PLAN_VERSION_STARTER_ID};
+    use crate::data::ids::{COMP_STARTER_SEATS_ID, PLAN_VERSION_STARTER_ID, QUANTITY_SEATS_ID};
     use meteroid_store::domain::credit_outlook::UpcomingChange;
     use meteroid_store::domain::subscription_components::{
         ComponentParameterization, ComponentParameters,
@@ -555,7 +556,7 @@ async fn the_next_invoice_applies_a_scheduled_plan_change_as_executing_it_will(
             .get_active_slots_value(
                 TENANT_ID,
                 sub_id,
-                "Seats".to_string(),
+                QUANTITY_SEATS_ID,
                 NaiveDate::from_ymd_opt(2024, 2, 1).map(|d| d.and_time(NaiveTime::MIN)),
             )
             .await

@@ -23,7 +23,7 @@ use meteroid_store::domain::subscription_components::{
 };
 use meteroid_store::domain::usage_levels::{self, ChosenLevel};
 use meteroid_store::domain::{
-    Address, CustomerNew, CustomerPatch, CustomerTaxStatus, PriceComponent, Product,
+    Address, CustomerNew, CustomerPatch, CustomerTaxStatus, PriceComponent,
     is_complete_billing_information,
 };
 use meteroid_store::errors::StoreError;
@@ -33,13 +33,11 @@ use meteroid_store::repositories::credit_units::CreditUnitsInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
 use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
 use meteroid_store::repositories::price_components::PriceComponentInterfaceAuto;
-use meteroid_store::repositories::products::ProductInterface;
 use meteroid_store::repositories::purchase_links::PurchaseLinksInterface;
 use meteroid_store::repositories::{CustomersInterface, PlanOptionInterface};
 use meteroid_store::services::MAX_DECLINED_CHECKOUT_ATTEMPTS;
 use rate_limiter::{RateLimitConfig, RateLimiter};
 use secrecy::SecretString;
-use std::collections::{HashMap, HashSet};
 use validator::ValidateEmail;
 
 use crate::services::proof_of_work::ProofOfWork;
@@ -277,19 +275,6 @@ impl PurchaseLinks {
     ) -> Result<Vec<OfferComponent>, Report<StoreError>> {
         let tenant_id = link.link.tenant_id;
         sold.pricing.narrow(&mut components);
-        let product_ids: Vec<ProductId> = components
-            .iter()
-            .filter_map(|c| c.product_id)
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .collect();
-        let products: HashMap<ProductId, Product> = self
-            .store
-            .find_products_by_ids(&product_ids, tenant_id)
-            .await?
-            .into_iter()
-            .map(|p| (p.id, p))
-            .collect();
         let units = self
             .store
             .get_credit_units_by_ids(
@@ -311,11 +296,11 @@ impl PurchaseLinks {
             .map(|c| {
                 let sizes = usage_levels::sizes(&usage_levels::levels(c));
                 let params = sizes.first().map(|lowest| at_level(*lowest));
-                let resolved = c.resolve_fee(&products, &units, params.as_ref())?;
+                let resolved = c.resolve_fee(&units, params.as_ref())?;
                 let levels = sizes
                     .iter()
                     .map(|included| {
-                        c.resolve_fee(&products, &units, Some(&at_level(*included)))
+                        c.resolve_fee(&units, Some(&at_level(*included)))
                             .map(|level| level.fee)
                     })
                     .collect::<Result<_, StoreError>>()?;

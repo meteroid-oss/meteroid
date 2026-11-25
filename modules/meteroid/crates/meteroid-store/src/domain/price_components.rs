@@ -6,7 +6,7 @@ use super::enums::{BillingPeriodEnum, BillingType, FeeTypeEnum, SubscriptionFeeB
 
 use crate::domain::credit_units::CreditUnitsById;
 use crate::domain::prices::{self, FeeStructure, LegacyPricingData, Pricing};
-use crate::domain::{Price, Product, SubscriptionFee};
+use crate::domain::{Price, SubscriptionFee};
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
 use common_domain::ids::{
@@ -18,6 +18,8 @@ use serde::{Deserialize, Serialize};
 
 // ── Write-side types ────────────────────────────────────────────────
 
+/// The product a charge bills. A new product holds no fee structure: `fee_structure` (and its
+/// `fee_type`) is the charge's, for callers that do not set it on the charge.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ProductRef {
     Existing(ProductId),
@@ -32,6 +34,14 @@ impl ProductRef {
     /// A new product of the credit fee structure.
     pub fn creates_credit_product(&self) -> bool {
         matches!(self, ProductRef::New { fee_structure, .. } if fee_structure.is_credit())
+    }
+
+    /// The charge's structure a new product was sent with.
+    pub fn new_product_structure(&self) -> Option<&FeeStructure> {
+        match self {
+            ProductRef::New { fee_structure, .. } => Some(fee_structure),
+            ProductRef::Existing(_) => None,
+        }
     }
 
     pub fn existing_product_id(&self) -> Option<ProductId> {
@@ -83,7 +93,19 @@ pub struct PriceInput {
 pub struct PriceComponentNewInternal {
     pub name: String,
     pub product_ref: ProductRef,
+    /// How the charge bills the product; None takes a new product's, and with no price includes
+    /// the product.
+    pub fee_structure: Option<FeeStructure>,
     pub prices: Vec<PriceEntry>,
+}
+
+impl PriceComponentNewInternal {
+    /// The charge's structure: its own, else the one its new product was sent with.
+    pub fn structure(&self) -> Option<&FeeStructure> {
+        self.fee_structure
+            .as_ref()
+            .or_else(|| self.product_ref.new_product_structure())
+    }
 }
 
 /// Low-level row builder for inserting a PriceComponentRow.
@@ -92,6 +114,8 @@ pub struct PriceComponentNew {
     pub name: String,
     pub product_id: Option<ProductId>,
     pub plan_version_id: PlanVersionId,
+    /// None for a product included with no price.
+    pub fee_structure: Option<FeeStructure>,
 }
 
 impl TryInto<PriceComponentRowNew> for PriceComponentNew {
@@ -105,8 +129,41 @@ impl TryInto<PriceComponentRowNew> for PriceComponentNew {
             legacy_fee: None,
             product_id: self.product_id,
             billable_metric_id: None,
+            fee_structure: structure_json(self.fee_structure.as_ref())?,
         })
     }
+}
+
+/// A charge's structure as its column stores it.
+pub fn structure_json(
+    structure: Option<&FeeStructure>,
+) -> Result<Option<serde_json::Value>, StoreErrorReport> {
+    structure
+        .map(|structure| {
+            serde_json::to_value(structure).map_err(|e| {
+                Report::new(StoreError::SerdeError(
+                    "Failed to serialize fee_structure".to_string(),
+                    e,
+                ))
+            })
+        })
+        .transpose()
+}
+
+/// A charge's structure as its column stores it, read back.
+pub fn structure_of_json(
+    stored: Option<serde_json::Value>,
+) -> Result<Option<FeeStructure>, StoreErrorReport> {
+    stored
+        .map(|json| {
+            serde_json::from_value(json).map_err(|e| {
+                Report::new(StoreError::SerdeError(
+                    "Failed to deserialize FeeStructure".to_string(),
+                    e,
+                ))
+            })
+        })
+        .transpose()
 }
 
 // ── Read-side types ─────────────────────────────────────────────────
@@ -116,6 +173,9 @@ pub struct PriceComponent {
     pub id: PriceComponentId,
     pub name: String,
     pub product_id: Option<ProductId>,
+    /// How the charge bills its product; None for a product included with no price, and for a
+    /// v1 component (`legacy_pricing` holds its structure).
+    pub fee_structure: Option<FeeStructure>,
     /// Every price linked in any option of the version, once each.
     pub prices: Vec<Price>,
     /// Which option's cell each price is in (`price_cells`); a price in several options is shared.
@@ -140,6 +200,7 @@ impl TryInto<PriceComponent> for PriceComponentRow {
             id: self.id,
             name: self.name,
             product_id: self.product_id,
+            fee_structure: structure_of_json(self.fee_structure)?,
             prices: Vec::new(),
             option_prices: Vec::new(),
             legacy_pricing: None,
@@ -221,26 +282,23 @@ impl PriceComponent {
         self.prices.iter().flat_map(Price::credit_unit_ids)
     }
 
+    /// The charge's structure, its own or a v1 component's.
+    pub fn structure(&self) -> Option<&FeeStructure> {
+        self.fee_structure
+            .as_ref()
+            .or_else(|| self.legacy_pricing.as_ref().map(|l| &l.fee_structure))
+    }
+
     /// Centralized resolution — all components must have product + prices (v2).
     /// v1 components get synthesized prices at the repository/context layer.
     pub fn resolve_subscription_fee(
         &self,
-        products: &HashMap<ProductId, Product>,
         units: &CreditUnitsById,
         params: Option<&ComponentParameters>,
     ) -> Result<ResolvedFee, StoreError> {
-        let product_id = self.product_id.ok_or_else(|| {
-            StoreError::InvalidArgument(format!("PriceComponent {} has no product_id", self.id))
+        let fee_structure = self.fee_structure.as_ref().ok_or_else(|| {
+            StoreError::InvalidArgument(format!("Charge {} has no fee structure", self.name))
         })?;
-
-        let product = products.get(&product_id).ok_or_else(|| {
-            StoreError::InvalidArgument(format!(
-                "Product {} not found for component {}",
-                product_id, self.id
-            ))
-        })?;
-
-        let fee_structure = &product.fee_structure;
 
         if self.prices.is_empty() {
             return Err(StoreError::InvalidArgument(format!(
@@ -267,15 +325,15 @@ impl PriceComponent {
         })
     }
 
-    /// Resolve the fee for a component, handling both v2 (product + prices) and v1 (legacy) paths.
+    /// Resolve the fee for a component, handling both v2 (charge structure + prices) and v1
+    /// (legacy) paths.
     pub fn resolve_fee(
         &self,
-        products: &HashMap<ProductId, Product>,
         units: &CreditUnitsById,
         params: Option<&ComponentParameters>,
     ) -> Result<ResolvedFee, StoreError> {
         if self.product_id.is_some() && !self.prices.is_empty() {
-            self.resolve_subscription_fee(products, units, params)
+            self.resolve_subscription_fee(units, params)
         } else if let Some(legacy) = &self.legacy_pricing {
             resolve_legacy_subscription_fee(legacy, params)
         } else {
@@ -1801,6 +1859,7 @@ mod charges_nothing_tests {
             id: PriceComponentId::new(),
             name: "charge".to_owned(),
             product_id: Some(ProductId::default()),
+            fee_structure: None,
             option_prices: vec![],
             prices,
             legacy_pricing: None,

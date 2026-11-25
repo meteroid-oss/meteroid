@@ -38,9 +38,10 @@ async fn scale_v2(h: &Halyard) -> PlanVersionId {
         .await
         .expect("drop the v1 pack");
     h.store()
-        .create_price_component_from_ref(
+        .create_charge_from_ref(
             "Monthly credit pack".to_owned(),
             ProductRef::Existing(pack.product_id.expect("the pack's product")),
+            Some(meteroid_store::domain::prices::FeeStructure::Credit {}),
             vec![PriceEntry::New(PriceInput {
                 cadence: BillingPeriodEnum::Monthly,
                 currency: "USD".to_owned(),

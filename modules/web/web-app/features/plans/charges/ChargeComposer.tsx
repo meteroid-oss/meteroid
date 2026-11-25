@@ -28,6 +28,7 @@ import { entitlementCodes, useEntitlement } from '@/hooks/useEntitlement'
 import { useQuery } from '@/lib/connectrpc'
 import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 
+import { QuantityField } from './QuantityField'
 import {
   MODEL_LABELS,
   PRESETS,
@@ -63,7 +64,7 @@ import type { StructuralInfo } from '@/features/pricing/formData'
 import type { DimensionRateRow } from '@/features/pricing/schemas'
 import type { PriceRates } from '@/features/productCatalog/ratecards/bridge'
 import type { Methods } from '@/hooks/useZodForm'
-import type { Control, FieldValues } from 'react-hook-form'
+import type { Control, FieldValues, UseFormSetValue } from 'react-hook-form'
 import type { z } from 'zod'
 
 interface ChargeComposerProps {
@@ -71,9 +72,9 @@ interface ChargeComposerProps {
   onShapeChange: (shape: ChargeShape) => void
   methods: Methods<z.ZodType>
   currency: string
-  /** Set for an existing product or an edited charge: only shapes compiling to it are offered. */
+  /** Set for a charge of fixed shape: only shapes compiling to it are offered. */
   lock?: ChargeLock
-  /** The metric and seat unit of a locked product, shown read-only. */
+  /** The metric and seat label of a locked charge, shown read-only. */
   structural?: StructuralInfo
   familyLocalId?: string
   /** "Include without price" is offered when set (existing products only). */
@@ -175,8 +176,7 @@ export const ChargeComposer = ({
 
       {lock && (
         <p className="text-xs text-muted-foreground">
-          This product is sold as “{feeTypeToHuman(lock.feeType)}”: other kinds of
-          charge need a new product.
+          This charge bills as “{feeTypeToHuman(lock.feeType)}”: another kind is another charge.
         </p>
       )}
 
@@ -212,12 +212,10 @@ export const ChargeComposer = ({
                 )}
               {shape.source === 'seats' &&
                 (newProduct ? (
-                  <InputFormField
-                    name="slotUnitName"
-                    label="Unit name"
-                    placeholder="Seats"
-                    className="max-w-xs"
+                  <QuantityField
                     control={control}
+                    setValue={methods.setValue as unknown as UseFormSetValue<FieldValues>}
+                    quantityId={values.quantityId as string | undefined}
                   />
                 ) : (
                   <p className="text-xs text-muted-foreground">

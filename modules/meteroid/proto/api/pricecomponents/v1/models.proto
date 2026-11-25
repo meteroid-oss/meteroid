@@ -29,6 +29,8 @@ message PriceComponent {
   repeated meteroid.api.prices.v1.Price prices = 6;
   // Which option bills which of `prices`: a price linked in every option is the same in each.
   repeated OptionPrice option_prices = 7;
+  // How the charge bills its product; unset for a product included with no price.
+  optional meteroid.api.prices.v1.FeeStructure fee_structure = 8;
 }
 
 message OptionPrice {
@@ -43,6 +45,8 @@ message ProductRef {
   }
 }
 
+// A product created with the charge. A product has no fee structure of its own: `fee_type` and
+// `fee_structure`, when set, are the charge's, for clients that do not send it on the charge.
 message NewProduct {
   string name = 1;
   meteroid.api.prices.v1.FeeType fee_type = 2;

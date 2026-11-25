@@ -338,6 +338,65 @@ fn price_credit_unit_to_grpc(
     })
 }
 
+/// The seat charge a portal request names: the subscription's add-on `add_on_id` when set, else
+/// its plan charge `component_id`; refused unless it charges per seat of a quantity.
+fn seat_fee_of<'a>(
+    details: &'a meteroid_store::domain::SubscriptionDetails,
+    component_id: &str,
+    add_on_id: Option<String>,
+) -> Result<
+    (
+        meteroid_store::domain::slot_transactions::SeatCharge,
+        &'a SubscriptionFee,
+    ),
+    Status,
+> {
+    use meteroid_store::domain::slot_transactions::SeatCharge;
+    let (charge, fee) = match add_on_id.filter(|id| !id.is_empty()) {
+        Some(id) => {
+            let add_on_id = AddOnId::from_proto(&id)?;
+            let add_on = details
+                .add_ons
+                .iter()
+                .find(|a| a.add_on_id == add_on_id)
+                .ok_or_else(|| {
+                    PortalSubscriptionApiError::NotFound(format!(
+                        "Add-on {add_on_id} not found on this subscription"
+                    ))
+                })?;
+            (SeatCharge::AddOn(add_on_id), &add_on.fee)
+        }
+        None => {
+            let price_component_id =
+                common_domain::ids::PriceComponentId::from_proto(component_id)?;
+            let component = details
+                .price_components
+                .iter()
+                .find(|c| c.price_component_id == Some(price_component_id))
+                .ok_or_else(|| {
+                    PortalSubscriptionApiError::NotFound(format!(
+                        "Component {price_component_id} not found on this subscription"
+                    ))
+                })?;
+            (SeatCharge::Component(price_component_id), &component.fee)
+        }
+    };
+    match fee {
+        SubscriptionFee::Slot {
+            quantity_id: Some(_),
+            ..
+        } => Ok((charge, fee)),
+        SubscriptionFee::Capacity { .. } => Err(PortalSubscriptionApiError::InvalidArgument(
+            "A usage-levels charge changes level, not quantity".to_string(),
+        )
+        .into()),
+        _ => Err(PortalSubscriptionApiError::InvalidArgument(format!(
+            "{charge:?} is not a seat charge"
+        ))
+        .into()),
+    }
+}
+
 /// (priority, fee_type, amount, cadence, unit, credit_unit)
 type HeadlineCandidate = (
     u8,
@@ -366,11 +425,17 @@ fn pick_plan_headline_fee(
                 let (fee_type, amount, unit) = match &price.pricing {
                     Pricing::Rate { rate } => (prices_proto::FeeType::Rate, rate.to_string(), None),
                     Pricing::Slot { model, .. } => {
-                        // Try to get unit name from product
-                        let unit_name = component
-                            .product_id
-                            .and_then(|pid| plan.products.get(&pid))
-                            .map(|p| p.name.clone());
+                        // The charge's seat label, else its product's name
+                        let unit_name = match component.structure() {
+                            Some(meteroid_store::domain::prices::FeeStructure::Slot {
+                                unit_name,
+                                ..
+                            }) => Some(unit_name.clone()),
+                            _ => component
+                                .product_id
+                                .and_then(|pid| plan.products.get(&pid))
+                                .map(|p| p.name.clone()),
+                        };
                         (
                             prices_proto::FeeType::Slot,
                             model.headline_rate().to_string(),
@@ -1119,37 +1184,11 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
 
         let addon_map: HashMap<AddOnId, _> = add_ons.iter().map(|a| (a.id, a)).collect();
 
-        // Build products/prices maps from enriched add-on data
-        let mut products_map = HashMap::new();
+        // Build the prices map from enriched add-on data
         let mut prices_map = HashMap::new();
         for addon in &add_ons {
             for price in addon.catalog_prices() {
                 prices_map.insert(price.id, price);
-            }
-            if let Some(fee_structure) = &addon.fee_structure {
-                products_map.insert(
-                    addon.product_id,
-                    meteroid_store::domain::Product {
-                        id: addon.product_id,
-                        name: addon.name.clone(),
-                        description: None,
-                        created_at: addon.created_at,
-                        updated_at: None,
-                        archived_at: None,
-                        tenant_id: addon.tenant_id,
-                        product_family_id: common_domain::ids::ProductFamilyId::from(
-                            uuid::Uuid::nil(),
-                        ),
-                        fee_type: addon
-                            .fee_type
-                            .unwrap_or(meteroid_store::domain::enums::FeeTypeEnum::Rate),
-                        fee_structure: fee_structure.clone(),
-                        catalog: false,
-                        tax_category_id: None,
-                        icon: None,
-                        color: None,
-                    },
-                );
             }
         }
 
@@ -1204,11 +1243,10 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             ) else {
                 continue;
             };
-            let resolved =
-                match addon.resolve_subscription_fee(&products_map, &prices_map, &units, None) {
-                    Ok(r) => r,
-                    Err(_) => continue,
-                };
+            let resolved = match addon.resolve_subscription_fee(&prices_map, &units, None) {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
 
             let mut fee = map_fee(&resolved.fee, &resolved.period);
             label_fee_unit(&mut fee, &units)?;
@@ -1483,6 +1521,8 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
         let currency = details.subscription.currency.clone();
 
         let mut components: Vec<AdjustableComponent> = Vec::new();
+        // Charges counting one quantity share its count: it is listed once, by its first charge.
+        let mut listed_quantities: Vec<common_domain::ids::ManagedQuantityId> = Vec::new();
         for component in &details.price_components {
             let Some(price_component_id) = component.price_component_id else {
                 continue;
@@ -1490,19 +1530,29 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             match &component.fee {
                 SubscriptionFee::Slot {
                     unit,
+                    quantity_id,
                     min_slots,
                     max_slots,
                     initial_slots,
                     ..
                 } => {
-                    // Live slot count from the ledger; fall back to the fee's
-                    // initial_slots when no transactions exist yet.
-                    let current = self
-                        .store
-                        .get_active_slots_value(tenant_id, subscription_id, unit.clone(), None)
-                        .await
-                        .map(|v| v as i64)
-                        .unwrap_or(*initial_slots as i64);
+                    if let Some(quantity) = quantity_id {
+                        if listed_quantities.contains(quantity) {
+                            continue;
+                        }
+                        listed_quantities.push(*quantity);
+                    }
+                    // Live seat count of its quantity; fall back to the fee's initial_slots when
+                    // no transactions exist yet.
+                    let current = match quantity_id {
+                        Some(quantity) => self
+                            .store
+                            .get_active_slots_value(tenant_id, subscription_id, *quantity, None)
+                            .await
+                            .map(|v| v as i64)
+                            .unwrap_or(*initial_slots as i64),
+                        None => *initial_slots as i64,
+                    };
 
                     components.push(AdjustableComponent {
                         component_id: price_component_id.as_proto(),
@@ -1515,6 +1565,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                         currency: currency.clone(),
                         unit_fee: Some(map_fee(&component.fee, &component.period)),
                         levels: vec![],
+                        add_on_id: None,
                     });
                 }
                 SubscriptionFee::Capacity {
@@ -1560,10 +1611,49 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                                 current: level.current,
                             })
                             .collect(),
+                        add_on_id: None,
                     });
                 }
                 _ => continue,
             }
+        }
+
+        // Add-ons charging per seat, their quantity not listed by a plan charge already.
+        for add_on in &details.add_ons {
+            let SubscriptionFee::Slot {
+                unit,
+                quantity_id: Some(quantity),
+                min_slots,
+                max_slots,
+                initial_slots,
+                ..
+            } = &add_on.fee
+            else {
+                continue;
+            };
+            if listed_quantities.contains(quantity) {
+                continue;
+            }
+            listed_quantities.push(*quantity);
+            let current = self
+                .store
+                .get_active_slots_value(tenant_id, subscription_id, *quantity, None)
+                .await
+                .map(|v| v as i64)
+                .unwrap_or(*initial_slots as i64);
+            components.push(AdjustableComponent {
+                component_id: String::new(),
+                name: add_on.name.clone(),
+                kind: "seats".to_string(),
+                current,
+                min: min_slots.map(|m| m as i64),
+                max: max_slots.map(|m| m as i64),
+                unit: Some(unit.clone()),
+                currency: currency.clone(),
+                unit_fee: Some(map_fee(&add_on.fee, &add_on.period)),
+                levels: vec![],
+                add_on_id: Some(add_on.add_on_id.as_proto()),
+            });
         }
 
         self.label_fee_units(
@@ -1745,7 +1835,6 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
         &self,
         request: Request<UpdateSeatsRequest>,
     ) -> Result<Response<UpdateSeatsResponse>, Status> {
-        use common_domain::ids::PriceComponentId;
         use meteroid_store::domain::slot_transactions::SlotUpgradeBillingMode;
         use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
 
@@ -1754,7 +1843,6 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
         let inner = request.into_inner();
 
         let subscription_id = SubscriptionId::from_proto(&inner.subscription_id)?;
-        let price_component_id = PriceComponentId::from_proto(&inner.component_id)?;
         let target = inner.quantity;
 
         let details = self
@@ -1774,38 +1862,16 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             .into());
         }
 
-        // Locate the slot component and its bounds.
-        let component = details
-            .price_components
-            .iter()
-            .find(|c| c.price_component_id == Some(price_component_id))
-            .ok_or_else(|| {
-                PortalSubscriptionApiError::NotFound(format!(
-                    "Component {} not found on this subscription",
-                    price_component_id
-                ))
-            })?;
-
-        let (unit, min_slots, max_slots) = match &component.fee {
+        // Locate the seat charge (a plan charge or an add-on) and its bounds.
+        let (charge, fee) = seat_fee_of(&details, &inner.component_id, inner.add_on_id)?;
+        let (quantity, min_slots, max_slots) = match fee {
             SubscriptionFee::Slot {
-                unit,
+                quantity_id: Some(quantity),
                 min_slots,
                 max_slots,
                 ..
-            } => (unit.clone(), *min_slots, *max_slots),
-            SubscriptionFee::Capacity { .. } => {
-                return Err(PortalSubscriptionApiError::InvalidArgument(
-                    "A usage-levels charge changes level, not quantity".to_string(),
-                )
-                .into());
-            }
-            _ => {
-                return Err(PortalSubscriptionApiError::InvalidArgument(format!(
-                    "Component {} is not a seat (slot) component",
-                    price_component_id
-                ))
-                .into());
-            }
+            } => (*quantity, *min_slots, *max_slots),
+            _ => unreachable!("seat_fee_of returns a seat fee naming its quantity"),
         };
 
         // Bounds: min_slots <= target <= max_slots.
@@ -1828,10 +1894,10 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             .into());
         }
 
-        // Current live slot count.
+        // Current live seat count of its quantity.
         let current = self
             .store
-            .get_active_slots_value(tenant_id, subscription_id, unit, None)
+            .get_active_slots_value(tenant_id, subscription_id, quantity, None)
             .await
             .map_err(Into::<PortalSubscriptionApiError>::into)? as i64;
 
@@ -1857,7 +1923,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                 .update_subscription_slots(
                     tenant_id,
                     subscription_id,
-                    price_component_id,
+                    charge,
                     delta_i32,
                     SlotUpgradeBillingMode::Optimistic,
                     common_domain::actor::Actor::Customer { id: customer_id },
@@ -1877,7 +1943,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                 .update_subscription_slots(
                     tenant_id,
                     subscription_id,
-                    price_component_id,
+                    charge,
                     delta_i32,
                     SlotUpgradeBillingMode::Optimistic,
                     common_domain::actor::Actor::Customer { id: customer_id },
@@ -2020,7 +2086,6 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
         &self,
         request: Request<PreviewSeatsRequest>,
     ) -> Result<Response<PreviewSeatsResponse>, Status> {
-        use common_domain::ids::PriceComponentId;
         use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
 
         let tenant_id = request.tenant()?;
@@ -2028,7 +2093,6 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
         let inner = request.into_inner();
 
         let subscription_id = SubscriptionId::from_proto(&inner.subscription_id)?;
-        let price_component_id = PriceComponentId::from_proto(&inner.component_id)?;
         let target = inner.quantity;
 
         let details = self
@@ -2047,37 +2111,14 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             .into());
         }
 
-        let component = details
-            .price_components
-            .iter()
-            .find(|c| c.price_component_id == Some(price_component_id))
-            .ok_or_else(|| {
-                PortalSubscriptionApiError::NotFound(format!(
-                    "Component {} not found on this subscription",
-                    price_component_id
-                ))
-            })?;
-
-        let unit = match &component.fee {
-            SubscriptionFee::Slot { unit, .. } => unit.clone(),
-            SubscriptionFee::Capacity { .. } => {
-                return Err(PortalSubscriptionApiError::InvalidArgument(
-                    "A usage-levels charge changes level, not quantity".to_string(),
-                )
-                .into());
-            }
-            _ => {
-                return Err(PortalSubscriptionApiError::InvalidArgument(format!(
-                    "Component {} is not a seat (slot) component",
-                    price_component_id
-                ))
-                .into());
-            }
-        };
+        let (charge, fee) = seat_fee_of(&details, &inner.component_id, inner.add_on_id)?;
+        let quantity = fee
+            .seat_quantity()
+            .expect("seat_fee_of returns a seat fee naming its quantity");
 
         let current = self
             .store
-            .get_active_slots_value(tenant_id, subscription_id, unit, None)
+            .get_active_slots_value(tenant_id, subscription_id, quantity, None)
             .await
             .map_err(Into::<PortalSubscriptionApiError>::into)? as i64;
 
@@ -2096,7 +2137,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
 
         let preview = self
             .services
-            .preview_slot_update(tenant_id, subscription_id, price_component_id, delta_i32)
+            .preview_slot_update(tenant_id, subscription_id, charge, delta_i32)
             .await
             .map_err(Into::<PortalSubscriptionApiError>::into)?;
 
@@ -2896,41 +2937,17 @@ impl PortalSubscriptionServiceComponents {
             .map_err(Into::<PortalSubscriptionApiError>::into)?)
     }
 
-    /// Resolves an enriched add-on's subscription fee using its own eagerly-loaded
-    /// product/price, so callers can inspect the fee (e.g. whether it bills up front).
+    /// Resolves an enriched add-on's subscription fee using its own structure and
+    /// eagerly-loaded price, so callers can inspect the fee (e.g. whether it bills up front).
     async fn resolve_addon_fee(
         &self,
         tenant_id: common_domain::ids::TenantId,
         addon: &meteroid_store::domain::add_ons::AddOn,
     ) -> Result<meteroid_store::domain::price_components::ResolvedFee, tonic::Status> {
-        let mut products_map = HashMap::new();
         let mut prices_map = HashMap::new();
 
         if let Some(price) = &addon.price {
             prices_map.insert(addon.price_id, price.clone());
-        }
-        if let Some(fee_structure) = &addon.fee_structure {
-            products_map.insert(
-                addon.product_id,
-                meteroid_store::domain::Product {
-                    id: addon.product_id,
-                    name: addon.name.clone(),
-                    description: None,
-                    created_at: addon.created_at,
-                    updated_at: None,
-                    archived_at: None,
-                    tenant_id: addon.tenant_id,
-                    product_family_id: common_domain::ids::ProductFamilyId::from(uuid::Uuid::nil()),
-                    fee_type: addon
-                        .fee_type
-                        .unwrap_or(meteroid_store::domain::enums::FeeTypeEnum::Rate),
-                    fee_structure: fee_structure.clone(),
-                    catalog: false,
-                    tax_category_id: None,
-                    icon: None,
-                    color: None,
-                },
-            );
         }
 
         let units = self
@@ -2946,7 +2963,7 @@ impl PortalSubscriptionServiceComponents {
             .await
             .map_err(Into::<PortalSubscriptionApiError>::into)?;
         addon
-            .resolve_subscription_fee(&products_map, &prices_map, &units, None)
+            .resolve_subscription_fee(&prices_map, &units, None)
             .map_err(|e| PortalSubscriptionApiError::InvalidArgument(e.to_string()).into())
     }
 

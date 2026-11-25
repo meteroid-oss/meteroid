@@ -4,16 +4,14 @@
 
 use std::collections::HashMap;
 
-use common_domain::ids::{
-    CreditUnitId, CustomerId, PriceId, ProductId, SubscriptionId, TenantId, UserId,
-};
+use common_domain::ids::{CreditUnitId, CustomerId, PriceId, SubscriptionId, TenantId, UserId};
 use error_stack::Report;
 use scoped_futures::ScopedBoxFuture;
 
 use crate::domain::credit_units::CreditUnitsById;
 use crate::domain::filters::Filter;
 use crate::domain::usage_attribution::SubscriptionUsageScopes;
-use crate::domain::{LineItem, Price, Product, SubscriptionFee, SubscriptionFeeBillingPeriod};
+use crate::domain::{LineItem, Price, SubscriptionFee, SubscriptionFeeBillingPeriod};
 use crate::errors::StoreError;
 use crate::store::PgConn;
 use crate::{Store, StoreResult};
@@ -107,19 +105,24 @@ pub async fn load_credit_units(
     crate::repositories::credit_units::load_credit_units(conn, tenant_id, ids).await
 }
 
-pub async fn fetch_prices_and_products(
+pub async fn fetch_prices(
     conn: &mut PgConn,
     tenant_id: TenantId,
     price_ids: impl Iterator<Item = PriceId>,
-    product_ids: impl Iterator<Item = ProductId>,
-) -> StoreResult<(HashMap<PriceId, Price>, HashMap<ProductId, Product>)> {
-    crate::repositories::subscriptions::fetch_prices_and_products(
-        conn,
-        tenant_id,
-        price_ids,
-        product_ids,
-    )
-    .await
+) -> StoreResult<HashMap<PriceId, Price>> {
+    crate::repositories::subscriptions::fetch_prices(conn, tenant_id, price_ids).await
+}
+
+pub use crate::repositories::subscriptions::ChargeShapes;
+
+/// The structures the rows' fees are priced in: each row's charge's (`ChargeShapes`).
+pub async fn charge_shapes(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    components: &[diesel_models::subscription_components::SubscriptionComponentRow],
+    add_ons: &[diesel_models::subscription_add_ons::SubscriptionAddOnRow],
+) -> StoreResult<ChargeShapes> {
+    ChargeShapes::load(conn, tenant_id, components, add_ons).await
 }
 
 pub async fn fetch_price_credit_units(
@@ -133,16 +136,14 @@ pub async fn fetch_price_credit_units(
 
 pub fn resolve_fee_from_maps(
     price_id: Option<PriceId>,
-    product_id: Option<ProductId>,
+    fee_structure: Option<&crate::domain::prices::FeeStructure>,
     prices_by_id: &HashMap<PriceId, Price>,
-    products_by_id: &HashMap<ProductId, Product>,
     units: &CreditUnitsById,
 ) -> Option<(SubscriptionFeeBillingPeriod, SubscriptionFee)> {
     crate::repositories::subscriptions::resolve_fee_from_maps(
         price_id,
-        product_id,
+        fee_structure,
         prices_by_id,
-        products_by_id,
         units,
     )
 }

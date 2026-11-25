@@ -711,6 +711,7 @@ impl Services {
                     SlotTransactionNewInternal {
                         id: tx.id,
                         unit: tx.unit.clone(),
+                        quantity_id: tx.quantity_id,
                         delta: tx.delta,
                         prev_active_slots: tx.prev_active_slots,
                         effective_at: tx.effective_at,
@@ -770,7 +771,6 @@ impl Services {
             components,
             &context.price_components_by_plan_version,
             subscription,
-            &context.products_by_id,
             &context.credit_units,
             resolved,
             plan.product_family_id,
@@ -801,7 +801,6 @@ impl Services {
         process_create_subscription_add_ons(
             add_ons,
             &context.all_add_ons,
-            &context.products_by_id,
             &context.addon_prices_by_id,
             &context.credit_units,
             plan.product_family_id,
@@ -967,22 +966,29 @@ async fn record_created_usage_filters(
     Ok(())
 }
 
+/// The seat counts a new subscription starts from: one per managed quantity, the first charge
+/// counting it setting it (plan charges before add-ons). An add-on counting the plan's quantity
+/// shares its count (R-137).
 fn process_slot_transactions(
     components: &[SubscriptionComponentNewInternal],
     addons: &[SubscriptionAddOnNewInternal],
     start_date: NaiveDate,
 ) -> StoreResult<Vec<SlotTransactionNewInternal>> {
-    let mut transactions = vec![];
+    let mut transactions: Vec<SlotTransactionNewInternal> = vec![];
 
-    for component in components {
-        if let Some(tx) = SlotTransactionNewInternal::from_fee(&component.fee, start_date) {
-            transactions.push(tx);
-        }
-    }
-
-    for addon in addons {
-        if let Some(tx) = SlotTransactionNewInternal::from_fee(&addon.fee, start_date) {
-            transactions.push(tx);
+    let fees = components
+        .iter()
+        .map(|component| &component.fee)
+        .chain(addons.iter().map(|addon| &addon.fee));
+    for fee in fees {
+        if let Some(tx) = SlotTransactionNewInternal::from_fee(fee, start_date) {
+            let seeded = transactions.iter().any(|other| match tx.quantity_id {
+                Some(quantity) => other.quantity_id == Some(quantity),
+                None => other.quantity_id.is_none() && other.unit == tx.unit,
+            });
+            if !seeded {
+                transactions.push(tx);
+            }
         }
     }
 
@@ -1079,9 +1085,10 @@ impl Services {
                             let internal = PriceComponentNewInternal {
                                 name: mat.name.clone(),
                                 product_ref: mat.product_ref.clone(),
+                                fee_structure: mat.fee_structure.clone(),
                                 prices: vec![mat.price_entry.clone()],
                             };
-                            let (product_id, price_ids) = resolve_component_internal(
+                            let charge = resolve_component_internal(
                                 conn,
                                 &internal,
                                 tenant_id,
@@ -1093,7 +1100,7 @@ impl Services {
 
                             materialized.insert(
                                 (sub_idx, mat.component_index),
-                                (product_id, price_ids.into_iter().next()),
+                                (charge.product_id, charge.price_ids.into_iter().next()),
                             );
                         }
                     }
@@ -1114,9 +1121,10 @@ impl Services {
                             let internal = PriceComponentNewInternal {
                                 name: mat.name.clone(),
                                 product_ref: mat.product_ref.clone(),
+                                fee_structure: mat.fee_structure.clone(),
                                 prices: vec![mat.price_entry.clone()],
                             };
-                            let (_product_id, price_ids) = resolve_component_internal(
+                            let charge = resolve_component_internal(
                                 conn,
                                 &internal,
                                 tenant_id,
@@ -1128,7 +1136,7 @@ impl Services {
 
                             materialized_addons.insert(
                                 (sub_idx, mat.component_index),
-                                (_product_id, price_ids.into_iter().next()),
+                                (charge.product_id, charge.price_ids.into_iter().next()),
                             );
                         }
                     }

@@ -8,7 +8,6 @@ use crate::plans::model::{
     ProductFamily, RateCardPlanPricing, RatePlanFee, SlotPlanFee, TermRate, TierRow,
     TieredPlanPricing, TrialConfig, UsagePlanFee, UsagePricingModel, VolumePlanPricing,
 };
-use common_domain::ids::ProductId;
 use meteroid_app::errors::RestApiError;
 use meteroid_store::domain;
 use meteroid_store::domain::Price;
@@ -16,7 +15,6 @@ use meteroid_store::domain::price_components::{
     PriceComponentNewInternal, PriceEntry, PriceInput, ProductRef,
 };
 use meteroid_store::domain::prices::{FeeStructure, Pricing, UsageModel};
-use meteroid_store::domain::products::Product;
 use std::collections::HashMap;
 
 // ── Domain → REST (response mapping) ──────────────────────────
@@ -26,14 +24,13 @@ pub fn plan_to_rest(
     version: domain::PlanVersion,
     price_components: Vec<domain::price_components::PriceComponent>,
     product_family_name: String,
-    products: &HashMap<ProductId, Product>,
 ) -> Result<Plan, RestApiError> {
     let rest_components: Vec<PriceComponent> = price_components
         .iter()
-        .map(|c| price_component_to_rest(c, products))
+        .map(price_component_to_rest)
         .collect();
 
-    let available_parameters = extract_available_parameters(&price_components, products);
+    let available_parameters = extract_available_parameters(&price_components);
 
     let trial = version.trial_duration_days.map(|d| TrialConfig {
         duration_days: d as u32,
@@ -179,18 +176,15 @@ fn subunit_to_major_string(amount_subunit: i64, currency: &str) -> String {
     amount_subunit.to_unit(precision).to_string()
 }
 
-fn price_component_to_rest(
-    component: &domain::price_components::PriceComponent,
-    products: &HashMap<ProductId, Product>,
-) -> PriceComponent {
+fn price_component_to_rest(component: &domain::price_components::PriceComponent) -> PriceComponent {
     let fee = if let Some(legacy) = &component.legacy_pricing {
         Some(fee_type_to_rest(&legacy.fee_type))
-    } else if let Some(product_id) = component.product_id {
-        products
-            .get(&product_id)
-            .and_then(|product| v2_component_to_fee(product, &component.prices))
     } else {
-        None
+        // The charge's own structure.
+        component
+            .fee_structure
+            .as_ref()
+            .and_then(|structure| v2_component_to_fee(structure, &component.prices))
     };
 
     PriceComponent {
@@ -201,13 +195,13 @@ fn price_component_to_rest(
     }
 }
 
-/// Reconstruct a Fee from a v2 Product (FeeStructure) + Prices (Pricing values).
-fn v2_component_to_fee(product: &Product, prices: &[Price]) -> Option<Fee> {
+/// Reconstruct a Fee from a v2 charge's FeeStructure + Prices (Pricing values).
+fn v2_component_to_fee(structure: &FeeStructure, prices: &[Price]) -> Option<Fee> {
     if prices.is_empty() {
         return None;
     }
 
-    match &product.fee_structure {
+    match structure {
         FeeStructure::Rate {} => {
             let rates = prices
                 .iter()
@@ -538,6 +532,7 @@ pub fn rest_to_domain_component(
     currency: &str,
 ) -> Result<PriceComponentNewInternal, RestApiError> {
     let (fee_type_enum, fee_structure, prices) = fee_to_domain(&input.fee, currency)?;
+    let fee_structure_of_charge = fee_structure.clone();
 
     let product_ref = match input.product_id {
         Some(pid) => ProductRef::Existing(pid),
@@ -548,9 +543,11 @@ pub fn rest_to_domain_component(
         },
     };
 
+    // The fee's structure is the charge's (and a new product's for older readers).
     Ok(PriceComponentNewInternal {
         name: input.name.clone(),
         product_ref,
+        fee_structure: Some(fee_structure_of_charge.clone()),
         prices,
     })
 }
@@ -609,8 +606,10 @@ fn fee_to_domain(
                 .collect();
             Ok((
                 FeeTypeEnum::Slot,
+                // Counts the quantity coded as its unit (REST v1 names no quantity).
                 FeeStructure::Slot {
                     unit_name: f.slot_unit_name.clone(),
+                    quantity_id: None,
                     upgrade_policy: UpgradePolicy::Prorated,
                     downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
                 },
@@ -874,7 +873,6 @@ fn tier_row_to_domain(t: &TierRow) -> domain::price_components::TierRow {
 
 fn extract_available_parameters(
     price_components: &[domain::price_components::PriceComponent],
-    products: &HashMap<ProductId, Product>,
 ) -> AvailableParameters {
     use domain::enums::FeeTypeEnum;
     use domain::prices::Pricing;
@@ -887,13 +885,10 @@ fn extract_available_parameters(
         let component_id = component.id.to_string();
 
         if !component.prices.is_empty() {
-            let fee_type = component
-                .product_id
-                .and_then(|pid| products.get(&pid))
-                .map(|p| &p.fee_type);
+            let fee_type = component.fee_structure.as_ref().map(|fs| fs.fee_type());
 
-            let is_slot = fee_type == Some(&FeeTypeEnum::Slot);
-            let is_capacity = fee_type == Some(&FeeTypeEnum::Capacity);
+            let is_slot = fee_type == Some(FeeTypeEnum::Slot);
+            let is_capacity = fee_type == Some(FeeTypeEnum::Capacity);
 
             if component.prices.len() > 1 || is_slot {
                 let cadences: Vec<BillingPeriodEnum> = component
@@ -1005,25 +1000,9 @@ mod tests {
     }
 
     fn read(structure: FeeStructure, pricing: Pricing) -> Fee {
-        let product = Product {
-            id: ProductId::default(),
-            name: "Setup".into(),
-            description: None,
-            created_at: chrono::NaiveDateTime::default(),
-            updated_at: None,
-            archived_at: None,
-            tenant_id: Default::default(),
-            product_family_id: Default::default(),
-            fee_type: domain::enums::FeeTypeEnum::ExtraRecurring,
-            fee_structure: structure,
-            catalog: false,
-            tax_category_id: None,
-            icon: None,
-            color: None,
-        };
         let price = Price {
             id: Default::default(),
-            product_id: product.id,
+            product_id: common_domain::ids::ProductId::default(),
             cadence: domain::enums::BillingPeriodEnum::Monthly,
             currency: "EUR".into(),
             pricing,
@@ -1033,7 +1012,7 @@ mod tests {
             catalog: false,
             credit_unit: None,
         };
-        v2_component_to_fee(&product, &[price]).expect("a fee")
+        v2_component_to_fee(&structure, &[price]).expect("a fee")
     }
 
     fn billed(pricing: &Pricing) -> Decimal {

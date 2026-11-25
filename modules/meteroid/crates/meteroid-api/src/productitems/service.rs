@@ -1,6 +1,7 @@
 use common_domain::ids::{BillableMetricId, ProductFamilyId, ProductId, TaxCategoryId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_app::features::ensure_credit_pricing_allowed;
+use meteroid_grpc::meteroid::api::prices::v1 as prices_proto;
 use meteroid_grpc::meteroid::api::products::v1::{
     ArchiveProductRequest, ArchiveProductResponse, CreateProductRequest, CreateProductResponse,
     GetProductRequest, GetProductResponse, ListProductUsageRequest, ListProductUsageResponse,
@@ -18,21 +19,25 @@ use tonic::{Request, Response, Status};
 
 use crate::productitems::error::ProductApiError;
 use crate::productitems::mapping::products::{
-    ProductMetaWrapper, ProductWithPriceWrapper, ProductWrapper, fee_structure_from_proto,
-    fee_type_from_proto, product_list_row, product_usage_to_proto,
+    ProductMetaWrapper, ProductWithPriceWrapper, ProductWrapper, fee_type_from_proto,
+    product_list_row, product_usage_to_proto,
 };
 use meteroid_grpc_mapping::utils::PaginationExt;
 
 use super::ProductServiceComponents;
 
-/// The metric a product's fee reads, when it reads one.
-fn metric_of(fee_structure: &FeeStructure) -> Option<BillableMetricId> {
-    match fee_structure {
-        FeeStructure::Capacity { metric_id } | FeeStructure::Usage { metric_id, .. } => {
-            Some(*metric_id)
-        }
-        _ => None,
-    }
+/// The metric a product's charges bill, when they all bill it one way that reads one.
+fn metric_of(structures: &[FeeStructure]) -> Option<BillableMetricId> {
+    domain::products::single_structure(structures).and_then(FeeStructure::metric_id)
+}
+
+/// A product sent with a credit structure: a client selling credit packs by the product, behind
+/// the gate of credit charges although the product keeps no structure.
+fn declares_credit(fee_structure: Option<&prices_proto::FeeStructure>) -> bool {
+    matches!(
+        fee_structure.and_then(|fs| fs.structure.as_ref()),
+        Some(prices_proto::fee_structure::Structure::Credit(_))
+    )
 }
 
 #[tonic::async_trait]
@@ -46,18 +51,13 @@ impl ProductsService for ProductServiceComponents {
         let organization_id = request.organization()?;
         let actor_typed = request.actor_typed()?;
 
+        // fee_type and fee_structure are not kept: the charges using the product own them. A
+        // credit structure is still refused where credit pricing is not enabled.
         let req = request.into_inner();
-
-        let fee_type = fee_type_from_proto(req.fee_type)?;
-        let fee_structure = req
-            .fee_structure
-            .map(fee_structure_from_proto)
-            .transpose()?
-            .ok_or_else(|| Status::invalid_argument("fee_structure is required"))?;
         ensure_credit_pricing_allowed(
             self.feature_resolver.as_ref(),
             organization_id,
-            fee_structure.is_credit(),
+            declares_credit(req.fee_structure.as_ref()),
         )
         .await?;
 
@@ -70,8 +70,6 @@ impl ProductsService for ProductServiceComponents {
                     description: req.description,
                     tenant_id,
                     family_id: ProductFamilyId::from_proto(req.family_local_id)?,
-                    fee_type,
-                    fee_structure,
                     catalog: req.catalog.unwrap_or(true),
                     tax_category_id: req
                         .tax_category_id
@@ -96,24 +94,22 @@ impl ProductsService for ProductServiceComponents {
         let tenant_id = request.tenant()?;
         let organization_id = request.organization()?;
         let actor = request.actor_typed()?;
+        // fee_type and fee_structure are not kept: the charges using the product own them. A
+        // credit structure is still refused where credit pricing is not enabled, unless the
+        // product's charges already sell credit.
         let req = request.into_inner();
 
         let product_id = ProductId::from_proto(req.product_id.as_str())?;
-        let fee_type = req.fee_type.map(fee_type_from_proto).transpose()?;
-        let fee_structure = req
-            .fee_structure
-            .map(fee_structure_from_proto)
-            .transpose()?;
-        if fee_structure.as_ref().is_some_and(FeeStructure::is_credit) {
-            let stored = self
-                .store
-                .find_product_by_id(product_id, tenant_id)
-                .await
-                .map_err(Into::<ProductApiError>::into)?;
+        if declares_credit(req.fee_structure.as_ref()) {
+            let sells_credit = self
+                .charge_structures(tenant_id, product_id)
+                .await?
+                .iter()
+                .any(FeeStructure::is_credit);
             ensure_credit_pricing_allowed(
                 self.feature_resolver.as_ref(),
                 organization_id,
-                !stored.fee_structure.is_credit(),
+                !sells_credit,
             )
             .await?;
         }
@@ -127,8 +123,6 @@ impl ProductsService for ProductServiceComponents {
                     tenant_id,
                     name: Some(req.name),
                     description: req.description.map(Some),
-                    fee_type,
-                    fee_structure,
                     tax_category_id: match req.tax_category_id {
                         None => None,
                         Some(s) if s.is_empty() => Some(None),
@@ -139,8 +133,8 @@ impl ProductsService for ProductServiceComponents {
                 },
             )
             .await
-            .map_err(Into::<ProductApiError>::into)
-            .map(|x| ProductWrapper::from(x).0)?;
+            .map_err(Into::<ProductApiError>::into)?;
+        let res = self.with_charges(tenant_id, res).await?;
 
         Ok(Response::new(UpdateProductResponse { product: Some(res) }))
     }
@@ -215,10 +209,9 @@ impl ProductsService for ProductServiceComponents {
             .await
             .map_err(Into::<ProductApiError>::into)?;
 
-        let metric_ids: Vec<BillableMetricId> = res
-            .items
-            .iter()
-            .filter_map(|p| metric_of(&p.fee_structure))
+        let metric_ids: Vec<BillableMetricId> = facts
+            .values()
+            .filter_map(|f| metric_of(&f.charge_structures))
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
             .collect();
@@ -239,9 +232,11 @@ impl ProductsService for ProductServiceComponents {
                 .items
                 .into_iter()
                 .map(|product| {
-                    let metric_name = metric_of(&product.fee_structure)
-                        .and_then(|id| metric_names.get(&id).cloned());
                     let facts = facts.remove(&product.id);
+                    let metric_name = facts
+                        .as_ref()
+                        .and_then(|f| metric_of(&f.charge_structures))
+                        .and_then(|id| metric_names.get(&id).cloned());
                     product_list_row(product, facts, metric_name)
                 })
                 .collect::<Vec<_>>(),
@@ -266,7 +261,8 @@ impl ProductsService for ProductServiceComponents {
             .await
             .map_err(Into::<ProductApiError>::into)?;
 
-        let metric_name = if let Some(mid) = metric_of(&domain_product.fee_structure) {
+        let structures = self.charge_structures(tenant_id, product_id).await?;
+        let metric_name = if let Some(mid) = metric_of(&structures) {
             self.store
                 .find_billable_metric_by_id(mid, tenant_id)
                 .await
@@ -276,7 +272,7 @@ impl ProductsService for ProductServiceComponents {
             None
         };
 
-        let product = ProductWrapper::from(domain_product).0;
+        let product = ProductWrapper::with_charges(domain_product, &structures);
 
         let prices = self
             .store
@@ -358,8 +354,8 @@ impl ProductsService for ProductServiceComponents {
             .store
             .archive_product(actor, product_id, tenant_id)
             .await
-            .map_err(Into::<ProductApiError>::into)
-            .map(|x| ProductWrapper::from(x).0)?;
+            .map_err(Into::<ProductApiError>::into)?;
+        let product = self.with_charges(tenant_id, product).await?;
 
         Ok(Response::new(ArchiveProductResponse {
             product: Some(product),
@@ -378,8 +374,8 @@ impl ProductsService for ProductServiceComponents {
             .store
             .unarchive_product(product_id, tenant_id)
             .await
-            .map_err(Into::<ProductApiError>::into)
-            .map(|x| ProductWrapper::from(x).0)?;
+            .map_err(Into::<ProductApiError>::into)?;
+        let product = self.with_charges(tenant_id, product).await?;
 
         Ok(Response::new(UnarchiveProductResponse {
             product: Some(product),
@@ -401,5 +397,33 @@ impl ProductsService for ProductServiceComponents {
             .map_err(Into::<ProductApiError>::into)?;
 
         Ok(Response::new(product_usage_to_proto(usage)))
+    }
+}
+
+impl ProductServiceComponents {
+    /// How the live charges using the product bill it.
+    async fn charge_structures(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        product_id: ProductId,
+    ) -> Result<Vec<FeeStructure>, Status> {
+        Ok(self
+            .store
+            .product_list_facts(tenant_id, &[product_id])
+            .await
+            .map_err(Into::<ProductApiError>::into)?
+            .remove(&product_id)
+            .map(|facts| facts.charge_structures)
+            .unwrap_or_default())
+    }
+
+    /// The product as its charges bill it.
+    async fn with_charges(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        product: domain::Product,
+    ) -> Result<meteroid_grpc::meteroid::api::products::v1::Product, Status> {
+        let structures = self.charge_structures(tenant_id, product.id).await?;
+        Ok(ProductWrapper::with_charges(product, &structures))
     }
 }

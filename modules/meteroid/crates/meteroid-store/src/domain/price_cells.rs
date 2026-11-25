@@ -247,6 +247,7 @@ mod tests {
         PriceComponent {
             id: common_domain::ids::PriceComponentId::new(),
             name: "charge".to_owned(),
+            fee_structure: None,
             product_id: Some(ProductId::default()),
             option_prices: cells
                 .iter()

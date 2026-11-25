@@ -1207,7 +1207,10 @@ pub struct ProductEvent {
     pub tenant_id: TenantId,
     pub name: String,
     pub description: Option<String>,
-    pub fee_type: FeeTypeEnum,
+    /// None: a product has no fee structure, its charges do. Set on events of products
+    /// created before.
+    #[serde(default)]
+    pub fee_type: Option<FeeTypeEnum>,
     pub product_family_id: ProductFamilyId,
     pub created_at: NaiveDateTime,
 }
@@ -1218,7 +1221,7 @@ impl ProductEvent {
         tenant_id: TenantId,
         name: String,
         description: Option<String>,
-        fee_type: FeeTypeEnum,
+        fee_type: Option<FeeTypeEnum>,
         product_family_id: ProductFamilyId,
         created_at: NaiveDateTime,
     ) -> Self {

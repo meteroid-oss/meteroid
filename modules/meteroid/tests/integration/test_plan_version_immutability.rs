@@ -81,6 +81,7 @@ async fn a_published_plan_version_refuses_every_edit_of_its_components(
         name: "Extra".to_string(),
         product_id: Some(PRODUCT_PLATFORM_FEE_ID),
         plan_version_id: PLAN_VERSION_PRO_ID,
+        fee_structure: Some(FeeStructure::Rate {}),
     };
 
     assert_refused(
@@ -170,59 +171,47 @@ async fn a_published_plan_version_refuses_every_edit_of_its_components(
         .expect("a draft takes a new component");
 }
 
-/// A product's fee structure is how its prices are read: once it has a price, a new structure
-/// is refused, the same one and its other fields stay editable.
-/// Rules: R-098
+/// A product has no fee structure: it is created and edited without one, and its charges keep
+/// how they bill it whatever the product becomes.
+/// Rules: R-139
 #[rstest]
 #[tokio::test]
-async fn a_priced_product_refuses_another_fee_structure(#[future] test_env: TestEnv) {
+async fn a_product_is_edited_without_touching_how_its_charges_bill_it(#[future] test_env: TestEnv) {
     let env = test_env.await;
     let store = env.store();
-    let update = |id, fee_structure| ProductUpdate {
+    let update = |id| ProductUpdate {
         id,
         tenant_id: TENANT_ID,
         name: None,
         description: None,
-        fee_type: None,
-        fee_structure,
         tax_category_id: None,
         icon: None,
         color: None,
     };
-    let platform = store
-        .find_product_by_id(PRODUCT_PLATFORM_FEE_ID, TENANT_ID)
-        .await
-        .expect("the platform fee");
-
-    let refused = store
-        .update_product(
-            Actor::System,
-            update(platform.id, Some(FeeStructure::OneTime {})),
-        )
-        .await;
-    match refused {
-        Ok(done) => panic!("a priced product took another fee structure: {done:?}"),
-        Err(err) => assert!(
-            format!("{err:?}").contains("fee_structure cannot change"),
-            "{err:?}"
-        ),
-    }
 
     let renamed = store
         .update_product(
             Actor::System,
             ProductUpdate {
-                name: Some("Platform".to_string()),
+                name: Some("Seat licences".to_string()),
                 description: Some(Some("Renamed".to_string())),
-                ..update(platform.id, Some(platform.fee_structure.clone()))
+                ..update(PRODUCT_SEATS_ID)
             },
         )
         .await
-        .expect("the same structure, renamed");
-    assert_eq!(renamed.name, "Platform");
-    assert_eq!(
-        serde_json::to_value(&renamed.fee_structure).unwrap(),
-        serde_json::to_value(&platform.fee_structure).unwrap()
+        .expect("a priced product renamed");
+    assert_eq!(renamed.name, "Seat licences");
+    let seats = store
+        .list_price_components(PLAN_VERSION_PRO_ID, TENANT_ID)
+        .await
+        .expect("components")
+        .into_iter()
+        .find(|component| component.id == COMP_PRO_SEATS_ID)
+        .expect("Pro's seats");
+    assert!(
+        matches!(seats.fee_structure, Some(FeeStructure::Slot { .. })),
+        "the charge still bills per seat: {:?}",
+        seats.fee_structure
     );
 
     let unpriced = store
@@ -233,8 +222,6 @@ async fn a_priced_product_refuses_another_fee_structure(#[future] test_env: Test
                 description: None,
                 tenant_id: TENANT_ID,
                 family_id: PRODUCT_FAMILY_ID,
-                fee_type: platform.fee_type,
-                fee_structure: FeeStructure::Rate {},
                 catalog: true,
                 tax_category_id: None,
                 icon: None,
@@ -242,13 +229,6 @@ async fn a_priced_product_refuses_another_fee_structure(#[future] test_env: Test
             },
         )
         .await
-        .expect("a product with no price");
-    let changed = store
-        .update_product(
-            Actor::System,
-            update(unpriced.id, Some(FeeStructure::OneTime {})),
-        )
-        .await
-        .expect("no price reads its structure yet");
-    assert!(matches!(changed.fee_structure, FeeStructure::OneTime {}));
+        .expect("a product with no structure");
+    assert_eq!(unpriced.name, "Unpriced");
 }

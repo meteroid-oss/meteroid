@@ -8,7 +8,6 @@ use crate::domain::prices::{
     LegacyPricingData, Price, Pricing, extract_legacy_pricing, fee_type_billing_period,
     resolve_subscription_fee,
 };
-use crate::domain::products::Product;
 use crate::domain::scheduled_events::{
     ComponentMapping, ScheduledEvent, ScheduledEventData, ScheduledEventNew,
 };
@@ -42,7 +41,6 @@ use diesel_models::plan_version_add_ons::PlanVersionAddOnRow;
 use diesel_models::plans::PlanRow;
 use diesel_models::price_components::PriceComponentRow;
 use diesel_models::prices::PriceRow;
-use diesel_models::products::ProductRow;
 use diesel_models::query::credit_inputs;
 use diesel_models::slot_transactions::SlotTransactionRow;
 use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
@@ -61,6 +59,8 @@ enum TargetPricing {
     V2 {
         product_id: ProductId,
         prices: Vec<Price>,
+        /// How the charge bills its product.
+        fee_structure: crate::domain::prices::FeeStructure,
     },
     Legacy(LegacyPricingData),
 }
@@ -78,12 +78,33 @@ impl TargetComponent {
             TargetPricing::Legacy(_) => None,
         }
     }
+
+    /// The current component the target continues: the same product billed the same way, its
+    /// metric and its quantity included (`FeeStructure::same_shape`). A product charged another
+    /// way by the target (per seat where it was a flat fee, usage of another metric) is another
+    /// charge: the old one is removed, the new one added.
+    fn matching<'a>(
+        &self,
+        current: &'a [SubscriptionComponent],
+    ) -> Option<&'a SubscriptionComponent> {
+        let TargetPricing::V2 {
+            product_id,
+            fee_structure,
+            ..
+        } = &self.pricing
+        else {
+            return None;
+        };
+        current.iter().find(|c| {
+            c.product_id == Some(*product_id)
+                && crate::domain::prices::FeeStructure::of_fee(&c.fee).same_shape(fee_structure)
+        })
+    }
 }
 
 struct ValidatedPlanChangeContext {
     subscription_details: crate::domain::SubscriptionDetails,
     target_components: Vec<TargetComponent>,
-    products: HashMap<ProductId, Product>,
     units: crate::domain::credit_units::CreditUnitsById,
     target_minimum: Option<crate::domain::plan_minimums::PlanMinimum>,
     compatible_add_on_ids: Vec<AddOnId>,
@@ -185,14 +206,6 @@ async fn load_validated_plan_change_context(
     .await?;
     refuse_legacy_in_another_currency(&target_components, &target_version.currency, sub_currency)?;
 
-    let products = load_products_for_components(
-        conn,
-        tenant_id,
-        &subscription_details.price_components,
-        &target_components,
-    )
-    .await?;
-
     let mut target_minimum =
         crate::repositories::plans::load_plan_minimum(conn, new_plan_version_id).await?;
     // A plan minimum is in its version's currency: it never lands on a subscription billed in
@@ -240,7 +253,6 @@ async fn load_validated_plan_change_context(
     Ok(ValidatedPlanChangeContext {
         subscription_details,
         target_components,
-        products,
         units,
         target_minimum,
         compatible_add_on_ids,
@@ -377,7 +389,6 @@ impl Services {
                     let component_mappings = build_component_mappings(
                         &ctx.subscription_details.price_components,
                         &ctx.target_components,
-                        &ctx.products,
                         &ctx.units,
                         component_params,
                     )?;
@@ -551,7 +562,6 @@ impl Services {
         let mut preview = build_plan_change_preview(
             &ctx.subscription_details.price_components,
             &ctx.target_components,
-            &ctx.products,
             &ctx.units,
             &component_params,
             effective_date,
@@ -1038,7 +1048,6 @@ impl Services {
         let mut preview = build_plan_change_preview(
             &ctx.subscription_details.price_components,
             &ctx.target_components,
-            &ctx.products,
             &ctx.units,
             component_params,
             change_date,
@@ -1105,7 +1114,6 @@ impl Services {
         let component_mappings = build_component_mappings(
             &ctx.subscription_details.price_components,
             &ctx.target_components,
-            &ctx.products,
             &ctx.units,
             component_params,
         )?;
@@ -1233,6 +1241,7 @@ impl Services {
                     name,
                     fee,
                     period,
+                    ..
                 } => {
                     let mut row_new: SubscriptionComponentRowNew = SubscriptionComponentNew {
                         subscription_id,
@@ -1288,14 +1297,18 @@ impl Services {
         )
         .await?;
 
-        use crate::domain::slot_transactions::SlotTransactionNewInternal;
+        // A target seat fee counting a quantity the subscription holds carries its seats.
+        let held = held_seat_quantities(&prepared.subscription_details);
         let seeds: Vec<_> = component_mappings
             .iter()
             .filter_map(|mapping| match mapping {
-                ComponentMapping::Added { fee, .. } => {
-                    SlotTransactionNewInternal::from_fee(fee, change_date)
+                ComponentMapping::Added { fee, seats, .. } => {
+                    plan_change_seat_seed(fee, *seats, false, &held, change_date)
                 }
-                _ => None,
+                ComponentMapping::Matched { fee, .. } => {
+                    plan_change_seat_seed(fee, None, true, &held, change_date)
+                }
+                ComponentMapping::Removed { .. } => None,
             })
             .map(|tx| (subscription_id, tx))
             .collect();
@@ -1612,6 +1625,7 @@ impl PreparedPlanChange {
                     name,
                     fee,
                     period,
+                    ..
                 } => added.push(SubscriptionComponent {
                     id: common_domain::ids::SubscriptionPriceComponentId::new(),
                     price_component_id: Some(*target_component_id),
@@ -1908,10 +1922,22 @@ async fn load_target_components_with_prices(
                         row.name
                     )))
                 })?;
+                let fee_structure =
+                    crate::domain::price_components::structure_of_json(row.fee_structure)?
+                        .ok_or_else(|| {
+                            Report::new(StoreError::InvalidArgument(format!(
+                                "Charge {} has no fee structure",
+                                row.name
+                            )))
+                        })?;
                 Ok(TargetComponent {
                     id: row.id,
                     name: row.name,
-                    pricing: TargetPricing::V2 { product_id, prices },
+                    pricing: TargetPricing::V2 {
+                        product_id,
+                        prices,
+                        fee_structure,
+                    },
                 })
             } else if let Some(legacy) = legacy_by_component.remove(&id) {
                 Ok(TargetComponent {
@@ -1929,32 +1955,6 @@ async fn load_target_components_with_prices(
         .collect::<Result<Vec<_>, Report<StoreError>>>()?;
 
     Ok(components)
-}
-
-async fn load_products_for_components(
-    conn: &mut PgConn,
-    tenant_id: TenantId,
-    current_components: &[SubscriptionComponent],
-    target_components: &[TargetComponent],
-) -> StoreResult<HashMap<ProductId, Product>> {
-    let product_ids: Vec<ProductId> = target_components
-        .iter()
-        .filter_map(|c| c.product_id())
-        .chain(current_components.iter().filter_map(|c| c.product_id))
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
-        .collect();
-
-    if product_ids.is_empty() {
-        return Ok(HashMap::new());
-    }
-
-    ProductRow::list_by_ids(conn, &product_ids, tenant_id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?
-        .into_iter()
-        .map(|r| Product::try_from(r).map(|p| (p.id, p)))
-        .collect::<Result<HashMap<_, _>, _>>()
 }
 
 /// What a matched current component (same product) carries over to the target's price choice.
@@ -2001,7 +2001,6 @@ impl Ported {
 /// 4. Multiple prices with no selection → error
 fn resolve_target_fee(
     target: &TargetComponent,
-    products: &HashMap<ProductId, Product>,
     units: &crate::domain::credit_units::CreditUnitsById,
     explicit_params: Option<&ComponentParameters>,
     ported: Option<Ported>,
@@ -2014,16 +2013,11 @@ fn resolve_target_fee(
     Report<StoreError>,
 > {
     match &target.pricing {
-        TargetPricing::V2 { product_id, prices } => {
-            let product = products.get(product_id).ok_or_else(|| {
-                Report::new(StoreError::InvalidArgument(format!(
-                    "Product {} not found for component {}",
-                    product_id, target.name
-                )))
-            })?;
-
-            let fee_structure = &product.fee_structure;
-
+        TargetPricing::V2 {
+            prices,
+            fee_structure,
+            ..
+        } => {
             let price = select_target_price(prices, explicit_params, ported, &target.name)?;
 
             let fee = resolve_subscription_fee(
@@ -2135,7 +2129,6 @@ fn build_legacy_params(
 fn build_component_mappings(
     current_components: &[SubscriptionComponent],
     target_components: &[TargetComponent],
-    products: &HashMap<ProductId, Product>,
     units: &crate::domain::credit_units::CreditUnitsById,
     component_params: &[ComponentParameterization],
 ) -> StoreResult<Vec<ComponentMapping>> {
@@ -2147,27 +2140,18 @@ fn build_component_mappings(
     let mut mappings = Vec::new();
     let mut matched_current_ids = std::collections::HashSet::new();
 
-    // Match target components to current by product_id
+    // Match target components to current by product and how it is billed
     for target in target_components {
         let explicit_params = params_by_id.get(&target.id).copied();
 
-        // Try to find a matching current component by product_id (v2 only)
-        let matched_current = target.product_id().and_then(|target_pid| {
-            current_components
-                .iter()
-                .find(|c| c.product_id == Some(target_pid))
-        });
+        // Try to find a matching current component (v2 only)
+        let matched_current = target.matching(current_components);
 
         if let Some(current) = matched_current {
             matched_current_ids.insert(current.id);
 
-            let (period, fee, price_id) = resolve_target_fee(
-                target,
-                products,
-                units,
-                explicit_params,
-                Some(Ported::of(current)),
-            )?;
+            let (period, fee, price_id) =
+                resolve_target_fee(target, units, explicit_params, Some(Ported::of(current)))?;
 
             let price_id = price_id.ok_or_else(|| {
                 Report::new(StoreError::InvalidArgument(format!(
@@ -2199,7 +2183,6 @@ fn build_component_mappings(
         // No match found — this is a new component
         let (period, fee, price_id) = resolve_target_fee(
             target,
-            products,
             units,
             explicit_params,
             Ported::subscription_cadence(current_components),
@@ -2210,6 +2193,9 @@ fn build_component_mappings(
             product_id: target.product_id(),
             price_id,
             name: target.name.clone(),
+            seats: explicit_params
+                .and_then(|params| params.initial_slot_count)
+                .filter(|_| matches!(fee, SubscriptionFee::Slot { .. })),
             fee,
             period,
         });
@@ -2237,7 +2223,6 @@ fn same_fee(current: &SubscriptionFee, new: &SubscriptionFee) -> bool {
 fn build_plan_change_preview(
     current_components: &[SubscriptionComponent],
     target_components: &[TargetComponent],
-    products: &HashMap<ProductId, Product>,
     units: &crate::domain::credit_units::CreditUnitsById,
     component_params: &[ComponentParameterization],
     effective_date: chrono::NaiveDate,
@@ -2256,22 +2241,13 @@ fn build_plan_change_preview(
     for target in target_components {
         let explicit_params = params_by_id.get(&target.id).copied();
 
-        let matched_current = target.product_id().and_then(|target_pid| {
-            current_components
-                .iter()
-                .find(|c| c.product_id == Some(target_pid))
-        });
+        let matched_current = target.matching(current_components);
 
         if let Some(current) = matched_current {
             matched_current_ids.insert(current.id);
 
-            let (new_period, new_fee, _) = resolve_target_fee(
-                target,
-                products,
-                units,
-                explicit_params,
-                Some(Ported::of(current)),
-            )?;
+            let (new_period, new_fee, _) =
+                resolve_target_fee(target, units, explicit_params, Some(Ported::of(current)))?;
 
             matched.push(MatchedComponent {
                 product_id: target.product_id().ok_or_else(|| {
@@ -2295,7 +2271,6 @@ fn build_plan_change_preview(
 
         let (period, fee, _) = resolve_target_fee(
             target,
-            products,
             units,
             explicit_params,
             Ported::subscription_cadence(current_components),
@@ -2333,6 +2308,45 @@ fn build_plan_change_preview(
     })
 }
 
+/// The managed quantities the subscription's seat fees count, plan charges and add-ons.
+pub(crate) fn held_seat_quantities(
+    details: &crate::domain::SubscriptionDetails,
+) -> std::collections::HashSet<common_domain::ids::ManagedQuantityId> {
+    details
+        .price_components
+        .iter()
+        .map(|c| &c.fee)
+        .chain(details.add_ons.iter().map(|a| &a.fee))
+        .filter_map(SubscriptionFee::seat_quantity)
+        .collect()
+}
+
+/// What a plan change writes for a target's seat fee: nothing when the subscription holds its
+/// quantity already and the change sets no count, its seats carrying whatever charge or product
+/// counted them (R-108, R-137); the count the change sets; else the fee's initial count. A fee
+/// naming no quantity (a v1 target) carries when `matched`, as before quantities.
+pub(crate) fn plan_change_seat_seed(
+    fee: &SubscriptionFee,
+    sets: Option<u32>,
+    matched: bool,
+    held: &std::collections::HashSet<common_domain::ids::ManagedQuantityId>,
+    on: NaiveDate,
+) -> Option<crate::domain::slot_transactions::SlotTransactionNewInternal> {
+    let mut seed = crate::domain::slot_transactions::SlotTransactionNewInternal::from_fee(fee, on)?;
+    let carried = match fee.seat_quantity() {
+        Some(quantity) => held.contains(&quantity),
+        None => matched,
+    };
+    match (carried, sets) {
+        (true, None) => None,
+        (_, Some(count)) => {
+            seed.prev_active_slots = i32::try_from(count).unwrap_or(i32::MAX);
+            Some(seed)
+        }
+        (false, None) => Some(seed),
+    }
+}
+
 /// Resolves actual slot counts from `slot_transaction` into the preview's fees.
 ///
 /// `initial_slots` in a `SubscriptionFee::Slot` is only a seed value from subscription creation.
@@ -2347,47 +2361,47 @@ async fn resolve_preview_slot_counts(
     subscription_id: SubscriptionId,
     preview: &mut PlanChangePreview,
 ) -> StoreResult<()> {
-    // Collect unique slot unit names that need resolution
-    let mut units: Vec<String> = Vec::new();
-    for m in preview.matched.iter() {
-        if let SubscriptionFee::Slot { unit, .. } = &m.current_fee
-            && !units.contains(unit)
+    // The quantities held, each counted once
+    let mut quantities: Vec<common_domain::ids::ManagedQuantityId> = Vec::new();
+    for fee in preview
+        .matched
+        .iter()
+        .map(|m| &m.current_fee)
+        .chain(preview.removed.iter().map(|r| &r.current_fee))
+    {
+        if let Some(quantity) = fee.seat_quantity()
+            && !quantities.contains(&quantity)
         {
-            units.push(unit.clone());
-        }
-    }
-    for r in preview.removed.iter() {
-        if let SubscriptionFee::Slot { unit, .. } = &r.current_fee
-            && !units.contains(unit)
-        {
-            units.push(unit.clone());
+            quantities.push(quantity);
         }
     }
 
-    // Query actual counts once per unit
-    let mut counts: HashMap<String, u32> = HashMap::new();
-    for unit in units {
+    let mut counts: HashMap<common_domain::ids::ManagedQuantityId, u32> = HashMap::new();
+    for quantity in quantities {
         let actual = SlotTransactionRow::fetch_active_slots(
             conn,
             tenant_id,
             subscription_id,
-            unit.clone(),
+            quantity,
             common_clock::now().naive_utc(),
         )
         .await
         .map(|slots| slots.unwrap_or(0) as u32)
         .unwrap_or(0);
-        counts.insert(unit, actual);
+        counts.insert(quantity, actual);
     }
 
-    // Patch fees
-    fn patch(fee: &mut SubscriptionFee, counts: &HashMap<String, u32>) {
+    // Patch fees: a target fee counting a quantity held keeps its seats (R-137)
+    fn patch(
+        fee: &mut SubscriptionFee,
+        counts: &HashMap<common_domain::ids::ManagedQuantityId, u32>,
+    ) {
         if let SubscriptionFee::Slot {
-            unit,
+            quantity_id: Some(quantity),
             initial_slots,
             ..
         } = fee
-            && let Some(&actual) = counts.get(unit.as_str())
+            && let Some(&actual) = counts.get(quantity)
         {
             *initial_slots = actual;
         }
@@ -2396,6 +2410,9 @@ async fn resolve_preview_slot_counts(
     for m in &mut preview.matched {
         patch(&mut m.current_fee, &counts);
         patch(&mut m.new_fee, &counts);
+    }
+    for a in &mut preview.added {
+        patch(&mut a.fee, &counts);
     }
     for r in &mut preview.removed {
         patch(&mut r.current_fee, &counts);
@@ -2421,31 +2438,35 @@ pub(crate) async fn calculate_components_mrr_with_slots(
         MrrLine, calculate_mrr, fee_period_total_cents, monthly_share,
     };
 
-    // Collect unique slot units and query actual counts
-    let mut slot_counts: HashMap<String, i64> = HashMap::new();
+    // Query the count of each quantity held once
+    let mut slot_counts: HashMap<common_domain::ids::ManagedQuantityId, i64> = HashMap::new();
     for c in components {
-        if let SubscriptionFee::Slot { unit, .. } = &c.fee
-            && !slot_counts.contains_key(unit)
+        if let Some(quantity) = c.fee.seat_quantity()
+            && !slot_counts.contains_key(&quantity)
         {
             let count = SlotTransactionRow::fetch_active_slots(
                 conn,
                 tenant_id,
                 subscription_id,
-                unit.clone(),
+                quantity,
                 common_clock::now().naive_utc(),
             )
             .await
             .map(|slots| i64::from(slots.unwrap_or(0)))
             .map_err(Into::<Report<StoreError>>::into)?;
-            slot_counts.insert(unit.clone(), count);
+            slot_counts.insert(quantity, count);
         }
     }
 
     let mut lines = Vec::with_capacity(components.len());
     for c in components {
         let (monthly, period_total) = match &c.fee {
-            SubscriptionFee::Slot { unit, model, .. } => {
-                let count = slot_counts.get(unit).copied().unwrap_or(0);
+            SubscriptionFee::Slot { model, .. } => {
+                let count = c
+                    .fee
+                    .seat_quantity()
+                    .and_then(|quantity| slot_counts.get(&quantity).copied())
+                    .unwrap_or(0);
                 let total = model.period_total_minor(u64::try_from(count).unwrap_or(0), precision);
                 // Rounded through the same `monthly_share` `calculate_mrr` uses: this
                 // branch recomputes what creation computed, and a figure truncated here
@@ -2462,6 +2483,72 @@ pub(crate) async fn calculate_components_mrr_with_slots(
     }
 
     Ok(lines)
+}
+
+/// The live count of each of `quantities` the subscription holds, from the ledger; a quantity
+/// with no seat transaction yet is left out.
+pub(crate) async fn live_seat_counts(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+    quantities: Vec<common_domain::ids::ManagedQuantityId>,
+) -> StoreResult<HashMap<common_domain::ids::ManagedQuantityId, u32>> {
+    let now = common_clock::now().naive_utc();
+    let mut counts = HashMap::new();
+    for quantity in quantities {
+        if counts.contains_key(&quantity) {
+            continue;
+        }
+        let count =
+            SlotTransactionRow::fetch_active_slots(conn, tenant_id, subscription_id, quantity, now)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+        if let Some(count) = count {
+            counts.insert(quantity, u32::try_from(count).unwrap_or(0));
+        }
+    }
+    Ok(counts)
+}
+
+/// A seat fee at its quantity's live count in `counts`, when held: what it bills, never the
+/// seats it was added with.
+pub(crate) fn at_live_count(
+    fee: &mut SubscriptionFee,
+    counts: &HashMap<common_domain::ids::ManagedQuantityId, u32>,
+) {
+    if let SubscriptionFee::Slot {
+        quantity_id: Some(quantity),
+        initial_slots,
+        ..
+    } = fee
+        && let Some(count) = counts.get(quantity)
+    {
+        *initial_slots = *count;
+    }
+}
+
+/// `add_ons` with each seat add-on's fee at its quantity's live count, as
+/// `calculate_components_mrr_with_slots` reads the components': a seat add-on bills the count it
+/// shares with every charge counting its quantity (R-137, R-138), whatever it was added with.
+pub(crate) async fn add_ons_at_live_seats(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+    add_ons: &[SubscriptionAddOn],
+) -> StoreResult<Vec<SubscriptionAddOn>> {
+    let quantities = add_ons
+        .iter()
+        .filter_map(|a| a.fee.seat_quantity())
+        .collect();
+    let counts = live_seat_counts(conn, tenant_id, subscription_id, quantities).await?;
+    Ok(add_ons
+        .iter()
+        .map(|a| {
+            let mut a = a.clone();
+            at_live_count(&mut a.fee, &counts);
+            a
+        })
+        .collect())
 }
 
 /// On plan change, refresh the `subscription_minimum` snapshot from the new plan version's
@@ -2636,5 +2723,58 @@ mod tests {
         };
         let price = select_target_price(&prices, None, Some(monthly), "Support").unwrap();
         assert_eq!(price.cadence, BillingPeriodEnum::Monthly);
+    }
+
+    fn seats(quantity: Option<common_domain::ids::ManagedQuantityId>) -> SubscriptionFee {
+        SubscriptionFee::Slot {
+            unit: "Seats".to_owned(),
+            quantity_id: quantity,
+            model: crate::domain::price_components::RatingModel::PerUnit {
+                rate: rust_decimal::Decimal::TEN,
+            },
+            min_slots: Some(1),
+            max_slots: None,
+            initial_slots: 1,
+        }
+    }
+
+    /// A target seat fee of a quantity held carries its count, unless the change sets one; one of
+    /// another quantity starts at its initial count. A fee naming no quantity reads as before
+    /// quantities: matched it carries, added it starts anew.
+    /// Rules: R-108, R-137
+    #[test]
+    fn a_target_seat_fee_carries_the_count_of_a_quantity_held() {
+        use common_domain::ids::ManagedQuantityId;
+        let on = chrono::NaiveDate::from_ymd_opt(2024, 3, 1).unwrap();
+        let (held, other) = (ManagedQuantityId::new(), ManagedQuantityId::new());
+        let holding = std::collections::HashSet::from([held]);
+
+        assert!(plan_change_seat_seed(&seats(Some(held)), None, false, &holding, on).is_none());
+        assert!(plan_change_seat_seed(&seats(Some(held)), None, true, &holding, on).is_none());
+        let set = plan_change_seat_seed(&seats(Some(held)), Some(7), false, &holding, on)
+            .expect("a count set");
+        assert_eq!((set.quantity_id, set.prev_active_slots), (Some(held), 7));
+        let fresh = plan_change_seat_seed(&seats(Some(other)), None, true, &holding, on)
+            .expect("another quantity starts anew");
+        assert_eq!(
+            (fresh.quantity_id, fresh.prev_active_slots),
+            (Some(other), 1)
+        );
+
+        assert!(plan_change_seat_seed(&seats(None), None, true, &holding, on).is_none());
+        assert!(plan_change_seat_seed(&seats(None), None, false, &holding, on).is_some());
+        assert!(
+            plan_change_seat_seed(
+                &SubscriptionFee::Rate {
+                    rate: rust_decimal::Decimal::TEN
+                },
+                None,
+                false,
+                &holding,
+                on
+            )
+            .is_none(),
+            "no seats, no seed"
+        );
     }
 }

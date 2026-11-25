@@ -5,7 +5,7 @@ use crate::meteroid_it::container::SeedLevel;
 use chrono::NaiveDate;
 use common_domain::country::CountryCode;
 use common_domain::ids::{BaseId, CustomerId, PlanVersionId, PriceComponentId};
-use diesel_models::enums::{FeeTypeEnum as DieselFeeTypeEnum, PlanStatusEnum, PlanTypeEnum};
+use diesel_models::enums::{PlanStatusEnum, PlanTypeEnum};
 use diesel_models::plan_versions::PlanVersionRowNew;
 use diesel_models::plans::{PlanRowNew, PlanRowPatch};
 use diesel_models::price_components::PriceComponentRowNew;
@@ -2218,11 +2218,6 @@ async fn create_plan_with_4_components(
                 description: None,
                 tenant_id: TENANT_ID,
                 product_family_id: PRODUCT_FAMILY_ID,
-                fee_type: DieselFeeTypeEnum::Rate,
-                fee_structure: serde_json::to_value(
-                    &meteroid_store::domain::prices::FeeStructure::Rate {},
-                )
-                .unwrap(),
                 catalog: true,
                 tax_category_id: None,
                 icon: None,
@@ -2247,6 +2242,7 @@ async fn create_plan_with_4_components(
                 plan_version_id,
                 product_id: Some(product_id),
                 billable_metric_id: None,
+                fee_structure: None,
             }
             .insert(tx)
             .await?;

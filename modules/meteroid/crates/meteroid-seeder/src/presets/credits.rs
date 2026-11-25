@@ -13,8 +13,6 @@ use meteroid_store::domain::connectors::{MockPublicData, PaymentCredentialsUpdat
 use meteroid_store::domain::coupons::{CouponDiscount, CouponNew};
 use meteroid_store::domain::credit_units::{CreditUnit, CreditUnitNew, CreditUnitPatch};
 use meteroid_store::domain::enums::BankAccountFormat;
-use meteroid_store::domain::enums::FeeTypeEnum;
-use meteroid_store::domain::prices::FeeStructure;
 use meteroid_store::domain::products::ProductNew;
 use meteroid_store::domain::{
     BankAccountNew, BillableMetric, InvoicingEntity, InvoicingEntityPatch,
@@ -83,8 +81,6 @@ pub(super) async fn sell_credit_units(
                     description: None,
                     tenant_id,
                     family_id: product_family_id,
-                    fee_type: FeeTypeEnum::Credit,
-                    fee_structure: FeeStructure::Credit {},
                     catalog: true,
                     tax_category_id: None,
                     icon: None,

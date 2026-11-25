@@ -55,6 +55,30 @@ impl ManagedQuantityRow {
             .map(|rows| rows.into_iter().collect())
     }
 
+    /// The tenant's quantities of `codes`, by code; a code without one is absent.
+    pub async fn ids_of_codes(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        codes: &[&str],
+    ) -> DbResult<HashMap<String, ManagedQuantityId>> {
+        use crate::schema::managed_quantity::dsl as q;
+
+        if codes.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let select = q::managed_quantity
+            .filter(q::tenant_id.eq(tenant_id))
+            .filter(q::code.eq_any(codes))
+            .select((q::code, q::id));
+        crate::debug_sql(&select);
+        select
+            .load::<(String, ManagedQuantityId)>(conn)
+            .await
+            .attach("Error while reading managed quantities")
+            .into_db_result()
+            .map(|rows| rows.into_iter().collect())
+    }
+
     pub async fn list(conn: &mut PgConn, tenant_id: TenantId) -> DbResult<Vec<ManagedQuantityRow>> {
         use crate::schema::managed_quantity::dsl as q;
 
@@ -90,6 +114,71 @@ impl ManagedQuantityRow {
             .into_db_result()
     }
 
+    pub async fn find(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        id: ManagedQuantityId,
+    ) -> DbResult<Option<ManagedQuantityRow>> {
+        use crate::schema::managed_quantity::dsl as q;
+
+        let query = q::managed_quantity
+            .filter(q::tenant_id.eq(tenant_id))
+            .filter(q::id.eq(id))
+            .select(ManagedQuantityRow::as_select());
+        crate::debug_sql(&query);
+        query
+            .first(conn)
+            .await
+            .optional()
+            .attach("Error while finding managed quantity")
+            .into_db_result()
+    }
+
+    /// The codes of `ids`, of the tenant's quantities.
+    pub async fn codes_of(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        ids: &[ManagedQuantityId],
+    ) -> DbResult<HashMap<ManagedQuantityId, String>> {
+        use crate::schema::managed_quantity::dsl as q;
+
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let query = q::managed_quantity
+            .filter(q::tenant_id.eq(tenant_id))
+            .filter(q::id.eq_any(ids))
+            .select((q::id, q::code));
+        crate::debug_sql(&query);
+        query
+            .load::<(ManagedQuantityId, String)>(conn)
+            .await
+            .attach("Error while reading managed quantity codes")
+            .into_db_result()
+            .map(|rows| rows.into_iter().collect())
+    }
+
+    /// A new quantity; None when the tenant has one of its code.
+    pub async fn insert(
+        conn: &mut PgConn,
+        new: &ManagedQuantityRowNew,
+    ) -> DbResult<Option<ManagedQuantityRow>> {
+        use crate::schema::managed_quantity::dsl as q;
+
+        let query = diesel::insert_into(q::managed_quantity)
+            .values(new)
+            .on_conflict((q::tenant_id, q::code))
+            .do_nothing()
+            .returning(ManagedQuantityRow::as_returning());
+        crate::debug_sql(&query);
+        query
+            .get_result(conn)
+            .await
+            .optional()
+            .attach("Error while creating a managed quantity")
+            .into_db_result()
+    }
+
     pub async fn update(
         conn: &mut PgConn,
         tenant_id: TenantId,
@@ -112,12 +201,12 @@ impl ManagedQuantityRow {
     }
 }
 
-/// The managed quantity each of `features` counts its limit per unit of, by code.
+/// The managed quantity each of `features` counts its limit per unit of.
 pub async fn feature_limit_quantities(
     conn: &mut PgConn,
     tenant_id: TenantId,
     features: &[common_domain::ids::FeatureId],
-) -> DbResult<HashMap<common_domain::ids::FeatureId, String>> {
+) -> DbResult<HashMap<common_domain::ids::FeatureId, ManagedQuantityId>> {
     use crate::schema::feature_quantity_limit::dsl as l;
     use crate::schema::managed_quantity::dsl as q;
 
@@ -128,10 +217,10 @@ pub async fn feature_limit_quantities(
         .inner_join(q::managed_quantity)
         .filter(l::feature_id.eq_any(features))
         .filter(q::tenant_id.eq(tenant_id))
-        .select((l::feature_id, q::code));
+        .select((l::feature_id, l::managed_quantity_id));
     crate::debug_sql(&query);
     query
-        .load::<(common_domain::ids::FeatureId, String)>(conn)
+        .load::<(common_domain::ids::FeatureId, ManagedQuantityId)>(conn)
         .await
         .attach("Error while reading feature limits per quantity")
         .into_db_result()

@@ -21,7 +21,7 @@ use diesel_models::PgConn;
 use diesel_models::credit_inputs::{CreditFeedCursor, CreditInputChangeRow};
 use diesel_models::customer_credit::CustomerCreditAccountRow;
 use diesel_models::customers::CustomerRow;
-use diesel_models::enums::{CreditInputChangeKind, FeeTypeEnum};
+use diesel_models::enums::CreditInputChangeKind;
 use diesel_models::errors::{DatabaseError, DatabaseErrorContainer};
 use diesel_models::products::ProductRowNew;
 use diesel_models::query::credit_inputs;
@@ -29,7 +29,7 @@ use diesel_models::schema::sql_types::CreditInputChangeKindEnum;
 use meteroid_store::domain::entitlements::{
     EntitlementNew, EntitlementValue, FeatureNew, FeatureType,
 };
-use meteroid_store::domain::prices::{FeeStructure, MatrixPriceUpdate, UsageModel};
+use meteroid_store::domain::prices::MatrixPriceUpdate;
 use meteroid_store::domain::{CustomerPaymentMethodNew, PaymentMethodTypeEnum, SubscriptionPatch};
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::credit::CustomerCreditWalletsInterface;
@@ -321,16 +321,35 @@ async fn customer_and_tenant_writers_bump_their_tokens() -> TestResult {
         description: None,
         tenant_id: TENANT_ID,
         product_family_id: PRODUCT_FAMILY_ID,
-        fee_type: FeeTypeEnum::Usage,
-        fee_structure: serde_json::to_value(FeeStructure::Usage {
-            metric_id: METRIC_DATABASE_SIZE,
-            model: UsageModel::DimensionRates,
-        })
-        .map_err(test_error)?,
         catalog: true,
         tax_category_id: None,
         icon: None,
         color: None,
+    }
+    .insert(&mut conn)
+    .await
+    .map_err(test_error)?;
+    // A product has no structure: its prices rated by dimension are what a matrix edit edits.
+    diesel_models::prices::PriceRowNew {
+        id: common_domain::ids::PriceId::new(),
+        product_id: matrix,
+        cadence: diesel_models::enums::BillingPeriodEnum::Monthly,
+        currency: "EUR".to_owned(),
+        pricing: serde_json::to_value(meteroid_store::domain::prices::Pricing::Usage(
+            meteroid_store::domain::UsagePricingModel::DimensionRates(
+                meteroid_store::domain::price_components::DimensionRates {
+                    dimensions: vec!["region".to_owned()],
+                    rates: vec![],
+                    unit_size: rust_decimal::Decimal::ONE,
+                    on_unmatched: meteroid_store::domain::rate_cards::RateCardUnmatched::Hold,
+                },
+            ),
+        ))
+        .map_err(test_error)?,
+        tenant_id: TENANT_ID,
+        catalog: true,
+        credit_unit_id: None,
+        credit_unit_rate: None,
     }
     .insert(&mut conn)
     .await

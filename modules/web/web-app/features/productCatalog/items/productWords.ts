@@ -52,6 +52,22 @@ export function chargesForWords(
   }
 }
 
+/**
+ * How the charges using a product bill it, when they differ: "Flat fee or Seats". A product has
+ * no structure of its own; each plan charge and add-on bills it its own way.
+ */
+export function chargeKindsWords(structures: FeeStructure[]): string {
+  const kinds = [
+    ...new Set(
+      structures
+        .map(structure => chargesForWords(structure)[0])
+        .filter((word): word is string => typeof word === 'string')
+    ),
+  ]
+  if (kinds.length < 2) return kinds[0] ?? ''
+  return `${kinds.slice(0, -1).join(', ')} or ${kinds[kinds.length - 1].toLowerCase()}`
+}
+
 /** "message-square" → "Message square". */
 export const iconLabel = (icon: string | undefined) => {
   const name = (icon || 'box').replace(/-/g, ' ')

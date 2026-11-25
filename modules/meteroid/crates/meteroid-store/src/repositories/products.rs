@@ -53,22 +53,13 @@ pub(crate) async fn validate_tax_category(
     }
 }
 
-/// Whether `new` is another fee structure than the stored one, both read as the domain reads them.
-fn fee_structure_changes(stored: &serde_json::Value, new: &serde_json::Value) -> bool {
-    serde_json::from_value::<FeeStructure>(stored.clone())
-        .ok()
-        .and_then(|stored| serde_json::to_value(stored).ok())
-        .is_none_or(|stored| &stored != new)
-}
-
+/// A product's edit. How it is billed is its charges', never the product's.
 #[derive(Clone, Debug)]
 pub struct ProductUpdate {
     pub id: ProductId,
     pub tenant_id: TenantId,
     pub name: Option<String>,
     pub description: Option<Option<String>>,
-    pub fee_type: Option<FeeTypeEnum>,
-    pub fee_structure: Option<FeeStructure>,
     /// Patch: None leaves unchanged, Some(None) clears, Some(Some(id)) sets.
     pub tax_category_id: Option<Option<TaxCategoryId>>,
     /// Patch, as `tax_category_id`.
@@ -165,13 +156,6 @@ impl ProductInterface for Store {
             tenant_id: product.tenant_id,
             product_family_id: family.id,
             tax_category_id: product.tax_category_id,
-            fee_type: product.fee_type.into(),
-            fee_structure: serde_json::to_value(&product.fee_structure).map_err(|e| {
-                Report::new(StoreError::SerdeError(
-                    "Failed to serialize fee_structure".to_string(),
-                    e,
-                ))
-            })?,
             catalog: product.catalog,
             icon: product.icon,
             color: product.color,
@@ -185,14 +169,13 @@ impl ProductInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)
                     .and_then(|row| row.try_into())?;
-                register_quantity(conn, product.tenant_id, &product.fee_structure).await?;
 
                 let event = ProductEvent::new(
                     product.id,
                     product.tenant_id,
                     product.name.clone(),
                     product.description.clone(),
-                    product.fee_type,
+                    None,
                     product.product_family_id,
                     product.created_at,
                 );
@@ -218,20 +201,9 @@ impl ProductInterface for Store {
         self.transaction_bumping_tenant(tenant_id, |conn| {
             let actor = &actor;
             async move {
-                let existing =
-                    ProductRow::find_by_id_and_tenant_id(conn, update.id, update.tenant_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-
-                // fee_type is immutable: if caller tries to change it, reject
-                if let Some(new_fee_type) = &update.fee_type {
-                    let new_db: diesel_models::enums::FeeTypeEnum = (*new_fee_type).into();
-                    if existing.fee_type != new_db {
-                        return Err(Report::new(StoreError::InvalidArgument(
-                            "fee_type is immutable once set".to_string(),
-                        )));
-                    }
-                }
+                ProductRow::find_by_id_and_tenant_id(conn, update.id, update.tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
                 validate_tax_category(conn, update.tax_category_id.flatten(), update.tenant_id)
                     .await?;
@@ -240,35 +212,11 @@ impl ProductInterface for Store {
                     update.color.as_ref().and_then(|c| c.as_deref()),
                 )?;
 
-                let fee_structure = update
-                    .fee_structure
-                    .map(|fs| {
-                        serde_json::to_value(&fs).map_err(|e| {
-                            Report::new(StoreError::SerdeError(
-                                "Failed to serialize fee_structure".to_string(),
-                                e,
-                            ))
-                        })
-                    })
-                    .transpose()?;
-                if let Some(new) = &fee_structure
-                    && fee_structure_changes(&existing.fee_structure, new)
-                    && PriceRow::any_of_product(conn, update.id, update.tenant_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?
-                {
-                    return Err(Report::new(StoreError::InvalidArgument(
-                        "fee_structure cannot change once the product has a price: create a new product instead"
-                            .to_string(),
-                    )));
-                }
-
                 let product: Product = ProductRowPatch {
                     id: update.id,
                     tenant_id: update.tenant_id,
                     name: update.name,
                     description: update.description,
-                    fee_structure,
                     tax_category_id: update.tax_category_id,
                     icon: update.icon,
                     color: update.color,
@@ -283,7 +231,7 @@ impl ProductInterface for Store {
                     product.tenant_id,
                     product.name.clone(),
                     product.description.clone(),
-                    product.fee_type,
+                    None,
                     product.product_family_id,
                     product.created_at,
                 );
@@ -383,7 +331,7 @@ impl ProductInterface for Store {
                     product.tenant_id,
                     product.name.clone(),
                     product.description.clone(),
-                    product.fee_type,
+                    None,
                     product.product_family_id,
                     product.created_at,
                 );
@@ -554,6 +502,7 @@ impl ProductInterface for Store {
         let plans = ProductRow::plan_counts(&mut conn, auth_tenant_id, ids)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
+        let mut structures = charge_structures_of_products(&mut conn, auth_tenant_id, ids).await?;
 
         let mut facts: HashMap<ProductId, ProductListFacts> = ids
             .iter()
@@ -562,6 +511,7 @@ impl ProductInterface for Store {
                     latest_prices: vec![],
                     feature_count: features.get(id).copied().unwrap_or(0),
                     plan_count: plans.get(id).copied().unwrap_or(0),
+                    charge_structures: structures.remove(id).unwrap_or_default(),
                 };
                 (*id, fact)
             })
@@ -652,19 +602,27 @@ impl ProductInterface for Store {
     }
 }
 
-/// A seat product counts the managed quantity of its unit, registered with the product.
-pub(crate) async fn register_quantity(
+/// How the live charges of each product bill it, each way once.
+pub(crate) async fn charge_structures_of_products(
     conn: &mut crate::store::PgConn,
-    tenant_id: common_domain::ids::TenantId,
-    fee_structure: &crate::domain::prices::FeeStructure,
-) -> crate::StoreResult<()> {
-    if let crate::domain::prices::FeeStructure::Slot { unit_name, .. } = fee_structure {
-        diesel_models::managed_quantities::ManagedQuantityRow::ensure_codes(
-            conn,
-            tenant_id,
-            &[unit_name.as_str()],
-        )
-        .await?;
+    tenant_id: TenantId,
+    ids: &[ProductId],
+) -> StoreResult<HashMap<ProductId, Vec<FeeStructure>>> {
+    let mut by_product: HashMap<ProductId, Vec<FeeStructure>> = HashMap::new();
+    for (product_id, json) in
+        diesel_models::query::price_components::charge_structures_of_products(conn, tenant_id, ids)
+            .await?
+    {
+        let structure: FeeStructure = serde_json::from_value(json).map_err(|e| {
+            Report::new(StoreError::SerdeError(
+                "Failed to deserialize FeeStructure".to_string(),
+                e,
+            ))
+        })?;
+        let known = by_product.entry(product_id).or_default();
+        if !known.iter().any(|other| other.same_shape(&structure)) {
+            known.push(structure);
+        }
     }
-    Ok(())
+    Ok(by_product)
 }

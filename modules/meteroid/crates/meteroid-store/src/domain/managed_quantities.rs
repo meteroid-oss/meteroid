@@ -44,6 +44,84 @@ pub struct ManagedQuantity {
     pub per_unit_features: Vec<FeatureId>,
 }
 
+/// A new quantity of the catalog, named by a seat charge.
+#[derive(Clone, Debug)]
+pub struct ManagedQuantityNew {
+    pub tenant_id: TenantId,
+    pub code: String,
+    pub name: String,
+    pub on_increase: QuantityIncrease,
+    pub on_decrease: QuantityDecrease,
+}
+
+/// The code the web app's "New quantity…" makes of a name (`quantityCode`): trimmed, lowercase,
+/// accents dropped, every other run of characters a `-`, none at the ends; "Seats" and " seats "
+/// are both `seats`, "Sièges réservés" is `sieges-reserves`.
+pub fn quantity_code(name: &str) -> String {
+    let mut code = String::new();
+    let mut dash = false;
+    for c in name.trim().to_lowercase().chars() {
+        let c = match c {
+            'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' => 'a',
+            'ç' => 'c',
+            'è' | 'é' | 'ê' | 'ë' => 'e',
+            'ì' | 'í' | 'î' | 'ï' => 'i',
+            'ñ' => 'n',
+            'ò' | 'ó' | 'ô' | 'õ' | 'ö' => 'o',
+            'ù' | 'ú' | 'û' | 'ü' => 'u',
+            'ý' | 'ÿ' => 'y',
+            other => other,
+        };
+        if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-' {
+            code.push(c);
+            dash = false;
+        } else if !dash {
+            code.push('-');
+            dash = true;
+        }
+    }
+    code.trim_matches('-').chars().take(64).collect()
+}
+
+/// The quantity of `quantities` a seat unit names, for a charge or a snapshot naming no quantity
+/// id: the one coded as the unit, else as the trimmed unit, else as it ignoring case, else as
+/// the code "New quantity…" makes of it (`quantity_code`). One unit is one count whatever its
+/// spelling; an existing code is never rewritten.
+pub fn quantity_of_unit<'a>(
+    quantities: &'a [ManagedQuantityRow],
+    unit: &str,
+) -> Option<&'a ManagedQuantityRow> {
+    let trimmed = unit.trim();
+    let lower = trimmed.to_lowercase();
+    let derived = quantity_code(unit);
+    quantities
+        .iter()
+        .find(|q| q.code == unit)
+        .or_else(|| quantities.iter().find(|q| q.code == trimmed))
+        .or_else(|| quantities.iter().find(|q| q.code.to_lowercase() == lower))
+        .or_else(|| {
+            quantities
+                .iter()
+                .find(|q| !derived.is_empty() && q.code == derived)
+        })
+}
+
+/// A code stays a handle: lowercase letters, digits, `_` and `-`, 1 to 64 of them.
+pub fn validate_quantity_code(code: &str) -> Result<(), crate::errors::StoreError> {
+    let valid = !code.is_empty()
+        && code.len() <= 64
+        && code
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-');
+    if valid {
+        Ok(())
+    } else {
+        Err(crate::errors::StoreError::InvalidArgument(format!(
+            "A quantity's code is lowercase letters, digits, '_' and '-': {code}"
+        )))
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ManagedQuantityPatch {
     pub tenant_id: TenantId,
@@ -98,5 +176,13 @@ mod tests {
         assert_eq!(SeatChange::To(10).delta(10), None);
         assert_eq!(SeatChange::By(-2).delta(10), Some(-2));
         assert_eq!(SeatChange::By(0).delta(10), None);
+    }
+
+    #[test]
+    fn a_unit_name_is_coded_as_new_quantity_codes_it() {
+        assert_eq!(quantity_code(" Seats "), "seats");
+        assert_eq!(quantity_code("Sièges réservés"), "sieges-reserves");
+        assert_eq!(quantity_code("API  keys!"), "api-keys");
+        assert_eq!(quantity_code("  "), "");
     }
 }

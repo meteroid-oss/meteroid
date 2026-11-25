@@ -75,10 +75,25 @@ pub async fn list_products(
         RestApiError::StoreError
     })?;
 
+    let ids: Vec<ProductId> = res.items.iter().map(|p| p.id).collect();
+    let mut facts = app_state
+        .store
+        .product_list_facts(authorized_state.tenant_id, &ids)
+        .await
+        .map_err(|e| {
+            log::error!("Error handling list_products: {e}");
+            RestApiError::StoreError
+        })?;
     let data: Vec<Product> = res
         .items
         .into_iter()
-        .map(mapping::product_to_rest)
+        .map(|product| {
+            let structures = facts
+                .remove(&product.id)
+                .map(|f| f.charge_structures)
+                .unwrap_or_default();
+            mapping::product_to_rest(product, &structures)
+        })
         .collect();
 
     Ok(Json(ProductListResponse {
@@ -119,7 +134,24 @@ pub async fn get_product(
             RestApiError::from(e)
         })?;
 
-    Ok(Json(mapping::product_to_rest(product)))
+    let structures = charge_structures(&app_state, authorized_state.tenant_id, product_id).await?;
+    Ok(Json(mapping::product_to_rest(product, &structures)))
+}
+
+/// How the live charges using the product bill it.
+async fn charge_structures(
+    app_state: &AppState,
+    tenant_id: common_domain::ids::TenantId,
+    product_id: ProductId,
+) -> Result<Vec<meteroid_store::domain::prices::FeeStructure>, RestApiError> {
+    Ok(app_state
+        .store
+        .product_list_facts(tenant_id, &[product_id])
+        .await
+        .map_err(RestApiError::from)?
+        .remove(&product_id)
+        .map(|facts| facts.charge_structures)
+        .unwrap_or_default())
 }
 
 // ── Create product ─────────────────────────────────────────────
@@ -143,14 +175,14 @@ pub async fn create_product(
     State(app_state): State<AppState>,
     ApiValid(ApiJson(payload)): ApiValid<ApiJson<CreateProductRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
-    let (fee_type, fee_structure) = mapping::rest_fee_structure_to_domain(&payload.fee_structure)?;
+    // `fee_structure` is not kept: the charges using the product own how it is billed. A credit
+    // structure is still refused where credit pricing is not enabled.
     ensure_credit_pricing_allowed(
         app_state.feature_resolver.as_ref(),
         authorized_state.organization_id,
-        fee_structure.is_credit(),
+        matches!(payload.fee_structure, Some(ProductFeeStructure::Credit(_))),
     )
     .await?;
-
     let product = app_state
         .store
         .create_product(
@@ -160,8 +192,6 @@ pub async fn create_product(
                 description: payload.description,
                 tenant_id: authorized_state.tenant_id,
                 family_id: payload.product_family_id,
-                fee_type,
-                fee_structure,
                 catalog: payload.catalog,
                 tax_category_id: None,
                 icon: None,
@@ -174,14 +204,18 @@ pub async fn create_product(
             RestApiError::from(e)
         })?;
 
-    Ok((StatusCode::CREATED, Json(mapping::product_to_rest(product))))
+    Ok((
+        StatusCode::CREATED,
+        Json(mapping::product_to_rest(product, &[])),
+    ))
 }
 
 // ── Update product ─────────────────────────────────────────────
 
 /// Update a product
 ///
-/// Partially update product fields. The fee_type is immutable and cannot be changed.
+/// Partially update product fields. A `fee_structure` is ignored: the charges using the product
+/// own how it is billed.
 #[utoipa::path(
     patch,
     tag = "Products",
@@ -203,26 +237,20 @@ pub async fn update_product(
     ApiPath(product_id): ApiPath<ProductId>,
     ApiValid(ApiJson(payload)): ApiValid<ApiJson<UpdateProductRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
-    let (fee_type, fee_structure) = match &payload.fee_structure {
-        Some(fs) => {
-            let (ft, fst) = mapping::rest_fee_structure_to_domain(fs)?;
-            (Some(ft), Some(fst))
-        }
-        None => (None, None),
-    };
-    if fee_structure.as_ref().is_some_and(|f| f.is_credit()) {
-        let stored = app_state
-            .store
-            .find_product_by_id(product_id, authorized_state.tenant_id)
-            .await?;
+    // A credit structure is refused where credit pricing is not enabled, unless the product's
+    // charges already sell credit.
+    if matches!(payload.fee_structure, Some(ProductFeeStructure::Credit(_))) {
+        let sells_credit = charge_structures(&app_state, authorized_state.tenant_id, product_id)
+            .await?
+            .iter()
+            .any(meteroid_store::domain::prices::FeeStructure::is_credit);
         ensure_credit_pricing_allowed(
             app_state.feature_resolver.as_ref(),
             authorized_state.organization_id,
-            !stored.fee_structure.is_credit(),
+            !sells_credit,
         )
         .await?;
     }
-
     let product = app_state
         .store
         .update_product(
@@ -232,8 +260,6 @@ pub async fn update_product(
                 tenant_id: authorized_state.tenant_id,
                 name: payload.name,
                 description: payload.description,
-                fee_type,
-                fee_structure,
                 tax_category_id: None,
                 icon: None,
                 color: None,
@@ -245,7 +271,8 @@ pub async fn update_product(
             RestApiError::from(e)
         })?;
 
-    Ok(Json(mapping::product_to_rest(product)))
+    let structures = charge_structures(&app_state, authorized_state.tenant_id, product_id).await?;
+    Ok(Json(mapping::product_to_rest(product, &structures)))
 }
 
 // ── Archive product ────────────────────────────────────────────

@@ -8,15 +8,39 @@ import type { CreditPackContext } from './schemas'
 import type { CreditUnit } from '@/rpc/api/creditunits/v1/models_pb'
 import type { FeeStructure, Price } from '@/rpc/api/prices/v1/models_pb'
 
-// The form data a charge starts from: what its product is (its fee type and structure) and the
-// fields its prices fill in. The charge forms (features/plans/charges) read and compile it.
+// The form data a charge starts from: how it bills (its fee type and structure, the charge's own)
+// and the fields its prices fill in. The charge forms (features/plans/charges) read and compile it.
 
-/** What a product fixes about its charges: its metric, usage model, seat unit or billing. */
+/** What a charge's structure fixes: its metric, usage model, seat quantity and label, or billing. */
 export interface StructuralInfo {
   metricId?: string
   usageModel?: string
   slotUnitName?: string
+  /** The managed quantity a seat charge counts. */
+  quantityId?: string
   billingType?: string
+}
+
+/** The fee type a charge's structure is of; none for a product included with no price. */
+export function feeTypeOfStructure(feeStructure: FeeStructure | undefined): ComponentFeeType | undefined {
+  switch (feeStructure?.structure.case) {
+    case 'rate':
+      return 'rate'
+    case 'slot':
+      return 'slot'
+    case 'capacity':
+      return 'capacity'
+    case 'usage':
+      return 'usage'
+    case 'extraRecurring':
+      return 'extraRecurring'
+    case 'oneTime':
+      return 'oneTime'
+    case 'credit':
+      return 'credit'
+    default:
+      return undefined
+  }
 }
 
 export function protoFeeTypeToComponentFeeType(feeType: FeeType): ComponentFeeType {
@@ -47,7 +71,9 @@ export function extractStructuralInfo(
 
   switch (feeType) {
     case 'slot':
-      return structure.case === 'slot' ? { slotUnitName: structure.value.unitName } : {}
+      return structure.case === 'slot'
+        ? { slotUnitName: structure.value.unitName, quantityId: structure.value.quantityId }
+        : {}
     case 'capacity':
       return structure.case === 'capacity' ? { metricId: structure.value.metricId } : {}
     case 'usage': {

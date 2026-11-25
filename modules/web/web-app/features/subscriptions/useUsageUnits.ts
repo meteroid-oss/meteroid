@@ -3,6 +3,7 @@ import { useQueries } from '@tanstack/react-query'
 import { useMemo } from 'react'
 
 import { metricUnitFromProto } from '@/features/billing/metrics/units'
+import { seatCountKey } from '@/features/subscriptions/utils/fees'
 import { getBillableMetric } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import { getSlotsValue } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 
@@ -28,19 +29,32 @@ export const useUsageUnits = (metricIds: string[]) => {
   return { units, isLoading: results.some(r => r.isLoading) }
 }
 
-/** Current slot count per slot unit, sharing the cache of the pricing table's slot queries. */
-export const useSlotCounts = (subscriptionId: string, slotUnits: string[]) => {
+/**
+ * Current seat count per seat ledger (`seatCountKey`: its quantity, else its unit), sharing the
+ * cache of the pricing table's seat queries.
+ */
+export const useSlotCounts = (
+  subscriptionId: string,
+  ledgers: { unit: string; quantityId?: string }[]
+) => {
   const transport = useTransport()
-  const units = useMemo(() => [...new Set(slotUnits)].sort(), [slotUnits])
+  const keyed = useMemo(() => {
+    const byKey = new Map(ledgers.map(ledger => [seatCountKey(ledger), ledger]))
+    return [...byKey.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  }, [ledgers])
   const results = useQueries({
-    queries: units.map(unit =>
-      createQueryOptions(getSlotsValue, { subscriptionId, unit }, { transport })
+    queries: keyed.map(([, ledger]) =>
+      createQueryOptions(
+        getSlotsValue,
+        { subscriptionId, unit: ledger.unit, quantityId: ledger.quantityId || undefined },
+        { transport }
+      )
     ),
   })
   const counts: Record<string, number> = {}
-  units.forEach((unit, i) => {
+  keyed.forEach(([key], i) => {
     const value = results[i]?.data?.currentValue
-    if (value !== undefined) counts[unit] = value
+    if (value !== undefined) counts[key] = value
   })
   return counts
 }

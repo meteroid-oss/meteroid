@@ -4584,8 +4584,8 @@ async fn a_plan_change_locks_the_customer_before_the_subscription(#[future] test
 }
 
 /// Round 6, item 1. Studio's 10 seats change to Large, whose own seat product counts the same
-/// unit from 3: the change records Large's 3 seats under that unit. Once February's held draft is
-/// issued, Studio's seats are credited as the change read them, 10.
+/// quantity (minimum 3): the seats carry, as they count one quantity (R-137). Once February's
+/// held draft is issued, Studio's seats are credited as the change read them, 10.
 #[rstest]
 #[tokio::test]
 async fn a_deferred_seat_credit_reads_the_seats_before_the_new_plan_s(#[future] test_env: TestEnv) {
@@ -4612,6 +4612,7 @@ async fn a_deferred_seat_credit_reads_the_seats_before_the_new_plan_s(#[future] 
             fee_type: FeeTypeEnum::Slot,
             fee_structure: FeeStructure::Slot {
                 unit_name: "Seats".to_owned(),
+                quantity_id: None,
                 upgrade_policy: UpgradePolicy::Prorated,
                 downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
             },

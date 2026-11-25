@@ -96,30 +96,6 @@ pub(crate) async fn ensure_dimension_rates_add_up<'a>(
     ))))
 }
 
-/// [`ensure_dimension_rates_add_up`] for prices of `product_id`, loaded only when one rates by
-/// dimension.
-pub(crate) async fn ensure_product_dimension_rates_add_up<'a>(
-    conn: &mut PgConn,
-    tenant_id: TenantId,
-    product_id: ProductId,
-    pricings: impl IntoIterator<Item = &'a Pricing>,
-) -> StoreResult<()> {
-    let pricings: Vec<&Pricing> = pricings.into_iter().collect();
-    if !pricings.iter().copied().any(rates_by_dimension) {
-        return Ok(());
-    }
-    let product = ProductRow::find_by_id_and_tenant_id(conn, product_id, tenant_id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-    let structure: FeeStructure = serde_json::from_value(product.fee_structure).map_err(|e| {
-        Report::new(StoreError::SerdeError(
-            "Failed to deserialize FeeStructure".to_string(),
-            e,
-        ))
-    })?;
-    ensure_dimension_rates_add_up(conn, tenant_id, &structure, pricings).await
-}
-
 fn rates_by_dimension(pricing: &Pricing) -> bool {
     matches!(
         pricing,
@@ -127,10 +103,129 @@ fn rates_by_dimension(pricing: &Pricing) -> bool {
     )
 }
 
-/// Resolve a PriceComponentNewInternal into (ProductId, Vec<PriceId>).
-/// 1. Resolve ProductRef → ProductId (insert if New)
-/// 2. For each PriceEntry: Existing → validate + use, New → validate currency + insert PriceRow
-/// 3. Validate: ProductRef::New + PriceEntry::Existing is an error
+/// The structure a charge is stored with: a seat charge names a live quantity of the tenant;
+/// one sent with only its unit (a v1 client) counts the quantity its unit names, whatever its
+/// case and spacing, created as "New quantity…" would when missing (`ensure_quantity_of_unit`).
+/// A seat label left empty is the quantity's name.
+pub(crate) async fn charge_structure_tx(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    structure: FeeStructure,
+) -> StoreResult<FeeStructure> {
+    use diesel_models::managed_quantities::ManagedQuantityRow;
+
+    let (unit_name, quantity_id, upgrade_policy, downgrade_policy) = match structure {
+        FeeStructure::Slot {
+            unit_name,
+            quantity_id,
+            upgrade_policy,
+            downgrade_policy,
+        } => (unit_name, quantity_id, upgrade_policy, downgrade_policy),
+        other => return Ok(other),
+    };
+    let quantity = match quantity_id {
+        Some(id) => ManagedQuantityRow::find(conn, tenant_id, id)
+            .await?
+            .filter(|row| row.archived_at.is_none())
+            .ok_or_else(|| {
+                Report::new(StoreError::InvalidArgument(format!(
+                    "managed quantity {id} not found"
+                )))
+            })?,
+        // A charge naming no quantity (REST v1, a client omitting it) counts the one its unit
+        // names, spelt as it may be: one count per unit (R-137).
+        None => {
+            if unit_name.trim().is_empty() {
+                return Err(Report::new(StoreError::InvalidArgument(
+                    "a seat charge names the quantity it counts".to_owned(),
+                )));
+            }
+            crate::repositories::managed_quantities::ensure_quantity_of_unit(
+                conn, tenant_id, &unit_name,
+            )
+            .await?
+        }
+    };
+    let unit_name = if unit_name.trim().is_empty() {
+        quantity.name.clone()
+    } else {
+        unit_name
+    };
+    Ok(FeeStructure::Slot {
+        unit_name,
+        quantity_id: Some(quantity.id),
+        upgrade_policy,
+        downgrade_policy,
+    })
+}
+
+/// Refuses a price that cannot price a charge of `structure`: one of another kind, or rated by
+/// a rate card of another metric than the charge bills. A price no longer knows its metric, so
+/// this is checked whenever a price is linked to a charge.
+pub(crate) async fn ensure_prices_fit_charge<'a>(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    structure: &FeeStructure,
+    pricings: impl IntoIterator<Item = &'a Pricing>,
+) -> StoreResult<()> {
+    use crate::domain::price_components::UsagePricingModel;
+    use diesel_models::rate_cards::RateCardRow;
+
+    let pricings: Vec<&Pricing> = pricings.into_iter().collect();
+    ensure_dimension_rates_add_up(conn, tenant_id, structure, pricings.iter().copied()).await?;
+    for pricing in pricings {
+        crate::domain::prices::validate_pricing_fits(structure, pricing)?;
+        if let Pricing::Usage(UsagePricingModel::RateCard { rate_card_id, .. }) = pricing {
+            let card = RateCardRow::find(conn, tenant_id, *rate_card_id)
+                .await?
+                .ok_or_else(|| {
+                    Report::new(StoreError::InvalidArgument(format!(
+                        "rate card {rate_card_id} not found"
+                    )))
+                })?;
+            if structure.metric_id() != Some(card.metric_id) {
+                return Err(Report::new(StoreError::InvalidArgument(format!(
+                    "Rate card {} rates another metric than the charge bills",
+                    card.code
+                ))));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The prices of `ids` of the tenant.
+async fn prices_of(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    ids: &[PriceId],
+) -> StoreResult<Vec<Price>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    PriceRow::list_by_ids(conn, ids, tenant_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .into_iter()
+        .map(Price::try_from)
+        .collect()
+}
+
+/// A charge resolved from its write: its product (created when new), its prices (created when
+/// new) and the structure it is stored with, None for a product included with no price.
+#[derive(Debug, Clone)]
+pub struct ResolvedCharge {
+    pub product_id: ProductId,
+    pub price_ids: Vec<PriceId>,
+    pub fee_structure: Option<FeeStructure>,
+}
+
+/// Resolve a PriceComponentNewInternal into its product, prices and structure.
+/// 1. Resolve ProductRef → ProductId (insert if New, with no structure: the charge owns it)
+/// 2. The charge's structure: its own or the new product's; required with a price
+/// 3. For each PriceEntry: Existing → validate + use, New → validate currency + insert PriceRow;
+///    each must fit the structure
+/// 4. Validate: ProductRef::New + PriceEntry::Existing is an error
 pub async fn resolve_component_internal(
     conn: &mut PgConn,
     internal: &PriceComponentNewInternal,
@@ -138,27 +233,26 @@ pub async fn resolve_component_internal(
     product_family_id: ProductFamilyId,
     expected_currency: &str,
     catalog: bool,
-) -> StoreResult<(ProductId, Vec<PriceId>)> {
+) -> StoreResult<ResolvedCharge> {
+    let fee_structure = match internal.structure() {
+        Some(structure) => Some(charge_structure_tx(conn, tenant_id, structure.clone()).await?),
+        None if internal.prices.is_empty() => None,
+        None => {
+            return Err(Report::new(StoreError::InvalidArgument(format!(
+                "{}: a priced charge names how it bills its product",
+                internal.name
+            ))));
+        }
+    };
     let product_id = match &internal.product_ref {
         ProductRef::Existing(pid) => *pid,
-        ProductRef::New {
-            name,
-            fee_type,
-            fee_structure,
-        } => {
+        ProductRef::New { name, .. } => {
             let product_row = ProductRowNew {
                 id: ProductId::new(),
                 name: name.clone(),
                 description: None,
                 tenant_id,
                 product_family_id,
-                fee_type: (*fee_type).into(),
-                fee_structure: serde_json::to_value(fee_structure).map_err(|e| {
-                    Report::new(StoreError::SerdeError(
-                        "Failed to serialize fee_structure".to_string(),
-                        e,
-                    ))
-                })?,
                 catalog,
                 tax_category_id: None,
                 icon: None,
@@ -167,13 +261,12 @@ pub async fn resolve_component_internal(
             .insert(conn)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
-            crate::repositories::products::register_quantity(conn, tenant_id, fee_structure)
-                .await?;
             product_row.id
         }
     };
 
     let mut price_ids = Vec::new();
+    let mut existing_ids = Vec::new();
     for entry in &internal.prices {
         match entry {
             PriceEntry::Existing(pid) => {
@@ -205,6 +298,7 @@ pub async fn resolve_component_internal(
                     ))));
                 }
                 price_ids.push(*pid);
+                existing_ids.push(*pid);
             }
             PriceEntry::New(input) => {
                 if input.currency != expected_currency {
@@ -231,13 +325,11 @@ pub async fn resolve_component_internal(
                     [&input.pricing],
                 )
                 .await?;
-                ensure_product_dimension_rates_add_up(
-                    conn,
-                    tenant_id,
-                    product_id,
-                    [&input.pricing],
-                )
-                .await?;
+                // Checked against the charge before it is written: a price that cannot price
+                // it is refused as such, not by what writing it trips first.
+                if let Some(structure) = &fee_structure {
+                    ensure_prices_fit_charge(conn, tenant_id, structure, [&input.pricing]).await?;
+                }
                 let pricing_json = serde_json::to_value(&input.pricing).map_err(|e| {
                     Report::new(StoreError::SerdeError(
                         "Failed to serialize pricing".to_string(),
@@ -263,7 +355,75 @@ pub async fn resolve_component_internal(
         }
     }
 
-    Ok((product_id, price_ids))
+    if let Some(structure) = &fee_structure {
+        let prices = prices_of(conn, tenant_id, &existing_ids).await?;
+        ensure_prices_fit_charge(
+            conn,
+            tenant_id,
+            structure,
+            prices.iter().map(|p| &p.pricing),
+        )
+        .await?;
+    }
+
+    Ok(ResolvedCharge {
+        product_id,
+        price_ids,
+        fee_structure,
+    })
+}
+
+/// The structure of an ad hoc charge (a subscription's, a quote's, an amendment's extra): its
+/// own, else its new product's, else that of the charges its existing price is linked to when
+/// they agree.
+pub(crate) async fn extra_charge_structure(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    product_ref: &ProductRef,
+    price_entry: &PriceEntry,
+    fee_structure: Option<&FeeStructure>,
+) -> StoreResult<FeeStructure> {
+    if let Some(structure) = fee_structure.or_else(|| product_ref.new_product_structure()) {
+        return charge_structure_tx(conn, tenant_id, structure.clone()).await;
+    }
+    let PriceEntry::Existing(price_id) = price_entry else {
+        return Err(Report::new(StoreError::InvalidArgument(
+            "A new price for an existing product names how the charge bills it".to_owned(),
+        )));
+    };
+    linked_charge_structure(conn, tenant_id, *price_id)
+        .await?
+        .ok_or_else(|| {
+            Report::new(StoreError::InvalidArgument(format!(
+                "Price {price_id} is not one charge's: name how the charge bills its product"
+            )))
+        })
+}
+
+/// The structure of the charges (plan components, add-ons) `price_id` is linked to, when they
+/// all bill alike.
+pub async fn linked_charge_structure(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    price_id: PriceId,
+) -> StoreResult<Option<FeeStructure>> {
+    let structures = diesel_models::query::price_components::charge_structures_of_prices(
+        conn,
+        tenant_id,
+        &[price_id],
+    )
+    .await?
+    .into_iter()
+    .map(|(_, json)| {
+        serde_json::from_value::<FeeStructure>(json).map_err(|e| {
+            Report::new(StoreError::SerdeError(
+                "Failed to deserialize FeeStructure".to_string(),
+                e,
+            ))
+        })
+    })
+    .collect::<StoreResult<Vec<_>>>()?;
+    Ok(crate::domain::products::single_structure(&structures).cloned())
 }
 
 /// Locks a plan version for a change of its components, refused unless it is a draft: a published
@@ -430,11 +590,24 @@ pub trait PriceComponentInterface {
 
     /// Create a price component from high-level ProductRef + PriceEntry.
     /// Resolves the product (creates if New) and prices (creates if New),
-    /// then creates the component row and join rows.
+    /// then creates the component row and join rows. The charge bills as its new product's
+    /// structure says: see `create_charge_from_ref`.
     async fn create_price_component_from_ref(
         &self,
         name: String,
         product_ref: ProductRef,
+        price_entries: Vec<PriceEntry>,
+        plan_version_id: PlanVersionId,
+        tenant_id: TenantId,
+    ) -> StoreResult<PriceComponent>;
+
+    /// `create_price_component_from_ref` with the charge's structure; None takes a new
+    /// product's, and with no price includes the product.
+    async fn create_charge_from_ref(
+        &self,
+        name: String,
+        product_ref: ProductRef,
+        fee_structure: Option<FeeStructure>,
         price_entries: Vec<PriceEntry>,
         plan_version_id: PlanVersionId,
         tenant_id: TenantId,
@@ -599,19 +772,19 @@ async fn write_component_cell(
                     ))
                 })?;
 
-                let product = ProductRow::find_by_id_and_tenant_id(conn, product_id, tenant_id)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-                let structure: FeeStructure = serde_json::from_value(product.fee_structure)
-                    .map_err(|e| {
-                        Report::new(StoreError::SerdeError(
-                            "Failed to deserialize FeeStructure".to_string(),
-                            e,
-                        ))
-                    })?;
-                for price in &prices {
-                    crate::domain::prices::validate_pricing_fits(&structure, &price.pricing)?;
-                }
+                let structure = component.fee_structure.as_ref().ok_or_else(|| {
+                    Report::new(StoreError::FailedPrecondition(format!(
+                        "{} includes its product with no charge: it takes no price",
+                        component.name
+                    )))
+                })?;
+                ensure_prices_fit_charge(
+                    conn,
+                    tenant_id,
+                    structure,
+                    prices.iter().map(|price| &price.pricing),
+                )
+                .await?;
                 // `check_cell_prices` made the prices written all of one kind.
                 let kind = std::mem::discriminant(&prices[0].pricing);
                 if component
@@ -641,7 +814,7 @@ async fn write_component_cell(
                 ensure_dimension_rates_add_up(
                     conn,
                     tenant_id,
-                    &structure,
+                    structure,
                     prices.iter().map(|price| &price.pricing),
                 )
                 .await?;
@@ -764,9 +937,14 @@ impl PriceComponentInterface for Store {
         price_component: PriceComponentNew,
         tenant_id: TenantId,
     ) -> StoreResult<PriceComponent> {
-        let price_component: PriceComponentRowNew = price_component.try_into()?;
+        let mut price_component = price_component;
         self.transaction(|conn| {
             async move {
+                if let Some(structure) = price_component.fee_structure.take() {
+                    price_component.fee_structure =
+                        Some(charge_structure_tx(conn, tenant_id, structure).await?);
+                }
+                let price_component: PriceComponentRowNew = price_component.try_into()?;
                 lock_draft_version_tx(conn, price_component.plan_version_id, tenant_id).await?;
                 PriceComponentRow::insert(conn, price_component)
                     .await
@@ -789,8 +967,12 @@ impl PriceComponentInterface for Store {
                 "product_id is required when creating prices".to_string(),
             ))
         })?;
-
-        let component_row_new: PriceComponentRowNew = price_component.try_into()?;
+        let structure = price_component.fee_structure.clone().ok_or_else(|| {
+            Report::new(StoreError::InvalidArgument(
+                "a priced charge names how it bills its product".to_string(),
+            ))
+        })?;
+        let mut price_component = price_component;
 
         let price_rows_new: Vec<PriceRowNew> = prices
             .iter()
@@ -826,6 +1008,16 @@ impl PriceComponentInterface for Store {
                 ProductRow::find_by_id_and_tenant_id(conn, product_id, tenant_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
+                let structure = charge_structure_tx(conn, tenant_id, structure).await?;
+                ensure_prices_fit_charge(
+                    conn,
+                    tenant_id,
+                    &structure,
+                    prices.iter().map(|price| &price.pricing),
+                )
+                .await?;
+                price_component.fee_structure = Some(structure);
+                let component_row_new: PriceComponentRowNew = price_component.try_into()?;
                 ensure_credit_units_usable(
                     conn,
                     tenant_id,
@@ -841,13 +1033,6 @@ impl PriceComponentInterface for Store {
                     )
                     .await?;
                 }
-                ensure_product_dimension_rates_add_up(
-                    conn,
-                    tenant_id,
-                    product_id,
-                    prices.iter().map(|price| &price.pricing),
-                )
-                .await?;
 
                 // Validate price currencies match plan version
                 let pv = lock_draft_version_tx(conn, component_row_new.plan_version_id, tenant_id)
@@ -890,12 +1075,18 @@ impl PriceComponentInterface for Store {
         price_components: Vec<PriceComponentNew>,
         tenant_id: TenantId,
     ) -> StoreResult<Vec<PriceComponent>> {
-        let price_components: Vec<PriceComponentRowNew> = price_components
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>, _>>()?;
         self.transaction(|conn| {
             async move {
+                let mut rows: Vec<PriceComponentRowNew> =
+                    Vec::with_capacity(price_components.len());
+                for mut component in price_components {
+                    if let Some(structure) = component.fee_structure.take() {
+                        component.fee_structure =
+                            Some(charge_structure_tx(conn, tenant_id, structure).await?);
+                    }
+                    rows.push(component.try_into()?);
+                }
+                let price_components = rows;
                 let mut versions: Vec<PlanVersionId> = price_components
                     .iter()
                     .map(|component| component.plan_version_id)
@@ -944,7 +1135,6 @@ impl PriceComponentInterface for Store {
         tenant_id: TenantId,
         plan_version_id: PlanVersionId,
     ) -> StoreResult<PriceComponent> {
-        // No price, none kept: the product is included, its features only.
         let product_id = price_component.product_id.ok_or_else(|| {
             Report::new(StoreError::InvalidArgument(
                 "product_id is required when updating prices".to_string(),
@@ -952,13 +1142,26 @@ impl PriceComponentInterface for Store {
         })?;
 
         let component_id = price_component.id;
-        let pc_row = PriceComponentRow {
+        // No price, none kept: the product is included, its features only, and the charge has
+        // no shape (R-139).
+        let included = prices.is_empty() && keep.is_empty();
+        let structure = match price_component.fee_structure.clone() {
+            Some(structure) => Some(structure),
+            None if included => None,
+            None => {
+                return Err(Report::new(StoreError::InvalidArgument(
+                    "a priced charge names how it bills its product".to_string(),
+                )));
+            }
+        };
+        let mut pc_row = PriceComponentRow {
             id: component_id,
             plan_version_id,
             name: price_component.name,
             product_id: price_component.product_id,
             legacy_fee: None,
             billable_metric_id: None,
+            fee_structure: None,
         };
 
         let price_rows_new: Vec<PriceRowNew> = prices
@@ -1010,13 +1213,6 @@ impl PriceComponentInterface for Store {
                     )
                     .await?;
                 }
-                ensure_product_dimension_rates_add_up(
-                    conn,
-                    tenant_id,
-                    product_id,
-                    prices.iter().map(|price| &price.pricing),
-                )
-                .await?;
 
                 // Validate price currencies match plan version
                 let current = PriceComponentRow::get_by_id(conn, tenant_id, component_id).await?;
@@ -1035,6 +1231,29 @@ impl PriceComponentInterface for Store {
                     }
                 }
 
+                // The charge may take another shape on a draft: every price it keeps fits it.
+                pc_row.fee_structure = match structure {
+                    Some(structure) if !included => {
+                        let structure = charge_structure_tx(conn, tenant_id, structure).await?;
+                        let kept = prices_of(conn, tenant_id, &keep).await?;
+                        ensure_prices_fit_charge(
+                            conn,
+                            tenant_id,
+                            &structure,
+                            prices
+                                .iter()
+                                .map(|price| &price.pricing)
+                                .chain(kept.iter().map(|price| &price.pricing)),
+                        )
+                        .await?;
+                        crate::domain::price_components::structure_json(Some(&structure))?
+                    }
+                    _ => crate::domain::price_components::structure_json(None)?,
+                };
+
+                if pc_row.fee_structure.is_none() {
+                    PriceComponentRow::clear_fee_structure(conn, tenant_id, component_id).await?;
+                }
                 let updated = pc_row
                     .update(conn, tenant_id)
                     .await
@@ -1090,9 +1309,30 @@ impl PriceComponentInterface for Store {
         plan_version_id: PlanVersionId,
         tenant_id: TenantId,
     ) -> StoreResult<PriceComponent> {
+        self.create_charge_from_ref(
+            name,
+            product_ref,
+            None,
+            price_entries,
+            plan_version_id,
+            tenant_id,
+        )
+        .await
+    }
+
+    async fn create_charge_from_ref(
+        &self,
+        name: String,
+        product_ref: ProductRef,
+        fee_structure: Option<FeeStructure>,
+        price_entries: Vec<PriceEntry>,
+        plan_version_id: PlanVersionId,
+        tenant_id: TenantId,
+    ) -> StoreResult<PriceComponent> {
         let internal = PriceComponentNewInternal {
             name,
             product_ref,
+            fee_structure,
             prices: price_entries,
         };
 
@@ -1104,7 +1344,7 @@ impl PriceComponentInterface for Store {
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
-                let (product_id, price_ids) = resolve_component_internal(
+                let charge = resolve_component_internal(
                     conn,
                     &internal,
                     tenant_id,
@@ -1113,6 +1353,7 @@ impl PriceComponentInterface for Store {
                     true,
                 )
                 .await?;
+                let price_ids = charge.price_ids;
 
                 // Insert the price component row
                 let component_row_new = PriceComponentRowNew {
@@ -1120,8 +1361,11 @@ impl PriceComponentInterface for Store {
                     name: internal.name,
                     legacy_fee: None,
                     plan_version_id,
-                    product_id: Some(product_id),
+                    product_id: Some(charge.product_id),
                     billable_metric_id: None,
+                    fee_structure: crate::domain::price_components::structure_json(
+                        charge.fee_structure.as_ref(),
+                    )?,
                 };
                 let inserted = component_row_new
                     .insert(conn)

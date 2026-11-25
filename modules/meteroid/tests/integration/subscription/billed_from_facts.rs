@@ -178,7 +178,7 @@ async fn removals_waiting_for_the_same_end_take_their_seats_once(
         .get_active_slots_value(
             TENANT_ID,
             sub_id,
-            "Seats".to_string(),
+            QUANTITY_SEATS_ID,
             Some(day(3, 1).and_time(NaiveTime::MIN)),
         )
         .await

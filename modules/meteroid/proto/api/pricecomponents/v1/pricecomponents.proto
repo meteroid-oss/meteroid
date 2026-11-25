@@ -3,6 +3,7 @@ syntax = "proto3";
 package meteroid.api.components.v1;
 
 import "api/billablemetrics/v1/models.proto";
+import "api/prices/v1/models.proto";
 import "api/pricecomponents/v1/models.proto";
 import "api/products/v1/models.proto";
 
@@ -10,6 +11,8 @@ message EditPriceComponentRequest {
   string plan_version_id = 1;
   PriceComponent component = 2;
   repeated PriceEntry prices = 4;
+  // The charge's new shape (drafts only); unset keeps it. Every price kept must fit it.
+  optional meteroid.api.prices.v1.FeeStructure fee_structure = 5;
 }
 
 message EditPriceComponentResponse {
@@ -22,6 +25,9 @@ message CreatePriceComponentRequest {
   reserved 3, 4, 5, 6;
   ProductRef product = 7;
   repeated PriceEntry prices = 8;
+  // How the charge bills the product; unset takes a new product's `fee_structure`. Unset with
+  // no price includes the product. Every price must fit it.
+  optional meteroid.api.prices.v1.FeeStructure fee_structure = 9;
 }
 
 message CreatePriceComponentResponse {

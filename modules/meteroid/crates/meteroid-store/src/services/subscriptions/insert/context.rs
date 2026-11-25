@@ -6,7 +6,7 @@ use crate::domain::price_components::OptionPrice;
 use crate::domain::prices::{self, LegacyPricingData, extract_legacy_pricing};
 use crate::domain::{
     CreateSubscription, CreateSubscriptionFromQuote, Customer, InvoicingEntityProviderSensitive,
-    PlanForSubscription, Price, PriceComponent, Product,
+    PlanForSubscription, Price, PriceComponent,
 };
 use crate::errors::StoreError;
 use crate::repositories::credit_units::load_credit_units;
@@ -36,7 +36,6 @@ use diesel_models::plan_component_prices::PlanComponentPriceRow;
 use diesel_models::plans::PlanRowForSubscription;
 use diesel_models::price_components::PriceComponentRow;
 use diesel_models::prices::PriceRow;
-use diesel_models::products::ProductRow;
 use error_stack::{Report, ResultExt};
 use itertools::Itertools;
 use rust_decimal::Decimal;
@@ -54,6 +53,8 @@ pub struct ResolvedCustomComponent {
     pub product_ref: crate::domain::price_components::ProductRef,
     /// Same as above for the price.
     pub price_entry: crate::domain::price_components::PriceEntry,
+    /// How the charge bills its product: the plan component's for an override.
+    pub fee_structure: crate::domain::prices::FeeStructure,
 }
 
 impl ResolvedCustomComponent {
@@ -125,7 +126,6 @@ pub struct SubscriptionCreationContext {
     pub customers: Vec<Customer>,
     pub plans: Vec<PlanForSubscription>,
     pub price_components_by_plan_version: HashMap<PlanVersionId, Vec<PriceComponent>>,
-    pub products_by_id: HashMap<ProductId, Product>,
     pub addon_prices_by_id: HashMap<PriceId, Price>,
     /// The credit units of every price above and of the requests' new prices.
     pub credit_units: CreditUnitsById,
@@ -174,27 +174,6 @@ impl Services {
 
         let add_ons = self.get_add_ons(conn, batch, &tenant_id).await?;
 
-        // Load real products for v2 components and add-ons
-        let product_ids: Vec<ProductId> = price_components
-            .values()
-            .flat_map(|comps| comps.iter().filter_map(|c| c.product_id))
-            .chain(add_ons.iter().map(|a| a.product_id))
-            .unique()
-            .collect();
-        let products_by_id: HashMap<ProductId, Product> = if product_ids.is_empty() {
-            HashMap::new()
-        } else {
-            ProductRow::list_by_ids(conn, &product_ids, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .into_iter()
-                .map(|row| {
-                    let id = row.id;
-                    Product::try_from(row).map(|p| (id, p))
-                })
-                .collect::<Result<HashMap<_, _>, _>>()?
-        };
-
         // Load prices referenced by add-ons
         let addon_price_ids: Vec<PriceId> =
             add_ons.iter().flat_map(AddOn::price_ids).unique().collect();
@@ -231,7 +210,7 @@ impl Services {
 
         // Resolve extras and overrides for each subscription in batch (read-only fee computation)
         let resolved_custom_components = self
-            .resolve_custom_components(conn, batch, &price_components, &products_by_id, tenant_id)
+            .resolve_custom_components(conn, batch, &price_components, tenant_id)
             .await?;
 
         let minimums_by_plan_version =
@@ -252,7 +231,6 @@ impl Services {
                     &customers,
                     &plans,
                     &price_components,
-                    &products_by_id,
                     &addon_prices_by_id,
                     &credit_units,
                     &add_ons,
@@ -270,7 +248,6 @@ impl Services {
             customers,
             plans,
             price_components_by_plan_version: price_components,
-            products_by_id,
             addon_prices_by_id,
             credit_units,
             all_add_ons: add_ons,
@@ -752,7 +729,6 @@ impl Services {
             customers,
             plans,
             price_components_by_plan_version: HashMap::new(), // Not needed for quote conversion
-            products_by_id: HashMap::new(),                   // Not needed for quote conversion
             addon_prices_by_id: HashMap::new(),               // Not needed for quote conversion
             credit_units: CreditUnitsById::new(),             // Not needed for quote conversion
             all_add_ons: vec![],                              // Not needed for quote conversion
@@ -769,14 +745,14 @@ impl Services {
     }
 
     /// Resolve fees for overrides and extras
-    /// FeeStructure comes from existing Product or ProductRef::New payload.
+    /// FeeStructure comes from the plan's charge (an override), else the extra's own, its new
+    /// product's or its existing price's charge's (`extra_charge_structure`).
     /// Pricing comes from existing Price or PriceEntry::New payload.
     async fn resolve_custom_components(
         &self,
         conn: &mut PgConn,
         batch: &[CreateSubscription],
         price_components: &HashMap<PlanVersionId, Vec<PriceComponent>>,
-        products_by_id: &HashMap<ProductId, Product>,
         tenant_id: TenantId,
     ) -> StoreResult<Vec<ResolvedCustomComponents>> {
         use crate::domain::price_components::{PriceEntry, ProductRef};
@@ -814,16 +790,16 @@ impl Services {
                         )))
                     })?;
 
-                    let product = products_by_id.get(&product_id).ok_or_else(|| {
+                    let fee_structure = plan_comp.structure().cloned().ok_or_else(|| {
                         Report::new(StoreError::InvalidArgument(format!(
-                            "Product {} not found for override component {}",
-                            product_id, plan_comp.id
+                            "Cannot override component {}: it includes its product with no charge",
+                            plan_comp.id
                         )))
                     })?;
 
                     let (fee, period) = resolve_fee_read_only(
                         conn,
-                        &product.fee_structure,
+                        &fee_structure,
                         &ov.price_entry,
                         tenant_id,
                         Some(product_id),
@@ -840,28 +816,22 @@ impl Services {
                             price_component_id: Some(plan_comp.id),
                             product_ref: ProductRef::Existing(product_id),
                             price_entry: ov.price_entry.clone(),
+                            fee_structure,
                         },
                     );
                 }
 
                 // Resolve extras
                 for extra in &components.extra_components {
-                    let fee_structure = match &extra.product_ref {
-                        ProductRef::Existing(pid) => {
-                            // Product may not be in products_by_id (e.g. from product library)
-                            if let Some(p) = products_by_id.get(pid) {
-                                p.fee_structure.clone()
-                            } else {
-                                let row =
-                                    ProductRow::find_by_id_and_tenant_id(conn, *pid, tenant_id)
-                                        .await
-                                        .map_err(Into::<Report<StoreError>>::into)?;
-                                let product = Product::try_from(row)?;
-                                product.fee_structure
-                            }
-                        }
-                        ProductRef::New { fee_structure, .. } => fee_structure.clone(),
-                    };
+                    let fee_structure =
+                        crate::repositories::price_components::extra_charge_structure(
+                            conn,
+                            tenant_id,
+                            &extra.product_ref,
+                            &extra.price_entry,
+                            extra.fee_structure.as_ref(),
+                        )
+                        .await?;
 
                     // Validate: New product + Existing price is an error
                     if matches!(extra.product_ref, ProductRef::New { .. })
@@ -889,6 +859,7 @@ impl Services {
                         price_component_id: None,
                         product_ref: extra.product_ref.clone(),
                         price_entry: extra.price_entry.clone(),
+                        fee_structure,
                     });
                 }
             }
@@ -970,10 +941,10 @@ fn request_credit_unit_ids(params: &CreateSubscription) -> Vec<CreditUnitId> {
         .collect()
 }
 
-/// Compute (SubscriptionFee, period) from FeeStructure + PriceEntry
-/// For PriceEntry::Existing, loads the Price (read-only SELECT): it must be a price of `product_id`,
-/// the product whose `fee_structure` it is read with, and in `currency` when given. A price of
-/// another product would be read with a structure that is not its own.
+/// Compute (SubscriptionFee, period) from the charge's FeeStructure + PriceEntry; the price must
+/// fit the structure (a rate card on the charge's metric).
+/// For PriceEntry::Existing, loads the Price (read-only SELECT): it must be a price of `product_id`
+/// and in `currency` when given.
 /// For PriceEntry::New, extracts Pricing directly from the payload.
 /// No rows are created.
 pub(crate) async fn resolve_fee_read_only(
@@ -1007,6 +978,13 @@ pub(crate) async fn resolve_fee_read_only(
                     price_id, price.currency, currency
                 ))));
             }
+            crate::repositories::price_components::ensure_prices_fit_charge(
+                conn,
+                tenant_id,
+                fee_structure,
+                [&price.pricing],
+            )
+            .await?;
             let units = load_credit_units(conn, tenant_id, price.credit_unit_ids()).await?;
             let fee = prices::resolve_subscription_fee(
                 fee_structure,
@@ -1020,6 +998,13 @@ pub(crate) async fn resolve_fee_read_only(
             Ok((fee, period))
         }
         crate::domain::price_components::PriceEntry::New(price_input) => {
+            crate::repositories::price_components::ensure_prices_fit_charge(
+                conn,
+                tenant_id,
+                fee_structure,
+                [&price_input.pricing],
+            )
+            .await?;
             let units =
                 load_credit_units(conn, tenant_id, price_entry.new_credit_unit_ids()).await?;
             let fee = prices::resolve_subscription_fee(
@@ -1107,7 +1092,6 @@ fn quoted_subscription<'a>(
     customers: &'a [Customer],
     plans: &'a [PlanForSubscription],
     price_components: &HashMap<PlanVersionId, Vec<PriceComponent>>,
-    products_by_id: &HashMap<ProductId, Product>,
     addon_prices_by_id: &HashMap<PriceId, Price>,
     credit_units: &CreditUnitsById,
     add_ons: &[AddOn],
@@ -1142,7 +1126,6 @@ fn quoted_subscription<'a>(
         &params.price_components,
         price_components,
         sub,
-        products_by_id,
         credit_units,
         resolved,
         plan.product_family_id,
@@ -1152,7 +1135,6 @@ fn quoted_subscription<'a>(
     let (add_ons, _) = process_create_subscription_add_ons(
         &params.add_ons,
         add_ons,
-        products_by_id,
         addon_prices_by_id,
         credit_units,
         plan.product_family_id,

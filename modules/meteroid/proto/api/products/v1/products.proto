@@ -12,6 +12,7 @@ message CreateProductRequest {
   string name = 1;
   optional string description = 2;
   string family_local_id = 3;
+  // Ignored: the charges using the product own how it is billed.
   meteroid.api.prices.v1.FeeType fee_type = 4;
   meteroid.api.prices.v1.FeeStructure fee_structure = 5;
   optional bool catalog = 6;
@@ -28,6 +29,7 @@ message UpdateProductRequest {
   string product_id = 1;
   string name = 2;
   optional string description = 3;
+  // Ignored: the charges using the product own how it is billed.
   optional meteroid.api.prices.v1.FeeType fee_type = 4;
   optional meteroid.api.prices.v1.FeeStructure fee_structure = 5;
   optional string tax_category_id = 6;
@@ -84,6 +86,7 @@ message ListProductsWithPricesRequest {
   optional string query = 3;
   meteroid.common.v1.Pagination pagination = 4;
   optional bool catalog_only = 5;
+  // Products some charge bills in one of these ways.
   repeated meteroid.api.prices.v1.FeeType fee_types = 6;
 }
 
@@ -137,6 +140,8 @@ message ProductAddOnUsage {
   string add_on_id = 1;
   string name = 2;
   repeated meteroid.api.prices.v1.Price prices = 3;
+  // How the add-on bills the product.
+  optional meteroid.api.prices.v1.FeeStructure fee_structure = 4;
 }
 
 service ProductsService {

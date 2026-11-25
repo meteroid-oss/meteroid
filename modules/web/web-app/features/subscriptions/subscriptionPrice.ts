@@ -2,7 +2,7 @@ import Decimal from 'decimal.js'
 
 import { formatPerUnit } from '@/features/billing/metrics/units'
 import { formatWalletAmount } from '@/features/credit/format'
-import { billedSlots, slotFeeTotal } from '@/features/subscriptions/utils/fees'
+import { billedSlots, seatCountKey, slotFeeTotal } from '@/features/subscriptions/utils/fees'
 import { currencyPrecision } from '@/lib/data/currency-precision'
 import { formatCurrency, formatCurrencyNoRounding } from '@/lib/utils/numbers'
 import { SubscriptionFeeBillingPeriod } from '@/rpc/api/subscriptions/v1/models_pb'
@@ -89,7 +89,7 @@ const recurringTotal = (fee: SubscriptionFee, slotCounts: Record<string, number>
     case 'slot': {
       // A model prices the count (seats included, tiers, packs); the rate is then empty.
       const slot = fee.fee.value
-      const seats = slotCounts[slot.unit] ?? slot.initialSlots
+      const seats = slotCounts[seatCountKey(slot)] ?? slot.initialSlots
       return slot.model?.model.case
         ? slotFeeTotal(slot, seats)
         : parseDecimal(slot.unitRate)?.mul(billedSlots(slot, seats))

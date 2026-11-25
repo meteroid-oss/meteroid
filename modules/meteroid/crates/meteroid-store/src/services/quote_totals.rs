@@ -335,6 +335,7 @@ mod tests {
     fn slots_bill_their_seat_count() {
         let fee = SubscriptionFee::Slot {
             unit: "seat".to_string(),
+            quantity_id: None,
             model: crate::domain::price_components::RatingModel::PerUnit { rate: dec!(12.50) },
             min_slots: None,
             max_slots: None,
@@ -434,6 +435,7 @@ mod tests {
     fn seats_round_once_on_their_total() {
         let fee = SubscriptionFee::Slot {
             unit: "seat".to_string(),
+            quantity_id: None,
             model: crate::domain::price_components::RatingModel::PerUnit { rate: dec!(0.125) },
             min_slots: None,
             max_slots: None,

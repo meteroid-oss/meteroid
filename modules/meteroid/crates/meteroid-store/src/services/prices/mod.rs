@@ -12,8 +12,7 @@ use crate::domain::price_components::{
     DimensionRate, DimensionRates, MatrixDimension, UsagePricingModel,
 };
 use crate::domain::prices::{
-    AffectedPlan, FeeStructure, MatrixDimensionKey, MatrixPriceUpdate, MatrixUpdatePreview, Price,
-    Pricing, UsageModel,
+    AffectedPlan, MatrixDimensionKey, MatrixPriceUpdate, MatrixUpdatePreview, Price, Pricing,
 };
 use crate::errors::StoreError;
 
@@ -44,22 +43,21 @@ fn has_key(rates: &DimensionRates, key: &[String]) -> bool {
     rates.rates.iter().any(|rate| rate.key == key)
 }
 
-fn validate_matrix_product(fee_structure: &serde_json::Value) -> StoreResult<()> {
-    let fs: FeeStructure = serde_json::from_value(fee_structure.clone()).map_err(|e| {
-        Report::new(StoreError::SerdeError(
-            "Failed to deserialize FeeStructure".to_string(),
-            e,
-        ))
-    })?;
-
-    match fs {
-        FeeStructure::Usage {
-            model: UsageModel::DimensionRates,
-            ..
-        } => Ok(()),
-        _ => Err(Report::new(StoreError::InvalidArgument(
+/// Refuses a product none of whose prices rates by dimension: a product has no structure, its
+/// charges do, and only the prices rated by dimension are edited.
+fn validate_matrix_prices(prices: &[PriceRow]) -> StoreResult<()> {
+    let rated = prices.iter().any(|row| {
+        matches!(
+            serde_json::from_value::<Pricing>(row.pricing.clone()),
+            Ok(Pricing::Usage(UsagePricingModel::DimensionRates(_)))
+        )
+    });
+    if rated {
+        Ok(())
+    } else {
+        Err(Report::new(StoreError::InvalidArgument(
             "Product is not rated by dimension".to_string(),
-        ))),
+        )))
     }
 }
 
@@ -73,11 +71,14 @@ impl Services {
     ) -> StoreResult<Vec<Price>> {
         let mut conn = self.store.get_conn().await?;
 
-        let product_row = ProductRow::find_by_id_and_tenant_id(&mut conn, product_id, tenant_id)
+        ProductRow::find_by_id_and_tenant_id(&mut conn, product_id, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
-
-        validate_matrix_product(&product_row.fee_structure)?;
+        validate_matrix_prices(
+            &PriceRow::list_by_product_id(&mut conn, product_id, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?,
+        )?;
 
         drop(conn);
 
@@ -147,15 +148,14 @@ impl Services {
     ) -> StoreResult<MatrixUpdatePreview> {
         let mut conn = self.store.get_conn().await?;
 
-        let product_row = ProductRow::find_by_id_and_tenant_id(&mut conn, product_id, tenant_id)
+        ProductRow::find_by_id_and_tenant_id(&mut conn, product_id, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
-
-        validate_matrix_product(&product_row.fee_structure)?;
 
         let roots = PriceRow::list_by_product_id(&mut conn, product_id, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
+        validate_matrix_prices(&roots)?;
         let root_ids: Vec<PriceId> = roots.iter().map(|root| root.id).collect();
         let successors = PriceRow::successors_of(&mut conn, &root_ids, tenant_id)
             .await

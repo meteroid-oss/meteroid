@@ -260,6 +260,7 @@ async fn a_scheduled_amendment_moves_the_mrr_once_with_its_renewal(#[future] tes
                             },
                             credit_unit: None,
                         }),
+                        fee_structure: None,
                     }],
                     removed: vec![],
                 },
@@ -657,6 +658,7 @@ async fn each_charge_on_a_written_document_is_billed_once(
                                     },
                                     credit_unit: None,
                                 }),
+                                fee_structure: None,
                             }],
                             removed: vec![],
                         },
@@ -874,16 +876,19 @@ async fn a_seat_purchase_the_previous_release_invoiced_is_given_back_as_the_seat
         )
     };
     buy(2).await.expect("two more seats from Jan 10");
-    // The line as the previous release wrote it.
+    // The line as the previous release wrote it, and its product as that release kept it: typed
+    // as seats, which the backfill reads (the catalog no longer writes a product's type).
     env.conn()
         .await
         .batch_execute(&format!(
-            "UPDATE invoice SET line_items = (
+            "UPDATE product SET fee_type = 'SLOT' WHERE id = '{product_id}';
+             UPDATE invoice SET line_items = (
                  SELECT jsonb_agg(CASE WHEN l ->> 'name' LIKE '%Seats upgrade'
                                        THEN l || '{{\"sub_component_id\": null}}'::jsonb
                                        ELSE l END ORDER BY ord)
                  FROM jsonb_array_elements(line_items) WITH ORDINALITY AS e(l, ord))
              WHERE subscription_id = '{sub_id}'",
+            product_id = PRODUCT_SEATS_ID.as_uuid(),
             sub_id = sub_id.as_uuid()
         ))
         .await

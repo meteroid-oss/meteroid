@@ -3,7 +3,7 @@ syntax = "proto3";
 package meteroid.api.quantities.v1;
 
 // A quantity a subscription holds over time (seats, licences), shared by the fees that bill it.
-// Each subscription holds its own value. `code` is immutable: seats are counted by it.
+// Each subscription holds its own value, counted by its id; `code` is immutable.
 message ManagedQuantity {
   string id = 1;
   string code = 2;

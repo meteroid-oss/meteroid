@@ -16,8 +16,9 @@ pub struct ProductRow {
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: TenantId,
     pub product_family_id: ProductFamilyId,
-    pub fee_type: FeeTypeEnum,
-    pub fee_structure: serde_json::Value,
+    /// No longer written nor read by billing: a charge owns its structure. Dropped later.
+    pub fee_type: Option<FeeTypeEnum>,
+    pub fee_structure: Option<serde_json::Value>,
     pub catalog: bool,
     /// Trigger-maintained analytics ingestion marker; never written by app code.
     pub store_committed_at: NaiveDateTime,
@@ -35,8 +36,6 @@ pub struct ProductRowNew {
     pub description: Option<String>,
     pub tenant_id: TenantId,
     pub product_family_id: ProductFamilyId,
-    pub fee_type: FeeTypeEnum,
-    pub fee_structure: serde_json::Value,
     pub catalog: bool,
     pub tax_category_id: Option<TaxCategoryId>,
     pub icon: Option<String>,
@@ -52,7 +51,6 @@ pub struct ProductRowPatch {
     pub tenant_id: TenantId,
     pub name: Option<String>,
     pub description: Option<Option<String>>,
-    pub fee_structure: Option<serde_json::Value>,
     pub tax_category_id: Option<Option<TaxCategoryId>>,
     pub icon: Option<Option<String>>,
     pub color: Option<Option<String>>,

@@ -14,7 +14,9 @@ import { formatCurrencyNoRounding } from '@/utils/numbers'
 
 interface UpdateSlotModalProps {
   subscriptionId: string
-  priceComponentId: string
+  /** The seat charge: a plan charge, or else an add-on of the subscription. */
+  priceComponentId?: string
+  addOnId?: string
   unit: string
   currentSlots: number
   unitRate: string
@@ -29,7 +31,8 @@ type BillingModeOption = 'optimistic' | 'invoice_paid'
 
 export const UpdateSlotModal = ({
   subscriptionId,
-  priceComponentId,
+  priceComponentId = '',
+  addOnId,
   unit,
   currentSlots,
   unitRate,
@@ -50,6 +53,7 @@ export const UpdateSlotModal = ({
     {
       subscriptionId,
       priceComponentId,
+      addOnId,
       delta,
     },
     {
@@ -104,6 +108,7 @@ export const UpdateSlotModal = ({
       await updateMutation.mutateAsync({
         subscriptionId,
         priceComponentId,
+        addOnId,
         delta: 0,
         target: newSlots,
         billingMode: billingModeEnum,

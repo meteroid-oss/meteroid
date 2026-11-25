@@ -23,6 +23,7 @@ import { PageSection } from '@/components/layouts/shared/PageSection'
 import { priceSummaryBadges } from '@/features/plans/pricecomponents/utils'
 import {
   buildExistingProductRef,
+  buildFeeStructure,
   buildNewProductRef,
   buildPriceInputs,
   existingPriceEntries,
@@ -104,10 +105,9 @@ const buildComponentChanges = (
     (c: ExtraComponentDraft): AmendmentAddComponent =>
       create(AmendmentAddComponentSchema, {
         name: c.name,
-        product: c.productId
-          ? buildExistingProductRef(c.productId)
-          : buildNewProductRef(c.name, c.feeType, c.formData),
+        product: c.productId ? buildExistingProductRef(c.productId) : buildNewProductRef(c.name),
         price: buildPriceEntry(c.feeType, c.formData, currency),
+        feeStructure: buildFeeStructure(c.feeType, c.formData),
       })
   ),
   removedComponentIds: state.componentChanges.removedComponentIds,

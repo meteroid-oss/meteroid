@@ -60,6 +60,8 @@ const RELEASE_LAST: &str = "20261116171749";
 const READ_BY_THE_CONVERSION: &[&str] = &[
     // The pricing model: managed quantities, journeys, eligibility, plan options.
     "20261124204716",
+    // Charges own their fee structure: the conversion reads a component's and an add-on's.
+    "20261125093418",
 ];
 // A lock held by a long transaction of a running pod fails the release instead of queueing every
 // later query behind it; the whole release is retried.

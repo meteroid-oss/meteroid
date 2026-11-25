@@ -29,6 +29,8 @@ import type { SlotTransaction } from '@/rpc/api/subscriptions/v1/models_pb'
 interface SlotTransactionsModalProps {
   subscriptionId: string
   unit: string
+  /** The managed quantity whose ledger it is; none: read by `unit`, its code. */
+  quantityId?: string
   open: boolean
   onClose: () => void
 }
@@ -36,6 +38,7 @@ interface SlotTransactionsModalProps {
 export const SlotTransactionsModal = ({
   subscriptionId,
   unit,
+  quantityId,
   open,
   onClose,
 }: SlotTransactionsModalProps) => {
@@ -44,7 +47,8 @@ export const SlotTransactionsModal = ({
     listSlotTransactions,
     {
       subscriptionId,
-      unit,
+      unit: quantityId ? undefined : unit,
+      quantityId: quantityId || undefined,
     },
     {
       enabled: open,

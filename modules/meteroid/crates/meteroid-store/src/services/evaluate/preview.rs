@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use billing_core::charge::{ChargeKey, Fee};
+use billing_core::charge::ChargeKey;
 use billing_core::evaluate::{Charge, DocumentSlot, evaluate};
 use chrono::{Datelike, NaiveDate, NaiveTime};
 use common_domain::actor::ActorType;
@@ -26,7 +26,7 @@ use crate::StoreResult;
 use crate::constants::Currencies;
 use crate::domain::enums::InvoiceType;
 use crate::domain::scheduled_events::{ScheduledEvent, ScheduledEventData};
-use crate::domain::slot_transactions::{SlotForTransaction, SlotUpdatePreview};
+use crate::domain::slot_transactions::SlotUpdatePreview;
 use crate::domain::subscription_add_ons::CreateSubscriptionAddOn;
 use crate::domain::{LineItem, SubscriptionAddOn, SubscriptionDetails, SubscriptionFee};
 use crate::errors::StoreError;
@@ -433,16 +433,18 @@ impl Services {
         Ok((quote, bought))
     }
 
-    /// A change of `delta` seats of the slot fee of `price_component_id`, priced today: an
-    /// increase recorded today laid over the facts and billed as the change bills it, a decrease
-    /// taking effect at the end of the fee's period, billing nothing now.
+    /// A change of `delta` seats of the slot fee of `charge` (a plan charge or an add-on),
+    /// priced today: an increase recorded today laid over the facts and billed as the change
+    /// bills it, by every fee counting its quantity; a decrease taking effect at the end of the
+    /// fee's period, billing nothing now.
     pub(in crate::services) async fn preview_seat_change(
         &self,
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
-        price_component_id: PriceComponentId,
+        charge: impl Into<crate::domain::slot_transactions::SeatCharge>,
         delta: i32,
     ) -> StoreResult<SlotUpdatePreview> {
+        let charge = charge.into();
         if delta == 0 {
             return Err(StoreError::InvalidArgument(
                 "Delta cannot be zero - no slot change requested".to_string(),
@@ -455,46 +457,25 @@ impl Services {
             .get_subscription_details_with_conn(&mut conn, tenant_id, subscription_id)
             .await?;
         let sub = &details.subscription;
-        let component = details
-            .price_components
-            .iter()
-            .find(|c| c.price_component_id == Some(price_component_id))
-            .ok_or_else(|| {
-                Report::new(StoreError::ValueNotFound(format!(
-                    "Price component {price_component_id} not found in subscription"
-                )))
-            })?;
-        let SubscriptionFee::Slot {
-            unit,
-            model,
-            min_slots,
-            max_slots,
-            ..
-        } = &component.fee
-        else {
+        let (lineage, fee) =
+            crate::services::subscriptions::slots::seat_charge_of(&details, charge)?;
+        let SubscriptionFee::Slot { unit, model, .. } = fee else {
             return Err(Report::new(StoreError::InvalidArgument(format!(
-                "Price component {price_component_id} is not a slot component"
+                "{charge:?} does not charge per seat"
             ))));
         };
+        let slot = self.extract_slot(&details, charge)?;
         let current = self
             .store
             .get_active_slots_value_with_conn(
                 &mut conn,
                 tenant_id,
                 subscription_id,
-                unit.clone(),
+                slot.quantity_id,
                 None,
             )
             .await? as i32;
-        crate::repositories::subscriptions::slots::validate_slot_limits(
-            &SlotForTransaction {
-                unit: unit.clone(),
-                min_slots: *min_slots,
-                max_slots: *max_slots,
-            },
-            delta,
-            current,
-        )?;
+        crate::repositories::subscriptions::slots::validate_slot_limits(&slot, delta, current)?;
         let precision = Currencies::resolve_currency_precision(&sub.currency).unwrap_or(2);
         let today = common_clock::now().date_naive();
         let new_slots = current + delta;
@@ -512,7 +493,6 @@ impl Services {
         // The fee's period holding today, from its charge there.
         let loaded =
             load_facts_with(&mut conn, tenant_id, subscription_id, today, None, None).await?;
-        let lineage = Fee::Component(component.lineage());
         let evaluation =
             evaluate(&loaded.facts, midnight(today), None, &StorePricer).map_err(pricing_error)?;
         let (period_start, period_end) = evaluation
@@ -533,7 +513,10 @@ impl Services {
             })?;
 
         let deferred = crate::services::subscriptions::slots::deferred_to_period_end(
-            &mut conn, tenant_id, unit, delta,
+            &mut conn,
+            tenant_id,
+            slot.quantity_id,
+            delta,
         )
         .await?;
         let (prorated_amount, adjustment_invoice) = if deferred {
@@ -541,7 +524,7 @@ impl Services {
         } else if delta < 0 {
             // Removed at once, what their unused time gives back.
             let given_back = self
-                .seat_purchase_documents(&mut conn, &details, price_component_id, delta, today)
+                .seat_purchase_documents(&mut conn, &details, slot.quantity_id, delta, today)
                 .await?;
             let given_back = Decimal::new(
                 given_back.map_or(0, |given_back| given_back.purchase.amount.min(0)),
@@ -551,7 +534,7 @@ impl Services {
         } else if delta > 0 {
             // What the purchase bills, from the facts, and the adjustment it issues for it.
             let bought = self
-                .seat_purchase_documents(&mut conn, &details, price_component_id, delta, today)
+                .seat_purchase_documents(&mut conn, &details, slot.quantity_id, delta, today)
                 .await?;
             let prorated = Decimal::new(
                 bought

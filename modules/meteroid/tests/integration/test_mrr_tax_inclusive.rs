@@ -110,8 +110,6 @@ async fn test_minimum_commitment_mrr_matches_the_taxed_invoice(
                     tenant_id: TENANT_ID,
                     name: None,
                     description: None,
-                    fee_type: None,
-                    fee_structure: None,
                     tax_category_id: Some(Some(category.id)),
                     icon: None,
                     color: None,
@@ -392,8 +390,6 @@ async fn test_manual_resolver_nets_mrr_by_the_line_level_tax() {
                     tenant_id: TENANT_ID,
                     name: None,
                     description: None,
-                    fee_type: None,
-                    fee_structure: None,
                     tax_category_id: Some(Some(digital_services.id)),
                     icon: None,
                     color: None,
@@ -524,8 +520,6 @@ async fn test_mixed_periods_and_rates_blend_over_the_monthly_shares() {
                     tenant_id: TENANT_ID,
                     name: None,
                     description: None,
-                    fee_type: None,
-                    fee_structure: None,
                     tax_category_id: Some(Some(category)),
                     icon: None,
                     color: None,
@@ -905,6 +899,7 @@ fn support_amendment() -> meteroid_store::domain::subscription_amendment::Subscr
                     },
                     credit_unit: None,
                 }),
+                fee_structure: None,
             }],
             removed: vec![],
         },
@@ -1294,6 +1289,7 @@ async fn add_credit_pack(env: &TestEnv, subscription_id: SubscriptionId, change_
                             },
                             credit_unit: None,
                         }),
+                        fee_structure: None,
                     }],
                     removed: vec![],
                 },
@@ -1631,7 +1627,8 @@ async fn seed_inclusive_plan(env: &TestEnv, name: &str, with_fee: bool) -> PlanV
             },
         ));
     }
-    for (component_name, fee_type, fee_structure, fee) in components {
+    // v1 components: their structure is their legacy fee's, the product holds none.
+    for (component_name, _, _, fee) in components {
         let product_id = ProductId::new();
         ProductRowNew {
             id: product_id,
@@ -1639,8 +1636,6 @@ async fn seed_inclusive_plan(env: &TestEnv, name: &str, with_fee: bool) -> PlanV
             description: None,
             tenant_id: TENANT_ID,
             product_family_id: crate::data::ids::PRODUCT_FAMILY_ID,
-            fee_type,
-            fee_structure: serde_json::to_value(&fee_structure).unwrap(),
             catalog: true,
             tax_category_id: None,
             icon: None,
@@ -1656,6 +1651,7 @@ async fn seed_inclusive_plan(env: &TestEnv, name: &str, with_fee: bool) -> PlanV
             plan_version_id,
             product_id: Some(product_id),
             billable_metric_id: None,
+            fee_structure: None,
         }
         .insert(&mut conn)
         .await

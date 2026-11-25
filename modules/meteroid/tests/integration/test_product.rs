@@ -8,7 +8,7 @@ use common_domain::actor::Actor;
 use common_domain::ids::{BaseId, PlanId, PlanVersionId, PriceComponentId, PriceId, ProductId};
 use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
 use meteroid_grpc::meteroid::api;
-use meteroid_store::domain::enums::{BillingPeriodEnum, FeeTypeEnum};
+use meteroid_store::domain::enums::BillingPeriodEnum;
 use meteroid_store::domain::price_components::{PriceEntry, PriceInput, ProductRef};
 use meteroid_store::domain::prices::{FeeStructure, Pricing};
 use meteroid_store::domain::products::ProductNew;
@@ -198,8 +198,6 @@ async fn product_usage_lists_live_plan_versions_and_add_ons() {
                 description: None,
                 tenant_id: TENANT_ID,
                 family_id: PRODUCT_FAMILY_ID,
-                fee_type: FeeTypeEnum::Rate,
-                fee_structure: FeeStructure::Rate {},
                 catalog: true,
                 tax_category_id: None,
                 icon: None,
@@ -303,6 +301,7 @@ async fn product_usage_lists_live_plan_versions_and_add_ons() {
         store.create_add_on_with_prices(
             name.to_string(),
             ProductRef::Existing(product),
+            Some(FeeStructure::Rate {}),
             vec![PriceEntry::New(PriceInput {
                 cadence: BillingPeriodEnum::Monthly,
                 currency: "USD".to_string(),

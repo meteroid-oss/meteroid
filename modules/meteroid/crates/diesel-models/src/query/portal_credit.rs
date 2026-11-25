@@ -114,59 +114,60 @@ pub async fn list_customer_invoice_numbers(
 pub struct PortalActiveSlotsRow {
     #[diesel(sql_type = sql_types::Uuid)]
     pub subscription_id: SubscriptionId,
-    #[diesel(sql_type = sql_types::Text)]
-    pub unit: String,
+    #[diesel(sql_type = sql_types::Uuid)]
+    pub quantity_id: common_domain::ids::ManagedQuantityId,
     #[diesel(sql_type = sql_types::Integer)]
     pub active_slots: i32,
 }
 
-/// Seats in use at `at` for each `(subscription, unit)`, read without locking: the same count
-/// as `SlotTransactionRow::fetch_active_slots`, for many pairs at once. A pair without
+/// Seats in use at `at` for each `(subscription, managed quantity)`, read without locking: the
+/// same count as `SlotTransactionRow::fetch_active_slots`, for many pairs at once. A pair without
 /// transactions is absent.
 pub async fn list_active_slots(
     conn: &mut PgConn,
     tenant_id: TenantId,
-    pairs: &[(SubscriptionId, String)],
+    pairs: &[(SubscriptionId, common_domain::ids::ManagedQuantityId)],
     at: chrono::NaiveDateTime,
 ) -> DbResult<Vec<PortalActiveSlotsRow>> {
     if pairs.is_empty() {
         return Ok(Vec::new());
     }
-    let (subscription_ids, units): (Vec<Uuid>, Vec<String>) = pairs
+    let (subscription_ids, quantities): (Vec<Uuid>, Vec<Uuid>) = pairs
         .iter()
-        .map(|(id, unit)| (id.as_uuid(), unit.clone()))
+        .map(|(id, quantity)| (id.as_uuid(), quantity.as_uuid()))
         .unzip();
     diesel::sql_query(
         // Each pair counted as `SlotTransactionRow::fetch_active_slots` counts it.
         "WITH pairs AS (
-             SELECT * FROM unnest($2::uuid[], $3::text[]) AS p(subscription_id, unit)
+             SELECT * FROM unnest($2::uuid[], $3::uuid[]) AS p(subscription_id, quantity_id)
          ), active AS (
-             SELECT st.subscription_id, st.unit, st.delta, st.prev_active_slots,
-                    st.effective_at, st.transaction_at
+             SELECT st.subscription_id, st.managed_quantity_id AS quantity_id, st.delta,
+                    st.prev_active_slots, st.effective_at, st.transaction_at
              FROM slot_transaction st
-             JOIN pairs p ON p.subscription_id = st.subscription_id AND p.unit = st.unit
+             JOIN pairs p ON p.subscription_id = st.subscription_id
+                 AND p.quantity_id = st.managed_quantity_id
              JOIN subscription s ON s.id = st.subscription_id
              WHERE s.tenant_id = $1 AND st.effective_at <= $4 AND st.status = 'ACTIVE'
          ), base AS (
-             SELECT DISTINCT ON (subscription_id, unit)
-                    subscription_id, unit, prev_active_slots, effective_at, delta = 0 AS seed
+             SELECT DISTINCT ON (subscription_id, quantity_id)
+                    subscription_id, quantity_id, prev_active_slots, effective_at, delta = 0 AS seed
              FROM active
-             ORDER BY subscription_id, unit, (delta = 0) DESC,
+             ORDER BY subscription_id, quantity_id, (delta = 0) DESC,
                       CASE WHEN delta = 0 THEN effective_at END DESC,
                       CASE WHEN delta = 0 THEN transaction_at END DESC,
                       effective_at, transaction_at
          )
-         SELECT b.subscription_id, b.unit,
+         SELECT b.subscription_id, b.quantity_id,
                 (b.prev_active_slots + COALESCE((
                     SELECT SUM(a.delta) FROM active a
-                    WHERE a.subscription_id = b.subscription_id AND a.unit = b.unit
+                    WHERE a.subscription_id = b.subscription_id AND a.quantity_id = b.quantity_id
                       AND a.delta <> 0 AND (NOT b.seed OR a.effective_at >= b.effective_at)
                 ), 0))::integer AS active_slots
          FROM base b",
     )
     .bind::<sql_types::Uuid, _>(tenant_id.as_uuid())
     .bind::<sql_types::Array<sql_types::Uuid>, _>(subscription_ids)
-    .bind::<sql_types::Array<sql_types::Text>, _>(units)
+    .bind::<sql_types::Array<sql_types::Uuid>, _>(quantities)
     .bind::<sql_types::Timestamp, _>(at)
     .get_results::<PortalActiveSlotsRow>(conn)
     .await

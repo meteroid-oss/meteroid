@@ -127,6 +127,7 @@ const structuralFormData = (fee: SubscriptionFee | undefined): Record<string, un
     case 'slot':
       return {
         slotUnitName: fee.fee.value.unit,
+        quantityId: fee.fee.value.quantityId,
         upgradePolicy: 'PRORATED',
         downgradePolicy: 'REMOVE_AT_END_OF_PERIOD',
         minimumCount: fee.fee.value.minSlots,

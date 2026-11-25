@@ -9,6 +9,7 @@ mod service;
 
 pub struct ProductServiceComponents {
     pub store: Store,
+    #[allow(dead_code)] // credit packs are gated where a charge is created, not a product
     pub feature_resolver: Arc<dyn Entitlements>,
 }
 

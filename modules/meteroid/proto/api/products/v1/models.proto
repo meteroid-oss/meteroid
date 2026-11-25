@@ -10,6 +10,8 @@ message Product {
   optional string description = 3;
   string created_at = 4;
   string local_id = 5;
+  // A product has no fee structure: a charge owns it. Set when every charge using the product
+  // bills it one way, unset otherwise.
   optional meteroid.api.prices.v1.FeeType fee_type = 6;
   optional meteroid.api.prices.v1.FeeStructure fee_structure = 7;
   bool catalog = 8;
@@ -37,7 +39,10 @@ message ProductMeta {
   uint32 feature_count = 12;
   uint32 plan_count = 13;
   optional string metric_name = 14;
+  // As on Product: the one structure of the charges using it, if they share one.
   optional meteroid.api.prices.v1.FeeStructure fee_structure = 15;
+  // Every distinct way the charges (plan charges and add-ons) using it bill it.
+  repeated meteroid.api.prices.v1.FeeStructure charge_structures = 16;
 }
 
 message ProductWithPrice {

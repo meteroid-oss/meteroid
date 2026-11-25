@@ -38,15 +38,17 @@ import { copyToClipboard } from '@/lib/helpers'
 import { FeeStructure_UsageModel } from '@/rpc/api/prices/v1/models_pb'
 import {
   getProduct,
+  listProductUsage,
   updateProduct,
 } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
 import { listTaxCategories } from '@/rpc/api/taxes/v1/taxes-TaxesService_connectquery'
 import { parseAndFormatDate } from '@/utils/date'
 
 import { MatrixRowsSection } from './MatrixRowsSection'
-import { chargesForWords, colorLabel, iconLabel } from './productWords'
+import { chargeKindsWords, chargesForWords, colorLabel, iconLabel } from './productWords'
 
 import type { ProductAppearance } from '@/features/productCatalog/items/ProductIcon'
+import type { FeeStructure } from '@/rpc/api/prices/v1/models_pb'
 import type { Product } from '@/rpc/api/products/v1/models_pb'
 
 interface ProductDetailPanelProps {
@@ -95,6 +97,22 @@ export const ProductDetailPanel = ({ productId, onClose }: ProductDetailPanelPro
     : { icon: product?.icon, color: product?.color }
   const taxCategories = taxCategoriesQuery.data?.taxCategories ?? []
   const structure = product?.feeStructure?.structure
+  // How the plan charges using it bill it: a product holds no structure of its own.
+  const usageQuery = useQuery(listProductUsage, productId ? { productId } : skipToken)
+  const charged: FeeStructure[] = (usageQuery.data?.plans ?? []).flatMap(usage =>
+    usage.components.flatMap(c => (c.feeStructure ? [c.feeStructure] : []))
+  )
+  if (product?.feeStructure) charged.push(product.feeStructure)
+  // The quantities its seat charges count, each with its own rules.
+  const seatQuantities = [
+    ...new Set(
+      charged.flatMap(s =>
+        s.structure.case === 'slot' && s.structure.value.quantityId
+          ? [s.structure.value.quantityId]
+          : []
+      )
+    ),
+  ]
 
   return (
     <Sheet open={!!productId} onOpenChange={() => onClose()}>
@@ -113,7 +131,7 @@ export const ProductDetailPanel = ({ productId, onClose }: ProductDetailPanelPro
               </div>
               {product && (
                 <SheetDescription>
-                  <ChargesForLine product={product} metricName={metricName} />
+                  <ChargesForLine product={product} metricName={metricName} charged={charged} />
                 </SheetDescription>
               )}
             </div>
@@ -244,7 +262,7 @@ export const ProductDetailPanel = ({ productId, onClose }: ProductDetailPanelPro
               )}
             </dl>
 
-            {structure?.case === 'slot' && (
+            {seatQuantities.length > 0 && (
               <section className="flex flex-col gap-3">
                 <div className="flex flex-wrap items-baseline gap-x-2">
                   <h3 className="text-sm font-semibold">Seats</h3>
@@ -252,7 +270,7 @@ export const ProductDetailPanel = ({ productId, onClose }: ProductDetailPanelPro
                     When a change of seats takes effect
                   </span>
                 </div>
-                <ProductSeatsSection unitName={structure.value.unitName} />
+                <ProductSeatsSection quantityIds={seatQuantities} />
               </section>
             )}
 
@@ -283,10 +301,26 @@ const Property = ({ label, children }: { label: string; children: ReactNode }) =
   </>
 )
 
-/** "Seats · counts seat", "Usage · Tokens · tiered": what it charges for, the metric a link. */
-const ChargesForLine = ({ product, metricName }: { product: Product; metricName?: string }) => {
+/**
+ * "Seats · counts seat", "Usage · Tokens · tiered": what its charges bill it for, the metric a
+ * link; "Flat fee or seats" when they bill it several ways.
+ */
+const ChargesForLine = ({
+  product,
+  metricName,
+  charged,
+}: {
+  product: Product
+  metricName?: string
+  charged: FeeStructure[]
+}) => {
   const basePath = useBasePath()
-  const words = chargesForWords(product.feeStructure, metricName)
+  const kinds = product.feeStructure ? '' : chargeKindsWords(charged)
+  const words = product.feeStructure
+    ? chargesForWords(product.feeStructure, metricName)
+    : kinds
+      ? [kinds]
+      : ['Not charged yet']
   return (
     <span>
       {words.map((word, i) => (

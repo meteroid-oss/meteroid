@@ -1481,7 +1481,7 @@ fn line_of(cents: i64) -> LineItem {
 async fn credit_pack_plan(setup: &MeteroidSetup) -> TestResult<common_domain::ids::PlanVersionId> {
     use common_domain::ids::{PlanId, PlanVersionId, PriceComponentId, ProductId};
     use diesel_async::AsyncConnection;
-    use diesel_models::enums::{FeeTypeEnum, PlanStatusEnum, PlanTypeEnum};
+    use diesel_models::enums::{PlanStatusEnum, PlanTypeEnum};
     use diesel_models::errors::DatabaseErrorContainer;
     use diesel_models::plan_versions::PlanVersionRowNew;
     use diesel_models::plans::{PlanRowNew, PlanRowPatch};
@@ -1566,11 +1566,6 @@ async fn credit_pack_plan(setup: &MeteroidSetup) -> TestResult<common_domain::id
                 description: None,
                 tenant_id: TENANT_ID,
                 product_family_id: crate::data::ids::PRODUCT_FAMILY_ID,
-                fee_type: FeeTypeEnum::Credit,
-                fee_structure: serde_json::to_value(
-                    &meteroid_store::domain::prices::FeeStructure::Credit {},
-                )
-                .expect("fee structure serializes"),
                 catalog: true,
                 tax_category_id: None,
                 icon: None,
@@ -1585,6 +1580,7 @@ async fn credit_pack_plan(setup: &MeteroidSetup) -> TestResult<common_domain::id
                 plan_version_id,
                 product_id: Some(product_id),
                 billable_metric_id: None,
+                fee_structure: None,
             }
             .insert(tx)
             .await?;

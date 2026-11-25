@@ -132,6 +132,7 @@ async fn charge(
                 name: name.to_string(),
                 product_id: Some(PRODUCT_PLATFORM_FEE_ID),
                 plan_version_id: version,
+                fee_structure: crate::data::plans::catalog_structure(PRODUCT_PLATFORM_FEE_ID),
             },
             prices,
             TENANT_ID,
@@ -1020,6 +1021,7 @@ async fn editing_one_capacity_level_keeps_the_others() {
                 name: "Bandwidth".to_string(),
                 product_id: Some(PRODUCT_CAPACITY_ID),
                 plan_version_id: version,
+                fee_structure: crate::data::plans::catalog_structure(PRODUCT_CAPACITY_ID),
             },
             vec![capacity(dec!(99), 10_000), capacity(dec!(499), 100_000)],
             TENANT_ID,
@@ -1085,6 +1087,7 @@ async fn setting_a_capacity_cell_writes_every_level() {
                 name: "Volume".to_string(),
                 product_id: Some(PRODUCT_CAPACITY_ID),
                 plan_version_id: version,
+                fee_structure: crate::data::plans::catalog_structure(PRODUCT_CAPACITY_ID),
             },
             vec![
                 capacity(dec!(479), 50_000, dec!(0.005)),

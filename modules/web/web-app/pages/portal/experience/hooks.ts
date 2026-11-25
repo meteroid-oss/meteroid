@@ -249,10 +249,15 @@ export const useSubscription = (
     [addOnQtyMutation, subscriptionId, goToCheckout, invalidatePortal]
   )
 
-  /** Set a seat/slot component to a target quantity. */
+  /** Set a seat charge to a target quantity: a plan charge, or an add-on's (`addOnId`). */
   const setSeats = useCallback(
-    async (componentId: string, quantity: number) => {
-      const res = await seatsMutation.mutateAsync({ subscriptionId, componentId, quantity })
+    async (componentId: string, quantity: number, addOnId?: string) => {
+      const res = await seatsMutation.mutateAsync({
+        subscriptionId,
+        componentId,
+        quantity,
+        addOnId: addOnId || undefined,
+      })
       if (res.status === AdjustmentStatus.ADJUSTMENT_CHECKOUT_REQUIRED && res.checkoutToken) {
         goToCheckout(res.checkoutToken)
         return { redirected: true as const, res }

@@ -491,7 +491,6 @@ async fn test_subscription_create_invoice_seats() {
 
     let subscription_id =
         uuid::Uuid::parse_str(subscription.subscription.map(|s| s.id).unwrap().as_str()).unwrap();
-    let price_component_id = uuid::Uuid::parse_str(component_id.as_str()).unwrap();
 
     let db_invoices = setup
         .store
@@ -547,7 +546,7 @@ async fn test_subscription_create_invoice_seats() {
         .get_active_slots_value(
             db_invoice.tenant_id,
             subscription_id.into(),
-            price_component_id.into(),
+            crate::data::ids::QUANTITY_SEATS_ID,
             Some(NaiveDateTime::from_str("2023-01-01T02:00:00").unwrap()),
         )
         .await

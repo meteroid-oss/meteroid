@@ -793,6 +793,7 @@ mod tests {
     fn slots_bill_the_segments_seats_within_their_bounds() {
         let fee = store_fee(SubscriptionFee::Slot {
             unit: "seat".to_owned(),
+            quantity_id: None,
             model: crate::domain::price_components::RatingModel::PerUnit { rate: dec!(25) },
             min_slots: Some(5),
             max_slots: Some(20),
@@ -819,6 +820,7 @@ mod tests {
     fn no_seats_bill_nothing_like_a_zero_quantity_line() {
         let fee = store_fee(SubscriptionFee::Slot {
             unit: "seat".to_owned(),
+            quantity_id: None,
             model: crate::domain::price_components::RatingModel::PerUnit { rate: dec!(25) },
             min_slots: None,
             max_slots: None,
@@ -1650,6 +1652,7 @@ mod tests {
         let lineage = lineage();
         let fee = store_fee(SubscriptionFee::Slot {
             unit: "seat".to_owned(),
+            quantity_id: None,
             model: crate::domain::price_components::RatingModel::PerUnit { rate: Decimal::MAX },
             min_slots: None,
             max_slots: None,

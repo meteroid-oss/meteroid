@@ -232,8 +232,10 @@ impl From<ProductFeeStructure> for meteroid_store::domain::prices::FeeStructure 
     fn from(val: ProductFeeStructure) -> Self {
         match val {
             ProductFeeStructure::Rate(_) => Self::Rate {},
+            // Counts the quantity coded as its unit (REST v1 names no quantity).
             ProductFeeStructure::Slot(s) => Self::Slot {
                 unit_name: s.slot_unit_name,
+                quantity_id: None,
                 upgrade_policy: s.upgrade_policy.into(),
                 downgrade_policy: s.downgrade_policy.into(),
             },
@@ -263,6 +265,7 @@ impl From<meteroid_store::domain::prices::FeeStructure> for ProductFeeStructure 
                 unit_name,
                 upgrade_policy,
                 downgrade_policy,
+                ..
             } => Self::Slot(SlotFeeStructure {
                 slot_unit_name: unit_name,
                 upgrade_policy: upgrade_policy.into(),
@@ -301,8 +304,14 @@ pub struct Product {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    pub fee_type: ProductFeeTypeEnum,
-    pub fee_structure: ProductFeeStructure,
+    /// How the product's charges bill it, when they all bill it one way; absent otherwise. A
+    /// product has no structure of its own: each plan charge and add-on owns one.
+    #[schema(nullable = false)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fee_type: Option<ProductFeeTypeEnum>,
+    #[schema(nullable = false)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fee_structure: Option<ProductFeeStructure>,
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub product_family_id: ProductFamilyId,
     pub catalog: bool,
@@ -326,7 +335,10 @@ pub struct CreateProductRequest {
     pub description: Option<String>,
     #[serde(with = "string_serde")]
     pub product_family_id: ProductFamilyId,
-    pub fee_structure: ProductFeeStructure,
+    /// Ignored: the charges using the product own how it is billed.
+    #[schema(nullable = false)]
+    #[serde(default)]
+    pub fee_structure: Option<ProductFeeStructure>,
     #[serde(default = "default_true")]
     pub catalog: bool,
 }
@@ -340,6 +352,7 @@ pub struct UpdateProductRequest {
     #[validate(length(min = 1))]
     pub name: Option<String>,
     pub description: Option<Option<String>>,
+    /// Ignored: the charges using the product own how it is billed.
     pub fee_structure: Option<ProductFeeStructure>,
 }
 

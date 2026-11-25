@@ -13,6 +13,35 @@ use diesel::{
 use error_stack::ResultExt;
 use std::collections::HashMap;
 
+/// The `type` tag of the fee structure JSON of each of `fee_types`.
+fn structure_types(fee_types: &[crate::enums::FeeTypeEnum]) -> Vec<String> {
+    use crate::enums::FeeTypeEnum;
+    fee_types
+        .iter()
+        .map(|fee_type| {
+            match fee_type {
+                FeeTypeEnum::Rate => "Rate",
+                FeeTypeEnum::Slot => "Slot",
+                FeeTypeEnum::Capacity => "Capacity",
+                FeeTypeEnum::Usage => "Usage",
+                FeeTypeEnum::ExtraRecurring => "ExtraRecurring",
+                FeeTypeEnum::OneTime => "OneTime",
+                FeeTypeEnum::Credit => "Credit",
+            }
+            .to_owned()
+        })
+        .collect()
+}
+
+/// Products a plan charge or an add-on bills in one of the structure types bound after each
+/// part: a charge owns how its product is billed.
+const CHARGED_AS: [&str; 3] = [
+    "\"product\".\"id\" IN (SELECT pc.product_id FROM price_component pc \
+     WHERE pc.product_id IS NOT NULL AND pc.fee_structure ->> 'type' = ANY(",
+    ") UNION SELECT a.product_id FROM add_on a WHERE a.fee_structure ->> 'type' = ANY(",
+    "))",
+];
+
 impl ProductRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<ProductRow> {
         use crate::schema::product::dsl::product;
@@ -79,7 +108,14 @@ impl ProductRow {
         }
 
         if !fee_types.is_empty() {
-            query = query.filter(p_dsl::fee_type.eq_any(fee_types));
+            let kinds = structure_types(fee_types);
+            query = query.filter(
+                diesel::dsl::sql::<diesel::sql_types::Bool>(CHARGED_AS[0])
+                    .bind::<diesel::sql_types::Array<diesel::sql_types::Text>, _>(kinds.clone())
+                    .sql(CHARGED_AS[1])
+                    .bind::<diesel::sql_types::Array<diesel::sql_types::Text>, _>(kinds)
+                    .sql(CHARGED_AS[2]),
+            );
         }
 
         let mut query = query.select(ProductRow::as_select());
@@ -148,7 +184,14 @@ impl ProductRow {
         }
 
         if !fee_types.is_empty() {
-            query = query.filter(p_dsl::fee_type.eq_any(fee_types));
+            let kinds = structure_types(fee_types);
+            query = query.filter(
+                diesel::dsl::sql::<diesel::sql_types::Bool>(CHARGED_AS[0])
+                    .bind::<diesel::sql_types::Array<diesel::sql_types::Text>, _>(kinds.clone())
+                    .sql(CHARGED_AS[1])
+                    .bind::<diesel::sql_types::Array<diesel::sql_types::Text>, _>(kinds)
+                    .sql(CHARGED_AS[2]),
+            );
         }
 
         let mut query = query.select(ProductRow::as_select());

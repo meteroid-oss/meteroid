@@ -1164,7 +1164,7 @@ async fn test_plan_change_preserves_slot_count(#[future] test_env: TestEnv) {
     // Verify initial slot count = 1 (min_slots default)
     let slots = env
         .store()
-        .get_active_slots_value(TENANT_ID, sub_id, "Seats".to_string(), None)
+        .get_active_slots_value(TENANT_ID, sub_id, QUANTITY_SEATS_ID, None)
         .await
         .expect("get initial slots");
     assert_eq!(slots, 1, "should start with 1 seat (min_slots default)");
@@ -1184,7 +1184,7 @@ async fn test_plan_change_preserves_slot_count(#[future] test_env: TestEnv) {
 
     let slots = env
         .store()
-        .get_active_slots_value(TENANT_ID, sub_id, "Seats".to_string(), None)
+        .get_active_slots_value(TENANT_ID, sub_id, QUANTITY_SEATS_ID, None)
         .await
         .expect("get slots after upgrade");
     assert_eq!(slots, 10, "should have 10 seats after upgrade");
@@ -1217,7 +1217,7 @@ async fn test_plan_change_preserves_slot_count(#[future] test_env: TestEnv) {
         .get_active_slots_value(
             TENANT_ID,
             sub_id,
-            "Seats".to_string(),
+            QUANTITY_SEATS_ID,
             NaiveDate::from_ymd_opt(2024, 2, 1).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -1300,7 +1300,7 @@ async fn seats_bought_after_a_plan_change_is_scheduled_carry_over(#[future] test
         .get_active_slots_value(
             TENANT_ID,
             sub_id,
-            "Seats".to_string(),
+            QUANTITY_SEATS_ID,
             Some(day(3, 1).and_time(NaiveTime::MIN)),
         )
         .await
@@ -1391,7 +1391,7 @@ async fn a_change_setting_its_seats_adds_those_changed_since_it_was_scheduled(
         .get_active_slots_value(
             TENANT_ID,
             sub_id,
-            "Seats".to_string(),
+            QUANTITY_SEATS_ID,
             Some(day(3, 1).and_time(NaiveTime::MIN)),
         )
         .await
@@ -1411,17 +1411,16 @@ async fn a_change_setting_its_seats_adds_those_changed_since_it_was_scheduled(
     );
 }
 
-/// Seats of another product are another unit: Starter with 10 seats, a change scheduled on
-/// Feb 1 for Mar 1 to a plan selling its seats under a product of its own, 3 seats bought on
-/// Feb 10 on Starter's. Team starts Mar 1 at its minimum, 1 seat: 9900 + 2500 = 12400.
-/// Rules: R-108
-#[rstest]
-#[tokio::test]
-async fn seats_of_another_product_do_not_carry_over(#[future] test_env: TestEnv) {
+/// A plan change to Team, selling its seats under a product of its own counting `quantity`,
+/// scheduled on Feb 1 for Mar 1 from Starter with 10 seats; 3 seats bought on Feb 10 on
+/// Starter's. Returns the subscription and Team's version.
+async fn starter_to_team_counting(
+    env: &TestEnv,
+    quantity: common_domain::ids::ManagedQuantityId,
+) -> (SubscriptionId, PlanVersionId) {
     use diesel_async::RunQueryDsl;
     use meteroid_store::domain::price_components::{DowngradePolicy, UpgradePolicy};
     use meteroid_store::domain::prices::FeeStructure;
-    let env = test_env.await;
     let day = |m, d| NaiveDate::from_ymd_opt(2024, m, d).unwrap();
     let product = ProductId::new();
     diesel::insert_into(diesel_models::schema::product::table)
@@ -1431,13 +1430,6 @@ async fn seats_of_another_product_do_not_carry_over(#[future] test_env: TestEnv)
             description: None,
             tenant_id: TENANT_ID,
             product_family_id: PRODUCT_FAMILY_ID,
-            fee_type: diesel_models::enums::FeeTypeEnum::Slot,
-            fee_structure: serde_json::to_value(FeeStructure::Slot {
-                unit_name: "Seats".to_string(),
-                upgrade_policy: UpgradePolicy::Prorated,
-                downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
-            })
-            .unwrap(),
             catalog: true,
             tax_category_id: None,
             icon: None,
@@ -1464,7 +1456,13 @@ async fn seats_of_another_product_do_not_carry_over(#[future] test_env: TestEnv)
                 PriceId::new(),
                 DieselBillingPeriodEnum::Monthly,
                 Decimal::new(25, 0),
-            ),
+            )
+            .with_structure(FeeStructure::Slot {
+                unit_name: "Seats".to_string(),
+                quantity_id: Some(quantity),
+                upgrade_policy: UpgradePolicy::Prorated,
+                downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
+            }),
         ])
         .seed(&mut env.conn().await)
         .await
@@ -1476,21 +1474,18 @@ async fn seats_of_another_product_do_not_carry_over(#[future] test_env: TestEnv)
         .no_trial()
         .create(env.services())
         .await;
-    let add = |seats: i32, on: NaiveDate| {
-        let env = &env;
-        async move {
-            env.services()
-                .update_subscription_slots_for_test(
-                    TENANT_ID,
-                    sub_id,
-                    COMP_STARTER_SEATS_ID,
-                    seats,
-                    SlotUpgradeBillingMode::Optimistic,
-                    Some(on.and_time(NaiveTime::MIN)),
-                )
-                .await
-                .expect("add seats");
-        }
+    let add = |seats: i32, on: NaiveDate| async move {
+        env.services()
+            .update_subscription_slots_for_test(
+                TENANT_ID,
+                sub_id,
+                COMP_STARTER_SEATS_ID,
+                seats,
+                SlotUpgradeBillingMode::Optimistic,
+                Some(on.and_time(NaiveTime::MIN)),
+            )
+            .await
+            .expect("add seats");
     };
     add(9, day(1, 2)).await;
     env.process_cycles().await;
@@ -1505,25 +1500,58 @@ async fn seats_of_another_product_do_not_carry_over(#[future] test_env: TestEnv)
         .await
         .expect("schedule the change for Mar 1");
     add(3, day(2, 10)).await;
-    let seats_on = |at: NaiveDate| {
-        let env = &env;
-        async move {
-            env.store()
-                .get_active_slots_value(
-                    TENANT_ID,
-                    sub_id,
-                    "Seats".to_string(),
-                    Some(at.and_time(NaiveTime::MIN)),
-                )
-                .await
-                .expect("seats")
-        }
-    };
-    assert_eq!(seats_on(day(2, 20)).await, 13, "bought on Starter's seats");
+    (sub_id, team)
+}
+
+/// The seats of `quantity` the subscription holds on `at`.
+async fn seats_of(
+    env: &TestEnv,
+    sub_id: SubscriptionId,
+    quantity: common_domain::ids::ManagedQuantityId,
+    at: NaiveDate,
+) -> u32 {
+    env.store()
+        .get_active_slots_value(
+            TENANT_ID,
+            sub_id,
+            quantity,
+            Some(at.and_time(NaiveTime::MIN)),
+        )
+        .await
+        .expect("seats")
+}
+
+/// Seats of another quantity are another count: the change scheduled from Starter (10 seats, 3
+/// bought on Feb 10) to Team, whose seat charge counts a quantity of its own. Team starts Mar 1
+/// at its minimum, 1 seat: 9900 + 2500 = 12400; Starter's seats stay 13.
+/// Rules: R-108, R-137
+#[rstest]
+#[tokio::test]
+async fn seats_of_another_quantity_do_not_carry_over(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let day = |m, d| NaiveDate::from_ymd_opt(2024, m, d).unwrap();
+    let team_seats = common_domain::ids::ManagedQuantityId::new();
+    diesel_models::managed_quantities::ManagedQuantityRow::insert(
+        &mut env.conn().await,
+        &diesel_models::managed_quantities::ManagedQuantityRowNew {
+            id: team_seats,
+            tenant_id: TENANT_ID,
+            code: "team-seats".to_string(),
+            name: "Team seats".to_string(),
+        },
+    )
+    .await
+    .expect("Team's quantity");
+    let (sub_id, team) = starter_to_team_counting(&env, team_seats).await;
+    assert_eq!(
+        seats_of(&env, sub_id, QUANTITY_SEATS_ID, day(2, 20)).await,
+        13,
+        "bought on Starter's seats"
+    );
     env.process_cycles().await;
 
     assert_eq!(env.get_subscription(sub_id).await.plan_version_id, team);
-    assert_eq!(seats_on(day(3, 1)).await, 1);
+    assert_eq!(seats_of(&env, sub_id, team_seats, day(3, 1)).await, 1);
     let march = env
         .get_invoices(sub_id)
         .await
@@ -1531,6 +1559,33 @@ async fn seats_of_another_product_do_not_carry_over(#[future] test_env: TestEnv)
         .find(|invoice| invoice.billing_period_start == day(3, 1))
         .expect("the Mar 1 invoice");
     assert_eq!(march.total, 12_400, "{:?}", march.line_items);
+}
+
+/// Seats carry by the quantity they count, whatever product charges them: the same change, to a
+/// Team whose seat product counts Starter's quantity, keeps the 13 seats, those bought after the
+/// change was scheduled included: 9900 + 2500 × 13 = 42400. Before quantities were named on
+/// charges, a seat fee of another product started anew at its minimum.
+/// Rules: R-108, R-137
+#[rstest]
+#[tokio::test]
+async fn seats_of_the_same_quantity_carry_over_across_products(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let day = |m, d| NaiveDate::from_ymd_opt(2024, m, d).unwrap();
+    let (sub_id, team) = starter_to_team_counting(&env, QUANTITY_SEATS_ID).await;
+    env.process_cycles().await;
+
+    assert_eq!(env.get_subscription(sub_id).await.plan_version_id, team);
+    assert_eq!(
+        seats_of(&env, sub_id, QUANTITY_SEATS_ID, day(3, 1)).await,
+        13
+    );
+    let march = env
+        .get_invoices(sub_id)
+        .await
+        .into_iter()
+        .find(|invoice| invoice.billing_period_start == day(3, 1))
+        .expect("the Mar 1 invoice");
+    assert_eq!(march.total, 42_400, "{:?}", march.line_items);
 }
 
 /// Slot count is preserved across immediate plan changes,
@@ -1580,7 +1635,7 @@ async fn test_immediate_plan_change_preserves_slot_count(#[future] test_env: Tes
 
     let slots = env
         .store()
-        .get_active_slots_value(TENANT_ID, sub_id, "Seats".to_string(), None)
+        .get_active_slots_value(TENANT_ID, sub_id, QUANTITY_SEATS_ID, None)
         .await
         .expect("get slots");
     assert_eq!(slots, 5, "should have 5 seats");
@@ -1607,7 +1662,7 @@ async fn test_immediate_plan_change_preserves_slot_count(#[future] test_env: Tes
     // --- Verify slot count still 5 after plan change ---
     let slots = env
         .store()
-        .get_active_slots_value(TENANT_ID, sub_id, "Seats".to_string(), None)
+        .get_active_slots_value(TENANT_ID, sub_id, QUANTITY_SEATS_ID, None)
         .await
         .expect("get slots after immediate change");
     assert_eq!(
@@ -1724,7 +1779,7 @@ async fn test_plan_change_rate_only_to_plan_with_slots(#[future] test_env: TestE
         .get_active_slots_value(
             TENANT_ID,
             sub_id,
-            "Seats".to_string(),
+            QUANTITY_SEATS_ID,
             NaiveDate::from_ymd_opt(2024, 2, 1).map(|d| d.and_time(NaiveTime::MIN)),
         )
         .await
@@ -1815,7 +1870,7 @@ async fn test_immediate_plan_change_rate_only_to_plan_with_slots(#[future] test_
     // 5. Verify slot count = 5
     let slots = env
         .store()
-        .get_active_slots_value(TENANT_ID, sub_id, "Seats".to_string(), None)
+        .get_active_slots_value(TENANT_ID, sub_id, QUANTITY_SEATS_ID, None)
         .await
         .expect("get slots after plan change");
     assert_eq!(slots, 5, "slot count should be 5 from initial_slot_count");

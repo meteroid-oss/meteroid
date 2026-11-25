@@ -1788,6 +1788,7 @@ mod tests {
         };
         let seats = SubscriptionFee::Slot {
             unit: "seat".to_owned(),
+            quantity_id: None,
             model: RatingModel::Tiered {
                 tiers: vec![tier(0, Decimal::ZERO), tier(3, Decimal::from(10))],
             },

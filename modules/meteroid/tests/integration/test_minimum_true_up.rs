@@ -552,8 +552,6 @@ async fn a_product_scoped_true_up_is_split_and_taxed_by_its_products() {
                 tenant_id: TENANT_ID,
                 name: None,
                 description: None,
-                fee_type: None,
-                fee_structure: None,
                 tax_category_id: Some(Some(reduced.id)),
                 icon: None,
                 color: None,
@@ -806,6 +804,7 @@ async fn an_immediate_increase_counts_toward_the_period_true_up() {
             pricing: Pricing::Rate { rate: dec!(50) },
             credit_unit: None,
         }),
+        fee_structure: None,
     };
     let result = env
         .services()
@@ -865,6 +864,7 @@ async fn a_cancellation_at_the_period_end_counts_a_longer_fee_by_what_its_note_l
             pricing: Pricing::Rate { rate: dec!(366) },
             credit_unit: None,
         }),
+        fee_structure: None,
     };
     env.set_now(day(2024, 1, 16).and_hms_opt(9, 0, 0).unwrap().and_utc());
     env.services()
@@ -938,6 +938,7 @@ async fn a_cancellation_at_the_period_end_counts_a_stub_as_its_note_prorates_it(
             pricing: Pricing::Rate { rate: dec!(120) },
             credit_unit: None,
         }),
+        fee_structure: None,
     };
     env.set_now(day(2024, 1, 16).and_hms_opt(9, 0, 0).unwrap().and_utc());
     env.services()
@@ -1693,6 +1694,7 @@ async fn an_old_shortfall_stays_a_true_up_after_an_advance_fee_is_added() {
             pricing: Pricing::Rate { rate: dec!(1) },
             credit_unit: None,
         }),
+        fee_structure: None,
     };
     let result = env
         .services()
@@ -2031,6 +2033,7 @@ async fn an_immediate_amendment_removing_a_fee_is_refused_even_beside_an_increas
                     pricing: Pricing::Rate { rate: dec!(50) },
                     credit_unit: None,
                 }),
+                fee_structure: None,
             }],
             removed: vec![platform.id],
         },

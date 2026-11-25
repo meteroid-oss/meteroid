@@ -13,7 +13,6 @@ import {
   FormLabel,
   FormMessage,
   Input,
-  InputFormField,
   Label,
   cn,
 } from '@md/ui'
@@ -43,6 +42,7 @@ import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetric
 import { ChargePriceFields, Segmented } from './ChargeComposer'
 import { InvoicePreview } from './InvoicePreview'
 import { LevelEditor } from './LevelEditor'
+import { QuantityField } from './QuantityField'
 import { Help, TierEditor } from './TierEditor'
 import { bestFit, billingsFor, normalizeShape, shapeFits, valuesForShape } from './compile'
 import {
@@ -71,7 +71,7 @@ import type { MetricUnit } from '@/features/billing/metrics/units'
 import type { Methods } from '@/hooks/useZodForm'
 import type { BillableMetric } from '@/rpc/api/billablemetrics/v1/models_pb'
 import type { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
-import type { Control, FieldValues } from 'react-hook-form'
+import type { Control, FieldValues, UseFormSetValue } from 'react-hook-form'
 import type { z } from 'zod'
 
 // --- Header parts: the name, what is edited, what it charges for ---
@@ -112,7 +112,7 @@ export const ContextChip = ({ children }: { children: ReactNode }) => (
   </span>
 )
 
-/** "What it charges for": the kinds, those the product cannot be sold as greyed out. */
+/** "What it charges for": the kinds, those a charge of fixed shape cannot become greyed out. */
 export const KindPicker = ({
   kind,
   lock,
@@ -149,7 +149,7 @@ export const KindPicker = ({
       />
       {locked && lock && (
         <p className="text-[11px] text-muted-foreground">
-          This product is sold as “{feeTypeToHuman(lock.feeType)}”: the others need another product.
+          This charge bills as “{feeTypeToHuman(lock.feeType)}”: another kind is another charge.
         </p>
       )}
     </FieldRow>
@@ -321,7 +321,7 @@ const CadenceMenu = ({
 // --- The body: fields of the shape, its invoice preview, more options ---
 
 export interface ChargeBodyContext {
-  /** The metric of an existing product; a new one's is chosen in the form. */
+  /** The metric of a charge of fixed shape; otherwise chosen in the form. */
   metric?: BillableMetric
   slotUnitName?: string
   metricId?: string
@@ -410,14 +410,15 @@ export const ChargeBody = ({
   const [more, setMore] = useState(false)
   const creditUnit = useSelectedCreditUnit(control)
 
-  // A new product's metric is picked here; an existing one's comes with it.
+  // The charge's metric is picked here, unless its shape is fixed.
   const metricsQuery = useQuery(
     listBillableMetrics,
     newProduct && s.source === 'metered' ? (familyLocalId ? { familyLocalId } : {}) : skipToken
   )
   const metricId = (values.metricId as string | undefined) || context.metricId
   const metric =
-    context.metric ?? metricsQuery.data?.billableMetrics?.find(m => m.id === metricId)
+    metricsQuery.data?.billableMetrics?.find(m => m.id === metricId) ??
+    (context.metric?.id === metricId ? context.metric : undefined)
   const unit: MetricUnit | undefined = metricUnitFromProto(metric)
   // Overage on a metric counting money reads as a share of it, unless priced in a credit unit.
   const moneyUnit = unitIsCurrency(unit, currency) && !values.creditUnitId
@@ -513,12 +514,10 @@ export const ChargeBody = ({
         </div>
       )}
       {newProduct && s.source === 'seats' && (
-        <InputFormField
-          name="slotUnitName"
-          label="Counted in"
-          placeholder="Seats"
-          className="max-w-xs"
+        <QuantityField
           control={control}
+          setValue={methods.setValue as unknown as UseFormSetValue<FieldValues>}
+          quantityId={values.quantityId as string | undefined}
         />
       )}
       {charged && (

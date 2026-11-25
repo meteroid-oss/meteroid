@@ -15,7 +15,9 @@ import type { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 // A charge's price in finance words: "$99 / month", "first 1M free, then $0.0004 per unit",
 // "billed yearly, upfront". Pure, so the plan editor's lines are unit tested.
 
-// Only what the words read, so a catalog list row (a ProductMeta) can say them too.
+// Only what the words read, so a catalog list row (a ProductMeta) can say them too. `product`
+// carries how the charge bills: a plan charge's own structure (a PriceComponent), or a product's
+// when all its charges bill it one way.
 export type ChargeContext = {
   product?: Pick<Product, 'feeStructure'>
   metric?: Pick<BillableMetric, 'name'>
@@ -74,7 +76,7 @@ const seatUnitNamed = (unitName: string): MetricUnit => {
   return { singular, plural: `${singular}s` }
 }
 
-/** What a seat charge counts, as a unit: its product's name for it, "seat" by default. */
+/** What a seat charge counts, as a unit: its own label for it, "seat" by default. */
 export const seatUnit = (ctx: ChargeContext): MetricUnit => {
   const structure = ctx.product?.feeStructure?.structure
   return seatUnitNamed(structure?.case === 'slot' ? structure.value.unitName : '')

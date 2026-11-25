@@ -17,7 +17,7 @@ use common_domain::ids::{
 use diesel::{ExpressionMethods, QueryDsl, SelectableHelper};
 use diesel_async::RunQueryDsl;
 use diesel_models::customer_credit::{CreditPurchaseRow, CustomerCreditOperationRow};
-use diesel_models::enums::FeeTypeEnum;
+
 use diesel_models::products::ProductRowNew;
 use meteroid::workers::pgmq::processors::run_once_invoice_orchestration;
 use meteroid_store::domain::InvoicingEntityPatch;
@@ -136,11 +136,6 @@ async fn set_product(setup: &MeteroidSetup, unit: CreditUnitId) -> TestResult<Pr
         description: None,
         tenant_id: TENANT_ID,
         product_family_id: PRODUCT_FAMILY_ID,
-        fee_type: FeeTypeEnum::Credit,
-        fee_structure: serde_json::to_value(
-            &meteroid_store::domain::prices::FeeStructure::Credit {},
-        )
-        .map_err(test_error)?,
         catalog: true,
         tax_category_id: None,
         icon: None,

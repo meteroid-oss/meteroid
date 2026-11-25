@@ -1578,6 +1578,7 @@ async fn converted_plan_change(
         name: "Platform Fee".to_owned(),
         fee: SubscriptionFee::Rate { rate: fee },
         period: SubscriptionFeeBillingPeriod::Monthly,
+        seats: None,
     });
     let data = serde_json::json!({
         "ApplyPlanChange": {

@@ -190,6 +190,7 @@ async fn a_one_time_fee_added_leaves_a_scheduled_amendment_standing(#[future] te
                             },
                             credit_unit: None,
                         }),
+                        fee_structure: None,
                     }],
                 },
                 add_on_changes: AddOnChanges::default(),

@@ -395,6 +395,7 @@ diesel::table! {
         self_serviceable -> Bool,
         max_instances_per_subscription -> Nullable<Int4>,
         archived_at -> Nullable<Timestamp>,
+        fee_structure -> Jsonb,
     }
 }
 
@@ -2458,6 +2459,7 @@ diesel::table! {
         plan_version_id -> Uuid,
         product_id -> Nullable<Uuid>,
         billable_metric_id -> Nullable<Uuid>,
+        fee_structure -> Nullable<Jsonb>,
     }
 }
 
@@ -2474,8 +2476,8 @@ diesel::table! {
         archived_at -> Nullable<Timestamp>,
         tenant_id -> Uuid,
         product_family_id -> Uuid,
-        fee_type -> FeeTypeEnum,
-        fee_structure -> Jsonb,
+        fee_type -> Nullable<FeeTypeEnum>,
+        fee_structure -> Nullable<Jsonb>,
         catalog -> Bool,
         store_committed_at -> Timestamptz,
         tax_category_id -> Nullable<Uuid>,

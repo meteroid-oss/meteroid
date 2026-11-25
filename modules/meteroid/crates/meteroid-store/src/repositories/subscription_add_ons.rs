@@ -1,5 +1,4 @@
 use crate::StoreResult;
-use crate::domain::Product;
 use crate::domain::add_ons::AddOn;
 use crate::domain::enums::BillingPeriodEnum;
 use crate::domain::prices::Price;
@@ -10,7 +9,7 @@ use crate::errors::StoreError;
 use crate::services::subscriptions::currency::SubscriptionCurrency;
 use crate::services::subscriptions::utils::resolve_add_on_sold_in;
 use crate::store::PgConn;
-use common_domain::ids::{PriceId, ProductId, SubscriptionId, TenantId};
+use common_domain::ids::{PriceId, SubscriptionId, TenantId};
 use diesel_models::subscription_add_ons::SubscriptionAddOnRowNew;
 use error_stack::Report;
 use std::collections::HashMap;
@@ -22,7 +21,6 @@ pub(crate) fn resolve_checkout_addons(
     subscription_id: SubscriptionId,
     addons: &[AddOn],
     create_add_ons: &[CreateSubscriptionAddOn],
-    products_by_id: &HashMap<ProductId, Product>,
     prices_by_id: &HashMap<PriceId, Price>,
     units: &crate::domain::credit_units::CreditUnitsById,
     sold_in: &SubscriptionCurrency,
@@ -41,9 +39,9 @@ pub(crate) fn resolve_checkout_addons(
                 )))
             })?;
 
+        crate::services::subscriptions::utils::ensure_seat_add_on_instances(addon, cs_ao.quantity)?;
         let resolved = resolve_add_on_sold_in(
             addon,
-            products_by_id,
             prices_by_id,
             units,
             &cs_ao.customization,
@@ -96,16 +94,29 @@ pub(crate) async fn checkout_add_on_rows(
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
     let addons = crate::repositories::add_ons::enrich_add_ons(conn, rows, tenant_id).await?;
-    let product_ids: Vec<_> = addons.iter().map(|a| a.product_id).collect();
-    let price_ids: Vec<_> = addons.iter().flat_map(AddOn::price_ids).collect();
-    let (prices_by_id, products_by_id) =
-        crate::repositories::subscriptions::fetch_prices_and_products(
+    // A seat add-on is held once (R-138): not bought again while the subscription holds it.
+    let held: Vec<common_domain::ids::AddOnId> =
+        diesel_models::subscription_add_ons::SubscriptionAddOnRow::list_by_subscription_id_active(
             conn,
-            tenant_id,
-            price_ids.into_iter(),
-            product_ids.into_iter(),
+            &tenant_id,
+            &subscription_id,
+            None,
         )
-        .await?;
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .into_iter()
+        .map(|row| row.add_on_id)
+        .collect();
+    crate::services::subscriptions::utils::ensure_seat_add_ons_once(
+        create_add_ons
+            .iter()
+            .filter_map(|cs_ao| addons.iter().find(|a| a.id == cs_ao.add_on_id)),
+        &held,
+    )?;
+    let price_ids: Vec<_> = addons.iter().flat_map(AddOn::price_ids).collect();
+    let prices_by_id =
+        crate::repositories::subscriptions::fetch_prices(conn, tenant_id, price_ids.into_iter())
+            .await?;
     let units = crate::repositories::credit_units::load_add_on_credit_units(
         conn,
         tenant_id,
@@ -117,7 +128,6 @@ pub(crate) async fn checkout_add_on_rows(
         subscription_id,
         &addons,
         create_add_ons,
-        &products_by_id,
         &prices_by_id,
         &units,
         &sold_in,

@@ -224,6 +224,7 @@ impl Engine {
                             })
                         })
                         .collect(),
+                    fee_structure: None,
                 }
             };
             let created = h

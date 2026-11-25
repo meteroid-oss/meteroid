@@ -29,6 +29,7 @@ import { usePlanWithVersion } from '@/features/plans/hooks/usePlan'
 import { useCurrency } from '@/features/plans/pricecomponents/utils'
 import {
   buildExistingProductRef,
+  buildFeeStructure,
   buildNewProductRef,
   buildPriceInputs,
   wrapAsNewPriceEntries,
@@ -47,7 +48,7 @@ import {
 
 import { ProductBrowser } from './ProductBrowser'
 
-import type { ChargeLock, ChargeShape, ChargeValues } from '@/features/plans/charges/compile'
+import type { ChargeShape, ChargeValues } from '@/features/plans/charges/compile'
 import type { ProductWithPrice } from '@/rpc/api/products/v1/models_pb'
 
 type PickedProduct = { kind: 'new'; name: string } | { kind: 'existing'; item: ProductWithPrice }
@@ -148,29 +149,23 @@ const ChargeStep = ({
   const product = picked.kind === 'existing' ? picked.item.product : undefined
   const productName = product?.name ?? (picked.kind === 'new' ? picked.name : '')
 
-  const { lock, structural, initial } = useMemo(() => {
+  // A product reused starts from how its charges bill it, when they agree; never locked to it.
+  const { initial } = useMemo(() => {
     if (!product || product.feeType === undefined) {
-      return {
-        lock: undefined,
-        structural: undefined,
-        initial: { shape: DEFAULT_SHAPE, values: chargeDefaults(DEFAULT_SHAPE) },
-      }
+      return { initial: { shape: DEFAULT_SHAPE, values: chargeDefaults(DEFAULT_SHAPE) } }
     }
     const feeType = protoFeeTypeToComponentFeeType(product.feeType)
     const structural = extractStructuralInfo(feeType, product.feeStructure)
-    const lock: ChargeLock = {
-      feeType,
-      billingType: structural.billingType as ChargeLock['billingType'],
-    }
     const latestPrice = picked.kind === 'existing' ? (picked.item.latestPrice ?? undefined) : undefined
     const formData = buildDefaults(feeType, latestPrice, false, structural.usageModel)
     const initial = decompileCharge(feeType, {
       ...formData,
       metricId: structural.metricId,
       slotUnitName: structural.slotUnitName,
+      quantityId: structural.quantityId,
       billingType: structural.billingType,
     })
-    return { lock, structural, initial }
+    return { initial }
     // The step is keyed by product: it is computed once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -181,7 +176,7 @@ const ChargeStep = ({
     shape,
     defaultValues: initial.values,
     currency,
-    newProduct: !product,
+    newProduct: true,
   })
 
   const createComponent = useMutation(createPriceComponent, {
@@ -202,15 +197,14 @@ const ChargeStep = ({
 
   const submit = methods.handleSubmit(values => {
     if (!version?.id) return
-    const compiled = compileCharge(shape, values as ChargeValues, lock)
+    const compiled = compileCharge(shape, values as ChargeValues)
     const priceInputs = buildPriceInputs(compiled.pricingType, compiled.formData, currency)
     createComponent.mutate({
       planVersionId: version.id,
       name: productName,
-      product: product
-        ? buildExistingProductRef(product.id)
-        : buildNewProductRef(productName, compiled.feeType, compiled.formData),
+      product: product ? buildExistingProductRef(product.id) : buildNewProductRef(productName),
       prices: wrapAsNewPriceEntries(priceInputs),
+      feeStructure: buildFeeStructure(compiled.feeType, compiled.formData),
     })
   })
 
@@ -245,8 +239,6 @@ const ChargeStep = ({
           onShapeChange={setShape}
           methods={methods}
           currency={currency}
-          lock={lock}
-          structural={structural}
           include={include}
           onIncludeChange={product ? setInclude : undefined}
         />

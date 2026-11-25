@@ -1640,6 +1640,7 @@ async fn a_once_credit_billed_on_a_consolidated_invoice_is_never_billed_again(
                             },
                             credit_unit: None,
                         }),
+                        fee_structure: None,
                     }],
                     removed: vec![],
                 },

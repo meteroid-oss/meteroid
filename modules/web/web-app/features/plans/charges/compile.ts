@@ -31,8 +31,9 @@ export interface ChargeShape {
 }
 
 /**
- * What an existing product (or an edited component) already is: its shape must compile to it.
- * Not its usage model: the server prices a usage product's metric with any of them.
+ * What a charge whose shape is fixed already is (a subscription's fee overridden, an add-on
+ * edited): its shape must compile to it. Not its usage model: the server prices a usage charge's
+ * metric with any of them. A product never locks a charge: each charge owns its shape.
  */
 export interface ChargeLock {
   feeType: ComponentFeeType
@@ -249,6 +250,7 @@ export function compileCharge(
         return {
           term,
           slotUnitName: (values.slotUnitName as string | undefined) || 'Seats',
+          quantityId: values.quantityId,
           seatModel: s.model,
           unitRate: s.model === 'per_unit' ? values.unitPrice : undefined,
           ...modelFields(s.model, values),

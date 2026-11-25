@@ -521,9 +521,9 @@ const CommitmentsCard = ({
   if (components.length === 0) return null
 
   const setQty = async (c: AdjustableComponent, target: number) => {
-    setBusyId(c.componentId)
+    setBusyId(seatKey(c))
     try {
-      const { redirected, res } = await sm.setSeats(c.componentId, target)
+      const { redirected, res } = await sm.setSeats(c.componentId, target, c.addOnId)
       if (!redirected) {
         if (res.status === AdjustmentStatus.ADJUSTMENT_SCHEDULED) {
           toast.success(
@@ -556,7 +556,7 @@ const CommitmentsCard = ({
         const max = c.max != null ? Number(c.max) : undefined
         return (
           <div
-            key={c.componentId}
+            key={seatKey(c)}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -594,7 +594,7 @@ const CommitmentsCard = ({
                 min={min}
                 max={max}
                 disabled={!sm.canSelfServe}
-                busy={busyId === c.componentId}
+                busy={busyId === seatKey(c)}
                 onChange={next => {
                   if (next < current && !sm.allowDowngrade) {
                     toast.error('Contact your account team to reduce your commitment')
@@ -654,12 +654,13 @@ const CommitmentsCard = ({
                 subscriptionId: sm.subscription?.id ?? '',
                 kind: 'seats',
                 targetId: confirm.c.componentId,
+                seatAddOnId: confirm.c.addOnId,
               }
             : null
         }
         currency={currency}
         periodEnd={sm.subscription?.currentPeriodEnd}
-        busy={!!confirm && busyId === confirm.c.componentId}
+        busy={!!confirm && busyId === seatKey(confirm.c)}
         onClose={() => setConfirm(null)}
         onConfirm={async () => {
           if (!confirm) return
@@ -987,7 +988,12 @@ interface PendingQtyChange {
   kind: 'addon' | 'seats'
   // add_on_id for 'addon', price component_id for 'seats'.
   targetId: string
+  // 'seats' charged by an add-on: its add_on_id, `targetId` then empty.
+  seatAddOnId?: string
 }
+
+/** A seat charge's key: its plan charge, else the add-on charging it. */
+const seatKey = (c: AdjustableComponent) => c.componentId || c.addOnId || ''
 
 // Fees that bill a fixed amount per unit each period — the only ones we can give
 // a reliable recurring estimate for. Usage/capacity depend on metered consumption.
@@ -1066,6 +1072,7 @@ const QuantityChangeModal = ({
       subscriptionId: change?.subscriptionId ?? '',
       componentId: change?.targetId ?? '',
       quantity: change?.target ?? 0,
+      addOnId: change?.seatAddOnId || undefined,
     },
     { enabled: !!change && !isAddon }
   )

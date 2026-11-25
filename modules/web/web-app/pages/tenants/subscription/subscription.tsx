@@ -117,7 +117,7 @@ import { listCustomerWallets } from '@/rpc/api/wallets/v1/wallets-WalletsService
 import { formatDateOnly, parseAndFormatDate } from '@/utils/date'
 import { useTypedParams } from '@/utils/params'
 
-import type { SlotUpdateData } from '@/features/subscriptions/SubscriptionPricingTerms'
+import type { SeatLedger, SlotUpdateData } from '@/features/subscriptions/SubscriptionPricingTerms'
 import type { Tagged } from '@/features/subscriptions/subscriptionOverview'
 import type { CreditUnitNames, PricedFee } from '@/features/subscriptions/subscriptionPrice'
 import type { Subscription as SubscriptionModel } from '@/rpc/api/subscriptions/v1/models_pb'
@@ -305,9 +305,9 @@ const meteredMetricIds = (fee?: SubscriptionFee): string[] => {
   return f && (f.case === 'usage' || f.case === 'capacity') ? [f.value.metricId] : []
 }
 
-const slotUnitsOf = (fee?: SubscriptionFee): string[] => {
+const slotUnitsOf = (fee?: SubscriptionFee): { unit: string; quantityId?: string }[] => {
   const f = fee?.fee
-  return f && f.case === 'slot' ? [f.value.unit] : []
+  return f && f.case === 'slot' ? [{ unit: f.value.unit, quantityId: f.value.quantityId }] : []
 }
 
 const LIVE_STATUSES = [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING]
@@ -367,7 +367,7 @@ export const Subscription = () => {
   const [showCancelModal, setShowCancelModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [slotUpdateData, setSlotUpdateData] = useState<SlotUpdateData | null>(null)
-  const [slotTransactionsUnit, setSlotTransactionsUnit] = useState<string | null>(null)
+  const [slotTransactionsUnit, setSlotTransactionsUnit] = useState<SeatLedger | null>(null)
   const [walletAction, setWalletAction] = useState<{
     action: 'add' | 'configure'
     wallet: Wallet
@@ -953,6 +953,7 @@ export const Subscription = () => {
           <UpdateSlotModal
             subscriptionId={data.id}
             priceComponentId={slotUpdateData.priceComponentId}
+            addOnId={slotUpdateData.addOnId}
             unit={slotUpdateData.unit}
             currentSlots={slotUpdateData.currentSlots}
             unitRate={slotUpdateData.unitRate}
@@ -969,7 +970,8 @@ export const Subscription = () => {
         {slotTransactionsUnit && (
           <SlotTransactionsModal
             subscriptionId={data.id}
-            unit={slotTransactionsUnit}
+            unit={slotTransactionsUnit.unit}
+            quantityId={slotTransactionsUnit.quantityId}
             open={true}
             onClose={() => setSlotTransactionsUnit(null)}
           />

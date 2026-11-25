@@ -237,7 +237,8 @@ export function buildPriceInputs(
 }
 
 /**
- * Build a FeeStructure proto for new product creation.
+ * Build the FeeStructure a charge owns (a plan charge, an add-on, an extra component): how it
+ * bills its product. A seat charge names the managed quantity it counts.
  */
 export function buildFeeStructure(
   feeType: ComponentFeeType,
@@ -254,7 +255,8 @@ export function buildFeeStructure(
         structure: {
           case: 'slot',
           value: create(FeeStructure_SlotStructureSchema, {
-            unitName: formData.slotUnitName ?? 'Seats',
+            unitName: formData.slotUnitName || 'Seats',
+            quantityId: formData.quantityId || undefined,
           }),
         },
       });
@@ -361,23 +363,12 @@ export function pricesToFormData(
 }
 
 /**
- * Build a ProductRef for new product creation (inline with component).
+ * Build a ProductRef for new product creation (inline with component). A product holds no fee
+ * structure: the charge sends its own (`buildFeeStructure`).
  */
-export function buildNewProductRef(
-  name: string,
-  feeType: ComponentFeeType,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  formData: Record<string, any>
-): ProductRef {
+export function buildNewProductRef(name: string): ProductRef {
   return create(ProductRefSchema, {
-    ref: {
-      case: 'newProduct',
-      value: create(NewProductSchema, {
-        name,
-        feeType: feeTypeToProto(feeType),
-        feeStructure: buildFeeStructure(feeType, formData),
-      }),
-    },
+    ref: { case: 'newProduct', value: create(NewProductSchema, { name }) },
   });
 }
 
