@@ -5,7 +5,7 @@
 # dependency caching. Do NOT ship this — production images are api.Dockerfile /
 # worker.Dockerfile.
 
-FROM lukemathwalker/cargo-chef:latest-rust-1.96.0-bookworm AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.96.0-trixie AS chef
 ARG CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 WORKDIR /opt/src
@@ -64,7 +64,7 @@ RUN edition="$EDITION"; \
     cp "target/$([ "$PROFILE" = dev ] && echo debug || echo "$PROFILE")/standalone" /usr/local/bin/standalone
 
 
-FROM debian:stable-slim AS runtime
+FROM debian:trixie-slim AS runtime
 COPY LICENSE /usr/share/doc/meteroid/LICENSE
 RUN apt-get update && \
     apt-get upgrade -y && \
