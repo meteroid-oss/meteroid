@@ -32,6 +32,7 @@ async fn fine_tuning(h: &Halyard) -> ProductId {
         .insert_billable_metric(
             Actor::System,
             BillableMetricNew {
+                attributed_to: None,
                 name: "Training tokens".to_owned(),
                 description: None,
                 code: "halyard_training_tokens".to_owned(),

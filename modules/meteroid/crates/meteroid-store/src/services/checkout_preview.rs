@@ -254,8 +254,7 @@ impl Services {
             tax_inclusive: plan_version.tax_inclusive,
             // A preview books no MRR, so it needs no snapshot of the embedded rate.
             tax_inclusive_rate: None,
-            usage_filter: None,
-            usage_filter_since: None,
+            resource_id: session.resource_id,
         };
 
         let mut applied_coupons = Vec::new();
@@ -643,8 +642,7 @@ impl Services {
             tax_inclusive: plan_version.tax_inclusive,
             // A preview books no MRR, so it needs no snapshot of the embedded rate.
             tax_inclusive_rate: None,
-            usage_filter: sub.usage_filter.clone(),
-            usage_filter_since: None,
+            resource_id: sub.resource_id,
         };
 
         let mut applied_coupons = Vec::new();

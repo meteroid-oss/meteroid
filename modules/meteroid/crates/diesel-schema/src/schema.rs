@@ -26,6 +26,10 @@ pub mod sql_types {
     pub struct ApiTokenKindEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "AppCountOpEnum"))]
+    pub struct AppCountOpEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "BankAccountFormat"))]
     pub struct BankAccountFormat;
 
@@ -174,8 +178,16 @@ pub mod sql_types {
     pub struct EmailSendClaimStateEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "EntitlementEffectEnum"))]
+    pub struct EntitlementEffectEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "EntitlementEntityTypeEnum"))]
     pub struct EntitlementEntityTypeEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "EntitlementLevelEnum"))]
+    pub struct EntitlementLevelEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "EntitlementModeEnum"))]
@@ -186,12 +198,24 @@ pub mod sql_types {
     pub struct EntityListTypeEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "FeatureKindEnum"))]
+    pub struct FeatureKindEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "FeatureLimitCountedByEnum"))]
+    pub struct FeatureLimitCountedByEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "FeatureStatusEnum"))]
     pub struct FeatureStatusEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "FeatureTypeEnum"))]
     pub struct FeatureTypeEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "FeatureValueTypeEnum"))]
+    pub struct FeatureValueTypeEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "FeeTypeEnum"))]
@@ -716,6 +740,8 @@ diesel::table! {
         unit_plural -> Nullable<Text>,
         usage_breakdown_key -> Nullable<Text>,
         catalog_code -> Text,
+        attributed_to_type_id -> Nullable<Uuid>,
+        attribution_property -> Nullable<Text>,
     }
 }
 
@@ -772,6 +798,7 @@ diesel::table! {
         coupon_code_before_payment -> Nullable<Varchar>,
         coupon_ids_before_payment -> Nullable<Array<Nullable<Uuid>>>,
         plan_option -> Nullable<Text>,
+        resource_id -> Nullable<Uuid>,
     }
 }
 
@@ -1565,6 +1592,9 @@ diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::EntitlementEntityTypeEnum;
     use super::sql_types::EntitlementModeEnum;
+    use super::sql_types::EntitlementEffectEnum;
+    use super::sql_types::EntitlementLevelEnum;
+    use super::sql_types::ActorTypeEnum;
 
     entitlement (id) {
         id -> Uuid,
@@ -1576,6 +1606,64 @@ diesel::table! {
         value -> Jsonb,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        lineage_id -> Uuid,
+        lineage_created_at -> Timestamptz,
+        lineage_anchor -> Timestamptz,
+        effect -> EntitlementEffectEnum,
+        level -> EntitlementLevelEnum,
+        level_type_id -> Nullable<Uuid>,
+        resource_id -> Nullable<Uuid>,
+        condition -> Nullable<Jsonb>,
+        condition_hash -> Text,
+        valid_from -> Nullable<Timestamptz>,
+        valid_until -> Nullable<Timestamptz>,
+        reason -> Nullable<Text>,
+        created_by -> Nullable<Uuid>,
+        created_by_kind -> Nullable<ActorTypeEnum>,
+        revoked_at -> Nullable<Timestamptz>,
+        revoked_by -> Nullable<Uuid>,
+        policy_override -> Nullable<Jsonb>,
+    }
+}
+
+diesel::table! {
+    entitlement_app_count (tenant_id, customer_id, feature_id, path) {
+        tenant_id -> Uuid,
+        customer_id -> Uuid,
+        feature_id -> Uuid,
+        path -> Text,
+        resource_id -> Nullable<Uuid>,
+        count -> Numeric,
+        last_set_value -> Nullable<Numeric>,
+        last_set_at -> Nullable<Timestamptz>,
+        last_set_key -> Nullable<Text>,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::AppCountOpEnum;
+
+    entitlement_app_count_op (tenant_id, customer_id, feature_id, idempotency_key) {
+        tenant_id -> Uuid,
+        customer_id -> Uuid,
+        feature_id -> Uuid,
+        idempotency_key -> Text,
+        path -> Text,
+        op -> AppCountOpEnum,
+        amount -> Numeric,
+        at -> Timestamptz,
+        result_count -> Numeric,
+        request_hash -> Text,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    entitlement_schedule_cursor (id) {
+        id -> Bool,
+        checked_until -> Timestamptz,
     }
 }
 
@@ -1633,6 +1721,9 @@ diesel::table! {
     use super::sql_types::FeatureTypeEnum;
     use super::sql_types::FeatureStatusEnum;
     use super::sql_types::ConfigValueTypeEnum;
+    use super::sql_types::FeatureKindEnum;
+    use super::sql_types::FeatureValueTypeEnum;
+    use super::sql_types::FeatureLimitCountedByEnum;
 
     feature (id) {
         id -> Uuid,
@@ -1648,6 +1739,15 @@ diesel::table! {
         code -> Text,
         config_options -> Nullable<Array<Nullable<Text>>>,
         config_value_type -> Nullable<ConfigValueTypeEnum>,
+        kind -> FeatureKindEnum,
+        value_type -> Nullable<FeatureValueTypeEnum>,
+        unit -> Nullable<Text>,
+        number_higher_is_better -> Bool,
+        select_options -> Nullable<Jsonb>,
+        select_ordered -> Bool,
+        limit_counted_by -> Nullable<FeatureLimitCountedByEnum>,
+        level_resource_type_id -> Nullable<Uuid>,
+        policy -> Nullable<Jsonb>,
     }
 }
 
@@ -1796,6 +1896,14 @@ diesel::table! {
         applied_invoice_id -> Nullable<Uuid>,
         applied_at -> Nullable<Timestamptz>,
         created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    invoice_claims_moved (invoice_id) {
+        invoice_id -> Uuid,
+        tenant_id -> Uuid,
+        moved_at -> Timestamp,
     }
 }
 
@@ -2328,6 +2436,7 @@ diesel::table! {
         pricing_product_order -> Array<Nullable<Uuid>>,
         pricing_hidden_product_ids -> Array<Nullable<Uuid>>,
         code -> Text,
+        sold_for_resource_type_id -> Nullable<Uuid>,
     }
 }
 
@@ -2441,6 +2550,7 @@ diesel::table! {
         revoked_at -> Nullable<Timestamptz>,
         last_used_at -> Nullable<Timestamptz>,
         last_recovery_at -> Nullable<Timestamptz>,
+        client_claims -> Nullable<Jsonb>,
     }
 }
 
@@ -2666,6 +2776,7 @@ diesel::table! {
         allow_decline -> Bool,
         last_sent_at -> Nullable<Timestamptz>,
         plan_option -> Nullable<Text>,
+        resource_id -> Nullable<Uuid>,
     }
 }
 
@@ -3000,6 +3111,45 @@ diesel::table! {
 }
 
 diesel::table! {
+    resource (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        customer_id -> Uuid,
+        resource_type_id -> Uuid,
+        key_value -> Text,
+        name -> Nullable<Text>,
+        attributes -> Jsonb,
+        archived_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    resource_type (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        code -> Text,
+        name -> Text,
+        plural_name -> Text,
+        parent_type_id -> Nullable<Uuid>,
+        attributes -> Jsonb,
+        archived_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    resource_type_key (resource_type_id, position) {
+        tenant_id -> Uuid,
+        resource_type_id -> Uuid,
+        key -> Text,
+        position -> Int4,
+    }
+}
+
+diesel::table! {
     role (id) {
         id -> Uuid,
         organization_id -> Uuid,
@@ -3171,6 +3321,7 @@ diesel::table! {
         plan_option_id -> Nullable<Uuid>,
         external_id -> Nullable<Text>,
         updated_at -> Nullable<Timestamptz>,
+        resource_id -> Nullable<Uuid>,
     }
 }
 
@@ -3200,6 +3351,7 @@ diesel::table! {
         effective_to -> Nullable<Date>,
         lineage_id -> Nullable<Uuid>,
         added_by_amendment -> Bool,
+        usage_from -> Nullable<Timestamptz>,
     }
 }
 
@@ -3273,6 +3425,7 @@ diesel::table! {
         effective_to -> Nullable<Date>,
         lineage_id -> Nullable<Uuid>,
         added_by_amendment -> Bool,
+        usage_from -> Nullable<Timestamptz>,
     }
 }
 
@@ -3427,6 +3580,9 @@ diesel::table! {
         email_test_recipients -> Array<Nullable<Text>>,
         keep_last_events -> Bool,
         portal_embed_origins -> Array<Nullable<Text>>,
+        max_resources_per_customer_type -> Int4,
+        entitlement_op_retention_days -> Int4,
+        entitlement_op_log_complete_from -> Nullable<Timestamptz>,
     }
 }
 
@@ -3642,6 +3798,7 @@ diesel::joinable!(bi_mrr_movement_log -> subscription (subscription_id));
 diesel::joinable!(bi_mrr_movement_log -> tenant (tenant_id));
 diesel::joinable!(billable_metric -> product (product_id));
 diesel::joinable!(billable_metric -> product_family (product_family_id));
+diesel::joinable!(billable_metric -> resource_type (attributed_to_type_id));
 diesel::joinable!(billable_metric -> tenant (tenant_id));
 diesel::joinable!(billing_controller -> customer (customer_id));
 diesel::joinable!(billing_controller -> tenant (tenant_id));
@@ -3741,7 +3898,16 @@ diesel::joinable!(email_kind_audience -> tenant (tenant_id));
 diesel::joinable!(email_send_claim -> sent_email (sent_email_id));
 diesel::joinable!(email_send_claim -> tenant (tenant_id));
 diesel::joinable!(entitlement -> feature (feature_id));
+diesel::joinable!(entitlement -> resource (resource_id));
+diesel::joinable!(entitlement -> resource_type (level_type_id));
 diesel::joinable!(entitlement -> tenant (tenant_id));
+diesel::joinable!(entitlement_app_count -> customer (customer_id));
+diesel::joinable!(entitlement_app_count -> feature (feature_id));
+diesel::joinable!(entitlement_app_count -> resource (resource_id));
+diesel::joinable!(entitlement_app_count -> tenant (tenant_id));
+diesel::joinable!(entitlement_app_count_op -> customer (customer_id));
+diesel::joinable!(entitlement_app_count_op -> feature (feature_id));
+diesel::joinable!(entitlement_app_count_op -> tenant (tenant_id));
 diesel::joinable!(entity_activity -> tenant (tenant_id));
 diesel::joinable!(entity_list_view -> tenant (tenant_id));
 diesel::joinable!(entity_list_view -> user (created_by));
@@ -3750,6 +3916,7 @@ diesel::joinable!(entity_list_view_default -> tenant (tenant_id));
 diesel::joinable!(entity_list_view_default -> user (user_id));
 diesel::joinable!(feature -> billable_metric (metric_id));
 diesel::joinable!(feature -> product (product_id));
+diesel::joinable!(feature -> resource_type (level_resource_type_id));
 diesel::joinable!(feature -> tenant (tenant_id));
 diesel::joinable!(feature_quantity_limit -> feature (feature_id));
 diesel::joinable!(feature_quantity_limit -> managed_quantity (managed_quantity_id));
@@ -3761,6 +3928,8 @@ diesel::joinable!(invoice_annex_template -> tenant (tenant_id));
 diesel::joinable!(invoice_carry_forward -> customer (customer_id));
 diesel::joinable!(invoice_carry_forward -> invoicing_entity (invoicing_entity_id));
 diesel::joinable!(invoice_carry_forward -> tenant (tenant_id));
+diesel::joinable!(invoice_claims_moved -> invoice (invoice_id));
+diesel::joinable!(invoice_claims_moved -> tenant (tenant_id));
 diesel::joinable!(invoice_payment_reminder -> invoice (invoice_id));
 diesel::joinable!(invoice_payment_reminder -> payment_reminder_sequence (sequence_id));
 diesel::joinable!(invoice_payment_reminder -> tenant (tenant_id));
@@ -3812,6 +3981,7 @@ diesel::joinable!(payment_transaction -> invoice (invoice_id));
 diesel::joinable!(payment_transaction -> plan_version (pending_plan_version_id));
 diesel::joinable!(payment_transaction -> tenant (tenant_id));
 diesel::joinable!(plan -> product_family (product_family_id));
+diesel::joinable!(plan -> resource_type (sold_for_resource_type_id));
 diesel::joinable!(plan -> tenant (tenant_id));
 diesel::joinable!(plan_component_price -> plan_version_option (option_id));
 diesel::joinable!(plan_component_price -> price (price_id));
@@ -3895,6 +4065,12 @@ diesel::joinable!(quote_view -> tenant (tenant_id));
 diesel::joinable!(rate_card -> billable_metric (metric_id));
 diesel::joinable!(rate_card -> credit_unit (credit_unit_id));
 diesel::joinable!(rate_card -> tenant (tenant_id));
+diesel::joinable!(resource -> customer (customer_id));
+diesel::joinable!(resource -> resource_type (resource_type_id));
+diesel::joinable!(resource -> tenant (tenant_id));
+diesel::joinable!(resource_type -> tenant (tenant_id));
+diesel::joinable!(resource_type_key -> resource_type (resource_type_id));
+diesel::joinable!(resource_type_key -> tenant (tenant_id));
 diesel::joinable!(role -> organization (organization_id));
 diesel::joinable!(sandbox_pool_tenant -> tenant (tenant_id));
 diesel::joinable!(sandbox_seed -> tenant (tenant_id));

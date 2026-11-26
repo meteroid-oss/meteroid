@@ -2,9 +2,10 @@
 use common_domain::actor::Actor;
 use common_domain::ids::{BaseId, PlanId, PlanVersionId, PriceComponentId, PriceId};
 use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
-use meteroid_store::domain::entitlements::{EntitlementValue, FeatureNew, FeatureType};
+use meteroid_store::domain::entitlement_fold::GrantValue;
+use meteroid_store::domain::entitlements::{FeatureKind, FeatureNew};
 use meteroid_store::domain::products::ProductNew;
-use meteroid_store::repositories::entitlements::{EntitlementsInterface, ResolveTarget};
+use meteroid_store::repositories::entitlements::EntitlementsInterface;
 use meteroid_store::repositories::products::ProductInterface;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
 use rust_decimal_macros::dec;
@@ -44,8 +45,11 @@ async fn an_included_product_brings_its_features_and_no_fee() {
                 name: "SSO".to_string(),
                 code: "sso".to_string(),
                 description: None,
-                feature_type: FeatureType::Boolean,
-                entitlement: Some(EntitlementValue::Boolean { enabled: true }),
+                kind: FeatureKind::Boolean,
+                unit: None,
+                level_type_id: None,
+                policy: None,
+                default: Some(GrantValue::Boolean(true)),
             },
         )
         .await
@@ -88,10 +92,9 @@ async fn an_included_product_brings_its_features_and_no_fee() {
         .collect();
     assert_eq!(fees, ["Platform"], "no fee for the included product");
 
-    let mut conn = env.conn().await;
     let resolved = env
-        .store()
-        .resolve_entitlements_for_entity(&mut conn, TENANT_ID, ResolveTarget::Subscription(sub_id))
+        .services()
+        .get_effective_entitlements_for_subscription(sub_id, TENANT_ID)
         .await
         .expect("entitlements");
     assert!(
@@ -136,8 +139,11 @@ async fn an_included_product_removed_at_creation_brings_no_features() {
                 name: "SSO".to_string(),
                 code: "sso".to_string(),
                 description: None,
-                feature_type: FeatureType::Boolean,
-                entitlement: Some(EntitlementValue::Boolean { enabled: true }),
+                kind: FeatureKind::Boolean,
+                unit: None,
+                level_type_id: None,
+                policy: None,
+                default: Some(GrantValue::Boolean(true)),
             },
         )
         .await
@@ -179,10 +185,9 @@ async fn an_included_product_removed_at_creation_brings_no_features() {
         .expect("a subscription without the bundle")
         .id;
 
-    let mut conn = env.conn().await;
     let resolved = env
-        .store()
-        .resolve_entitlements_for_entity(&mut conn, TENANT_ID, ResolveTarget::Subscription(sub_id))
+        .services()
+        .get_effective_entitlements_for_subscription(sub_id, TENANT_ID)
         .await
         .expect("entitlements");
     assert!(

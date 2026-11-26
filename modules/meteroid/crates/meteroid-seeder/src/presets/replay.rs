@@ -10,7 +10,8 @@ use chrono::{Datelike, Months, NaiveDateTime};
 use common_domain::actor::Actor;
 use common_domain::ids::{
     AliasOr, BaseId, ConnectorId, CreditGrantId, CustomerConnectionId, CustomerId,
-    CustomerPaymentMethodId, EntitlementEntityId, InvoiceId, SubscriptionId, TenantId, WalletId,
+    CustomerPaymentMethodId, EntitlementEntityId, FeatureId, InvoiceId, SubscriptionId, TenantId,
+    WalletId,
 };
 use common_utils::decimals::ToSubunit;
 use meteroid_store::domain::credit::{
@@ -18,7 +19,9 @@ use meteroid_store::domain::credit::{
     ConfigureCreditWallet, CreditGrantSource, CustomerCreditGrant, GrantClassification,
 };
 use meteroid_store::domain::credit_units::CreditUnit;
-use meteroid_store::domain::entitlements::{EntitlementValue, OverageBehavior, ResetPeriod};
+use meteroid_store::domain::entitlement_fold::{Effect, GrantValue, LimitValue};
+use meteroid_store::domain::entitlement_policy::{AtLimit, FeaturePolicy};
+use meteroid_store::domain::entitlements::EntitlementSpec;
 use meteroid_store::domain::enums::{
     DeclineKind, InvoicePaymentStatus, InvoiceStatusEnum, PaymentMethodTypeEnum, PaymentStatusEnum,
     SubscriptionActivationCondition,
@@ -46,8 +49,8 @@ use uuid::Uuid;
 
 use crate::presets::credits::HistoryUsage;
 use crate::presets::scenarios::domain::{
-    AutoTopUpAmount, AutoTopUpSpec, BudgetSpec, CardSpec, Collection, Customer,
-    EntitlementOverrideSpec, FeeType, Plan, Scenario,
+    AutoTopUpAmount, AutoTopUpSpec, BlockSpec, BudgetSpec, CardSpec, Collection, Customer, FeeType,
+    Plan, Scenario,
 };
 use crate::presets::scenarios::timeline::{
     Action, CardHandle, ChargeOutcome, Clock, DeclineReason, GrantRef, History, InvoiceExpectation,
@@ -556,12 +559,20 @@ impl<'r, 'a> Replayer<'r, 'a> {
                     .get_feature_by_id_or_code(AliasOr::Alias(spec.feature_code.clone()), tenant_id)
                     .await?;
                 self.store()
-                    .create_entitlement(EntitlementNew {
-                        tenant_id,
-                        feature_id: feature.id,
-                        entity: EntitlementEntityId::Customer(customer_id),
-                        value: entitlement_override(&spec),
-                    })
+                    .create_entitlement(
+                        &Actor::System,
+                        EntitlementNew {
+                            tenant_id,
+                            entity: EntitlementEntityId::Customer(customer_id),
+                            resource_id: None,
+                            spec: limit_row(
+                                feature.id,
+                                spec.limit,
+                                spec.block,
+                                spec.thresholds.clone(),
+                            ),
+                        },
+                    )
                     .await?;
             }
             Action::SetBudget(spec) => {
@@ -637,7 +648,7 @@ impl<'r, 'a> Replayer<'r, 'a> {
                 backdate_invoices: true,
                 skip_checkout_session: false,
                 skip_past_invoices: false,
-                usage_filter: None,
+                resource_id: None,
                 custom_properties: serde_json::Value::Null,
                 external_id: None,
             },
@@ -847,7 +858,7 @@ impl<'r, 'a> Replayer<'r, 'a> {
                     invoice_memo: None,
                     purchase_order: None,
                     payment_methods_config: None,
-                    usage_filter: None,
+                    resource_id: None,
                     custom_properties: None,
                 },
                 Actor::System,
@@ -1389,19 +1400,26 @@ pub(super) fn configure_wallet(
     })
 }
 
-pub(super) fn entitlement_override(spec: &EntitlementOverrideSpec) -> EntitlementValue {
-    EntitlementValue::Metered {
-        limit: Some(spec.limit),
-        reset_period: ResetPeriod::BillingCycle,
-        overage_behavior: match &spec.block {
-            Some(block) => OverageBehavior::Block {
-                grace_period_pct: block.grace_pct,
+/// A Set to row carrying the scenario's policy: scenarios set it per row, not on the feature.
+pub(super) fn limit_row(
+    feature_id: FeatureId,
+    limit: Decimal,
+    block: Option<BlockSpec>,
+    thresholds: Vec<u32>,
+) -> EntitlementSpec {
+    EntitlementSpec {
+        effect: Some(Effect::Set),
+        policy_override: Some(FeaturePolicy {
+            at_limit: if block.is_some() {
+                AtLimit::Deny
+            } else {
+                AtLimit::AllowAndBill
             },
-            None => OverageBehavior::Allow,
-        },
-        thresholds: spec.thresholds.clone(),
-        enabled: true,
-        group_by: spec.group_by.clone(),
+            grace_pct: block.and_then(|b| b.grace_pct).unwrap_or(0),
+            thresholds,
+            ..FeaturePolicy::default()
+        }),
+        ..EntitlementSpec::new(feature_id, GrantValue::Limit(LimitValue::Amount(limit)))
     }
 }
 

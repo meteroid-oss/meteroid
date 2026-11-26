@@ -109,7 +109,7 @@ impl From<CreditNoteType> for CreditType {
     }
 }
 
-/// Who issued it: an operator, or the engine for a change it settled.
+/// Who issued it: an operator, or Meteroid for a subscription change it settled.
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CreditNoteOrigin {
@@ -274,10 +274,10 @@ pub struct IssueCreditNote {
     /// invoice's debt cancelled.
     #[serde(rename = "type", default)]
     pub kind: CreditNoteType,
-    /// True when it corrects what was billed (days refunded by hand): counted like the engine's
-    /// own notes, so no later change gives it back again; it reads `origin: correction`. False
-    /// (by default), a goodwill credit, `origin: manual`, which caps what a later change takes
-    /// back (R-082).
+    /// True when it corrects what was billed (days refunded by hand): counted like the notes
+    /// Meteroid issues for changes, so no later change gives it back again; it reads
+    /// `origin: correction`. False (by default), a goodwill credit, `origin: manual`, which caps
+    /// what a later change takes back.
     #[serde(default)]
     pub correction: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]

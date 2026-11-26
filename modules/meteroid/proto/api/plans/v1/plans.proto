@@ -18,6 +18,7 @@ message CreateDraftPlanRequest {
   string currency = 6;
   repeated meteroid.api.entitlements.v1.EntitlementSpec entitlements = 7;
   bool tax_inclusive = 8;
+  optional string sold_for_resource_type_id = 9;
 }
 
 message CreateDraftPlanResponse {
@@ -248,6 +249,15 @@ message ReorderPlanOptionsResponse {
   repeated PlanOption options = 1;
 }
 
+message SetPlanSoldForRequest {
+  string plan_id = 1;
+  // Absent: the customer.
+  optional string resource_type_id = 2;
+}
+message SetPlanSoldForResponse {
+  Plan plan = 1;
+}
+
 service PlansService {
   rpc GetPlanOverview(GetPlanOverviewRequest) returns (GetPlanOverviewResponse) {}
   rpc GetPlanWithVersion(GetPlanWithVersionRequest) returns (GetPlanWithVersionResponse) {}
@@ -280,4 +290,5 @@ service PlansService {
   rpc UpdatePlanOption(UpdatePlanOptionRequest) returns (UpdatePlanOptionResponse) {}
   rpc RemovePlanOption(RemovePlanOptionRequest) returns (RemovePlanOptionResponse) {}
   rpc ReorderPlanOptions(ReorderPlanOptionsRequest) returns (ReorderPlanOptionsResponse) {}
+  rpc SetPlanSoldFor(SetPlanSoldForRequest) returns (SetPlanSoldForResponse) {}
 }

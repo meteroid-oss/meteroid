@@ -364,6 +364,7 @@ async fn a_checkout_waits_for_its_customer_before_locking_its_session() {
             change_date: None,
             success_url: None,
             cancel_url: None,
+            resource_id: None,
         })
         .await
         .expect("the checkout session");

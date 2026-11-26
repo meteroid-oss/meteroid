@@ -2270,6 +2270,7 @@ impl ServicesEdge {
             change_date: Some(change_date),
             success_url: None,
             cancel_url: None,
+            resource_id: None,
         };
 
         self.store.create_checkout_session(session).await
@@ -3840,6 +3841,7 @@ impl ServicesEdge {
             change_date: Some(today),
             success_url: None,
             cancel_url: None,
+            resource_id: None,
         };
 
         self.store.create_checkout_session(session).await

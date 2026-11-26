@@ -263,7 +263,11 @@ export const AddonDetailPanel = ({ addonId, onClose }: { addonId: string; onClos
 
       {env.entitlementsEnabled && (
         <div className="px-4 py-3">
-          <AddonEntitlementsSection addonId={addOn.id} />
+          <AddonEntitlementsSection
+            addonId={addOn.id}
+            maxInstances={shown.max}
+            seats={addOn.feeStructure?.structure.case === 'slot'}
+          />
         </div>
       )}
 

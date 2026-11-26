@@ -314,6 +314,31 @@ pub trait UsageClient: Send + Sync {
         period: UsagePeriod,
     ) -> StoreResult<Decimal>;
 
+    /// [`Self::fetch_total_usage`] answered within `deadline`, for a read deciding a request
+    /// rather than billing it; past it, `UsageUnavailable`.
+    async fn fetch_total_usage_within(
+        &self,
+        tenant_id: &TenantId,
+        customer_id: &CustomerId,
+        metric: &BillableMetric,
+        period: UsagePeriod,
+        deadline: std::time::Duration,
+    ) -> StoreResult<Decimal> {
+        tokio::time::timeout(
+            deadline,
+            self.fetch_total_usage(tenant_id, customer_id, metric, period),
+        )
+        .await
+        .unwrap_or_else(|_| {
+            Err(
+                error_stack::Report::new(StoreError::UsageUnavailable).attach(format!(
+                    "total usage not answered within {} ms",
+                    deadline.as_millis()
+                )),
+            )
+        })
+    }
+
     async fn fetch_windowed_usage(
         &self,
         tenant_id: &TenantId,

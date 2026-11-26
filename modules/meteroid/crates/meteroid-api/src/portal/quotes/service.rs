@@ -6,7 +6,7 @@ use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_app::conversions::ProtoConv;
 use meteroid_app::features::{
     Entitlements, QUOTE_PURCHASE_ORDERS_NOT_IN_PLAN, QUOTES_FULL_NOT_IN_PLAN, gates,
-    tenant_gate_open,
+    portal_gate_open,
 };
 use meteroid_app::mapping::quote_comments::comment_to_proto;
 use meteroid_grpc::meteroid::portal::quotes::v1::portal_quote_service_server::PortalQuoteService;
@@ -470,7 +470,7 @@ pub(crate) async fn quote_portal_details(
     let logo_url = branding.logo_attachment_id.map(|id| links.logo(id));
     let show_powered_by = !meteroid_app::features::is_whitelabel(features, store, tenant).await;
 
-    let full_open = tenant_gate_open(features, store, tenant, gates::QUOTES_FULL)
+    let full_open = portal_gate_open(features, store, tenant, gates::QUOTES_FULL)
         .await
         .map_err(Into::<PortalQuoteApiError>::into)?;
     let customer_on_pending = current_signer_role == QuoteSignerRoleEnum::Customer
@@ -523,7 +523,7 @@ pub(crate) async fn quote_portal_details(
 
 impl PortalQuoteServiceComponents {
     async fn quotes_full_open(&self, tenant: TenantId) -> Result<bool, Status> {
-        tenant_gate_open(
+        portal_gate_open(
             self.feature_resolver.as_ref(),
             &self.store,
             tenant,

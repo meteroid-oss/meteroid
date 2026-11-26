@@ -36,6 +36,7 @@ use rust_decimal::Decimal;
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Customer not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -84,10 +85,10 @@ pub async fn get_customer_usage(
 
 /// Get unattributed usage
 ///
-/// Retrieve a customer's usage that no subscription bills. When subscriptions of the customer
-/// pricing a metric set a usage filter, events matching none of the filters are billed by a
-/// subscription without one; when every such subscription has a filter, those events are kept
-/// and reported here instead of being billed.
+/// Retrieve a customer's usage that no subscription bills. A subscription for a resource bills
+/// the events attributed to its resource, and a subscription for the customer the rest; while
+/// only subscriptions for resources price a metric, the events attributed to none of their
+/// resources are kept and reported here instead of being billed.
 #[utoipa::path(
     get,
     tag = "Usage",
@@ -102,6 +103,7 @@ pub async fn get_customer_usage(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Customer not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -172,6 +174,7 @@ pub async fn get_unattributed_usage(
         (status = 404, description = "Subscription not found", body = RestErrorResponse),
         (status = 429, description = "Too many usage cost reads", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -277,6 +280,7 @@ pub async fn get_subscription_usage(
         (status = 200, description = "Usage summary", body = UsageResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])

@@ -2,6 +2,7 @@
 //! creating one and changing one take, and what a change previews and answers.
 use crate::v2::charges::{Cadence, Charge, PriceModel};
 use crate::v2::documents::{DocumentCoupon, DocumentLine, DocumentTax};
+use crate::v2::entitlements::model::{Entitlement, EntitlementInput};
 use crate::v2::plans::Minimum;
 pub use crate::v2::refs::{AddOnRef, CouponRef, CreditNoteRef, CustomerRef, InvoiceRef, PlanRef};
 use chrono::NaiveDate;
@@ -262,22 +263,12 @@ pub struct Invoicing {
     pub charge_automatically: bool,
 }
 
-/// Restricts the customer's usage events the subscription bills to those whose `property` is
-/// `value` (an API key, a project); one without bills the customer's events no other
-/// subscription's filter takes.
-#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
-pub struct UsageFilter {
-    pub property: String,
-    pub value: String,
-    /// When it started to apply: the start of the usage not invoiced yet when it was set.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub effective_from: Option<ApiDateTime>,
-}
+pub use crate::v2::customers::resources::{ResourceName, ResourceRef};
 
 /// A subscription. Lists carry what the subscription itself holds; `quantities`, `levels`,
 /// `charges`, `add_ons`, `coupons`, `schedule`, `cancellation` and `minimum` are read on a single
 /// one.
-#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+#[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct Subscription {
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub id: SubscriptionId,
@@ -321,9 +312,23 @@ pub struct Subscription {
     pub mrr: Money,
     /// Its prices are quoted tax included (its plan version's, when it was created).
     pub tax_inclusive: bool,
-    /// The customer's events it bills, when it does not bill all of them.
+    /// The stored resource it is for (a workspace, a project), fixed once active: it bills the
+    /// metrics attributed to that resource's type, for the events carrying its key value. None:
+    /// the whole customer.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage_filter: Option<UsageFilter>,
+    pub resource: Option<ResourceRef>,
+    /// Its own entitlement rows, the subscription tier (`set` only); read on a single one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entitlement_overrides: Option<Vec<Entitlement>>,
+    /// Read whole, what it is sold with as it stands: `plan_sold_for_mismatch` (the plan is sold
+    /// for another resource type than the subscription's resource, or for the customer),
+    /// `metric_not_attributed` (its resource never bills some metrics it prices).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+    /// With `metric_not_attributed`: the codes of the metrics it prices that are not attributed
+    /// to its resource's type, so it bills none of their usage.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub metrics_not_attributed: Vec<String>,
     pub invoicing: Invoicing,
     #[schema(value_type = HashMap<String, Value>)]
     pub custom_properties: serde_json::Value,
@@ -436,6 +441,13 @@ pub struct CreateSubscription {
     /// The integrator's own id, unique per tenant.
     #[serde(default)]
     pub external_id: Option<String>,
+    /// A stored resource of the customer to subscribe for, `{"id": …}` or
+    /// `{"type": …, "key": …}`; the whole customer when left out.
+    #[serde(default)]
+    pub resource: Option<ResourceName>,
+    /// The subscription's own entitlement rows, above its plan's (`set` only).
+    #[serde(default)]
+    pub entitlement_overrides: Vec<EntitlementInput>,
     /// Today when left out; a past date bills the periods since.
     #[serde(default)]
     pub start_date: Option<NaiveDate>,
@@ -681,7 +693,7 @@ pub enum PreviewPart {
 }
 
 /// What a change would do, nothing written.
-#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+#[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct ChangePreview {
     pub effective_date: NaiveDate,
     pub direction: Direction,
@@ -712,7 +724,7 @@ pub enum ChangeStatus {
 }
 
 /// A change made.
-#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+#[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct ChangeResult {
     pub status: ChangeStatus,
     pub effective_date: NaiveDate,

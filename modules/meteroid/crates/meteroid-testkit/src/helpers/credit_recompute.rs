@@ -1,13 +1,16 @@
 //! A metered fixture: usage events read by the services and by any pending-usage reader (the live
 //! credit engine of the usage controls), metered subscriptions, entitlements and the alerts outbox.
-use crate::data::ids::{CUST_UBER_ID, METRIC_BANDWIDTH, PLAN_VERSION_1_LEETCODE_ID, TENANT_ID};
+use crate::data::ids::{
+    CUST_UBER_ID, METRIC_BANDWIDTH, PLAN_LEETCODE_ID, PLAN_VERSION_1_LEETCODE_ID, TENANT_ID,
+};
 use crate::helpers::credit::fund;
 use crate::mailer::MockMailerService;
 use crate::meteroid_it::container::{MeteroidSetup, SeedLevel};
 use chrono::{DateTime, Days, NaiveDateTime, NaiveTime, Utc};
 use common_domain::actor::Actor;
 use common_domain::ids::{
-    BillableMetricId, CustomerId, FeatureId, PlanVersionId, SubscriptionId, TenantId,
+    BillableMetricId, CustomerId, EntitlementEntityId, FeatureId, PlanVersionId, SubscriptionId,
+    TenantId,
 };
 use common_domain::pgmq::{MessageReadQty, MessageReadVtSec};
 use error_stack::bail;
@@ -21,8 +24,10 @@ use meteroid_store::clients::usage::{
     IngestEventsResult, MutableMockUsageClient, UsageClient, UsageData, WindowedUsageData,
 };
 use meteroid_store::domain::UsagePeriod;
+use meteroid_store::domain::entitlement_fold::{GrantValue, LimitValue};
+use meteroid_store::domain::entitlement_policy::{AtLimit, FeaturePolicy, Resets};
 use meteroid_store::domain::entitlements::{
-    EntitlementValue, FeatureNew, FeatureType, OverageBehavior, ResetPeriod,
+    EntitlementNew, EntitlementSpec, FeatureKind, FeatureNew, LimitCountedBy,
 };
 use meteroid_store::domain::enums::{BillingMetricAggregateEnum, BillingPeriodEnum, FeeTypeEnum};
 use meteroid_store::domain::outbox_event::OutboxEvent;
@@ -36,7 +41,7 @@ use meteroid_store::domain::subscription_components::{
 };
 use meteroid_store::domain::{
     BillableMetric, CreateSubscription, SegmentationMatrix, SubscriptionActivationCondition,
-    SubscriptionNew, UsageFilter,
+    SubscriptionNew,
 };
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::EntitlementsInterface;
@@ -70,7 +75,10 @@ pub struct Event {
 pub struct Events {
     pub events: Arc<Mutex<Vec<Event>>>,
     pub calls: Arc<Mutex<Vec<Call>>>,
+    /// Reads fail as metering down.
     pub unavailable: Arc<AtomicBool>,
+    /// Total usage reads never answer, as metering hanging.
+    pub stalled: Arc<AtomicBool>,
 }
 
 impl Events {
@@ -269,6 +277,9 @@ impl UsageClient for EventsUsage {
         metric: &BillableMetric,
         period: UsagePeriod,
     ) -> StoreResult<Decimal> {
+        if AtomicBool::load(&self.0.stalled, Ordering::SeqCst) {
+            std::future::pending::<()>().await;
+        }
         let values = self
             .read(metric, None, period)?
             .data
@@ -394,12 +405,12 @@ pub async fn subscribe_on(
     subscribe_with(setup, customer_id, plan_version_id, components, start, None).await
 }
 
-pub async fn subscribe_filtered(
+pub async fn subscribe_for(
     setup: &MeteroidSetup,
     customer_id: CustomerId,
     components: Vec<ExtraComponent>,
     start: chrono::NaiveDate,
-    usage_filter: Option<UsageFilter>,
+    resource_id: Option<common_domain::ids::ResourceId>,
 ) -> SubscriptionId {
     subscribe_with(
         setup,
@@ -407,7 +418,7 @@ pub async fn subscribe_filtered(
         PLAN_VERSION_1_LEETCODE_ID,
         components,
         start,
-        usage_filter,
+        resource_id,
     )
     .await
 }
@@ -418,7 +429,7 @@ async fn subscribe_with(
     plan_version_id: PlanVersionId,
     components: Vec<ExtraComponent>,
     start: chrono::NaiveDate,
-    usage_filter: Option<UsageFilter>,
+    resource_id: Option<common_domain::ids::ResourceId>,
 ) -> SubscriptionId {
     setup
         .services
@@ -445,7 +456,7 @@ async fn subscribe_with(
                     backdate_invoices: false,
                     skip_checkout_session: false,
                     skip_past_invoices: false,
-                    usage_filter,
+                    resource_id,
                     custom_properties: serde_json::Value::Null,
                     external_id: None,
                 },
@@ -502,6 +513,7 @@ async fn build_fixture(over_events: bool, modules: Modules) -> Fixture {
         events: Arc::default(),
         calls: Arc::default(),
         unavailable: Arc::default(),
+        stalled: Arc::default(),
     };
     let services_usage: Arc<dyn UsageClient> = if over_events {
         Arc::new(EventsUsage(events.clone()))
@@ -609,14 +621,34 @@ pub async fn activated_at(f: &Fixture, subscription_id: SubscriptionId) -> Naive
         .expect("an activated subscription")
 }
 
-pub async fn add_entitlement(
+pub fn limit_value(limit: i64) -> GrantValue {
+    GrantValue::Limit(LimitValue::Amount(Decimal::from(limit)))
+}
+
+pub fn allowing() -> FeaturePolicy {
+    FeaturePolicy {
+        at_limit: AtLimit::AllowAndBill,
+        ..FeaturePolicy::default()
+    }
+}
+
+pub fn denying(grace_pct: u32) -> FeaturePolicy {
+    FeaturePolicy {
+        grace_pct,
+        ..FeaturePolicy::default()
+    }
+}
+
+/// A limit on the bandwidth metric set to `limit` by its default and by the plan the fixtures'
+/// subscriptions are on, so those include it and their cycle is its window (ADR 0011 §3.7).
+pub async fn add_limit_feature(
     f: &Fixture,
     code: &str,
     limit: i64,
-    overage_behavior: OverageBehavior,
-) -> FeatureId {
-    f.setup
-        .store
+    policy: FeaturePolicy,
+) -> StoreResult<FeatureId> {
+    let store = &f.setup.store;
+    let feature = store
         .create_feature(
             Actor::System,
             FeatureNew {
@@ -625,62 +657,50 @@ pub async fn add_entitlement(
                 name: code.to_owned(),
                 code: code.to_owned(),
                 description: None,
-                feature_type: FeatureType::metered(METRIC_BANDWIDTH),
-                entitlement: Some(EntitlementValue::Metered {
-                    limit: Some(Decimal::from(limit)),
-                    reset_period: ResetPeriod::BillingCycle,
-                    overage_behavior,
-                    thresholds: vec![],
-                    enabled: true,
-                    group_by: None,
-                }),
+                kind: FeatureKind::Limit(LimitCountedBy::Events(METRIC_BANDWIDTH)),
+                unit: None,
+                level_type_id: None,
+                policy: Some(policy),
+                default: Some(limit_value(limit)),
             },
         )
-        .await
-        .expect("a metered feature")
-        .id
+        .await?;
+    store
+        .create_entitlement(
+            &Actor::System,
+            EntitlementNew {
+                tenant_id: TENANT_ID,
+                entity: EntitlementEntityId::Plan(PLAN_LEETCODE_ID),
+                resource_id: None,
+                spec: EntitlementSpec::new(feature.id, limit_value(limit)),
+            },
+        )
+        .await?;
+    Ok(feature.id)
 }
 
-pub fn metered_value(
-    reset_period: ResetPeriod,
-    group_by: Option<&str>,
+pub async fn add_entitlement(
+    f: &Fixture,
+    code: &str,
     limit: i64,
-) -> EntitlementValue {
-    EntitlementValue::Metered {
-        limit: Some(Decimal::from(limit)),
-        reset_period,
-        overage_behavior: OverageBehavior::Block {
-            grace_period_pct: None,
-        },
-        thresholds: vec![],
-        enabled: true,
-        group_by: group_by.map(str::to_owned),
-    }
+    policy: FeaturePolicy,
+) -> FeatureId {
+    add_limit_feature(f, code, limit, policy)
+        .await
+        .expect("a metered feature")
 }
 
 pub async fn add_metered_feature_limited(
     f: &Fixture,
     code: &str,
-    reset_period: ResetPeriod,
-    group_by: Option<&str>,
+    resets: Resets,
     limit: i64,
 ) -> StoreResult<FeatureId> {
-    f.setup
-        .store
-        .create_feature(
-            Actor::System,
-            FeatureNew {
-                tenant_id: TENANT_ID,
-                product_id: None,
-                name: code.to_owned(),
-                code: code.to_owned(),
-                description: None,
-                feature_type: FeatureType::metered(METRIC_BANDWIDTH),
-                entitlement: Some(metered_value(reset_period, group_by, limit)),
-            },
-        )
-        .await
-        .map(|feature| feature.id)
+    let policy = FeaturePolicy {
+        resets,
+        ..FeaturePolicy::default()
+    };
+    add_limit_feature(f, code, limit, policy).await
 }
 
 pub fn set_metering_total(f: &Fixture, total: i64) {

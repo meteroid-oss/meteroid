@@ -588,3 +588,29 @@ pub async fn exclude_included(
     .attach("Error while excluding included products")
     .into_db_result()
 }
+
+impl SubscriptionComponentRow {
+    /// Sets where `ids` bill their metric from: the late change writing them dates them earlier.
+    pub async fn set_usage_from(
+        conn: &mut PgConn,
+        ids: &[common_domain::ids::SubscriptionPriceComponentId],
+        usage_from: chrono::DateTime<chrono::Utc>,
+    ) -> DbResult<usize> {
+        use crate::schema::subscription_component::dsl as t;
+        use diesel_async::RunQueryDsl;
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let query = diesel::update(t::subscription_component)
+            .filter(t::id.eq_any(ids))
+            .set(t::usage_from.eq(Some(usage_from)));
+
+        crate::debug_sql(&query);
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while setting where fee rows bill their metric from")
+            .into_db_result()
+    }
+}

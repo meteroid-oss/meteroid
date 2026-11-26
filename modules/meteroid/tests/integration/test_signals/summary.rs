@@ -60,7 +60,11 @@ async fn customer_summary_and_subscription_usage() {
     let bar = &limited_usage.usage[0];
     assert_eq!(
         (bar.consumed, bar.limit, bar.pct),
-        (Decimal::from(850), Some(Decimal::from(1_000)), Some(85.0))
+        (
+            Some(Decimal::from(850)),
+            Some(Decimal::from(1_000)),
+            Some(85.0)
+        )
     );
     assert_eq!(
         (

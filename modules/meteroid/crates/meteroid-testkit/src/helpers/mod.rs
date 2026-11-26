@@ -9,4 +9,5 @@ pub mod invoices;
 pub mod network;
 pub mod outbox;
 pub mod plans;
+pub mod resources;
 pub mod top_ups;

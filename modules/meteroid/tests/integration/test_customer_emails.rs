@@ -3137,6 +3137,7 @@ async fn create_quote_for(env: &TestEnv, customer: CustomerId) -> QuoteId {
                 countersigners: vec![],
                 hubspot_deal_id: None,
                 customer_actions: None,
+                resource_id: None,
             }),
         })
         .await

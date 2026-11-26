@@ -19,6 +19,7 @@ fn domain_filters_to_rest(filters: Option<MetricFilters>) -> Vec<MetricFilter> {
 }
 
 pub fn metric_to_rest(metric: domain::BillableMetric) -> Metric {
+    let attributed_to = metric.attribution().into();
     Metric {
         id: metric.id,
         name: metric.name,
@@ -44,12 +45,14 @@ pub fn metric_to_rest(metric: domain::BillableMetric) -> Metric {
         unit_plural: metric.unit_plural,
         product_family_id: metric.product_family_id,
         product_id: metric.product_id,
+        attributed_to,
         created_at: metric.created_at.into(),
         archived_at: metric.archived_at.map(Into::into),
     }
 }
 
 pub fn metric_meta_to_rest(meta: domain::BillableMetricMeta) -> MetricSummary {
+    let attributed_to = meta.attribution().into();
     MetricSummary {
         id: meta.id,
         name: meta.name,
@@ -58,8 +61,43 @@ pub fn metric_meta_to_rest(meta: domain::BillableMetricMeta) -> MetricSummary {
         aggregation_type: meta.aggregation_type.into(),
         aggregation_key: meta.aggregation_key,
         unit_singular: meta.unit_singular,
+        attributed_to,
         unit_plural: meta.unit_plural,
         created_at: meta.created_at.into(),
         archived_at: meta.archived_at.map(Into::into),
+    }
+}
+
+impl From<Option<domain::MetricAttribution>> for AttributedTo {
+    fn from(attribution: Option<domain::MetricAttribution>) -> Self {
+        attribution.map_or(AttributedTo::Customer, |a| AttributedTo::Type {
+            type_id: a.type_id,
+            property: a.property,
+        })
+    }
+}
+
+impl From<AttributedTo> for Option<domain::MetricAttribution> {
+    fn from(attributed_to: AttributedTo) -> Self {
+        match attributed_to {
+            AttributedTo::Customer => None,
+            AttributedTo::Type { type_id, property } => {
+                Some(domain::MetricAttribution { type_id, property })
+            }
+        }
+    }
+}
+
+pub fn preview_to_rest(preview: domain::AttributionPreview) -> AttributionPreview {
+    AttributionPreview {
+        from: preview.from.into(),
+        until: preview.until.into(),
+        sampled_customers: preview.sampled_customers,
+        sampled: preview.sampled,
+        additive: preview.additive,
+        resource_subscriptions: preview.resource_subscriptions,
+        customer_subscriptions: preview.customer_subscriptions,
+        not_billed: preview.not_billed,
+        draft_invoices: preview.draft_invoices,
     }
 }

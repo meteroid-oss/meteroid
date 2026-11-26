@@ -165,8 +165,8 @@ pub struct UnattributedUsageResponse {
     pub usage: Vec<UnattributedMetricUsage>,
 }
 
-/// A metric's usage over `[from, until)` that no subscription bills: it matches none of the
-/// usage filters of the subscriptions pricing the metric, and none of them bills without one.
+/// A metric's usage over `[from, until)` that no subscription bills: only subscriptions for
+/// resources price the metric, and the usage is attributed to none of their resources.
 #[derive(ToSchema, Serialize, Deserialize)]
 pub struct UnattributedMetricUsage {
     #[serde(with = "string_serde")]

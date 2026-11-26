@@ -2,12 +2,13 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::enums::{
-    ConfigValueTypeEnum, EntitlementEntityTypeEnum, EntitlementModeEnum, FeatureStatusEnum,
-    FeatureTypeEnum,
+    ActorTypeEnum, ConfigValueTypeEnum, EntitlementEffectEnum, EntitlementEntityTypeEnum,
+    EntitlementLevelEnum, EntitlementModeEnum, FeatureKindEnum, FeatureLimitCountedByEnum,
+    FeatureStatusEnum, FeatureTypeEnum, FeatureValueTypeEnum,
 };
 use common_domain::ids::{
     AddOnId, BillableMetricId, CustomerId, EntitlementEntityId, EntitlementId, FeatureId, PlanId,
-    PlanVersionId, ProductId, QuoteId, SubscriptionId, TenantId,
+    PlanVersionId, ProductId, QuoteId, ResourceId, ResourceTypeId, SubscriptionId, TenantId,
 };
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
@@ -16,6 +17,14 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 pub struct FeatureProductMeta {
     pub id: ProductId,
     pub name: String,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum FeatureListOrder {
+    #[default]
+    Name,
+    /// Global features first, then grouped by product name.
+    Product,
 }
 
 /// A feature row joined with optional product metadata.
@@ -46,6 +55,16 @@ pub struct FeatureRow {
     pub config_options: Option<Vec<Option<String>>>,
     /// Authoritative value type of a Config feature. `None` for Boolean/Metered features.
     pub config_value_type: Option<ConfigValueTypeEnum>,
+    pub kind: FeatureKindEnum,
+    pub value_type: Option<FeatureValueTypeEnum>,
+    pub unit: Option<String>,
+    pub number_higher_is_better: bool,
+    pub select_options: Option<serde_json::Value>,
+    pub select_ordered: bool,
+    pub limit_counted_by: Option<FeatureLimitCountedByEnum>,
+    pub level_resource_type_id: Option<ResourceTypeId>,
+    /// `{resets, period?: {unit, interval}, at_limit, grace_pct, thresholds}`; limits only.
+    pub policy: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -63,6 +82,15 @@ pub struct FeatureRowNew {
     pub metric_id: Option<BillableMetricId>,
     pub config_options: Option<Vec<Option<String>>>,
     pub config_value_type: Option<ConfigValueTypeEnum>,
+    pub kind: FeatureKindEnum,
+    pub value_type: Option<FeatureValueTypeEnum>,
+    pub unit: Option<String>,
+    pub number_higher_is_better: bool,
+    pub select_options: Option<serde_json::Value>,
+    pub select_ordered: bool,
+    pub limit_counted_by: Option<FeatureLimitCountedByEnum>,
+    pub level_resource_type_id: Option<ResourceTypeId>,
+    pub policy: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, AsChangeset)]
@@ -76,6 +104,12 @@ pub struct FeatureRowPatch {
     pub config_options: Option<Option<Vec<Option<String>>>>,
     pub status: Option<FeatureStatusEnum>,
     pub updated_at: Option<DateTime<Utc>>,
+    pub unit: Option<Option<String>>,
+    pub number_higher_is_better: Option<bool>,
+    pub select_options: Option<Option<serde_json::Value>>,
+    pub select_ordered: Option<bool>,
+    pub level_resource_type_id: Option<Option<ResourceTypeId>>,
+    pub policy: Option<Option<serde_json::Value>>,
 }
 
 #[derive(Debug, Identifiable, Queryable, Selectable)]
@@ -91,6 +125,26 @@ pub struct EntitlementRow {
     pub value: serde_json::Value,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub lineage_id: EntitlementId,
+    pub lineage_created_at: DateTime<Utc>,
+    /// Set on insert: the earlier of the lineage's first `valid_from` and its creation.
+    pub lineage_anchor: DateTime<Utc>,
+    pub effect: EntitlementEffectEnum,
+    pub level: EntitlementLevelEnum,
+    pub level_type_id: Option<ResourceTypeId>,
+    pub resource_id: Option<ResourceId>,
+    /// `{"<type code>.<attribute>": ["v1", ...]}`.
+    pub condition: Option<serde_json::Value>,
+    /// Hex sha256 of the canonical condition, `''` without one.
+    pub condition_hash: String,
+    pub valid_from: Option<DateTime<Utc>>,
+    pub valid_until: Option<DateTime<Utc>>,
+    pub reason: Option<String>,
+    pub created_by: Option<Uuid>,
+    pub created_by_kind: Option<ActorTypeEnum>,
+    pub revoked_at: Option<DateTime<Utc>>,
+    pub revoked_by: Option<Uuid>,
+    pub policy_override: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -104,15 +158,22 @@ pub struct EntitlementRowNew {
     pub entity_type: EntitlementEntityTypeEnum,
     pub mode: EntitlementModeEnum,
     pub value: serde_json::Value,
-}
-
-#[derive(Debug, Clone, AsChangeset)]
-#[diesel(table_name = crate::schema::entitlement)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct EntitlementRowPatch {
-    pub mode: Option<EntitlementModeEnum>,
-    pub value: Option<serde_json::Value>,
-    pub updated_at: Option<DateTime<Utc>>,
+    pub lineage_id: EntitlementId,
+    pub lineage_created_at: DateTime<Utc>,
+    pub effect: EntitlementEffectEnum,
+    pub level: EntitlementLevelEnum,
+    pub level_type_id: Option<ResourceTypeId>,
+    pub resource_id: Option<ResourceId>,
+    pub condition: Option<serde_json::Value>,
+    pub condition_hash: String,
+    pub valid_from: Option<DateTime<Utc>>,
+    pub valid_until: Option<DateTime<Utc>>,
+    pub reason: Option<String>,
+    pub created_by: Option<Uuid>,
+    pub created_by_kind: Option<ActorTypeEnum>,
+    pub policy_override: Option<serde_json::Value>,
+    /// The app's clock, which the fold compares it with: never the database's.
+    pub created_at: DateTime<Utc>,
 }
 
 impl From<&EntitlementRow> for EntitlementEntityId {

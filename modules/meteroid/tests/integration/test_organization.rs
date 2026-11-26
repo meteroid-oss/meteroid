@@ -246,7 +246,9 @@ mod signup_production_tenant {
     use common_domain::ids::OrganizationId;
     use error_stack::Report;
     use meteroid::api::organizations::signup_production_tenant;
-    use meteroid_app::features::{Entitlements, OssEntitlements, ResolvedEntitlements};
+    use meteroid_app::features::{
+        Entitlements, FeatureGate, OssEntitlements, ResolvedEntitlements, quotas,
+    };
     use meteroid_store::StoreResult;
     use meteroid_store::domain::TenantEnvironmentEnum;
     use meteroid_store::errors::StoreError;
@@ -276,14 +278,13 @@ mod signup_production_tenant {
         async fn resolve(&self, _: OrganizationId) -> ResolvedEntitlements {
             ResolvedEntitlements::open()
         }
-        async fn alert_definition_limit(&self, _: OrganizationId) -> Option<u32> {
-            None
-        }
-        async fn production_tenant_limit(&self, _: OrganizationId) -> Option<u32> {
-            Some(1)
-        }
-        async fn invoicing_entity_limit(&self, _: OrganizationId) -> Option<u32> {
-            None
+        async fn limit(
+            &self,
+            _: OrganizationId,
+            _: Option<common_domain::ids::TenantId>,
+            gate: &FeatureGate,
+        ) -> Option<u32> {
+            (*gate == quotas::PRODUCTION_TENANTS).then_some(1)
         }
     }
 

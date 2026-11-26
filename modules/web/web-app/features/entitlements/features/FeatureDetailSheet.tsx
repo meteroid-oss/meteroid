@@ -1,119 +1,189 @@
-import { skipToken } from '@connectrpc/connect-query';
+import { skipToken } from '@connectrpc/connect-query'
 import {
   Badge,
   Button,
-  ScrollArea,
   Separator,
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
   Skeleton,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
 } from '@md/ui'
-import { ArchiveIcon, ArchiveRestoreIcon, ExternalLinkIcon, PencilIcon, PowerIcon } from 'lucide-react'
+import { ArchiveIcon, ArchiveRestoreIcon, PencilIcon, PowerIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
-import { CopyToClipboardButton } from '@/components/CopyToClipboard'
-import { EntityEntitlementsSection } from '@/features/entitlements/EntityEntitlementsSection'
+import { Gate } from '@/components/Gate'
+import { LocalId } from '@/components/LocalId'
+import { PanelEmptyState } from '@/components/empty-state/PanelEmptyState'
+import { ExplainDialog } from '@/features/entitlements/explain/ExplainDialog'
 import { FeatureLimitQuantity } from '@/features/entitlements/features/FeatureLimitQuantity'
 import { FeatureStatusBadge } from '@/features/entitlements/features/FeatureStatusBadge'
+import { FeatureUsedBy } from '@/features/entitlements/features/FeatureUsedBy'
+import {
+  capitalize,
+  KIND_ICON,
+  KIND_NAME,
+  kindKey,
+} from '@/features/entitlements/features/featureKind'
 import {
   FeatureActionDialog,
   PendingFeatureAction,
 } from '@/features/entitlements/features/statusActions'
-import {
-  configKindLabel,
-  entitlementValueLabel,
-  featureKindFromProto,
-  featureTypeLabel,
-  MeteredFeatureKind,
-} from '@/features/entitlements/utils'
+import { appliesPerLabel, isAppCounted, kindLabel, policyLabel } from '@/features/entitlements/model'
+import { EntitlementRowsEditor } from '@/features/entitlements/rows/EntitlementRowsEditor'
+import { useResourceTypes } from '@/features/resources/hooks'
 import { useBasePath } from '@/hooks/useBasePath'
+import { usePermissions } from '@/hooks/usePermissions'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
 import { getBillableMetric } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import { getFeature } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
-import { FeatureStatus } from '@/rpc/api/entitlements/v1/models_pb'
+import {
+  type Feature,
+  FeatureKind,
+  FeatureStatus,
+  FeatureValueType,
+} from '@/rpc/api/entitlements/v1/models_pb'
 import { parseAndFormatDate } from '@/utils/date'
 
-const MetricLink = ({ kind }: { kind: MeteredFeatureKind }) => {
+const DetailRow = ({ label, children }: { label: React.ReactNode; children: React.ReactNode }) => (
+  <div className="flex items-start gap-2">
+    <span className="w-36 shrink-0 text-sm text-muted-foreground">{label}</span>
+    <div className="min-w-0 text-sm">{children}</div>
+  </div>
+)
+
+const MetricLink = ({ metricId }: { metricId: string }) => {
   const basePath = useBasePath()
-  const metricQuery = useQuery(getBillableMetric, { id: kind.metricId })
-  const name = metricQuery.data?.billableMetric?.name
+  const name = useQuery(getBillableMetric, { id: metricId }).data?.billableMetric?.name
+  return (
+    <Link to={`${basePath}/metrics/${metricId}`} className="font-medium text-brand hover:underline">
+      {name ?? metricId}
+    </Link>
+  )
+}
+
+const FeatureDetails = ({ feature, readOnly }: { feature: Feature; readOnly: boolean }) => {
+  const { byId: typesById, hasTypes } = useResourceTypes()
+  const kind = kindKey(feature.kind)
+  const KindIcon = KIND_ICON[kind]
+  const isLimit = feature.kind === FeatureKind.LIMIT
+  const isValue = feature.kind === FeatureKind.VALUE
+  const options = isValue && feature.value?.type === FeatureValueType.SELECT ? feature.value.options : []
 
   return (
-    <Link
-      to={`${basePath}/metrics/${kind.metricId}`}
-      className="inline-flex items-center gap-1 text-sm font-mono text-primary hover:underline"
-    >
-      {name ?? kind.metricId}
-      <ExternalLinkIcon size={12} />
-    </Link>
+    <div className="flex flex-col gap-3">
+      <DetailRow label="ID">
+        <LocalId localId={feature.id} className="max-w-48" />
+      </DetailRow>
+      <DetailRow label="Kind">
+        <span className="inline-flex items-center gap-1.5">
+          <KindIcon size={14} className="text-muted-foreground" />
+          {KIND_NAME[kind]}
+        </span>
+      </DetailRow>
+      {isValue && <DetailRow label="Value type">{kindLabel(feature)}</DetailRow>}
+      {options.length > 0 && (
+        <DetailRow label={feature.value?.ordered ? 'Options (lowest first)' : 'Options'}>
+          <div className="flex flex-wrap gap-1.5">
+            {options.map(o => (
+              <Badge key={o} variant="secondary" size="sm">
+                {o}
+              </Badge>
+            ))}
+          </div>
+        </DetailRow>
+      )}
+      {(isLimit || isValue) && <DetailRow label="Unit">{feature.unit || '—'}</DetailRow>}
+      {isLimit && (
+        <DetailRow label="Counted by">
+          {feature.limit?.metricId ? (
+            <MetricLink metricId={feature.limit.metricId} />
+          ) : isAppCounted(feature) ? (
+            'Your app'
+          ) : (
+            '—'
+          )}
+        </DetailRow>
+      )}
+      {hasTypes && <DetailRow label="Applies per">{appliesPerLabel(feature, typesById)}</DetailRow>}
+      {isLimit && (
+        <DetailRow label="Policy">{capitalize(policyLabel(feature.policy, isAppCounted(feature)))}</DetailRow>
+      )}
+      {isLimit && env.entitlementsEnabled && (
+        <FeatureLimitQuantity featureId={feature.id} readOnly={readOnly} Row={DetailRow} />
+      )}
+      <DetailRow label="Product">{feature.product?.name ?? '—'}</DetailRow>
+      <DetailRow label="Created">{parseAndFormatDate(feature.createdAt)}</DetailRow>
+      <DetailRow label="Description">
+        <span className="whitespace-pre-wrap">{feature.description || '—'}</span>
+      </DetailRow>
+    </div>
   )
 }
 
 export const FeatureDetailSheet = () => {
   const { featureId } = useParams<{ featureId: string }>()
   const navigate = useNavigate()
+  const { has } = usePermissions()
   const [pendingAction, setPendingAction] = useState<PendingFeatureAction | null>(null)
+  const [tab, setTab] = useState('details')
+  const [evaluating, setEvaluating] = useState(false)
 
   const featureQuery = useQuery(getFeature, featureId ? { id: featureId } : skipToken)
   const feature = featureQuery.data?.feature
+  const isArchived = feature?.status === FeatureStatus.ARCHIVED
 
   return (
     <>
       <Sheet open onOpenChange={() => navigate('..')}>
-        <SheetContent size="medium" onInteractOutside={e => e.preventDefault()}>
+        <SheetContent size="medium">
           <SheetHeader className="pb-2">
-            <SheetTitle>Feature Details</SheetTitle>
-            <Separator />
-          </SheetHeader>
-
-          {featureQuery.isLoading && (
-            <div className="flex flex-col gap-4 py-4">
-              <Skeleton className="h-6 w-48" />
-              <Skeleton className="h-4 w-64" />
-              <Skeleton className="h-4 w-32" />
-            </div>
-          )}
-
-          {feature && (() => {
-            const kind = featureKindFromProto(feature.featureType)
-            const isArchived = feature.status === FeatureStatus.ARCHIVED
-            return (
-              <ScrollArea className="h-[calc(100%-60px)]">
-                <div className="flex flex-col gap-6 py-4">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h3 className="text-lg font-semibold">{feature.name}</h3>
-                      <div className="mt-1 flex items-center gap-2">
-                        <Badge variant="secondary">{featureTypeLabel(kind)}</Badge>
-                        <FeatureStatusBadge status={feature.status} />
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1">
+            {feature ? (
+              <>
+                <div className="flex items-center justify-between gap-2 pr-8">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <SheetTitle className="truncate">{feature.name}</SheetTitle>
+                    <FeatureStatusBadge status={feature.status} />
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {env.entitlementsEnabled && !isArchived && (
+                      <Button size="sm" variant="ghost" onClick={() => setEvaluating(true)}>
+                        Evaluate…
+                      </Button>
+                    )}
+                    <Gate perm="catalog:manage">
                       {isArchived ? (
                         <Button
                           variant="ghost"
                           size="icon"
+                          title="Restore"
+                          aria-label="Restore"
                           onClick={() => setPendingAction({ feature, target: FeatureStatus.ACTIVE })}
-                          title="Unarchive feature"
                         >
-                          <ArchiveRestoreIcon size={15} />
+                          <ArchiveRestoreIcon size={16} />
                         </Button>
                       ) : (
                         <>
                           <Button
                             variant="ghost"
                             size="icon"
+                            title="Edit"
+                            aria-label="Edit"
                             onClick={() => navigate(`../edit/${feature.id}`)}
                           >
-                            <PencilIcon size={15} />
+                            <PencilIcon size={16} />
                           </Button>
                           <Button
                             variant="ghost"
                             size="icon"
+                            title={feature.status === FeatureStatus.ACTIVE ? 'Disable' : 'Enable'}
+                            aria-label={feature.status === FeatureStatus.ACTIVE ? 'Disable' : 'Enable'}
                             onClick={() =>
                               setPendingAction({
                                 feature,
@@ -123,133 +193,90 @@ export const FeatureDetailSheet = () => {
                                     : FeatureStatus.ACTIVE,
                               })
                             }
-                            title={feature.status === FeatureStatus.ACTIVE ? 'Disable feature' : 'Enable feature'}
                           >
-                            <PowerIcon size={15} />
+                            <PowerIcon size={16} />
                           </Button>
                           <Button
                             variant="ghost"
                             size="icon"
+                            title="Archive"
+                            aria-label="Archive"
                             onClick={() => setPendingAction({ feature, target: FeatureStatus.ARCHIVED })}
-                            title="Archive feature"
                           >
-                            <ArchiveIcon size={15} />
+                            <ArchiveIcon size={16} />
                           </Button>
                         </>
                       )}
-                    </div>
+                    </Gate>
                   </div>
-
-                  <section>
-                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
-                      Feature ID
-                    </div>
-                    <CopyToClipboardButton text={feature.id} className="max-w-xs" />
-                  </section>
-
-                  <section>
-                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
-                      Code
-                    </div>
-                    <CopyToClipboardButton text={feature.code} className="max-w-xs" />
-                  </section>
-
-                  {feature.description && (
-                    <section>
-                      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
-                        Description
-                      </div>
-                      <p className="text-sm">{feature.description}</p>
-                    </section>
-                  )}
-
-                  {kind.type === 'metered' && (
-                    <section>
-                      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
-                        Metric
-                      </div>
-                      <MetricLink kind={kind} />
-                    </section>
-                  )}
-
-                  {kind.type === 'metered' && env.entitlementsEnabled && (
-                    <FeatureLimitQuantity featureId={feature.id} readOnly={isArchived} />
-                  )}
-
-                  {kind.type === 'config' && (
-                    <section>
-                      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
-                        Value type
-                      </div>
-                      <p className="text-sm">{configKindLabel(kind.valueType)}</p>
-                    </section>
-                  )}
-
-                  {kind.type === 'config' && kind.valueType === 'select' && kind.options && (
-                    <section>
-                      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
-                        Options
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {kind.options.map(o => (
-                          <Badge key={o} variant="secondary">
-                            {o}
-                          </Badge>
-                        ))}
-                      </div>
-                    </section>
-                  )}
-
-                  <section>
-                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
-                      Product
-                    </div>
-                    <p className="text-sm">
-                      {feature.product
-                        ? feature.product.name
-                        : <span className="text-muted-foreground">Global (no product)</span>}
-                    </p>
-                  </section>
-
-                  <section>
-                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
-                      Created
-                    </div>
-                    <p className="text-sm">{parseAndFormatDate(feature.createdAt)}</p>
-                  </section>
-
-                  {env.entitlementsEnabled && (
-                    <>
-                      <Separator />
-                      {isArchived ? (
-                        // Read-only: the default is hidden from resolution and lists while archived.
-                        <div>
-                          <h3 className="text-sm font-medium mb-3">Default entitlement</h3>
-                          {feature.entitlement ? (
-                            <div className="border rounded-md flex items-center justify-between px-3 py-2 text-sm">
-                              <span className="font-medium">{feature.name}</span>
-                              <span className="text-xs text-muted-foreground">
-                                {entitlementValueLabel(feature.entitlement.value?.value)}
-                              </span>
-                            </div>
-                          ) : (
-                            <p className="text-sm text-muted-foreground">No entitlements configured.</p>
-                          )}
-                        </div>
-                      ) : (
-                        <EntityEntitlementsSection
-                          entity={{ EntityId: { case: 'featureId', value: feature.id } }}
-                          hint="The default for every customer. Plans, add-ons, and subscriptions can override it. Disabling the feature blocks it everywhere."
-                        />
-                      )}
-                    </>
-                  )}
                 </div>
-              </ScrollArea>
-            )
-          })()}
+                <div className="flex">
+                  <LocalId localId={feature.code} className="font-mono" />
+                </div>
+              </>
+            ) : (
+              <>
+                <SheetTitle className="sr-only">Feature</SheetTitle>
+                {featureQuery.isLoading && (
+                  <div className="flex flex-col gap-2">
+                    <Skeleton className="h-7 w-48" />
+                    <Skeleton className="h-6 w-32" />
+                  </div>
+                )}
+              </>
+            )}
+            <Separator />
+          </SheetHeader>
+
+          {featureQuery.isLoading && (
+            <div className="flex flex-col gap-3 py-4">
+              <Skeleton className="h-4 w-64" />
+              <Skeleton className="h-4 w-56" />
+              <Skeleton className="h-4 w-48" />
+              <Skeleton className="h-4 w-60" />
+            </div>
+          )}
+
+          {!featureQuery.isLoading && !feature && <PanelEmptyState title="Feature not found" />}
+
+          {feature && (
+            <Tabs value={tab} onValueChange={setTab} className="flex flex-col gap-4 py-2">
+              {env.entitlementsEnabled && (
+                <TabsList variant="ghost">
+                  <TabsTrigger value="details">Details</TabsTrigger>
+                  <TabsTrigger value="usedBy">Used by</TabsTrigger>
+                  <TabsTrigger value="defaults">Defaults</TabsTrigger>
+                </TabsList>
+              )}
+              <TabsContent value="details" className="mt-0">
+                <FeatureDetails feature={feature} readOnly={isArchived} />
+              </TabsContent>
+              {env.entitlementsEnabled && (
+                <>
+                  <TabsContent value="usedBy" className="mt-0">
+                    <FeatureUsedBy feature={feature} />
+                  </TabsContent>
+                  <TabsContent value="defaults" className="mt-0">
+                    <EntitlementRowsEditor
+                      owner={{ case: 'featureId', value: feature.id }}
+                      feature={feature}
+                      canEdit={!isArchived && has('catalog:manage')}
+                      title={
+                        feature.product
+                          ? `Default for ${feature.product.name} subscribers`
+                          : 'Default for all customers'
+                      }
+                      emptyText="No default"
+                    />
+                  </TabsContent>
+                </>
+              )}
+            </Tabs>
+          )}
         </SheetContent>
       </Sheet>
+
+      {evaluating && feature && <ExplainDialog feature={feature} onClose={() => setEvaluating(false)} />}
 
       <FeatureActionDialog
         pending={pendingAction}

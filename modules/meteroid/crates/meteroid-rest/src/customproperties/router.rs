@@ -26,6 +26,7 @@ use meteroid_store::repositories::CustomPropertyDefinitionsInterface;
         (status = 200, description = "List of custom property definitions", body = CustomPropertyDefinitionListResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -68,6 +69,7 @@ pub async fn list_definitions(
         (status = 200, description = "Custom property definition", body = CustomPropertyDefinition),
         (status = 404, description = "Not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]

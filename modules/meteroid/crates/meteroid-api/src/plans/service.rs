@@ -21,10 +21,11 @@ use meteroid_grpc::meteroid::api::plans::v1::{
     PublishPlanVersionRequest, PublishPlanVersionResponse, RemovePlanOptionRequest,
     RemovePlanOptionResponse, ReorderPlanOptionsRequest, ReorderPlanOptionsResponse,
     SetPlanEligibilityRequest, SetPlanEligibilityResponse, SetPlanMinimumCommitmentRequest,
-    SetPlanMinimumCommitmentResponse, SetSelfServeLadderRequest, SetSelfServeLadderResponse,
-    UnarchivePlanRequest, UnarchivePlanResponse, UpdateDraftPlanOverviewRequest,
-    UpdateDraftPlanOverviewResponse, UpdatePlanOptionRequest, UpdatePlanOptionResponse,
-    UpdatePlanTrialRequest, UpdatePlanTrialResponse, UpdatePublishedPlanOverviewRequest,
+    SetPlanMinimumCommitmentResponse, SetPlanSoldForRequest, SetPlanSoldForResponse,
+    SetSelfServeLadderRequest, SetSelfServeLadderResponse, UnarchivePlanRequest,
+    UnarchivePlanResponse, UpdateDraftPlanOverviewRequest, UpdateDraftPlanOverviewResponse,
+    UpdatePlanOptionRequest, UpdatePlanOptionResponse, UpdatePlanTrialRequest,
+    UpdatePlanTrialResponse, UpdatePublishedPlanOverviewRequest,
     UpdatePublishedPlanOverviewResponse, plans_service_server::PlansService,
 };
 use meteroid_grpc_mapping::utils::PaginationExt;
@@ -71,6 +72,9 @@ impl PlansService for PlanServiceComponents {
 
         let plan_new = domain::FullPlanNew {
             plan: domain::PlanNew {
+                sold_for_resource_type_id: common_domain::ids::ResourceTypeId::from_proto_opt(
+                    req.sold_for_resource_type_id.as_ref(),
+                )?,
                 name: req.name,
                 description: req.description,
                 tenant_id,
@@ -745,6 +749,27 @@ impl PlansService for PlanServiceComponents {
 
         Ok(Response::new(ReorderPlanOptionsResponse {
             options: options.iter().map(plan_option_to_proto).collect(),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn set_plan_sold_for(
+        &self,
+        request: Request<SetPlanSoldForRequest>,
+    ) -> Result<Response<SetPlanSoldForResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+        let plan = self
+            .store
+            .set_plan_sold_for(
+                tenant_id,
+                PlanId::from_proto(&req.plan_id)?,
+                common_domain::ids::ResourceTypeId::from_proto_opt(req.resource_type_id)?,
+            )
+            .await
+            .map_err(Into::<PlanApiError>::into)?;
+        Ok(Response::new(SetPlanSoldForResponse {
+            plan: Some(crate::plans::mapping::plans::plan_to_proto(plan)),
         }))
     }
 }

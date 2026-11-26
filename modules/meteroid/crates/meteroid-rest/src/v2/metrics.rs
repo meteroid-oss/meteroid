@@ -15,7 +15,7 @@ use axum::Extension;
 use axum::Json;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
-use common_domain::ids::{BaseId, BillableMetricId, TenantId};
+use common_domain::ids::{BaseId, BillableMetricId, ResourceTypeId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use meteroid_app::errors::RestApiError;
@@ -26,10 +26,14 @@ use meteroid_store::domain::billable_metrics::{
 };
 use meteroid_store::domain::enums::{BillingMetricAggregateEnum, UnitConversionRoundingEnum};
 use meteroid_store::domain::{
-    BillableMetric, BillableMetricNew, BillableMetricUpdate, MetricUnitLabel,
+    AttributionPreview as DomainPreview, BillableMetric, BillableMetricNew, BillableMetricUpdate,
+    MetricAttribution, MetricUnitLabel,
 };
+use meteroid_store::repositories::ResourcesInterface;
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -142,6 +146,30 @@ pub struct Filter {
     pub values: Vec<String>,
 }
 
+/// Whose subscriptions bill the metric's events. `customer`: the customer's own. `resource_type`:
+/// the subscriptions of the resource whose key the event carries (`property`, else the type's
+/// keys, canonical first); an event naming no subscribed resource goes to the customer's own.
+#[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AttributedTo {
+    Customer(CustomerAttribution),
+    ResourceType(ResourceTypeAttribution),
+}
+
+#[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CustomerAttribution {}
+
+#[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceTypeAttribution {
+    /// The resource type, by code (id or code on input).
+    pub resource_type: String,
+    /// The event property holding the resource's key; none: the type's keys.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub property: Option<String>,
+}
+
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct Metric {
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
@@ -174,6 +202,7 @@ pub struct Metric {
     /// The product it measures.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub product: Option<ProductRef>,
+    pub attributed_to: AttributedTo,
     pub archived: bool,
     pub created_at: ApiDateTime,
 }
@@ -230,6 +259,9 @@ pub struct CreateMetric {
     /// The product it measures, by code or id.
     #[serde(default)]
     pub product: Option<String>,
+    /// The customer's own subscriptions when left out.
+    #[serde(default)]
+    pub attributed_to: Option<AttributedTo>,
 }
 
 /// A merge patch. The code, event code, aggregation, group, family and product never change.
@@ -257,9 +289,126 @@ pub struct UpdateMetric {
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub breakdown_by: Option<Option<String>>,
+    /// Applies to the periods not yet finalized: their draft invoices are recomputed. Fixed
+    /// once a subscription for a resource has invoiced the metric, refused while one is live.
+    #[serde(default)]
+    pub attributed_to: Option<AttributedTo>,
 }
 
-fn to_api(m: BillableMetric, refs: &Refs) -> Metric {
+#[derive(Deserialize, ToSchema, Debug, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct PreviewAttribution {
+    pub attributed_to: AttributedTo,
+}
+
+/// Where the last 7 days of the metric's usage would go, summed over up to 20 customers with
+/// subscriptions for a resource (`sampled` when there are more): what each side's subscriptions
+/// bill, each reading the metric's aggregation over its own events.
+#[derive(Serialize, ToSchema, Debug, Clone)]
+pub struct AttributionPreview {
+    pub from: ApiDateTime,
+    pub until: ApiDateTime,
+    pub sampled_customers: u32,
+    pub sampled: bool,
+    /// The three quantities add up to the usage (a sum or count metric) and split it in shares.
+    /// False for latest, max, min, mean and distinct count: each is what its subscriptions bill,
+    /// and they don't add up to the usage.
+    pub additive: bool,
+    /// Billed by subscriptions for a resource.
+    #[serde(with = "rust_decimal::serde::str")]
+    #[schema(value_type = String, format = "decimal")]
+    pub resource_subscriptions: Decimal,
+    /// Billed by the customer's own subscriptions.
+    #[serde(with = "rust_decimal::serde::str")]
+    #[schema(value_type = String, format = "decimal")]
+    pub customer_subscriptions: Decimal,
+    /// Billed by no subscription.
+    #[serde(with = "rust_decimal::serde::str")]
+    #[schema(value_type = String, format = "decimal")]
+    pub not_billed: Decimal,
+    /// The draft invoices the change recomputes.
+    pub draft_invoices: u32,
+}
+
+impl From<DomainPreview> for AttributionPreview {
+    fn from(preview: DomainPreview) -> Self {
+        AttributionPreview {
+            from: preview.from.and_utc().into(),
+            until: preview.until.and_utc().into(),
+            sampled_customers: preview.sampled_customers,
+            sampled: preview.sampled,
+            additive: preview.additive,
+            resource_subscriptions: preview.resource_subscriptions.normalize(),
+            customer_subscriptions: preview.customer_subscriptions.normalize(),
+            not_billed: preview.not_billed.normalize(),
+            draft_invoices: preview.draft_invoices,
+        }
+    }
+}
+
+/// What `attributed_to` asks, its resource type resolved; the store checks it as v1's.
+async fn attribution_of(
+    state: &AppState,
+    tenant_id: TenantId,
+    attributed_to: &AttributedTo,
+    path: &str,
+) -> Result<Option<MetricAttribution>, Problem> {
+    match attributed_to {
+        AttributedTo::Customer(_) => Ok(None),
+        AttributedTo::ResourceType(attribution) => {
+            let raw = attribution.resource_type.as_str();
+            let resource_type =
+                ids::resource_type(state, tenant_id, raw)
+                    .await
+                    .map_err(|problem| {
+                        if problem.status == 404 {
+                            Problem::field(
+                                format!("{path}/resource_type"),
+                                "not_found",
+                                format!("No resource type '{}'", raw.trim()),
+                            )
+                        } else {
+                            problem
+                        }
+                    })?;
+            Ok(Some(MetricAttribution {
+                type_id: resource_type.id,
+                property: attribution.property.clone(),
+            }))
+        }
+    }
+}
+
+/// The codes of the resource types `metrics` are attributed to.
+async fn type_codes(
+    state: &AppState,
+    tenant_id: TenantId,
+    metrics: &[BillableMetric],
+) -> Result<HashMap<ResourceTypeId, String>, Problem> {
+    if metrics.iter().all(|m| m.attributed_to_type_id.is_none()) {
+        return Ok(HashMap::new());
+    }
+    Ok(state
+        .store
+        .list_resource_types(tenant_id, true)
+        .await?
+        .into_iter()
+        .map(|resource_type| (resource_type.id, resource_type.code))
+        .collect())
+}
+
+fn attributed_to(m: &BillableMetric, types: &HashMap<ResourceTypeId, String>) -> AttributedTo {
+    match m.attributed_to_type_id {
+        None => AttributedTo::Customer(CustomerAttribution {}),
+        Some(id) => AttributedTo::ResourceType(ResourceTypeAttribution {
+            resource_type: types.get(&id).cloned().unwrap_or_else(|| id.to_string()),
+            property: m.attribution_property.clone(),
+        }),
+    }
+}
+
+fn to_api(m: BillableMetric, refs: &Refs, types: &HashMap<ResourceTypeId, String>) -> Metric {
+    let attributed_to = attributed_to(&m, types);
     let unit_conversion = m.unit_conversion_factor.map(|factor| UnitConversion {
         factor,
         rounding: m
@@ -286,6 +435,7 @@ fn to_api(m: BillableMetric, refs: &Refs) -> Metric {
         breakdown_by: m.usage_breakdown_key,
         family: refs.product_family(m.product_family_id),
         product: m.product_id.map(|id| refs.product(id)),
+        attributed_to,
         archived: m.archived_at.is_some(),
         created_at: m.created_at.into(),
     }
@@ -374,7 +524,8 @@ async fn one(
     metric: BillableMetric,
 ) -> Result<Metric, Problem> {
     let refs = refs(state, tenant_id, std::slice::from_ref(&metric)).await?;
-    Ok(to_api(metric, &refs))
+    let types = type_codes(state, tenant_id, std::slice::from_ref(&metric)).await?;
+    Ok(to_api(metric, &refs, &types))
 }
 
 /// A metric written, as it reads; its family and product by id when their codes are not read back
@@ -387,7 +538,7 @@ async fn written(
 ) -> Response {
     let known = metric.clone();
     committed_write(status, one(state, tenant_id, metric).await, || {
-        to_api(known, &Refs::default())
+        to_api(known, &Refs::default(), &HashMap::new())
     })
 }
 
@@ -456,7 +607,8 @@ pub async fn list_metrics(
         .await?;
     let paged = keyset(rows, limit, |metric| metric.id.as_uuid());
     let refs = refs(&state, auth.tenant_id, &paged.data).await?;
-    Ok(Json(paged.map(|m| to_api(m, &refs)).into()))
+    let types = type_codes(&state, auth.tenant_id, &paged.data).await?;
+    Ok(Json(paged.map(|m| to_api(m, &refs, &types)).into()))
 }
 
 /// Get a metric
@@ -578,6 +730,10 @@ pub async fn create_metric(
         )?),
         None => None,
     };
+    let attribution = match &body.attributed_to {
+        Some(asked) => attribution_of(&state, tenant_id, asked, "/attributed_to").await?,
+        None => None,
+    };
     let taken = body.code.clone().unwrap_or_default();
     let (unit_conversion_factor, unit_conversion_rounding) = match body.unit_conversion {
         Some(conversion) => (Some(conversion.factor), Some(conversion.rounding.into())),
@@ -607,16 +763,26 @@ pub async fn create_metric(
                 tenant_id,
                 product_family_id: family_id,
                 product_id,
+                attributed_to: attribution.clone(),
             },
         )
         .await
-        .map_err(|error| Problem::at("/code", error).code_taken(&taken))?;
+        // A create racing this one to the code meets the unique index of live codes.
+        .map_err(|error| {
+            let path = if attribution.is_some() {
+                "/attributed_to"
+            } else {
+                "/code"
+            };
+            Problem::at(path, error).code_taken(&taken)
+        })?;
     Ok(written(&state, tenant_id, StatusCode::CREATED, metric).await)
 }
 
 /// Update a metric
 ///
-/// A JSON merge patch. The code, event code, aggregation, group, family and product never change.
+/// A JSON merge patch. The code, event code, aggregation, group, family and product never change;
+/// the attribution changes the periods not yet finalized.
 #[utoipa::path(
     patch,
     tag = "Metrics",
@@ -691,8 +857,18 @@ pub async fn update_metric(
         .await
         .map_err(breakdown_refused)?;
     }
+    let attribution = match &body.attributed_to {
+        Some(asked) => Some(attribution_of(&state, auth.tenant_id, asked, "/attributed_to").await?),
+        None => None,
+    };
+    let pointer = if attribution.is_some() {
+        "/attributed_to"
+    } else {
+        "/breakdown_by"
+    };
+    // As v1: a changed attribution marks the drafts it moves usage of.
     let metric = state
-        .store
+        .services
         .update_billable_metric(
             auth.as_actor(),
             stored.id,
@@ -706,10 +882,11 @@ pub async fn update_metric(
                 filters,
                 unit_label,
                 usage_breakdown_key: body.breakdown_by,
+                attributed_to: attribution,
             },
         )
         .await
-        .map_err(|error| Problem::at("/breakdown_by", error))?;
+        .map_err(|error| Problem::at(pointer, error))?;
     Ok(written(&state, auth.tenant_id, StatusCode::OK, metric).await)
 }
 
@@ -772,10 +949,52 @@ pub async fn unarchive_metric(
     Ok(reread(&state, auth.tenant_id, &metric).await)
 }
 
+/// Preview a metric's attribution
+///
+/// Where the last 7 days of its usage would go under `attributed_to`, sampled over 20 customers
+/// with subscriptions for a resource, and the draft invoices the change would recompute. Nothing
+/// is written.
+#[utoipa::path(
+    post,
+    tag = "Metrics",
+    path = "/api/v2/metrics/{id_or_code}/attribution/preview",
+    operation_id = "preview_metric_attribution",
+    params(("id_or_code" = String, Path, description = "Metric id or code")),
+    request_body = PreviewAttribution,
+    responses(
+        (status = 200, description = "Where its usage would go", body = AttributionPreview),
+        (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
+        (status = 422, description = "The attribution is refused", body = Problem, content_type = "application/problem+json"),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub async fn preview_attribution(
+    Extension(auth): Extension<AuthorizedAsTenant>,
+    State(state): State<AppState>,
+    Path(id_or_code): Path<String>,
+    Body(body): Body<PreviewAttribution>,
+) -> Result<Json<AttributionPreview>, Problem> {
+    let metric = ids::metric(&state, auth.tenant_id, &id_or_code).await?;
+    let attribution = attribution_of(
+        &state,
+        auth.tenant_id,
+        &body.attributed_to,
+        "/attributed_to",
+    )
+    .await?;
+    let preview = state
+        .services
+        .preview_metric_attribution(auth.tenant_id, metric.id, attribution)
+        .await
+        .map_err(|error| Problem::at("/attributed_to", error))?;
+    Ok(Json(preview.into()))
+}
+
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(list_metrics, create_metric))
         .routes(routes!(get_metric, update_metric))
         .routes(routes!(archive_metric))
         .routes(routes!(unarchive_metric))
+        .routes(routes!(preview_attribution))
 }

@@ -80,6 +80,8 @@ id_type!(EntityActivityId, "act_");
 id_type!(OrgSecurityAuditLogId, "secevt_");
 id_type!(FeatureId, "feat_");
 id_type!(EntitlementId, "ent_");
+id_type!(ResourceTypeId, "rty_");
+id_type!(ResourceId, "res_");
 id_type!(AlertId, "alrt_");
 id_type!(AlertEventId, "alev_");
 id_type!(SavedViewId, "view_");

@@ -84,6 +84,7 @@ async fn test_selfserve_double_completion_charges_once(#[future] test_env: TestE
             change_date: None,
             success_url: None,
             cancel_url: None,
+            resource_id: None,
         })
         .await
         .expect("create checkout session");
@@ -443,6 +444,7 @@ fn self_serve_session(tenant_customer: common_domain::ids::CustomerId) -> Create
         change_date: None,
         success_url: None,
         cancel_url: None,
+        resource_id: None,
     }
 }
 

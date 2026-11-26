@@ -1,17 +1,27 @@
-use crate::domain::enums::{EntitlementModeEnum, FeatureStatusEnum};
+use crate::domain::entitlement_fold::{
+    Condition, Effect, EvalLevel, FoldRow, GrantValue, LimitValue, RowLevel, Tier, ValueOrder,
+};
+use crate::domain::entitlement_policy::{AtLimit, FeaturePolicy, Resets};
+use crate::domain::enums::FeatureStatusEnum;
+use crate::domain::resources::Attributes;
 use crate::errors::{StoreError, StoreErrorReport};
 use chrono::{DateTime, Utc};
+use common_domain::actor::{Actor, ActorType};
 use common_domain::ids::{
-    BaseId, BillableMetricId, EntitlementEntityId, EntitlementId, FeatureId, ProductId, TenantId,
+    BaseId, BillableMetricId, EntitlementEntityId, EntitlementId, FeatureId, ProductId, ResourceId,
+    ResourceTypeId, SubscriptionId, TenantId,
 };
 use diesel_models::entitlements::{EntitlementRow, FeatureRowNew, FeatureWithProductRow};
 use diesel_models::enums::{
-    ConfigValueTypeEnum as DbConfigValueTypeEnum, FeatureStatusEnum as DbFeatureStatusEnum,
-    FeatureTypeEnum as DbFeatureTypeEnum,
+    ConfigValueTypeEnum as DbConfigValueTypeEnum, EntitlementEffectEnum, EntitlementLevelEnum,
+    FeatureKindEnum, FeatureLimitCountedByEnum, FeatureStatusEnum as DbFeatureStatusEnum,
+    FeatureTypeEnum as DbFeatureTypeEnum, FeatureValueTypeEnum,
 };
+use error_stack::Report;
 use rust_decimal::Decimal;
+use uuid::Uuid;
 
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PeriodUnit {
     Hour,
@@ -22,29 +32,17 @@ pub enum PeriodUnit {
 }
 
 /// When the consumed counter resets.
-///
-/// - `BillingCycle`: resets at each invoice period boundary (aligns with the customer's billing date).
-/// - `Calendar`: resets at fixed wall-clock boundaries — e.g. every Monday 00:00 UTC regardless of
-///   when the subscription started. Predictable for the customer but not tied to billing.
-/// - `FixedWindow`: resets every `interval` units measured from first use.
-/// - `SlidingWindow`: the window is always the last `interval` units from now.
-/// - `Never`: the limit is a lifetime cap; it never resets.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ResetPeriod {
     BillingCycle,
     Calendar { unit: PeriodUnit, interval: u32 },
-    FixedWindow { unit: PeriodUnit, interval: u32 }, // resets every N units from the first use
-    SlidingWindow { unit: PeriodUnit, interval: u32 }, // last N units from now
+    FixedWindow { unit: PeriodUnit, interval: u32 },
+    SlidingWindow { unit: PeriodUnit, interval: u32 },
     Never,
 }
 
-/// What happens when a customer exceeds their entitlement limit.
-///
-/// - `Block`: requests are rejected once the limit (plus optional `grace_period_pct`) is
-///   reached. Hard enforcement.
-/// - `Allow`: usage continues past the limit without restriction. Overage billing, if any,
-///   is handled by a separate price component tied to the same billable metric.
+/// What happens past a limit: refused once the limit plus its grace is reached, or allowed.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum OverageBehavior {
@@ -61,12 +59,11 @@ pub struct EntitlementUsage {
     pub remaining: Option<Decimal>,
     pub period_start: Option<DateTime<Utc>>,
     pub reset_at: Option<DateTime<Utc>>,
+    /// Metering could not answer for `consumed`, which is absent.
+    pub unavailable: bool,
 }
 
-/// A synchronously-resolved configuration value carried by a `Config` feature. Unlike
-/// `Metered` it has no usage/counter and never touches the metering pipeline: it is stored in
-/// Postgres and resolved through the entitlement chain like a static setting. `Json` is the
-/// structured-metadata escape hatch — an object holds several related config fields at once.
+/// A value feature's value as the legacy readout shows it.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum ConfigValue {
@@ -76,69 +73,185 @@ pub enum ConfigValue {
     Json(serde_json::Value),
 }
 
-/// Authoritative value type of a Config feature — declared once at creation and immutable.
-/// `Map`/`Json` both store a JSON `ConfigValue` (Map is the key/value-editor variant); `Select`
-/// additionally constrains the value to `options`.
 #[derive(Clone, Debug, PartialEq)]
-pub enum ConfigValueType {
-    Number,
-    Boolean,
+pub enum ValueType {
+    Number { higher_is_better: bool },
     Text,
-    Map,
+    Select { options: Vec<String>, ordered: bool },
     Json,
-    Select { options: Vec<String> },
 }
 
-impl ConfigValueType {
-    /// Split into the persisted (enum discriminator, options) pair.
-    pub fn into_db(self) -> (DbConfigValueTypeEnum, Option<Vec<String>>) {
-        match self {
-            ConfigValueType::Number => (DbConfigValueTypeEnum::Number, None),
-            ConfigValueType::Boolean => (DbConfigValueTypeEnum::Boolean, None),
-            ConfigValueType::Text => (DbConfigValueTypeEnum::Text, None),
-            ConfigValueType::Map => (DbConfigValueTypeEnum::Map, None),
-            ConfigValueType::Json => (DbConfigValueTypeEnum::Json, None),
-            ConfigValueType::Select { options } => (DbConfigValueTypeEnum::Select, Some(options)),
-        }
-    }
-
-    /// Rebuild from the persisted discriminator and options column. A missing discriminator
-    /// (legacy rows) falls back to `Select` when options exist, else `Text`.
-    pub fn from_db(kind: Option<DbConfigValueTypeEnum>, options: Option<Vec<String>>) -> Self {
-        match kind {
-            Some(DbConfigValueTypeEnum::Number) => ConfigValueType::Number,
-            Some(DbConfigValueTypeEnum::Boolean) => ConfigValueType::Boolean,
-            Some(DbConfigValueTypeEnum::Text) => ConfigValueType::Text,
-            Some(DbConfigValueTypeEnum::Map) => ConfigValueType::Map,
-            Some(DbConfigValueTypeEnum::Json) => ConfigValueType::Json,
-            Some(DbConfigValueTypeEnum::Select) => ConfigValueType::Select {
-                options: options.unwrap_or_default(),
-            },
-            None => match options {
-                Some(options) => ConfigValueType::Select { options },
-                None => ConfigValueType::Text,
-            },
-        }
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LimitCountedBy {
+    Events(BillableMetricId),
+    App,
 }
 
-#[derive(Clone, Debug)]
-pub enum FeatureType {
+/// ADR 0011 §3.1.
+#[derive(Clone, Debug, PartialEq)]
+pub enum FeatureKind {
     Boolean,
-    Metered {
-        metric_id: BillableMetricId,
-    },
-    /// Static, typed configuration value. No metric, no usage — the value is resolved
-    /// synchronously from Postgres. `value_type` fixes the shape (number/bool/text/map/json or a
-    /// constrained select) for every entitlement of this feature.
-    Config {
-        value_type: ConfigValueType,
-    },
+    Value(ValueType),
+    Limit(LimitCountedBy),
 }
 
-impl FeatureType {
-    pub fn metered(metric_id: BillableMetricId) -> Self {
-        FeatureType::Metered { metric_id }
+impl FeatureKind {
+    pub fn value_order(&self) -> ValueOrder {
+        match self {
+            FeatureKind::Boolean => ValueOrder::Boolean,
+            FeatureKind::Limit(_) => ValueOrder::Limit,
+            FeatureKind::Value(ValueType::Number { higher_is_better }) => ValueOrder::Number {
+                higher_is_better: *higher_is_better,
+            },
+            FeatureKind::Value(ValueType::Select {
+                options,
+                ordered: true,
+            }) => ValueOrder::Ranked(options.clone()),
+            FeatureKind::Value(_) => ValueOrder::Unordered,
+        }
+    }
+
+    pub fn metric_id(&self) -> Option<BillableMetricId> {
+        match self {
+            FeatureKind::Limit(LimitCountedBy::Events(metric_id)) => Some(*metric_id),
+            _ => None,
+        }
+    }
+
+    pub fn counted_by_app(&self) -> bool {
+        matches!(self, FeatureKind::Limit(LimitCountedBy::App))
+    }
+
+    /// The policy a limit starts with: app counts never reset and deny new.
+    pub fn default_policy(&self) -> Option<FeaturePolicy> {
+        match self {
+            FeatureKind::Limit(LimitCountedBy::App) => Some(FeaturePolicy {
+                resets: Resets::Never,
+                at_limit: AtLimit::DenyNew,
+                ..FeaturePolicy::default()
+            }),
+            FeatureKind::Limit(LimitCountedBy::Events(_)) => Some(FeaturePolicy::default()),
+            _ => None,
+        }
+    }
+
+    /// Whether `value` is one of this kind's values.
+    pub fn check_value(&self, value: &GrantValue) -> Result<(), String> {
+        let fits = match (self, value) {
+            (FeatureKind::Boolean, GrantValue::Boolean(_)) => true,
+            (FeatureKind::Limit(_), GrantValue::Limit(LimitValue::Amount(n)))
+                if n.is_sign_negative() =>
+            {
+                return Err("a limit must not be negative".into());
+            }
+            (FeatureKind::Limit(_), GrantValue::Limit(_)) => true,
+            (FeatureKind::Value(ValueType::Number { .. }), GrantValue::Number(_)) => true,
+            (FeatureKind::Value(ValueType::Text), GrantValue::Text(_)) => true,
+            (FeatureKind::Value(ValueType::Json), GrantValue::Json(_)) => true,
+            (FeatureKind::Value(ValueType::Select { options, .. }), GrantValue::Text(t)) => {
+                if !options.contains(t) {
+                    return Err(format!("`{t}` is not one of the feature's options"));
+                }
+                true
+            }
+            _ => false,
+        };
+        fits.then_some(())
+            .ok_or_else(|| "the value does not match the feature's kind".into())
+    }
+
+    /// `feature.feature_type` and the config columns, written until phase 6.
+    fn legacy_columns(
+        &self,
+    ) -> (
+        DbFeatureTypeEnum,
+        Option<Vec<Option<String>>>,
+        Option<DbConfigValueTypeEnum>,
+    ) {
+        match self {
+            FeatureKind::Boolean => (DbFeatureTypeEnum::Boolean, None, None),
+            FeatureKind::Limit(_) => (DbFeatureTypeEnum::Metered, None, None),
+            FeatureKind::Value(value_type) => {
+                let (config, options) = match value_type {
+                    ValueType::Number { .. } => (DbConfigValueTypeEnum::Number, None),
+                    ValueType::Text => (DbConfigValueTypeEnum::Text, None),
+                    ValueType::Json => (DbConfigValueTypeEnum::Json, None),
+                    ValueType::Select { options, .. } => (
+                        DbConfigValueTypeEnum::Select,
+                        Some(options.iter().cloned().map(Some).collect()),
+                    ),
+                };
+                (DbFeatureTypeEnum::Config, options, Some(config))
+            }
+        }
+    }
+
+    /// The `kind`, `value_type`, `number_higher_is_better`, `select_options`, `select_ordered`
+    /// and `limit_counted_by` columns.
+    #[allow(clippy::type_complexity)]
+    fn columns(
+        &self,
+    ) -> (
+        FeatureKindEnum,
+        Option<FeatureValueTypeEnum>,
+        bool,
+        Option<serde_json::Value>,
+        bool,
+        Option<FeatureLimitCountedByEnum>,
+    ) {
+        let value = |t, higher, options: Option<&Vec<String>>, ordered| {
+            (
+                FeatureKindEnum::Value,
+                Some(t),
+                higher,
+                options.map(|o| serde_json::json!(o)),
+                ordered,
+                None,
+            )
+        };
+        match self {
+            FeatureKind::Boolean => (FeatureKindEnum::Boolean, None, true, None, false, None),
+            FeatureKind::Limit(counted_by) => (
+                FeatureKindEnum::Limit,
+                None,
+                true,
+                None,
+                false,
+                Some(match counted_by {
+                    LimitCountedBy::Events(_) => FeatureLimitCountedByEnum::Events,
+                    LimitCountedBy::App => FeatureLimitCountedByEnum::App,
+                }),
+            ),
+            FeatureKind::Value(ValueType::Number { higher_is_better }) => {
+                value(FeatureValueTypeEnum::Number, *higher_is_better, None, false)
+            }
+            FeatureKind::Value(ValueType::Text) => {
+                value(FeatureValueTypeEnum::Text, true, None, false)
+            }
+            FeatureKind::Value(ValueType::Json) => {
+                value(FeatureValueTypeEnum::Json, true, None, false)
+            }
+            FeatureKind::Value(ValueType::Select { options, ordered }) => {
+                value(FeatureValueTypeEnum::Select, true, Some(options), *ordered)
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FeatureListOrder {
+    #[default]
+    Name,
+    /// Global features first, then grouped by product name.
+    Product,
+}
+
+impl From<FeatureListOrder> for diesel_models::entitlements::FeatureListOrder {
+    fn from(order: FeatureListOrder) -> Self {
+        match order {
+            FeatureListOrder::Name => Self::Name,
+            FeatureListOrder::Product => Self::Product,
+        }
     }
 }
 
@@ -146,17 +259,64 @@ impl FeatureType {
 pub struct Feature {
     pub id: FeatureId,
     pub tenant_id: TenantId,
-    /// Product this feature belongs to. `None` for tenant-global features.
+    /// `None` for tenant-global features.
     pub product: Option<FeatureProductRef>,
     pub name: String,
-    /// Unique key used to reference this feature in your code. Cannot be changed after creation.
+    /// The immutable key code references the feature by.
     pub code: String,
     pub description: Option<String>,
-    pub feature_type: FeatureType,
+    pub kind: FeatureKind,
+    pub unit: Option<String>,
+    /// The feature's own level (§3.3); `None` is the customer.
+    pub level_type_id: Option<ResourceTypeId>,
+    /// Limits only.
+    pub policy: Option<FeaturePolicy>,
     pub status: FeatureStatusEnum,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub entitlement: Option<Entitlement>,
+    /// The open rows of the feature's default tier.
+    pub defaults: Vec<Entitlement>,
+}
+
+impl Feature {
+    pub fn value_order(&self) -> ValueOrder {
+        self.kind.value_order()
+    }
+
+    pub fn own_level(&self) -> EvalLevel {
+        EvalLevel::of_feature(self.level_type_id)
+    }
+
+    pub fn policy_or_default(&self) -> FeaturePolicy {
+        self.policy
+            .clone()
+            .or_else(|| self.kind.default_policy())
+            .unwrap_or_default()
+    }
+
+    pub fn to_ref(&self) -> FeatureRef {
+        FeatureRef {
+            id: self.id,
+            name: self.name.clone(),
+            code: self.code.clone(),
+            product: self.product.clone(),
+        }
+    }
+}
+
+fn invalid(message: impl Into<String>) -> StoreErrorReport {
+    Report::new(StoreError::InvalidArgument(message.into()))
+}
+
+pub(crate) fn from_json<T: serde::de::DeserializeOwned>(
+    value: serde_json::Value,
+    what: &str,
+) -> Result<T, StoreErrorReport> {
+    serde_json::from_value(value).map_err(|e| invalid(format!("invalid {what}: {e}")))
+}
+
+pub(crate) fn to_json<T: serde::Serialize>(value: &T) -> serde_json::Value {
+    serde_json::to_value(value).expect("entitlement values serialise")
 }
 
 impl TryFrom<FeatureWithProductRow> for Feature {
@@ -164,23 +324,31 @@ impl TryFrom<FeatureWithProductRow> for Feature {
 
     fn try_from(row: FeatureWithProductRow) -> Result<Self, Self::Error> {
         let FeatureWithProductRow { feature, product } = row;
-        let feature_type = match feature.feature_type {
-            DbFeatureTypeEnum::Boolean => FeatureType::Boolean,
-            DbFeatureTypeEnum::Metered => FeatureType::Metered {
-                metric_id: feature.metric_id.ok_or_else(|| {
-                    error_stack::Report::new(StoreError::InvalidArgument(
-                        "metered feature missing metric_id".into(),
-                    ))
-                })?,
-            },
-            DbFeatureTypeEnum::Config => FeatureType::Config {
-                value_type: ConfigValueType::from_db(
-                    feature.config_value_type,
+        let kind = match feature.kind {
+            FeatureKindEnum::Boolean => FeatureKind::Boolean,
+            FeatureKindEnum::Limit => FeatureKind::Limit(match feature.limit_counted_by {
+                Some(FeatureLimitCountedByEnum::App) => LimitCountedBy::App,
+                _ => LimitCountedBy::Events(
                     feature
-                        .config_options
-                        .map(|opts| opts.into_iter().flatten().collect()),
+                        .metric_id
+                        .ok_or_else(|| invalid("a limit counted from events needs a metric"))?,
                 ),
-            },
+            }),
+            FeatureKindEnum::Value => FeatureKind::Value(match feature.value_type {
+                Some(FeatureValueTypeEnum::Number) => ValueType::Number {
+                    higher_is_better: feature.number_higher_is_better,
+                },
+                Some(FeatureValueTypeEnum::Json) => ValueType::Json,
+                Some(FeatureValueTypeEnum::Select) => ValueType::Select {
+                    options: feature
+                        .select_options
+                        .map(|o| from_json(o, "select options"))
+                        .transpose()?
+                        .unwrap_or_default(),
+                    ordered: feature.select_ordered,
+                },
+                Some(FeatureValueTypeEnum::Text) | None => ValueType::Text,
+            }),
         };
         Ok(Feature {
             id: feature.id,
@@ -192,11 +360,17 @@ impl TryFrom<FeatureWithProductRow> for Feature {
             name: feature.name,
             code: feature.code,
             description: feature.description,
-            feature_type,
+            kind,
+            unit: feature.unit,
+            level_type_id: feature.level_resource_type_id,
+            policy: feature
+                .policy
+                .map(|p| from_json(p, "feature policy"))
+                .transpose()?,
             status: feature.status.into(),
             created_at: feature.created_at,
             updated_at: feature.updated_at,
-            entitlement: None,
+            defaults: vec![],
         })
     }
 }
@@ -206,73 +380,135 @@ pub struct FeatureNew {
     pub tenant_id: TenantId,
     pub product_id: Option<ProductId>,
     pub name: String,
-    /// Unique key used to reference this feature in your code. Cannot be changed after creation.
     pub code: String,
     pub description: Option<String>,
-    pub feature_type: FeatureType,
-    pub entitlement: Option<EntitlementValue>,
+    pub kind: FeatureKind,
+    pub unit: Option<String>,
+    pub level_type_id: Option<ResourceTypeId>,
+    /// Limits only; `None` takes the kind's default.
+    pub policy: Option<FeaturePolicy>,
+    /// A Set to row on the default tier, at the feature's own level.
+    pub default: Option<GrantValue>,
 }
 
 impl From<FeatureNew> for FeatureRowNew {
     fn from(f: FeatureNew) -> Self {
-        let FeatureNew {
-            tenant_id,
-            product_id,
-            name,
-            code,
-            description,
-            feature_type,
-            entitlement: _,
-        } = f;
-        let (feature_type_enum, metric_id, config_options, config_value_type) = match feature_type {
-            FeatureType::Boolean => (DbFeatureTypeEnum::Boolean, None, None, None),
-            FeatureType::Metered { metric_id } => {
-                (DbFeatureTypeEnum::Metered, Some(metric_id), None, None)
-            }
-            FeatureType::Config { value_type } => {
-                let (kind, options) = value_type.into_db();
-                let options = options.map(|opts| opts.into_iter().map(Some).collect());
-                (DbFeatureTypeEnum::Config, None, options, Some(kind))
-            }
-        };
+        let (feature_type, config_options, config_value_type) = f.kind.legacy_columns();
+        let (kind, value_type, number_higher_is_better, select_options, select_ordered, counted_by) =
+            f.kind.columns();
         FeatureRowNew {
             id: FeatureId::new(),
-            tenant_id,
-            product_id,
-            name,
-            code,
-            description,
-            feature_type: feature_type_enum,
+            tenant_id: f.tenant_id,
+            product_id: f.product_id,
+            name: f.name,
+            code: f.code,
+            description: f.description,
+            feature_type,
             status: DbFeatureStatusEnum::Active,
-            metric_id,
+            metric_id: f.kind.metric_id(),
             config_options,
             config_value_type,
+            kind,
+            value_type,
+            unit: f.unit,
+            number_higher_is_better,
+            select_options,
+            select_ordered,
+            limit_counted_by: counted_by,
+            level_resource_type_id: f.level_type_id,
+            policy: f
+                .policy
+                .or_else(|| f.kind.default_policy())
+                .map(|p| to_json(&p)),
         }
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct FeatureUpdate {
     pub name: Option<String>,
     pub description: Option<Option<String>>,
     pub product_id: Option<Option<ProductId>>,
-    /// `Some` ⇒ replace the select-config feature's allowed options. `None` ⇒ leave unchanged.
-    pub config_options: Option<Vec<String>>,
+    pub unit: Option<Option<String>>,
+    /// Numbers only.
+    pub number_higher_is_better: Option<bool>,
+    /// Selects only; an option still used by a row can't be removed.
+    pub select_options: Option<Vec<String>>,
+    pub select_ordered: Option<bool>,
+    /// Moves the rows that follow the feature's level (§3.3).
+    pub level_type_id: Option<Option<ResourceTypeId>>,
+    /// Limits only.
+    pub policy: Option<FeaturePolicy>,
 }
 
+/// A row (§3.2), addressed by its lineage. Edits revoke it and insert a successor.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Entitlement {
+    /// The lineage id, which the API addresses rows by.
     pub id: EntitlementId,
+    /// This version's own id.
+    pub version_id: EntitlementId,
     pub tenant_id: TenantId,
     pub feature_id: FeatureId,
     pub entity: EntitlementEntityId,
-    /// Server-resolved composition mode. Set automatically when the entitlement is created
-    /// from the owning entity (e.g. AddOn with `max_instances_per_subscription > 1` → `Stack`,
-    /// everything else → `Override`). Not configurable through the public API.
-    pub mode: EntitlementModeEnum,
-    pub value: EntitlementValue,
+    pub effect: Effect,
+    pub level: RowLevel,
+    /// A customer row on one stored resource: a resource override.
+    pub resource_id: Option<ResourceId>,
+    pub value: GrantValue,
+    pub condition: Option<Condition>,
+    pub valid_from: Option<DateTime<Utc>>,
+    pub valid_until: Option<DateTime<Utc>>,
+    pub reason: Option<String>,
+    pub policy_override: Option<FeaturePolicy>,
+    pub created_by: Option<Actor>,
+    pub revoked_by: Option<Uuid>,
+    pub lineage_created_at: DateTime<Utc>,
+    /// Where a window without an activation starts: the earlier of the lineage's first
+    /// `valid_from` and its creation, which no edit moves.
+    pub lineage_anchor: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub revoked_at: Option<DateTime<Utc>>,
+}
+
+impl From<Effect> for EntitlementEffectEnum {
+    fn from(effect: Effect) -> Self {
+        match effect {
+            Effect::Set => EntitlementEffectEnum::Set,
+            Effect::Add => EntitlementEffectEnum::Add,
+            Effect::RaiseTo => EntitlementEffectEnum::RaiseTo,
+            Effect::CapAt => EntitlementEffectEnum::CapAt,
+        }
+    }
+}
+
+impl From<EntitlementEffectEnum> for Effect {
+    fn from(effect: EntitlementEffectEnum) -> Self {
+        match effect {
+            EntitlementEffectEnum::Set => Effect::Set,
+            EntitlementEffectEnum::Add => Effect::Add,
+            EntitlementEffectEnum::RaiseTo => Effect::RaiseTo,
+            EntitlementEffectEnum::CapAt => Effect::CapAt,
+        }
+    }
+}
+
+impl RowLevel {
+    pub fn from_columns(level: EntitlementLevelEnum, type_id: Option<ResourceTypeId>) -> Self {
+        match (level, type_id) {
+            (EntitlementLevelEnum::Type, Some(type_id)) => RowLevel::Type(type_id),
+            (EntitlementLevelEnum::Customer, _) => RowLevel::Customer,
+            _ => RowLevel::Feature,
+        }
+    }
+
+    pub fn columns(self) -> (EntitlementLevelEnum, Option<ResourceTypeId>) {
+        match self {
+            RowLevel::Feature => (EntitlementLevelEnum::Feature, None),
+            RowLevel::Customer => (EntitlementLevelEnum::Customer, None),
+            RowLevel::Type(type_id) => (EntitlementLevelEnum::Type, Some(type_id)),
+        }
+    }
 }
 
 impl TryFrom<EntitlementRow> for Entitlement {
@@ -280,131 +516,140 @@ impl TryFrom<EntitlementRow> for Entitlement {
 
     fn try_from(row: EntitlementRow) -> Result<Self, Self::Error> {
         let entity = EntitlementEntityId::from(&row);
-        let mode: EntitlementModeEnum = row.mode.clone().into();
-        let value: EntitlementValue = serde_json::from_value(row.value).map_err(|e| {
-            error_stack::Report::new(StoreError::InvalidArgument(format!(
-                "invalid entitlement value: {e}"
-            )))
-        })?;
         Ok(Entitlement {
-            id: row.id,
+            id: row.lineage_id,
+            version_id: row.id,
             tenant_id: row.tenant_id,
             feature_id: row.feature_id,
             entity,
-            mode,
-            value,
+            effect: row.effect.into(),
+            level: RowLevel::from_columns(row.level, row.level_type_id),
+            resource_id: row.resource_id,
+            value: from_json(row.value, "entitlement value")?,
+            condition: row
+                .condition
+                .map(|c| from_json(c, "entitlement condition"))
+                .transpose()?,
+            valid_from: row.valid_from,
+            valid_until: row.valid_until,
+            reason: row.reason,
+            policy_override: row
+                .policy_override
+                .map(|p| from_json(p, "policy override"))
+                .transpose()?,
+            created_by: row
+                .created_by_kind
+                .map(|kind| Actor::from_parts(ActorType::from(kind), row.created_by, None)),
+            revoked_by: row.revoked_by,
+            lineage_created_at: row.lineage_created_at,
+            lineage_anchor: row.lineage_anchor,
             created_at: row.created_at,
-            updated_at: row.updated_at,
+            revoked_at: row.revoked_at,
         })
     }
 }
 
-/// Caller-provided entitlement spec for inline creation when the entity is implicit
-/// (the thing being created supplies the entity; caller supplies which feature and what value).
-#[derive(Clone, Debug)]
+impl Entitlement {
+    pub fn tier(&self) -> Tier {
+        Tier::of(&self.entity, self.resource_id.is_some())
+    }
+
+    /// The row as the fold reads it, its condition matched against the level's attributes.
+    /// `units` multiply it when its tier counts per unit (R-133).
+    pub fn fold_row(&self, quantity: u32, units: Option<u32>, attributes: &Attributes) -> FoldRow {
+        let tier = self.tier();
+        FoldRow {
+            lineage_id: self.id,
+            lineage_created_at: self.lineage_created_at,
+            lineage_anchor: self.lineage_anchor,
+            source: self.entity,
+            tier,
+            effect: self.effect,
+            value: self.value.clone(),
+            condition: self.condition.clone(),
+            condition_met: self
+                .condition
+                .as_ref()
+                .is_none_or(|c| c.matches(attributes)),
+            quantity,
+            units: units.filter(|_| tier.counts_per_unit()),
+            policy_override: self.policy_override.clone(),
+            created_at: self.created_at,
+            valid_from: self.valid_from,
+            valid_until: self.valid_until,
+            revoked_at: self.revoked_at,
+        }
+    }
+}
+
+/// A row to create on an owner the caller supplies.
+#[derive(Clone, Debug, PartialEq)]
 pub struct EntitlementSpec {
     pub feature_id: FeatureId,
-    pub value: EntitlementValue,
+    pub value: GrantValue,
+    /// `None` takes the tier's default (§3.2).
+    pub effect: Option<Effect>,
+    pub level: RowLevel,
+    pub condition: Option<Condition>,
+    pub valid_from: Option<DateTime<Utc>>,
+    pub valid_until: Option<DateTime<Utc>>,
+    pub reason: Option<String>,
+    /// Set to rows of limits only.
+    pub policy_override: Option<FeaturePolicy>,
+}
+
+impl EntitlementSpec {
+    pub fn new(feature_id: FeatureId, value: GrantValue) -> Self {
+        Self {
+            feature_id,
+            value,
+            effect: None,
+            level: RowLevel::Feature,
+            condition: None,
+            valid_from: None,
+            valid_until: None,
+            reason: None,
+            policy_override: None,
+        }
+    }
+}
+
+/// A copy of a row onto another owner, e.g. a quote's rows onto its subscription.
+impl From<&Entitlement> for EntitlementSpec {
+    fn from(e: &Entitlement) -> Self {
+        Self {
+            feature_id: e.feature_id,
+            value: e.value.clone(),
+            effect: Some(e.effect),
+            level: e.level,
+            condition: e.condition.clone(),
+            valid_from: e.valid_from,
+            valid_until: e.valid_until,
+            reason: e.reason.clone(),
+            policy_override: e.policy_override.clone(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct EntitlementNew {
     pub tenant_id: TenantId,
-    pub feature_id: FeatureId,
     pub entity: EntitlementEntityId,
-    pub value: EntitlementValue,
+    /// Customer rows only: a resource override on one of the customer's stored resources.
+    pub resource_id: Option<ResourceId>,
+    pub spec: EntitlementSpec,
 }
 
-#[derive(Clone, Debug)]
+/// An edit, applied to a successor of the open row. Owner, feature, level and resource stay.
+#[derive(Clone, Debug, Default)]
 pub struct EntitlementUpdate {
-    pub value: Option<EntitlementValue>,
-}
-
-fn default_reset_period() -> ResetPeriod {
-    ResetPeriod::Never
-}
-
-fn default_metered_enabled() -> bool {
-    true
-}
-
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(
-    tag = "type",
-    rename_all = "snake_case",
-    from = "StoredEntitlementValue"
-)]
-pub enum EntitlementValue {
-    Boolean {
-        enabled: bool,
-    },
-    Metered {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        limit: Option<Decimal>,
-        reset_period: ResetPeriod,
-        overage_behavior: OverageBehavior,
-        /// Percentages of the limit that send an alert when usage reaches them, ascending.
-        #[serde(skip_serializing_if = "Vec::is_empty")]
-        thresholds: Vec<u32>,
-        enabled: bool,
-        /// Event property the limit is tracked per, e.g. one allowance per seat or per repository.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        group_by: Option<String>,
-    },
-    Config {
-        value: ConfigValue,
-    },
-}
-
-/// `EntitlementValue` as stored: values saved before `thresholds` carry a single
-/// `warning_threshold_pct` instead.
-#[derive(serde::Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum StoredEntitlementValue {
-    Boolean {
-        enabled: bool,
-    },
-    Metered {
-        limit: Option<Decimal>,
-        #[serde(default = "default_reset_period")]
-        reset_period: ResetPeriod,
-        overage_behavior: OverageBehavior,
-        #[serde(default)]
-        thresholds: Vec<u32>,
-        warning_threshold_pct: Option<u32>,
-        #[serde(default = "default_metered_enabled")]
-        enabled: bool,
-        #[serde(default)]
-        group_by: Option<String>,
-    },
-    Config {
-        value: ConfigValue,
-    },
-}
-
-impl From<StoredEntitlementValue> for EntitlementValue {
-    fn from(stored: StoredEntitlementValue) -> Self {
-        match stored {
-            StoredEntitlementValue::Boolean { enabled } => Self::Boolean { enabled },
-            StoredEntitlementValue::Metered {
-                limit,
-                reset_period,
-                overage_behavior,
-                thresholds,
-                warning_threshold_pct,
-                enabled,
-                group_by,
-            } => Self::Metered {
-                limit,
-                reset_period,
-                overage_behavior,
-                thresholds: merge_thresholds(&thresholds, warning_threshold_pct.as_slice()),
-                enabled,
-                group_by,
-            },
-            StoredEntitlementValue::Config { value } => Self::Config { value },
-        }
-    }
+    pub value: Option<GrantValue>,
+    pub effect: Option<Effect>,
+    pub condition: Option<Option<Condition>>,
+    pub valid_from: Option<Option<DateTime<Utc>>>,
+    pub valid_until: Option<Option<DateTime<Utc>>>,
+    pub reason: Option<Option<String>>,
+    pub policy_override: Option<Option<FeaturePolicy>>,
 }
 
 /// The thresholds an API request asks for: `thresholds`, sorted and distinct, else the deprecated
@@ -421,55 +666,8 @@ pub fn requested_thresholds(
     thresholds
 }
 
-/// Both sets of thresholds, ascending and distinct, at most `MAX_THRESHOLDS` of them.
-pub fn merge_thresholds(a: &[u32], b: &[u32]) -> Vec<u32> {
-    let mut merged = a.iter().chain(b).copied().collect::<Vec<_>>();
-    merged.sort_unstable();
-    merged.dedup();
-    merged.truncate(crate::domain::usage_limits::MAX_THRESHOLDS);
-    merged
-}
-
-impl EntitlementValue {
-    /// Without the limit terms that act on nothing, which writes refuse: no limit means Block,
-    /// no grace and no thresholds; a sliding window takes no thresholds. For copies of stored
-    /// values.
-    pub fn without_inert_limit_terms(self) -> Self {
-        match self {
-            Self::Metered {
-                limit,
-                reset_period,
-                overage_behavior,
-                thresholds,
-                enabled,
-                group_by,
-            } => {
-                let sliding = matches!(reset_period, ResetPeriod::SlidingWindow { .. });
-                Self::Metered {
-                    overage_behavior: match limit {
-                        Some(_) => overage_behavior,
-                        None => OverageBehavior::Block {
-                            grace_period_pct: None,
-                        },
-                    },
-                    thresholds: if limit.is_some() && !sliding {
-                        thresholds
-                    } else {
-                        Vec::new()
-                    },
-                    limit,
-                    reset_period,
-                    enabled,
-                    group_by,
-                }
-            }
-            other => other,
-        }
-    }
-}
-
-/// Repository output: feature type and entitlement value merged into a single variant.
-/// No usage data — usage enrichment happens at the service layer.
+/// The customer-wide readout of a feature (one value, policy terms spelled out), for the readers
+/// that predate levels. Limits counted by the app have no metric and are not part of it.
 #[derive(Clone, Debug)]
 pub enum ResolvedEntitlementValue {
     Boolean {
@@ -489,8 +687,46 @@ pub enum ResolvedEntitlementValue {
     },
 }
 
-/// Service output: resolved value with live usage data embedded in the Metered variant.
-/// The variant itself guarantees that metric_id, value, and usage are always co-located.
+impl ResolvedEntitlementValue {
+    /// `None` for a limit counted by the app.
+    pub fn of(
+        kind: &FeatureKind,
+        value: &GrantValue,
+        policy: &FeaturePolicy,
+        subscribed: bool,
+    ) -> Option<Self> {
+        Some(match (kind, value) {
+            (FeatureKind::Limit(LimitCountedBy::Events(metric_id)), GrantValue::Limit(limit)) => {
+                Self::Metered {
+                    metric_id: *metric_id,
+                    limit: match limit {
+                        LimitValue::Amount(n) => Some(*n),
+                        LimitValue::Off | LimitValue::Unlimited => None,
+                    },
+                    reset_period: policy.reset_period(subscribed),
+                    overage_behavior: policy.overage_behavior(),
+                    thresholds: policy.thresholds.clone(),
+                    enabled: *limit != LimitValue::Off,
+                    group_by: None,
+                }
+            }
+            (FeatureKind::Limit(_), _) => return None,
+            (_, GrantValue::Boolean(enabled)) => Self::Boolean { enabled: *enabled },
+            (_, GrantValue::Number(n)) => Self::Config {
+                value: ConfigValue::Number(*n),
+            },
+            (_, GrantValue::Text(t)) => Self::Config {
+                value: ConfigValue::Text(t.clone()),
+            },
+            (_, GrantValue::Json(j)) => Self::Config {
+                value: ConfigValue::Json(j.clone()),
+            },
+            (_, GrantValue::Limit(_)) => return None,
+        })
+    }
+}
+
+/// The legacy readout with the usage of a limit.
 #[derive(Clone, Debug)]
 pub enum EffectiveEntitlementValue {
     Boolean {
@@ -506,8 +742,7 @@ pub enum EffectiveEntitlementValue {
         enabled: bool,
         group_by: Option<String>,
         usage: EntitlementUsage,
-        /// Switched on, but refused because a blocking limit (plus its grace) is reached; never
-        /// for a grouped limit, which refuses per group.
+        /// Switched on, but refused because a blocking limit (plus its grace) is reached.
         limit_reached: bool,
     },
     Config {
@@ -521,61 +756,47 @@ pub struct FeatureProductRef {
     pub name: String,
 }
 
-/// Feature identity plus the product it belongs to (`None` ⇒ tenant-global feature).
 #[derive(Clone, Debug, PartialEq)]
 pub struct FeatureRef {
     pub id: FeatureId,
     pub name: String,
-    /// Unique key used to reference this feature in your code. Cannot be changed after creation.
     pub code: String,
     pub product: Option<FeatureProductRef>,
 }
 
-/// Wraps an `EntitlementEntityId` with an optional human-readable label, used for display
-/// of the resolved origin entity. `None` when the entity has no user-defined name
-/// (e.g. subscriptions) or could not be looked up (e.g. deleted entity).
+/// The source of the row the value comes from, with its display name when it has one.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedOrigin {
     pub entity: EntitlementEntityId,
     pub name: Option<String>,
 }
 
-/// Output of the pure resolution algorithm — no DB enrichment yet. Carries the origin entity
-/// id only; convert to [`ResolvedEntitlement`] via the resolver's `with_origin_names`
-/// enrichment step to gain the human-readable origin name.
-#[derive(Clone, Debug)]
-pub struct RawResolvedEntitlement {
-    pub feature: FeatureRef,
-    pub value: ResolvedEntitlementValue,
-    /// Highest-priority entity that contributed to the final value. See
-    /// [`ResolvedEntitlement::origin`] for the resolution semantics.
-    pub origin_entity: EntitlementEntityId,
-}
-
-/// Result of the resolution algorithm: priorities merged, no usage data, origin enriched
-/// with a display name. Construct by enriching a [`RawResolvedEntitlement`] — the
-/// non-optional `origin.name` is the type-level signal that enrichment has happened.
 #[derive(Clone, Debug)]
 pub struct ResolvedEntitlement {
     pub feature: FeatureRef,
     pub value: ResolvedEntitlementValue,
-    /// Highest-priority entity that contributed to the final value, with its display name.
-    /// For Override winners this is the overriding entity; for Stack merges it is the
-    /// highest-priority contributing entity. Feature-level (tenant default) returns
-    /// `EntitlementEntityId::Feature(feature_id)`.
     pub origin: ResolvedOrigin,
 }
 
-/// Result of the entitlement resolution algorithm for a single feature, with usage enriched.
 #[derive(Clone, Debug)]
 pub struct EffectiveEntitlement {
     pub feature: FeatureRef,
     pub value: EffectiveEntitlementValue,
-    /// Highest-priority entity that contributed to the final value, with its human-readable name.
-    /// For Override winners this is the overriding entity; for Stack merges it is the
-    /// highest-priority contributing entity. Feature-level (tenant default) returns
-    /// `EntitlementEntityId::Feature(feature_id)`.
     pub origin: ResolvedOrigin,
+    /// On a subscription's readout, when another subscription decides the value.
+    pub own_grant: Option<SubscriptionGrant>,
+}
+
+/// What a subscription's own rows grant on a level another subscription decides (ADR 0011
+/// §3.7): "grants 1k; Pro on the customer decides 10k".
+#[derive(Clone, Debug, PartialEq)]
+pub struct SubscriptionGrant {
+    /// None when it includes the feature through its product alone.
+    pub value: Option<GrantValue>,
+    pub deciding_subscription_id: SubscriptionId,
+    pub deciding_plan_name: Option<String>,
+    /// The deciding subscription's resource (`site=s1`); none for the customer's own.
+    pub deciding_resource_path: Option<String>,
 }
 
 #[cfg(test)]
@@ -584,77 +805,45 @@ mod tests {
     use rust_decimal_macros::dec;
 
     #[test]
-    fn a_stored_value_without_thresholds_reads_and_writes_unchanged() {
-        let legacy = serde_json::json!({
-            "type": "metered", "limit": "5", "reset_period": {"type": "never"},
-            "overage_behavior": {"type": "allow"}, "enabled": true
-        });
-        let parsed: EntitlementValue = serde_json::from_value(legacy.clone()).unwrap();
-        assert!(matches!(
-            &parsed,
-            EntitlementValue::Metered { group_by: None, thresholds, .. } if thresholds.is_empty()
-        ));
-        assert_eq!(serde_json::to_value(&parsed).unwrap(), legacy);
-    }
-
-    #[test]
-    fn a_stored_warning_threshold_reads_as_a_threshold_and_is_written_as_thresholds() {
-        let legacy = serde_json::json!({
-            "type": "metered", "limit": "5", "overage_behavior": {"type": "allow"},
-            "warning_threshold_pct": 80
-        });
-        let parsed: EntitlementValue = serde_json::from_value(legacy).unwrap();
-        let EntitlementValue::Metered {
-            thresholds,
-            reset_period,
-            enabled,
-            ..
-        } = &parsed
-        else {
-            panic!("metered expected");
+    fn kinds_order_their_values() {
+        let select = |ordered| {
+            FeatureKind::Value(ValueType::Select {
+                options: vec!["bronze".into(), "gold".into()],
+                ordered,
+            })
         };
-        assert_eq!(thresholds, &vec![80]);
-        assert_eq!(reset_period, &ResetPeriod::Never);
-        assert!(*enabled);
-        let written = serde_json::to_value(&parsed).unwrap();
-        assert_eq!(written["thresholds"], serde_json::json!([80]));
-        assert!(written.get("warning_threshold_pct").is_none());
-
-        let both = serde_json::json!({
-            "type": "metered", "limit": "5", "overage_behavior": {"type": "allow"},
-            "warning_threshold_pct": 90, "thresholds": [50, 90]
-        });
-        assert!(matches!(
-            serde_json::from_value::<EntitlementValue>(both).unwrap(),
-            EntitlementValue::Metered { thresholds, .. } if thresholds == vec![50, 90]
-        ));
-    }
-
-    #[test]
-    fn grouped_values_with_thresholds_round_trip() {
-        let grouped = EntitlementValue::Metered {
-            limit: Some(dec!(5)),
-            reset_period: ResetPeriod::BillingCycle,
-            overage_behavior: OverageBehavior::Block {
-                grace_period_pct: Some(10),
-            },
-            thresholds: vec![50, 80, 100],
-            enabled: true,
-            group_by: Some("seat".to_owned()),
-        };
-        let json = serde_json::to_value(&grouped).unwrap();
-        assert_eq!(json["group_by"], "seat");
         assert_eq!(
-            serde_json::from_value::<EntitlementValue>(json).unwrap(),
-            grouped
+            select(true).value_order(),
+            ValueOrder::Ranked(vec!["bronze".into(), "gold".into()])
+        );
+        assert!(select(false).value_order().is_unordered());
+        assert!(
+            FeatureKind::Value(ValueType::Json)
+                .value_order()
+                .is_unordered()
+        );
+        assert!(
+            select(false)
+                .check_value(&GrantValue::Text("silver".into()))
+                .is_err()
+        );
+        assert!(
+            FeatureKind::Limit(LimitCountedBy::App)
+                .check_value(&GrantValue::Limit(LimitValue::Amount(dec!(-1))))
+                .is_err()
+        );
+        assert!(
+            FeatureKind::Boolean
+                .check_value(&GrantValue::Number(dec!(1)))
+                .is_err()
         );
     }
 
     #[test]
-    fn merged_thresholds_are_ascending_distinct_and_bounded() {
-        assert_eq!(merge_thresholds(&[80, 50], &[50, 100]), vec![50, 80, 100]);
-        let many = (1..=8).collect::<Vec<_>>();
-        let more = (5..=15).collect::<Vec<_>>();
-        assert_eq!(merge_thresholds(&many, &more), (1..=10).collect::<Vec<_>>());
+    fn app_counted_limits_never_reset() {
+        let policy = FeatureKind::Limit(LimitCountedBy::App)
+            .default_policy()
+            .unwrap();
+        assert_eq!(policy.validate(true), Ok(()));
     }
 }

@@ -15,26 +15,29 @@ use crate::plans::model::{PlanStatusEnum as RestPlanStatusEnum, PlanTypeEnum as 
 use crate::products::model::ProductFeeTypeEnum;
 use crate::subscriptions::model::SubscriptionStatusEnum;
 use chrono::NaiveDate;
-use common_domain::ids::{AddOnId, BaseId, CouponId, PriceId, UserId};
+use common_domain::ids::{
+    AddOnId, BaseId, CheckoutSessionId, CouponId, PlanVersionId, PriceId, UserId,
+};
 use common_domain::ids::{
     BillableMetricId, BudgetId, CreditGrantId, CreditNoteId, CustomerId, EventId, FeatureId,
     InvoiceId, LedgerEntryId, PaymentTransactionId, PlanId, ProductFamilyId, ProductId, QuoteId,
-    SubscriptionId, string_serde, string_serde_opt, string_serde_vec,
+    ResourceId, SubscriptionId, string_serde, string_serde_opt, string_serde_vec,
 };
 use meteroid_rest_common::datetime::ApiDateTime;
 use meteroid_rest_common::model::BillingPeriodEnum;
 use meteroid_store::domain::outbox_event::{
-    AddOnEvent, BillableMetricEvent, BudgetAlertEvent, CouponEvent, CreditGrantExpiredEvent,
-    CreditNoteEvent, CustomerEvent, EntitlementAlertEvent, InvoiceEvent, InvoicePdfGeneratedEvent,
-    PaymentTransactionEvent, PlanEvent, ProductEvent, QuoteAcceptedEvent, QuoteConvertedEvent,
-    SubscriptionEvent, TooManyGroupsEvent, WalletAutoTopUpCapReachedEvent,
-    WalletAutoTopUpConsentChangedEvent, WalletAutoTopUpEvent, WalletBalanceLowEvent,
-    WalletCreditRecoveredEvent, WalletCreditUnrecoveredEvent, WalletDebitedEvent,
-    WalletDepletedEvent, WalletFundedEvent, WalletRecoveredEvent,
+    AddOnEvent, BillableMetricEvent, BudgetAlertEvent, CheckoutPaymentKeptAsCreditEvent,
+    CouponEvent, CreditGrantExpiredEvent, CreditNoteEvent, CustomerEvent, EntitlementAlertEvent,
+    InvoiceEvent, InvoicePdfGeneratedEvent, PaymentTransactionEvent, PlanEvent, ProductEvent,
+    QuoteAcceptedEvent, QuoteConvertedEvent, SubscriptionEvent, TooManyGroupsEvent,
+    WalletAutoTopUpCapReachedEvent, WalletAutoTopUpConsentChangedEvent, WalletAutoTopUpEvent,
+    WalletBalanceLowEvent, WalletCreditRecoveredEvent, WalletCreditUnrecoveredEvent,
+    WalletDebitedEvent, WalletDepletedEvent, WalletFundedEvent, WalletRecoveredEvent,
 };
+use meteroid_store::domain::usage_alert_events::{AlertLevel, AlertResource};
 use meteroid_store::domain::wallet_events::GrantLapseReason;
 use o2o::o2o;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 use std::str::FromStr;
 use strum::{Display, EnumIter, EnumString};
@@ -459,7 +462,7 @@ pub use crate::credits::model::{CreditGrantSource, CreditGrantType};
 
 /// Who made a change.
 #[skip_serializing_none]
-#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, utoipa::ToSchema)]
 #[schema(as = Actor)]
 pub struct WebhookOutActor {
     /// USER, CUSTOMER, API_KEY, OAUTH_APP or SYSTEM.
@@ -470,7 +473,7 @@ pub struct WebhookOutActor {
     pub id: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[schema(as = ActorType)]
 pub enum WebhookOutActorType {
@@ -1093,6 +1096,50 @@ pub struct WebhookOutAlertPeriod {
     pub end: Option<ApiDateTime>,
 }
 
+/// Where a limit's threshold was crossed: across the customer, or for one of its resources.
+#[derive(Clone, Copy, Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+#[schema(as = EntitlementAlertLevel)]
+pub enum WebhookOutEntitlementAlertLevel {
+    Customer,
+    ResourceType,
+}
+
+impl From<AlertLevel> for WebhookOutEntitlementAlertLevel {
+    fn from(level: AlertLevel) -> Self {
+        match level {
+            AlertLevel::Customer => Self::Customer,
+            AlertLevel::ResourceType => Self::ResourceType,
+        }
+    }
+}
+
+/// The resource whose limit the usage crossed.
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = EntitlementAlertResource)]
+pub struct WebhookOutEntitlementAlertResource {
+    /// Absent for a resource the customer has not created, named by its events or checks only.
+    #[serde(serialize_with = "string_serde_opt::serialize")]
+    #[schema(value_type = Option<String>)]
+    pub id: Option<ResourceId>,
+    /// The resource type's code.
+    #[serde(rename = "type")]
+    pub resource_type: String,
+    /// The value of the type's key.
+    pub key: String,
+}
+
+impl From<AlertResource> for WebhookOutEntitlementAlertResource {
+    fn from(resource: AlertResource) -> Self {
+        Self {
+            id: resource.id,
+            resource_type: resource.type_code,
+            key: resource.key,
+        }
+    }
+}
+
 #[skip_serializing_none]
 #[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
 #[schema(as = EntitlementAlertEventData)]
@@ -1102,12 +1149,23 @@ pub struct WebhookOutEntitlementAlertEventData {
     pub customer_alias: Option<String>,
     #[serde(serialize_with = "string_serde::serialize")]
     pub feature_id: FeatureId,
+    /// The feature's code. Absent, as `level` and `path`, on an alert recorded before
+    /// entitlements v2.
+    pub feature_code: Option<String>,
     /// Absent for a customer without an active subscription.
     #[serde(serialize_with = "string_serde_opt::serialize")]
     #[schema(value_type = Option<String>)]
     pub subscription_id: Option<SubscriptionId>,
-    pub metric_code: String,
-    /// Dimension values of the group that crossed, when the metric is grouped.
+    /// The metric counting the usage; absent for a limit counted by your app.
+    pub metric_code: Option<String>,
+    pub level: Option<WebhookOutEntitlementAlertLevel>,
+    /// Set at a resource type level.
+    pub resource: Option<WebhookOutEntitlementAlertResource>,
+    /// The level's path: `""` for the customer, else `<type code>=<key value>`, as checks name it.
+    pub path: Option<String>,
+    /// Deprecated: v1's dimension values of a grouped limit; at a resource type level, the
+    /// property events name the resource by and its value. Read `resource`.
+    #[schema(deprecated)]
     pub group: Option<std::collections::BTreeMap<String, String>>,
     /// Percentage of the limit the notification is for; 100 is the limit itself.
     /// Several levels crossed at once are sent in ascending order, but delivery order is not
@@ -1131,8 +1189,12 @@ impl From<EntitlementAlertEvent> for WebhookOutEntitlementAlertEventData {
             customer_id: event.customer_id,
             customer_alias: event.customer_alias,
             feature_id: event.feature_id,
+            feature_code: event.feature_code,
             subscription_id: event.subscription_id,
             metric_code: event.metric_code,
+            level: event.level.map(Into::into),
+            resource: event.resource.map(Into::into),
+            path: event.path,
             group: event.group,
             threshold_pct: event.threshold_pct,
             used: event.used,
@@ -1242,6 +1304,48 @@ impl From<TooManyGroupsEvent> for WebhookOutTooManyGroupsEventData {
     }
 }
 
+/// A self-serve checkout was paid but its subscription could not be created (its resource was
+/// sold meanwhile, or is no longer the customer's): the payment is kept as the customer's credit
+/// and the checkout is cancelled.
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = CheckoutPaymentKeptAsCreditEventData)]
+pub struct WebhookOutCheckoutPaymentKeptAsCreditEventData {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub customer_id: CustomerId,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub checkout_session_id: CheckoutSessionId,
+    /// The payment kept as credit.
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub payment_id: PaymentTransactionId,
+    /// The plan version the checkout sold.
+    #[serde(serialize_with = "string_serde_opt::serialize")]
+    pub plan_version_id: Option<PlanVersionId>,
+    /// The resource the subscription was for; absent for the whole customer.
+    #[serde(serialize_with = "string_serde_opt::serialize")]
+    pub resource_id: Option<ResourceId>,
+    /// Credited to the customer, in the currency's minor units.
+    pub amount: i64,
+    pub currency: String,
+    /// Why the subscription was refused.
+    pub reason: String,
+}
+
+impl From<CheckoutPaymentKeptAsCreditEvent> for WebhookOutCheckoutPaymentKeptAsCreditEventData {
+    fn from(event: CheckoutPaymentKeptAsCreditEvent) -> Self {
+        Self {
+            customer_id: event.customer_id,
+            checkout_session_id: event.checkout_session_id,
+            payment_id: event.payment_transaction_id,
+            plan_version_id: event.plan_version_id,
+            resource_id: event.resource_id,
+            amount: event.amount,
+            currency: event.currency,
+            reason: event.reason,
+        }
+    }
+}
+
 macro_rules! wallet_webhook_event {
     ($($event:ident($data:ty) as $schema:ident),+ $(,)?) => {$(
         #[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
@@ -1280,6 +1384,8 @@ wallet_webhook_event!(
         as EntitlementAlertWebhookEvent,
     WebhookOutBudgetAlertEvent(WebhookOutBudgetAlertEventData) as BudgetAlertWebhookEvent,
     WebhookOutTooManyGroupsEvent(WebhookOutTooManyGroupsEventData) as TooManyGroupsWebhookEvent,
+    WebhookOutCheckoutPaymentKeptAsCreditEvent(WebhookOutCheckoutPaymentKeptAsCreditEventData)
+        as CheckoutPaymentKeptAsCreditEvent,
 );
 
 /// Event-specific webhook schemas for type-safe webhook payloads
@@ -1675,6 +1781,9 @@ pub enum WebhookOutEventTypeEnum {
     #[strum(serialize = "entitlement.too_many_groups")]
     #[serde(rename = "entitlement.too_many_groups")]
     EntitlementTooManyGroups,
+    #[strum(serialize = "checkout.payment_kept_as_credit")]
+    #[serde(rename = "checkout.payment_kept_as_credit")]
+    CheckoutPaymentKeptAsCredit,
 }
 
 #[derive(Debug, Display, EnumIter, EnumString, Copy, Clone)]
@@ -1716,6 +1825,9 @@ pub enum WebhookOutEventGroupEnum {
     /// A customer budget's spend nearing or reaching its amount.
     #[strum(serialize = "budget")]
     Budget,
+    /// A self-serve checkout's outcome beside its subscription.
+    #[strum(serialize = "checkout")]
+    Checkout,
 }
 
 impl WebhookOutEventGroupEnum {
@@ -1746,6 +1858,7 @@ impl WebhookOutEventGroupEnum {
             WebhookOutEventGroupEnum::CreditGrant => "CreditGrantExpiredEvent",
             WebhookOutEventGroupEnum::Entitlement => "EntitlementAlertWebhookEvent",
             WebhookOutEventGroupEnum::Budget => "BudgetAlertWebhookEvent",
+            WebhookOutEventGroupEnum::Checkout => "CheckoutPaymentKeptAsCreditEvent",
         }
     }
 }
@@ -1841,6 +1954,9 @@ impl WebhookOutEventTypeEnum {
             }
             WebhookOutEventTypeEnum::BudgetThresholdReached
             | WebhookOutEventTypeEnum::BudgetExceeded => WebhookOutEventGroupEnum::Budget,
+            WebhookOutEventTypeEnum::CheckoutPaymentKeptAsCredit => {
+                WebhookOutEventGroupEnum::Checkout
+            }
         }
     }
 
@@ -2020,7 +2136,11 @@ impl WebhookOutEventTypeEnum {
                 "A customer's spend reached its budget".to_string()
             }
             WebhookOutEventTypeEnum::EntitlementTooManyGroups => {
-                "A grouped feature entitlement that refuses stopped tracking new groups: callers of a group it does not keep are refused"
+                "Deprecated, no longer sent: entitlements v2 limits do not refuse the groups they stop tracking. Still accepted in an endpoint's event types"
+                    .to_string()
+            }
+            WebhookOutEventTypeEnum::CheckoutPaymentKeptAsCredit => {
+                "A self-serve checkout was paid but its subscription could not be created; the payment was kept as the customer's credit and the checkout cancelled"
                     .to_string()
             }
         }

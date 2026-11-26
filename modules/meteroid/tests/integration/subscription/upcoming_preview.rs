@@ -48,7 +48,7 @@ fn usage_request(start: NaiveDate, trial_duration: Option<u32>) -> CreateSubscri
             backdate_invoices: false,
             skip_checkout_session: false,
             skip_past_invoices: false,
-            usage_filter: None,
+            resource_id: None,
             custom_properties: serde_json::Value::Null,
             external_id: None,
         },
@@ -87,8 +87,8 @@ async fn subscribe(
         .id
 }
 
-/// RF-37: creating an unfiltered subscription next to an unfiltered one pricing the same metric
-/// is flagged by the server; a usage filter on the new one clears it.
+/// RF-37: a customer-level subscription next to one pricing the same metric is flagged by the
+/// server; one for a resource is not (it bills that resource's events).
 #[tokio::test]
 async fn an_unfiltered_sibling_sharing_a_metric_is_flagged_at_create() {
     let f = fixture().await;
@@ -105,15 +105,23 @@ async fn an_unfiltered_sibling_sharing_a_metric_is_flagged_at_create() {
     assert_eq!(
         f.setup
             .services
-            .unfiltered_overlaps(TENANT_ID, &details)
+            .billing_overlaps(TENANT_ID, &details)
             .await
             .expect("overlaps"),
         vec![(sibling, vec![METRIC_BANDWIDTH])]
     );
 
     let mut filtered = usage_request(today, None);
-    filtered.subscription.usage_filter = Some(
-        meteroid_store::domain::UsageFilter::new("team".into(), "mobile".into()).expect("filter"),
+    let team =
+        crate::helpers::resources::keyed_type(&f.setup.store, TENANT_ID, "team", &["team"]).await;
+    filtered.subscription.resource_id = Some(
+        crate::helpers::resources::resource(
+            &f.setup.store,
+            &team,
+            filtered.subscription.customer_id,
+            "mobile",
+        )
+        .await,
     );
     let (_, details) = f
         .setup
@@ -124,7 +132,7 @@ async fn an_unfiltered_sibling_sharing_a_metric_is_flagged_at_create() {
     assert!(
         f.setup
             .services
-            .unfiltered_overlaps(TENANT_ID, &details)
+            .billing_overlaps(TENANT_ID, &details)
             .await
             .expect("overlaps")
             .is_empty()

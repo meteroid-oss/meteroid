@@ -46,7 +46,7 @@ interface CustomTableProps<A> {
   sorting?: SortingState
   onSortingChange?: OnChangeFn<SortingState>
   emptyMessage?: string | ReactNode
-  rowRenderer: (row: Row<A>) => JSX.Element
+  rowRenderer: (row: Row<A>, index: number, rows: Row<A>[]) => JSX.Element
   optionsOveride?: Partial<TableOptions<A>>
   totalCount: number
   pagination: PaginationState

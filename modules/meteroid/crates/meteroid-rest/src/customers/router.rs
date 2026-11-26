@@ -19,9 +19,10 @@ use meteroid_app::errors::RestApiError;
 use meteroid_rest_common::error::RestErrorResponse;
 use meteroid_rest_common::extract::{ApiJson, ApiPath, ApiQuery, ApiValid};
 use meteroid_rest_common::model::{PaginationExt, validate_order_by};
+use meteroid_store::domain::resources::ResourceInput;
 use meteroid_store::jwt_claims::default_customer_portal_token_ttl;
-use meteroid_store::repositories::CustomersInterface;
 use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
+use meteroid_store::repositories::{CustomersInterface, ResourcesInterface};
 
 /// List customers
 ///
@@ -37,6 +38,7 @@ use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
         (status = 200, description = "List of customers", body = CustomerListResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -99,6 +101,7 @@ pub async fn list_customers(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Customer not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -137,6 +140,7 @@ pub async fn get_customer(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 409, description = "Customer already exists", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -234,6 +238,7 @@ pub async fn create_customer(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Customer not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -289,6 +294,7 @@ pub async fn update_customer(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Customer not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -348,6 +354,7 @@ pub async fn patch_customer(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Customer not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -387,6 +394,7 @@ pub async fn archive_customer(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Customer not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -434,6 +442,7 @@ pub async fn unarchive_customer(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Customer not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -479,6 +488,16 @@ pub async fn create_portal_token(
             RestApiError::from(e)
         })?;
 
+    let client_claims = ResourceInput {
+        resources: request.resources.unwrap_or_default(),
+        attributes: request.attributes.unwrap_or_default(),
+    };
+    app_state
+        .store
+        .resolve_resource_input(authorized_state.tenant_id, customer.id, &client_claims)
+        .await
+        .map_err(RestApiError::from)?;
+
     let issued = app_state
         .store
         .customer_portal_token(
@@ -487,6 +506,7 @@ pub async fn create_portal_token(
             expires_in,
             scopes,
             delegated.is_some(),
+            client_claims.into(),
         )
         .await
         .map_err(|e| {

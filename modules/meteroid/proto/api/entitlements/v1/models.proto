@@ -124,6 +124,8 @@ message Feature {
   string id = 1;
   string name = 2;
   optional string description = 3;
+  // Read-only, derived from `kind`, unset for a limit counted by the app. Removed once every
+  // client reads `kind`.
   FeatureType feature_type = 4;
   FeatureStatus status = 5;
   // Product the feature belongs to. Unset ⇒ tenant-global feature.
@@ -133,6 +135,18 @@ message Feature {
   string code = 8;
   // Feature-level default entitlement (lowest-priority baseline). Unset if none configured.
   optional Entitlement entitlement = 9;
+  FeatureKind kind = 10;
+  // Set for VALUE features.
+  optional FeatureValueSpec value = 11;
+  // Set for LIMIT features.
+  optional FeatureLimitSpec limit = 12;
+  optional string unit = 13;
+  // The resource type the feature applies per; unset = the customer.
+  optional string level_resource_type_id = 14;
+  // Limits only: resets, behavior at the limit and alert thresholds.
+  optional FeaturePolicy policy = 15;
+  // Every default row of the feature; `entitlement` is the first.
+  repeated Entitlement defaults = 16;
 }
 
 message EntitlementEntity {
@@ -147,13 +161,30 @@ message EntitlementEntity {
   }
 }
 
+// One row. `id` is the lineage id: an edit revokes the row and inserts a successor under the same id.
 message Entitlement {
   string id = 1;
   string feature_id = 2;
   EntitlementEntity entity = 3;
   EntitlementValue value = 4;
+  // When the lineage was created.
   string created_at = 11;
+  // When this row was written.
   string updated_at = 12;
+  EntitlementEffect effect = 13;
+  EntitlementLevel level = 14;
+  optional string level_type_id = 15;
+  // A customer override on one stored resource.
+  optional string resource_id = 16;
+  optional Condition condition = 17;
+  optional string valid_from = 18;
+  optional string valid_until = 19;
+  optional string reason = 20;
+  optional FeaturePolicy policy_override = 21;
+  optional Actor created_by = 22;
+  // Set on history rows.
+  optional string revoked_at = 23;
+  optional string revoked_by = 24;
 }
 
 message EntitlementValue {
@@ -166,26 +197,29 @@ message EntitlementValue {
   message BooleanValue {
     bool enabled = 1;
   }
+  // Unset `limit` is unlimited; `enabled = false` is off. The policy lives on the feature.
   message MeteredValue {
     optional string limit = 1;
-    optional ResetPeriod reset_period = 2;
     bool enabled = 5;
-    // Event property the limit is tracked per (e.g. one allowance per seat). Unset = one limit
-    // for the whole customer.
-    optional string group_by = 9;
-    // Unset is Block without grace.
-    optional OverageBehavior overage_behavior = 10;
-    // Deprecated: use `thresholds`. Read only when `thresholds` is empty; returned as the lowest
-    // threshold.
-    optional uint32 warning_threshold_pct = 11;
-    // Percents of the limit (1-100, at most 10) at which usage sends an alert, once per window.
-    repeated uint32 thresholds = 12;
+    reserved 2, 9, 10, 11, 12;
+    reserved "reset_period", "group_by", "overage_behavior", "warning_threshold_pct", "thresholds";
   }
 }
 
+// A row to write. Unspecified `effect` takes the source's default.
 message EntitlementSpec {
   string feature_id = 1;
   EntitlementValue value = 2;
+  EntitlementEffect effect = 3;
+  EntitlementLevel level = 4;
+  optional string level_type_id = 5;
+  reserved 6;
+  optional Condition condition = 7;
+  optional string valid_from = 8;
+  optional string valid_until = 9;
+  optional string reason = 10;
+  // Set to rows only.
+  optional FeaturePolicy policy_override = 11;
 }
 
 // Resolved entity that contributed the winning value, with a human-readable label.
@@ -203,6 +237,8 @@ message EffectiveEntitlement {
   }
   // Highest-priority entity that contributed to the final value, with its human-readable name.
   ResolvedOrigin origin = 5;
+  // On a subscription's entitlements, when another subscription decides the value.
+  optional SubscriptionGrant own_grant = 6;
 
   message BooleanEntitlement {
     bool enabled = 1;
@@ -227,7 +263,20 @@ message EffectiveEntitlement {
     // configured switch is `enabled || limit_reached`.
     bool limit_reached = 16;
     repeated uint32 thresholds = 17;
+    // Metering could not answer for `consumed`, which is absent.
+    bool usage_unavailable = 18;
   }
+}
+
+// What a subscription's own rows grant on a level another subscription decides: "grants 1k;
+// Pro on the customer decides 10k".
+message SubscriptionGrant {
+  // Unset when the subscription includes the feature through its product alone.
+  optional EntitlementValue value = 1;
+  string deciding_subscription_id = 2;
+  optional string deciding_plan_name = 3;
+  // The deciding subscription's resource (`site=s1`); unset for the customer's own.
+  optional string deciding_resource_path = 4;
 }
 
 // Like EffectiveEntitlement but without usage data — used by the per-entity
@@ -241,6 +290,8 @@ message ResolvedEntitlement {
   }
   // Highest-priority entity that contributed to the final value, with its human-readable name.
   ResolvedOrigin origin = 5;
+  // On a subscription's entitlements, when another subscription decides the value.
+  optional SubscriptionGrant own_grant = 6;
 
   message BooleanResolved {
     bool enabled = 1;
@@ -259,4 +310,255 @@ message ResolvedEntitlement {
     optional uint32 warning_threshold_pct = 12;
     repeated uint32 thresholds = 13;
   }
+}
+
+enum FeatureKind {
+  FEATURE_KIND_UNSPECIFIED = 0;
+  FEATURE_KIND_BOOLEAN = 1;
+  FEATURE_KIND_VALUE = 2;
+  FEATURE_KIND_LIMIT = 3;
+}
+
+enum FeatureValueType {
+  FEATURE_VALUE_TYPE_UNSPECIFIED = 0;
+  FEATURE_VALUE_TYPE_NUMBER = 1;
+  FEATURE_VALUE_TYPE_TEXT = 2;
+  FEATURE_VALUE_TYPE_SELECT = 3;
+  FEATURE_VALUE_TYPE_JSON = 4;
+}
+
+message FeatureValueSpec {
+  FeatureValueType type = 1;
+  // Numbers: unset = higher is better.
+  optional bool higher_is_better = 2;
+  // Select: the options, worst first when `ordered`.
+  repeated string options = 3;
+  bool ordered = 4;
+}
+
+enum LimitCountedBy {
+  LIMIT_COUNTED_BY_UNSPECIFIED = 0;
+  LIMIT_COUNTED_BY_EVENTS = 1;
+  LIMIT_COUNTED_BY_APP = 2;
+}
+
+message FeatureLimitSpec {
+  LimitCountedBy counted_by = 1;
+  // EVENTS only.
+  optional string metric_id = 2;
+}
+
+enum PolicyResets {
+  POLICY_RESETS_UNSPECIFIED = 0;
+  POLICY_RESETS_BILLING_CYCLE = 1;
+  POLICY_RESETS_CALENDAR = 2;
+  POLICY_RESETS_FIXED = 3;
+  POLICY_RESETS_SLIDING = 4;
+  POLICY_RESETS_NEVER = 5;
+}
+
+enum PolicyAtLimit {
+  POLICY_AT_LIMIT_UNSPECIFIED = 0;
+  POLICY_AT_LIMIT_DENY = 1;
+  POLICY_AT_LIMIT_ALLOW_AND_BILL = 2;
+  // Limits counted by the app.
+  POLICY_AT_LIMIT_DENY_NEW = 3;
+}
+
+message PolicyPeriod {
+  CalendarUnit unit = 1;
+  uint32 interval = 2;
+}
+
+message FeaturePolicy {
+  PolicyResets resets = 1;
+  // CALENDAR, FIXED and SLIDING only.
+  PolicyPeriod period = 2;
+  PolicyAtLimit at_limit = 3;
+  uint32 grace_pct = 4;
+  repeated uint32 thresholds = 5;
+}
+
+// How a row combines with the value below it. UNSPECIFIED takes the source's default.
+enum EntitlementEffect {
+  ENTITLEMENT_EFFECT_UNSPECIFIED = 0;
+  ENTITLEMENT_EFFECT_SET = 1;
+  ENTITLEMENT_EFFECT_ADD = 2;
+  ENTITLEMENT_EFFECT_RAISE_TO = 3;
+  ENTITLEMENT_EFFECT_CAP_AT = 4;
+}
+
+// FEATURE follows the feature's level; CUSTOMER is across all the customer's resources; TYPE names
+// `level_type_id`.
+enum EntitlementLevel {
+  ENTITLEMENT_LEVEL_FEATURE = 0;
+  ENTITLEMENT_LEVEL_CUSTOMER = 1;
+  ENTITLEMENT_LEVEL_TYPE = 2;
+}
+
+message ConditionValues {
+  repeated string values = 1;
+}
+
+// Applies only when every attribute ("<type code>.<attribute>") has one of its values.
+message Condition {
+  map<string, ConditionValues> clauses = 1;
+}
+
+// Who wrote a row: USER, API_KEY, OAUTH_APP, CUSTOMER or SYSTEM.
+message Actor {
+  string type = 1;
+  optional string id = 2;
+}
+
+enum CheckReason {
+  CHECK_REASON_UNSPECIFIED = 0;
+  CHECK_REASON_RESOURCE_REQUIRED = 1;
+  CHECK_REASON_NOT_SUBSCRIBED = 2;
+  CHECK_REASON_NOT_ENTITLED = 3;
+  CHECK_REASON_LIMIT_REACHED = 4;
+  CHECK_REASON_BUDGET_EXCEEDED = 5;
+  CHECK_REASON_CREDIT_EXHAUSTED = 6;
+  CHECK_REASON_USAGE_UNAVAILABLE = 7;
+  CHECK_REASON_METRIC_NOT_FOUND = 8;
+}
+
+enum CheckReasonType {
+  CHECK_REASON_TYPE_UNSPECIFIED = 0;
+  CHECK_REASON_TYPE_DENIED = 1;
+  // An integration error (e.g. a resource is required, a metric not found): fix the call or the
+  // feature, not the plan; never retried.
+  CHECK_REASON_TYPE_MISCONFIGURED = 2;
+  // Usage could not be read in time: no decision about the customer, retried shortly.
+  CHECK_REASON_TYPE_UNAVAILABLE = 3;
+}
+
+// Which engine read the usage.
+enum UsageSource {
+  USAGE_SOURCE_READ = 0;
+  USAGE_SOURCE_MONITOR = 1;
+}
+
+// RESOURCE: only resource subscriptions include the feature, so it is answered per resource.
+enum FeatureScope {
+  FEATURE_SCOPE_CUSTOMER = 0;
+  FEATURE_SCOPE_RESOURCE = 1;
+}
+
+// Where a row comes from, lowest first.
+enum Tier {
+  TIER_DEFAULT = 0;
+  TIER_PLAN = 1;
+  TIER_PLAN_VERSION = 2;
+  TIER_SUBSCRIPTION = 3;
+  TIER_ADD_ON = 4;
+  TIER_CUSTOMER = 5;
+  TIER_RESOURCE_OVERRIDE = 6;
+}
+
+enum DiscardReason {
+  DISCARD_REASON_UNSPECIFIED = 0;
+  DISCARD_REASON_REPLACED_BY_HIGHER_TIER = 1;
+  DISCARD_REASON_LOST_WITHIN_TIER = 2;
+  DISCARD_REASON_NO_EFFECT = 3;
+  DISCARD_REASON_NO_BASE_ON_LEVEL = 4;
+  DISCARD_REASON_EFFECT_NOT_ALLOWED = 5;
+  DISCARD_REASON_CONDITION_NOT_MET = 6;
+  DISCARD_REASON_NOT_IN_EFFECT = 7;
+}
+
+// One row's part in a level's value.
+message Contribution {
+  string entitlement_id = 1;
+  EntitlementEntity source = 2;
+  optional string source_name = 3;
+  Tier tier = 4;
+  EntitlementEffect effect = 5;
+  EntitlementValue value = 6;
+  optional Condition condition = 7;
+  uint32 quantity = 8;
+  bool policy_override = 9;
+  // The value after this row; unset when it was discarded.
+  optional EntitlementValue running = 10;
+  DiscardReason discarded = 11;
+  // A limit counted per unit of a managed quantity: the units held, which multiply `value`.
+  optional uint32 units = 12;
+}
+
+// A limit counted by the app, per path: the exact count, the last set and the adds since.
+message AppCountExplain {
+  string path = 1;
+  string count = 2;
+  optional string last_set_value = 3;
+  optional string last_set_at = 4;
+  optional string last_set_key = 5;
+  int64 adds_since = 6;
+  string adds_sum = 7;
+  optional string last_add_at = 8;
+}
+
+// A subscription including the feature at the level, with the value its rows give there.
+message DecidingCandidate {
+  string subscription_id = 1;
+  // Unset for the whole customer.
+  optional string resource_path = 2;
+  optional EntitlementValue value = 3;
+}
+
+message LevelExplain {
+  repeated Contribution contributions = 1;
+  repeated DecidingCandidate candidates = 2;
+  repeated AppCountExplain app_counts = 3;
+}
+
+// A feature at one level of the path: the customer, or its resource.
+message EntitlementLevelState {
+  // Unset = the customer level.
+  optional string resource_type_id = 1;
+  // '' for the customer, else '<type code>=<key value>'.
+  string path = 2;
+  optional EntitlementValue value = 3;
+  reserved 4;
+  optional string used = 5;
+  optional string limit = 6;
+  bool near_limit = 7;
+  optional string reset_at = 8;
+  optional string deciding_subscription_id = 9;
+  bool allowed = 10;
+  optional CheckReason reason = 11;
+  optional LevelExplain explain = 12;
+  // Past the limit of a level that allows and bills.
+  bool in_overage = 13;
+}
+
+// A feature at one level, as the snapshot reads it: no request, so no decision.
+message SnapshotLevel {
+  optional string resource_type_id = 1;
+  string path = 2;
+  // Unset when the level has no value: see `reason`, else nothing is imposed or, on the feature's
+  // own level, it is not entitled.
+  optional EntitlementValue value = 3;
+  // RESOURCE_REQUIRED or NOT_SUBSCRIBED when the level can't be read without another resource.
+  optional CheckReason reason = 4;
+  FeaturePolicy policy = 5;
+  optional string used = 6;
+  optional string reset_at = 7;
+  optional string deciding_subscription_id = 8;
+  // The row that set the value, with its source's name; unset without a value.
+  optional Contribution origin = 9;
+  // Metering could not answer for `used`, which is unset.
+  bool usage_unavailable = 10;
+}
+
+message SnapshotFeature {
+  FeatureRef feature = 1;
+  FeatureScope scope = 2;
+  // The feature's own level's value capped by the others; unset when not entitled.
+  optional EntitlementValue value = 3;
+  repeated SnapshotLevel levels = 4;
+}
+
+message CheckedFeature {
+  string id = 1;
+  string code = 2;
 }

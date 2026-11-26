@@ -5,6 +5,7 @@ use crate::domain::credit::{
     LedgerEntryKind, PortalCreditCapabilities,
 };
 use crate::domain::credit_outlook::CreditOutlook;
+use crate::domain::entitlement_fold::EvalLevel;
 use crate::domain::entitlements::{EffectiveEntitlementValue, OverageBehavior};
 use crate::domain::enums::SubscriptionStatusEnum;
 use crate::domain::invoice_lines::LineItem;
@@ -30,7 +31,7 @@ use crate::services::credit::forecast::{
 };
 use crate::services::credit::value_application::quoted_subtotal;
 use crate::services::credit::wallet_purchase::AUTOMATIC_TOP_UP_NAMESPACE;
-use crate::services::entitlements::limits::entitlement_monitor_id;
+use crate::services::entitlements::limits::level_monitor_id;
 use chrono::{DateTime, NaiveDate, Utc};
 use common_domain::ids::{
     BaseId, BillableMetricId, CreditGrantId, CustomerId, EntitlementEntityId, InvoiceId,
@@ -953,21 +954,14 @@ impl ServicesEdge {
     }
 
     /// The entitlement limits that refuse usage, from the plan or set for the account, as they
-    /// stand in their current window. A metering failure leaves them out, since their usage is
-    /// read live.
+    /// stand in their current window. A limit whose usage metering cannot answer for is shown
+    /// without it (`usage_unavailable`); a store failure leaves them all out.
     pub async fn portal_usage_limits(
         &self,
         tenant_id: TenantId,
         customer_id: CustomerId,
     ) -> StoreResult<Vec<PortalUsageLimit>> {
         let now = common_clock::now();
-        let subscription_ids = self
-            .portal_active_subscriptions(tenant_id, customer_id)
-            .await?
-            .subscriptions
-            .iter()
-            .map(|subscription| subscription.id)
-            .collect::<Vec<_>>();
         let entitlements = self
             .get_effective_entitlements(customer_id, tenant_id)
             .await
@@ -1019,16 +1013,11 @@ impl ServicesEdge {
             .collect::<HashSet<_>>()
             .into_iter()
             .collect::<Vec<_>>();
-        // Plan limits are the anchor subscription's, measured as its usage filter attributes them.
+        // A customer-level limit counts all the customer's events of its metric (§3.7).
         let metrics = {
             let mut conn = self.store.get_conn().await?;
-            let anchor = self
-                .services
-                .load_billing_context(&mut conn, customer_id, tenant_id)
-                .await?
-                .subscription_id;
             self.services
-                .load_metrics(&mut conn, &metric_ids, &tenant_id, anchor)
+                .load_metrics(&mut conn, &metric_ids, &tenant_id, None)
                 .await?
         };
 
@@ -1042,7 +1031,9 @@ impl ServicesEdge {
                         end: now.naive_utc(),
                     });
                     let consumed = usage.consumed.unwrap_or_default();
+                    let usage_unavailable = usage.unavailable;
                     let (groups, breakdown) = match (metric, &group_by, period) {
+                        _ if usage_unavailable => (Vec::new(), Vec::new()),
                         (Some(metric), Some(property), Some(period)) => (
                             self.portal_grouped_usage(
                                 &tenant_id,
@@ -1072,16 +1063,17 @@ impl ServicesEdge {
                         _ => (Vec::new(), Vec::new()),
                     };
                     // The consumed usage is the largest group's when grouped, as the engine holds it.
-                    let reached = consumed >= hard_ceiling(limit, grace_pct);
+                    let reached = !usage_unavailable && consumed >= hard_ceiling(limit, grace_pct);
                     let warning = reached
-                        || at_warning(
-                            &[PortalLimitGroupUsage {
-                                group: BTreeMap::new(),
-                                used: consumed,
-                            }],
-                            limit,
-                            warning_pct,
-                        );
+                        || (!usage_unavailable
+                            && at_warning(
+                                &[PortalLimitGroupUsage {
+                                    group: BTreeMap::new(),
+                                    used: consumed,
+                                }],
+                                limit,
+                                warning_pct,
+                            ));
                     PortalUsageLimit {
                         feature_id: feature.id,
                         name: feature.name,
@@ -1098,18 +1090,18 @@ impl ServicesEdge {
                         warning,
                         unit_singular: metric.and_then(|metric| metric.unit_singular.clone()),
                         unit_plural: metric.and_then(|metric| metric.unit_plural.clone()),
+                        usage_unavailable,
                     }
                 }
             },
         ))
         .await;
         for limit in &limits {
-            monitors.push(
-                subscription_ids
-                    .iter()
-                    .map(|id| entitlement_monitor_id(limit.feature_id, *id))
-                    .collect(),
-            );
+            monitors.push(vec![level_monitor_id(
+                limit.feature_id,
+                customer_id,
+                EvalLevel::Customer,
+            )]);
         }
 
         let crossings = {

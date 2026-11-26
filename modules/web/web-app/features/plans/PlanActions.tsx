@@ -37,6 +37,38 @@ import {
   unarchivePlan,
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 
+/** A published version is edited through the draft: open it, or copy this version into a new one. */
+export const useEditInDraft = () => {
+  const overview = usePlanOverview()
+  const { plan, version } = usePlanWithVersion()
+  const navigate = useNavigate()
+  const basePath = useBasePath()
+  const queryClient = useQueryClient()
+
+  const copyToDraftMutation = useMutation(copyVersionToDraft, {
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listPlans.parent,
+        cardinality: undefined
+      }) })
+    },
+  })
+
+  const hasDraft = !!overview?.hasDraftVersion
+
+  const open = async () => {
+    if (overview?.hasDraftVersion) {
+      navigate(`${basePath}/plans/${overview.localId}/draft`)
+      return
+    }
+    if (!overview || !plan || !version) return
+    await copyToDraftMutation.mutateAsync({ planId: plan.id, planVersionId: version.id })
+    navigate(`${basePath}/plans/${plan.id}/draft`)
+  }
+
+  return { hasDraft, open, pending: copyToDraftMutation.isPending }
+}
+
 /** The header's actions: a draft is discarded or published, a published version drafted from. */
 export const PlanActions = ({ onHistory }: { onHistory?: () => void }) => {
   const isExpress = useIsExpressOrganization()
@@ -136,24 +168,7 @@ export const PlanActions = ({ onHistory }: { onHistory?: () => void }) => {
     })
   }
 
-  const copyToDraftMutation = useMutation(copyVersionToDraft, {
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: listPlans.parent,
-        cardinality: undefined
-      }) })
-    },
-  })
-
-  const copyToDraft = async () => {
-    if (!overview || !planWithVersion.plan || !planWithVersion.version) return
-    await copyToDraftMutation.mutateAsync({
-      planId: planWithVersion.plan.id,
-      planVersionId: planWithVersion.version.id,
-    })
-
-    navigate(`${basePath}/plans/${planWithVersion.plan.id}/draft`)
-  }
+  const editInDraft = useEditInDraft()
 
   const archiveMutation = useMutation(archivePlan, {
     onSuccess: async () => {
@@ -281,19 +296,14 @@ export const PlanActions = ({ onHistory }: { onHistory?: () => void }) => {
           <HistoryIcon size={14} /> Version history
         </Button>
       )}
-      {overview?.hasDraftVersion ? (
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={() => navigate(`${basePath}/plans/${overview.localId}/draft`)}
-        >
-          Continue the draft
-        </Button>
-      ) : (
-        <Button variant="primary" size="sm" onClick={copyToDraft}>
-          Edit prices in a draft
-        </Button>
-      )}
+      <Button
+        variant="primary"
+        size="sm"
+        disabled={editInDraft.pending}
+        onClick={() => void editInDraft.open()}
+      >
+        {editInDraft.hasDraft ? 'Continue the draft' : 'Edit prices in a draft'}
+      </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="icon" className="size-8" aria-label="Plan actions">

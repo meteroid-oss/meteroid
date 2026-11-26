@@ -139,6 +139,14 @@ message BillableMetric {
   // Event property, e.g. `project_id`, that breaks each invoice line down by value. The line is
   // still priced on its total usage, and each value shows its quantity and share of the amount.
   optional string usage_breakdown_key = 15;
+  // Absent: attributed to the customer only.
+  optional MetricAttribution attributed_to = 16;
+}
+
+// An event's resource is read from `property`, else from the first of the type's keys it has.
+message MetricAttribution {
+  string resource_type_id = 1;
+  optional string property = 2;
 }
 
 message BillableMetricMeta {
@@ -152,5 +160,7 @@ message BillableMetricMeta {
   google.protobuf.Timestamp archived_at = 9;
   optional int32 unit_conversion_factor = 10;
   MetricUnitLabel unit_label = 11;
+  // Absent: attributed to the customer only.
+  optional MetricAttribution attributed_to = 12;
 }
 

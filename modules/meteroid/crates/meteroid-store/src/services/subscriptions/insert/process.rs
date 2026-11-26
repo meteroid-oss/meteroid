@@ -39,10 +39,10 @@ use diesel_models::subscription_components::{
 };
 use diesel_models::subscription_events::SubscriptionEventRow;
 use diesel_models::subscriptions::{SubscriptionRow, SubscriptionRowNew};
-use error_stack::{Report, ResultExt, bail};
+use error_stack::{Report, ResultExt};
 use futures::TryFutureExt;
 use scoped_futures::ScopedFutureExt;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::log;
 use uuid::Uuid;
@@ -82,6 +82,8 @@ pub struct ProcessedSubscription {
     drop_minimum: bool,
     /// Inserted not started: the lifecycle starts it and bills its first period.
     start_deferred: bool,
+    /// The metrics its charges and add-ons price, for the warnings of its target.
+    metric_ids: Vec<common_domain::ids::BillableMetricId>,
 }
 
 impl ProcessedSubscription {
@@ -726,6 +728,16 @@ impl Services {
             .get(&sub.subscription.plan_version_id)
             .cloned();
 
+        let mut metric_ids = sub
+            .components
+            .iter()
+            .map(|c| &c.fee)
+            .chain(sub.add_ons.iter().map(|a| &a.fee))
+            .filter_map(|fee| fee.metric_id())
+            .collect::<Vec<_>>();
+        metric_ids.sort_by_key(|id| id.as_uuid());
+        metric_ids.dedup();
+
         Ok(ProcessedSubscription {
             subscription: subscription_row,
             trial_is_free: plan.trial_is_free,
@@ -745,6 +757,7 @@ impl Services {
             minimum_override: sub.minimum_override.clone(),
             drop_minimum: sub.drop_minimum,
             start_deferred: false,
+            metric_ids,
         })
     }
 
@@ -857,113 +870,60 @@ impl Services {
     }
 }
 
-fn filter_of(row: &SubscriptionRowNew) -> StoreResult<Option<crate::domain::UsageFilter>> {
-    crate::domain::UsageFilter::from_columns(
-        row.usage_filter_property.clone(),
-        row.usage_filter_value.clone(),
-    )?
-    .map(|filter| crate::domain::UsageFilter::new(filter.property, filter.value))
-    .transpose()
-}
-
-/// A usage filter is unique per customer over overlapping lifetimes, among the new subscriptions
-/// as against the existing ones, checked under the customers' locks (the caller takes them).
-async fn ensure_usage_filters_available(
+/// Each new subscription for a resource names a stored, unarchived resource of its customer that
+/// no other subscription sells over its period; returns, per subscription, what it is accepted
+/// with: its plan sold for another target, metrics its resource never bills.
+async fn ensure_resources(
     conn: &mut PgConn,
     tenant_id: TenantId,
     rows: &[SubscriptionRowNew],
-) -> StoreResult<()> {
+    metric_ids: &HashMap<SubscriptionId, &[common_domain::ids::BillableMetricId]>,
+) -> StoreResult<HashMap<SubscriptionId, crate::domain::SaleWarnings>> {
     use crate::repositories::subscriptions::usage_attribution::{
-        ensure_usage_filter_available, midnight,
+        ensure_resource_for, ensure_resource_unsold, sale_warnings,
     };
-
-    let mut filtered = Vec::new();
-    for row in rows {
-        if let Some(filter) = filter_of(row)? {
-            filtered.push((row, filter));
-        }
-    }
-
-    for (index, (row, filter)) in filtered.iter().enumerate() {
-        let overlapping = filtered[..index].iter().any(|(other, other_filter)| {
-            other.customer_id == row.customer_id
-                && other_filter == filter
-                && other.end_date.is_none_or(|end| row.start_date < end)
-                && row
-                    .end_date
-                    .is_none_or(|row_end| other.start_date < row_end)
-        });
-        if overlapping {
-            bail!(StoreError::InvalidArgument(format!(
-                "two new subscriptions of a customer bill the events where {} is {}",
-                filter.property, filter.value
-            )));
-        }
-        ensure_usage_filter_available(
-            conn,
-            tenant_id,
-            row.customer_id,
-            row.id,
-            filter,
-            midnight(row.start_date),
-            row.end_date.map(midnight),
-        )
-        .await?;
-    }
-    Ok(())
-}
-
-/// Records the usage filter of each new subscription from its start, refusing one that would
-/// move events another subscription of the customer has already invoiced.
-async fn record_created_usage_filters(
-    conn: &mut PgConn,
-    tenant_id: TenantId,
-    rows: &[SubscriptionRowNew],
-) -> StoreResult<()> {
-    use crate::repositories::subscriptions::usage_attribution::{
-        midnight, record_usage_filter_version, usage_filter_effective_from,
-    };
-
-    let created = rows.iter().map(|row| row.id).collect::<HashSet<_>>();
-    for row in rows {
-        let Some(filter) = filter_of(row)? else {
-            continue;
+    let mut warnings = HashMap::new();
+    for (i, row) in rows.iter().enumerate() {
+        let resource_type_id = match row.resource_id {
+            Some(resource_id) => {
+                let overlaps = |other: &SubscriptionRowNew| {
+                    other.resource_id == Some(resource_id)
+                        && other.end_date.is_none_or(|end| row.start_date < end)
+                        && row.end_date.is_none_or(|end| other.start_date < end)
+                };
+                if rows[..i].iter().any(overlaps) {
+                    return Err(crate::repositories::resources::resource_at_fault(
+                        Report::new(StoreError::InvalidArgument(format!(
+                            "resource {resource_id} is sold twice over one period"
+                        ))),
+                    ));
+                }
+                let resource =
+                    ensure_resource_for(conn, tenant_id, row.customer_id, resource_id).await?;
+                ensure_resource_unsold(
+                    conn,
+                    tenant_id,
+                    resource_id,
+                    row.start_date,
+                    row.end_date,
+                    None,
+                )
+                .await?;
+                Some(resource.resource_type_id)
+            }
+            None => None,
         };
-        let stored = SubscriptionRow::get_subscription_by_id(conn, &tenant_id, row.id)
-            .await
-            .map_err(Into::<StoreErrorReport>::into)?
-            .subscription;
-        let start = midnight(row.start_date);
-        let from = usage_filter_effective_from(
+        let warned = sale_warnings(
             conn,
             tenant_id,
-            &SubscriptionRow {
-                usage_filter_property: None,
-                usage_filter_value: None,
-                ..stored
-            },
-            start,
-            Some(&filter),
-            &created,
+            row.plan_version_id,
+            resource_type_id,
+            metric_ids.get(&row.id).copied().unwrap_or_default(),
         )
         .await?;
-        if from > start {
-            // A start date is a day: the first one whose midnight is not before `from`.
-            let earliest = if from.time() == chrono::NaiveTime::MIN {
-                from.date()
-            } else {
-                from.date() + chrono::Days::new(1)
-            };
-            bail!(StoreError::InvalidArgument(format!(
-                "a usage filter cannot apply before {}: other subscriptions of this customer have \
-                 invoiced the usage it would claim up to then. Start the subscription on or after \
-                 that date, or create it without a usage filter",
-                earliest.format("%b %-d, %Y")
-            )));
-        }
-        record_usage_filter_version(conn, tenant_id, row.id, Some(&filter), start).await?;
+        warnings.insert(row.id, warned);
     }
-    Ok(())
+    Ok(warnings)
 }
 
 /// The seat counts a new subscription starts from: one per managed quantity, the first charge
@@ -1162,7 +1122,7 @@ impl Services {
                             .await?;
                         owned_subscriptions.push(row);
                     }
-                    // Every customer of the batch first, in id order: the usage filter checks, the
+                    // Every customer of the batch first, in id order: the resource checks, the
                     // coupons (tenant rows) and the billing below all come after it.
                     let mut customers = owned_subscriptions
                         .iter()
@@ -1186,7 +1146,13 @@ impl Services {
                         &locks.iter().collect::<Vec<_>>(),
                     )
                     .await?;
-                    ensure_usage_filters_available(conn, tenant_id, &owned_subscriptions).await?;
+                    let metric_ids = processed
+                        .iter()
+                        .map(|p| (p.subscription.id, p.metric_ids.as_slice()))
+                        .collect::<HashMap<_, _>>();
+                    let mut warnings =
+                        ensure_resources(conn, tenant_id, &owned_subscriptions, &metric_ids)
+                            .await?;
                     let subscriptions: Vec<_> = owned_subscriptions.iter().collect();
 
                     let mut patched_components: Vec<SubscriptionComponentRowNew> = Vec::new();
@@ -1236,10 +1202,15 @@ impl Services {
                     .await?;
 
                     // Perform batch insertions
-                    let inserted: Vec<CreatedSubscription> =
+                    let mut inserted: Vec<CreatedSubscription> =
                         SubscriptionRow::insert_subscription_batch(conn, subscriptions)
                             .await
                             .map(|v| v.into_iter().map(Into::into).collect())?;
+                    for created in inserted.iter_mut() {
+                        let warned = warnings.remove(&created.id).unwrap_or_default();
+                        created.warnings = warned.codes;
+                        created.metrics_not_attributed = warned.metrics_not_attributed;
+                    }
 
                     // An import's past was billed elsewhere, its current period's advance too:
                     // its facts bill from its next renewal, that period's arrears and usage with it.
@@ -1404,7 +1375,17 @@ impl Services {
                         .await
                         .map_err(Into::<StoreErrorReport>::into)?;
 
-                    record_created_usage_filters(conn, tenant_id, &owned_subscriptions).await?;
+                    crate::repositories::subscriptions::usage_attribution::ensure_claims_uninvoiced(
+                        conn,
+                        tenant_id,
+                        &owned_subscriptions
+                            .iter()
+                            .filter(|row| row.resource_id.is_some())
+                            .map(|row| (row.customer_id, row.id))
+                            .collect::<Vec<_>>(),
+                        &owned_subscriptions.iter().map(|row| row.id).collect::<Vec<_>>(),
+                    )
+                    .await?;
 
                     if skip_coupon_validation {
                         apply_coupons_without_validation(conn, &*services.store.hooks.credit, &coupons, tenant_id).await?;
@@ -1472,6 +1453,7 @@ impl Services {
                                 change_date: None,
                                 success_url: None,
                                 cancel_url: None,
+                                resource_id: sub.resource_id,
                             };
 
                             let session_row: CheckoutSessionRowNew =

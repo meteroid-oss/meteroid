@@ -22,6 +22,7 @@ pub struct PortalTokenRow {
     pub revoked_at: Option<DateTime<Utc>>,
     pub last_used_at: Option<DateTime<Utc>>,
     pub last_recovery_at: Option<DateTime<Utc>>,
+    pub client_claims: Option<serde_json::Value>,
 }
 
 #[derive(Insertable, Debug)]
@@ -36,4 +37,5 @@ pub struct PortalTokenRowNew {
     pub scopes: Vec<Option<String>>,
     pub delegated: bool,
     pub expires_at: Option<DateTime<Utc>>,
+    pub client_claims: Option<serde_json::Value>,
 }

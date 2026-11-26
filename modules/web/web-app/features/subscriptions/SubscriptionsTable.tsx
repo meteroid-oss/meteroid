@@ -7,8 +7,8 @@ import {
   useCustomPropertyColumns,
   withCustomPropertyColumns,
 } from '@/features/customproperties/useCustomPropertyColumns'
+import { useResourceChips } from '@/features/resources/hooks'
 import { SubscriptionStatusBadge } from '@/features/subscriptions/SubscriptionStatusBadge'
-import { formatUsageFilter } from '@/features/subscriptions/UsageFilterFields'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useCurrency } from '@/hooks/useCurrency'
 import { usePrefetch } from '@/hooks/usePrefetch'
@@ -52,6 +52,7 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
   const { formatAmount } = useCurrency()
   const basePath = useBasePath()
   const prefetch = usePrefetch()
+  const chips = useResourceChips()
 
   const { columns: customPropertyColumns, hiddenIds: customPropertyHiddenIds } =
     useCustomPropertyColumns<Subscription>(CustomPropertyEntityType.SUBSCRIPTION)
@@ -71,9 +72,9 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
           cell: ({ row }: { row: Row<Subscription> }) => (
             <span>
               {row.original.planName}
-              {row.original.usageFilter && (
+              {row.original.resourceId && (
                 <span className="ml-2 text-xs text-muted-foreground">
-                  {formatUsageFilter(row.original.usageFilter)}
+                  {chips.get(row.original.resourceId) ?? 'a resource'}
                 </span>
               )}
             </span>
@@ -126,7 +127,7 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
         .filter(col => !hideCustomer || col.header !== 'Customer')
         .filter(col => !hidePlan || col.header !== 'Plan'),
 
-    [hideCustomer, hidePlan, formatAmount]
+    [hideCustomer, hidePlan, formatAmount, chips]
   )
 
   // Custom-property columns are opt-in via the view menu, which only exists when the table

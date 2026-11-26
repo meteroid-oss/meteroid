@@ -15,8 +15,7 @@ use super::timeline::{
     When, ago, cycle, cycle_at,
 };
 use crate::presets::credit_traffic::{
-    API_KEY_PROPERTY, MODEL_PROPERTY, MODELS, TOKENS_METRIC, TOKENS_PER_PRICE_UNIT,
-    TOKENS_PROPERTY, traffic_for,
+    MODEL_PROPERTY, MODELS, TOKENS_METRIC, TOKENS_PER_PRICE_UNIT, TOKENS_PROPERTY, traffic_for,
 };
 use chrono::Duration;
 use meteroid_store::domain::credit_exhausted::{CreditExhaustedRule, UsageAtZero};
@@ -754,7 +753,6 @@ fn quillbase() -> Customer {
                 Action::SetEntitlementOverride(EntitlementOverrideSpec {
                     feature_code: TOKENS_FEATURE.to_string(),
                     limit: dec!(10000000),
-                    group_by: Some(API_KEY_PROPERTY.to_string()),
                     block: Some(BlockSpec {
                         grace_pct: Some(10),
                     }),
@@ -1021,7 +1019,6 @@ fn lumen_notes() -> Customer {
                 Action::SetEntitlementOverride(EntitlementOverrideSpec {
                     feature_code: TOKENS_FEATURE.to_string(),
                     limit: dec!(10000000),
-                    group_by: Some(API_KEY_PROPERTY.to_string()),
                     block: Some(BlockSpec { grace_pct: None }),
                     thresholds: vec![80, 100],
                 }),

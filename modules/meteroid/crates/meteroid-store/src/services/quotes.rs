@@ -90,7 +90,7 @@ pub(super) fn build_subscription_from_quote(
         backdate_invoices: false,
         skip_checkout_session: false,
         skip_past_invoices: false,
-        usage_filter: None,
+        resource_id: quote.resource_id,
         custom_properties: serde_json::Value::Null,
         external_id: None,
     };
@@ -130,10 +130,7 @@ pub(super) fn build_subscription_from_quote(
     let entitlements: Vec<EntitlementSpec> = detailed_quote
         .entitlements
         .iter()
-        .map(|e| EntitlementSpec {
-            feature_id: e.feature_id,
-            value: e.value.clone().without_inert_limit_terms(),
-        })
+        .map(EntitlementSpec::from)
         .collect();
 
     Ok(CreateSubscriptionFromQuote {

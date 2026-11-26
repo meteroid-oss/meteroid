@@ -92,6 +92,9 @@ pub struct FeeFact<F> {
     pub cadence: u32,
     /// A component of the plan version it was written with, not one an amendment added.
     pub plan_component: bool,
+    /// From when it reads its metric's usage, when later than its start: a late change wrote it
+    /// over usage another subscription of the customer invoiced (R-143).
+    pub usage_from: Option<DateTime<Utc>>,
     pub fee: F,
 }
 

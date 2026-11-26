@@ -17,7 +17,8 @@ use meteroid_rest::webhooks::out_model::{
 };
 use meteroid_rest::webhooks::out_model::{
     WebhookOutAutoTopUpCapReachedEvent, WebhookOutAutoTopUpConsentChangedEvent,
-    WebhookOutAutoTopUpEvent, WebhookOutBudgetAlertEvent, WebhookOutCreditGrantExpiredEvent,
+    WebhookOutAutoTopUpEvent, WebhookOutBudgetAlertEvent,
+    WebhookOutCheckoutPaymentKeptAsCreditEvent, WebhookOutCreditGrantExpiredEvent,
     WebhookOutEntitlementAlertEvent, WebhookOutTooManyGroupsEvent, WebhookOutWalletBalanceLowEvent,
     WebhookOutWalletCreditRecoveredEvent, WebhookOutWalletCreditUnrecoveredEvent,
     WebhookOutWalletDebitedEvent, WebhookOutWalletDepletedEvent, WebhookOutWalletFundedEvent,
@@ -385,6 +386,11 @@ pub(crate) fn to_webhook_message(
         OutboxEvent::WalletAutoTopUpCapReached(e) => {
             typed!(AutoTopUpCapReached, WebhookOutAutoTopUpCapReachedEvent, e)
         }
+        OutboxEvent::CheckoutPaymentKeptAsCredit(e) => typed!(
+            CheckoutPaymentKeptAsCredit,
+            WebhookOutCheckoutPaymentKeptAsCreditEvent,
+            e
+        ),
         // Not yet webhook-enabled
         OutboxEvent::CustomerUpdated(_) => None,
         // Emitted on every transaction save; the failure, refund and reversal events are
@@ -604,9 +610,11 @@ mod tests {
     #[test]
     fn usage_alert_payload_snapshots() {
         use chrono::TimeZone;
+        use common_domain::ids::ResourceId;
         use common_domain::ids::{BudgetId, CustomerId, FeatureId, SubscriptionId};
         use meteroid_store::domain::usage_alert_events::{
-            AlertReading, BudgetAlertEvent, EntitlementAlertEvent,
+            AlertLevel, AlertReading, AlertResource, AlertTarget, BudgetAlertEvent,
+            EntitlementAlertEvent,
         };
         use rust_decimal::Decimal;
         use std::collections::BTreeMap;
@@ -741,6 +749,86 @@ mod tests {
                 "exact": false,
             })
         );
+
+        // A limit counted by the app, on a site: no metric, the v2 target.
+        let site = ResourceId::new();
+        let app_counted = EntitlementAlertEvent::new(
+            event_id,
+            tenant_id,
+            customer,
+            FeatureId::new(),
+            None,
+            AlertReading {
+                metric_code: None,
+                ..reading(80, 8, 10, Some(("site", "s1")))
+            },
+        )
+        .with_target(AlertTarget {
+            feature_code: "projects".to_owned(),
+            level: AlertLevel::ResourceType,
+            resource: Some(AlertResource {
+                id: Some(site),
+                type_code: "site".to_owned(),
+                key: "s1".to_owned(),
+            }),
+            path: "site=s1".to_owned(),
+        });
+        let feature_id = app_counted.feature_id.to_string();
+        let message = deliver(OutboxEvent::EntitlementUsageThresholdReached(Box::new(
+            app_counted,
+        )));
+        assert_eq!(
+            message.payload,
+            serde_json::json!({
+                "id": event_id.to_string(),
+                "type": "entitlement.usage_threshold_reached",
+                "customer_id": customer.to_string(),
+                "customer_alias": "acme",
+                "feature_id": feature_id,
+                "feature_code": "projects",
+                "level": "resource_type",
+                "resource": {"id": site.to_string(), "type": "site", "key": "s1"},
+                "path": "site=s1",
+                "group": {"site": "s1"},
+                "threshold_pct": 80,
+                "used": "8",
+                "limit": "10",
+                "period": {"start": "2026-03-01T00:00:00.000Z", "end": "2026-03-02T00:00:00.000Z"},
+                "as_of": "2026-03-01T10:30:00.000Z",
+                "exact": false,
+            })
+        );
+    }
+
+    /// The release before reads `metric_code` as a string: an app-counted alert writes `""`,
+    /// read back as none.
+    #[test]
+    fn an_alert_without_a_metric_reads_across_releases() {
+        use common_domain::ids::{CustomerId, FeatureId};
+        use meteroid_store::domain::usage_alert_events::{AlertReading, EntitlementAlertEvent};
+        let event = EntitlementAlertEvent::new(
+            EventId::new(),
+            TenantId::new(),
+            CustomerId::new(),
+            FeatureId::new(),
+            None,
+            AlertReading {
+                customer_alias: None,
+                metric_code: None,
+                group: None,
+                threshold_pct: 80,
+                used: rust_decimal::Decimal::from(8),
+                limit: rust_decimal::Decimal::from(10),
+                window_start: chrono::NaiveDateTime::default(),
+                window_end: None,
+                as_of: chrono::DateTime::default(),
+            },
+        );
+        let written = serde_json::to_value(&event).expect("writes");
+        assert_eq!(written["metric_code"], "");
+        assert!(written.get("level").is_none());
+        let read: EntitlementAlertEvent = serde_json::from_value(written).expect("reads");
+        assert_eq!(read.metric_code, None);
     }
 
     #[test]
@@ -752,6 +840,46 @@ mod tests {
         ] {
             assert!(to_webhook_message(transaction(status, payment_type)).is_none());
         }
+    }
+
+    #[test]
+    fn a_payment_kept_as_credit_is_sent_as_its_own_event() {
+        use common_domain::ids::{CheckoutSessionId, CustomerId, ResourceId};
+        use meteroid_store::domain::outbox_event::CheckoutPaymentKeptAsCreditEvent;
+        let customer_id = CustomerId::new();
+        let checkout_session_id = CheckoutSessionId::new();
+        let payment_transaction_id = PaymentTransactionId::new();
+        let resource_id = ResourceId::new();
+        let message = to_webhook_message(OutboxEvent::checkout_payment_kept_as_credit(
+            CheckoutPaymentKeptAsCreditEvent {
+                id: EventId::new(),
+                tenant_id: TenantId::new(),
+                customer_id,
+                checkout_session_id,
+                payment_transaction_id,
+                plan_version_id: None,
+                resource_id: Some(resource_id),
+                amount: 3500,
+                currency: "EUR".to_owned(),
+                reason: "resource is archived".to_owned(),
+            },
+        ))
+        .expect("webhook-enabled")
+        .expect("serialized");
+        assert_eq!(message.event_type, "checkout.payment_kept_as_credit");
+        let payload = message.payload;
+        assert_eq!(payload["type"], "checkout.payment_kept_as_credit");
+        assert_eq!(payload["customer_id"], customer_id.to_string());
+        assert_eq!(
+            payload["checkout_session_id"],
+            checkout_session_id.to_string()
+        );
+        assert_eq!(payload["payment_id"], payment_transaction_id.to_string());
+        assert_eq!(payload["resource_id"], resource_id.to_string());
+        assert_eq!(payload["amount"], 3500);
+        assert_eq!(payload["currency"], "EUR");
+        assert_eq!(payload["reason"], "resource is archived");
+        assert!(payload.get("plan_version_id").is_none(), "{payload}");
     }
 }
 

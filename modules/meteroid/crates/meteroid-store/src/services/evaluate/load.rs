@@ -8,7 +8,7 @@ use billing_core::facts::{
     CouponFact, Ending, EndingKind, Facts, FeeFact, MinimumFact, MinimumScope, PlanWindow,
     SeatStep, Start, Trial,
 };
-use chrono::{Datelike, NaiveDate};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use common_domain::ids::{
     BaseId, BillableMetricId, CustomerId, ManagedQuantityId, PriceId, ProductId, RateCardId,
     SlotTransactionId, SubscriptionId, TenantId,
@@ -397,6 +397,7 @@ async fn load_facts_of(
     let rows = cut_at_rate_changes(rows, &rate_cards);
     let mut metrics = metrics_of(conn, &subscription, &rows).await?;
     rated_dimensions(&mut metrics, &rows, &rate_cards);
+    let floors = usage_floors(conn, subscription_id).await?;
     let mut fees = Vec::with_capacity(rows.len());
     for row in &rows {
         let fee = row.store_fee(Resolved {
@@ -414,6 +415,7 @@ async fn load_facts_of(
             billing: fee.billing(),
             cadence: fee.cadence(),
             plan_component: row.plan_component(),
+            usage_from: floors.get(&row.id()).copied(),
             fee,
         });
     }
@@ -472,6 +474,37 @@ async fn load_facts_of(
     })
 }
 
+/// Where the subscription's rows a late change wrote read their metric's usage from (R-143).
+async fn usage_floors(
+    conn: &mut PgConn,
+    subscription_id: SubscriptionId,
+) -> StoreResult<HashMap<Uuid, DateTime<Utc>>> {
+    use diesel::{ExpressionMethods, QueryDsl};
+    use diesel_async::RunQueryDsl;
+    use diesel_models::errors::IntoDbResult;
+    use diesel_models::schema::subscription_add_on::dsl as a;
+    use diesel_models::schema::subscription_component::dsl as c;
+    let components: Vec<(Uuid, Option<DateTime<Utc>>)> = db(c::subscription_component
+        .filter(c::subscription_id.eq(subscription_id))
+        .filter(c::usage_from.is_not_null())
+        .select((c::id, c::usage_from))
+        .load(conn)
+        .await
+        .into_db_result())?;
+    let add_ons: Vec<(Uuid, Option<DateTime<Utc>>)> = db(a::subscription_add_on
+        .filter(a::subscription_id.eq(subscription_id))
+        .filter(a::usage_from.is_not_null())
+        .select((a::id, a::usage_from))
+        .load(conn)
+        .await
+        .into_db_result())?;
+    Ok(components
+        .into_iter()
+        .chain(add_ons)
+        .filter_map(|(id, at)| at.map(|at| (id, at)))
+        .collect())
+}
+
 /// An add-on row as the facts read it, before it is written: from its stored fee, so a purchase is
 /// priced the same whether its row is written yet or not.
 pub fn add_on_fact(
@@ -500,6 +533,7 @@ pub fn add_on_fact(
         billing: fee.billing(),
         cadence: fee.cadence(),
         plan_component: row.plan_component(),
+        usage_from: None,
         fee,
     })
 }
@@ -555,6 +589,7 @@ pub(crate) async fn facts_of_details(
             billing: fee.billing(),
             cadence: fee.cadence(),
             plan_component: row.plan_component(),
+            usage_from: None,
             fee,
         });
     }
@@ -719,6 +754,7 @@ pub(crate) fn component_row_of(row: &SubscriptionComponentRowNew) -> Subscriptio
         effective_to: None,
         lineage_id: row.lineage_id,
         added_by_amendment: row.added_by_amendment,
+        usage_from: None,
     }
 }
 
@@ -739,6 +775,7 @@ pub(crate) fn add_on_row_of(row: &SubscriptionAddOnRowNew) -> SubscriptionAddOnR
         effective_to: None,
         lineage_id: row.lineage_id,
         added_by_amendment: row.added_by_amendment,
+        usage_from: None,
     }
 }
 

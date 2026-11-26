@@ -59,6 +59,11 @@ validator = { workspace = true, features = ["derive"] }
 common-grpc-error-as-tonic-macros = { workspace = true }
 workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
 
+[dev-dependencies]
+meteroid-grpc = { path = "../meteroid-grpc", features = ["server"] }
+prost.workspace = true
+prost-types.workspace = true
+
 [build-dependencies]
 utoipa-config.workspace = true
 

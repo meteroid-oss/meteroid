@@ -1,9 +1,9 @@
 //! A published plan version never changes: a pending plan change resolves against its
 //! target version when it is written as facts, so every store path editing a published version's
-//! components, prices or minimum refuses. The API delegates to these paths.
+//! components, prices, minimum or entitlements refuses. The API delegates to these paths.
 use std::fmt::Debug;
 
-use common_domain::ids::PlanVersionId;
+use common_domain::ids::{EntitlementEntityId, PlanVersionId};
 use rstest::rstest;
 use rust_decimal::Decimal;
 
@@ -11,6 +11,10 @@ use crate::data::ids::*;
 use crate::harness::{TestEnv, test_env};
 use common_domain::actor::Actor;
 use meteroid_store::StoreResult;
+use meteroid_store::domain::entitlement_fold::GrantValue;
+use meteroid_store::domain::entitlements::{
+    EntitlementNew, EntitlementSpec, EntitlementUpdate, FeatureKind, FeatureNew,
+};
 use meteroid_store::domain::enums::BillingPeriodEnum;
 use meteroid_store::domain::plan_minimums::MinimumScope;
 use meteroid_store::domain::price_components::{
@@ -18,7 +22,9 @@ use meteroid_store::domain::price_components::{
 };
 use meteroid_store::domain::prices::{FeeStructure, Pricing};
 use meteroid_store::domain::products::ProductNew;
+use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::PlansInterface;
+use meteroid_store::repositories::entitlements::EntitlementsInterface;
 use meteroid_store::repositories::price_components::{
     PriceComponentInterface, PriceComponentInterfaceAuto,
 };
@@ -231,4 +237,126 @@ async fn a_product_is_edited_without_touching_how_its_charges_bill_it(#[future] 
         .await
         .expect("a product with no structure");
     assert_eq!(unpriced.name, "Unpriced");
+}
+
+/// Refused because the version's entitlements are fixed once published, not for another
+/// reason.
+fn assert_fixed<T: Debug>(result: StoreResult<T>, what: &str) {
+    match result {
+        Ok(done) => panic!("{what} wrote a published version's entitlements: {done:?}"),
+        Err(err) => assert!(
+            matches!(err.current_context(), StoreError::FailedPrecondition(m) if m.contains("through a draft")),
+            "{what}: {err:?}"
+        ),
+    }
+}
+
+/// A published version's entitlements are fixed too: every write naming it is refused, the rows
+/// written on its draft become fixed once the draft is published, and the plan's own rows, which
+/// apply to every version, are still written.
+#[rstest]
+#[tokio::test]
+async fn a_published_plan_version_refuses_every_write_of_its_entitlements(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    let store = env.store();
+    let actor = Actor::System;
+    let sso = store
+        .create_feature(
+            Actor::System,
+            FeatureNew {
+                tenant_id: TENANT_ID,
+                product_id: None,
+                name: "SSO".to_string(),
+                code: "sso".to_string(),
+                description: None,
+                kind: FeatureKind::Boolean,
+                unit: None,
+                level_type_id: None,
+                policy: None,
+                default: None,
+            },
+        )
+        .await
+        .expect("a feature");
+    let spec = || EntitlementSpec::new(sso.id, GrantValue::Boolean(true));
+    let on = |entity| EntitlementNew {
+        tenant_id: TENANT_ID,
+        entity,
+        resource_id: None,
+        spec: spec(),
+    };
+    let published = EntitlementEntityId::PlanVersion(PLAN_VERSION_PRO_ID);
+
+    assert_fixed(
+        store.create_entitlement(&actor, on(published)).await,
+        "create",
+    );
+    assert_fixed(
+        store
+            .create_entitlements(&actor, TENANT_ID, published, None, vec![spec()])
+            .await,
+        "create several",
+    );
+    assert_fixed(
+        store
+            .batch_create_entitlements(&actor, TENANT_ID, published, vec![spec()])
+            .await,
+        "create a batch",
+    );
+    assert_fixed(
+        store
+            .replace_entitlements(&actor, TENANT_ID, published, vec![spec()])
+            .await,
+        "replace",
+    );
+    assert!(
+        store
+            .list_entitlements_by_entity(published, TENANT_ID)
+            .await
+            .expect("rows")
+            .is_empty()
+    );
+
+    let draft = EntitlementEntityId::PlanVersion(PLAN_VERSION_PRO_DRAFT_ID);
+    let row = store
+        .create_entitlement(&actor, on(draft))
+        .await
+        .expect("a draft takes a row");
+    store
+        .publish_plan_version(Actor::System, PLAN_VERSION_PRO_DRAFT_ID, TENANT_ID)
+        .await
+        .expect("the draft published");
+    assert_fixed(
+        store
+            .update_entitlement(
+                &actor,
+                row.id,
+                TENANT_ID,
+                EntitlementUpdate {
+                    value: Some(GrantValue::Boolean(false)),
+                    ..EntitlementUpdate::default()
+                },
+            )
+            .await,
+        "update",
+    );
+    assert_fixed(
+        store.delete_entitlement(&actor, row.id, TENANT_ID).await,
+        "delete",
+    );
+    assert_eq!(
+        store
+            .get_entitlement(row.id, TENANT_ID)
+            .await
+            .expect("the row, open")
+            .value,
+        GrantValue::Boolean(true)
+    );
+
+    store
+        .create_entitlement(&actor, on(EntitlementEntityId::Plan(PLAN_PRO_ID)))
+        .await
+        .expect("the plan's own row");
 }

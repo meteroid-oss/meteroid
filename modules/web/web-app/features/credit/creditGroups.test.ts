@@ -91,7 +91,7 @@ describe('creditGroupRows', () => {
     expect(lapse(5_000n, 5_000n, usd)).toMatch(/^Expires /)
     expect(lapse(5_520n, 520n, credits)).toMatch(/^520 credits expire /)
   })
-  it('names the usage filter of the subscription a group belongs to', () => {
+  it('names what the subscription a group belongs to is for', () => {
     const groups = [
       create(CreditGroupSchema, { kind: CreditGrantKind.INCLUDED, subscriptionId: 'sub_mobile' }),
       create(CreditGroupSchema, { kind: CreditGrantKind.PREPAID }),
@@ -101,8 +101,8 @@ describe('creditGroupRows', () => {
       usd,
       new Map([['sub_mobile', 'team = mobile']])
     )
-    expect(mobile.usageFilter).toBe('team = mobile')
-    expect(shared.usageFilter).toBeUndefined()
+    expect(mobile.scopeLabel).toBe('team = mobile')
+    expect(shared.scopeLabel).toBeUndefined()
   })
   it("leaves out each of its grants' unbilled usage, as the grants table does", () => {
     const [included, prepaid] = creditGroupRows(

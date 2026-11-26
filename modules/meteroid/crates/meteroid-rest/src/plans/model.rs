@@ -75,6 +75,10 @@ pub struct Plan {
     #[serde(default)]
     #[schema(required = false)]
     pub issues_license: bool,
+    /// The resource type its subscriptions are for; absent for the customer. A mismatch at
+    /// subscription creation is a warning, never a refusal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sold_for_resource_type_id: Option<common_domain::ids::ResourceTypeId>,
     pub product_family: ProductFamily,
 
     #[serde(with = "string_serde")]
@@ -625,6 +629,9 @@ pub struct CreatePlanRequest {
     pub product_family_id: ProductFamilyId,
     pub plan_type: PlanTypeEnum,
     pub status: PlanStatusEnum,
+    /// The resource type its subscriptions are for; omit for the customer.
+    #[serde(default)]
+    pub sold_for_resource_type_id: Option<common_domain::ids::ResourceTypeId>,
     pub currency: String,
     /// The plan's amounts are quoted tax-included ("9.99 incl. VAT"): tax is carved out of
     /// them at invoice time instead of being added on top, so the customer pays the quoted
@@ -722,6 +729,10 @@ pub struct PatchPlanRequest {
     pub name: Option<String>,
     pub description: Option<Option<String>>,
     pub self_service_rank: Option<Option<i32>>,
+    /// "Sold for": the resource type its subscriptions are for, `null` for the customer.
+    #[serde(default, with = "::serde_with::rust::double_option")]
+    #[schema(value_type = Option<String>)]
+    pub sold_for_resource_type_id: Option<Option<common_domain::ids::ResourceTypeId>>,
 }
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]

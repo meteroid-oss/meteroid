@@ -292,13 +292,16 @@ fn groupable(metric: &BillableMetric, group_by: Option<&str>) -> bool {
     foldable(&metric.aggregation_type)
         || metric_dimensions(metric)
             .iter()
-            .all(|dimension| Some(dimension.as_str()) == group_by)
+            .all(|dimension| group_by.is_some_and(|g| g.split(',').any(|p| p == dimension)))
 }
 
-/// Why a metric's usage cannot be monitored per `group_by`, when it cannot.
+/// Why a metric's usage cannot be monitored per `group_by` (comma-separated properties, the
+/// first an event has decides its group), when it cannot.
 pub fn ungroupable_reason(metric: &BillableMetric, group_by: Option<&str>) -> Option<&'static str> {
-    if group_by.is_some_and(|property| property.contains(',')) {
-        Some("its group_by contains a comma")
+    if group_by.is_some_and(|properties| properties.split(',').any(str::is_empty)) {
+        Some("its group_by names an empty property")
+    } else if group_by.is_some_and(|g| g.contains(',')) && !foldable(&metric.aggregation_type) {
+        Some("the metric's aggregation cannot be added up across the keys a group falls back on")
     } else if !groupable(metric, group_by) {
         Some(
             "the metric's aggregation cannot be added up across its own dimensions, and the limit is not grouped by them",

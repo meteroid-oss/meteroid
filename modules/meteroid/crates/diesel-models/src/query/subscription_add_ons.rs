@@ -340,3 +340,29 @@ impl SubscriptionAddOnRow {
             .map(|rows| rows.into_iter().collect())
     }
 }
+
+impl SubscriptionAddOnRow {
+    /// Sets where `ids` bill their metric from: the late change writing them dates them earlier.
+    pub async fn set_usage_from(
+        conn: &mut PgConn,
+        ids: &[common_domain::ids::SubscriptionAddOnId],
+        usage_from: chrono::DateTime<chrono::Utc>,
+    ) -> DbResult<usize> {
+        use crate::schema::subscription_add_on::dsl as t;
+        use diesel_async::RunQueryDsl;
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let query = diesel::update(t::subscription_add_on)
+            .filter(t::id.eq_any(ids))
+            .set(t::usage_from.eq(Some(usage_from)));
+
+        crate::debug_sql(&query);
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while setting where fee rows bill their metric from")
+            .into_db_result()
+    }
+}

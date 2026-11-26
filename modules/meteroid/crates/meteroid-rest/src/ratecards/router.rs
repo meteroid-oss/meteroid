@@ -50,6 +50,7 @@ async fn card_id(
         (status = 200, description = "The tenant's rate cards", body = RateCardListResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -85,6 +86,7 @@ pub async fn list_rate_cards(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -125,6 +127,7 @@ pub async fn get_rate_card(
         (status = 404, description = "The metric or the credit unit is not found", body = RestErrorResponse),
         (status = 409, description = "A rate card with this code already exists", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -163,6 +166,7 @@ pub async fn create_rate_card(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]

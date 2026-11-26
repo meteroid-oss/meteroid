@@ -222,6 +222,11 @@ async fn test_rest_v2_plan_authored_through_its_draft() {
     assert_eq!(draft["options"][0]["alias"], "monthly");
     assert_eq!(draft["options"][0]["default"], true);
     assert_eq!(draft["options"][1]["alias"], "annual");
+    assert_eq!(
+        draft["entitlements"],
+        json!([]),
+        "a draft written without rows"
+    );
 
     let platform = charge(draft, "platform");
     assert_eq!(platform["preset"], "flat_fee");
@@ -577,10 +582,52 @@ async fn test_rest_v2_conventions() {
 }
 
 /// The data of a page, as a list.
-fn listed(answer: &Answer) -> &Vec<Value> {
+pub(crate) fn listed(answer: &Answer) -> &Vec<Value> {
     answer.body["data"]
         .as_array()
         .unwrap_or_else(|| panic!("not a page: {:#}", answer.body))
+}
+
+/// What each row of an owner's list grants, without its identity (ids, owner, dates).
+pub(crate) fn granted(rows: &Value) -> Vec<Value> {
+    rows.as_array()
+        .unwrap_or_else(|| panic!("not a list of rows: {rows:#}"))
+        .iter()
+        .map(|row| {
+            let mut grant = json!({
+                "feature": row["feature"],
+                "value": row["value"],
+                "effect": row["effect"],
+                "level": row["level"],
+            });
+            for optional in ["resource_type", "condition", "valid_from", "valid_until"] {
+                if let Some(value) = row.get(optional) {
+                    grant[optional] = value.clone();
+                }
+            }
+            grant
+        })
+        .collect()
+}
+
+/// The row's id, a lineage's.
+pub(crate) fn row_id(row: &Value) -> String {
+    row["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("a row has an id: {row:#}"))
+        .to_owned()
+}
+
+/// A 422 whose first refusal is `code` at `path`.
+pub(crate) fn refused(answer: &Answer, path: &str, code: &str) {
+    assert_eq!(
+        answer.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{path}: {:#}",
+        answer.body
+    );
+    assert_eq!(answer.body["errors"][0]["path"], path, "{:#}", answer.body);
+    assert_eq!(answer.body["errors"][0]["code"], code, "{:#}", answer.body);
 }
 
 /// Rules: ADR-0013
@@ -815,17 +862,17 @@ async fn test_rest_v2_entitlements_and_archives() {
     for feature in [
         json!({"code": "sso", "name": "SSO", "type": {"type": "boolean"}, "product": "platform"}),
         json!({"code": "api-calls", "name": "API calls",
-               "type": {"type": "metered", "metric": "bandwidth"}, "product": "api"}),
+               "type": {"type": "limit", "counted_by": "events", "metric": "bandwidth"},
+               "product": "api"}),
     ] {
         let created = f.post("/api/v2/features", feature).await;
         assert_eq!(created.status, StatusCode::CREATED, "{:#}", created.body);
     }
-    let sso = json!({"feature": "sso", "value": {"type": "boolean", "enabled": true}});
-    let calls = json!({"feature": "api-calls",
-                       "value": {"type": "metered", "limit": "1000",
-                                 "reset": {"type": "billing_cycle"}}});
+    let sso = json!({"feature": "sso", "value": {"type": "on"}});
+    let calls = json!({"feature": "api-calls", "value": {"type": "limit", "limit": "1000"}});
+    let grant = |feature: &str, value: Value, effect: &str| json!({"feature": feature, "value": value, "effect": effect, "level": "customer"});
 
-    // A plan's draft carries its entitlements: written with it, read back canonical.
+    // A plan's draft carries its rows: written with it, read back canonical, owned by the version.
     let mut draft = pro_version("49");
     draft["entitlements"] = json!([sso.clone()]);
     let created = f
@@ -835,34 +882,42 @@ async fn test_rest_v2_entitlements_and_archives() {
         )
         .await;
     assert_eq!(created.status, StatusCode::CREATED, "{:#}", created.body);
+    let rows = &created.body["version"]["entitlements"];
     assert_eq!(
-        created.body["version"]["entitlements"],
-        json!([{"feature": "sso", "value": {"type": "boolean", "enabled": true}}])
+        granted(rows),
+        vec![grant("sso", json!({"type": "on"}), "set")]
     );
+    assert_eq!(rows[0]["owner"]["type"], "plan_version");
+    assert!(row_id(&rows[0]).starts_with("ent_"), "{rows:#}");
 
     // Left out, they are kept; sent, they replace the draft's.
     let kept = f
         .put("/api/v2/plans/granted/draft", pro_version("49"))
         .await;
     assert_eq!(kept.status, StatusCode::OK, "{:#}", kept.body);
-    assert_eq!(kept.body["version"]["entitlements"][0]["feature"], "sso");
+    assert_eq!(
+        granted(&kept.body["version"]["entitlements"]),
+        granted(rows)
+    );
     let mut both = pro_version("49");
     both["entitlements"] = json!([calls.clone(), sso.clone()]);
     let replaced = f.put("/api/v2/plans/granted/draft", both.clone()).await;
     assert_eq!(replaced.status, StatusCode::OK, "{:#}", replaced.body);
-    let features: Vec<&str> = replaced.body["version"]["entitlements"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|grant| grant["feature"].as_str().unwrap())
-        .collect();
-    assert_eq!(features, vec!["api-calls", "sso"], "sorted by feature");
     assert_eq!(
-        replaced.body["version"]["entitlements"][0]["value"]["limit"],
-        "1000"
+        granted(&replaced.body["version"]["entitlements"]),
+        vec![
+            grant(
+                "api-calls",
+                json!({"type": "limit", "limit": "1000"}),
+                "set"
+            ),
+            grant("sso", json!({"type": "on"}), "set"),
+        ],
+        "sorted by feature"
     );
     let mut mistyped = pro_version("49");
-    mistyped["entitlements"] = json!([{"feature": "sso", "value": {"type": "metered"}}]);
+    mistyped["entitlements"] =
+        json!([{"feature": "sso", "value": {"type": "limit", "limit": "1"}}]);
     let refused = f.put("/api/v2/plans/granted/draft", mistyped).await;
     assert_eq!(
         refused.status,
@@ -870,20 +925,15 @@ async fn test_rest_v2_entitlements_and_archives() {
         "{:#}",
         refused.body
     );
-    assert!(
-        refused.body["errors"][0]["path"]
-            .as_str()
-            .unwrap()
-            .starts_with("/entitlements/0/value")
-    );
+    assert_eq!(refused.body["errors"][0]["path"], "/entitlements/0/value");
 
     let published = f
         .post("/api/v2/plans/granted/draft/publish", json!({}))
         .await;
     assert_eq!(published.status, StatusCode::OK, "{:#}", published.body);
     assert_eq!(
-        published.body["version"]["entitlements"],
-        replaced.body["version"]["entitlements"]
+        published.body["version"]["entitlements"], replaced.body["version"]["entitlements"],
+        "the draft's rows are the version's"
     );
 
     // A draft differing only in what it grants is a new version.
@@ -901,7 +951,8 @@ async fn test_rest_v2_entitlements_and_archives() {
         2
     );
 
-    // An add-on grants what it is created with, and what a patch replaces it with.
+    // An add-on grants what it is created with, and what a patch replaces it with; bought any
+    // number of times, its rows add up.
     let add_on = f
         .post(
             "/api/v2/add-ons",
@@ -916,14 +967,21 @@ async fn test_rest_v2_entitlements_and_archives() {
         )
         .await;
     assert_eq!(add_on.status, StatusCode::CREATED, "{:#}", add_on.body);
-    assert_eq!(add_on.body["entitlements"][0]["feature"], "api-calls");
+    assert_eq!(
+        granted(&add_on.body["entitlements"]),
+        vec![grant(
+            "api-calls",
+            json!({"type": "limit", "limit": "1000"}),
+            "add"
+        )]
+    );
     let emptied = f
         .patch("/api/v2/add-ons/more-calls", json!({"entitlements": []}))
         .await;
     assert_eq!(emptied.status, StatusCode::OK, "{:#}", emptied.body);
     assert_eq!(emptied.body["entitlements"], json!([]));
 
-    // A product grants the defaults of its own features.
+    // A product holds the defaults of its own features.
     let product = f
         .patch(
             "/api/v2/products/platform",
@@ -931,8 +989,9 @@ async fn test_rest_v2_entitlements_and_archives() {
         )
         .await;
     assert_eq!(product.status, StatusCode::OK, "{:#}", product.body);
-    assert_eq!(product.body["entitlements"], json!([sso.clone()]));
-    // Its fields and its grants are written together: a refused grant writes neither.
+    let defaults = granted(&product.body["entitlements"]);
+    assert_eq!(defaults, vec![grant("sso", json!({"type": "on"}), "set")]);
+    // Its fields and its rows are written together: a refused row writes neither.
     let foreign = f
         .patch(
             "/api/v2/products/platform",
@@ -954,9 +1013,14 @@ async fn test_rest_v2_entitlements_and_archives() {
         "{:#}",
         unchanged.body
     );
-    assert_eq!(unchanged.body["entitlements"], json!([sso.clone()]));
+    assert_eq!(granted(&unchanged.body["entitlements"]), defaults);
     let feature = f.get("/api/v2/features/sso").await;
-    assert_eq!(feature.body["default"]["enabled"], true);
+    assert_eq!(granted(&feature.body["defaults"]), defaults);
+    assert_eq!(feature.body["defaults"][0]["owner"]["type"], "feature");
+    assert_eq!(
+        feature.body["defaults"][0]["owner"]["id"],
+        feature.body["id"]
+    );
 
     // Archived and back: plans, products, add-ons.
     let spare = f
@@ -1206,9 +1270,11 @@ async fn test_rest_v2_features() {
             json!({
                 "code": "api-calls",
                 "name": "API calls",
-                "type": {"type": "metered", "metric": "bandwidth"},
+                "type": {"type": "limit", "counted_by": "events", "metric": "bandwidth",
+                         "policy": {"resets": {"type": "billing_cycle"}, "at_limit": "deny"}},
                 "product": "api",
-                "default": {"type": "metered", "limit": "1000", "reset": {"type": "billing_cycle"}}
+                "unit": "calls",
+                "defaults": [{"feature": "api-calls", "value": {"type": "limit", "limit": "1000.0"}}]
             }),
         )
         .await;
@@ -1217,16 +1283,27 @@ async fn test_rest_v2_features() {
     assert!(id.starts_with("feat_"));
     assert_eq!(
         created.body["type"],
-        json!({"type": "metered", "metric": "bandwidth"})
+        json!({"type": "limit", "counted_by": "events", "metric": "bandwidth",
+               "policy": {"resets": {"type": "billing_cycle"}, "at_limit": "deny",
+                          "grace_pct": 0, "thresholds": []}})
     );
     assert_eq!(created.body["product"]["code"], "api");
+    assert_eq!(created.body["unit"], "calls");
     assert_eq!(created.body["status"], "active");
-    assert_eq!(created.body["default"]["limit"], "1000");
-    assert_eq!(created.body["default"]["overage"], "block");
+    assert!(created.body.get("applies_per").is_none(), "the customer's");
+    let default = &created.body["defaults"][0];
     assert_eq!(
-        created.body["default"]["reset"],
-        json!({"type": "billing_cycle"})
+        default["value"],
+        json!({"type": "limit", "limit": "1000"}),
+        "decimal strings read normalized"
     );
+    assert_eq!(default["effect"], "set");
+    assert_eq!(
+        default["level"], "customer",
+        "the feature's own level, resolved"
+    );
+    assert_eq!(default["owner"], json!({"type": "feature", "id": id}));
+    let default_id = row_id(default);
 
     let taken = f
         .post(
@@ -1240,44 +1317,64 @@ async fn test_rest_v2_features() {
         .post(
             "/api/v2/features",
             json!({"code": "sso", "name": "SSO", "type": {"type": "boolean"},
-                   "default": {"type": "metered", "limit": "1"}}),
+                   "defaults": [{"feature": "sso", "value": {"type": "limit", "limit": "1"}}]}),
         )
         .await;
-    assert_eq!(mistyped.status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(mistyped.body["errors"][0]["path"], "/default/type");
+    refused(&mistyped, "/defaults/0/value", "invalid");
+    assert_eq!(
+        f.get("/api/v2/features/sso").await.status,
+        StatusCode::NOT_FOUND,
+        "nothing written"
+    );
 
     let by_code = f.get("/api/v2/features/api-calls").await;
     assert_eq!(by_code.status, StatusCode::OK, "{:#}", by_code.body);
     assert_eq!(by_code.body["id"], id.as_str());
 
+    // A patch merges the type's policy and replaces the defaults; a changed default keeps its id.
     let updated = f
         .patch(
             "/api/v2/features/api-calls",
             json!({"name": "API requests",
-                   "default": {"type": "metered", "limit": "5000", "thresholds": [80, 50]}}),
+                   "type": {"policy": {"resets": {"type": "billing_cycle"}, "at_limit": "deny",
+                                       "grace_pct": 10, "thresholds": [80, 50]}},
+                   "defaults": [{"feature": "api-calls", "value": {"type": "limit", "limit": "5000"}}]}),
         )
         .await;
     assert_eq!(updated.status, StatusCode::OK, "{:#}", updated.body);
     assert_eq!(updated.body["name"], "API requests");
-    assert_eq!(updated.body["default"]["limit"], "5000");
-    assert_eq!(updated.body["default"]["thresholds"], json!([50, 80]));
+    assert_eq!(updated.body["type"]["policy"]["grace_pct"], 10);
+    assert_eq!(
+        updated.body["type"]["policy"]["thresholds"],
+        json!([50, 80])
+    );
+    assert_eq!(
+        updated.body["type"]["metric"], "bandwidth",
+        "left out, kept"
+    );
+    assert_eq!(updated.body["defaults"][0]["value"]["limit"], "5000");
+    assert_eq!(row_id(&updated.body["defaults"][0]), default_id);
     let cleared = f
-        .patch("/api/v2/features/api-calls", json!({"default": null}))
+        .patch("/api/v2/features/api-calls", json!({"defaults": []}))
         .await;
     assert_eq!(cleared.status, StatusCode::OK, "{:#}", cleared.body);
-    assert!(cleared.body.get("default").is_none());
+    assert_eq!(cleared.body["defaults"], json!([]));
 
     let of_api = f.get("/api/v2/features?product=api").await;
     assert_eq!(of_api.status, StatusCode::OK, "{:#}", of_api.body);
     assert!(listed(&of_api).iter().any(|x| x["code"] == "api-calls"));
 
+    // Archived: hidden from the list, its code free; the code still names it while no live
+    // feature holds it.
     let archived = f
         .post("/api/v2/features/api-calls/archive", json!({}))
         .await;
     assert_eq!(archived.status, StatusCode::OK, "{:#}", archived.body);
     assert_eq!(archived.body["status"], "archived");
-    let gone = f.get("/api/v2/features/api-calls").await;
-    assert_eq!(gone.status, StatusCode::NOT_FOUND, "its code is free");
+    let by_code = f.get("/api/v2/features/api-calls").await;
+    assert_eq!(by_code.status, StatusCode::OK, "{:#}", by_code.body);
+    assert_eq!(by_code.body["id"], id.as_str());
+    assert_eq!(by_code.body["status"], "archived");
     let by_id = f.get(&format!("/api/v2/features/{id}")).await;
     assert_eq!(by_id.body["status"], "archived");
     let all = f.get("/api/v2/features").await;
@@ -1285,6 +1382,8 @@ async fn test_rest_v2_features() {
         !listed(&all).iter().any(|x| x["code"] == "api-calls"),
         "archived features are left out"
     );
+    let asked = f.get("/api/v2/features?status=archived").await;
+    assert!(listed(&asked).iter().any(|x| x["id"] == id.as_str()));
 
     let restored = f
         .post("/api/v2/features/api-calls/unarchive", json!({}))
@@ -1641,12 +1740,21 @@ async fn test_rest_v2_families_quantities_and_rate_cards_archived() {
         &f.post("/api/v2/plans", seats("editors-again")).await,
         "/draft/charges/0/quantity/quantity",
     );
+    let per_editor = json!({"code": "exports-per-editor", "name": "Exports",
+        "type": {"type": "limit", "counted_by": "app", "per_unit_of": "editors"}});
+    refused_at(
+        &f.post("/api/v2/features", per_editor.clone()).await,
+        "/type/per_unit_of",
+    );
     let restored = f
         .post("/api/v2/managed-quantities/editors/unarchive", json!({}))
         .await;
     assert_eq!(restored.body["archived"], false);
     let again = f.post("/api/v2/plans", seats("editors-again")).await;
     assert_eq!(again.status, StatusCode::CREATED, "{:#}", again.body);
+    let counted = f.post("/api/v2/features", per_editor).await;
+    assert_eq!(counted.status, StatusCode::CREATED, "{:#}", counted.body);
+    assert_eq!(counted.body["type"]["per_unit_of"], "editors");
 
     // A rate card pricing a plan's usage, then archived: the plan reads it by code, its rates can
     // still be set, a new price by it is refused; each step is in its changes.

@@ -175,6 +175,8 @@ message Plan {
   bool issues_license = 14;
   // Who may get the plan; live. Unset: anyone.
   optional meteroid.api.eligibility.v1.Eligibility eligibility = 15;
+  // The resource type its subscriptions are for; absent for the customer. A warning, not a block.
+  optional string sold_for_resource_type_id = 16;
 }
 
 message PlanOverview {
@@ -210,6 +212,8 @@ message PlanOverview {
   // Typed free, or its active version charges nothing (only included products, or every price at
   // zero): a new customer can start on it without paying. Set when plans are listed.
   bool free = 22;
+  // Absent: sold for the customer.
+  optional string sold_for_resource_type_id = 23;
 
   message ActiveVersionInfo {
     string id = 1;

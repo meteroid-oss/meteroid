@@ -82,6 +82,7 @@ fn session(version: PlanVersionId, option: Option<&str>) -> CreateCheckoutSessio
         change_date: None,
         success_url: None,
         cancel_url: None,
+        resource_id: None,
     }
 }
 

@@ -4,11 +4,11 @@ use crate::subscriptions::model::{
     AppliedCoupon, AppliedCouponDetailed, Coupon, CreateSubscriptionAddOn,
     CreateSubscriptionComponents, PendingScheduledEvent, ScheduledEventType, Subscription,
     SubscriptionAddOnCustomization, SubscriptionCreateRequest, SubscriptionDetails,
-    SubscriptionUpdateRequest, UsageFilter,
+    SubscriptionUpdateRequest,
 };
 use chrono::NaiveDate;
 use common_domain::ids::{
-    AliasOr, CouponId, CustomerId, PlanOptionId, PlanVersionId, SubscriptionId,
+    AliasOr, CouponId, CustomerId, PlanOptionId, PlanVersionId, ResourceId, SubscriptionId,
 };
 use meteroid_app::errors::RestApiError;
 use meteroid_store::domain;
@@ -47,10 +47,10 @@ pub fn domain_to_rest(s: domain::Subscription) -> Result<Subscription, RestApiEr
         charge_automatically: s.charge_automatically,
         payment_methods_config: s.payment_methods_config.map(Into::into),
         custom_properties: s.custom_properties,
-        usage_filter: s.usage_filter.map(usage_filter_to_rest),
-        usage_filter_effective_from: (s.usage_filter_since.map(|since| since.and_utc()))
-            .map(Into::into),
         plan_option_id: s.plan_option_id,
+        resource_id: s.resource_id,
+        usage_filter: None,
+        usage_filter_effective_from: None,
     })
 }
 
@@ -115,11 +115,30 @@ pub fn domain_to_rest_details(
             .collect(),
         minimum_commitment,
         custom_properties: s.subscription.custom_properties,
-        usage_filter: s.subscription.usage_filter.map(usage_filter_to_rest),
-        usage_filter_effective_from: s.subscription.usage_filter_since.map(Into::into),
+        resource_id: s.subscription.resource_id,
+        usage_filter: None,
+        usage_filter_effective_from: None,
+        warnings: Vec::new(),
+        metrics_not_attributed: Vec::new(),
         pending_events,
         scheduled_cancellation_date,
     })
+}
+
+/// `details` with what the subscription is sold with, by the metrics' event codes.
+pub fn with_warnings(
+    details: SubscriptionDetails,
+    warnings: domain::SaleWarnings,
+) -> SubscriptionDetails {
+    SubscriptionDetails {
+        warnings: warnings.codes,
+        metrics_not_attributed: warnings
+            .metrics_not_attributed
+            .into_iter()
+            .map(|m| m.code)
+            .collect(),
+        ..details
+    }
 }
 
 pub fn pending_events_to_rest(
@@ -206,6 +225,9 @@ pub fn rest_to_domain_create_request(
     resolved_coupon_ids: Option<Vec<CouponId>>,
     sub: SubscriptionCreateRequest,
 ) -> Result<CreateSubscription, RestApiError> {
+    if sub.usage_filter.is_some() {
+        return Err(usage_filter_replaced());
+    }
     let converted = CreateSubscription {
         subscription: SubscriptionNew {
             plan_version_id: resolved_plan_version_id,
@@ -223,7 +245,7 @@ pub fn rest_to_domain_create_request(
             backdate_invoices: sub.backdate_invoices.unwrap_or(false),
             skip_checkout_session: false,
             skip_past_invoices: sub.skip_past_invoices.unwrap_or(false),
-            usage_filter: sub.usage_filter.map(usage_filter_from_rest).transpose()?,
+            resource_id: sub.resource_id,
             custom_properties: sub.custom_properties.unwrap_or(serde_json::Value::Null),
 
             payment_methods_config: sub.payment_methods_config.map(Into::into),
@@ -305,6 +327,33 @@ pub fn map_add_ons(add_ons: Vec<CreateSubscriptionAddOn>) -> domain::CreateSubsc
     }
 }
 
+pub fn usage_filter_replaced() -> RestApiError {
+    RestApiError::InvalidInput(
+        "`usage_filter` is replaced by `resource_id`: subscribe for a resource of the customer \
+         instead"
+            .to_string(),
+    )
+}
+
+/// `usage_filter: null` asked v1 to bill the whole customer: accepted when that holds already
+/// (or `resource_id: null` asks for it), refused when the subscription stays for a resource.
+pub fn check_usage_filter_update(
+    req: &SubscriptionUpdateRequest,
+    current_resource_id: Option<ResourceId>,
+) -> Result<(), RestApiError> {
+    match (&req.usage_filter, &req.resource_id) {
+        (None, _) | (Some(None), Some(None)) => Ok(()),
+        (Some(Some(_)), _) | (Some(None), Some(Some(_))) => Err(usage_filter_replaced()),
+        (Some(None), None) => match current_resource_id {
+            None => Ok(()),
+            Some(resource_id) => Err(RestApiError::InvalidInput(format!(
+                "`usage_filter` is replaced by `resource_id`: this subscription is for resource \
+                 {resource_id}; send `resource_id: null` to subscribe it for the whole customer"
+            ))),
+        },
+    }
+}
+
 pub fn rest_to_domain_update_request(
     subscription_id: SubscriptionId,
     req: SubscriptionUpdateRequest,
@@ -321,21 +370,7 @@ pub fn rest_to_domain_update_request(
             .purchase_order
             .map(|p| if p.is_empty() { None } else { Some(p) }),
         payment_methods_config: req.payment_methods_config.map(|c| Some(c.into())),
-        usage_filter: req
-            .usage_filter
-            .map(|filter| filter.map(usage_filter_from_rest).transpose())
-            .transpose()?,
+        resource_id: req.resource_id,
         custom_properties: req.custom_properties,
     })
-}
-
-fn usage_filter_to_rest(filter: domain::UsageFilter) -> UsageFilter {
-    UsageFilter {
-        property: filter.property,
-        value: filter.value,
-    }
-}
-
-fn usage_filter_from_rest(filter: UsageFilter) -> Result<domain::UsageFilter, RestApiError> {
-    domain::UsageFilter::new(filter.property, filter.value).map_err(RestApiError::from)
 }

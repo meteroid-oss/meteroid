@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package meteroid.api.resources.v1;
+
+// What a customer has several of (sites, workspaces), one level below the customer.
+message ResourceType {
+  string id = 1;
+  // Immutable: conditions name attributes as `<code>.<attribute>`.
+  string code = 2;
+  string name = 3;
+  string plural_name = 4;
+  // Always unset: every type sits directly below the customer.
+  optional string parent_type_id = 5;
+  // Canonical first, then aliases; unique across the tenant's types, archived ones included.
+  repeated string keys = 6;
+  map<string, AttributeValues> attributes = 7;
+  // Archived types still resolve in checks, but take no new resources or entitlement rows.
+  bool archived = 8;
+  // RFC 3339.
+  string created_at = 9;
+}
+
+// An attribute's closed list of values.
+message AttributeValues {
+  repeated string values = 1;
+}
+
+message KeyList {
+  repeated string keys = 1;
+}
+
+message AttributeMap {
+  map<string, AttributeValues> attributes = 1;
+}
+
+message Resource {
+  string id = 1;
+  string customer_id = 2;
+  string resource_type_id = 3;
+  string key_value = 4;
+  optional string name = 5;
+  // Without the type code.
+  map<string, string> attributes = 6;
+  bool archived = 7;
+}

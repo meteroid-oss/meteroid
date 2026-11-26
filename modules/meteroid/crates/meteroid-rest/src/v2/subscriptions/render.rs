@@ -4,19 +4,21 @@
 use super::model::{
     AddOnRef, AmendmentSummary, AppliedCoupon, Cancellation, ChargeOrigin, CouponRef,
     CurrentPeriod, CustomerRef, Dates, Document, DocumentType, Invoicing, Money, PendingQuantity,
-    PlanRef, QuantityState, ScheduledChange, ScheduledChangeType, SubscribedAddOn, Subscription,
-    SubscriptionCharge, SubscriptionStatus, TrialState, UsageFilter,
+    PlanRef, QuantityState, ResourceRef, ScheduledChange, ScheduledChangeType, SubscribedAddOn,
+    Subscription, SubscriptionCharge, SubscriptionStatus, TrialState,
 };
 use crate::AppState;
 use crate::v2::charges::{OptionSet, StoredCharge, StoredPrice, render};
+use crate::v2::customers::resources::resource_refs;
 use crate::v2::documents::{self, ProductCodes};
+use crate::v2::entitlements::model::{Codes, Entitlement};
 use crate::v2::plans::Minimum;
 use crate::v2::problem::Problem;
 use crate::v2::references::CatalogNames;
 use chrono::{DateTime, Utc};
 use common_domain::ids::{
-    AddOnId, BaseId, ManagedQuantityId, PlanId, PlanOptionId, PlanVersionId, ProductId,
-    SubscriptionId, TenantId,
+    AddOnId, BaseId, EntitlementEntityId, ManagedQuantityId, PlanId, PlanOptionId, PlanVersionId,
+    ProductId, ResourceId, SubscriptionId, TenantId,
 };
 use meteroid_store::domain::credit_units::PriceCreditUnit;
 use meteroid_store::domain::enums::{
@@ -34,6 +36,7 @@ use meteroid_store::domain::{
     SubscriptionFee,
 };
 use meteroid_store::repositories::add_ons::AddOnInterfaceAuto;
+use meteroid_store::repositories::entitlements::EntitlementsInterface;
 use meteroid_store::repositories::plan_options::PlanOptionInterface;
 use meteroid_store::repositories::plans::PlansInterfaceAuto;
 use meteroid_store::repositories::products::ProductInterface;
@@ -41,7 +44,8 @@ use meteroid_store::repositories::subscription_pages::ListedSubscription;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
 use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
 use meteroid_store::repositories::{
-    CatalogCodesInterface, ManagedQuantitiesInterface, SubscriptionPagesInterface,
+    CatalogCodesInterface, ManagedQuantitiesInterface, SubscriptionInterface,
+    SubscriptionPagesInterface,
 };
 use meteroid_store::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
 use rust_decimal::Decimal;
@@ -380,6 +384,7 @@ pub fn base(
     external_id: Option<String>,
     updated_at: DateTime<Utc>,
     plan: PlanRef,
+    resource: Option<ResourceRef>,
 ) -> Subscription {
     Subscription {
         id: sub.id,
@@ -427,11 +432,10 @@ pub fn base(
             currency: sub.currency.clone(),
         },
         tax_inclusive: sub.tax_inclusive,
-        usage_filter: sub.usage_filter.as_ref().map(|filter| UsageFilter {
-            property: filter.property.clone(),
-            value: filter.value.clone(),
-            effective_from: sub.usage_filter_since.map(Into::into),
-        }),
+        resource,
+        entitlement_overrides: None,
+        warnings: Vec::new(),
+        metrics_not_attributed: Vec::new(),
         invoicing: Invoicing {
             net_terms: sub.net_terms,
             purchase_order: sub.purchase_order.clone(),
@@ -443,6 +447,48 @@ pub fn base(
         created_at: sub.created_at.into(),
         updated_at: updated_at.into(),
     }
+}
+
+/// The subscription's resource as read; by its id alone when it was deleted since (a
+/// subscription keeps naming it).
+fn resource_of(
+    sub: &DomainSubscription,
+    resources: &HashMap<ResourceId, ResourceRef>,
+) -> Option<ResourceRef> {
+    let id = sub.resource_id?;
+    Some(
+        resources
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| ResourceRef::of_id(id)),
+    )
+}
+
+/// The subscription's own open rows, canonical: by feature code, level, resource type and
+/// condition.
+pub async fn entitlement_overrides(
+    state: &AppState,
+    tenant_id: TenantId,
+    id: SubscriptionId,
+) -> Result<Vec<Entitlement>, Problem> {
+    let rows = state
+        .store
+        .list_entitlements_by_entity(EntitlementEntityId::Subscription(id), tenant_id)
+        .await?;
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+    let codes = Codes::of_rows(state, tenant_id, &rows).await?;
+    let mut read: Vec<Entitlement> = rows.into_iter().map(|row| codes.entitlement(row)).collect();
+    read.sort_by_cached_key(|row| {
+        (
+            row.feature.clone(),
+            serde_json::to_string(&row.level).unwrap_or_default(),
+            row.resource_type.clone(),
+            serde_json::to_string(&row.condition).unwrap_or_default(),
+        )
+    });
+    Ok(read)
 }
 
 pub async fn plan_code(
@@ -472,6 +518,12 @@ pub async fn summaries(
     plan_ids.sort_by_key(|id| id.as_uuid());
     plan_ids.dedup();
     let codes = state.store.plan_codes(tenant_id, &plan_ids).await?;
+    let resources = resource_refs(
+        state,
+        tenant_id,
+        listed.iter().filter_map(|l| l.subscription.resource_id),
+    )
+    .await?;
     let mut options: HashMap<PlanVersionId, HashMap<PlanOptionId, String>> = HashMap::new();
     for item in &listed {
         let version = item.subscription.plan_version_id;
@@ -503,7 +555,14 @@ pub async fn summaries(
                         .and_then(|aliases| aliases.get(&option).cloned())
                 }),
             };
-            base(sub, item.external_id.clone(), item.updated_at, plan)
+            let resource = resource_of(sub, &resources);
+            base(
+                sub,
+                item.external_id.clone(),
+                item.updated_at,
+                plan,
+                resource,
+            )
         })
         .collect())
 }
@@ -539,7 +598,18 @@ pub async fn detailed(
     details: &SubscriptionDetails,
 ) -> Result<Subscription, Problem> {
     let level_products = level_products(state, tenant_id, details).await?;
-    read_whole(state, tenant_id, listed, details, &level_products).await
+    let warnings = state
+        .store
+        .get_subscription_warnings(tenant_id, details.subscription.id)
+        .await?;
+    let mut out = read_whole(state, tenant_id, listed, details, &level_products).await?;
+    out.warnings = warnings.codes;
+    out.metrics_not_attributed = warnings
+        .metrics_not_attributed
+        .into_iter()
+        .map(|m| m.catalog_code)
+        .collect();
+    Ok(out)
 }
 
 /// The products the subscription's usage-levels charges bill; none when its levels cannot be
@@ -614,7 +684,10 @@ async fn read_whole(
         version: Some(version_number(sub.version)),
         option: details.plan_option.as_ref().map(|o| o.alias.clone()),
     };
-    let mut out = base(sub, listed.external_id, listed.updated_at, plan);
+    let resources = resource_refs(state, tenant_id, sub.resource_id).await?;
+    let resource = resource_of(sub, &resources);
+    let mut out = base(sub, listed.external_id, listed.updated_at, plan, resource);
+    out.entitlement_overrides = Some(entitlement_overrides(state, tenant_id, sub.id).await?);
     if let Some(trial) = &details.trial_config {
         out.trial = Some(TrialState {
             days: trial.duration_days,

@@ -158,6 +158,7 @@ pub async fn create_metric(
         .insert_billable_metric(
             authorized_state.as_actor(),
             domain::BillableMetricNew {
+                attributed_to: payload.attributed_to.into(),
                 name: payload.name,
                 description: payload.description,
                 code: payload.code,
@@ -202,6 +203,7 @@ pub async fn create_metric(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 403, description = "Usage breakdowns are not enabled for this organization: setting or changing a breakdown key is refused", body = RestErrorResponse),
         (status = 404, description = "Metric not found", body = RestErrorResponse),
+        (status = 409, description = "A subscription for a resource has invoiced the metric: its attribution is fixed", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -259,12 +261,13 @@ pub async fn update_metric(
     }
 
     let metric = app_state
-        .store
+        .services
         .update_billable_metric(
             authorized_state.as_actor(),
             metric_id,
             authorized_state.tenant_id,
             domain::BillableMetricUpdate {
+                attributed_to: payload.attributed_to.map(Into::into),
                 name: payload.name,
                 description: payload.description,
                 unit_conversion_factor,
@@ -282,6 +285,42 @@ pub async fn update_metric(
         })?;
 
     Ok(Json(mapping::metric_to_rest(metric)))
+}
+
+/// Preview a metric's attribution
+///
+/// Where the last 7 days of usage would go under `attributed_to`, sampled over 20 customers.
+#[utoipa::path(
+    post,
+    tag = "Metrics",
+    path = "/api/v1/metrics/{metric_id}/attribution-preview",
+    params(("metric_id" = BillableMetricId, Path, description = "Metric ID")),
+    request_body = AttributionPreviewRequest,
+    responses(
+        (status = 200, description = "Attribution coverage", body = AttributionPreview),
+        (status = 400, description = "Invalid attribution", body = RestErrorResponse),
+        (status = 401, description = "Unauthorized", body = RestErrorResponse),
+        (status = 404, description = "Metric not found", body = RestErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+#[axum::debug_handler]
+pub async fn preview_metric_attribution(
+    Extension(authorized_state): Extension<AuthorizedAsTenant>,
+    State(app_state): State<AppState>,
+    ApiPath(metric_id): ApiPath<BillableMetricId>,
+    ApiJson(payload): ApiJson<AttributionPreviewRequest>,
+) -> Result<impl IntoResponse, RestApiError> {
+    let preview = app_state
+        .services
+        .preview_metric_attribution(
+            authorized_state.tenant_id,
+            metric_id,
+            payload.attributed_to.into(),
+        )
+        .await
+        .map_err(RestApiError::from)?;
+    Ok(Json(mapping::preview_to_rest(preview)))
 }
 
 // ── Archive / Unarchive ────────────────────────────────────────

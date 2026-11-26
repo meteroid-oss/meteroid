@@ -11,7 +11,7 @@ use rstest::rstest;
 
 use meteroid_store::domain::accounting::{ProductAccounting, TaxRate, TaxRateNew};
 use meteroid_store::domain::coupons::CouponStatusPatch;
-use meteroid_store::domain::entitlements::{FeatureNew, FeatureType, FeatureUpdate};
+use meteroid_store::domain::entitlements::{FeatureKind, FeatureNew, FeatureUpdate};
 use meteroid_store::domain::enums::{CustomerType, QuoteStatusEnum, TenantEnvironmentEnum};
 use meteroid_store::domain::quotes::QuoteNew;
 use meteroid_store::domain::tenants::TenantNew;
@@ -213,6 +213,7 @@ fn quote_new(tenant_id: TenantId, customer_id: CustomerId) -> QuoteNew {
         pdf_document_id: None,
         sharing_key: None,
         recipients: vec![],
+        resource_id: None,
         auto_advance_invoices: true,
         charge_automatically: false,
         invoice_memo: None,
@@ -321,8 +322,11 @@ async fn test_feature_rejects_product_of_other_tenant(#[future] test_env: TestEn
         name: "Feature".to_string(),
         code: "feature".to_string(),
         description: None,
-        feature_type: FeatureType::Boolean,
-        entitlement: None,
+        kind: FeatureKind::Boolean,
+        unit: None,
+        level_type_id: None,
+        policy: None,
+        default: None,
     };
 
     let res = store
@@ -342,10 +346,8 @@ async fn test_feature_rejects_product_of_other_tenant(#[future] test_env: TestEn
             created.id,
             other,
             FeatureUpdate {
-                name: None,
-                description: None,
                 product_id: Some(Some(PRODUCT_SEATS_ID)),
-                config_options: None,
+                ..Default::default()
             },
         )
         .await;

@@ -1,7 +1,5 @@
 import { Badge, Tooltip, TooltipContent, TooltipTrigger } from '@md/ui'
 
-import { parseThresholds } from '@/features/thresholds/thresholds'
-
 import {
   limitAlertsLabel,
   limitBehaviorHelp,
@@ -10,7 +8,6 @@ import {
   limitTermsOf,
 } from './utils'
 
-import type { PendingEntitlementSpec } from './creation/types'
 import type { LimitTerms } from './utils'
 import type { EffectiveEntitlement, ResolvedEntitlement } from '@/rpc/api/entitlements/v1/models_pb'
 
@@ -18,35 +15,7 @@ export const termsOfValue = (
   value: ResolvedEntitlement['value'] | EffectiveEntitlement['value']
 ): LimitTerms | undefined => (value.case === 'metered' ? limitTermsOf(value.value) : undefined)
 
-export const termsOfSpec = (spec: PendingEntitlementSpec): LimitTerms | undefined => {
-  if (spec.featureType !== 'metered') return undefined
-  const grace = Number(spec.gracePct?.trim())
-  return {
-    limit: spec.limit?.trim() || undefined,
-    groupBy: spec.groupBy?.trim() || undefined,
-    overage: spec.overageType === 'allow' ? 'allow' : 'block',
-    gracePct: Number.isInteger(grace) && grace > 0 ? grace : undefined,
-    thresholds: specThresholds(spec.thresholds),
-  }
-}
-
-const specThresholds = (text: string | undefined): number[] => {
-  try {
-    return parseThresholds(text ?? '')
-  } catch {
-    return []
-  }
-}
-
 /** What a metered limit does once reached, and the property it applies per; nothing otherwise. */
-/** The terms as lower-case words for a line of text: "soft limit", "alerts at 80%". */
-export const limitTermsLabels = (terms?: LimitTerms): string[] =>
-  terms
-    ? [limitBehaviorLabel(terms), limitGroupLabel(terms), limitAlertsLabel(terms)]
-        .filter((label): label is string => !!label)
-        .map(label => label.charAt(0).toLowerCase() + label.slice(1))
-    : []
-
 export const LimitTermsBadges = ({ terms }: { terms?: LimitTerms }) => {
   if (!terms) return null
   const behavior = limitBehaviorLabel(terms)

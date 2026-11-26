@@ -196,7 +196,8 @@ pub struct UnattributedMetricUsage {
     pub to: ApiDateTime,
     #[schema(value_type = String, format = "decimal")]
     pub quantity: Decimal,
-    /// The subscriptions pricing the metric then, whose usage filters leave it out.
+    /// The subscriptions for a resource pricing the metric then, none of whose resources the
+    /// usage is attributed to.
     pub subscriptions: Vec<SubscriptionRef>,
 }
 
@@ -796,8 +797,8 @@ pub async fn list_customer_usage_events(
 
 /// Get a customer's unattributed usage
 ///
-/// Its usage no subscription bills: where the subscriptions pricing a metric all have a usage
-/// filter, the events matching none of them.
+/// Its usage no subscription bills: while only subscriptions for resources price a metric (none
+/// for the customer itself), the events attributed to none of their resources.
 #[utoipa::path(
     get,
     tag = "Customers",
@@ -981,8 +982,8 @@ pub async fn get_subscription_usage(
 
 /// Get a subscription's usage costs
 ///
-/// As a customer's, counting only the events the subscription bills (its usage filter) and only
-/// its own billing periods. At most 93 days.
+/// As a customer's, counting only the events the subscription bills (for a subscription for a
+/// resource, those attributed to it) and only its own billing periods. At most 93 days.
 #[utoipa::path(
     get,
     tag = "Subscriptions",

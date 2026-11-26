@@ -292,7 +292,7 @@ fn map_to_domain(
             backdate_invoices: csv.backdate_invoices.unwrap_or(false),
             skip_checkout_session: false,
             skip_past_invoices: csv.skip_past_invoices,
-            usage_filter: None,
+            resource_id: None,
             custom_properties: csv.custom_properties,
             external_id: None,
         },

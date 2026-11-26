@@ -90,6 +90,7 @@ fn metered(rollup: &&Rollup) -> bool {
 
 fn segmented_metric(name: &str, aggregation_type: BillingMetricAggregateEnum) -> BillableMetricNew {
     BillableMetricNew {
+        attributed_to: None,
         name: name.to_owned(),
         description: None,
         code: CODE.to_owned(),

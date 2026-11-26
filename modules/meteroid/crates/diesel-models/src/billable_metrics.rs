@@ -2,7 +2,7 @@ use chrono::NaiveDateTime;
 
 use crate::enums::{BillingMetricAggregateEnum, UnitConversionRoundingEnum};
 
-use common_domain::ids::{BillableMetricId, ProductFamilyId, ProductId, TenantId};
+use common_domain::ids::{BillableMetricId, ProductFamilyId, ProductId, ResourceTypeId, TenantId};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Debug, Identifiable, Queryable, Selectable)]
@@ -32,6 +32,10 @@ pub struct BillableMetricRow {
     /// The code API v2 names the metric by, unique per tenant and immutable; `code` is the one its
     /// usage events carry, which several metrics may share (ADR-0013).
     pub catalog_code: String,
+    /// `None`: attributed to the customer only.
+    pub attributed_to_type_id: Option<ResourceTypeId>,
+    /// `None`: the first of the type's keys present on the event.
+    pub attribution_property: Option<String>,
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -57,6 +61,8 @@ pub struct BillableMetricRowNew {
     pub product_id: Option<ProductId>,
     /// Filled from the event code, unique in the tenant, when none.
     pub catalog_code: Option<String>,
+    pub attributed_to_type_id: Option<ResourceTypeId>,
+    pub attribution_property: Option<String>,
 }
 
 #[derive(Debug, Identifiable, Queryable, Selectable)]
@@ -76,6 +82,8 @@ pub struct BillableMetricMetaRow {
     pub unit_plural: Option<String>,
     pub created_at: NaiveDateTime,
     pub archived_at: Option<NaiveDateTime>,
+    pub attributed_to_type_id: Option<ResourceTypeId>,
+    pub attribution_property: Option<String>,
 }
 
 #[derive(Debug, Clone, diesel::AsChangeset)]
@@ -92,4 +100,6 @@ pub struct BillableMetricRowPatch {
     pub unit_plural: Option<Option<String>>,
     pub usage_breakdown_key: Option<Option<String>>,
     pub updated_at: Option<NaiveDateTime>,
+    pub attributed_to_type_id: Option<Option<ResourceTypeId>>,
+    pub attribution_property: Option<Option<String>>,
 }

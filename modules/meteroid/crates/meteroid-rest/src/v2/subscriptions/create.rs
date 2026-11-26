@@ -11,6 +11,8 @@ use super::resolve::{
 };
 use crate::AppState;
 use crate::v2::bounds;
+use crate::v2::customers::resources::stored_resource_id;
+use crate::v2::entitlements::model::{EntitlementInput, granted_feature, spec_of};
 use crate::v2::extract::Body;
 use crate::v2::idempotency::committed_write;
 use crate::v2::ids;
@@ -18,10 +20,12 @@ use crate::v2::problem::{FieldError, Problem, ProblemCode, store_message};
 use axum::Extension;
 use axum::extract::State;
 use axum::response::Response;
-use common_domain::ids::{CouponId, ManagedQuantityId};
+use common_domain::ids::{CouponId, ManagedQuantityId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::{HeaderMap, StatusCode};
 use meteroid_app::features::ensure_credit_pricing_allowed;
+use meteroid_store::domain::entitlement_fold::Tier;
+use meteroid_store::domain::entitlements::EntitlementSpec;
 use meteroid_store::domain::enums::BillingPeriodEnum;
 use meteroid_store::domain::plan_options::{PlanOption, PlanOptionRef};
 use meteroid_store::domain::price_cells::OptionPricing;
@@ -39,9 +43,10 @@ use meteroid_store::domain::{
 };
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::CatalogCodesInterface;
+use meteroid_store::repositories::ResourcesInterface;
 use meteroid_store::repositories::add_ons::AddOnInterface;
 use meteroid_store::repositories::coupons::CouponInterface;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// The integrator's id, checked free and unlike an id.
 async fn external_id(
@@ -80,6 +85,50 @@ async fn external_id(
     }
 }
 
+/// A subscription's own rows (the subscription tier), each checked at `pointer/<i>`; two rows of
+/// one feature, level and condition are refused.
+pub(crate) async fn override_specs(
+    state: &AppState,
+    tenant_id: TenantId,
+    inputs: &[EntitlementInput],
+    pointer: &str,
+) -> Result<Vec<EntitlementSpec>, Problem> {
+    bounds::count(
+        inputs.len(),
+        bounds::MAX_ENTITLEMENTS,
+        pointer,
+        "entitlements",
+    )?;
+    if inputs.is_empty() {
+        return Ok(Vec::new());
+    }
+    let types = state.store.list_resource_types(tenant_id, true).await?;
+    let mut keys = HashSet::new();
+    let mut specs = Vec::with_capacity(inputs.len());
+    for (index, input) in inputs.iter().enumerate() {
+        let at = format!("{pointer}/{index}");
+        let feature =
+            granted_feature(state, tenant_id, &input.feature, &format!("{at}/feature")).await?;
+        let spec = spec_of(input, &feature, &types, Tier::Subscription, false, &at)?;
+        let key = (
+            spec.feature_id,
+            format!("{:?}", spec.level),
+            spec.condition
+                .as_ref()
+                .map(|condition| serde_json::to_string(&condition.0).unwrap_or_default()),
+        );
+        if !keys.insert(key) {
+            return Err(Problem::field(
+                format!("{at}/feature"),
+                "duplicate",
+                "Another row has the same feature, level and condition",
+            ));
+        }
+        specs.push(spec);
+    }
+    Ok(specs)
+}
+
 fn taken(external_id: &str) -> Problem {
     let mut problem = Problem::conflict(
         ProblemCode::CodeTaken,
@@ -109,7 +158,7 @@ fn taken(external_id: &str) -> Problem {
         (status = 201, description = "Created", body = Subscription),
         (status = 404, description = "The customer is not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The external id is taken (`code_taken`)", body = Problem, content_type = "application/problem+json"),
-        (status = 422, description = "A field is refused: an unknown option, a quantity no seat charge counts, a level the charge does not sell…; or no Idempotency-Key was sent", body = Problem, content_type = "application/problem+json"),
+        (status = 422, description = "A field is refused: an unknown option, a quantity no seat charge counts, a level the charge does not sell, a resource not the customer's or sold to another subscription over the term…; or no Idempotency-Key was sent", body = Problem, content_type = "application/problem+json"),
     ),
     security(("bearer_auth" = []))
 )]
@@ -134,6 +183,19 @@ pub async fn create_subscription(
             "customer",
             &body.customer,
         ))?;
+    let resource_id = match &body.resource {
+        Some(name) => {
+            Some(stored_resource_id(&state, tenant_id, customer.id, name, "/resource").await?)
+        }
+        None => None,
+    };
+    let entitlements = override_specs(
+        &state,
+        tenant_id,
+        &body.entitlement_overrides,
+        "/entitlement_overrides",
+    )
+    .await?;
     let purchase = resolve_purchase(
         &state,
         &auth,
@@ -175,7 +237,8 @@ pub async fn create_subscription(
             skip_checkout_session: false,
             skip_past_invoices: false,
             custom_properties: body.custom_properties.unwrap_or(serde_json::Value::Null),
-            usage_filter: None,
+            // Checked under the customer's lock: the customer's own, live, unsold over the term.
+            resource_id,
             // Written with the row: a create racing another on it fails whole.
             external_id: external_id.clone(),
         },
@@ -195,7 +258,8 @@ pub async fn create_subscription(
                 .map(|coupon_id| CreateSubscriptionCoupon { coupon_id })
                 .collect(),
         }),
-        entitlements: Vec::new(),
+        // Written in the subscription's own transaction.
+        entitlements,
         minimum_override: None,
         drop_minimum: false,
     };
@@ -213,6 +277,12 @@ pub async fn create_subscription(
     // Written: a retry replays this answer, never a second subscription, whatever is read back.
     // Whole, else as lists read it, else by its id alone.
     let id = created.id;
+    let warnings = created.warnings;
+    let metrics_not_attributed: Vec<String> = created
+        .metrics_not_attributed
+        .into_iter()
+        .map(|m| m.catalog_code)
+        .collect();
     let read = match render::subscription(&state, tenant_id, id).await {
         Ok(subscription) => Ok(subscription),
         Err(problem) => {
@@ -221,7 +291,12 @@ pub async fn create_subscription(
             );
             render::summary(&state, tenant_id, id).await
         }
-    };
+    }
+    .map(|subscription| Subscription {
+        warnings,
+        metrics_not_attributed,
+        ..subscription
+    });
     Ok(committed_write(
         StatusCode::CREATED,
         read,
@@ -573,5 +648,5 @@ async fn insert_refused(
     {
         return taken(external_id);
     }
-    error.into()
+    Problem::resource_or(None, error)
 }

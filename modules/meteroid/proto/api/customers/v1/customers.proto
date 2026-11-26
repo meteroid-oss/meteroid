@@ -108,6 +108,10 @@ message SyncToPennylaneResponse {
 
 message GenerateCustomerPortalTokenRequest {
   string customer_id = 1;
+  // Client claims: at most one resource the token may name, by any of its type's keys.
+  map<string, string> resources = 2;
+  // `<type code>.<attribute>` the token may assert.
+  map<string, string> attributes = 3;
 }
 
 message GenerateCustomerPortalTokenResponse {

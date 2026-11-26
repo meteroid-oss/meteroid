@@ -45,6 +45,7 @@ pub mod products;
 pub mod rate_cards;
 pub mod references;
 pub mod refs;
+pub mod resource_types;
 pub mod subscriptions;
 pub mod usage;
 pub mod version;
@@ -61,6 +62,8 @@ fn resource_routes() -> Vec<(&'static str, OpenApiRouter<AppState>)> {
         ("rate_cards", rate_cards::routes()),
         ("add_ons", add_ons::routes()),
         ("features", features::routes()),
+        ("entitlements", entitlements::routes()),
+        ("resource_types", resource_types::routes()),
         ("coupons", coupons::routes()),
         ("credit_units", credit_units::routes()),
         ("pricing_pages", pricing_pages::routes()),
@@ -139,12 +142,14 @@ pub fn api_v2_routes() -> OpenApiRouter<AppState> {
         (name = "Metrics", description = "What usage is measured by: the usage events of an event code, aggregated. Several metrics may read one event code, each its own way."),
         (name = "Rate cards", description = "Dated rates of a metric's usage by its dimensions, and their history."),
         (name = "Add-ons", description = "A charge sold beside a plan."),
-        (name = "Features", description = "What a customer may use (a flag, a usage cap, a setting), granted by plan versions, add-ons and products."),
+        (name = "Features", description = "What a customer may use (a flag, a limit, a value), its policy and the level it applies per, granted by its defaults, plan versions, add-ons, products, subscriptions and customer overrides."),
+        (name = "Entitlements", description = "Any row giving a feature a value, whoever it belongs to, and its history: an edit keeps the row's id and adds a version."),
+        (name = "Resources", description = "What a customer has several of (sites, workspaces): types with identifying keys and attributes, one level below the customer. A customer's stored resources are under `/customers/{id_or_alias}/resources`."),
         (name = "Coupons", description = "Discounts and promotional credit redeemed by code: what they take off, for how long, with which plans and add-ons, and who may redeem them."),
         (name = "Credit units", description = "Denominations usage is priced and credit granted in instead of money, each with its selling price per currency."),
         (name = "Pricing pages", description = "A product family's pricing page, priced in one currency and option."),
         (name = "Subscriptions", description = "A customer on a plan: its seats, levels, charges and add-ons, changed now or at the period's end, each change previewed first; its entitlements and usage."),
-        (name = "Customers", description = "Who is billed: named by id or by alias (`ext:<alias>`), with their addresses, tax and invoicing settings and portal token, and what is theirs under the customer's path: entitlements, credit per currency or credit unit (wallets, grants, the ledger, top-ups), usage, and budgets in the Enterprise edition."),
+        (name = "Customers", description = "Who is billed: named by id or by alias (`ext:<alias>`), with their addresses, tax and invoicing settings and portal token, and what is theirs under the customer's path: what they may use (the snapshot, the check, usage counted by your app, overrides), their resources, credit per currency or credit unit (wallets, grants, the ledger, top-ups), usage, and budgets in the Enterprise edition."),
         (name = "Custom properties", description = "The properties a tenant defines on its customers, subscriptions, invoices, credit notes and quotes, which their `custom_properties` are checked against."),
         (name = "Invoices", description = "What a customer is billed: drafts priced as usage comes in, then issued, paid, voided or written off."),
         (name = "Credit notes", description = "What an invoice gives back: to the customer's balance, in money, or as debt cancelled."),
@@ -229,14 +234,14 @@ pub fn spec_json(openapi: &utoipa::openapi::OpenApi) -> serde_json::Value {
 }
 
 /// The v2 document of an edition as published and served: [`spec_json`], with v1's webhook
-/// payloads (`document::attach_v1_webhooks`).
+/// payloads (`document::attach_v1_webhooks`), the entitlement alerts v1 keeps beta included.
 pub fn published_spec_json(
     openapi: &utoipa::openapi::OpenApi,
     edition: &EditionSpec,
 ) -> serde_json::Value {
     let mut value = spec_json(openapi);
     if let Some(root) = value.as_object_mut() {
-        document::attach_v1_webhooks(root, &crate::openapi::published_spec_root(edition));
+        document::attach_v1_webhooks(root, &crate::openapi::v2_webhooks_root(edition));
     }
     value
 }

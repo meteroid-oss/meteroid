@@ -874,6 +874,7 @@ async fn a_new_subscription_checkout_quote_is_what_its_first_invoice_bills(
     let session = env
         .store()
         .create_checkout_session(CreateCheckoutSession {
+            resource_id: None,
             tenant_id: TENANT_ID,
             customer_id: CUST_UBER_ID,
             plan_version_id: PLAN_VERSION_1_LEETCODE_ID,

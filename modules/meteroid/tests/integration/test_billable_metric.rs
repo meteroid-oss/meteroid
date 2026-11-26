@@ -44,6 +44,7 @@ async fn test_billable_metrics_basic() {
         .metrics
         .clone()
         .create_billable_metric(api::billablemetrics::v1::CreateBillableMetricRequest {
+            attributed_to: None,
             name: metric_name.to_string(),
             code: metric_code.to_string(),
             description: None,

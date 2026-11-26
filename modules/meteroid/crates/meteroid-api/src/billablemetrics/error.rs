@@ -18,6 +18,10 @@ pub enum BillableMetricApiError {
     #[code(Internal)]
     MappingError(String, #[source] prost::DecodeError),
 
+    #[error("{0}")]
+    #[code(FailedPrecondition)]
+    FailedPrecondition(String),
+
     #[error("Store error: {0}")]
     #[code(Internal)]
     StoreError(String, #[source] Box<dyn Error>),
@@ -27,6 +31,7 @@ impl From<Report<StoreError>> for BillableMetricApiError {
     fn from(err: Report<StoreError>) -> Self {
         match err.current_context() {
             StoreError::InvalidArgument(msg) => Self::InvalidArgument(msg.clone()),
+            StoreError::FailedPrecondition(msg) => Self::FailedPrecondition(msg.clone()),
             _ => Self::StoreError(
                 "Error in billable metric service".to_string(),
                 Box::new(err.into_error()),

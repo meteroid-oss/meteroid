@@ -1,19 +1,22 @@
 import {
-  Badge,
+  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@md/ui'
 import { UseQueryResult } from '@tanstack/react-query'
-import { ColumnDef, OnChangeFn, PaginationState, SortingState } from '@tanstack/react-table'
-import { ArchiveIcon, ArchiveRestoreIcon, MoreVertical, PowerIcon } from 'lucide-react'
+import { ColumnDef, PaginationState } from '@tanstack/react-table'
+import { ArchiveIcon, ArchiveRestoreIcon, MoreVerticalIcon, PencilIcon, PowerIcon } from 'lucide-react'
 import { useMemo } from 'react'
+import { useNavigate } from 'react-router'
 
 import { Gate } from '@/components/Gate'
-import { StandardTable } from '@/components/table/StandardTable'
+import { RowGroup, StandardTable } from '@/components/table/StandardTable'
 import { FeatureStatusBadge } from '@/features/entitlements/features/FeatureStatusBadge'
-import { entitlementValueLabel, featureKindFromProto, featureTypeLabel } from '@/features/entitlements/utils'
+import { KindCell } from '@/features/entitlements/features/featureKind'
+import { appliesPerLabel } from '@/features/entitlements/model'
+import { useResourceTypes } from '@/features/resources/hooks'
 import { ListFeaturesResponse } from '@/rpc/api/entitlements/v1/entitlements_pb'
 import { Feature, FeatureStatus } from '@/rpc/api/entitlements/v1/models_pb'
 import { parseAndFormatDate } from '@/utils/date'
@@ -22,85 +25,84 @@ interface Props {
   query: UseQueryResult<ListFeaturesResponse>
   pagination: PaginationState
   setPagination: React.Dispatch<React.SetStateAction<PaginationState>>
-  sorting?: SortingState
-  onSortingChange?: OnChangeFn<SortingState>
   onAction: (feature: Feature, target: FeatureStatus) => void
+  groupByProduct: boolean
 }
+
+const productKey = (feature: Feature) => feature.product?.id ?? ''
 
 export const FeaturesTable = ({
   query,
   pagination,
   setPagination,
-  sorting,
-  onSortingChange,
   onAction,
+  groupByProduct,
 }: Props) => {
+  const navigate = useNavigate()
+  const { byId: typesById, hasTypes } = useResourceTypes()
+  const features = query.data?.features
+
+  const groupBy = useMemo(() => {
+    if (!groupByProduct) return undefined
+    const pageCounts = new Map<string, number>()
+    for (const f of features ?? []) {
+      pageCounts.set(productKey(f), (pageCounts.get(productKey(f)) ?? 0) + 1)
+    }
+    return (f: Feature): RowGroup => ({
+      key: productKey(f),
+      label: `${f.product?.name ?? 'All products'} · ${pageCounts.get(productKey(f)) ?? 0}`,
+    })
+  }, [features, groupByProduct])
+
   const columns = useMemo<ColumnDef<Feature>[]>(
     () => [
       {
         id: 'name',
         header: 'Name',
-        enableSorting: true,
         cell: ({ row }) => (
-          <div>
-            <span className="font-medium">{row.original.name}</span>
-            {row.original.description && (
-              <span className="block text-xs text-muted-foreground truncate max-w-xs">
-                {row.original.description}
-              </span>
-            )}
+          <div className="flex min-w-0 flex-col">
+            <span className="truncate text-sm font-medium">{row.original.name}</span>
+            <span className="truncate font-mono text-xs text-muted-foreground">{row.original.code}</span>
           </div>
         ),
       },
       {
-        id: 'code',
-        header: 'Code',
-        enableSorting: false,
-        cell: ({ row }) => (
-          <span className="font-mono text-xs text-muted-foreground">{row.original.code}</span>
-        ),
+        id: 'kind',
+        header: 'Kind',
+        cell: ({ row }) => <KindCell feature={row.original} />,
       },
-      {
-        id: 'product',
-        header: 'Product',
-        enableSorting: false,
-        cell: ({ row }) => (
-          <span className="text-sm text-muted-foreground">
-            {row.original.product?.name ?? '—'}
-          </span>
-        ),
-      },
-      {
-        id: 'type',
-        header: 'Type',
-        enableSorting: false,
-        cell: ({ row }) => (
-          <Badge variant="secondary">{featureTypeLabel(featureKindFromProto(row.original.featureType))}</Badge>
-        ),
-      },
-      {
-        id: 'default',
-        header: 'Default',
-        enableSorting: false,
-        cell: ({ row }) => {
-          const value = row.original.entitlement?.value?.value
-          return (
-            <span className="block max-w-[220px] truncate text-sm text-muted-foreground">
-              {value ? entitlementValueLabel(value) : '—'}
-            </span>
-          )
-        },
-      },
+      ...(hasTypes
+        ? [
+            {
+              id: 'appliesPer',
+              header: 'Applies per',
+              cell: ({ row }) => (
+                <span className="text-sm">{appliesPerLabel(row.original, typesById)}</span>
+              ),
+            } satisfies ColumnDef<Feature>,
+          ]
+        : []),
+      ...(groupByProduct
+        ? []
+        : [
+            {
+              id: 'product',
+              header: 'Product',
+              cell: ({ row }) => (
+                <span className="text-sm text-muted-foreground">
+                  {row.original.product?.name ?? '—'}
+                </span>
+              ),
+            } satisfies ColumnDef<Feature>,
+          ]),
       {
         id: 'status',
         header: 'Status',
-        enableSorting: false,
         cell: ({ row }) => <FeatureStatusBadge status={row.original.status} />,
       },
       {
         id: 'created_at',
         header: 'Created',
-        enableSorting: true,
         cell: ({ row }) => (
           <span className="text-sm text-muted-foreground">
             {parseAndFormatDate(row.original.createdAt)}
@@ -110,38 +112,52 @@ export const FeaturesTable = ({
       {
         id: 'actions',
         header: '',
-        enableSorting: false,
         meta: { skipLink: true },
         cell: ({ row }) => {
           const f = row.original
+          const archived = f.status === FeatureStatus.ARCHIVED
           return (
             <Gate perm="catalog:manage">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button
-                    className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    aria-label="Actions"
                     onClick={e => e.stopPropagation()}
                   >
-                    <MoreVertical size={14} />
-                  </button>
+                    <MoreVerticalIcon size={16} />
+                  </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" onClick={e => e.stopPropagation()}>
-                  {f.status === FeatureStatus.ARCHIVED ? (
+                  {archived ? (
                     <DropdownMenuItem onClick={() => onAction(f, FeatureStatus.ACTIVE)}>
-                      <ArchiveRestoreIcon size={14} className="mr-2" /> Unarchive
+                      <ArchiveRestoreIcon size={16} className="mr-2" />
+                      Restore
                     </DropdownMenuItem>
                   ) : (
                     <>
+                      <DropdownMenuItem onClick={() => navigate(`edit/${f.id}`)}>
+                        <PencilIcon size={16} className="mr-2" />
+                        Edit
+                      </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={() =>
-                          onAction(f, f.status === FeatureStatus.ACTIVE ? FeatureStatus.DISABLED : FeatureStatus.ACTIVE)
+                          onAction(
+                            f,
+                            f.status === FeatureStatus.ACTIVE
+                              ? FeatureStatus.DISABLED
+                              : FeatureStatus.ACTIVE
+                          )
                         }
                       >
-                        <PowerIcon size={14} className="mr-2" />{' '}
+                        <PowerIcon size={16} className="mr-2" />
                         {f.status === FeatureStatus.ACTIVE ? 'Disable' : 'Enable'}
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => onAction(f, FeatureStatus.ARCHIVED)}>
-                        <ArchiveIcon size={14} className="mr-2" /> Archive
+                        <ArchiveIcon size={16} className="mr-2" />
+                        Archive
                       </DropdownMenuItem>
                     </>
                   )}
@@ -152,22 +168,21 @@ export const FeaturesTable = ({
         },
       },
     ],
-    [onAction]
+    [onAction, hasTypes, typesById, navigate, groupByProduct]
   )
 
   return (
     <StandardTable
       tableKey="features"
       columns={columns}
-      data={query.data?.features ?? []}
-      sortable={true}
-      sorting={sorting}
-      onSortingChange={onSortingChange}
+      data={features ?? []}
       pagination={pagination}
       setPagination={setPagination}
       totalCount={query.data?.paginationMeta?.totalItems ?? 0}
       isLoading={query.isLoading}
+      emptyMessage="No features"
       rowLink={row => row.original.id}
+      groupBy={groupBy}
     />
   )
 }

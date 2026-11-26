@@ -1,6 +1,6 @@
-//! S19. One metric priced by a filtered and an unfiltered subscription of one customer: the
-//! filtered one bills its key's events, the unfiltered one the events no filter claims,
-//! and with every subscription filtered the rest is kept as unattributed usage.
+//! S19. One metric priced by a subscription for an `api_key` resource and a customer-level one:
+//! the first bills its key's events, the other the events no resource claims (D2 precision), and
+//! with every subscription for a resource the rest is kept as unattributed usage.
 use common_domain::ids::{CustomerId, SubscriptionId};
 use rust_decimal::Decimal;
 
@@ -12,10 +12,13 @@ use super::s10_two_subscriptions::keyed;
 async fn both(h: &Halyard, b_key: Option<&str>) -> (CustomerId, SubscriptionId, SubscriptionId) {
     let customer = h.customer("Untaxed", Tax::Untaxed).await;
     let mut a_request = h.request(customer, h.payg, day(9, 1));
-    a_request.subscription.usage_filter = keyed("key-A");
+    a_request.subscription.resource_id = keyed(h, customer, "key-A").await;
     let (a, _) = h.start(a_request).await;
     let mut b_request = h.request(customer, h.payg, day(9, 1));
-    b_request.subscription.usage_filter = b_key.and_then(keyed);
+    b_request.subscription.resource_id = match b_key {
+        Some(key) => keyed(h, customer, key).await,
+        None => None,
+    };
     let (b, _) = h.start(b_request).await;
     h.keyed_tokens(customer, at_time(9, 5, 10, 0, 0), STANDARD, 5 * M, "key-A");
     h.keyed_tokens(customer, at_time(9, 10, 10, 0, 0), STANDARD, 2 * M, "key-Z");

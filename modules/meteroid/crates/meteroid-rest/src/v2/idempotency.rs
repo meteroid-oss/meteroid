@@ -133,12 +133,17 @@ fn fingerprint(method: &Method, path: &str, body: &[u8]) -> Result<[u8; 32], Pro
         .map_err(|_| Problem::internal())
 }
 
+/// A POST that only reads: the entitlement check. It takes no key, so no answer is kept.
+pub fn reads_only(path: &str) -> bool {
+    path.ends_with("/entitlements/check")
+}
+
 pub async fn idempotency(
     State(state): State<AppState>,
     req: Request<Body>,
     next: Next,
 ) -> Response {
-    if req.method() != Method::POST {
+    if req.method() != Method::POST || reads_only(req.uri().path()) {
         return next.run(req).await;
     }
     let Some(key) = req

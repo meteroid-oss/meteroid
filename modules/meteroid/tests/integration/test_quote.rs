@@ -117,6 +117,7 @@ fn test_quote_payload(
         countersigners: vec![],
         hubspot_deal_id: None,
         customer_actions: None,
+        resource_id: None,
     }
 }
 
@@ -869,7 +870,7 @@ async fn test_quote_conversion_falls_back_charge_automatically_without_payment_p
 #[tokio::test]
 async fn test_quote_with_inline_entitlements() {
     use meteroid_grpc::meteroid::api::entitlements::v1::{
-        CreateFeatureRequest, EntitlementSpec, FeatureType, entitlement_value, feature_type,
+        CreateFeatureRequest, EntitlementSpec, entitlement_value,
     };
 
     let TestContext { setup, clients } = setup_test(SeedLevel::PLANS).await.unwrap();
@@ -883,12 +884,9 @@ async fn test_quote_with_inline_entitlements() {
             code: "quote-bool-feature".into(),
             description: None,
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Boolean(
-                    feature_type::BooleanFeature {},
-                )),
-            }),
+            kind: api::entitlements::v1::FeatureKind::Boolean.into(),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -961,6 +959,7 @@ async fn test_quote_with_inline_entitlements() {
                             },
                         )),
                     }),
+                    ..Default::default()
                 }],
                 template_id: None,
                 line_details: vec![],
@@ -971,6 +970,7 @@ async fn test_quote_with_inline_entitlements() {
                 countersigners: vec![],
                 hubspot_deal_id: None,
                 customer_actions: None,
+                resource_id: None,
             }),
         }))
         .await
@@ -1003,7 +1003,7 @@ async fn test_quote_with_inline_entitlements() {
     );
 
     match &ent.value {
-        meteroid_store::domain::entitlements::EntitlementValue::Boolean { enabled, .. } => {
+        meteroid_store::domain::entitlement_fold::GrantValue::Boolean(enabled) => {
             assert!(*enabled, "Inline entitlement enabled must be true");
         }
         other => panic!("expected boolean entitlement value, got: {:?}", other),
@@ -1016,7 +1016,7 @@ async fn test_quote_with_inline_entitlements() {
 async fn test_quote_conversion_carries_entitlements() {
     use common_domain::ids::EntitlementEntityId;
     use meteroid_grpc::meteroid::api::entitlements::v1::{
-        CreateFeatureRequest, EntitlementSpec, FeatureType, entitlement_value, feature_type,
+        CreateFeatureRequest, EntitlementSpec, entitlement_value,
     };
 
     let TestContext { setup, clients } = setup_test(SeedLevel::PLANS).await.unwrap();
@@ -1030,12 +1030,9 @@ async fn test_quote_conversion_carries_entitlements() {
             code: "conv-bool-feature".into(),
             description: None,
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Boolean(
-                    feature_type::BooleanFeature {},
-                )),
-            }),
+            kind: api::entitlements::v1::FeatureKind::Boolean.into(),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -1108,6 +1105,7 @@ async fn test_quote_conversion_carries_entitlements() {
                             },
                         )),
                     }),
+                    ..Default::default()
                 }],
                 template_id: None,
                 line_details: vec![],
@@ -1118,6 +1116,7 @@ async fn test_quote_conversion_carries_entitlements() {
                 countersigners: vec![],
                 hubspot_deal_id: None,
                 customer_actions: None,
+                resource_id: None,
             }),
         }))
         .await
@@ -1193,7 +1192,7 @@ async fn test_quote_conversion_carries_entitlements() {
     );
 
     match &ent.value {
-        meteroid_store::domain::entitlements::EntitlementValue::Boolean { enabled, .. } => {
+        meteroid_store::domain::entitlement_fold::GrantValue::Boolean(enabled) => {
             assert!(
                 *enabled,
                 "Subscription entitlement must carry over enabled=true from the quote"
@@ -1451,6 +1450,7 @@ pub(crate) fn quote_granting(feature_id: &str) -> api::quotes::v1::CreateQuoteRe
                         entitlement_value::BooleanValue { enabled: true },
                     )),
                 }),
+                ..Default::default()
             }],
             template_id: None,
             line_details: vec![],
@@ -1461,6 +1461,7 @@ pub(crate) fn quote_granting(feature_id: &str) -> api::quotes::v1::CreateQuoteRe
             countersigners: vec![],
             hubspot_deal_id: None,
             customer_actions: None,
+            resource_id: None,
         }),
     }
 }
@@ -1472,8 +1473,8 @@ pub(crate) fn quote_granting(feature_id: &str) -> api::quotes::v1::CreateQuoteRe
 async fn test_quote_conversion_leaves_out_hidden_feature_entitlement() {
     use common_domain::ids::EntitlementEntityId;
     use meteroid_grpc::meteroid::api::entitlements::v1::{
-        CreateFeatureRequest, FeatureStatus, FeatureType, GetEffectiveEntitlementsRequest,
-        SetFeatureStatusRequest, feature_type,
+        CreateFeatureRequest, FeatureStatus, GetEffectiveEntitlementsRequest,
+        SetFeatureStatusRequest,
     };
 
     let TestContext { setup, clients } = setup_test(SeedLevel::PLANS).await.unwrap();
@@ -1486,12 +1487,9 @@ async fn test_quote_conversion_leaves_out_hidden_feature_entitlement() {
             code: "quoted-then-archived".into(),
             description: None,
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Boolean(
-                    feature_type::BooleanFeature {},
-                )),
-            }),
+            kind: api::entitlements::v1::FeatureKind::Boolean.into(),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()

@@ -156,21 +156,26 @@ fn build_attribution(scope: &UsageScope) -> Option<UsageAttribution> {
             .map(|segment| usage_attribution::Segment {
                 from: segment.from.map(datetime_to_timestamp),
                 to: segment.until.map(datetime_to_timestamp),
-                matching: segment
-                    .matching
-                    .as_ref()
-                    .map(|filter| usage_attribution::EventMatch {
-                        property: filter.property.clone(),
-                        value: filter.value.clone(),
-                    }),
+                matching: segment.matching.as_ref().map(|resource| {
+                    let (property, fallback_properties) = split_properties(resource);
+                    usage_attribution::EventMatch {
+                        property,
+                        value: resource.value.clone(),
+                        fallback_properties,
+                    }
+                }),
                 excluded: segment
                     .excluded
                     .iter()
-                    .map(|claim| usage_attribution::EventClaim {
-                        property: claim.filter.property.clone(),
-                        value: claim.filter.value.clone(),
-                        from: Some(datetime_to_timestamp(claim.from)),
-                        to: claim.until.map(datetime_to_timestamp),
+                    .map(|claim| {
+                        let (property, fallback_properties) = split_properties(&claim.resource);
+                        usage_attribution::EventClaim {
+                            property,
+                            value: claim.resource.value.clone(),
+                            from: Some(datetime_to_timestamp(claim.from)),
+                            to: claim.until.map(datetime_to_timestamp),
+                            fallback_properties,
+                        }
                     })
                     .collect(),
             })
@@ -178,14 +183,56 @@ fn build_attribution(scope: &UsageScope) -> Option<UsageAttribution> {
     })
 }
 
-/// A metering service predating usage filters ignores them and answers every event of the
-/// customer: such an answer is refused rather than billed.
-fn ensure_attributed(attributed: bool, response: &QueryMeterResponse) -> StoreResult<()> {
-    if attributed && !response.attribution_applied {
-        return Err(Report::new(StoreError::MeteringNotReady)
-            .attach("the metering service does not apply usage filters yet"));
+/// The first property read, then those read when the event lacks it.
+fn split_properties(resource: &meteroid_store::domain::ResourceMatch) -> (String, Vec<String>) {
+    let mut properties = resource.properties.iter().cloned();
+    (properties.next().unwrap_or_default(), properties.collect())
+}
+
+/// What a query's attribution needs the metering service to apply.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Attributed {
+    No,
+    /// `aliased`: a resource read from its type's alias keys too.
+    Yes {
+        aliased: bool,
+    },
+}
+
+impl Attributed {
+    fn of(attribution: Option<&UsageAttribution>) -> Self {
+        let Some(attribution) = attribution else {
+            return Attributed::No;
+        };
+        let aliased = attribution.segments.iter().any(|segment| {
+            segment
+                .matching
+                .as_ref()
+                .is_some_and(|matching| !matching.fallback_properties.is_empty())
+                || segment
+                    .excluded
+                    .iter()
+                    .any(|claim| !claim.fallback_properties.is_empty())
+        });
+        Attributed::Yes { aliased }
     }
-    Ok(())
+}
+
+/// A metering service predating usage filters answers every event of the customer, and one
+/// predating alias keys misses the events naming a resource by an alias (during a rolling deploy):
+/// such an answer is refused rather than billed.
+fn ensure_attributed(attributed: Attributed, response: &QueryMeterResponse) -> StoreResult<()> {
+    match attributed {
+        Attributed::Yes { .. } if !response.attribution_applied => {
+            Err(Report::new(StoreError::MeteringNotReady)
+                .attach("the metering service does not apply usage filters yet"))
+        }
+        Attributed::Yes { aliased: true } if !response.fallback_properties_applied => {
+            Err(Report::new(StoreError::MeteringNotReady)
+                .attach("the metering service does not read resource alias keys yet"))
+        }
+        Attributed::No | Attributed::Yes { .. } => Ok(()),
+    }
 }
 
 /// Reads that cannot honour a subscription's usage filter refuse a metric scoped by one.
@@ -427,6 +474,113 @@ impl MeteringUsageClient {
 }
 
 impl MeteringUsageClient {
+    /// A total within `deadline` when given (`UsageUnavailable` past it), else [`GRPC_TIMEOUT`].
+    async fn total_usage(
+        &self,
+        tenant_id: &TenantId,
+        customer_id: &CustomerId,
+        metric: &BillableMetric,
+        period: UsagePeriod,
+        deadline: Option<Duration>,
+    ) -> StoreResult<Decimal> {
+        if period.start >= period.end {
+            bail!(StoreError::InvalidArgument("invalid period".to_string()));
+        }
+
+        let request = QueryMeterRequest {
+            tenant_id: tenant_id.as_proto(),
+            keep_last_events: self.keep_last_events(tenant_id).await?,
+            meter_slug: metric.id.to_string(),
+            code: metric.code.clone(),
+            meter_aggregation_type: map_aggregation_type(&metric.aggregation_type),
+            customer_ids: vec![customer_id.to_string()],
+            from: Some(datetime_to_timestamp(period.start)),
+            to: Some(datetime_to_timestamp(period.end)),
+            group_by_properties: vec![],
+            window_size: QueryWindowSize::AggregateAll.into(),
+            timezone: None,
+            segmentation_filter: build_segmentation_filter(
+                metric.complete_segmentation_matrix().cloned(),
+            ),
+            filters: build_property_filters(metric.filters.as_ref()),
+            value_property: metric.aggregation_key.clone(),
+            origin_filter: query_meter_request::OriginFilter::All.into(),
+            merge_segments: true,
+            attribution: build_attribution(&metric.usage_scope),
+            ..Default::default()
+        };
+
+        let mut client = self.usage_grpc_client.clone();
+        let attributed = Attributed::of(request.attribution.as_ref());
+        let timeout = deadline.unwrap_or(GRPC_TIMEOUT);
+        let mut request = tonic::Request::new(request);
+        if let Some(deadline) = deadline {
+            // The service stops computing an answer nobody waits for any more.
+            request.set_timeout(deadline);
+        }
+        let response: QueryMeterResponse =
+            match tokio::time::timeout(timeout, client.query_meter(request)).await {
+                Ok(Err(status))
+                    if deadline.is_some() && status.code() == tonic::Code::DeadlineExceeded =>
+                {
+                    return Err(Report::new(status)
+                        .change_context(StoreError::UsageUnavailable)
+                        .attach("query_meter (total) not answered within its deadline"));
+                }
+                Ok(result) => result
+                    .change_context(StoreError::MeteringServiceError)
+                    .attach("Failed to query meter (total)")?
+                    .into_inner(),
+                Err(_) if deadline.is_some() => {
+                    return Err(Report::new(StoreError::UsageUnavailable).attach(format!(
+                        "query_meter (total) not answered within {} ms",
+                        timeout.as_millis()
+                    )));
+                }
+                Err(_) => {
+                    log::error!(
+                        "query_meter (total) timed out after {} seconds",
+                        GRPC_TIMEOUT.as_secs()
+                    );
+                    return Err(timed_out("query_meter (total)"));
+                }
+            };
+        ensure_attributed(attributed, &response)?;
+
+        let rows = response
+            .usage
+            .into_iter()
+            .map(|usage| {
+                usage
+                    .value
+                    .and_then(|v| Decimal::try_from(v).ok())
+                    .ok_or_else(|| {
+                        error_stack::Report::new(StoreError::MeteringServiceError)
+                            .attach("query_meter (total) returned an unreadable value")
+                    })
+            })
+            .collect::<StoreResult<Vec<Decimal>>>()?;
+        // A metering that predates `merge_segments` answers one row per segment, which add up to
+        // the total only for an additive aggregation.
+        let additive = matches!(
+            metric.aggregation_type,
+            domain::enums::BillingMetricAggregateEnum::Sum
+                | domain::enums::BillingMetricAggregateEnum::Count
+        );
+        match rows.as_slice() {
+            [] => Ok(Decimal::ZERO),
+            [total] => Ok(*total),
+            _ if additive => rows.into_iter().try_fold(Decimal::ZERO, |sum, row| {
+                sum.checked_add(row).ok_or_else(|| {
+                    error_stack::Report::new(StoreError::InvalidDecimal)
+                        .attach("usage total out of range")
+                })
+            }),
+            _ => Err(error_stack::Report::new(StoreError::MeteringServiceError)
+                .attach("query_meter (total) returned one row per segment")),
+        }
+    }
+
     async fn query_usage(
         &self,
         tenant_id: &TenantId,
@@ -458,7 +612,7 @@ impl MeteringUsageClient {
         }
 
         let mut metering_client_mut = self.usage_grpc_client.clone();
-        let attributed = request.attribution.is_some();
+        let attributed = Attributed::of(request.attribution.as_ref());
         let response: QueryMeterResponse = match tokio::time::timeout(
             GRPC_TIMEOUT,
             metering_client_mut.query_meter(request),
@@ -574,7 +728,7 @@ impl UsageClient for MeteringUsageClient {
         );
 
         let mut client = self.usage_grpc_client.clone();
-        let attributed = request.attribution.is_some();
+        let attributed = Attributed::of(request.attribution.as_ref());
         let response: QueryMeterResponse =
             match tokio::time::timeout(GRPC_TIMEOUT, client.query_meter(request)).await {
                 Ok(result) => result
@@ -690,84 +844,20 @@ impl UsageClient for MeteringUsageClient {
         metric: &BillableMetric,
         period: UsagePeriod,
     ) -> StoreResult<Decimal> {
-        if period.start >= period.end {
-            bail!(StoreError::InvalidArgument("invalid period".to_string()));
-        }
+        self.total_usage(tenant_id, customer_id, metric, period, None)
+            .await
+    }
 
-        let request = QueryMeterRequest {
-            tenant_id: tenant_id.as_proto(),
-            keep_last_events: self.keep_last_events(tenant_id).await?,
-            meter_slug: metric.id.to_string(),
-            code: metric.code.clone(),
-            meter_aggregation_type: map_aggregation_type(&metric.aggregation_type),
-            customer_ids: vec![customer_id.to_string()],
-            from: Some(datetime_to_timestamp(period.start)),
-            to: Some(datetime_to_timestamp(period.end)),
-            group_by_properties: vec![],
-            window_size: QueryWindowSize::AggregateAll.into(),
-            timezone: None,
-            segmentation_filter: build_segmentation_filter(
-                metric.complete_segmentation_matrix().cloned(),
-            ),
-            filters: build_property_filters(metric.filters.as_ref()),
-            value_property: metric.aggregation_key.clone(),
-            origin_filter: query_meter_request::OriginFilter::All.into(),
-            merge_segments: true,
-            attribution: build_attribution(&metric.usage_scope),
-            ..Default::default()
-        };
-
-        let mut client = self.usage_grpc_client.clone();
-        let attributed = request.attribution.is_some();
-        let response: QueryMeterResponse =
-            match tokio::time::timeout(GRPC_TIMEOUT, client.query_meter(request)).await {
-                Ok(result) => result
-                    .change_context(StoreError::MeteringServiceError)
-                    .attach("Failed to query meter (total)")?
-                    .into_inner(),
-                Err(_) => {
-                    log::error!(
-                        "query_meter (total) timed out after {} seconds",
-                        GRPC_TIMEOUT.as_secs()
-                    );
-                    return Err(error_stack::Report::new(StoreError::MeteringServiceError)
-                        .attach("query_meter (total) timed out"));
-                }
-            };
-        ensure_attributed(attributed, &response)?;
-
-        let rows = response
-            .usage
-            .into_iter()
-            .map(|usage| {
-                usage
-                    .value
-                    .and_then(|v| Decimal::try_from(v).ok())
-                    .ok_or_else(|| {
-                        error_stack::Report::new(StoreError::MeteringServiceError)
-                            .attach("query_meter (total) returned an unreadable value")
-                    })
-            })
-            .collect::<StoreResult<Vec<Decimal>>>()?;
-        // A metering that predates `merge_segments` answers one row per segment, which add up to
-        // the total only for an additive aggregation.
-        let additive = matches!(
-            metric.aggregation_type,
-            domain::enums::BillingMetricAggregateEnum::Sum
-                | domain::enums::BillingMetricAggregateEnum::Count
-        );
-        match rows.as_slice() {
-            [] => Ok(Decimal::ZERO),
-            [total] => Ok(*total),
-            _ if additive => rows.into_iter().try_fold(Decimal::ZERO, |sum, row| {
-                sum.checked_add(row).ok_or_else(|| {
-                    error_stack::Report::new(StoreError::InvalidDecimal)
-                        .attach("usage total out of range")
-                })
-            }),
-            _ => Err(error_stack::Report::new(StoreError::MeteringServiceError)
-                .attach("query_meter (total) returned one row per segment")),
-        }
+    async fn fetch_total_usage_within(
+        &self,
+        tenant_id: &TenantId,
+        customer_id: &CustomerId,
+        metric: &BillableMetric,
+        period: UsagePeriod,
+        deadline: Duration,
+    ) -> StoreResult<Decimal> {
+        self.total_usage(tenant_id, customer_id, metric, period, Some(deadline))
+            .await
     }
 
     async fn fetch_windowed_usage(
@@ -809,7 +899,7 @@ impl UsageClient for MeteringUsageClient {
         };
 
         let mut metering_client_mut = self.usage_grpc_client.clone();
-        let attributed = request.attribution.is_some();
+        let attributed = Attributed::of(request.attribution.as_ref());
         let response: QueryMeterResponse = metering_client_mut
             .query_meter(request)
             .await
@@ -885,7 +975,7 @@ impl UsageClient for MeteringUsageClient {
         };
 
         let mut client = self.usage_grpc_client.clone();
-        let attributed = request.attribution.is_some();
+        let attributed = Attributed::of(request.attribution.as_ref());
         let response: QueryMeterResponse =
             match tokio::time::timeout(GRPC_TIMEOUT, client.query_meter(request)).await {
                 Ok(result) => result
@@ -1221,7 +1311,7 @@ impl UsageClient for MeteringUsageClient {
         };
 
         let mut metering_client_mut = self.usage_grpc_client.clone();
-        let attributed = request.attribution.is_some();
+        let attributed = Attributed::of(request.attribution.as_ref());
         let response: QueryMeterResponse = metering_client_mut
             .query_meter(request)
             .await
@@ -1617,7 +1707,7 @@ impl PendingUsageSource for MeteringUsageClient {
                 .usage_group_key
                 .iter()
                 .map(String::as_str)
-                .chain(request.group_by)
+                .chain(request.group_by.into_iter().flat_map(|g| g.split(',')))
                 .fold(Vec::<String>::new(), |mut names, name| {
                     if !names.iter().any(|known| known == name) {
                         names.push(name.to_owned());
@@ -1638,7 +1728,7 @@ impl PendingUsageSource for MeteringUsageClient {
         };
 
         let mut client = self.usage_grpc_client.clone();
-        let attributed = grpc_request.attribution.is_some();
+        let attributed = Attributed::of(grpc_request.attribution.as_ref());
         let response: QueryMeterResponse =
             match tokio::time::timeout(GRPC_TIMEOUT, client.query_meter(grpc_request)).await {
                 Ok(result) => result
@@ -1744,7 +1834,7 @@ mod build_property_filters_tests {
 mod attribution_tests {
     use super::*;
     use chrono::NaiveDate;
-    use meteroid_store::domain::{ScopeSegment, UsageClaim, UsageFilter};
+    use meteroid_store::domain::{ResourceMatch, ScopeSegment, UsageClaim};
 
     fn at(day: u32) -> NaiveDateTime {
         NaiveDate::from_ymd_opt(2026, 9, day)
@@ -1760,14 +1850,17 @@ mod attribution_tests {
 
     #[test]
     fn a_scoped_read_sends_its_segments() {
-        let filter = UsageFilter::new("api_key".to_owned(), "key-A".to_owned()).unwrap();
+        let resource = ResourceMatch {
+            properties: vec!["site_id".to_owned(), "site".to_owned()],
+            value: "s1".to_owned(),
+        };
         let attribution = build_attribution(&UsageScope {
             segments: vec![ScopeSegment {
                 from: Some(at(1)),
                 until: None,
                 matching: None,
                 excluded: vec![UsageClaim {
-                    filter,
+                    resource,
                     from: at(1),
                     until: Some(at(15)),
                 }],
@@ -1782,13 +1875,15 @@ mod attribution_tests {
         let claim = &segment.excluded[0];
         assert_eq!(
             (claim.property.as_str(), claim.value.as_str()),
-            ("api_key", "key-A")
+            ("site_id", "s1")
         );
+        assert_eq!(claim.fallback_properties, vec!["site".to_owned()]);
         assert_eq!(claim.to, Some(datetime_to_timestamp(at(15))));
     }
 
     #[test]
     fn an_answer_that_ignored_the_attribution_is_refused() {
+        let plain = Attributed::Yes { aliased: false };
         let ignored = QueryMeterResponse {
             usage: vec![],
             attribution_applied: false,
@@ -1800,13 +1895,50 @@ mod attribution_tests {
             ..Default::default()
         };
         assert!(matches!(
-            ensure_attributed(true, &ignored)
+            ensure_attributed(plain, &ignored)
                 .unwrap_err()
                 .current_context(),
             StoreError::MeteringNotReady
         ));
-        assert!(ensure_attributed(true, &applied).is_ok());
-        assert!(ensure_attributed(false, &ignored).is_ok());
+        assert!(ensure_attributed(plain, &applied).is_ok());
+        assert!(ensure_attributed(Attributed::No, &ignored).is_ok());
+    }
+
+    /// A metering service predating alias keys reads the canonical key only: an answer to a read
+    /// naming aliases is refused until it applies them.
+    #[test]
+    fn an_answer_that_ignored_the_alias_keys_is_refused() {
+        let resource = ResourceMatch {
+            properties: vec!["site_id".to_owned(), "site".to_owned()],
+            value: "s1".to_owned(),
+        };
+        let scope = UsageScope {
+            segments: vec![ScopeSegment {
+                from: Some(at(1)),
+                until: None,
+                matching: Some(resource),
+                excluded: vec![],
+            }],
+        };
+        let aliased = Attributed::of(build_attribution(&scope).as_ref());
+        assert_eq!(aliased, Attributed::Yes { aliased: true });
+        let predating = QueryMeterResponse {
+            usage: vec![],
+            attribution_applied: true,
+            ..Default::default()
+        };
+        assert!(matches!(
+            ensure_attributed(aliased, &predating)
+                .unwrap_err()
+                .current_context(),
+            StoreError::MeteringNotReady
+        ));
+        assert!(ensure_attributed(Attributed::Yes { aliased: false }, &predating).is_ok());
+        let applied = QueryMeterResponse {
+            fallback_properties_applied: true,
+            ..predating
+        };
+        assert!(ensure_attributed(aliased, &applied).is_ok());
     }
 }
 
@@ -1936,6 +2068,7 @@ mod metric_usage_tests {
             usage: vec![usage(Some(customer), "2500"), usage(None, "500")],
             attribution_applied: true,
             grouping_applied: true,
+            fallback_properties_applied: true,
         };
         let points = metric_usage_points(
             &query(&metric, &[], MetricUsageBreakdown::Customer, Some(1)),
@@ -1974,6 +2107,7 @@ mod metric_usage_tests {
             usage: vec![labelled("Other", false), labelled("Other", true)],
             attribution_applied: true,
             grouping_applied: true,
+            fallback_properties_applied: true,
         };
         let points = metric_usage_points(
             &query(
@@ -1999,6 +2133,7 @@ mod metric_usage_tests {
             usage: vec![usage(None, "3000")],
             attribution_applied: true,
             grouping_applied: false,
+            fallback_properties_applied: true,
         };
         let refused = metric_usage_points(
             &query(&metric, &[], MetricUsageBreakdown::Customer, Some(5)),

@@ -7,7 +7,7 @@ use crate::{DbResult, PgConn};
 
 use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{
-    CustomerId, InvoiceId, PlanVersionId, ScheduledEventId, SubscriptionId, TenantId,
+    CustomerId, InvoiceId, PlanVersionId, ResourceId, ScheduledEventId, SubscriptionId, TenantId,
 };
 use diesel::{QueryableByName, sql_types};
 use error_stack::ResultExt;
@@ -99,6 +99,8 @@ pub struct SignalSubscriptionRow {
     pub plan_version_id: PlanVersionId,
     #[diesel(sql_type = sql_types::Bool)]
     pub free_plan: bool,
+    #[diesel(sql_type = sql_types::Nullable<sql_types::Uuid>)]
+    pub resource_id: Option<ResourceId>,
 }
 
 /// Billing-active subscriptions of `customer_ids`, ordered by customer, start date, id.
@@ -139,7 +141,7 @@ pub async fn list_subscriptions_in_status(
                s.current_period_start, s.current_period_end, s.end_date, s.activated_at,
                p.name AS plan_name, cancel.at AS pending_cancel_date,
                {HAS_MINIMUM} AS has_minimum, s.plan_version_id,
-               p.plan_type = 'FREE' AS free_plan
+               p.plan_type = 'FREE' AS free_plan, s.resource_id
         FROM subscription s
         JOIN customer c ON c.id = s.customer_id AND c.tenant_id = $1
         JOIN plan_version pv ON pv.id = s.plan_version_id

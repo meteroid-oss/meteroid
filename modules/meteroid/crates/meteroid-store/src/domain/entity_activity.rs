@@ -478,6 +478,11 @@ pub enum ActivityType {
     #[strum(serialize = "payment_reminder.restarted")]
     #[serde(rename = "payment_reminder.restarted")]
     PaymentReminderRestarted,
+
+    /// `metadata`: `{ "amount", "currency", "reason", "checkout_session_id" }`.
+    #[strum(serialize = "checkout.payment_kept_as_credit")]
+    #[serde(rename = "checkout.payment_kept_as_credit")]
+    CheckoutPaymentKeptAsCredit,
 }
 
 #[derive(Debug, Clone)]
@@ -780,6 +785,19 @@ impl From<&OutboxEvent> for Option<Activity> {
                 }
                 a
             }
+            // The customer paid and got no subscription: on its timeline, beside the credit.
+            OutboxEvent::CheckoutPaymentKeptAsCredit(e) => Activity::new(
+                ActivityType::CheckoutPaymentKeptAsCredit,
+                EntityType::PaymentTransaction,
+                e.payment_transaction_id.as_uuid(),
+            )
+            .agg_customer(e.customer_id)
+            .with_metadata(serde_json::json!({
+                "amount": e.amount,
+                "currency": e.currency,
+                "reason": e.reason,
+                "checkout_session_id": e.checkout_session_id.as_base62(),
+            })),
             // Webhook-only events: the mutation sites already write their own audit
             // activities, so promoting these to the outbox must not duplicate them.
             OutboxEvent::SubscriptionUpdated(_)

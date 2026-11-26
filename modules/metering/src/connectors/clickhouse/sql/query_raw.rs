@@ -166,6 +166,24 @@ const METER_EVENT_COLUMNS: &[&str] = &[
     "properties",
 ];
 
+/// The value of the first of `properties` the event has non-empty, `''` without any.
+fn first_present_sql(properties: &[String], binds: &mut Vec<BindValue>) -> String {
+    let Some((last, earlier)) = properties.split_last() else {
+        return "''".to_string();
+    };
+    if earlier.is_empty() {
+        return PropertyColumn(last).path_sql(binds);
+    }
+    let mut branches = Vec::new();
+    for property in earlier {
+        let tested = PropertyColumn(property).path_sql(binds);
+        let path = PropertyColumn(property).path_sql(binds);
+        branches.push(format!("{tested} != '', {path}"));
+    }
+    let last = PropertyColumn(last).path_sql(binds);
+    format!("multiIf({}, {last})", branches.join(", "))
+}
+
 /// Conditions on the deduplicated events, so the latest version of an event decides which
 /// subscription it belongs to and no two subscriptions read different versions of it.
 fn push_attribution(
@@ -190,12 +208,12 @@ fn push_attribution(
                 binds.push(BindValue::I64(to.timestamp()));
             }
             if let Some(matching) = &segment.matching {
-                let path = PropertyColumn(&matching.property).path_sql(binds);
+                let path = first_present_sql(&matching.properties, binds);
                 binds.push(BindValue::String(matching.value.clone()));
                 parts.push(format!("{path} = ?"));
             }
             for claim in &segment.excluded {
-                let path = PropertyColumn(&claim.property).path_sql(binds);
+                let path = first_present_sql(&claim.properties, binds);
                 binds.push(BindValue::String(claim.value.clone()));
                 let mut claimed = vec![
                     format!("{path} = ?"),
@@ -1176,7 +1194,7 @@ mod tests {
                         from: None,
                         to: Some(change),
                         matching: Some(EventMatch {
-                            property: "project".to_string(),
+                            properties: vec!["project".to_string()],
                             value: "p1".to_string(),
                         }),
                         excluded: vec![],
@@ -1186,7 +1204,7 @@ mod tests {
                         to: None,
                         matching: None,
                         excluded: vec![EventClaim {
-                            property: "api_key".to_string(),
+                            properties: vec!["api_key".to_string()],
                             value: "key-A".to_string(),
                             from: change,
                             to: Some(claim_to),
@@ -1243,6 +1261,35 @@ mod tests {
     }
 
     #[test]
+    fn test_attribution_reads_the_first_key_present() {
+        use crate::domain::{AttributionSegment, EventMatch};
+        let result = query_meter_sql(
+            attributed(Some(EventAttribution {
+                segments: vec![AttributionSegment {
+                    from: None,
+                    to: None,
+                    matching: Some(EventMatch {
+                        properties: vec!["site_id".to_string(), "site".to_string()],
+                        value: "s1".to_string(),
+                    }),
+                    excluded: vec![],
+                }],
+            })),
+            &"raw_events_v2".into(),
+            "meteroid",
+        )
+        .unwrap();
+        assert!(
+            normalize_sql(&result.sql).contains(
+                "WHERE ((multiIf(properties[?] != '', properties[?], properties[?]) = ?))"
+            ),
+            "{}",
+            result.sql
+        );
+        assert_bind_parity(&result);
+    }
+
+    #[test]
     fn test_keep_last_tenant_attributes_the_last_ingested_copy() {
         use crate::domain::{AttributionSegment, EventMatch};
         let mut params = attributed(Some(EventAttribution {
@@ -1250,7 +1297,7 @@ mod tests {
                 from: None,
                 to: None,
                 matching: Some(EventMatch {
-                    property: "project".to_string(),
+                    properties: vec!["project".to_string()],
                     value: "p1".to_string(),
                 }),
                 excluded: vec![],

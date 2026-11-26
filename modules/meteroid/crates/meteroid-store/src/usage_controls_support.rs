@@ -68,8 +68,17 @@ pub mod ledger {
     pub use crate::repositories::credit::customer_credit::normalized_currency;
 }
 
+pub mod entitlements {
+    pub use crate::services::entitlements::resolve::resolve_customer;
+    pub use crate::services::entitlements::resolve::resolve_resource_input;
+    pub use crate::services::entitlements::tiers::{
+        TypeSite, TypeSites, any_resource, resolve_type_sites,
+    };
+}
+
 pub mod limit_rules {
     pub use crate::services::entitlements::limits::rules::BillingCyclePeriod;
+    pub use crate::services::entitlements::limits::rules::UsagePeriodBounds;
     pub use crate::services::entitlements::limits::rules::compute_usage_period;
     pub use crate::services::entitlements::limits::rules::crossed_pcts;
     pub use crate::services::entitlements::limits::rules::group_key;
@@ -79,12 +88,15 @@ pub mod limit_rules {
     pub use crate::services::entitlements::limits::rules::window_key;
 }
 
+pub mod usage_attribution {
+    pub use crate::domain::usage_attribution::paying_subscription;
+    pub use crate::repositories::subscriptions::usage_attribution::{
+        attributed_subscriptions, billing_subscriptions,
+    };
+}
+
 pub mod limits {
-    pub use crate::services::entitlements::limits::anchor_subscription;
-    pub use crate::services::entitlements::limits::customer_entitlement_monitor_id;
-    pub use crate::services::entitlements::limits::earliest_activation;
-    pub use crate::services::entitlements::limits::entitlement_monitor_id;
-    pub use crate::services::entitlements::limits::group_usage;
+    pub use crate::services::entitlements::limits::level_monitor_id;
     pub use crate::services::entitlements::limits::load_metrics;
 }
 
@@ -121,9 +133,9 @@ pub mod upcoming {
     pub use crate::services::invoices::upcoming::scheduled_stop;
 }
 
-pub mod usage_attribution {
-    pub use crate::repositories::subscriptions::usage_attribution::attributed_subscriptions;
-    pub use crate::repositories::subscriptions::usage_attribution::scopes_of_row;
+pub mod resources {
+    pub use crate::repositories::resources::load_for_check;
+    pub use crate::repositories::resources::load_types;
 }
 
 pub mod usage_grouping {

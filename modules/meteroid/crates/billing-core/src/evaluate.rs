@@ -1600,12 +1600,16 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                 (true, Some(ending)) => ending.at,
                 _ => midnight(until),
             };
+            let read_from = interval
+                .row
+                .usage_from
+                .map_or(midnight(from), |floor| floor.max(midnight(from)));
             pieces.push(UsagePiece {
                 row: interval.row,
                 from,
                 until,
                 read: UsageWindow {
-                    from: midnight(from),
+                    from: read_from.min(read_until),
                     until: read_until,
                 },
                 cut: cut && until == window.until,
@@ -1705,7 +1709,10 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                 from: end,
                 until: end,
                 read: UsageWindow {
-                    from: midnight(end),
+                    from: row
+                        .usage_from
+                        .map_or(midnight(end), |floor| floor.max(midnight(end)))
+                        .min(ending.at),
                     until: ending.at,
                 },
                 cut: true,

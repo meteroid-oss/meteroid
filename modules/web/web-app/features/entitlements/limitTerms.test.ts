@@ -1,6 +1,5 @@
 import { create } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'vitest'
-import { z } from 'zod'
 
 import {
   CalendarUnit,
@@ -10,11 +9,9 @@ import {
   ResetPeriodSchema,
 } from '@/rpc/api/entitlements/v1/models_pb'
 
-import { buildMeteredPolicy, checkMeteredPolicy, meteredPolicyToFields } from './creation/types'
 import {
   configuredEnabled,
   effectiveValueLabel,
-  entitlementValueToSpec,
   isEntitlementDisabled,
   limitAlertsLabel,
   limitBehaviorLabel,
@@ -49,31 +46,6 @@ describe('an effective entitlement at its blocking limit', () => {
     expect(isEntitlementDisabled(reached)).toBe(false)
   })
 
-  it('is pinned switched on, not as a lasting override to off', () => {
-    const spec = entitlementValueToSpec(reached)
-    expect(spec.value?.case).toBe('meteredValue')
-    expect(spec.value?.case === 'meteredValue' && spec.value.value.enabled).toBe(true)
-  })
-
-  it('is written back without terms that act on nothing', () => {
-    const unlimited = create(EffectiveEntitlementSchema, {
-      value: {
-        case: 'metered',
-        value: create(EffectiveEntitlement_MeteredEntitlementSchema, {
-          metricId: 'm',
-          overageBehavior: allow(),
-          thresholds: [50, 80],
-          enabled: true,
-        }),
-      },
-    }).value
-    const spec = entitlementValueToSpec(unlimited, false)
-    const written = spec.value?.case === 'meteredValue' ? spec.value.value : undefined
-    expect(written?.enabled).toBe(false)
-    expect(written?.overageBehavior?.Inner?.case).toBe('block')
-    expect(written?.thresholds).toEqual([])
-  })
-
   it('is switched off when the switch is off', () => {
     const off = effective({ enabled: false, limitReached: false })
     expect(configuredEnabled(off)).toBe(false)
@@ -82,17 +54,17 @@ describe('an effective entitlement at its blocking limit', () => {
 })
 
 describe('limit terms', () => {
-  it('names hard and soft limits, with the grace', () => {
+  it('says whether the limit denies or allows overage, with the grace', () => {
     expect(limitBehaviorLabel(limitTermsOf({ limit: '10', overageBehavior: block() }))).toBe(
-      'Hard limit'
+      'Deny at limit'
     )
     expect(limitBehaviorLabel(limitTermsOf({ limit: '10', overageBehavior: block(10) }))).toBe(
-      'Hard limit (+10% grace)'
+      'Deny at limit + 10% grace'
     )
     expect(limitBehaviorLabel(limitTermsOf({ limit: '10', overageBehavior: allow() }))).toBe(
-      'Soft limit'
+      'Overage allowed'
     )
-    expect(limitBehaviorLabel(limitTermsOf({ limit: '10' }))).toBe('Hard limit')
+    expect(limitBehaviorLabel(limitTermsOf({ limit: '10' }))).toBe('Deny at limit')
   })
 
   it('says nothing without a limit', () => {
@@ -117,68 +89,6 @@ describe('limit terms', () => {
         })
       )
     ).toContain('from activation')
-  })
-})
-
-describe('the metered policy sent to the server', () => {
-  it('drops the overage terms and the thresholds without a limit', () => {
-    const policy = buildMeteredPolicy({
-      limit: ' ',
-      resetPeriodType: 'billingCycle',
-      overageType: 'allow',
-      gracePct: '10',
-      thresholds: '80',
-    })
-    expect(policy.overageBehavior.Inner).toEqual({ case: 'block', value: {} })
-    expect(policy.thresholds).toEqual([])
-  })
-
-  it('drops the thresholds on a sliding window', () => {
-    const policy = buildMeteredPolicy({
-      limit: '200',
-      resetPeriodType: 'slidingWindow',
-      overageType: 'block',
-      gracePct: '10',
-      thresholds: '80',
-    })
-    expect(policy.overageBehavior.Inner).toEqual({ case: 'block', value: { gracePeriodPct: 10 } })
-    expect(policy.thresholds).toEqual([])
-  })
-
-  it('keeps them with a limit', () => {
-    const policy = buildMeteredPolicy({
-      limit: '200',
-      resetPeriodType: 'billingCycle',
-      overageType: 'allow',
-      thresholds: '50, 80, 95',
-    })
-    expect(policy.overageBehavior.Inner?.case).toBe('allow')
-    expect(policy.thresholds).toEqual([50, 80, 95])
-  })
-
-  it('reads the stored thresholds back into the form', () => {
-    expect(meteredPolicyToFields({ overageBehavior: allow(), thresholds: [50, 80] })).toEqual({
-      overageType: 'allow',
-      gracePct: '',
-      thresholds: '50, 80',
-    })
-  })
-})
-
-describe('the thresholds checked in the form', () => {
-  const check = (thresholds: string, resetPeriodType: 'billingCycle' | 'slidingWindow') => {
-    const issues: unknown[] = []
-    checkMeteredPolicy({ limit: '100', resetPeriodType, thresholds }, {
-      addIssue: (issue: unknown) => issues.push(issue),
-    } as unknown as z.RefinementCtx)
-    return issues.length
-  }
-
-  it('are increasing percentages, unchecked where they are not shown', () => {
-    expect(check('50, 80, 95', 'billingCycle')).toBe(0)
-    expect(check('80, 50', 'billingCycle')).toBe(1)
-    expect(check('120', 'billingCycle')).toBe(1)
-    expect(check('120', 'slidingWindow')).toBe(0)
   })
 })
 

@@ -278,22 +278,27 @@ pub mod plans {
             .map_err(|error| tonic::Status::invalid_argument(error.to_string()))
     }
 
+    pub fn plan_to_proto(plan: domain::Plan) -> Plan {
+        Plan {
+            id: plan.id.as_proto(),
+            local_id: plan.id.as_proto(),
+            name: plan.name,
+            description: plan.description,
+            plan_type: PlanTypeWrapper::from(plan.plan_type).0 as i32,
+            plan_status: PlanStatusWrapper::from(plan.status).0 as i32,
+            active_version_id: plan.active_version_id.map(|x| x.as_proto()),
+            draft_version_id: plan.draft_version_id.map(|x| x.as_proto()),
+            self_service_rank: plan.self_service_rank,
+            issues_license: plan.issues_license,
+            eligibility: plan.eligibility.map(crate::eligibility::to_proto),
+            sold_for_resource_type_id: plan.sold_for_resource_type_id.map(|x| x.as_proto()),
+        }
+    }
+
     impl From<domain::FullPlan> for PlanWithVersionWrapper {
         fn from(value: domain::FullPlan) -> Self {
             Self(PlanWithVersion {
-                plan: Some(Plan {
-                    id: value.plan.id.as_proto(),
-                    local_id: value.plan.id.as_proto(),
-                    name: value.plan.name,
-                    description: value.plan.description,
-                    plan_type: PlanTypeWrapper::from(value.plan.plan_type).0 as i32,
-                    plan_status: PlanStatusWrapper::from(value.plan.status).0 as i32,
-                    active_version_id: value.plan.active_version_id.map(|x| x.as_proto()),
-                    draft_version_id: value.plan.draft_version_id.map(|x| x.as_proto()),
-                    self_service_rank: value.plan.self_service_rank,
-                    issues_license: value.plan.issues_license,
-                    eligibility: value.plan.eligibility.map(crate::eligibility::to_proto),
-                }),
+                plan: Some(plan_to_proto(value.plan)),
                 version: Some(PlanVersionWrapper::from(value.version).0),
             })
         }
@@ -302,19 +307,7 @@ pub mod plans {
     impl From<domain::PlanWithVersion> for PlanWithVersionWrapper {
         fn from(value: domain::PlanWithVersion) -> Self {
             Self(PlanWithVersion {
-                plan: Some(Plan {
-                    id: value.plan.id.as_proto(),
-                    local_id: value.plan.id.as_proto(), //todo remove me
-                    name: value.plan.name,
-                    description: value.plan.description,
-                    plan_type: PlanTypeWrapper::from(value.plan.plan_type).0 as i32,
-                    plan_status: PlanStatusWrapper::from(value.plan.status).0 as i32,
-                    active_version_id: value.plan.active_version_id.map(|x| x.as_proto()),
-                    draft_version_id: value.plan.draft_version_id.map(|x| x.as_proto()),
-                    self_service_rank: value.plan.self_service_rank,
-                    issues_license: value.plan.issues_license,
-                    eligibility: value.plan.eligibility.map(crate::eligibility::to_proto),
-                }),
+                plan: Some(plan_to_proto(value.plan)),
                 version: value.version.map(|v| PlanVersionWrapper::from(v).0),
             })
         }
@@ -404,6 +397,7 @@ pub mod plans {
                 hide_price: value.pricing_hide_price,
                 mrr: value.mrr.map(|mrr| mrr.to_string()),
                 free: value.free,
+                sold_for_resource_type_id: value.sold_for_resource_type_id.map(|id| id.as_proto()),
             })
         }
     }

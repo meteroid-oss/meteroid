@@ -65,7 +65,7 @@ import {
   sameUnitPrice,
 } from '@/features/credit/unitSale'
 import { useLiveSubscriptions } from '@/features/credit/useLiveSubscriptions'
-import { formatUsageFilter } from '@/features/subscriptions/UsageFilterFields'
+import { useResourceChips } from '@/features/resources/hooks'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { entitlementCodes, useEntitlement } from '@/hooks/useEntitlement'
@@ -86,7 +86,6 @@ import { TopUpStatus } from '@/rpc/api/wallets/v1/wallets_pb'
 import type { ScopeContext } from '@/features/credit/addCreditForm'
 import type { CreditAttempt } from '@/features/credit/creditAttempt'
 import type { CustomerPaymentMethod } from '@/rpc/api/customers/v1/models_pb'
-import type { UsageFilter } from '@/rpc/api/subscriptions/v1/models_pb'
 import type { Wallet } from '@/rpc/api/wallets/v1/models_pb'
 
 type Props = {
@@ -125,6 +124,7 @@ export const AddCreditDialog = ({
       !!creditUnit || subscription.currency.toUpperCase() === wallet.currency.toUpperCase()
   )
   const canSellPaid = canCharge || canInvoice
+  const chips = useResourceChips(wallet.customerId)
 
   const unitQuery = useQuery(
     getCreditUnit,
@@ -577,7 +577,13 @@ export const AddCreditDialog = ({
                   forceOpen={advancedGrantError}
                 >
                   {scopedCredit && subscriptions.length > 0 && (
-                    <SubscriptionField control={methods.control} subscriptions={subscriptions} />
+                    <SubscriptionField
+                      control={methods.control}
+                      subscriptions={subscriptions.map(s => ({
+                        ...s,
+                        scopeLabel: s.resourceId ? chips.get(s.resourceId) : undefined,
+                      }))}
+                    />
                   )}
                   {/* Credit in a credit unit pays the usage priced in it, for every product. */}
                   {scopedCredit && !creditUnit && (
@@ -711,7 +717,7 @@ const SubscriptionField = ({
   subscriptions,
 }: {
   control: Control<Values>
-  subscriptions: { id: string; planName: string; startDate: string; usageFilter?: UsageFilter }[]
+  subscriptions: { id: string; planName: string; startDate: string; scopeLabel?: string }[]
 }) => (
   <FormField
     control={control}
@@ -735,9 +741,7 @@ const SubscriptionField = ({
             {subscriptions.map(subscription => (
               <SelectItem key={subscription.id} value={subscription.id}>
                 {subscription.planName}
-                {subscription.usageFilter
-                  ? ` (${formatUsageFilter(subscription.usageFilter)})`
-                  : ''}{' '}
+                {subscription.scopeLabel ? ` (${subscription.scopeLabel})` : ''}{' '}
                 only
                 {subscriptions.filter(other => other.planName === subscription.planName).length > 1
                   ? ` · from ${subscription.startDate}`

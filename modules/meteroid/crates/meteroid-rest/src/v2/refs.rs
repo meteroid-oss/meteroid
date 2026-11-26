@@ -6,7 +6,8 @@
 use crate::v2::problem::Problem;
 use common_domain::ids::{
     AddOnId, BillableMetricId, CouponId, CreditNoteId, CreditUnitId, CustomerId, FeatureId,
-    InvoiceId, PlanId, ProductFamilyId, ProductId, SubscriptionId, TenantId,
+    InvoiceId, PlanId, ProductFamilyId, ProductId, ResourceId, ResourceTypeId, SubscriptionId,
+    TenantId,
 };
 use meteroid_store::Store;
 use meteroid_store::repositories::CatalogCodesInterface;
@@ -71,6 +72,34 @@ coded_ref!(MetricRef, BillableMetricId, "metric");
 coded_ref!(CreditUnitRef, CreditUnitId, "credit unit");
 coded_ref!(CouponRef, CouponId, "coupon");
 coded_ref!(FeatureRef, FeatureId, "feature");
+coded_ref!(ResourceTypeRef, ResourceTypeId, "resource type");
+
+/// A customer's stored resource named by another resource: its human key is its type's code and
+/// its key value.
+#[derive(Serialize, ToSchema, Debug, Clone, PartialEq, Eq)]
+pub struct ResourceRef {
+    #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
+    pub id: ResourceId,
+    /// The resource type's code.
+    #[serde(rename = "type")]
+    pub resource_type: String,
+    /// The value of the type's key.
+    pub key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+impl ResourceRef {
+    /// A resource not read (deleted since it was named): its key reads as its id.
+    pub fn of_id(id: ResourceId) -> Self {
+        ResourceRef {
+            id,
+            resource_type: String::new(),
+            key: id.to_string(),
+            name: None,
+        }
+    }
+}
 
 /// An invoice named by another resource.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq, Eq)]

@@ -1,6 +1,6 @@
 use common_domain::identifiers::validator_code;
 use common_domain::ids::{
-    BillableMetricId, ProductFamilyId, ProductId, string_serde, string_serde_opt,
+    BillableMetricId, ProductFamilyId, ProductId, ResourceTypeId, string_serde, string_serde_opt,
 };
 use meteroid_rest_common::datetime::ApiDateTime;
 use meteroid_rest_common::model::{PaginatedRequest, PaginationResponse};
@@ -204,9 +204,55 @@ pub struct Metric {
         serialize_with = "common_domain::ids::string_serde_opt::serialize"
     )]
     pub product_id: Option<ProductId>,
+    pub attributed_to: AttributedTo,
     pub created_at: ApiDateTime,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<ApiDateTime>,
+}
+
+/// `customer`: the customer's own subscriptions bill every event. `type`: the subscriptions of the
+/// resource whose key the event carries (`property`, else the type's keys, canonical first) bill
+/// it; events naming no subscribed resource go to the customer's own subscriptions.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AttributedTo {
+    #[default]
+    Customer,
+    Type {
+        #[serde(with = "string_serde")]
+        #[schema(value_type = String)]
+        type_id: ResourceTypeId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        property: Option<String>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+pub struct AttributionPreviewRequest {
+    pub attributed_to: AttributedTo,
+}
+
+/// Where the last 7 days of the metric's usage would go, summed over up to 20 customers with
+/// subscriptions for a resource (`sampled` when there are more): what each side's subscriptions
+/// bill, each reading the metric's aggregation over its own events.
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub struct AttributionPreview {
+    pub from: ApiDateTime,
+    pub until: ApiDateTime,
+    pub sampled_customers: u32,
+    pub sampled: bool,
+    /// The three quantities add up to the usage (a `SUM` or `COUNT` metric) and split it in
+    /// shares. False for `LATEST`, `MAX`, `MIN`, `MEAN` and `COUNT_DISTINCT`: each is what its
+    /// subscriptions bill, and they don't add up to the usage.
+    pub additive: bool,
+    #[schema(value_type = String, format = "decimal")]
+    pub resource_subscriptions: rust_decimal::Decimal,
+    #[schema(value_type = String, format = "decimal")]
+    pub customer_subscriptions: rust_decimal::Decimal,
+    #[schema(value_type = String, format = "decimal")]
+    pub not_billed: rust_decimal::Decimal,
+    /// Unfinalized drafts the change recomputes.
+    pub draft_invoices: u32,
 }
 
 /// Converts the aggregated usage into the unit prices are set in, e.g. tokens priced per 1M.
@@ -237,6 +283,7 @@ pub struct MetricSummary {
     /// What several units of the metric are called, e.g. `tokens`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unit_plural: Option<String>,
+    pub attributed_to: AttributedTo,
     pub created_at: ApiDateTime,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<ApiDateTime>,
@@ -279,6 +326,8 @@ pub struct CreateMetricRequest {
     pub product_family_id: ProductFamilyId,
     #[serde(default, with = "string_serde_opt")]
     pub product_id: Option<ProductId>,
+    #[serde(default)]
+    pub attributed_to: AttributedTo,
 }
 
 #[derive(Clone, Debug, Deserialize, Validate, ToSchema)]
@@ -303,6 +352,11 @@ pub struct UpdateMetricRequest {
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>, example = "project_id")]
     pub usage_breakdown_key: Option<Option<String>>,
+    /// Absent = unchanged. Refused with 400 once a subscription for a resource prices the metric
+    /// and is not terminated, or has an invoice that is not void, a draft included: create a new
+    /// metric instead. Otherwise the customers' drafts are recomputed; finalized invoices stay.
+    #[serde(default)]
+    pub attributed_to: Option<AttributedTo>,
 }
 
 #[derive(Clone, Debug, Deserialize, Validate, IntoParams)]

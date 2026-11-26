@@ -24,7 +24,10 @@ import { CustomerUsageCard } from '@/features/customers/cards/CustomerUsageCard'
 import { InvoicesCard } from '@/features/customers/cards/InvoicesCard'
 import { PaymentMethodsCard } from '@/features/customers/cards/PaymentMethodsCard'
 import { QuotesCard } from '@/features/customers/cards/QuotesCard'
-import { UnattributedUsageSection } from '@/features/customers/cards/UnattributedUsageSection'
+import {
+  UnattributedBanner,
+  UnattributedUsageSection,
+} from '@/features/customers/cards/UnattributedUsageSection'
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
 import { EditCustomerModal } from '@/features/customers/cards/customer/EditCustomerModal'
 import { getPaymentRoutingWarnings } from '@/features/customers/cards/paymentRoutingWarnings'
@@ -33,9 +36,10 @@ import { CustomerInvoiceModal } from '@/features/customers/modals/CustomerInvoic
 import { ManageConnectionsModal } from '@/features/customers/modals/ManageConnectionsModal'
 import { CustomPropertyValue } from '@/features/customproperties/CustomPropertyValue'
 import { useCustomPropertyRows } from '@/features/customproperties/useCustomPropertyRows'
-import { CustomerEntitlementOverrides } from '@/features/entitlements/customer/CustomerEntitlementOverrides'
-import { EffectiveEntitlementsCard } from '@/features/entitlements/customer/EffectiveEntitlementsCard'
+import { CustomerEntitlementsTab } from '@/features/entitlements/customer/CustomerEntitlementsTab'
 import { connectorDisplayName, paymentProvider } from '@/features/payments/providers'
+import { ResourcesTab } from '@/features/resources/ResourcesTab'
+import { useResourceTypes } from '@/features/resources/hooks'
 import { getCountryFlagEmoji, getCountryName } from '@/features/settings/utils'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
@@ -98,6 +102,7 @@ export const Customer = () => {
     return { serialize: (tab: string) => tab, deserialize: (tab: string) => aliases[tab] ?? tab }
   }, [])
   const showEntitlements = env.entitlementsEnabled && canViewCatalog
+  const { types: resourceTypes } = useResourceTypes()
   const moduleTabs = useVisibleItems(slotItems('customerDetail.tabs'), {
     customerId: customerId ?? '',
   })
@@ -106,6 +111,7 @@ export const Customer = () => {
   const contentTabs = [
     { id: 'overview', label: 'Overview' },
     { id: 'usage', label: 'Usage' },
+    ...resourceTypes.map(t => ({ id: `resources-${t.code}`, label: t.pluralName })),
     ...(showEntitlements ? [{ id: 'entitlements', label: 'Entitlements' }] : []),
   ]
   const tabList = placeAfter<{ id: string; label: string; after?: string }>(
@@ -260,6 +266,7 @@ export const Customer = () => {
                   </TabsList>
                   <TabsContent value="overview" className="mt-4 flex flex-col gap-6">
                     <Slot name="customerDetail.attention" customerId={data.id} />
+                    {!isExpress && canViewSubscriptions && <UnattributedBanner customerId={data.id} />}
                     {!isExpress && canViewSubscriptions && (
                       <section className="flex flex-col gap-2">
                         <Flex align="center" justify="between">
@@ -335,18 +342,18 @@ export const Customer = () => {
                   </TabsContent>
                   {tabs.includes('entitlements') && (
                     <TabsContent value="entitlements" className="mt-4 flex flex-col gap-8">
-                      <div>
-                        <h4 className="text-sm font-medium mb-3">Effective</h4>
-                        <EffectiveEntitlementsCard
-                          customerId={data.id}
-                          onViewCredit={
-                            tabs.includes('wallets') ? () => setTab('wallets') : undefined
-                          }
-                        />
-                      </div>
-                      <CustomerEntitlementOverrides customerId={data.id} />
+                      <CustomerEntitlementsTab
+                        customerId={data.id}
+                        customerName={data.name}
+                        onViewCredit={tabs.includes('wallets') ? () => setTab('wallets') : undefined}
+                      />
                     </TabsContent>
                   )}
+                  {resourceTypes.map(t => (
+                    <TabsContent key={t.id} value={`resources-${t.code}`} className="mt-4">
+                      <ResourcesTab customerId={data.id} customerName={data.name} type={t} />
+                    </TabsContent>
+                  ))}
                   {moduleTabs.map(moduleTab => (
                     <TabsContent key={moduleTab.id} value={moduleTab.id} className="mt-4">
                       <moduleTab.Content customerId={data.id} />

@@ -195,6 +195,7 @@ impl Engine {
                     filters: None,
                     usage_group_key: None,
                     usage_breakdown_key: None,
+                    attributed_to: None,
                     unit_label: None,
                     tenant_id: tenant,
                     product_family_id: family,
@@ -240,6 +241,7 @@ impl Engine {
                             product_family_id: family,
                             plan_type: PlanTypeEnum::Standard,
                             status: PlanStatusEnum::Active,
+                            sold_for_resource_type_id: None,
                         },
                         version: PlanVersionNewInternal {
                             is_draft_version: false,

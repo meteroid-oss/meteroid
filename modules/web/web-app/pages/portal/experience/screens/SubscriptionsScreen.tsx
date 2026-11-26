@@ -1,5 +1,5 @@
 import { usePortalNav } from '../context'
-import { date, subStatusBadge } from '../format'
+import { date, subStatusBadge, subscriptionTitle } from '../format'
 import {
   PAY_AS_YOU_GO,
   isPayAsYouGo,
@@ -50,13 +50,8 @@ export const SubscriptionsScreen = () => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, flex: 1 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.01em' }}>
-                  {s.planName}
+                  {subscriptionTitle(s)}
                 </span>
-                {s.usageFilter && (
-                  <Mono style={{ fontSize: 12, color: 'var(--mtp-text-2)' }}>
-                    {s.usageFilter.property} = {s.usageFilter.value}
-                  </Mono>
-                )}
                 <Pill badge={subStatusBadge(s.status)} dot />
               </div>
               <span style={{ fontSize: 13, color: 'var(--mtp-text-2)' }}>

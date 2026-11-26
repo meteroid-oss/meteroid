@@ -15,6 +15,7 @@ use crate::domain::customer_summary::{
     MoneyTotal, RenewalMode, SubscriptionUsage, SummaryParts, UsageCycle, currency_totals,
     days_left, ends_on, project_linear, usage_pct,
 };
+use crate::domain::entitlement_checks::LevelUsage;
 use crate::domain::entitlements::{OverageBehavior, ResetPeriod};
 use crate::errors::StoreError;
 use crate::repositories::customers::CustomersInterfaceAuto;
@@ -144,33 +145,39 @@ impl Services {
         let cycle = SubscriptionCycle {
             subscription_id,
             customer_id: sub.customer_id,
+            resource_id: sub.resource_id,
             period_start: sub.current_period_start,
             period_end: sub.current_period_end,
             activated_at: sub.activated_at,
         };
         let settings = self.limit_settings(tenant_id).await;
         let limited = self
-            .limited_usage_for_subscription(tenant_id, &cycle, now, USAGE_FETCH_CONCURRENCY)
+            .limited_usage_readout(tenant_id, &cycle, now, USAGE_FETCH_CONCURRENCY)
             .await?;
         let usage = limited
             .into_iter()
-            .map(|u| {
+            .map(|(u, read)| {
                 let elapsed = u
                     .period_end
                     .map(|end| elapsed_between(u.period_start, end, now))
                     .unwrap_or(0.0);
-                let refused = u.refused();
+                let usage_unavailable = read == LevelUsage::Unavailable;
+                let consumed = (!usage_unavailable).then_some(u.consumed);
+                let refused = !usage_unavailable && u.refused();
                 let warning_pct = u.warning_pct();
                 FeatureUsage {
                     feature_id: u.feature.id,
                     feature_name: u.feature.name,
-                    pct: usage_pct(u.consumed, u.limit),
-                    projected: project_linear(
-                        u.consumed,
-                        elapsed,
-                        f64::from(settings.min_projection_elapsed_pct) / 100.0,
-                    ),
-                    consumed: u.consumed,
+                    pct: consumed.and_then(|c| usage_pct(c, u.limit)),
+                    projected: consumed.and_then(|c| {
+                        project_linear(
+                            c,
+                            elapsed,
+                            f64::from(settings.min_projection_elapsed_pct) / 100.0,
+                        )
+                    }),
+                    consumed,
+                    usage_unavailable,
                     limit: Some(u.limit),
                     warning_threshold_pct: settings.threshold_pct(warning_pct),
                     reset: reset_name(&u.reset_period).to_string(),
@@ -187,6 +194,7 @@ impl Services {
                         OverageBehavior::Allow => None,
                     },
                     group_by: u.group_by,
+                    own_grant: u.own_grant,
                 }
             })
             .collect();

@@ -29,8 +29,8 @@ use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{
     AddOnId, BaseId, BillableMetricId, CheckoutSessionId, ConnectorId, CouponId, CreditNoteId,
     CustomerId, CustomerPaymentMethodId, EventId, InvoiceId, PaymentTransactionId, PlanId,
-    PlanVersionId, PriceId, ProductFamilyId, ProductId, QuoteId, StoredDocumentId, SubscriptionId,
-    TenantId,
+    PlanVersionId, PriceId, ProductFamilyId, ProductId, QuoteId, ResourceId, StoredDocumentId,
+    SubscriptionId, TenantId,
 };
 use diesel_models::outbox_event::OutboxEventRowNew;
 use diesel_models::pgmq::PgmqMessageRowNew;
@@ -110,6 +110,9 @@ pub enum OutboxEvent {
     BudgetThresholdReached(Box<BudgetAlertEvent>),
     BudgetExceeded(Box<BudgetAlertEvent>),
     EntitlementTooManyGroups(Box<TooManyGroupsEvent>),
+    /// A paid self-serve checkout whose subscription its resource refused for good: the payment
+    /// was kept as customer credit and the session cancelled.
+    CheckoutPaymentKeptAsCredit(Box<CheckoutPaymentKeptAsCreditEvent>),
 }
 
 #[derive(Display, Debug, Serialize, Deserialize, PartialEq, Clone, Copy, strum::EnumIter)]
@@ -171,6 +174,7 @@ pub enum EventType {
     BudgetThresholdReached,
     BudgetExceeded,
     EntitlementTooManyGroups,
+    CheckoutPaymentKeptAsCredit,
 }
 
 json_value_serde!(OutboxEvent);
@@ -236,6 +240,7 @@ impl OutboxEvent {
                 event.id
             }
             OutboxEvent::EntitlementTooManyGroups(event) => event.id,
+            OutboxEvent::CheckoutPaymentKeptAsCredit(event) => event.id,
         }
     }
 
@@ -299,6 +304,7 @@ impl OutboxEvent {
                 event.tenant_id
             }
             OutboxEvent::EntitlementTooManyGroups(event) => event.tenant_id,
+            OutboxEvent::CheckoutPaymentKeptAsCredit(event) => event.tenant_id,
         }
     }
 
@@ -364,7 +370,9 @@ impl OutboxEvent {
             | OutboxEvent::EntitlementLimitReached(_)
             | OutboxEvent::BudgetThresholdReached(_)
             | OutboxEvent::BudgetExceeded(_)
-            | OutboxEvent::EntitlementTooManyGroups(_) => None,
+            | OutboxEvent::EntitlementTooManyGroups(_)
+            // Its credit is funded by the ledger, which reports it.
+            | OutboxEvent::CheckoutPaymentKeptAsCredit(_) => None,
         }
     }
 
@@ -469,6 +477,7 @@ impl OutboxEvent {
             OutboxEvent::EntitlementTooManyGroups(event) => event
                 .feature_id
                 .map_or_else(|| event.customer_id.as_uuid(), |id| id.as_uuid()),
+            OutboxEvent::CheckoutPaymentKeptAsCredit(event) => event.checkout_session_id.as_uuid(),
         }
     }
 
@@ -532,6 +541,7 @@ impl OutboxEvent {
                 "Budget".to_string()
             }
             OutboxEvent::EntitlementTooManyGroups(_) => "Feature".to_string(),
+            OutboxEvent::CheckoutPaymentKeptAsCredit(_) => "CheckoutSession".to_string(),
         }
     }
 
@@ -600,6 +610,7 @@ impl OutboxEvent {
             OutboxEvent::BudgetThresholdReached(_) => EventType::BudgetThresholdReached,
             OutboxEvent::BudgetExceeded(_) => EventType::BudgetExceeded,
             OutboxEvent::EntitlementTooManyGroups(_) => EventType::EntitlementTooManyGroups,
+            OutboxEvent::CheckoutPaymentKeptAsCredit(_) => EventType::CheckoutPaymentKeptAsCredit,
         }
     }
 
@@ -834,6 +845,10 @@ impl OutboxEvent {
         OutboxEvent::WalletAutoTopUpCapReached(Box::new(event))
     }
 
+    pub fn checkout_payment_kept_as_credit(event: CheckoutPaymentKeptAsCreditEvent) -> OutboxEvent {
+        OutboxEvent::CheckoutPaymentKeptAsCredit(Box::new(event))
+    }
+
     fn payload_json(&self) -> StoreResult<serde_json::Value> {
         serde_json::to_value(self).map_err(|e| {
             Report::from(StoreError::SerdeError(
@@ -894,7 +909,7 @@ impl CustomerEvent {
 #[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, Deserialize, o2o)]
 #[map_owned(BillableMetric)]
-#[ghosts(archived_at: None, updated_at: None, filters: None, usage_scope: {crate::domain::UsageScope::default()}, rated_dimensions: {Vec::new()})]
+#[ghosts(archived_at: None, updated_at: None, filters: None, usage_scope: {crate::domain::UsageScope::default()}, rated_dimensions: {Vec::new()}, attributed_to_type_id: None, attribution_property: None)]
 pub struct BillableMetricEvent {
     #[ghost(EventId::new())]
     pub id: EventId,
@@ -1157,6 +1172,27 @@ pub struct QuoteAcceptedEvent {
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub create_subscription_on_acceptance: bool,
+}
+
+#[skip_serializing_none]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckoutPaymentKeptAsCreditEvent {
+    pub id: EventId,
+    pub tenant_id: TenantId,
+    pub customer_id: CustomerId,
+    pub checkout_session_id: CheckoutSessionId,
+    pub payment_transaction_id: PaymentTransactionId,
+    pub plan_version_id: Option<PlanVersionId>,
+    pub resource_id: Option<ResourceId>,
+    /// In the currency's minor units.
+    pub amount: i64,
+    pub currency: String,
+    /// The refusal of the subscription.
+    pub reason: String,
+}
+
+impl CheckoutPaymentKeptAsCreditEvent {
+    pub const ROUTING_KEY: &'static str = "checkout.payment_kept_as_credit";
 }
 
 #[skip_serializing_none]
@@ -1470,7 +1506,8 @@ impl EventType {
             | EventType::EntitlementLimitReached
             | EventType::BudgetThresholdReached
             | EventType::BudgetExceeded
-            | EventType::EntitlementTooManyGroups => false,
+            | EventType::EntitlementTooManyGroups
+            | EventType::CheckoutPaymentKeptAsCredit => false,
         }
     }
 }
@@ -1542,6 +1579,7 @@ impl EventType {
             EventType::BudgetThresholdReached => BudgetAlertEvent::THRESHOLD_ROUTING_KEY,
             EventType::BudgetExceeded => BudgetAlertEvent::EXCEEDED_ROUTING_KEY,
             EventType::EntitlementTooManyGroups => TooManyGroupsEvent::ENTITLEMENT_ROUTING_KEY,
+            EventType::CheckoutPaymentKeptAsCredit => CheckoutPaymentKeptAsCreditEvent::ROUTING_KEY,
         }
     }
 }
@@ -1771,6 +1809,11 @@ mod credit_inputs_tests {
             EventType::EntitlementTooManyGroups,
             false,
             "evaluator reaction",
+        ),
+        (
+            EventType::CheckoutPaymentKeptAsCredit,
+            false,
+            "money movement: the credit grant writes the ledger feed row",
         ),
     ];
 

@@ -31,6 +31,8 @@ pub async fn run_meters_seed(pool: &PgPool) {
             filters: None,
             unit_singular: None,
             unit_plural: None,
+            attributed_to_type_id: None,
+            attribution_property: None,
         }
         .insert(tx)
         .await?;
@@ -54,6 +56,8 @@ pub async fn run_meters_seed(pool: &PgPool) {
             filters: None,
             unit_singular: None,
             unit_plural: None,
+            attributed_to_type_id: None,
+            attribution_property: None,
         }
         .insert(tx)
         .await?;

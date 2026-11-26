@@ -2,8 +2,11 @@
 //! subscription is (the customer by alias, the plan by code, its option, seats, add-ons and
 //! coupons), replayed by their Idempotency-Key, read, listed by cursor, cancelled; snake_case
 //! enums, prefixed ids, and the problems a refused request answers.
+use crate::data::ids::TENANT_ID;
 use crate::test_rest_v2::fixture;
-use crate::test_rest_v2_subscriptions::seed;
+use crate::test_rest_v2_subscriptions::{seed, seed_sites, site};
+use common_domain::ids::BaseId;
+use diesel_async::RunQueryDsl;
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -215,4 +218,137 @@ async fn test_rest_v2_checkout_sessions() {
     let missing = f.get("/api/v2/checkout-sessions/che_nonexistent").await;
     assert_eq!(missing.status, StatusCode::NOT_FOUND);
     assert_eq!(missing.body["code"], "not_found");
+}
+
+fn refused_at(answer: &crate::test_rest_v2::Answer, path: &str) {
+    assert_eq!(
+        answer.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{path}: {:#}",
+        answer.body
+    );
+    assert_eq!(answer.body["errors"][0]["path"], path, "{:#}", answer.body);
+}
+
+/// Rules: ADR-0013 §17, §23 (a session for a resource; the resource's refusals at `/resource`, the
+/// offer's at `/plan`)
+#[tokio::test]
+async fn test_rest_v2_checkout_session_for_a_resource() {
+    let f = fixture().await;
+    seed(&f).await;
+    seed_sites(&f).await;
+    let s1 = site(&f, "ext:spotify", "s1").await;
+    site(&f, "ext:spotify", "s2").await;
+    site(&f, "ext:spotify", "s3").await;
+    let theirs = site(&f, "ext:uber", "u1").await;
+
+    let created = f
+        .post(
+            "/api/v2/checkout-sessions",
+            json!({"customer": "ext:spotify", "plan": "studio",
+                   "resource": {"type": "site", "key": "s1"}}),
+        )
+        .await;
+    assert_eq!(created.status, StatusCode::CREATED, "{:#}", created.body);
+    let resource = json!({"id": s1, "type": "site", "key": "s1"});
+    assert_eq!(created.body["resource"], resource);
+    // Studio is sold for the customer and prices `bandwidth`, attributed to the customer only.
+    assert_eq!(
+        created.body["warnings"],
+        json!(["plan_sold_for_mismatch", "metric_not_attributed"])
+    );
+    assert_eq!(created.body["metrics_not_attributed"], json!(["bandwidth"]));
+    let id = created.body["id"].as_str().unwrap();
+    let read = f.get(&format!("/api/v2/checkout-sessions/{id}")).await;
+    assert_eq!(read.body["resource"], resource, "{:#}", read.body);
+    assert!(read.body.get("warnings").is_none(), "told on creation only");
+    let listed = f
+        .get("/api/v2/checkout-sessions?customer=ext:spotify")
+        .await;
+    assert_eq!(
+        listed.body["data"][0]["resource"], resource,
+        "{:#}",
+        listed.body
+    );
+    let customer_wide = f
+        .post(
+            "/api/v2/checkout-sessions",
+            json!({"customer": "ext:spotify", "plan": "studio"}),
+        )
+        .await;
+    assert_eq!(customer_wide.status, StatusCode::CREATED);
+    assert!(customer_wide.body.get("resource").is_none());
+    assert!(
+        customer_wide.body.get("warnings").is_none(),
+        "{:#}",
+        customer_wide.body
+    );
+
+    // The resource at fault: already sold to a live subscription, archived, another customer's.
+    let sold = f
+        .post_once(
+            "/api/v2/subscriptions",
+            "sell-s2",
+            json!({"customer": "ext:spotify", "plan": "studio", "quantities": {"users": "1"},
+                   "resource": {"type": "site", "key": "s2"},
+                   "invoicing": {"charge_automatically": false}}),
+        )
+        .await;
+    assert_eq!(sold.status, StatusCode::CREATED, "{:#}", sold.body);
+    let on_sold = f
+        .post(
+            "/api/v2/checkout-sessions",
+            json!({"customer": "ext:spotify", "plan": "studio",
+                   "resource": {"type": "site", "key": "s2"}}),
+        )
+        .await;
+    refused_at(&on_sold, "/resource");
+    let archived = f
+        .post(
+            "/api/v2/customers/ext:spotify/resources/site/s3/archive",
+            json!({}),
+        )
+        .await;
+    assert_eq!(archived.status, StatusCode::OK, "{:#}", archived.body);
+    let on_archived = f
+        .post(
+            "/api/v2/checkout-sessions",
+            json!({"customer": "ext:spotify", "plan": "studio",
+                   "resource": {"type": "site", "key": "s3"}}),
+        )
+        .await;
+    refused_at(&on_archived, "/resource");
+    let not_theirs = f
+        .post(
+            "/api/v2/checkout-sessions",
+            json!({"customer": "ext:spotify", "plan": "studio", "resource": {"id": theirs}}),
+        )
+        .await;
+    refused_at(&not_theirs, "/resource");
+    assert_eq!(not_theirs.body["errors"][0]["code"], "not_found");
+
+    // The offer at fault: a plan whose rule leaves the customer out (Spotify has no address).
+    diesel::sql_query(
+        "UPDATE plan SET eligibility = '{\"countries\": [\"JP\"]}'::jsonb
+         WHERE tenant_id = $1 AND code = 'scale'",
+    )
+    .bind::<diesel::sql_types::Uuid, _>(TENANT_ID.as_uuid())
+    .execute(&mut f.setup.store.get_conn().await.unwrap())
+    .await
+    .unwrap();
+    let ruled_out = f
+        .post(
+            "/api/v2/checkout-sessions",
+            json!({"customer": "ext:spotify", "plan": "scale"}),
+        )
+        .await;
+    refused_at(&ruled_out, "/plan");
+    let ruled_out_for_a_site = f
+        .post(
+            "/api/v2/checkout-sessions",
+            json!({"customer": "ext:spotify", "plan": "scale",
+                   "resource": {"type": "site", "key": "s1"}}),
+        )
+        .await;
+    refused_at(&ruled_out_for_a_site, "/plan");
 }

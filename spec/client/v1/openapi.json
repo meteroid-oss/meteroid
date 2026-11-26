@@ -83,38 +83,165 @@
         "tags": [
           "Entitlements"
         ],
-        "summary": "List entitlements",
-        "description": "Every feature the customer is entitled to, with live usage, in feature order and paged by\ncursor: the customer's entitlements as API v2 reads them.",
-        "operationId": "list_entitlements",
+        "summary": "Get entitlements",
+        "description": "What the customer may use, for the customer as a whole and for the resource the token\nclaims, as the server API's `GET /api/v2/customers/{id_or_alias}/entitlements` answers it,\nwith its `ETag`.",
+        "operationId": "get_entitlements",
         "parameters": [
           {
-            "name": "limit",
+            "name": "resource",
             "in": "query",
-            "description": "How many items, 1 to 100; 20 by default.",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
-          },
-          {
-            "name": "after",
-            "in": "query",
-            "description": "The `next_cursor` of the previous page.",
+            "description": "A stored resource the token claims, by id",
             "required": false,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "resource[type]",
+            "in": "query",
+            "description": "With `resource[key]`: a resource the token claims, by its type's code",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resource[key]",
+            "in": "query",
+            "description": "With `resource[type]`: the resource's key value",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "attributes",
+            "in": "query",
+            "description": "Attributes the token claims, as `attributes[<type>.<attribute>]=<value>`",
+            "required": false,
+            "schema": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "propertyNames": {
+                "type": "string"
+              }
+            },
+            "style": "deepObject",
+            "explode": true
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "description": "The `ETag` of a previous answer",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "A page of the customer's entitlements",
+            "description": "The snapshot",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CustomerEntitlementList"
+                  "$ref": "#/components/schemas/EntitlementSnapshot"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Unchanged since the `If-None-Match` etag"
+          },
+          "401": {
+            "description": "Missing, invalid or expired token (`token_expired`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token does not grant read access, or does not claim the resource or the attributes",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A resource not the customer's or of no type, or an unknown attribute or value",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The snapshot could not be answered in time; retry",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "customer_token": []
+          }
+        ],
+        "x-meteroid-edition": "oss"
+      }
+    },
+    "/api/client/v1/entitlements/check": {
+      "post": {
+        "tags": [
+          "Entitlements"
+        ],
+        "summary": "Check an entitlement",
+        "description": "Whether the customer may use `requested` more of a feature now, as the server API's `POST\n/api/v2/customers/{id_or_alias}/entitlements/check` answers; `explain` and `current_count`\nare refused.",
+        "operationId": "check_entitlement",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientCheckEntitlement"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Whether the customer may use the requested units",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntitlementCheck"
                 }
               }
             }
@@ -130,7 +257,17 @@
             }
           },
           "403": {
-            "description": "The token does not grant read access",
+            "description": "The token does not claim the resource or the attributes, or the request asks for `explain` or `current_count`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The feature is not found",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -140,7 +277,7 @@
             }
           },
           "422": {
-            "description": "The cursor or limit is refused",
+            "description": "A negative `requested`, a resource not the customer's or of no type, or an unknown attribute or value",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -151,6 +288,186 @@
           },
           "429": {
             "description": "Too many requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The check could not be answered in time; retry",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "customer_token": []
+          }
+        ],
+        "x-meteroid-edition": "oss"
+      }
+    },
+    "/api/client/v1/entitlements/{feature}/check": {
+      "get": {
+        "tags": [
+          "Entitlements"
+        ],
+        "summary": "Check an entitlement (GET)",
+        "description": "The `GET` form of `POST /api/client/v1/entitlements/check`: the feature by code or id, its\ninputs as query parameters: `resource` (an id) or `resource[type]` and `resource[key]`, and\n`attributes[<type>.<attribute>]=<value>`.",
+        "operationId": "check_entitlement_by_query",
+        "parameters": [
+          {
+            "name": "feature",
+            "in": "path",
+            "description": "Feature code or id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "requested",
+            "in": "query",
+            "description": "The units about to be used, a decimal string; 1 by default.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "current_count",
+            "in": "query",
+            "description": "Refused: it takes a secret key.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "explain",
+            "in": "query",
+            "description": "Refused: it takes a secret key.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "resource",
+            "in": "query",
+            "description": "A stored resource the token claims, by id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resource[type]",
+            "in": "query",
+            "description": "With `resource[key]`: a resource the token claims, by its type's code",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resource[key]",
+            "in": "query",
+            "description": "With `resource[type]`: the resource's key value",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "attributes",
+            "in": "query",
+            "description": "Attributes the token claims, as `attributes[<type>.<attribute>]=<value>`",
+            "required": false,
+            "schema": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "propertyNames": {
+                "type": "string"
+              }
+            },
+            "style": "deepObject",
+            "explode": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Whether the customer may use the requested units",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntitlementCheck"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired token (`token_expired`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token does not claim the resource or the attributes, or the request asks for `explain` or `current_count`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The feature is not found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A parameter is refused",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The check could not be answered in time; retry",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -361,19 +678,64 @@
   },
   "components": {
     "schemas": {
+      "AppCountExplain": {
+        "type": "object",
+        "description": "A limit counted by your app: the count, the last `set` and the adds since.",
+        "required": [
+          "count",
+          "adds_since",
+          "adds_sum"
+        ],
+        "properties": {
+          "adds_since": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "adds_sum": {
+            "type": "string",
+            "format": "decimal"
+          },
+          "count": {
+            "type": "string",
+            "format": "decimal"
+          },
+          "last_add_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_set": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LastSet"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resource": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LevelResource",
+                "description": "The resource counted; absent for the customer as a whole."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
       "AtLimit": {
         "type": "string",
-        "description": "What reaching the limit does: refuse (past `grace_pct` percent more), or let usage go on.",
+        "description": "What reaching a limit does.",
         "enum": [
-          "block",
-          "allow"
-        ]
-      },
-      "BillableMetricId": {
-        "type": "string",
-        "format": "MeteroidId",
-        "examples": [
-          "bm_7n42DGM5Tflk9n8mt7Fhc7"
+          "deny",
+          "allow_and_bill",
+          "deny_new"
         ]
       },
       "BillingCycleReset": {
@@ -391,25 +753,6 @@
           }
         },
         "additionalProperties": false
-      },
-      "BooleanEntitlement": {
-        "type": "object",
-        "description": "On or off.",
-        "required": [
-          "enabled",
-          "type"
-        ],
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "boolean"
-            ]
-          }
-        }
       },
       "Cadence": {
         "type": "string",
@@ -659,6 +1002,204 @@
           }
         }
       },
+      "CheckHint": {
+        "type": "string",
+        "enum": [
+          "resource_omitted"
+        ]
+      },
+      "CheckLevel": {
+        "type": "object",
+        "description": "A level, as checked: the customer as a whole, or the resource the check names.",
+        "required": [
+          "level",
+          "primary",
+          "near_limit",
+          "in_overage",
+          "allowed"
+        ],
+        "properties": {
+          "allowed": {
+            "type": "boolean"
+          },
+          "deciding_subscription": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionRef",
+                "description": "The subscription whose value applies here, when several include the feature."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "explain": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LevelExplain"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "in_overage": {
+            "type": "boolean",
+            "description": "Past the limit of a level that allows usage past it and bills it."
+          },
+          "level": {
+            "$ref": "#/components/schemas/LevelKind"
+          },
+          "limit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal"
+          },
+          "near_limit": {
+            "type": "boolean"
+          },
+          "primary": {
+            "type": "boolean",
+            "description": "The level the feature applies per (`applies_per`, else the customer): its value is the\nfeature's. The other levels can only cap it."
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CheckReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reset_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "resource": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LevelResource",
+                "description": "With `level: resource_type`: the resource this level is for."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resource_type": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ResourceTypeRef",
+                "description": "With `level: resource_type`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "used": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal"
+          },
+          "value": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementValue"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "CheckReason": {
+        "type": "string",
+        "description": "Why the check, or a level, refuses. When several apply, the first in this list is given.\nNew reasons may be added: treat an unknown one as a refusal.",
+        "enum": [
+          "resource_required",
+          "metric_not_found",
+          "not_subscribed",
+          "not_entitled",
+          "usage_unavailable",
+          "limit_reached",
+          "budget_exceeded",
+          "credit_exhausted"
+        ]
+      },
+      "CheckReasonType": {
+        "type": "string",
+        "description": "What kind of refusal it is, to decide what to do about it.",
+        "enum": [
+          "denied",
+          "misconfigured",
+          "unavailable"
+        ]
+      },
+      "ClientCheckEntitlement": {
+        "type": "object",
+        "description": "What a check asks through the client API, as API v2's check asks it. `explain` and\n`current_count` take a secret key.",
+        "required": [
+          "feature"
+        ],
+        "properties": {
+          "attributes": {
+            "type": "object",
+            "description": "Attributes the token claims, `{\"site.environment\": \"staging\"}`.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "current_count": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal",
+            "description": "Refused: it takes a secret key."
+          },
+          "explain": {
+            "type": "boolean",
+            "description": "Refused: it takes a secret key."
+          },
+          "feature": {
+            "type": "string",
+            "description": "The feature, by code or id."
+          },
+          "requested": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal",
+            "description": "The units about to be used; 1 by default."
+          },
+          "resource": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ResourceName",
+                "description": "The resource the token claims, `{\"id\": …}` or `{\"type\": …, \"key\": …}`; left out, the\ncustomer as a whole."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
       "ClientCustomer": {
         "type": "object",
         "description": "The customer the token was minted for: who it is, as v2 reads a customer.",
@@ -741,7 +1282,7 @@
       },
       "ClientSubscription": {
         "type": "object",
-        "description": "A subscription of the customer, as v2's summary reads it (`GET\n/api/v2/subscriptions/{id}/summary`), less what only the merchant reads: its MRR, invoicing,\ncustom properties, usage filter and external id.",
+        "description": "A subscription of the customer, as v2's summary reads it (`GET\n/api/v2/subscriptions/{id}/summary`), less what only the merchant reads: its MRR, invoicing,\ncustom properties, resource and external id.",
         "required": [
           "id",
           "plan",
@@ -811,21 +1352,89 @@
           }
         }
       },
-      "ConfigEntitlement": {
+      "Contribution": {
         "type": "object",
-        "description": "A setting: a number (as a decimal string), a boolean, a text or a JSON value.",
+        "description": "A row's part in a level's value.",
         "required": [
+          "entitlement",
+          "owner",
+          "tier",
+          "effect",
           "value",
-          "type"
+          "quantity",
+          "policy_override"
         ],
         "properties": {
-          "type": {
-            "type": "string",
-            "enum": [
-              "config"
+          "condition": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "discarded": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DiscardReason"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
-          "value": {}
+          "effect": {
+            "$ref": "#/components/schemas/EntitlementEffect"
+          },
+          "entitlement": {
+            "$ref": "#/components/schemas/EntitlementId"
+          },
+          "owner": {
+            "$ref": "#/components/schemas/EntitlementOwner"
+          },
+          "policy_override": {
+            "type": "boolean",
+            "description": "The row gives its limit a policy of its own."
+          },
+          "quantity": {
+            "type": "integer",
+            "format": "int32",
+            "description": "An add-on's instances bought; 1 for other rows.",
+            "minimum": 0
+          },
+          "running": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementValue",
+                "description": "The value once this row applied; absent when it changed nothing (`discarded`)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tier": {
+            "$ref": "#/components/schemas/EntitlementTier"
+          },
+          "units": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "A limit per unit of a managed quantity: the units the deciding subscription holds, which\nmultiply `value` (`running` is the product).",
+            "minimum": 0
+          },
+          "value": {
+            "$ref": "#/components/schemas/EntitlementValue"
+          }
         }
       },
       "CurrentPeriod": {
@@ -850,15 +1459,38 @@
       },
       "CustomerEntitlement": {
         "type": "object",
-        "description": "What the customer may use of one feature.",
+        "description": "A feature as the customer may use it.",
         "required": [
           "feature",
           "name",
-          "value"
+          "type",
+          "included_by",
+          "levels"
         ],
         "properties": {
+          "applies_per": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ResourceTypeRef",
+                "description": "The resource type the feature applies per; none: the customer."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "feature": {
             "$ref": "#/components/schemas/FeatureRef"
+          },
+          "included_by": {
+            "$ref": "#/components/schemas/IncludedBy"
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntitlementLevel"
+            },
+            "description": "The primary level first."
           },
           "name": {
             "type": "string",
@@ -875,33 +1507,26 @@
               }
             ]
           },
-          "value": {
-            "$ref": "#/components/schemas/EntitlementValue"
-          }
-        }
-      },
-      "CustomerEntitlementList": {
-        "type": "object",
-        "required": [
-          "data",
-          "has_more"
-        ],
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/CustomerEntitlement"
-            }
+          "type": {
+            "$ref": "#/components/schemas/FeatureKind"
           },
-          "has_more": {
-            "type": "boolean"
-          },
-          "next_cursor": {
+          "unit": {
             "type": [
               "string",
               "null"
             ],
-            "description": "Pass it as `after` for the next page; none on the last."
+            "description": "What a number or a limit counts."
+          },
+          "value": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementValue",
+                "description": "The primary level's value, capped by the other levels; absent: not entitled."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -964,23 +1589,137 @@
           }
         }
       },
-      "EntitlementUsage": {
+      "DecidingCandidate": {
         "type": "object",
+        "description": "A subscription including the feature at the level, with the value its rows give there.",
+        "required": [
+          "subscription"
+        ],
         "properties": {
-          "consumed": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "decimal",
-            "description": "Counted in the current window; none when the usage could not be read."
+          "resource": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LevelResource",
+                "description": "The resource it is for; absent for a subscription of the customer as a whole."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
-          "period_start": {
+          "subscription": {
+            "$ref": "#/components/schemas/SubscriptionRef"
+          },
+          "value": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementValue"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "DiscardReason": {
+        "type": "string",
+        "description": "Why a row changed nothing.",
+        "enum": [
+          "replaced_by_higher_tier",
+          "lost_within_tier",
+          "no_effect",
+          "no_base_on_level",
+          "effect_not_allowed",
+          "condition_not_met",
+          "not_in_effect"
+        ]
+      },
+      "EntitlementCheck": {
+        "type": "object",
+        "description": "Whether the customer may use `requested` more of a feature now: every level must allow.",
+        "required": [
+          "feature",
+          "allowed",
+          "near_limit",
+          "in_overage",
+          "levels",
+          "attributes_ignored",
+          "warnings",
+          "usage_source",
+          "as_of"
+        ],
+        "properties": {
+          "allowed": {
+            "type": "boolean"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the usage the answer uses was counted: now, or, while usage cannot be read, the\nlast live count (`usage_source: live`)."
+          },
+          "attributes_ignored": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Attributes the request asserted that the stored resource holds other values of: the\nstored ones were used."
+          },
+          "feature": {
+            "$ref": "#/components/schemas/FeatureRef"
+          },
+          "hint": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CheckHint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "in_overage": {
+            "type": "boolean",
+            "description": "The request goes past a limit that allows usage past it and bills it: allowed, and billed."
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CheckLevel"
+            },
+            "description": "The primary level first."
+          },
+          "limit": {
             "type": [
               "string",
               "null"
             ],
-            "format": "date-time"
+            "format": "decimal"
+          },
+          "near_limit": {
+            "type": "boolean",
+            "description": "A level is within 5% of a limit that refuses, or past it: check before every use, and do\nnot cache an answer that allows."
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CheckReason",
+                "description": "Absent when allowed."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason_type": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CheckReasonType"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "remaining": {
             "type": [
@@ -988,35 +1727,291 @@
               "null"
             ],
             "format": "decimal",
-            "description": "Left under the limit."
+            "description": "Left before the limit, not counting its grace."
           },
-          "reset_at": {
+          "retry_at": {
             "type": [
               "string",
               "null"
             ],
-            "format": "date-time"
+            "format": "date-time",
+            "description": "When a refusal may lift: the latest reset among the refusing levels when each is a limit\nthat resets, or 30 seconds ahead when usage could not be read."
+          },
+          "usage_source": {
+            "$ref": "#/components/schemas/UsageSource"
+          },
+          "used": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal",
+            "description": "`used`, `limit` and `remaining` are the refusing level's, else the primary level's; absent\nwithout a limit."
+          },
+          "value": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementValue",
+                "description": "The primary level's value, capped by the other levels."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "`usage_unavailable`: a level's usage could not be read, its `used` is absent."
           }
         }
+      },
+      "EntitlementEffect": {
+        "type": "string",
+        "description": "How a row combines with the value of the owners before it: the feature's defaults, then the\nplan and its version, the subscription, its add-ons and the customer's overrides, in that\norder.",
+        "enum": [
+          "set",
+          "add",
+          "raise_to",
+          "cap_at"
+        ]
+      },
+      "EntitlementId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "ent_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "EntitlementLevel": {
+        "type": "object",
+        "description": "A feature at one level: the customer as a whole, or the resource the request names.",
+        "required": [
+          "level",
+          "primary"
+        ],
+        "properties": {
+          "deciding_subscription": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionRef",
+                "description": "The subscription whose value applies here, when several include the feature."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "level": {
+            "$ref": "#/components/schemas/LevelKind"
+          },
+          "origin": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Origin"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "policy": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Policy",
+                "description": "A limit's policy: the feature's, or the one a `set` row gives in its place."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "primary": {
+            "type": "boolean",
+            "description": "The level the feature applies per (`applies_per`, else the customer): its value is the\nfeature's, and none there means not entitled. The other levels can only cap it."
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CheckReason",
+                "description": "`resource_required` or `not_subscribed`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resource": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LevelResource",
+                "description": "With `level: resource_type`: the resource this level is for."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resource_type": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ResourceTypeRef",
+                "description": "With `level: resource_type`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "used": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal",
+            "description": "A limit's usage: the count your app reported, or the metric's events for this level over\n`window`. Absent when it could not be read (warning `usage_unavailable`)."
+          },
+          "value": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementValue",
+                "description": "Absent on the primary level: not entitled (`reason` tells when a resource is needed).\nAbsent on another level: nothing caps the value there."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "window": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UsageWindow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "EntitlementOwner": {
+        "type": "object",
+        "description": "What a row belongs to.",
+        "required": [
+          "type",
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The plan and version's, the add-on's or the customer's name, where known."
+          },
+          "type": {
+            "$ref": "#/components/schemas/OwnerType"
+          }
+        }
+      },
+      "EntitlementSnapshot": {
+        "type": "object",
+        "description": "Every feature with its levels. `etag` is also the `ETag` header: sent back as\n`If-None-Match`, it answers `304` while the values are the same (usage is not part of it).",
+        "required": [
+          "etag",
+          "entitlements",
+          "attributes_ignored",
+          "warnings"
+        ],
+        "properties": {
+          "attributes_ignored": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Attributes the request asserted that the stored resource holds other values of: the\nstored ones were used."
+          },
+          "entitlements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomerEntitlement"
+            }
+          },
+          "etag": {
+            "type": "string"
+          },
+          "resource": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SnapshotResource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "`usage_unavailable`: a level's usage could not be read, its `used` is absent."
+          }
+        }
+      },
+      "EntitlementTier": {
+        "type": "string",
+        "description": "Where a row sits in the order rows apply in, first to last: the feature's defaults, the\nplan, the plan version, the subscription, its add-ons, the customer's override, and an\noverride for one resource.",
+        "enum": [
+          "default",
+          "plan",
+          "plan_version",
+          "subscription",
+          "add_on",
+          "customer_override",
+          "override_for_resource"
+        ]
       },
       "EntitlementValue": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/BooleanEntitlement"
+            "$ref": "#/components/schemas/OnValue"
           },
           {
-            "$ref": "#/components/schemas/MeteredEntitlement"
+            "$ref": "#/components/schemas/OffValue"
           },
           {
-            "$ref": "#/components/schemas/ConfigEntitlement"
+            "$ref": "#/components/schemas/LimitValue"
+          },
+          {
+            "$ref": "#/components/schemas/UnlimitedValue"
+          },
+          {
+            "$ref": "#/components/schemas/NumberValue"
+          },
+          {
+            "$ref": "#/components/schemas/TextValue"
+          },
+          {
+            "$ref": "#/components/schemas/JsonValue"
           }
         ],
+        "description": "The value a row gives, of the feature's type. A boolean takes `on` or `off`. A limit takes\n`limit`, `unlimited` or `off`: `off` means not entitled at all, while a limit of 0 is\nentitled to none. A value feature takes `number`, `text` (also a select's option) or `json`.",
         "discriminator": {
           "propertyName": "type",
           "mapping": {
-            "boolean": "#/components/schemas/BooleanEntitlement",
-            "config": "#/components/schemas/ConfigEntitlement",
-            "metered": "#/components/schemas/MeteredEntitlement"
+            "json": "#/components/schemas/JsonValue",
+            "limit": "#/components/schemas/LimitValue",
+            "number": "#/components/schemas/NumberValue",
+            "off": "#/components/schemas/OffValue",
+            "on": "#/components/schemas/OnValue",
+            "text": "#/components/schemas/TextValue",
+            "unlimited": "#/components/schemas/UnlimitedValue"
           }
         }
       },
@@ -1036,6 +2031,14 @@
         "format": "MeteroidId",
         "examples": [
           "feat_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "FeatureKind": {
+        "type": "string",
+        "enum": [
+          "boolean",
+          "value",
+          "limit"
         ]
       },
       "FeatureRef": {
@@ -1093,7 +2096,7 @@
       },
       "FixedWindowReset": {
         "type": "object",
-        "description": "Every `interval` `unit`s from the subscription's activation.",
+        "description": "Every `interval` `unit`s, counted from the subscription's start.",
         "required": [
           "unit",
           "interval",
@@ -1118,6 +2121,110 @@
         },
         "additionalProperties": false
       },
+      "IncludedBy": {
+        "type": "string",
+        "description": "Which subscriptions include a feature: the customer's (its value holds for the whole\ncustomer), or only its resources' (it is answered per resource: name one).",
+        "enum": [
+          "customer",
+          "resources"
+        ]
+      },
+      "JsonValue": {
+        "type": "object",
+        "description": "Any JSON value.",
+        "required": [
+          "json",
+          "type"
+        ],
+        "properties": {
+          "json": {},
+          "type": {
+            "type": "string",
+            "enum": [
+              "json"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "LastSet": {
+        "type": "object",
+        "description": "The last `set` of a count.",
+        "required": [
+          "count",
+          "at"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "count": {
+            "type": "string",
+            "format": "decimal"
+          },
+          "key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "LevelExplain": {
+        "type": "object",
+        "description": "How a level's value was made: each row's part, the subscriptions that could decide it, and\nthe counts your app reported.",
+        "required": [
+          "contributions",
+          "candidates",
+          "app_counts"
+        ],
+        "properties": {
+          "app_counts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppCountExplain"
+            }
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DecidingCandidate"
+            }
+          },
+          "contributions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Contribution"
+            }
+          }
+        }
+      },
+      "LevelKind": {
+        "type": "string",
+        "description": "Where a value applies: for the customer as a whole (across all its resources), or for each\nresource of `resource_type` (per site).",
+        "enum": [
+          "customer",
+          "resource_type"
+        ]
+      },
+      "LevelResource": {
+        "type": "object",
+        "description": "The resource a level is for: its type's code and its key value.",
+        "required": [
+          "type",
+          "key"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "description": "The resource type's code."
+          }
+        }
+      },
       "LevelsMore": {
         "type": "object",
         "description": "Where the levels lead past their largest: sales.",
@@ -1136,95 +2243,27 @@
           }
         }
       },
-      "MeteredEntitlement": {
+      "LimitValue": {
         "type": "object",
         "required": [
-          "enabled",
-          "metric",
-          "reset",
-          "at_limit",
-          "thresholds",
-          "usage",
-          "limit_reached",
+          "limit",
           "type"
         ],
         "properties": {
-          "at_limit": {
-            "$ref": "#/components/schemas/AtLimit"
-          },
-          "enabled": {
-            "type": "boolean",
-            "description": "Switched on and not refused by a reached blocking limit."
-          },
-          "grace_pct": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "With `block`: how far past the limit usage may go before it is refused, in percent.",
-            "minimum": 0
-          },
-          "group_by": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "The event property the limit applies per value of; none for one limit."
-          },
           "limit": {
-            "type": [
-              "string",
-              "null"
-            ],
+            "type": "string",
             "format": "decimal",
-            "description": "A decimal string; none is unlimited."
-          },
-          "limit_reached": {
-            "type": "boolean",
-            "description": "Switched on, but refused: a blocking limit (with its grace) is reached. Never for a grouped\nlimit, which refuses per group."
-          },
-          "metric": {
-            "$ref": "#/components/schemas/MetricRef",
-            "description": "The metric counting the usage."
-          },
-          "reset": {
-            "$ref": "#/components/schemas/Reset"
-          },
-          "thresholds": {
-            "type": "array",
-            "items": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            },
-            "description": "Percentages of the limit that send `entitlement.usage_threshold_reached`."
+            "description": "Not negative.",
+            "example": "1000"
           },
           "type": {
             "type": "string",
             "enum": [
-              "metered"
+              "limit"
             ]
-          },
-          "usage": {
-            "$ref": "#/components/schemas/EntitlementUsage"
           }
-        }
-      },
-      "MetricRef": {
-        "type": "object",
-        "required": [
-          "id",
-          "code"
-        ],
-        "properties": {
-          "code": {
-            "type": "string"
-          },
-          "id": {
-            "$ref": "#/components/schemas/BillableMetricId"
-          }
-        }
+        },
+        "additionalProperties": false
       },
       "NeverReset": {
         "type": "object",
@@ -1241,6 +2280,91 @@
           }
         },
         "additionalProperties": false
+      },
+      "NumberValue": {
+        "type": "object",
+        "required": [
+          "number",
+          "type"
+        ],
+        "properties": {
+          "number": {
+            "type": "string",
+            "format": "decimal",
+            "example": "30"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "number"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "OffValue": {
+        "type": "object",
+        "description": "Not entitled: a boolean switched off, or a limit not granted at all.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "off"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "OnValue": {
+        "type": "object",
+        "description": "A boolean feature switched on.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "on"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "Origin": {
+        "type": "object",
+        "description": "The row the value comes from.",
+        "required": [
+          "entitlement",
+          "owner",
+          "effect"
+        ],
+        "properties": {
+          "effect": {
+            "$ref": "#/components/schemas/EntitlementEffect"
+          },
+          "entitlement": {
+            "$ref": "#/components/schemas/EntitlementId"
+          },
+          "owner": {
+            "$ref": "#/components/schemas/EntitlementOwner"
+          }
+        }
+      },
+      "OwnerType": {
+        "type": "string",
+        "enum": [
+          "feature",
+          "plan",
+          "plan_version",
+          "add_on",
+          "subscription",
+          "quote",
+          "customer"
+        ]
       },
       "PageOption": {
         "type": "object",
@@ -1294,6 +2418,39 @@
             "description": "The version number; none where the plan is named alone (a pricing card)."
           }
         }
+      },
+      "Policy": {
+        "type": "object",
+        "description": "How a limit behaves: when its usage resets and what reaching it does. The feature holds it;\na `set` row may give one of its own.",
+        "required": [
+          "resets",
+          "at_limit"
+        ],
+        "properties": {
+          "at_limit": {
+            "$ref": "#/components/schemas/AtLimit"
+          },
+          "grace_pct": {
+            "type": "integer",
+            "format": "int32",
+            "description": "`deny` only: how far past the limit usage is still allowed, in percent of the limit.",
+            "minimum": 0
+          },
+          "resets": {
+            "$ref": "#/components/schemas/Reset",
+            "description": "When the usage counted against the limit starts again from zero. A limit your app counts\nnever resets. `billing_cycle` follows the subscription; with none, each calendar month."
+          },
+          "thresholds": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "description": "Percents of the limit at which an alert is sent, at most 10."
+          }
+        },
+        "additionalProperties": false
       },
       "PricingCard": {
         "type": "object",
@@ -1499,6 +2656,10 @@
           "already_exists",
           "conflict",
           "no_draft",
+          "resource_required",
+          "stale_set",
+          "key_taken",
+          "resource_limit_reached",
           "when_refused",
           "idempotency_key_reused",
           "idempotency_request_in_progress",
@@ -1591,9 +2752,66 @@
           }
         }
       },
+      "ResourceId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "res_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "ResourceName": {
+        "type": "object",
+        "description": "A customer's resource: `{\"id\": \"res_…\"}` for a stored one, or its type and key value,\n`{\"type\": \"site\", \"key\": \"s1\"}`, which a check, a snapshot or a usage report may name without\nthe resource being stored. Send `id`, or `type` and `key`.",
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A stored resource's id."
+          },
+          "key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "With `type`: the resource's key value (`s1`)."
+          },
+          "type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "With `key`: the resource type's code, or its id."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ResourceTypeId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "rty_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "ResourceTypeRef": {
+        "type": "object",
+        "required": [
+          "id",
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "id": {
+            "$ref": "#/components/schemas/ResourceTypeId"
+          }
+        }
+      },
       "SlidingWindowReset": {
         "type": "object",
-        "description": "The usage of the last `interval` `unit`s, always ending now; sends no alerts.",
+        "description": "The usage of the last `interval` `unit`s, up to now. Sends no alerts.",
         "required": [
           "unit",
           "interval",
@@ -1618,12 +2836,60 @@
         },
         "additionalProperties": false
       },
+      "SnapshotResource": {
+        "type": "object",
+        "description": "The resource a snapshot is for.",
+        "required": [
+          "type",
+          "key"
+        ],
+        "properties": {
+          "id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ResourceId",
+                "description": "A stored resource's id; absent for one named ad hoc."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "key": {
+            "type": "string",
+            "description": "The key value named."
+          },
+          "type": {
+            "type": "string",
+            "description": "The type's code."
+          }
+        }
+      },
       "SubscriptionId": {
         "type": "string",
         "format": "MeteroidId",
         "examples": [
           "sub_7n42DGM5Tflk9n8mt7Fhc7"
         ]
+      },
+      "SubscriptionRef": {
+        "type": "object",
+        "description": "A subscription named by another resource.",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "external_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The integrator's own id of the subscription; paths take it in place of the id."
+          },
+          "id": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          }
+        }
       },
       "SubscriptionStatus": {
         "type": "string",
@@ -1636,6 +2902,26 @@
           "aborted",
           "completed"
         ]
+      },
+      "TextValue": {
+        "type": "object",
+        "description": "A text, or one of a select's options.",
+        "required": [
+          "text",
+          "type"
+        ],
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "text"
+            ]
+          }
+        },
+        "additionalProperties": false
       },
       "TrialState": {
         "type": "object",
@@ -1674,6 +2960,50 @@
           "month",
           "year"
         ]
+      },
+      "UnlimitedValue": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "unlimited"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "UsageSource": {
+        "type": "string",
+        "description": "Where the usage came from: `read` when checking, or `live`: kept up to date as usage events\narrive (Enterprise edition).",
+        "enum": [
+          "read",
+          "live"
+        ]
+      },
+      "UsageWindow": {
+        "type": "object",
+        "description": "The period a limit counted from events counts usage over.",
+        "required": [
+          "start"
+        ],
+        "properties": {
+          "end": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Exclusive: the next reset. Absent for a limit that never resets."
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       }
     },
     "securitySchemes": {

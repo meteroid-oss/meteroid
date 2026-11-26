@@ -135,6 +135,8 @@ async fn reversal_metric(env: &TestEnv) -> BillableMetricId {
         filters: None,
         unit_singular: None,
         unit_plural: None,
+        attributed_to_type_id: None,
+        attribution_property: None,
     }
     .insert(&mut env.conn().await)
     .await

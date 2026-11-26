@@ -48,6 +48,7 @@ async fn leetcode_session_until(env: &TestEnv, end_date: Option<NaiveDate>) -> C
             change_date: None,
             success_url: None,
             cancel_url: None,
+            resource_id: None,
         })
         .await
         .expect("checkout session")

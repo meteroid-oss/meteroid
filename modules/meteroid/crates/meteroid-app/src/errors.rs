@@ -140,6 +140,9 @@ pub enum RestApiError {
     ExternalServiceError(String),
     #[error("Rate limit exceeded. {0}")]
     RateLimitExceeded(String),
+    /// An entitlement refusal answered with its own `code`.
+    #[error("{1}")]
+    Refused(meteroid_store::errors::EntitlementRefusal, String),
 }
 
 impl IntoResponse for RestApiError {
@@ -184,6 +187,17 @@ impl IntoResponse for RestApiError {
             RestApiError::RateLimitExceeded(_) => {
                 (StatusCode::TOO_MANY_REQUESTS, ErrorCode::TooManyRequests)
             }
+            RestApiError::Refused(refusal, _) => {
+                use meteroid_store::errors::EntitlementRefusal as R;
+                match refusal {
+                    R::ResourceRequired => (StatusCode::BAD_REQUEST, ErrorCode::ResourceRequired),
+                    R::NotSubscribed => (StatusCode::BAD_REQUEST, ErrorCode::NotSubscribed),
+                    R::IdempotencyKeyReused => {
+                        (StatusCode::CONFLICT, ErrorCode::IdempotencyKeyReused)
+                    }
+                    R::StaleSet => (StatusCode::CONFLICT, ErrorCode::StaleSet),
+                }
+            }
         };
 
         // 4xx are logged with request context at the call site / middleware
@@ -210,11 +224,22 @@ impl IntoResponse for RestApiError {
 
 impl From<Report<StoreError>> for RestApiError {
     fn from(err: Report<StoreError>) -> Self {
+        if let (
+            Some(refusal),
+            StoreError::Conflict(message) | StoreError::InvalidArgument(message),
+        ) = (
+            meteroid_store::errors::EntitlementRefusal::of(&err),
+            err.current_context(),
+        ) {
+            return RestApiError::Refused(refusal, message.clone());
+        }
         match err.current_context() {
             StoreError::ValueNotFound(_) => RestApiError::NotFound,
             StoreError::DuplicateValue { .. } => RestApiError::Conflict,
             StoreError::InvalidArgument(msg) => RestApiError::InvalidInput(msg.clone()),
-            StoreError::UsageUnavailable | StoreError::MeteringNotReady => {
+            StoreError::UsageUnavailable
+            | StoreError::MeteringNotReady
+            | StoreError::DatabaseConnectionError => {
                 RestApiError::Unavailable(err.current_context().to_string())
             }
             // Metering down, or not answering in time (ingestion, event corrections, reads):
@@ -299,5 +324,12 @@ mod tests {
             RestApiError::from(other),
             RestApiError::StoreError
         ));
+        let pool = Report::new(StoreError::DatabaseConnectionError);
+        let error = RestApiError::from(pool);
+        assert!(matches!(error, RestApiError::Unavailable(_)));
+        assert_eq!(
+            error.into_response().status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
     }
 }

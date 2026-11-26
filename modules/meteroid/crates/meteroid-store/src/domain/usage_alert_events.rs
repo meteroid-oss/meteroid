@@ -1,7 +1,10 @@
 //! Outbox payloads of entitlement and budget alerts. Ids are derived from the
 //! crossing they report, so a producer replayed after a failover never notifies twice.
+use crate::domain::entitlement_fold::EvalLevel;
 use chrono::{DateTime, NaiveDateTime, Utc};
-use common_domain::ids::{BudgetId, CustomerId, EventId, FeatureId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    BudgetId, CustomerId, EventId, FeatureId, ResourceId, SubscriptionId, TenantId,
+};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
@@ -45,6 +48,55 @@ pub fn alert_event_id(
     Uuid::new_v5(&EVENT_NAMESPACE, identity.as_bytes()).into()
 }
 
+/// The level of a limit an alert is for: the customer's, or one resource's (ADR 0011 §3.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AlertLevel {
+    Customer,
+    ResourceType,
+}
+
+impl From<EvalLevel> for AlertLevel {
+    fn from(level: EvalLevel) -> Self {
+        match level {
+            EvalLevel::Customer => AlertLevel::Customer,
+            EvalLevel::Type(_) => AlertLevel::ResourceType,
+        }
+    }
+}
+
+/// The resource of a resource-type level; `id` is absent for one the customer has not stored.
+#[skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AlertResource {
+    pub id: Option<ResourceId>,
+    pub type_code: String,
+    pub key: String,
+}
+
+/// Where an entitlement alert fired, in the v2 model.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlertTarget {
+    pub feature_code: String,
+    pub level: AlertLevel,
+    pub resource: Option<AlertResource>,
+    /// `""` for the customer, else `<type code>=<key value>`.
+    pub path: String,
+}
+
+/// `""` on the wire for none, which the release before reads as a code.
+mod empty_as_none {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(code: &Option<String>, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(code.as_deref().unwrap_or_default())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+        Ok(Option::<String>::deserialize(d)?.filter(|code| !code.is_empty()))
+    }
+}
+
 /// A feature's usage on a subscription, or of a customer without one, reached one of its
 /// thresholds, or its limit (`entitlement.usage_threshold_reached`, `entitlement.limit_reached`).
 #[skip_serializing_none]
@@ -55,9 +107,21 @@ pub struct EntitlementAlertEvent {
     pub customer_id: CustomerId,
     pub customer_alias: Option<String>,
     pub feature_id: FeatureId,
+    /// The target's fields are absent from events written before entitlements v2.
+    #[serde(default)]
+    pub feature_code: Option<String>,
     /// None for a customer without an active subscription.
     pub subscription_id: Option<SubscriptionId>,
-    pub metric_code: String,
+    /// None for a limit counted by the app.
+    #[serialize_always]
+    #[serde(default, with = "empty_as_none")]
+    pub metric_code: Option<String>,
+    #[serde(default)]
+    pub level: Option<AlertLevel>,
+    #[serde(default)]
+    pub resource: Option<AlertResource>,
+    #[serde(default)]
+    pub path: Option<String>,
     pub group: Option<BTreeMap<String, String>>,
     pub threshold_pct: u32,
     pub used: Decimal,
@@ -85,8 +149,12 @@ impl EntitlementAlertEvent {
             customer_id,
             customer_alias: reading.customer_alias,
             feature_id,
+            feature_code: None,
             subscription_id,
-            metric_code: reading.metric_code.unwrap_or_default(),
+            metric_code: reading.metric_code.filter(|code| !code.is_empty()),
+            level: None,
+            resource: None,
+            path: None,
             group: reading.group,
             threshold_pct: reading.threshold_pct,
             used: reading.used,
@@ -96,11 +164,20 @@ impl EntitlementAlertEvent {
             as_of: reading.as_of,
         }
     }
+
+    pub fn with_target(self, target: AlertTarget) -> Self {
+        Self {
+            feature_code: Some(target.feature_code),
+            level: Some(target.level),
+            resource: target.resource,
+            path: Some(target.path),
+            ..self
+        }
+    }
 }
 
-/// A grouped limit that refuses stopped tracking new groups: its window holds more than the
-/// groups kept, so callers of a group not kept are refused (`entitlement.too_many_groups`). Sent
-/// once per window.
+/// `entitlement.too_many_groups`, deprecated: not emitted since entitlements v2, whose checks do
+/// not refuse a group a limit stopped tracking. Kept to deliver the events already queued.
 #[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TooManyGroupsEvent {

@@ -266,7 +266,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
 
         let overlaps = self
             .services
-            .unfiltered_overlaps(tenant_id, &details)
+            .billing_overlaps(tenant_id, &details)
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
         let mut unfiltered_overlaps = Vec::with_capacity(overlaps.len());
@@ -283,11 +283,23 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             });
         }
 
+        let warnings = self
+            .services
+            .sale_warnings(tenant_id, &details)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
+
         let invoice = mapping::upcoming::create_preview_to_upcoming_proto(content, &details);
 
         Ok(Response::new(PreviewCreateSubscriptionResponse {
             invoice: Some(invoice),
             unfiltered_overlaps,
+            warnings: warnings.codes,
+            metrics_not_attributed: warnings
+                .metrics_not_attributed
+                .into_iter()
+                .map(|m| m.code)
+                .collect(),
         }))
     }
 
@@ -302,16 +314,25 @@ impl SubscriptionsService for SubscriptionServiceComponents {
 
         let inner = request.into_inner();
 
+        let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
         let subscription = self
             .store
-            .get_subscription_details(
-                tenant_id,
-                SubscriptionId::from_proto(inner.subscription_id)?,
-            )
+            .get_subscription_details(tenant_id, subscription_id)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
+        let warnings = self
+            .store
+            .get_subscription_warnings(tenant_id, subscription_id)
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
 
-        let subscription = mapping::subscriptions::details_domain_to_proto(subscription)?;
+        let mut subscription = mapping::subscriptions::details_domain_to_proto(subscription)?;
+        subscription.warnings = warnings.codes;
+        subscription.metrics_not_attributed = warnings
+            .metrics_not_attributed
+            .into_iter()
+            .map(|m| m.code)
+            .collect();
 
         Ok(Response::new(subscription))
     }

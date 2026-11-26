@@ -73,6 +73,7 @@ async fn test_main() {
         .clone()
         .create_draft_plan(tonic::Request::new(
             api::plans::v1::CreateDraftPlanRequest {
+                sold_for_resource_type_id: None,
                 name: "Test - usage".to_string(),
                 description: None,
                 product_family_local_id: product_family.local_id,

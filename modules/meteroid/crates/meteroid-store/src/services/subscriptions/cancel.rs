@@ -136,7 +136,7 @@ impl Services {
                         .await?;
                     let customer_id = subscription.subscription.customer_id;
                     let reason_for_audit = reason.clone();
-
+                    // An ended subscription's claim on usage is settled: an ending would move it.
                     refuse_ended(&subscription)?;
                     // A cancellation still to apply is replaced, but a customer never moves one
                     // the account manager scheduled, as they never revoke it.
@@ -175,6 +175,19 @@ impl Services {
                     // never counted in the active population: abort it immediately with no CANCELLED
                     // lifecycle event (which would wrongly decrement the active-subscriptions total).
                     if subscription.subscription.activated_at.is_none() {
+                        crate::repositories::subscriptions::usage_attribution::ensure_claim_releasable(
+                            conn,
+                            tenant_id,
+                            subscription_id,
+                            "Aborting this subscription",
+                        )
+                        .await?;
+                        crate::repositories::subscriptions::usage_attribution::claims_moved(
+                            conn,
+                            tenant_id,
+                            subscription_id,
+                        )
+                        .await?;
                         SubscriptionCycleRowPatch {
                             id: subscription_id,
                             tenant_id,

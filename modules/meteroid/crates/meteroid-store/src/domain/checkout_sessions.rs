@@ -1,6 +1,7 @@
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use common_domain::ids::{
-    BaseId, CheckoutSessionId, CouponId, CustomerId, PlanVersionId, SubscriptionId, TenantId,
+    BaseId, CheckoutSessionId, CouponId, CustomerId, PlanVersionId, ResourceId, SubscriptionId,
+    TenantId,
 };
 use diesel_models::checkout_sessions::{CheckoutSessionRow, CheckoutSessionRowNew};
 use diesel_models::enums::{CheckoutSessionStatusEnum, CheckoutTypeEnum};
@@ -80,6 +81,13 @@ pub struct CheckoutSession {
     pub change_date: Option<NaiveDate>,
     pub success_url: Option<String>,
     pub cancel_url: Option<String>,
+    /// The stored resource the subscription is for (§3.5).
+    pub resource_id: Option<ResourceId>,
+    /// On creation, what its subscription would be accepted with: `plan_sold_for_mismatch`,
+    /// `metric_not_attributed`.
+    pub warnings: Vec<String>,
+    /// With `metric_not_attributed`: the codes of the metrics its resource would never bill.
+    pub metrics_not_attributed: Vec<crate::domain::usage_attribution::MetricCodes>,
 }
 
 impl CheckoutSession {
@@ -161,7 +169,7 @@ impl CheckoutSession {
             backdate_invoices: false,
             skip_checkout_session: true,
             skip_past_invoices: false,
-            usage_filter: None,
+            resource_id: self.resource_id,
             custom_properties: serde_json::Value::Null,
             external_id: None,
         })
@@ -264,6 +272,9 @@ impl From<CheckoutSessionRow> for CheckoutSession {
             change_date: row.change_date,
             success_url: row.success_url,
             cancel_url: row.cancel_url,
+            resource_id: row.resource_id,
+            warnings: Vec::new(),
+            metrics_not_attributed: Vec::new(),
         }
     }
 }
@@ -309,6 +320,8 @@ pub struct CreateCheckoutSession {
     pub change_date: Option<NaiveDate>,
     pub success_url: Option<String>,
     pub cancel_url: Option<String>,
+    /// The stored resource the subscription is for (§3.5).
+    pub resource_id: Option<ResourceId>,
 }
 
 impl CreateCheckoutSession {
@@ -373,6 +386,7 @@ impl CreateCheckoutSession {
             change_date: self.change_date,
             success_url: self.success_url,
             cancel_url: self.cancel_url,
+            resource_id: self.resource_id,
         })
     }
 }

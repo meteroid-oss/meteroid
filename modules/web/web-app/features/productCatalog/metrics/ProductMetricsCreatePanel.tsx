@@ -15,6 +15,8 @@ import { toast } from 'sonner'
 
 import { Slot, hasSlot } from '@/edition'
 import { AggregationSection } from '@/features/productCatalog/metrics/AggregationSection'
+import { type Attribution, attributionInit } from '@/features/productCatalog/metrics/AttributionPreview'
+import { AttributionSection } from '@/features/productCatalog/metrics/AttributionSection'
 import { EventCodeFormField } from '@/features/productCatalog/metrics/EventCodeFormField'
 import { MetricBuilderShell } from '@/features/productCatalog/metrics/MetricBuilderShell'
 import { MetricFiltersSection } from '@/features/productCatalog/metrics/MetricFiltersSection'
@@ -130,6 +132,7 @@ export const ProductMetricsCreatePanel = ({
     },
   })
 
+  const [attribution, setAttribution] = useState<Attribution>()
   const methods = useZodForm({
     schema: schemas.billableMetrics.createBillableMetricSchema,
     defaultValues: {
@@ -231,6 +234,9 @@ export const ProductMetricsCreatePanel = ({
         unitSingular: metric.unitLabel?.singular ?? '',
         unitPlural: metric.unitLabel?.plural ?? '',
       })
+      setAttribution(
+        metric.attributedTo && { typeId: metric.attributedTo.resourceTypeId, property: metric.attributedTo.property }
+      )
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceMetricQuery.data])
@@ -281,6 +287,7 @@ export const ProductMetricsCreatePanel = ({
             input.unitSingular && input.unitPlural
               ? { singular: input.unitSingular, plural: input.unitPlural }
               : undefined,
+          attributedTo: attributionInit(attribution),
         })
 
         methods.reset()
@@ -291,7 +298,7 @@ export const ProductMetricsCreatePanel = ({
         setIsSubmitting(false)
       }
     },
-    [metricId, createBillableMetricMut, methods, navigate]
+    [metricId, createBillableMetricMut, methods, navigate, attribution]
   )
 
   // Live form values driving the inline preview (same helpers as submit).
@@ -399,6 +406,7 @@ export const ProductMetricsCreatePanel = ({
             <AggregationSection methods={methods} />
             <UnitConversionSection methods={methods} />
             <UnitLabelSection control={methods.control} />
+            <AttributionSection value={attribution} onChange={setAttribution} />
             <UsageGroupKeySection methods={methods} />
             <Slot
               name="metricForm.usageBreakdownKey"

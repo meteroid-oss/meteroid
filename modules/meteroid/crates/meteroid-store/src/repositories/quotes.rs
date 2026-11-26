@@ -30,6 +30,43 @@ use diesel_models::quotes::{
 use error_stack::Report;
 use scoped_futures::ScopedFutureExt;
 
+/// A quote names a stored, unarchived resource of its customer; returns what the subscription it
+/// converts to would be accepted with.
+async fn quote_sale_warnings(
+    conn: &mut crate::store::PgConn,
+    quote: &QuoteNew,
+    components: &[QuotePriceComponentNew],
+    add_ons: &[QuoteAddOnNew],
+) -> StoreResult<crate::domain::SaleWarnings> {
+    use crate::repositories::subscriptions::usage_attribution::{
+        ensure_resource_for, sale_warnings,
+    };
+    let resource_type_id = match quote.resource_id {
+        Some(resource_id) => Some(
+            ensure_resource_for(conn, quote.tenant_id, quote.customer_id, resource_id)
+                .await?
+                .resource_type_id,
+        ),
+        None => None,
+    };
+    let mut metric_ids = components
+        .iter()
+        .map(|c| &c.fee)
+        .chain(add_ons.iter().map(|a| &a.fee))
+        .filter_map(SubscriptionFee::metric_id)
+        .collect::<Vec<_>>();
+    metric_ids.sort_by_key(|id| id.as_uuid());
+    metric_ids.dedup();
+    sale_warnings(
+        conn,
+        quote.tenant_id,
+        quote.plan_version_id,
+        resource_type_id,
+        &metric_ids,
+    )
+    .await
+}
+
 /// Quotes may only reference the tenant's own customers, and none that is archived. One query
 /// checks both. `archived_error` starts the message for an archived customer.
 async fn ensure_quotable_customers(
@@ -230,6 +267,15 @@ impl QuotesInterface for Store {
         )
         .await?;
 
+        if let Some(resource_id) = quote.resource_id {
+            crate::repositories::subscriptions::usage_attribution::ensure_resource_for(
+                &mut conn,
+                quote.tenant_id,
+                quote.customer_id,
+                resource_id,
+            )
+            .await?;
+        }
         let mut quote = quote;
         if quote.custom_properties.is_null() {
             quote.custom_properties = serde_json::json!({});
@@ -657,6 +703,7 @@ impl QuotesInterface for Store {
                     "Cannot create quote for archived customer",
                 )
                 .await?;
+                let warnings = quote_sale_warnings(conn, &quote, &components, &add_ons).await?;
 
                 let tenant_id = quote.tenant_id;
                 let entitlement_specs = quote.entitlements.clone();
@@ -718,7 +765,12 @@ impl QuotesInterface for Store {
                     .record_audit_tx(conn, tenant_id, &actor, AuditInput::Activity(activity))
                     .await?;
 
-                created_quote.try_into()
+                let created: Quote = created_quote.try_into()?;
+                Ok(Quote {
+                    warnings: warnings.codes,
+                    metrics_not_attributed: warnings.metrics_not_attributed,
+                    ..created
+                })
             }
             .scope_boxed()
         })
@@ -790,6 +842,7 @@ impl QuotesInterface for Store {
                     "Cannot assign quote to archived customer",
                 )
                 .await?;
+                let warnings = quote_sale_warnings(conn, &quote, &components, &add_ons).await?;
 
                 let mut quote = quote;
                 quote.custom_properties = self
@@ -913,7 +966,12 @@ impl QuotesInterface for Store {
                     .await?;
                 }
 
-                updated.try_into()
+                let updated: Quote = updated.try_into()?;
+                Ok(Quote {
+                    warnings: warnings.codes,
+                    metrics_not_attributed: warnings.metrics_not_attributed,
+                    ..updated
+                })
             }
             .scope_boxed()
         })
@@ -1454,6 +1512,25 @@ impl Store {
         tenant_id: TenantId,
     ) -> StoreResult<Quote> {
         let now = common_clock::now().naive_utc();
+
+        // Its subscription could never be created for a resource sold meanwhile (R-145).
+        let quote = QuoteRow::find_by_id(conn, tenant_id, quote_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        if let Some(resource_id) = quote.resource_id {
+            use crate::repositories::subscriptions::usage_attribution as attribution;
+            attribution::ensure_resource_for(conn, tenant_id, quote.customer_id, resource_id)
+                .await?;
+            attribution::ensure_resource_unsold(
+                conn,
+                tenant_id,
+                resource_id,
+                quote.billing_start_date.unwrap_or(now.date()),
+                quote.billing_end_date,
+                None,
+            )
+            .await?;
+        }
 
         // Update quote status
         let update = QuoteRowUpdate {

@@ -11,7 +11,7 @@ import { toast } from 'sonner'
 
 import { Slot, hasSlot } from '@/edition'
 import { scopeOptionsWithPending } from '@/features/billing/minimumCommitment'
-import { resolveEntitlementSpecs } from '@/features/entitlements/creation/resolveEntitlementSpecs'
+import { draftsToSpecs } from '@/features/entitlements/rows/grantDraft'
 import {
   DraftConflictBanner,
   DraftRestoreBanner,
@@ -25,6 +25,7 @@ import { PeopleSection } from '@/features/quotes/editor/PeopleSection'
 import { QuoteEditorHeader } from '@/features/quotes/editor/QuoteEditorHeader'
 import { QuoteEditorRail, QuoteFullPreview } from '@/features/quotes/editor/QuoteEditorRail'
 import { QuoteEditorOutline } from '@/features/quotes/editor/QuoteSectionNav'
+import { SubscribedForBlock } from '@/features/quotes/editor/SubscribedForBlock'
 import { TermsSection } from '@/features/quotes/editor/TermsSection'
 import { buildCreateQuote, previewFormValues } from '@/features/quotes/editor/buildCreateQuote'
 import { fromTemplatePayload, toTemplatePayload } from '@/features/quotes/editor/draftPayload'
@@ -44,6 +45,8 @@ import {
   emptyPriceComponentsState,
   generateQuoteNumber,
 } from '@/features/quotes/quoteFormSeed'
+import { useCustomerResources, useResourceTypes } from '@/features/resources/hooks'
+import { MetricsNotAttributed } from '@/features/subscriptions/SubscribedFor'
 import {
   PriceComponentsState,
   pricingConfigurationErrors,
@@ -68,7 +71,6 @@ import { listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connect
 import { ListCouponRequest_CouponFilter } from '@/rpc/api/coupons/v1/coupons_pb'
 import { listCreditUnits } from '@/rpc/api/creditunits/v1/creditunits-CreditUnitsService_connectquery'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
-import { createFeature } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import {
   getInvoicingEntity,
   getInvoicingEntityProviders,
@@ -88,7 +90,7 @@ import {
 } from '@/rpc/api/quotes/v1/quotes-QuotesService_connectquery'
 import { CreateQuoteRequestSchema, UpdateQuoteRequestSchema } from '@/rpc/api/quotes/v1/quotes_pb'
 
-import type { PendingEntitlementSpec } from '@/features/entitlements/creation/types'
+import type { GrantDraft } from '@/features/entitlements/rows/grantDraft'
 import type { EditorCrumb } from '@/features/quotes/editor/QuoteEditorHeader'
 import type { SectionIssue } from '@/features/quotes/editor/editorSections'
 import type { QuoteFormValues } from '@/features/quotes/editor/quoteFormSchema'
@@ -149,9 +151,11 @@ export const CreateQuote = ({
   const [selectedCoupons, setSelectedCoupons] = useState<{ couponId: string }[]>(
     () => seed?.coupons ?? []
   )
-  const [pendingEntitlements, setPendingEntitlements] = useState<PendingEntitlementSpec[]>(
+  const [pendingEntitlements, setPendingEntitlements] = useState<GrantDraft[]>(
     () => seed?.pendingEntitlements ?? []
   )
+  const { hasTypes, byId: typesById } = useResourceTypes()
+  const [resourceId, setResourceId] = useState<string | undefined>(() => seed?.resourceId)
   const [v2, setV2] = useState<QuoteV2State>(() => seed?.v2 ?? newQuoteV2State())
   const [v2Present, setV2Present] = useState(() => v2Presence(v2))
   const v2Gates = useQuoteV2Gates(v2Present)
@@ -168,8 +172,6 @@ export const CreateQuote = ({
     }
     return Array.from(ids)
   }, [priceComponentsState.components.extra, priceComponentsState.components.overridden])
-
-  const createFeatureMutation = useMutation(createFeature)
 
   // Quote-level minimum override, applied at creation (bundled into the CreateQuote request).
   // Undefined = inherit the plan's term. Without the commitments module a new quote cannot carry
@@ -253,6 +255,17 @@ export const CreateQuote = ({
     { id: customerId ?? '' },
     { enabled: Boolean(customerId) }
   )
+  const { byId: resourcesById } = useCustomerResources(resourceId ? customerId : undefined)
+  const warnNotAttributed = (codes: string[]) => {
+    if (!codes.length) return
+    const resource = resourceId ? resourcesById.get(resourceId) : undefined
+    toast.warning(
+      <MetricsNotAttributed
+        codes={codes}
+        type={resource ? typesById.get(resource.resourceTypeId) : undefined}
+      />
+    )
+  }
 
   useEffect(() => {
     if (customerQuery.data?.customer?.billingEmail) {
@@ -411,6 +424,7 @@ export const CreateQuote = ({
     minimumCommitment: minimumOverride,
     pendingEntitlements,
     v2,
+    resourceId,
   })
 
   const autosave = useQuoteAutosave({
@@ -448,6 +462,7 @@ export const CreateQuote = ({
     minimumOverride,
     pendingEntitlements,
     v2,
+    resourceId,
     touch,
   ])
 
@@ -463,6 +478,7 @@ export const CreateQuote = ({
     setPendingEntitlements(snapshot.pendingEntitlements)
     setV2(snapshot.v2)
     setV2Present(v2Presence(snapshot.v2))
+    setResourceId(snapshot.resourceId)
   }
 
   const applyTemplate = (payload: unknown, applied: { id: string; expiresAfterDays?: number }) => {
@@ -489,6 +505,7 @@ export const CreateQuote = ({
             : undefined,
       },
       v2: { ...snapshot.v2, templateId: applied.id, hubspotDealId: v2.hubspotDealId },
+      resourceId,
     })
   }
 
@@ -539,10 +556,6 @@ export const CreateQuote = ({
       if (!planCurrency) throw new Error('Currency is required')
       if (hasDiscountError) throw new Error('A line discount is above 0 and at most 100')
 
-      const resolvedEntitlements = await resolveEntitlementSpecs(pendingEntitlements, req =>
-        createFeatureMutation.mutateAsync(req)
-      )
-
       const createQuoteData = buildCreateQuote({
         values: data,
         currency: planCurrency,
@@ -553,20 +566,22 @@ export const CreateQuote = ({
         minimumOverride,
         v2,
         orderedLines,
-        entitlements: resolvedEntitlements,
+        entitlements: draftsToSpecs(pendingEntitlements),
+        resourceId,
       })
 
       if (editQuoteId) {
         const force = forceSave.current
         forceSave.current = false
         try {
-          await updateQuoteMutation.mutateAsync(
+          const updated = await updateQuoteMutation.mutateAsync(
             create(UpdateQuoteRequestSchema, {
               id: editQuoteId,
               quote: createQuoteData,
               expectedUpdatedAt: force ? undefined : baselineUpdatedAt,
             })
           )
+          warnNotAttributed(updated.metricsNotAttributed)
         } catch (error) {
           if (ConnectError.from(error).code === Code.Aborted) {
             setStaleSave(true)
@@ -583,6 +598,7 @@ export const CreateQuote = ({
         const response = await createQuoteMutation.mutateAsync(
           create(CreateQuoteRequestSchema, { quote: createQuoteData })
         )
+        warnNotAttributed(response.metricsNotAttributed)
         void autosave.complete()
         navigate(`${basePath}/quotes/${response.quote?.quote?.id}`)
       }
@@ -877,6 +893,17 @@ export const CreateQuote = ({
                 minimumCommitment={minimumCommitmentField}
                 requireCustomer={!isTemplate}
               />
+
+              {planVersionId && customerId && !isEdit && hasTypes && (
+                <SubscribedForBlock
+                  customerId={customerId}
+                  customerName={customerQuery.data?.customer?.name ?? 'The customer'}
+                  planName={planQuery.data?.plan?.plan?.name}
+                  soldForTypeId={planQuery.data?.plan?.plan?.soldForResourceTypeId}
+                  value={resourceId}
+                  onChange={setResourceId}
+                />
+              )}
 
               {env.entitlementsEnabled && planVersionId && !isEdit && (
                 <EntitlementsBlock

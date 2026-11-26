@@ -266,6 +266,7 @@ async fn test_delete_is_refused_while_a_payment_is_in_flight() {
             change_date: None,
             success_url: None,
             cancel_url: None,
+            resource_id: None,
         }
         .insert(&mut conn)
         .await
@@ -499,6 +500,7 @@ async fn test_delete_sees_a_pending_hosted_checkout() {
             change_date: None,
             success_url: None,
             cancel_url: None,
+            resource_id: None,
         }
         .insert(&mut conn)
         .await

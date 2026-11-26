@@ -14,13 +14,14 @@ use crate::domain::subscription_components::SubscriptionComponentNewInternal;
 use crate::domain::{
     AppliedCouponDetailed, BillableMetric, CreateSubscriptionComponents, CreateSubscriptionCoupons,
     Customer, InvoicingEntity, PlanForSubscription, Schedule, SubscriptionComponent,
-    SubscriptionStatusEnum, SubscriptionUsageScopes, UsageFilter,
+    SubscriptionStatusEnum, SubscriptionUsageScopes,
 };
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::services::PaymentSetupResult;
 use common_domain::ids::CouponId;
 use common_domain::ids::{
-    CustomerId, InvoicingEntityId, PlanId, PlanVersionId, QuoteId, SubscriptionId, TenantId,
+    CustomerId, InvoicingEntityId, PlanId, PlanVersionId, QuoteId, ResourceId, SubscriptionId,
+    TenantId,
 };
 use diesel_models::subscriptions::SubscriptionRowNew;
 use diesel_models::subscriptions::{SubscriptionForDisplayRow, SubscriptionRow};
@@ -153,6 +154,13 @@ pub struct CreatedSubscription {
     #[from(~.into())]
     pub status: SubscriptionStatusEnum,
     pub purchase_order: Option<String>,
+    pub resource_id: Option<ResourceId>,
+    /// `plan_sold_for_mismatch`, `metric_not_attributed`: accepted, worth telling the caller.
+    #[ghost({Vec::new()})]
+    pub warnings: Vec<String>,
+    /// With `metric_not_attributed`: the codes of the metrics its resource never bills (§3.6).
+    #[ghost({Vec::new()})]
+    pub metrics_not_attributed: Vec<crate::domain::usage_attribution::MetricCodes>,
 }
 
 #[derive(Debug, Clone)]
@@ -214,10 +222,8 @@ pub struct Subscription {
     /// the fee amounts, so this is what takes the tax back out of it. `None` when the
     /// prices are net, or when the customer bears no tax at all.
     pub tax_inclusive_rate: Option<rust_decimal::Decimal>,
-    /// Restricts the customer's events this subscription bills; see [`UsageFilter`].
-    pub usage_filter: Option<UsageFilter>,
-    /// When the current usage filter (or its removal) started to apply.
-    pub usage_filter_since: Option<NaiveDateTime>,
+    /// The stored resource it is for, fixed once active; `None` for the whole customer.
+    pub resource_id: Option<ResourceId>,
 }
 
 pub enum CyclePosition {
@@ -317,11 +323,7 @@ impl TryFrom<SubscriptionForDisplayRow> for Subscription {
             terminated_at: val.subscription.terminated_at,
             tax_inclusive: val.subscription.tax_inclusive,
             tax_inclusive_rate: val.subscription.tax_inclusive_rate,
-            usage_filter: UsageFilter::from_columns(
-                val.subscription.usage_filter_property,
-                val.subscription.usage_filter_value,
-            )?,
-            usage_filter_since: val.subscription.usage_filter_since,
+            resource_id: val.subscription.resource_id,
         })
     }
 }
@@ -367,10 +369,11 @@ pub struct SubscriptionNew {
     /// JSON object of custom property values. Null means "not managed" (validation is skipped and
     /// the row falls back to an empty object); validated against tenant definitions at insert time.
     pub custom_properties: serde_json::Value,
-    pub usage_filter: Option<UsageFilter>,
     /// The integrator's own id, unique per tenant: written with the row, so a taken one fails
     /// the insert (`StoreError::DuplicateValue`).
     pub external_id: Option<String>,
+    /// A stored resource of the customer; `None` for the whole customer.
+    pub resource_id: Option<ResourceId>,
 }
 
 pub struct SubscriptionNewEnriched<'a> {
@@ -456,14 +459,12 @@ impl SubscriptionNewEnriched<'_> {
             custom_properties: sub.custom_properties.clone(),
             tax_inclusive: self.plan.tax_inclusive,
             tax_inclusive_rate: self.tax_inclusive_rate,
-            usage_filter_property: sub.usage_filter.as_ref().map(|f| f.property.clone()),
-            usage_filter_value: sub.usage_filter.as_ref().map(|f| f.value.clone()),
-            usage_filter_since: sub
-                .usage_filter
-                .as_ref()
-                .map(|_| sub.start_date.and_time(chrono::NaiveTime::MIN)),
+            usage_filter_property: None,
+            usage_filter_value: None,
+            usage_filter_since: None,
             plan_option_id: self.plan_option_id,
             external_id: sub.external_id.clone(),
+            resource_id: sub.resource_id,
         })
     }
 }
@@ -568,8 +569,8 @@ pub struct SubscriptionPatch {
     pub payment_methods_config: Option<Option<PaymentMethodsConfig>>,
     /// Raw provided delta (validated & merged by the store in-tx). `None` leaves properties as-is.
     pub custom_properties: Option<serde_json::Value>,
-    /// None = no change, Some(None) = remove the filter.
-    pub usage_filter: Option<Option<UsageFilter>>,
+    /// None = no change; only before the subscription is active.
+    pub resource_id: Option<Option<ResourceId>>,
 }
 
 /// What API v2's PATCH changes of a subscription, written together or not at all: its end date

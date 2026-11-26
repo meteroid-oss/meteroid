@@ -10,7 +10,7 @@ use crate::domain::subscriptions::{AmendmentSummary, PaymentMethodsConfig, Pendi
 use crate::domain::{
     BillableMetric, ConnectorProviderEnum, Customer, InvoicingEntity, PaginatedVec,
     PaginationRequest, Schedule, Subscription, SubscriptionComponent, SubscriptionDetails,
-    SubscriptionPatch, TrialConfig, UsageFilter,
+    SubscriptionPatch, TrialConfig,
 };
 use crate::repositories::credit_units::load_credit_units;
 use chrono::NaiveDate;
@@ -84,6 +84,14 @@ pub trait SubscriptionInterface {
         subscription_id: SubscriptionId,
     ) -> StoreResult<Subscription>;
 
+    /// What the subscription is sold with as it stands (`plan_sold_for_mismatch`,
+    /// `metric_not_attributed`): read with one subscription, never with lists.
+    async fn get_subscription_warnings(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+    ) -> StoreResult<crate::domain::SaleWarnings>;
+
     async fn list_subscriptions(
         &self,
         tenant_id: TenantId,
@@ -153,6 +161,15 @@ impl SubscriptionInterface for Store {
                 .map_err(Into::<Report<StoreError>>::into)?;
 
         db_subscription.try_into()
+    }
+
+    async fn get_subscription_warnings(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+    ) -> StoreResult<crate::domain::SaleWarnings> {
+        let mut conn = self.get_conn().await?;
+        usage_attribution::subscription_sale_warnings(&mut conn, tenant_id, subscription_id).await
     }
 
     async fn get_subscription_details_minimal_with_conn(
@@ -521,7 +538,7 @@ impl Store {
             None => None,
         };
 
-        let mut row_patch = SubscriptionRowPatch {
+        let row_patch = SubscriptionRowPatch {
             charge_automatically: patch.charge_automatically,
             auto_advance_invoices: patch.auto_advance_invoices,
             // Checked, never wrapped: 4294967295 days would store as -1.
@@ -556,16 +573,10 @@ impl Store {
 
         let subscription_id = patch.id;
         let customer_id = existing.subscription.customer_id;
-        let before_usage_filter = UsageFilter::from_columns(
-            existing.subscription.usage_filter_property.clone(),
-            existing.subscription.usage_filter_value.clone(),
-        )?;
-        let usage_filter_change = patch
-            .usage_filter
-            .clone()
-            .filter(|new| *new != before_usage_filter);
+        let before_resource_id = existing.subscription.resource_id;
+        let resource_change = patch.resource_id.filter(|new| *new != before_resource_id);
 
-        // Serializes with the customer's other filter changes and creations.
+        // Serializes with the customer's other resource changes and creations.
         let lock = crate::repositories::credit::customer_credit::lock_customer_tx(
             conn,
             tenant_id,
@@ -573,43 +584,50 @@ impl Store {
         )
         .await?;
         diesel_models::query::credit_inputs::bump_customer(conn, &lock).await?;
-        if let Some(new) = &usage_filter_change {
+        if let Some(new) = resource_change {
+            // Read again under the lock: the subscription may have activated since.
             let row = SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .subscription;
-            let from = usage_attribution::usage_filter_effective_from(
-                conn,
-                tenant_id,
-                &row,
-                usage_attribution::midnight(row.current_period_start),
-                new.as_ref(),
-                &std::collections::HashSet::new(),
-            )
-            .await?;
-            if let Some(filter) = new {
-                usage_attribution::ensure_usage_filter_available(
+            let current: SubscriptionStatusEnum = row.status.into();
+            if current != SubscriptionStatusEnum::PendingActivation {
+                return Err(crate::repositories::resources::resource_at_fault(
+                    Report::new(StoreError::InvalidArgument(
+                        "the resource of a subscription is fixed once it is active".to_string(),
+                    )),
+                ));
+            }
+            if let Some(resource_id) = new {
+                usage_attribution::ensure_resource_for(conn, tenant_id, customer_id, resource_id)
+                    .await?;
+                usage_attribution::ensure_resource_unsold(
                     conn,
                     tenant_id,
-                    customer_id,
-                    subscription_id,
-                    filter,
-                    from,
-                    usage_attribution::life_end(&row),
+                    resource_id,
+                    row.start_date,
+                    row.end_date,
+                    Some(subscription_id),
                 )
                 .await?;
             }
-            usage_attribution::record_usage_filter_version(
+            usage_attribution::ensure_claim_releasable(
                 conn,
                 tenant_id,
                 subscription_id,
-                new.as_ref(),
-                from,
+                "Changing this subscription's resource",
             )
             .await?;
-            row_patch.usage_filter_property = Some(new.as_ref().map(|f| f.property.clone()));
-            row_patch.usage_filter_value = Some(new.as_ref().map(|f| f.value.clone()));
-            row_patch.usage_filter_since = Some(Some(from));
+            usage_attribution::set_resource(conn, tenant_id, subscription_id, new).await?;
+            if new.is_some() {
+                usage_attribution::ensure_claims_uninvoiced(
+                    conn,
+                    tenant_id,
+                    &[(customer_id, subscription_id)],
+                    &[],
+                )
+                .await?;
+            }
         }
         if !row_patch.is_empty() {
             SubscriptionRow::patch(conn, &tenant_id, subscription_id, &row_patch)
@@ -642,8 +660,8 @@ impl Store {
         if before_payment_methods_config != updated.payment_methods_config {
             changed_fields.push("payment_methods_config");
         }
-        if before_usage_filter != updated.usage_filter {
-            changed_fields.push("usage_filter");
+        if before_resource_id != updated.resource_id {
+            changed_fields.push("resource_id");
         }
 
         if !changed_fields.is_empty() {

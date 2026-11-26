@@ -794,6 +794,7 @@ impl Engine {
                     filters: None,
                     usage_group_key: None,
                     usage_breakdown_key: None,
+                    attributed_to: None,
                     unit_label: None,
                     tenant_id: tenant,
                     product_family_id: family,
@@ -841,6 +842,7 @@ impl Engine {
                     Actor::System,
                     FullPlanNew {
                         plan: PlanNew {
+                            sold_for_resource_type_id: None,
                             name: format!("Lifecycle plan {}", plan_name(p)),
                             description: None,
                             tenant_id: tenant,
@@ -1119,6 +1121,7 @@ impl Engine {
                 Actor::System,
                 FullPlanNew {
                     plan: PlanNew {
+                        sold_for_resource_type_id: None,
                         name: "Lifecycle companion".to_owned(),
                         description: None,
                         tenant_id: tenant,

@@ -325,6 +325,7 @@ async fn test_metering_e2e() {
     let created_metric = meteroid_clients
         .metrics
         .create_billable_metric(Request::new(CreateBillableMetricRequest {
+            attributed_to: None,
             name: "inference api calls".to_string(),
             code: "api_calls".to_string(),
             description: None,
@@ -373,6 +374,7 @@ async fn test_metering_e2e() {
     let plan = meteroid_clients
         .plans
         .create_draft_plan(Request::new(api::plans::v1::CreateDraftPlanRequest {
+            sold_for_resource_type_id: None,
             name: "Meteroid AI".to_string(),
             description: None,
             product_family_local_id: "default".to_string(),
@@ -480,7 +482,7 @@ async fn test_metering_e2e() {
                         minimum_commitment_override: None,
                         drop_minimum_commitment: false,
                         custom_properties: None,
-                        usage_filter: None,
+                        resource_id: None,
                     },
                 )
             },

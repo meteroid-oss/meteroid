@@ -31,6 +31,7 @@ use meteroid_store::repositories::CreditNoteInterface;
         (status = 200, description = "List of credit notes", body = CreditNoteListResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -96,6 +97,7 @@ pub async fn list_credit_notes(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Credit note not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -139,6 +141,7 @@ pub async fn get_credit_note_by_id(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Credit note not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -179,6 +182,7 @@ pub async fn patch_credit_note_custom_properties(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Credit note not found or PDF not available", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -245,6 +249,7 @@ pub async fn download_credit_note_pdf(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Credit note not found, or not issued as an e-invoice", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])

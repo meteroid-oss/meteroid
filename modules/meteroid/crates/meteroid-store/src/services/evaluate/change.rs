@@ -1467,6 +1467,7 @@ mod tests {
             billing: Billing::Advance,
             cadence: 1,
             plan_component: true,
+            usage_from: None,
             fee: StoreFee {
                 fee: SubscriptionFee::Rate {
                     rate: Decimal::from(rate),

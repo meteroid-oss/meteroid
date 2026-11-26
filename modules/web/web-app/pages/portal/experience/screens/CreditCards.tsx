@@ -21,7 +21,6 @@ import {
 
 import { CreditBar } from './CreditBar'
 import { CreditGroups } from './CreditGroups'
-import { UsageFilterTag } from './UsageFilterTag'
 
 import type {
   CreditGrantView,
@@ -108,7 +107,7 @@ const Projection = ({ overview }: { overview: LoadedOverview }) => {
         {' · '}
         {outlooks.length > 1 && outlook.planName ? (
           <>
-            {outlook.planName} <UsageFilterTag subscriptionId={outlook.subscriptionId} />: {text}
+            {outlook.planName}: {text}
           </>
         ) : (
           text
@@ -277,7 +276,6 @@ const UnitCreditCard = ({ overview }: { overview: LoadedOverview }) => {
               >
                 <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8 }}>
                   {grantLabel(grant)}
-                  <UsageFilterTag subscriptionId={grant.scope?.subscriptionId} />
                 </span>
                 <span style={{ color: 'var(--mtp-text-2)' }}>
                   <Mono style={{ color: 'var(--mtp-text)' }}>{count(left)}</Mono> of{' '}

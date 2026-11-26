@@ -1,6 +1,6 @@
 use crate::StoreResult;
 use crate::errors::StoreError;
-use crate::jwt_claims::{PortalScope, ResourceAccess};
+use crate::jwt_claims::{ClientClaims, PortalScope, ResourceAccess};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Duration, NaiveDateTime, Utc};
@@ -106,6 +106,18 @@ pub struct PortalToken {
     pub expires_at: Option<DateTime<Utc>>,
     pub revoked_at: Option<DateTime<Utc>>,
     pub last_used_at: Option<DateTime<Utc>>,
+    /// Customer tokens only; empty names the customer only.
+    pub client: ClientClaims,
+}
+
+/// Stored as NULL when empty, so a token without claims only matches others without.
+pub fn client_claims_column(client: &ClientClaims) -> StoreResult<Option<serde_json::Value>> {
+    if client.is_empty() {
+        return Ok(None);
+    }
+    serde_json::to_value(client)
+        .map(Some)
+        .map_err(|e| StoreError::SerdeError("portal token claims".into(), e).into())
 }
 
 impl PortalToken {
@@ -140,6 +152,12 @@ impl TryFrom<PortalTokenRow> for PortalToken {
                 })?,
             },
         };
+        let client = row
+            .client_claims
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(|e| StoreError::SerdeError("portal token claims".into(), e))?
+            .unwrap_or_default();
         Ok(Self {
             id: row.id,
             tenant_id: row.tenant_id,
@@ -149,6 +167,7 @@ impl TryFrom<PortalTokenRow> for PortalToken {
             expires_at: row.expires_at,
             revoked_at: row.revoked_at,
             last_used_at: row.last_used_at,
+            client,
         })
     }
 }
@@ -313,6 +332,7 @@ mod tests {
             expires_at: Some(at(2026, 7, 1)),
             revoked_at: None,
             last_used_at: None,
+            client: Default::default(),
         };
         assert_eq!(token.status(now), PortalTokenStatus::Active);
         token.expires_at = Some(now);

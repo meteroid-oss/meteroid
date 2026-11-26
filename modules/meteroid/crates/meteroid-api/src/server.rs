@@ -206,7 +206,7 @@ pub async fn start_api_server_with_incoming(
         ))
         .add_service(api::billablemetrics::service(
             store.clone(),
-            services.usage_clients(),
+            services.clone(),
             feature_resolver.clone(),
         ))
         .add_service(api::bankaccounts::service(store.clone()))
@@ -247,7 +247,6 @@ pub async fn start_api_server_with_incoming(
             feature_resolver.clone(),
         ))
         .add_service(meteroid_app::featuregates::service(
-            store.clone(),
             feature_resolver.clone(),
             feature_gates,
         ))
@@ -357,6 +356,8 @@ pub async fn start_api_server_with_incoming(
         .add_service(api::quantities::service(store.clone()))
         .add_service(api::ratecards::service(store.clone()))
         .add_service(api::pricingpage::service(store.clone()))
+        .add_service(api::resources::types_service(store.clone()))
+        .add_service(api::resources::service(store.clone()))
         .add_service(api::portal::wallets::service(
             store.clone(),
             services.clone(),

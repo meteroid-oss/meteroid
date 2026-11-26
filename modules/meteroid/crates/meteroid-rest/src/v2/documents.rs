@@ -59,7 +59,7 @@ pub enum TierMode {
 pub struct SubLineTier {
     pub mode: TierMode,
     pub first_unit: u64,
-    /// Unbounded when left out.
+    /// Absent for the last tier, which has no upper end.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_unit: Option<u64>,
     /// In the currency's major unit.
@@ -114,7 +114,7 @@ pub struct LineCredits {
     pub covered: i64,
 }
 
-/// A line of a document, as the engine wrote it.
+/// A line of a document, as it was billed.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct DocumentLine {
     /// Its id within its document: a credit note names the invoice lines it credits by it, and a

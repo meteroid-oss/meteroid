@@ -1,6 +1,8 @@
 use crate::StoreResult;
-use crate::domain::entity_activity::Actor;
-use crate::domain::outbox_event::{OutboxEvent, PaymentTransactionEvent};
+use crate::domain::entity_activity::{Actor, AuditInput};
+use crate::domain::outbox_event::{
+    CheckoutPaymentKeptAsCreditEvent, OutboxEvent, PaymentTransactionEvent,
+};
 use crate::domain::{Invoice, SubscriptionStatusEnum};
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
@@ -794,125 +796,206 @@ impl Services {
                     let subscription_id = match session.checkout_type {
                         CheckoutType::TopUp => return Err(crate::services::credit::precondition("top-up payment must settle its purchase invoice")),
                         CheckoutType::SelfServe => {
-                            // Create subscription now that payment is confirmed
-                            let coupon_ids = services
-                                .paid_checkout_coupon_ids_tx(conn, event.tenant_id, &session)
-                                .await?;
-
-                            let start_date = session.billing_start_date.unwrap_or(priced_on);
-
-                            let create_subscription =
-                                session.to_create_subscription(start_date, coupon_ids)?;
-
-                            let context = services
-                                .gather_subscription_context(
-                                    conn,
-                                    std::slice::from_ref(&create_subscription),
-                                    event.tenant_id,
-                                    &services.store.settings.crypt_key,
-                                )
-                                .await?;
-
-                            let detailed_subscriptions =
-                                services.build_subscription_details(&[create_subscription], &context)?;
-
-                            let detailed_sub = detailed_subscriptions.into_iter().next().ok_or(
-                                Report::new(StoreError::InsertError)
-                                    .attach("No subscription details built"),
-                            )?;
-
-                            // Payment already happened, so no provider setup runs — but the row
-                            // must still be inserted `checkout: true` (like the sync self-serve
-                            // path): a pending-activation sub with `current_period_end = None`
-                            // AND `pending_checkout = false` reads as COMPLETED to the invoice
-                            // line computation, which then bills nothing and the whole
-                            // materialization fails. `activate_subscription_after_payment`
-                            // below clears the flag and sets the real period.
-                            let payment_result = crate::services::PaymentSetupResult { checkout: true };
-
-                            let processed = services.process_subscription(
-                                &detailed_sub,
-                                &payment_result,
-                                &context,
-                                event.tenant_id,
-                                None,
-                            )?;
-
-                            // Skip coupon validation since coupons were already validated before
-                            // charging. The customer already paid the discounted price.
-                            let created_subscriptions = services
-                                .persist_subscriptions_skip_coupon_validation(
-                                    conn,
-                                    &Actor::Customer {
-                                        id: session.customer_id,
-                                    },
-                                    &[processed],
-                                    event.tenant_id,
-                                    &services.store.settings.public_url,
-                                )
-                                .await?;
-
-                            let created_subscription =
-                                created_subscriptions.into_iter().next().ok_or(
-                                    Report::new(StoreError::InsertError)
-                                        .attach("No subscription created"),
-                                )?;
-
-                            services.bill_subscription_tx(
+                            // A payment already kept as credit could never create the subscription.
+                            if diesel_models::customer_credit::CustomerCreditGrantRow::find_by_source(
                                 conn,
-                                &Actor::Customer {
-                                    id: session.customer_id,
-                                },
                                 event.tenant_id,
-                                created_subscription.id,
-                                make_billing_mode(),
+                                crate::repositories::credit::customer_credit::source::OVERPAYMENT,
+                                event.payment_transaction_id.as_uuid(),
                             )
                             .await?
-                            .ok_or(
-                                Report::new(StoreError::InsertError)
-                                    .attach("Failed to create invoice for subscription"),
-                            )?;
+                            .is_some()
+                            {
+                                return Ok(());
+                            }
+                            // Created in a savepoint: a payment collected is never rolled back by a
+                            // subscription that can no longer be created; it is kept as credit.
+                            let created = {
+                                let (session, make_billing_mode) = (&session, &make_billing_mode);
+                                services.store
+                                    .transaction_with(conn, |conn| {
+                                        async move {
+                                    let coupon_ids = services
+                                        .paid_checkout_coupon_ids_tx(conn, event.tenant_id, session)
+                                        .await?;
 
-                            // Activate the subscription now that payment is confirmed
-                            let billing_start_date = session.billing_start_date.unwrap_or(priced_on);
+                                    let start_date = session.billing_start_date.unwrap_or(priced_on);
 
-                            // Get subscription to determine the period
-                            let subscription = SubscriptionRow::get_subscription_by_id(
-                                conn,
-                                &event.tenant_id,
-                                created_subscription.id,
-                            )
-                            .await?;
+                                    let create_subscription =
+                                        session.to_create_subscription(start_date, coupon_ids)?;
 
-                            let billing_day_anchor = session
-                                .billing_day_anchor
-                                .map(|a| a as u32)
-                                .unwrap_or_else(|| billing_start_date.day());
+                                    let context = services
+                                        .gather_subscription_context(
+                                            conn,
+                                            std::slice::from_ref(&create_subscription),
+                                            event.tenant_id,
+                                            &services.store.settings.crypt_key,
+                                        )
+                                        .await?;
 
-                            let is_paid_trial_flag = is_paid_trial(
-                                conn,
-                                subscription.subscription.id,
-                                subscription.subscription.plan_version_id,
-                                event.tenant_id,
-                                session.trial_duration_days.is_some(),
-                            )
-                            .await?;
+                                    let detailed_subscriptions =
+                                        services.build_subscription_details(&[create_subscription], &context)?;
 
-                            services.activate_subscription_after_payment(
-                                conn,
-                                &created_subscription.id,
-                                &event.tenant_id,
-                                PaymentActivationParams {
-                                    billing_start_date,
-                                    trial_duration: session.trial_duration_days,
-                                    is_paid_trial: is_paid_trial_flag,
-                                    billing_day_anchor,
-                                    period: subscription.subscription.period.into(),
-                                },
-                            )
-                            .await?;
+                                    let detailed_sub = detailed_subscriptions.into_iter().next().ok_or(
+                                        Report::new(StoreError::InsertError)
+                                            .attach("No subscription details built"),
+                                    )?;
 
-                            created_subscription.id
+                                    // Payment already happened, so no provider setup runs — but the row
+                                    // must still be inserted `checkout: true` (like the sync self-serve
+                                    // path): a pending-activation sub with `current_period_end = None`
+                                    // AND `pending_checkout = false` reads as COMPLETED to the invoice
+                                    // line computation, which then bills nothing and the whole
+                                    // materialization fails. `activate_subscription_after_payment`
+                                    // below clears the flag and sets the real period.
+                                    let payment_result = crate::services::PaymentSetupResult { checkout: true };
+
+                                    let processed = services.process_subscription(
+                                        &detailed_sub,
+                                        &payment_result,
+                                        &context,
+                                        event.tenant_id,
+                                        None,
+                                    )?;
+
+                                    // Skip coupon validation since coupons were already validated before
+                                    // charging. The customer already paid the discounted price.
+                                    let created_subscriptions = services
+                                        .persist_subscriptions_skip_coupon_validation(
+                                            conn,
+                                            &Actor::Customer {
+                                                id: session.customer_id,
+                                            },
+                                            &[processed],
+                                            event.tenant_id,
+                                            &services.store.settings.public_url,
+                                        )
+                                        .await?;
+
+                                    let created_subscription =
+                                        created_subscriptions.into_iter().next().ok_or(
+                                            Report::new(StoreError::InsertError)
+                                                .attach("No subscription created"),
+                                        )?;
+
+                                    services.bill_subscription_tx(
+                                        conn,
+                                        &Actor::Customer {
+                                            id: session.customer_id,
+                                        },
+                                        event.tenant_id,
+                                        created_subscription.id,
+                                        make_billing_mode(),
+                                    )
+                                    .await?
+                                    .ok_or(
+                                        Report::new(StoreError::InsertError)
+                                            .attach("Failed to create invoice for subscription"),
+                                    )?;
+
+                                    // Activate the subscription now that payment is confirmed
+                                    let billing_start_date = session.billing_start_date.unwrap_or(priced_on);
+
+                                    // Get subscription to determine the period
+                                    let subscription = SubscriptionRow::get_subscription_by_id(
+                                        conn,
+                                        &event.tenant_id,
+                                        created_subscription.id,
+                                    )
+                                    .await?;
+
+                                    let billing_day_anchor = session
+                                        .billing_day_anchor
+                                        .map(|a| a as u32)
+                                        .unwrap_or_else(|| billing_start_date.day());
+
+                                    let is_paid_trial_flag = is_paid_trial(
+                                        conn,
+                                        subscription.subscription.id,
+                                        subscription.subscription.plan_version_id,
+                                        event.tenant_id,
+                                        session.trial_duration_days.is_some(),
+                                    )
+                                    .await?;
+
+                                    services.activate_subscription_after_payment(
+                                        conn,
+                                        &created_subscription.id,
+                                        &event.tenant_id,
+                                        PaymentActivationParams {
+                                            billing_start_date,
+                                            trial_duration: session.trial_duration_days,
+                                            is_paid_trial: is_paid_trial_flag,
+                                            billing_day_anchor,
+                                            period: subscription.subscription.period.into(),
+                                        },
+                                    )
+                                    .await?;
+
+                                    Ok::<_, Report<StoreError>>(created_subscription.id)
+                                        }
+                                        .scope_boxed()
+                                    })
+                                    .await
+                            };
+                            match created {
+                                Ok(id) => id,
+                                Err(error) if checkout_can_never_create(&error) => {
+                                    log::error!(
+                                        "Self-serve checkout {checkout_session_id} could not create its subscription after its payment: {error:?}"
+                                    );
+                                    // Collected only once settled: an accepted payment waits.
+                                    if matches!(phase, CheckoutPaymentPhase::AcceptedInFlight) {
+                                        return Ok(());
+                                    }
+                                    keep_collected_payment_tx(
+                                        conn,
+                                        &*services.store.hooks.credit,
+                                        event.tenant_id,
+                                        session.customer_id,
+                                        event.payment_transaction_id,
+                                        None,
+                                        event.amount,
+                                        &event.currency,
+                                        collected_at(event),
+                                        "Payment for a checkout whose subscription could not be created",
+                                    )
+                                    .await?;
+                                    CheckoutSessionRow::mark_cancelled(
+                                        conn,
+                                        event.tenant_id,
+                                        checkout_session_id,
+                                    )
+                                    .await
+                                    .map_err(Into::<Report<StoreError>>::into)?;
+                                    let kept = OutboxEvent::checkout_payment_kept_as_credit(
+                                        CheckoutPaymentKeptAsCreditEvent {
+                                            id: common_domain::ids::EventId::new(),
+                                            tenant_id: event.tenant_id,
+                                            customer_id: session.customer_id,
+                                            checkout_session_id,
+                                            payment_transaction_id: event.payment_transaction_id,
+                                            plan_version_id: session.plan_version_id,
+                                            resource_id: session.resource_id,
+                                            amount: event.amount,
+                                            currency: event.currency.clone(),
+                                            reason: error.current_context().to_string(),
+                                        },
+                                    );
+                                    services
+                                        .store
+                                        .internal
+                                        .record_audit_tx(
+                                            conn,
+                                            event.tenant_id,
+                                            &Actor::System,
+                                            AuditInput::Outbox(kept),
+                                        )
+                                        .await?;
+                                    return Ok(());
+                                }
+                                Err(error) => return Err(error),
+                            }
                         }
                         CheckoutType::SubscriptionActivation => {
                             let subscription_id = session.subscription_id.ok_or_else(|| {
@@ -1488,6 +1571,13 @@ fn can_never_apply(error: &Report<StoreError>) -> bool {
     )
 }
 
+/// Only a refusal of the resource a paid checkout names (archived, sold to another subscription,
+/// not the customer's) never lifts; anything else is retried, as a payment kept as credit never
+/// creates the subscription.
+fn checkout_can_never_create(error: &Report<StoreError>) -> bool {
+    crate::repositories::resources::ResourceAtFault::of(error)
+}
+
 fn collected_at(event: &PaymentTransactionEvent) -> chrono::DateTime<Utc> {
     event
         .processed_at
@@ -1550,4 +1640,29 @@ async fn apply_priced_coupons_tx(
     )
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_paid_checkout_is_kept_as_credit_only_on_a_refusal_of_its_resource() {
+        let error = |e: StoreError| Report::new(e);
+        assert!(checkout_can_never_create(
+            &crate::repositories::resources::resource_at_fault(error(StoreError::InvalidArgument(
+                "resource archived".into()
+            )))
+            .attach("in the savepoint")
+        ));
+        assert!(!checkout_can_never_create(&error(
+            StoreError::InvalidArgument("a bug refusing the creation".into())
+        )));
+        assert!(!checkout_can_never_create(&error(
+            StoreError::FailedPrecondition("busy".into())
+        )));
+        assert!(!checkout_can_never_create(&error(
+            StoreError::ValueNotFound("db value not found".into())
+        )));
+    }
 }

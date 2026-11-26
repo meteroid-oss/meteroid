@@ -489,6 +489,9 @@ async fn start_meteroid_from_config(
         Some(seeded) if seeded == seed_level => {}
         Some(seeded) => panic!("the database holds the {seeded:?} seed, not {seed_level:?}"),
     }
+    if seed_level == SeedLevel::SUBSCRIPTIONS {
+        seed_subscriptions(&services).await;
+    }
 
     setup_eventbus_handlers(store.clone(), config.clone(), &modules).await;
 
@@ -1090,9 +1093,59 @@ pub async fn populate_postgres(pool: &PgPool, seed_level: SeedLevel) {
             Seed::CUSTOMERS => crate::data::customers::run_customers_seed(pool).await,
             Seed::METERS => crate::data::meters::run_meters_seed(pool).await,
             Seed::PLANS => crate::data::plans::run_plans_seed(pool).await,
-            Seed::SUBSCRIPTIONS => unimplemented!("Subscription seed level is not implemented"),
+            // Inserted through the services, once they run: see `seed_subscriptions`.
+            Seed::SUBSCRIPTIONS => {}
         }
     }
+}
+
+/// An active subscription of Uber to the Free plan, started today.
+async fn seed_subscriptions(services: &Services) {
+    use crate::data::ids::{CUST_UBER_ID, PLAN_VERSION_FREE_ID, TENANT_ID};
+    use meteroid_store::domain::{
+        CreateSubscription, SubscriptionActivationCondition, SubscriptionNew,
+    };
+    let today = common_clock::now().date_naive();
+    let subscription = SubscriptionNew {
+        customer_id: CUST_UBER_ID,
+        plan_version_id: PLAN_VERSION_FREE_ID,
+        net_terms: None,
+        invoice_memo: None,
+        invoice_threshold: None,
+        start_date: today,
+        end_date: None,
+        billing_start_date: Some(today),
+        activation_condition: SubscriptionActivationCondition::OnStart,
+        trial_duration: None,
+        billing_day_anchor: None,
+        payment_methods_config: None,
+        auto_advance_invoices: true,
+        charge_automatically: false,
+        purchase_order: None,
+        backdate_invoices: false,
+        skip_checkout_session: true,
+        skip_past_invoices: false,
+        resource_id: None,
+        custom_properties: serde_json::Value::Null,
+        external_id: None,
+    };
+    services
+        .insert_subscription(
+            common_domain::actor::Actor::System,
+            CreateSubscription {
+                option: None,
+                subscription,
+                price_components: None,
+                add_ons: None,
+                coupons: None,
+                entitlements: vec![],
+                minimum_override: None,
+                drop_minimum: false,
+            },
+            TENANT_ID,
+        )
+        .await
+        .expect("the seeded subscription");
 }
 
 #[allow(clippy::upper_case_acronyms)]

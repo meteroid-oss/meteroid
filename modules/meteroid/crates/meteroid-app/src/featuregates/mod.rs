@@ -8,27 +8,22 @@ use meteroid_grpc::meteroid::api::features::v1::features_service_server::{
 use meteroid_grpc::meteroid::api::features::v1::{
     FeatureEntitlement, GetFeaturesRequest, GetFeaturesResponse,
 };
-use meteroid_store::Store;
-use meteroid_store::repositories::TenantInterface;
 use tonic::{Request, Response, Status};
 
-use crate::features::{EntitlementGrant, Entitlements, FeatureGate};
+use crate::features::{Entitlements, FeatureGate, quotas};
 
 /// Lists the entitlements of `gates`, the gates the edition's modules declare.
 pub fn service(
-    store: Store,
     feature_resolver: Arc<dyn Entitlements>,
     gates: Arc<[FeatureGate]>,
 ) -> FeaturesServiceServer<FeaturesServiceComponents> {
     FeaturesServiceServer::new(FeaturesServiceComponents {
-        store,
         feature_resolver,
         gates,
     })
 }
 
 pub struct FeaturesServiceComponents {
-    store: Store,
     feature_resolver: Arc<dyn Entitlements>,
     gates: Arc<[FeatureGate]>,
 }
@@ -41,44 +36,41 @@ impl FeaturesService for FeaturesServiceComponents {
         request: Request<GetFeaturesRequest>,
     ) -> Result<Response<GetFeaturesResponse>, Status> {
         let organization = request.organization()?;
-        let resolved = self.feature_resolver.resolve(organization).await;
-
-        // Resolved per tenant: a gate the org doesn't own can still be open in a
-        // non-production tenant, and the client needs to tell that apart from owning it.
-        let environment = match request.tenant() {
-            Ok(tenant_id) => self
-                .store
-                .find_tenant_by_id(tenant_id)
-                .await
-                .ok()
-                .map(|t| t.tenant.environment),
-            Err(_) => None,
+        // Per tenant when the request names one: per-tenant gates follow their conditions on it.
+        let tenant = request.tenant().ok();
+        let resolved = match tenant {
+            Some(tenant_id) => {
+                self.feature_resolver
+                    .resolve_tenant(organization, tenant_id)
+                    .await
+            }
+            None => self.feature_resolver.resolve(organization).await,
         };
 
         let entitlements = resolved
-            .all_entitlements(environment.as_ref(), &self.gates)
+            .all_entitlements(&self.gates)
             .into_iter()
             .map(|e| FeatureEntitlement {
                 code: e.code.to_string(),
                 enabled: e.enabled,
                 limit: e.limit.map(|x| x.to_string()),
                 remaining: e.remaining.map(|x| x.to_string()),
-                granted_by: match e.grant {
-                    Some(EntitlementGrant::Entitlement) => ProtoGrant::Entitlement,
-                    Some(EntitlementGrant::Environment) => ProtoGrant::Environment,
-                    None => ProtoGrant::Unspecified,
+                granted_by: if e.enabled {
+                    ProtoGrant::Entitlement
+                } else {
+                    ProtoGrant::Unspecified
                 } as i32,
             })
             .collect();
 
         let invoicing_entity_limit = self
             .feature_resolver
-            .invoicing_entity_limit(organization)
+            .limit(organization, tenant, &quotas::INVOICING_ENTITIES)
             .await;
 
         let production_tenant_limit = self
             .feature_resolver
-            .production_tenant_limit(organization)
+            .limit(organization, None, &quotas::PRODUCTION_TENANTS)
             .await;
 
         Ok(Response::new(GetFeaturesResponse {

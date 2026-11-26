@@ -856,6 +856,7 @@ impl AddOnInterface for Store {
                 if let Some(specs) = entitlements {
                     replace_entitlements_tx(
                         conn,
+                        Some(actor),
                         tenant_id,
                         EntitlementEntityId::AddOn(add_on_id),
                         specs,

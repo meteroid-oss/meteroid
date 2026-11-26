@@ -82,6 +82,8 @@ export interface QuoteEditorPayload {
   v2: QuoteV2State
   orderedLines: EditorLine[]
   entitlements: EntitlementSpec[]
+  /** A stored resource of the customer the subscription will be for. */
+  resourceId?: string
 }
 
 /** The `CreateQuote` of the editor state: what Create, Update and the totals preview send. */
@@ -96,6 +98,7 @@ export function buildCreateQuote({
   v2,
   orderedLines,
   entitlements,
+  resourceId,
 }: QuoteEditorPayload): CreateQuote {
   const { parameterized, overridden, extra, removed, usageExamples } = pricing.components
 
@@ -171,6 +174,7 @@ export function buildCreateQuote({
     }),
     entitlements,
     minimumCommitmentOverride: minimumOverride,
+    resourceId,
     usageExamples: (usageExamples ?? [])
       .filter(e => e.quantity.trim() !== '')
       .map(e =>

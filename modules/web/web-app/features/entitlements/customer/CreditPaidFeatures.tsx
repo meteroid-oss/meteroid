@@ -1,6 +1,15 @@
 import { timestampDate } from '@bufbuild/protobuf/wkt'
 import { createQueryOptions, useTransport } from '@connectrpc/connect-query'
-import { Badge, Button, Progress, Skeleton, Tooltip, TooltipContent, TooltipTrigger } from '@md/ui'
+import {
+  Badge,
+  Button,
+  Card,
+  Skeleton,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  cn,
+} from '@md/ui'
 import { useQueries } from '@tanstack/react-query'
 
 import { formatWalletAmount, walletTitle } from '@/features/credit/format'
@@ -32,7 +41,6 @@ type Props = {
   onViewCredit: () => void
 }
 
-/** The metered features whose usage a wallet pays, each with that wallet's standing. */
 export const CreditPaidFeatures = ({ customerId, entitlements, paid, onViewCredit }: Props) => {
   const wallets = useQuery(listCustomerWallets, { customerId })
   const rows = paid.flatMap(feature => {
@@ -41,23 +49,28 @@ export const CreditPaidFeatures = ({ customerId, entitlements, paid, onViewCredi
   })
   if (rows.length === 0) return null
   return (
-    <div>
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 px-1">
-        Paid with credit
-      </p>
-      <div className="border border-border rounded-lg divide-y divide-border overflow-hidden">
+    <Card className="overflow-hidden">
+      <div className="flex items-center justify-between gap-2 px-5 py-4">
+        <h3 className="text-sm font-semibold">Paid with credit</h3>
+        <Button variant="link" size="sm" className="mt-0 h-auto p-0 text-[13px]" onClick={onViewCredit}>
+          View credit
+        </Button>
+      </div>
+      <div className="divide-y divide-border border-t border-border">
         {rows
           .sort((a, b) =>
             (a.entitlement.feature?.name ?? '').localeCompare(b.entitlement.feature?.name ?? '')
           )
           .map(({ feature, entitlement }) => (
-            <div key={feature.featureId} className="flex flex-col gap-2 px-4 py-3 text-sm">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="font-medium truncate">{entitlement.feature?.name}</span>
-                  <span className="font-mono text-xs text-muted-foreground truncate">
-                    {entitlement.feature?.code}
-                  </span>
+            <div key={feature.featureId} className="flex flex-col gap-2 px-5 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <span className="truncate text-sm font-medium">{entitlement.feature?.name}</span>
+                    <span className="truncate font-mono text-xs text-muted-foreground">
+                      {entitlement.feature?.code}
+                    </span>
+                  </div>
                   <LimitTermsBadges terms={termsOfValue(entitlement.value)} />
                   {isLimitReached(entitlement.value) && (
                     <Badge size="sm" variant="destructive">
@@ -66,18 +79,10 @@ export const CreditPaidFeatures = ({ customerId, entitlements, paid, onViewCredi
                   )}
                 </div>
                 {termsOfValue(entitlement.value)?.limit && (
-                  <span className="ml-auto text-xs text-muted-foreground tabular-nums">
+                  <span className="text-[13px] font-medium tabular-nums">
                     {effectiveValueLabel(entitlement.value)}
                   </span>
                 )}
-                <Button
-                  variant="link"
-                  size="sm"
-                  className="h-auto p-0 text-xs shrink-0"
-                  onClick={onViewCredit}
-                >
-                  View credit
-                </Button>
               </div>
               {wallets.isLoading ? (
                 <Skeleton height={36} />
@@ -99,7 +104,7 @@ export const CreditPaidFeatures = ({ customerId, entitlements, paid, onViewCredi
             </div>
           ))}
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -173,12 +178,27 @@ const WalletStanding = ({
         <span>{exhaustedRuleLabel[creditExhaustedRule(wallet, payers)]}</span>
       </div>
       {upcoming.some(result => result.isError) ? (
-        <span>Usage this period could not be loaded.</span>
+        <span className="text-destructive">Usage unavailable</span>
       ) : used === undefined ? (
         <Skeleton height={20} />
       ) : (
         <>
-          <Progress value={pct} className="h-1.5" aria-label="Usage against credit this period" />
+          <div
+            className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+            role="progressbar"
+            aria-label="Usage against credit this period"
+            aria-valuenow={Math.round(pct)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <div
+              className={cn(
+                'h-full rounded-full',
+                pct >= 100 ? 'bg-destructive' : pct >= 80 ? 'bg-warning' : 'bg-success'
+              )}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
           <div className="flex flex-wrap justify-between gap-2">
             <span className="tabular-nums">{usageOfCredit(used, credit, wallet)}</span>
             {refreshes && (

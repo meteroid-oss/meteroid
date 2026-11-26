@@ -551,6 +551,8 @@ mod unit_conversion_tests {
 
     fn tokens(rounding: UnitConversionRoundingEnum) -> BillableMetric {
         BillableMetric {
+            attributed_to_type_id: None,
+            attribution_property: None,
             id: BillableMetricId::new(),
             name: "Tokens".to_owned(),
             description: None,

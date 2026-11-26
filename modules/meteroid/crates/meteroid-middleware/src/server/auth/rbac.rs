@@ -107,7 +107,9 @@ pub fn method_auth(sm: &GrpcServiceMethod) -> Option<RouteAuth> {
     let method = sm.method.as_str();
     Some(match short_service(sm) {
         // ---- customer records ----
-        "CustomersService" | "BudgetsService" => rw(method, CustomersRead, CustomersManage),
+        "CustomersService" | "BudgetsService" | "ResourcesService" => {
+            rw(method, CustomersRead, CustomersManage)
+        }
 
         // ---- billing operations, split per sub-area ----
         "SubscriptionsService" => rw(method, SubscriptionsRead, SubscriptionsManage),
@@ -143,6 +145,7 @@ pub fn method_auth(sm: &GrpcServiceMethod) -> Option<RouteAuth> {
         | "PricingPageService"
         | "SelfServeJourneyService"
         | "EntitlementsService"
+        | "ResourceTypesService"
         | "PurchaseLinksService" => rw(method, CatalogRead, CatalogManage),
 
         // ---- alerting & Signals ----

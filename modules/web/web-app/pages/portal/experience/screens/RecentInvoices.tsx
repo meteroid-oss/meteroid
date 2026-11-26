@@ -2,8 +2,6 @@ import { usePortalNav } from '../context'
 import { date, invoiceBadge, invoiceCharge, money } from '../format'
 import { LinkButton, Mono, PanelCard, Pill } from '../primitives'
 
-import { UsageFilterTag } from './UsageFilterTag'
-
 import type { InvoiceSummary } from '@/rpc/portal/customer/v1/models_pb'
 
 export const RecentInvoices = ({ invoices }: { invoices: InvoiceSummary[] }) => {
@@ -46,7 +44,6 @@ export const RecentInvoices = ({ invoices }: { invoices: InvoiceSummary[] }) => 
                     }}
                   >
                     {sub}
-                    {!creditLine && <UsageFilterTag subscriptionId={invoice.subscriptionId} />}
                   </span>
                 )}
               </div>

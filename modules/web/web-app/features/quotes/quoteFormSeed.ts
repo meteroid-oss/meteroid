@@ -20,7 +20,7 @@ import {
   SubscriptionFeeBillingPeriod,
 } from '@/rpc/api/subscriptions/v1/models_pb'
 
-import type { PendingEntitlementSpec } from '@/features/entitlements/creation/types'
+import type { GrantDraft } from '@/features/entitlements/rows/grantDraft'
 import type { QuoteFormValues } from '@/features/quotes/editor/quoteFormSchema'
 import type { QuoteV2State } from '@/features/quotes/editor/quoteV2'
 import type {
@@ -319,8 +319,9 @@ export interface QuoteFormSeed {
   addOns: { addOnId: string; quantity?: number }[]
   coupons: { couponId: string }[]
   minimumCommitment?: MinimumCommitment
-  pendingEntitlements: PendingEntitlementSpec[]
+  pendingEntitlements: GrantDraft[]
   v2: QuoteV2State
+  resourceId?: string
 }
 
 export function quoteToFormSeed(
@@ -336,6 +337,7 @@ export function quoteToFormSeed(
     minimumCommitment: quote.minimumCommitment,
     pendingEntitlements: [],
     v2: quoteToV2State(quote),
+    resourceId: quote.quote?.resourceId,
   }
 }
 
@@ -363,7 +365,7 @@ export function quoteToTemplateSeed(
 
   const v2 = { ...seed.v2, hubspotDealId: '' }
 
-  if (options.planVersionIsActive) return { ...seed, values, v2 }
+  if (options.planVersionIsActive) return { ...seed, values, v2, resourceId: undefined }
 
   return {
     values: { ...values, plan_version_id: '' },

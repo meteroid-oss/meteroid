@@ -1,5 +1,6 @@
 import { useNavigate, useSearchParams } from 'react-router'
 
+import { subscriptionTitle } from '@/pages/portal/experience/format'
 import { SubscriptionSummary } from '@/rpc/portal/customer/v1/models_pb'
 
 interface CustomerPortalSubscriptionsProps {
@@ -39,7 +40,7 @@ export const CustomerPortalSubscriptions = ({
       <div className="flex items-start justify-between mb-3">
         <div>
           <h3 className="text-base font-semibold text-gray-900">
-            {primarySubscription.planName}
+            {subscriptionTitle(primarySubscription)}
           </h3>
         </div>
         <button
@@ -68,7 +69,7 @@ export const CustomerPortalSubscriptions = ({
                 className="flex items-center justify-between p-2.5 border border-gray-200 rounded hover:border-gray-300  transition-colors"
               >
                 <div>
-                  <div className="text-sm font-medium text-gray-900">{subscription.planName}</div>
+                  <div className="text-sm font-medium text-gray-900">{subscriptionTitle(subscription)}</div>
                 </div>
               </div>
             ))}

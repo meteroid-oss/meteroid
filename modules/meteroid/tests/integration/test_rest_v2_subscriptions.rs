@@ -156,7 +156,7 @@ async fn test_rest_v2_subscription_created_read_and_listed() {
     let granted = f
         .patch(
             "/api/v2/add-ons/support",
-            json!({"entitlements": [{"feature": "sso", "value": {"type": "boolean", "enabled": true}}]}),
+            json!({"entitlements": [{"feature": "sso", "value": {"type": "on"}}]}),
         )
         .await;
     assert_eq!(granted.status, StatusCode::OK, "{:#}", granted.body);
@@ -245,7 +245,9 @@ async fn test_rest_v2_subscription_created_read_and_listed() {
     let by_id = f.get(&format!("/api/v2/subscriptions/{id}")).await;
     assert_eq!(by_id.body["external_id"], "crm-spotify-1");
     assert_eq!(by_id.body["tax_inclusive"], false);
-    assert!(by_id.body.get("usage_filter").is_none(), "{:#}", by_id.body);
+    assert!(by_id.body.get("resource").is_none(), "{:#}", by_id.body);
+    assert!(by_id.body.get("warnings").is_none(), "{:#}", by_id.body);
+    assert_eq!(by_id.body["entitlement_overrides"], json!([]));
 
     // Its summary reads as a list item: its own fields, nothing read beside.
     let summary = f.get("/api/v2/subscriptions/crm-spotify-1/summary").await;
@@ -269,13 +271,18 @@ async fn test_rest_v2_subscription_created_read_and_listed() {
         StatusCode::NOT_FOUND
     );
 
-    // Its entitlements, in the customer's entitlements' shape: the add-on's grant.
+    // What it grants, not paged: the add-on's row, at the customer level.
     let entitlements = f
         .get("/api/v2/subscriptions/crm-spotify-1/entitlements")
         .await;
     assert_eq!(
         entitlements.status,
         StatusCode::OK,
+        "{:#}",
+        entitlements.body
+    );
+    assert!(
+        entitlements.body.get("has_more").is_none(),
         "{:#}",
         entitlements.body
     );
@@ -291,21 +298,18 @@ async fn test_rest_v2_subscription_created_read_and_listed() {
             .unwrap()
             .starts_with("feat_")
     );
-    assert_eq!(
-        sso_grant["value"],
-        json!({"type": "boolean", "enabled": true})
-    );
-    assert_eq!(entitlements.body["has_more"], false);
+    assert_eq!(sso_grant["type"], "boolean");
+    assert_eq!(sso_grant["level"], "customer");
+    assert!(sso_grant.get("resource").is_none(), "{sso_grant:#}");
+    assert_eq!(sso_grant["value"], json!({"type": "on"}));
+    assert_eq!(sso_grant["deciding_subscription"]["id"], id.as_str());
+    assert_eq!(sso_grant["origin"]["owner"]["type"], "add_on");
+    assert!(sso_grant.get("policy").is_none(), "{sso_grant:#}");
+    assert!(sso_grant.get("own_grant").is_none(), "{sso_grant:#}");
     let by_id_entitlements = f
-        .get(&format!("/api/v2/subscriptions/{id}/entitlements?limit=1"))
+        .get(&format!("/api/v2/subscriptions/{id}/entitlements"))
         .await;
-    assert_eq!(
-        by_id_entitlements.status,
-        StatusCode::OK,
-        "{:#}",
-        by_id_entitlements.body
-    );
-    assert_eq!(by_id_entitlements.body["data"].as_array().unwrap().len(), 1);
+    assert_eq!(by_id_entitlements.body, entitlements.body);
 
     // The external id is the subscription's own.
     let again = f
@@ -1808,7 +1812,7 @@ async fn test_rest_v2_subscription_patch_is_one_write() {
         purchase_order: None,
         payment_methods_config: None,
         custom_properties: None,
-        usage_filter: None,
+        resource_id: None,
     };
     let raced = f
         .setup
@@ -1850,4 +1854,456 @@ async fn test_rest_v2_subscription_patch_is_one_write() {
     assert_eq!(taken.status, StatusCode::OK, "{:#}", taken.body);
     assert_eq!(date_of(&taken.body["dates"]["end"]), period_end);
     assert_eq!(taken.body["invoicing"]["memo"], "Kept");
+}
+
+/// The `site` resource type, keyed by `site_id`.
+pub(crate) async fn seed_sites(f: &Fixture) {
+    let created = f
+        .post(
+            "/api/v2/resource-types",
+            json!({"code": "site", "name": "Site", "plural_name": "Sites", "keys": ["site_id"]}),
+        )
+        .await;
+    assert_eq!(created.status, StatusCode::CREATED, "{:#}", created.body);
+}
+
+/// A stored site of `customer` (`ext:<alias>`), by its id.
+pub(crate) async fn site(f: &Fixture, customer: &str, key: &str) -> String {
+    let stored = f
+        .put(
+            &format!("/api/v2/customers/{customer}/resources/site/{key}"),
+            json!({}),
+        )
+        .await;
+    assert_eq!(stored.status, StatusCode::CREATED, "{:#}", stored.body);
+    let id = stored.body["id"].as_str().unwrap().to_owned();
+    assert!(id.starts_with("res_"), "{id}");
+    id
+}
+
+fn on_studio(extra: Value) -> Value {
+    let mut body = json!({
+        "customer": "ext:spotify",
+        "plan": "studio",
+        "quantities": {"users": "1"},
+        "invoicing": {"charge_automatically": false}
+    });
+    for (field, value) in extra.as_object().unwrap() {
+        body[field] = value.clone();
+    }
+    body
+}
+
+fn refused_at(answer: &crate::test_rest_v2::Answer, path: &str) {
+    assert_eq!(
+        answer.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{path}: {:#}",
+        answer.body
+    );
+    assert_eq!(answer.body["errors"][0]["path"], path, "{:#}", answer.body);
+}
+
+/// Rules: ADR-0013 §23 (a subscription for a resource, named by id or by type and key)
+#[tokio::test]
+async fn test_rest_v2_subscription_for_a_resource() {
+    let f = fixture().await;
+    seed(&f).await;
+    seed_sites(&f).await;
+    let s1 = site(&f, "ext:spotify", "s1").await;
+    let s2 = site(&f, "ext:spotify", "s2").await;
+    site(&f, "ext:spotify", "s3").await;
+    site(&f, "ext:spotify", "s4").await;
+    site(&f, "ext:spotify", "s5").await;
+    let theirs = site(&f, "ext:uber", "u1").await;
+
+    // By id and by type and key, read back as `{id, type, key}`; studio is sold for the customer,
+    // and prices `bandwidth`, attributed to the customer only: a subscription for a site is
+    // accepted with both warnings, and bills none of `bandwidth`.
+    let by_id = f
+        .post_once(
+            "/api/v2/subscriptions",
+            "for-s1",
+            on_studio(json!({"resource": {"id": s1}})),
+        )
+        .await;
+    assert_eq!(by_id.status, StatusCode::CREATED, "{:#}", by_id.body);
+    assert_eq!(
+        by_id.body["resource"],
+        json!({"id": s1, "type": "site", "key": "s1"})
+    );
+    assert_eq!(
+        by_id.body["warnings"],
+        json!(["plan_sold_for_mismatch", "metric_not_attributed"])
+    );
+    assert_eq!(by_id.body["metrics_not_attributed"], json!(["bandwidth"]));
+    let on_s1 = by_id.body["id"].as_str().unwrap().to_owned();
+    let read = f.get(&format!("/api/v2/subscriptions/{on_s1}")).await;
+    assert_eq!(read.status, StatusCode::OK, "{:#}", read.body);
+    assert_eq!(read.body["resource"], by_id.body["resource"]);
+    assert_eq!(
+        read.body["warnings"], by_id.body["warnings"],
+        "a read tells what the creation told"
+    );
+    assert_eq!(
+        read.body["metrics_not_attributed"],
+        by_id.body["metrics_not_attributed"]
+    );
+    let summary = f
+        .get(&format!("/api/v2/subscriptions/{on_s1}/summary"))
+        .await;
+    assert_eq!(summary.body["resource"], by_id.body["resource"]);
+
+    let by_key = f
+        .post_once(
+            "/api/v2/subscriptions",
+            "for-s2",
+            on_studio(json!({"resource": {"type": "site", "key": "s2"}})),
+        )
+        .await;
+    assert_eq!(by_key.status, StatusCode::CREATED, "{:#}", by_key.body);
+    assert_eq!(
+        by_key.body["resource"],
+        json!({"id": s2, "type": "site", "key": "s2"})
+    );
+    assert_eq!(
+        by_key.body["warnings"],
+        json!(["plan_sold_for_mismatch", "metric_not_attributed"])
+    );
+
+    let customer_wide = f
+        .post_once("/api/v2/subscriptions", "for-spotify", on_studio(json!({})))
+        .await;
+    assert_eq!(
+        customer_wide.status,
+        StatusCode::CREATED,
+        "{:#}",
+        customer_wide.body
+    );
+    assert!(customer_wide.body.get("resource").is_none());
+    assert!(
+        customer_wide.body.get("warnings").is_none(),
+        "{:#}",
+        customer_wide.body
+    );
+
+    // A plan sold for sites pricing no metric, subscribed for one: nothing to warn of.
+    let mut draft = version("29", "5");
+    draft["charges"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|charge| charge["product"] != "api");
+    let plan = f
+        .post(
+            "/api/v2/plans",
+            json!({"code": "per-site", "name": "Per site", "sold_for": "site", "draft": draft}),
+        )
+        .await;
+    assert_eq!(plan.status, StatusCode::CREATED, "{:#}", plan.body);
+    assert_eq!(plan.body["sold_for"]["code"], "site");
+    let published = f
+        .post("/api/v2/plans/per-site/draft/publish", json!({}))
+        .await;
+    assert_eq!(published.status, StatusCode::OK, "{:#}", published.body);
+    let sold_for_sites = f
+        .post_once(
+            "/api/v2/subscriptions",
+            "for-s5",
+            on_studio(json!({"plan": "per-site", "resource": {"type": "site", "key": "s5"}})),
+        )
+        .await;
+    assert_eq!(
+        sold_for_sites.status,
+        StatusCode::CREATED,
+        "{:#}",
+        sold_for_sites.body
+    );
+    assert!(
+        sold_for_sites.body.get("warnings").is_none(),
+        "{:#}",
+        sold_for_sites.body
+    );
+
+    // Refused at `/resource`: sold twice over one period, archived, another customer's.
+    let twice = f
+        .post_once(
+            "/api/v2/subscriptions",
+            "for-s1-again",
+            on_studio(json!({"resource": {"id": s1}})),
+        )
+        .await;
+    refused_at(&twice, "/resource");
+    let archived = f
+        .post(
+            "/api/v2/customers/ext:spotify/resources/site/s3/archive",
+            json!({}),
+        )
+        .await;
+    assert_eq!(archived.status, StatusCode::OK, "{:#}", archived.body);
+    assert_eq!(archived.body["archived"], true);
+    let on_archived = f
+        .post_once(
+            "/api/v2/subscriptions",
+            "for-s3",
+            on_studio(json!({"resource": {"type": "site", "key": "s3"}})),
+        )
+        .await;
+    refused_at(&on_archived, "/resource");
+    let not_theirs = f
+        .post_once(
+            "/api/v2/subscriptions",
+            "for-u1",
+            on_studio(json!({"resource": {"id": theirs}})),
+        )
+        .await;
+    refused_at(&not_theirs, "/resource");
+    assert_eq!(not_theirs.body["errors"][0]["code"], "not_found");
+    let unknown = f
+        .post_once(
+            "/api/v2/subscriptions",
+            "for-s9",
+            on_studio(json!({"resource": {"type": "site", "key": "s9"}})),
+        )
+        .await;
+    refused_at(&unknown, "/resource");
+
+    // Fixed once active: another resource is refused at `/resource`, the first one kept.
+    let moved = f
+        .patch(
+            &format!("/api/v2/subscriptions/{on_s1}"),
+            json!({"resource": {"type": "site", "key": "s4"}}),
+        )
+        .await;
+    refused_at(&moved, "/resource");
+    let kept = f.get(&format!("/api/v2/subscriptions/{on_s1}")).await;
+    assert_eq!(kept.body["resource"]["key"], "s1");
+
+    // A resource a subscription names is not deleted.
+    let deleted = f
+        .delete("/api/v2/customers/ext:spotify/resources/site/s1")
+        .await;
+    assert_eq!(deleted.status, StatusCode::CONFLICT, "{:#}", deleted.body);
+}
+
+fn history_len(answer: &crate::test_rest_v2::Answer) -> usize {
+    assert_eq!(answer.status, StatusCode::OK, "{:#}", answer.body);
+    answer.body["data"].as_array().unwrap().len()
+}
+
+fn projects_of(readout: &crate::test_rest_v2::Answer) -> Value {
+    assert_eq!(readout.status, StatusCode::OK, "{:#}", readout.body);
+    readout.body["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entitlement| entitlement["feature"]["code"] == "projects")
+        .cloned()
+        .unwrap_or_else(|| panic!("projects is granted: {:#}", readout.body))
+}
+
+/// Rules: ADR-0013 §23 (a subscription's own rows, written whole; its readout)
+#[tokio::test]
+async fn test_rest_v2_subscription_entitlement_overrides() {
+    let f = fixture().await;
+    seed(&f).await;
+    let feature = f
+        .post(
+            "/api/v2/features",
+            json!({"code": "projects", "name": "Projects", "unit": "projects",
+                   "type": {"type": "limit", "counted_by": "app"}}),
+        )
+        .await;
+    assert_eq!(feature.status, StatusCode::CREATED, "{:#}", feature.body);
+    let five = json!([{"feature": "projects", "value": {"type": "limit", "limit": "5"}}]);
+
+    // Refused at their row: an effect the subscription tier does not take, a row twice.
+    let added = f
+        .post_once(
+            "/api/v2/subscriptions",
+            "overrides-add",
+            on_studio(json!({"entitlement_overrides": [
+                {"feature": "projects", "value": {"type": "limit", "limit": "5"}, "effect": "add"}
+            ]})),
+        )
+        .await;
+    refused_at(&added, "/entitlement_overrides/0/effect");
+    let twice = f
+        .post_once(
+            "/api/v2/subscriptions",
+            "overrides-twice",
+            on_studio(json!({"entitlement_overrides": [
+                {"feature": "projects", "value": {"type": "limit", "limit": "5"}},
+                {"feature": "projects", "value": {"type": "limit", "limit": "6"}}
+            ]})),
+        )
+        .await;
+    refused_at(&twice, "/entitlement_overrides/1/feature");
+    assert_eq!(twice.body["errors"][0]["code"], "duplicate");
+    let unknown = f
+        .post_once(
+            "/api/v2/subscriptions",
+            "overrides-unknown",
+            on_studio(json!({"entitlement_overrides": [
+                {"feature": "no-such-feature", "value": {"type": "on"}}
+            ]})),
+        )
+        .await;
+    refused_at(&unknown, "/entitlement_overrides/0/feature");
+
+    // Written with the subscription, read back on a single one.
+    let created = f
+        .post_once(
+            "/api/v2/subscriptions",
+            "overrides-1",
+            on_studio(json!({"entitlement_overrides": five.clone()})),
+        )
+        .await;
+    assert_eq!(created.status, StatusCode::CREATED, "{:#}", created.body);
+    let first = created.body["id"].as_str().unwrap().to_owned();
+    let base = format!("/api/v2/subscriptions/{first}");
+    let rows = created.body["entitlement_overrides"].as_array().unwrap();
+    assert_eq!(rows.len(), 1, "{:#}", created.body);
+    let row = &rows[0];
+    let row_id = row["id"].as_str().unwrap().to_owned();
+    assert!(row_id.starts_with("ent_"), "{row_id}");
+    assert_eq!(row["feature"], "projects");
+    assert_eq!(row["effect"], "set");
+    assert_eq!(row["level"], "customer");
+    assert_eq!(row["value"], json!({"type": "limit", "limit": "5"}));
+    assert_eq!(row["owner"]["type"], "subscription");
+    assert_eq!(row["owner"]["id"], first.as_str());
+    assert_eq!(
+        f.get(&base).await.body["entitlement_overrides"],
+        created.body["entitlement_overrides"]
+    );
+    assert!(
+        f.get(&format!("{base}/summary"))
+            .await
+            .body
+            .get("entitlement_overrides")
+            .is_none(),
+        "a summary leaves them out"
+    );
+    let history = format!("/api/v2/entitlements/{row_id}/history");
+
+    // The same list again changes nothing; a changed row is succeeded under its id.
+    let same = f
+        .patch(&base, json!({"entitlement_overrides": five.clone()}))
+        .await;
+    assert_eq!(same.status, StatusCode::OK, "{:#}", same.body);
+    assert_eq!(same.body["entitlement_overrides"][0]["id"], row_id.as_str());
+    assert_eq!(history_len(&f.get(&history).await), 1);
+    let eight = json!([{"feature": "projects", "value": {"type": "limit", "limit": "8"}}]);
+    let changed = f
+        .patch(&base, json!({"entitlement_overrides": eight.clone()}))
+        .await;
+    assert_eq!(changed.status, StatusCode::OK, "{:#}", changed.body);
+    assert_eq!(
+        changed.body["entitlement_overrides"][0]["id"],
+        row_id.as_str()
+    );
+    assert_eq!(
+        changed.body["entitlement_overrides"][0]["value"]["limit"],
+        "8"
+    );
+    let versions = f.get(&history).await;
+    assert_eq!(history_len(&versions), 2);
+    assert_eq!(
+        versions.body["data"][0]["value"]["limit"], "8",
+        "newest first"
+    );
+    assert!(versions.body["data"][1]["revoked_at"].is_string());
+    let refused = f
+        .patch(
+            &base,
+            json!({"entitlement_overrides": [
+                {"feature": "projects", "value": {"type": "limit", "limit": "9"}, "effect": "cap_at"}
+            ]}),
+        )
+        .await;
+    refused_at(&refused, "/entitlement_overrides/0/effect");
+    assert_eq!(history_len(&f.get(&history).await), 2, "nothing written");
+
+    // The readout: the subscription's level with the count the app reported.
+    let reported = f
+        .post_once(
+            "/api/v2/customers/ext:spotify/entitlements/projects/usage",
+            "projects-set-3",
+            json!({"set": "3"}),
+        )
+        .await;
+    assert_eq!(reported.status, StatusCode::OK, "{:#}", reported.body);
+    assert_eq!(reported.body["count"], "3");
+    let readout = f.get(&format!("{base}/entitlements")).await;
+    let projects = projects_of(&readout);
+    assert_eq!(projects["level"], "customer");
+    assert!(projects.get("resource").is_none(), "{projects:#}");
+    assert_eq!(projects["type"], "limit");
+    assert_eq!(projects["unit"], "projects");
+    assert_eq!(projects["value"], json!({"type": "limit", "limit": "8"}));
+    assert_eq!(projects["used"], "3");
+    assert_eq!(projects["policy"]["at_limit"], "deny_new");
+    assert_eq!(projects["policy"]["resets"]["type"], "never");
+    assert!(projects.get("window").is_none(), "{projects:#}");
+    assert_eq!(projects["deciding_subscription"]["id"], first.as_str());
+    assert_eq!(projects["origin"]["entitlement"], row_id.as_str());
+    assert_eq!(projects["origin"]["owner"]["type"], "subscription");
+    assert!(projects.get("own_grant").is_none(), "{projects:#}");
+
+    // A second subscription granting more decides (the best value): the first's grant is its own.
+    let second = f
+        .post_once(
+            "/api/v2/subscriptions",
+            "overrides-2",
+            on_studio(json!({"entitlement_overrides": [
+                {"feature": "projects", "value": {"type": "limit", "limit": "100"}}
+            ]})),
+        )
+        .await;
+    assert_eq!(second.status, StatusCode::CREATED, "{:#}", second.body);
+    let second_id = second.body["id"].as_str().unwrap().to_owned();
+    let decided = projects_of(&f.get(&format!("{base}/entitlements")).await);
+    assert_eq!(decided["deciding_subscription"]["id"], second_id.as_str());
+    assert_eq!(decided["value"], json!({"type": "limit", "limit": "100"}));
+    assert_eq!(decided["used"], "3");
+    let own_grant = &decided["own_grant"];
+    assert_eq!(own_grant["value"], json!({"type": "limit", "limit": "8"}));
+    assert_eq!(own_grant["deciding_subscription"]["id"], second_id.as_str());
+    assert_eq!(own_grant["deciding_plan_name"], "Studio");
+    assert!(
+        own_grant.get("deciding_resource").is_none(),
+        "{own_grant:#}"
+    );
+    let deciding = projects_of(
+        &f.get(&format!("/api/v2/subscriptions/{second_id}/entitlements"))
+            .await,
+    );
+    assert_eq!(deciding["deciding_subscription"]["id"], second_id.as_str());
+    assert!(deciding.get("own_grant").is_none(), "{deciding:#}");
+
+    // `[]` revokes them: the row is gone, its history kept.
+    let emptied = f.patch(&base, json!({"entitlement_overrides": []})).await;
+    assert_eq!(emptied.status, StatusCode::OK, "{:#}", emptied.body);
+    assert_eq!(emptied.body["entitlement_overrides"], json!([]));
+    assert_eq!(f.get(&base).await.body["entitlement_overrides"], json!([]));
+    let gone = f.get(&format!("/api/v2/entitlements/{row_id}")).await;
+    assert_eq!(gone.status, StatusCode::NOT_FOUND, "{:#}", gone.body);
+    let kept = f.get(&history).await;
+    assert_eq!(history_len(&kept), 2);
+    assert!(
+        kept.body["data"][0]["revoked_at"].is_string(),
+        "{:#}",
+        kept.body
+    );
+    let after = f.get(&format!("{base}/entitlements")).await;
+    assert_eq!(after.status, StatusCode::OK, "{:#}", after.body);
+    assert!(
+        after.body["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|entitlement| entitlement["feature"]["code"] != "projects"),
+        "no row of its own, it no longer includes projects: {:#}",
+        after.body
+    );
 }

@@ -1,4 +1,5 @@
 use crate::StoreResult;
+use crate::domain::resources::{ResourceInput, ResourceType, canonical_key};
 use crate::errors::StoreError;
 pub use common_domain::auth::PortalScope;
 use common_domain::ids::{
@@ -8,6 +9,7 @@ use jsonwebtoken::errors::ErrorKind;
 use jsonwebtoken::{DecodingKey, EncodingKey};
 use secrecy::{ExposeSecret, SecretString};
 use serde_with::skip_serializing_none;
+use std::collections::BTreeMap;
 // todo reuse in common-grpc as well
 
 /// Keeps portal tokens apart from session JWTs, which share `jwt_secret`.
@@ -23,6 +25,57 @@ pub enum ResourceAccess {
         recipient_email: String,
     },
     Dashboard(SavedViewId),
+}
+
+/// The resource and attributes a client token may name (ADR 0011 §3.11), in a check's shape.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct ClientClaims {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub resources: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub attributes: BTreeMap<String, String>,
+}
+
+impl ClientClaims {
+    pub fn is_empty(&self) -> bool {
+        self.resources.is_empty() && self.attributes.is_empty()
+    }
+
+    /// Only claimed keys and attributes, with their claimed values: without claims, the customer only.
+    /// A key and its aliases name the same resource (`types` canonicalises both sides).
+    pub fn allows(&self, requested: &ResourceInput, types: &[ResourceType]) -> bool {
+        let canonical = |named: &'_ BTreeMap<String, String>| {
+            named
+                .iter()
+                .map(|(k, v)| (canonical_key(types, k).to_owned(), v.clone()))
+                .collect::<BTreeMap<_, _>>()
+        };
+        let claimed = canonical(&self.resources);
+        canonical(&requested.resources)
+            .iter()
+            .all(|(k, v)| claimed.get(k) == Some(v))
+            && requested
+                .attributes
+                .iter()
+                .all(|(k, v)| self.attributes.get(k) == Some(v))
+    }
+
+    /// What a request the claims allow runs with, whichever part of them it named.
+    pub fn input(&self) -> ResourceInput {
+        ResourceInput {
+            resources: self.resources.clone(),
+            attributes: self.attributes.clone(),
+        }
+    }
+}
+
+impl From<ResourceInput> for ClientClaims {
+    fn from(input: ResourceInput) -> Self {
+        Self {
+            resources: input.resources,
+            attributes: input.attributes,
+        }
+    }
 }
 
 /// Default lifetime for a customer portal token when the caller doesn't specify one.
@@ -48,6 +101,9 @@ pub struct PortalJwtClaims {
     /// Random, so two tokens for the same resource never match, even when minted in the same
     /// second. Absent on tokens minted before it was introduced.
     pub jti: Option<String>,
+    /// Customer tokens only: `resources` and `attributes` at the top level.
+    #[serde(flatten)]
+    pub client: ClientClaims,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -90,12 +146,25 @@ impl PortalJwtClaims {
             scopes,
             delegated: false,
             jti: Some(hex::encode(rand::random::<[u8; 16]>())),
+            client: ClientClaims::default(),
         })
     }
 
     pub fn with_delegated(mut self, delegated: bool) -> Self {
         self.delegated = delegated;
         self
+    }
+
+    /// Callers validate the claims against the tenant's types first (`resolve_resource_input`).
+    pub fn with_client_claims(mut self, client: ClientClaims) -> StoreResult<Self> {
+        if !client.is_empty() && !matches!(self.resource, ResourceAccess::Customer(_)) {
+            return Err(StoreError::InvalidArgument(
+                "resources and attributes only apply to customer tokens".into(),
+            )
+            .into());
+        }
+        self.client = client;
+        Ok(self)
     }
 
     pub fn expires_at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
@@ -255,6 +324,108 @@ mod tests {
         assert_eq!(claims.scopes, None);
         assert_eq!(claims.aud, None);
         assert!(matches!(claims.resource, ResourceAccess::Customer(id) if id == customer_id));
+    }
+
+    fn input(resources: &[(&str, &str)], attributes: &[(&str, &str)]) -> ResourceInput {
+        let map = |pairs: &[(&str, &str)]| -> BTreeMap<String, String> {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        ResourceInput {
+            resources: map(resources),
+            attributes: map(attributes),
+        }
+    }
+
+    #[test]
+    fn client_claims_round_trip_at_the_top_level_and_bound_what_a_request_names() {
+        let claims = ClientClaims::from(input(
+            &[("site_id", "s1")],
+            &[("site.environment", "staging")],
+        ));
+        let token = PortalJwtClaims::new(
+            TenantId::new(),
+            ResourceAccess::Customer(CustomerId::new()),
+            None,
+            Some(chrono::Duration::hours(1)),
+        )
+        .unwrap()
+        .with_client_claims(claims.clone())
+        .unwrap()
+        .encode(&secret())
+        .unwrap();
+        let raw = payload(&token);
+        assert_eq!(raw["resources"], json!({ "site_id": "s1" }));
+        assert_eq!(raw["attributes"], json!({ "site.environment": "staging" }));
+        let decoded = PortalJwtClaims::decode(&token, &secret()).unwrap().client;
+        assert_eq!(decoded, claims);
+
+        assert!(decoded.allows(&ResourceInput::default(), &[]));
+        assert!(decoded.allows(&input(&[("site_id", "s1")], &[]), &[]));
+        assert!(decoded.allows(
+            &input(&[("site_id", "s1")], &[("site.environment", "staging")]),
+            &[]
+        ));
+        assert!(!decoded.allows(&input(&[("site_id", "s2")], &[]), &[]));
+        assert!(!decoded.allows(&input(&[("user_id", "u1")], &[]), &[]));
+        assert!(!decoded.allows(&input(&[], &[("site.environment", "production")]), &[]));
+        assert_eq!(decoded.input(), claims.input());
+
+        let unclaimed = ClientClaims::default();
+        assert!(unclaimed.allows(&ResourceInput::default(), &[]));
+        assert!(!unclaimed.allows(&input(&[("user_id", "u9")], &[]), &[]));
+        assert!(!unclaimed.allows(&input(&[], &[("site.environment", "staging")]), &[]));
+    }
+
+    #[test]
+    fn client_claims_name_a_resource_by_its_key_or_an_alias() {
+        let site = ResourceType {
+            id: common_domain::ids::ResourceTypeId::new(),
+            tenant_id: TenantId::new(),
+            code: "site".into(),
+            name: "Site".into(),
+            plural_name: "Sites".into(),
+            keys: vec!["site_id".into(), "website_id".into()],
+            attributes: BTreeMap::new(),
+            archived_at: None,
+            created_at: common_clock::now(),
+        };
+        let types = [site];
+        for claimed in ["site_id", "website_id"] {
+            let claims = ClientClaims::from(input(&[(claimed, "s1")], &[]));
+            for named in ["site_id", "website_id"] {
+                assert!(claims.allows(&input(&[(named, "s1")], &[]), &types));
+                assert!(!claims.allows(&input(&[(named, "s2")], &[]), &types));
+            }
+            let without_types = claims.allows(&input(&[("website_id", "s1")], &[]), &[]);
+            assert_eq!(without_types, claimed == "website_id");
+        }
+    }
+
+    #[test]
+    fn client_claims_are_for_customer_tokens_only() {
+        let invoice = PortalJwtClaims::new(
+            TenantId::new(),
+            ResourceAccess::Invoice(InvoiceId::new()),
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(
+            invoice
+                .clone()
+                .with_client_claims(ClientClaims::from(input(&[("site_id", "s1")], &[])))
+                .is_err()
+        );
+        let token = invoice
+            .with_client_claims(ClientClaims::default())
+            .unwrap()
+            .encode(&secret())
+            .unwrap();
+        let raw = payload(&token);
+        assert!(raw.get("resources").is_none() && raw.get("attributes").is_none());
     }
 
     #[test]

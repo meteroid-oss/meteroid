@@ -1,581 +1,364 @@
-import { create, type MessageInitShape } from '@bufbuild/protobuf'
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
   Badge,
-  Button,
+  Card,
   Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
+  cn,
 } from '@md/ui'
-import { useQueryClient } from '@tanstack/react-query'
-import { cn } from '@ui/lib'
-import { CirclePower, Pencil, Pin, PinOff } from 'lucide-react'
-import { useState } from 'react'
-import { toast } from 'sonner'
+import { ChevronRightIcon } from 'lucide-react'
+import { Fragment, type KeyboardEvent, useState } from 'react'
 
-import { EntityEntitlementDialog } from '@/features/entitlements/EntityEntitlementDialog'
-import { InheritedIcon } from '@/features/entitlements/InheritedIcon'
-import { LimitTermsBadges, termsOfValue } from '@/features/entitlements/LimitTermsBadges'
-import { CreditPaidFeatures } from '@/features/entitlements/customer/CreditPaidFeatures'
-import { entitlementTooltip } from '@/features/entitlements/entitlementTooltips'
-import {
-  buildInheritanceTooltip,
-  configuredEnabled,
-  effectiveValueLabel,
-  entitlementValueToSpec,
-  groupByProduct,
-  isEntitlementDisabled,
-  isLimitReached,
-} from '@/features/entitlements/utils'
+import { PanelEmptyState } from '@/components/empty-state/PanelEmptyState'
+import { ComputationTrace } from '@/features/entitlements/explain/ComputationTrace'
+import { EvaluateFor } from '@/features/entitlements/explain/EvaluateFor'
+import { type Target, isTargetReady, targetRequest } from '@/features/entitlements/explain/checkRequest'
+import { displayValue, isOffValue, isOnValue, sourceLabel } from '@/features/entitlements/explain/display'
+import { subscriptionName, useExplain } from '@/features/entitlements/explain/useExplain'
+import { isAppCounted, isLimit, kindLabel, reasonLabel } from '@/features/entitlements/model'
+import { formatDecimalGrouped } from '@/features/entitlements/utils'
+import { lower, useResourceSubscriptions, useResourceTypes } from '@/features/resources/hooks'
 import { useQuery } from '@/lib/connectrpc'
 import {
-  batchCreateEntitlements,
-  createEntitlement,
-  deleteEntitlement,
-  getEffectiveEntitlements,
-  listCreditPaidFeatures,
-  listEntitlementsByEntity,
-  updateEntitlement,
+  getEntitlementSnapshot,
+  listFeatures,
 } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import {
-  EffectiveEntitlement,
-  Entitlement,
-  EntitlementEntitySchema,
-  EntitlementSpecSchema,
-  EntitlementValueSchema,
+  CalendarUnit,
+  CheckReason,
+  type Feature,
+  FeatureKind,
+  type FeaturePolicy,
+  FeatureStatus,
+  PolicyResets,
+  type SnapshotFeature,
+  type SnapshotLevel,
 } from '@/rpc/api/entitlements/v1/models_pb'
+import { parseAndFormatDate } from '@/utils/date'
 
-import type { EntitlementEntity } from '@/rpc/api/entitlements/v1/models_pb'
+import type { ResourceType } from '@/rpc/api/resources/v1/models_pb'
 
-interface Props {
+type Props = {
   customerId: string
-  /**
-   * Subscription id used to (a) classify origin as "Direct" vs "Inherited" and (b) enable the
-   * management actions (Override, Pin, Disable, Remove). When omitted, the card is read-only.
-   */
-  currentSubscriptionId?: string
-  /** Set to group the features paid with credit apart, linking to the customer's credit. */
-  onViewCredit?: () => void
+  customerName: string
+  creditPaid: Set<string>
 }
 
-export const EffectiveEntitlementsCard = ({
-  customerId,
-  currentSubscriptionId,
-  onViewCredit,
-}: Props) => {
-  const query = useQuery(getEffectiveEntitlements, { customerId })
-  const entitlements = query.data?.entitlements ?? []
-  const creditPaidQuery = useQuery(
-    listCreditPaidFeatures,
-    { customerId },
-    { enabled: !!onViewCredit }
-  )
-  const creditPaid = onViewCredit ? (creditPaidQuery.data?.features ?? []) : []
-  const creditPaidIds = new Set(creditPaid.map(f => f.featureId))
+export const EffectiveEntitlementsCard = ({ customerId, customerName, creditPaid }: Props) => {
+  const { types, byId: typesById } = useResourceTypes()
+  const [target, setTarget] = useState<Target>({ kind: 'customer' })
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const evaluated: Target = isTargetReady(target) ? target : { kind: 'customer' }
 
-  // When we have a current subscription, load its direct entitlements so we know which rows are
-  // "pinned here" and can look up local row ids for delete/update.
-  const subscriptionEntity: EntitlementEntity | undefined = currentSubscriptionId
-    ? create(EntitlementEntitySchema, {
-        EntityId: { case: 'subscriptionId', value: currentSubscriptionId },
-      })
-    : undefined
-
-  const localQuery = useQuery(
-    listEntitlementsByEntity,
-    subscriptionEntity
-      ? { entity: subscriptionEntity }
-      : { entity: undefined as unknown as EntitlementEntity },
-    { enabled: !!subscriptionEntity }
-  )
-  const localEntitlements: Entitlement[] = localQuery.data?.entitlements ?? []
-
-  const [dialog, setDialog] = useState<
-    { open: false } | { open: true; row?: EffectiveEntitlement }
-  >({ open: false })
-  const [pinAllOpen, setPinAllOpen] = useState(false)
-
-  const queryClient = useQueryClient()
-  const batchCreateMutation = useMutation(batchCreateEntitlements, {
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey({
-          schema: listEntitlementsByEntity.parent,
-          cardinality: undefined,
-        }),
-      })
-      queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey({
-          schema: getEffectiveEntitlements.parent,
-          cardinality: undefined,
-        }),
-      })
-      setPinAllOpen(false)
-      toast.success('Entitlements pinned on this subscription.')
-    },
-    onError: err => toast.error(`Failed to pin entitlements: ${err.message}`),
+  const snapshot = useQuery(getEntitlementSnapshot, { customerId, ...targetRequest(evaluated) })
+  const featuresQuery = useQuery(listFeatures, {
+    pagination: { page: 0, perPage: 500 },
+    statuses: [FeatureStatus.ACTIVE, FeatureStatus.DISABLED],
   })
+  const features = new Map((featuresQuery.data?.features ?? []).map(f => [f.id, f]))
+  const rows = [...(snapshot.data?.features ?? [])].sort((a, b) =>
+    (a.feature?.name ?? '').localeCompare(b.feature?.name ?? '')
+  )
 
-  if (query.isLoading || creditPaidQuery.isLoading) {
-    return (
-      <div className="flex flex-col gap-2">
-        <Skeleton className="h-12 w-full" />
-        <Skeleton className="h-12 w-full" />
-      </div>
-    )
-  }
+  const toggle = (id: string) =>
+    setExpanded(prev => {
+      const next = new Set(prev)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
 
-  const showActions = !!currentSubscriptionId
-
-  if (entitlements.length === 0) {
-    return (
-      <div className="flex flex-col gap-3">
-        <p className="text-sm text-muted-foreground">No active entitlements.</p>
-        {showActions && (
-          <div>
-            <Button size="sm" variant="secondary" onClick={() => setDialog({ open: true })}>
-              Add entitlement
-            </Button>
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+        <h3 className="text-sm font-semibold">Effective entitlements</h3>
+        {types.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[13px] text-muted-foreground">Evaluate for</span>
+            <EvaluateFor customerId={customerId} customerName={customerName} value={target} onChange={setTarget} />
           </div>
         )}
-        {dialog.open && subscriptionEntity && (
-          <EntityEntitlementDialog
-            entity={subscriptionEntity as MessageInitShape<typeof EntitlementEntitySchema>}
-            onClose={() => setDialog({ open: false })}
-          />
-        )}
       </div>
-    )
-  }
-
-  const groups = groupByProduct(
-    entitlements.filter(e => !creditPaidIds.has(e.feature?.id ?? '')),
-    e =>
-      e.feature?.product ? { id: e.feature.product.id, name: e.feature.product.name } : undefined
+      {snapshot.isLoading || featuresQuery.isLoading ? (
+        <div className="flex flex-col gap-2 px-5 pb-5">
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+        </div>
+      ) : snapshot.error ? (
+        <PanelEmptyState tone="destructive" title={snapshot.error.rawMessage} />
+      ) : rows.length === 0 ? (
+        <PanelEmptyState quiet title="No entitlements" />
+      ) : (
+        <Table className="min-w-[560px]">
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead className="pl-5">Feature</TableHead>
+              <TableHead>Kind</TableHead>
+              <TableHead>Value</TableHead>
+              <TableHead>From</TableHead>
+              <TableHead className="w-10 pr-5" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map(sf => {
+              const id = sf.feature?.id ?? ''
+              return (
+                <FeatureRow
+                  key={id}
+                  snapshot={sf}
+                  feature={features.get(id)}
+                  target={evaluated}
+                  customerId={customerId}
+                  customerName={customerName}
+                  paidWithCredit={creditPaid.has(id)}
+                  expanded={expanded.has(id)}
+                  onToggle={() => toggle(id)}
+                  types={typesById}
+                />
+              )
+            })}
+          </TableBody>
+        </Table>
+      )}
+    </Card>
   )
+}
 
-  const existingFeatureIds = new Set<string>([
-    ...localEntitlements.map(e => e.featureId),
-    ...entitlements.map(e => e.feature?.id ?? '').filter(Boolean),
-  ])
+type RowProps = {
+  snapshot: SnapshotFeature
+  feature?: Feature
+  target: Target
+  customerId: string
+  customerName: string
+  paidWithCredit: boolean
+  expanded: boolean
+  onToggle: () => void
+  types: Map<string, ResourceType>
+}
 
-  // Rows whose winning origin is NOT this subscription — eligible for "Pin all".
-  const unpinnedRows = currentSubscriptionId
-    ? entitlements.filter(e => {
-        const eid = e.origin?.entity?.EntityId
-        return !(eid?.case === 'subscriptionId' && eid.value === currentSubscriptionId)
-      })
-    : []
+const ownLevelOf = <L extends Pick<SnapshotLevel, 'resourceTypeId'>>(levels: L[], feature?: Feature) =>
+  levels.find(l => (l.resourceTypeId ?? undefined) === (feature?.levelResourceTypeId ?? undefined)) ?? levels[0]
 
-  const requestPinAll = () => {
-    if (!subscriptionEntity) return
-    if (unpinnedRows.length === 0) {
-      toast.info('All entitlements are already pinned on this subscription.')
-      return
+const FeatureRow = ({
+  snapshot: sf,
+  feature,
+  target,
+  customerId,
+  customerName,
+  paidWithCredit,
+  expanded,
+  onToggle,
+  types,
+}: RowProps) => {
+  const trace = useExplain(customerId, sf.feature?.code, target, expanded && !!feature)
+  const subscriptions = useResourceSubscriptions(customerId)
+  const own = ownLevelOf(sf.levels, feature)
+
+  const from = (() => {
+    if (own?.origin) return sourceLabel(own.origin)
+    const deciding = own?.decidingSubscriptionId ? subscriptions.byId.get(own.decidingSubscriptionId) : undefined
+    return deciding ? `Subscription · ${subscriptionName(deciding)}` : undefined
+  })()
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      onToggle()
     }
-    setPinAllOpen(true)
-  }
-
-  const confirmPinAll = () => {
-    if (!subscriptionEntity) return
-    batchCreateMutation.mutate({
-      entity: subscriptionEntity,
-      specs: unpinnedRows
-        .filter(r => !!r.feature?.id)
-        .map(r =>
-          create(EntitlementSpecSchema, {
-            featureId: r.feature!.id,
-            value: create(EntitlementValueSchema, entitlementValueToSpec(r.value)),
-          })
-        ),
-    })
   }
 
   return (
-    <TooltipProvider>
-      <div className="flex flex-col gap-4">
-        {showActions && (
-          <div className="flex items-center justify-end gap-2">
-            <Button size="sm" variant="secondary" onClick={() => setDialog({ open: true })}>
-              Add entitlement
-            </Button>
+    <Fragment>
+      <TableRow
+        tabIndex={0}
+        aria-expanded={expanded}
+        onClick={onToggle}
+        onKeyDown={onKeyDown}
+        className={cn('cursor-pointer', expanded && 'border-b-0')}
+      >
+        <TableCell className="py-3 pl-5 align-top">
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <span className="text-sm font-medium">{sf.feature?.name}</span>
+            <span className="font-mono text-xs text-muted-foreground">{sf.feature?.code}</span>
+          </div>
+        </TableCell>
+        <TableCell className="py-3 align-top">
+          {feature && (
+            <Badge variant="outline" size="sm">
+              {kindLabel(feature)}
+            </Badge>
+          )}
+        </TableCell>
+        <TableCell className="py-3 align-top">
+          <ValueCell snapshot={sf} own={own} feature={feature} types={types} paidWithCredit={paidWithCredit} />
+        </TableCell>
+        <TableCell className="py-3 align-top text-[13px] text-muted-foreground">{from ?? '—'}</TableCell>
+        <TableCell className="py-3 pr-5 align-top">
+          <ChevronRightIcon
+            size={16}
+            className={cn('text-muted-foreground transition-transform', expanded && 'rotate-90')}
+          />
+        </TableCell>
+      </TableRow>
+      {expanded && (
+        <TableRow className="hover:bg-transparent">
+          <TableCell colSpan={5} className="px-5 pb-4 pt-0">
+            {!feature ? null : trace.isLoading ? (
+              <Skeleton className="h-24 w-full" />
+            ) : trace.error ? (
+              <p className="text-[13px] text-destructive">{trace.error.rawMessage}</p>
+            ) : (
+              trace.data && (
+                <ComputationTrace
+                  data={trace.data}
+                  feature={feature}
+                  customerId={customerId}
+                  customerName={customerName}
+                  target={target}
+                />
+              )
+            )}
+          </TableCell>
+        </TableRow>
+      )}
+    </Fragment>
+  )
+}
+
+const hasReason = (l: Pick<SnapshotLevel, 'reason'> | undefined) =>
+  l?.reason !== undefined && l.reason !== CheckReason.UNSPECIFIED
+
+const levelName = (l: SnapshotLevel, feature: Feature | undefined, types: Map<string, ResourceType>) => {
+  const type = l.resourceTypeId ? types.get(l.resourceTypeId) : undefined
+  const own = feature?.levelResourceTypeId ? types.get(feature.levelResourceTypeId) : undefined
+  return type ? `Per ${lower(type.name)}` : own ? `Across all ${lower(own.pluralName)}` : 'Customer'
+}
+
+const ValueCell = ({
+  snapshot: sf,
+  own,
+  feature,
+  types,
+  paidWithCredit,
+}: {
+  snapshot: SnapshotFeature
+  own: SnapshotLevel | undefined
+  feature: Feature | undefined
+  types: Map<string, ResourceType>
+  paidWithCredit: boolean
+}) => {
+  const ownType = feature?.levelResourceTypeId ? types.get(feature.levelResourceTypeId) : undefined
+  const others = sf.levels.filter(l => l !== own && (l.value || hasReason(l)))
+  const usage = isLimit(feature) && own?.used !== undefined ? own : undefined
+
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      {!sf.value && hasReason(own) ? (
+        <Badge variant={own?.reason === CheckReason.RESOURCE_REQUIRED ? 'warning' : 'outline'} size="sm">
+          {reasonLabel(own?.reason, ownType)}
+        </Badge>
+      ) : (
+        <span
+          className={cn(
+            'text-sm font-medium tabular-nums',
+            (!sf.value || isOffValue(sf.value)) && 'text-muted-foreground',
+            isOnValue(sf.value) && 'text-success'
+          )}
+        >
+          {sf.value ? displayValue(sf.value, feature) : feature?.kind === FeatureKind.VALUE ? '—' : 'Off'}
+        </span>
+      )}
+      {usage && <UsageBar level={usage} appCounted={isAppCounted(feature)} />}
+      {isLimit(feature) && own?.usageUnavailable && (
+        <span className="text-xs text-muted-foreground">{reasonLabel(CheckReason.USAGE_UNAVAILABLE, ownType)}</span>
+      )}
+      {others.map(l => (
+        <span key={`${l.resourceTypeId ?? ''}:${l.path}`} className="text-xs text-muted-foreground">
+          {levelName(l, feature, types)}:{' '}
+          {hasReason(l) && !l.value
+            ? reasonLabel(l.reason, l.resourceTypeId ? types.get(l.resourceTypeId) : undefined)
+            : `${l.used !== undefined ? `${formatDecimalGrouped(l.used)} / ` : ''}${displayValue(l.value, feature)}`}
+        </span>
+      ))}
+      {paidWithCredit && (
+        <Badge variant="outline" size="sm" className="font-normal">
+          Paid with credit
+        </Badge>
+      )}
+    </div>
+  )
+}
+
+const UsageBar = ({ level, appCounted }: { level: SnapshotLevel; appCounted: boolean }) => {
+  const metered = level.value?.value.case === 'meteredValue' ? level.value.value.value : undefined
+  const limit = metered?.enabled ? metered.limit : undefined
+  const used = Number(level.used ?? 0)
+  const pct = limit && Number(limit) > 0 ? (used / Number(limit)) * 100 : limit ? 100 : undefined
+  const resets = appCounted ? undefined : resetsLabel(level.policy)
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+        {pct !== undefined && (
+          <div
+            className={cn(
+              'h-full rounded-full',
+              pct >= 100 ? 'bg-destructive' : pct >= 80 ? 'bg-warning' : 'bg-success'
+            )}
+            style={{ width: `${Math.min(pct, 100)}%` }}
+          />
+        )}
+      </div>
+      <span className="text-xs text-muted-foreground tabular-nums">
+        {limit
+          ? `${formatDecimalGrouped(level.used ?? '0')} / ${formatDecimalGrouped(limit)}`
+          : `${formatDecimalGrouped(level.used ?? '0')} used`}
+        {resets &&
+          (level.resetAt ? (
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={requestPinAll}
-                  disabled={batchCreateMutation.isPending}
-                >
-                  Pin all
-                </Button>
+                <span className="underline decoration-dotted underline-offset-2"> · {resets}</span>
               </TooltipTrigger>
-              <TooltipContent className="max-w-56">
-                Save local copies of every upstream entitlement on this subscription. Already-pinned
-                entries are skipped.
-              </TooltipContent>
+              <TooltipContent>{parseAndFormatDate(level.resetAt)}</TooltipContent>
             </Tooltip>
-          </div>
-        )}
-        {onViewCredit && (
-          <CreditPaidFeatures
-            customerId={customerId}
-            entitlements={entitlements}
-            paid={creditPaid}
-            onViewCredit={onViewCredit}
-          />
-        )}
-        {[...groups]
-          .sort((a, b) => {
-            if (!a.id) return 1
-            if (!b.id) return -1
-            return a.name.localeCompare(b.name)
-          })
-          .map(group => (
-            <div key={group.id ?? '__general__'}>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 px-1">
-                {group.name}
-              </p>
-              <div className="border border-border rounded-lg divide-y divide-border overflow-hidden">
-                {[...group.items]
-                  .sort((a, b) => (a.feature?.name ?? '').localeCompare(b.feature?.name ?? ''))
-                  .map((e, i) => (
-                    <EntitlementRow
-                      key={i}
-                      entitlement={e}
-                      currentSubscriptionId={currentSubscriptionId}
-                      subscriptionEntity={subscriptionEntity}
-                      localEntitlements={localEntitlements}
-                      onOverride={row => setDialog({ open: true, row })}
-                    />
-                  ))}
-              </div>
-            </div>
+          ) : (
+            ` · ${resets}`
           ))}
-
-        {dialog.open &&
-          subscriptionEntity &&
-          (() => {
-            const existing = dialog.row
-              ? localEntitlements.find(e => e.featureId === dialog.row?.feature?.id)
-              : undefined
-            // Inherited row → seed the dialog with the resolved value so the user adjusts
-            // an "Override" form pre-filled with current values (instead of an empty "Add" form).
-            const seedValue =
-              dialog.row && !existing
-                ? create(EntitlementValueSchema, entitlementValueToSpec(dialog.row.value))
-                : undefined
-            return (
-              <EntityEntitlementDialog
-                entity={subscriptionEntity as MessageInitShape<typeof EntitlementEntitySchema>}
-                existing={existing}
-                seedValue={seedValue}
-                featureId={dialog.row?.feature?.id}
-                existingFeatureIds={existingFeatureIds}
-                onClose={() => setDialog({ open: false })}
-              />
-            )
-          })()}
-
-        <AlertDialog open={pinAllOpen} onOpenChange={setPinAllOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Pin all entitlements?</AlertDialogTitle>
-              <AlertDialogDescription>
-                {`This will save local copies of ${unpinnedRows.length} inherited ${
-                  unpinnedRows.length === 1 ? 'entitlement' : 'entitlements'
-                } on this subscription. Pinned values stay fixed even if upstream changes.`}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={confirmPinAll}>Pin all</AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </div>
-    </TooltipProvider>
-  )
-}
-
-interface RowProps {
-  entitlement: EffectiveEntitlement
-  currentSubscriptionId?: string
-  subscriptionEntity?: EntitlementEntity
-  localEntitlements: Entitlement[]
-  onOverride: (row: EffectiveEntitlement) => void
-}
-
-/**
- * Inheritance indicator — renders nothing when the row is pinned directly on the current
- * subscription; otherwise shows the shared `<InheritedIcon>` with a tooltip describing the
- * actual origin (plan / plan version / add-on / global feature).
- */
-const InheritedIndicator = ({
-  entitlement,
-  currentSubscriptionId,
-}: {
-  entitlement: EffectiveEntitlement
-  currentSubscriptionId?: string
-}) => {
-  const entity = entitlement.origin?.entity?.EntityId
-  if (!entity) return null
-
-  const isDirect =
-    entity.case === 'subscriptionId' &&
-    currentSubscriptionId !== undefined &&
-    entity.value === currentSubscriptionId
-  if (isDirect) return null
-
-  return (
-    <InheritedIcon
-      tooltip={buildInheritanceTooltip(entitlement.origin, entitlement.feature?.product)}
-    />
-  )
-}
-
-/**
- * Per-row management actions. Mirrors `RowActions` in `ResolvedEntitlementsPanel` but is
- * always scoped to the current subscription (no entity-type branching needed).
- */
-const RowActions = ({
-  entitlement,
-  subscriptionEntity,
-  pinnedHere,
-  localEntitlements,
-  onOverride,
-}: {
-  entitlement: EffectiveEntitlement
-  subscriptionEntity: EntitlementEntity
-  pinnedHere: boolean
-  localEntitlements: Entitlement[]
-  onOverride: (row: EffectiveEntitlement) => void
-}) => {
-  const featureId = entitlement.feature?.id
-  const value = entitlement.value
-  const isDisabled = isEntitlementDisabled(value)
-
-  const queryClient = useQueryClient()
-  const invalidate = () => {
-    queryClient.invalidateQueries({
-      queryKey: createConnectQueryKey({
-        schema: listEntitlementsByEntity.parent,
-        cardinality: undefined,
-      }),
-    })
-    queryClient.invalidateQueries({
-      queryKey: createConnectQueryKey({
-        schema: getEffectiveEntitlements.parent,
-        cardinality: undefined,
-      }),
-    })
-  }
-
-  const createMutation = useMutation(createEntitlement, {
-    onSuccess: () => {
-      invalidate()
-      toast.success('Entitlement pinned on this subscription.')
-    },
-    onError: err => toast.error(`Failed to pin entitlement: ${err.message}`),
-  })
-  const updateMutation = useMutation(updateEntitlement, {
-    onSuccess: () => invalidate(),
-    onError: err => toast.error(`Failed to update entitlement: ${err.message}`),
-  })
-  const deleteMutation = useMutation(deleteEntitlement, {
-    onSuccess: () => {
-      invalidate()
-      toast.success('Local override removed.')
-    },
-    onError: err => toast.error(`Failed to remove override: ${err.message}`),
-  })
-
-  const isBusy = createMutation.isPending || updateMutation.isPending || deleteMutation.isPending
-
-  const handlePin = () => {
-    if (!featureId) return
-    createMutation.mutate({
-      featureId,
-      entity: subscriptionEntity,
-      value: create(EntitlementValueSchema, entitlementValueToSpec(value)),
-    })
-  }
-
-  const handleToggleDisable = () => {
-    if (!featureId) return
-    if (value.case !== 'boolean' && value.case !== 'metered') return
-    const flipped = entitlementValueToSpec(value, !configuredEnabled(value))
-
-    if (pinnedHere) {
-      const local = localEntitlements.find(e => e.featureId === featureId)
-      if (local) {
-        updateMutation.mutate({ id: local.id, value: create(EntitlementValueSchema, flipped) })
-        return
-      }
-    }
-    createMutation.mutate({
-      featureId,
-      entity: subscriptionEntity,
-      value: create(EntitlementValueSchema, flipped),
-    })
-  }
-
-  const handleRemove = () => {
-    const local = localEntitlements.find(e => e.featureId === featureId)
-    if (local) deleteMutation.mutate({ id: local.id })
-  }
-
-  const isBoolean = value.case === 'boolean'
-  const isMetered = value.case === 'metered'
-
-  return (
-    <div className="flex items-center gap-1">
-      {!isBoolean && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className="p-1 hover:bg-muted rounded"
-              onClick={() => onOverride(entitlement)}
-              disabled={isBusy}
-            >
-              <Pencil size={12} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{entitlementTooltip('subscription', 'override')}</TooltipContent>
-        </Tooltip>
-      )}
-
-      {pinnedHere ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className="p-1 hover:bg-muted rounded text-destructive"
-              onClick={handleRemove}
-              disabled={isBusy}
-            >
-              <PinOff size={12} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{entitlementTooltip('subscription', 'unpin')}</TooltipContent>
-        </Tooltip>
-      ) : (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className="p-1 hover:bg-muted rounded"
-              onClick={handlePin}
-              disabled={isBusy}
-            >
-              <Pin size={12} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{entitlementTooltip('subscription', 'pin')}</TooltipContent>
-        </Tooltip>
-      )}
-
-      {(isBoolean || isMetered) && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className="p-1 hover:bg-muted rounded"
-              onClick={handleToggleDisable}
-              disabled={isBusy}
-            >
-              {isDisabled ? (
-                <CirclePower size={12} className="text-destructive" />
-              ) : (
-                <CirclePower size={12} className="text-primary" />
-              )}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>
-            {entitlementTooltip('subscription', isDisabled ? 'enable' : 'disable')}
-          </TooltipContent>
-        </Tooltip>
-      )}
+      </span>
     </div>
   )
 }
 
-const EntitlementRow = ({
-  entitlement,
-  currentSubscriptionId,
-  subscriptionEntity,
-  localEntitlements,
-  onOverride,
-}: RowProps) => {
-  const { value } = entitlement
-  const featureName = entitlement.feature?.name ?? entitlement.feature?.id ?? ''
-  const isDisabled = isEntitlementDisabled(value)
+const UNIT: Record<CalendarUnit, [adverb: string, noun: string]> = {
+  [CalendarUnit.HOUR]: ['hourly', 'hour'],
+  [CalendarUnit.DAY]: ['daily', 'day'],
+  [CalendarUnit.WEEK]: ['weekly', 'week'],
+  [CalendarUnit.MONTH]: ['monthly', 'month'],
+  [CalendarUnit.YEAR]: ['yearly', 'year'],
+}
 
-  const originEntity = entitlement.origin?.entity?.EntityId
-  const pinnedHere =
-    !!currentSubscriptionId &&
-    originEntity?.case === 'subscriptionId' &&
-    originEntity.value === currentSubscriptionId
-
-  const actions = subscriptionEntity ? (
-    <RowActions
-      entitlement={entitlement}
-      subscriptionEntity={subscriptionEntity}
-      pinnedHere={pinnedHere}
-      localEntitlements={localEntitlements}
-      onOverride={onOverride}
-    />
-  ) : null
-
-  const valueLabel = effectiveValueLabel(value)
-  const metered = value.case === 'metered' ? value.value : undefined
-  const reached = isLimitReached(value)
-  const inOverage =
-    metered?.overageBehavior?.Inner?.case === 'allow' &&
-    metered.limit !== undefined &&
-    metered.consumed !== undefined &&
-    Number(metered.consumed) > Number(metered.limit)
-
-  return (
-    <div
-      className={cn(
-        'group flex items-center justify-between px-4 py-2.5 text-sm',
-        isDisabled && 'opacity-60'
-      )}
-    >
-      <div className="flex items-center gap-2 min-w-0">
-        <span className="font-medium truncate">{featureName}</span>
-        <InheritedIndicator
-          entitlement={entitlement}
-          currentSubscriptionId={currentSubscriptionId}
-        />
-        <LimitTermsBadges terms={termsOfValue(value)} />
-      </div>
-      <div className="flex items-center gap-2 shrink-0 ml-4">
-        {reached && (
-          <Badge size="sm" variant="destructive">
-            Access denied: limit reached
-          </Badge>
-        )}
-        {inOverage && (
-          <Badge size="sm" variant="ghost">
-            Over limit
-          </Badge>
-        )}
-        <span className="text-muted-foreground text-xs tabular-nums">{valueLabel}</span>
-        {actions}
-      </div>
-    </div>
-  )
+const resetsLabel = (p: FeaturePolicy | undefined) => {
+  if (!p) return undefined
+  const [adverb, noun] = UNIT[p.period?.unit ?? CalendarUnit.MONTH]
+  const n = p.period?.interval ?? 1
+  const span = n === 1 ? noun : `${n} ${noun}s`
+  switch (p.resets) {
+    case PolicyResets.UNSPECIFIED:
+    case PolicyResets.BILLING_CYCLE:
+      return 'resets each billing cycle'
+    case PolicyResets.CALENDAR:
+    case PolicyResets.FIXED:
+      return n === 1 ? `resets ${adverb}` : `resets every ${span}`
+    case PolicyResets.SLIDING:
+      return `over the last ${span}`
+    case PolicyResets.NEVER:
+      return undefined
+  }
 }

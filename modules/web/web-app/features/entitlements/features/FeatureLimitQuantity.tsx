@@ -1,11 +1,24 @@
-import { useMutation } from '@connectrpc/connect-query'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@md/ui'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
+import { InfoIcon } from 'lucide-react'
+import { type ComponentType, type ReactNode } from 'react'
 import { toast } from 'sonner'
 
 import { Gate } from '@/components/Gate'
 import { singular } from '@/features/plans/charges/summary'
 import { useQuery } from '@/lib/connectrpc'
 import { rpcErrorMessage } from '@/lib/rpcError'
+import { listEntitlementsByEntity } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import {
   listManagedQuantities,
   setFeatureLimitQuantity,
@@ -17,14 +30,17 @@ const perUnit = (name: string) => `Per ${singular(name)}`
 // Radix Select forbids empty-string item values.
 const PER_SUBSCRIPTION = '__per_subscription__'
 
-/** Whether a metered feature's limit counts per subscription or per unit of a seat quantity. */
+/** Whether a limit feature counts per subscription or per unit of a seat quantity. */
 export const FeatureLimitQuantity = ({
   featureId,
   readOnly,
+  Row,
 }: {
   featureId: string
   readOnly?: boolean
+  Row: ComponentType<{ label: ReactNode; children: ReactNode }>
 }) => {
+  const queryClient = useQueryClient()
   const quantitiesQuery = useQuery(listManagedQuantities, {})
   const quantities = quantitiesQuery.data?.quantities ?? []
   const current = quantities.find(q => q.perUnitFeatureIds.includes(featureId))
@@ -33,6 +49,10 @@ export const FeatureLimitQuantity = ({
   const setLimit = useMutation(setFeatureLimitQuantity, {
     onSuccess: () => {
       quantitiesQuery.refetch()
+      // Resolved values scale by the units held (R-133).
+      queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({ schema: listEntitlementsByEntity.parent, cardinality: undefined }),
+      })
       toast.success('Limit counting updated')
     },
     onError: error => toast.error(rpcErrorMessage(error, 'The limit could not be changed')),
@@ -43,14 +63,25 @@ export const FeatureLimitQuantity = ({
   const label = current ? perUnit(current.name) : 'Per subscription'
 
   return (
-    <section>
-      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
-        Count the limit
-      </div>
+    <Row
+      label={
+        <span className="inline-flex items-center gap-1">
+          Limit counted
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <InfoIcon className="h-3.5 w-3.5 cursor-help text-muted-foreground" />
+            </TooltipTrigger>
+            <TooltipContent className="max-w-80">
+              Per seat, the limit multiplies by the seats held
+            </TooltipContent>
+          </Tooltip>
+        </span>
+      }
+    >
       {readOnly ? (
-        <p className="text-sm">{label}</p>
+        label
       ) : (
-        <Gate perm="catalog:manage" fallback={<p className="text-sm">{label}</p>}>
+        <Gate perm="catalog:manage" fallback={label}>
           <Select
             value={current?.id ?? PER_SUBSCRIPTION}
             disabled={setLimit.isPending}
@@ -75,10 +106,6 @@ export const FeatureLimitQuantity = ({
           </Select>
         </Gate>
       )}
-      <p className="mt-1 text-xs text-muted-foreground">
-        Per unit, the limit multiplies by the units held: 100 per seat gives a subscription with 5
-        seats 500.
-      </p>
-    </section>
+    </Row>
   )
 }

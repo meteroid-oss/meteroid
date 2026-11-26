@@ -74,18 +74,11 @@ message Subscription {
   // The subscription's prices are quoted tax-included (snapshotted from its plan version).
   bool tax_inclusive = 45;
 
-  optional UsageFilter usage_filter = 46;
-  // RFC 3339: when the current usage filter, or its removal, started to apply.
-  optional string usage_filter_effective_from = 47;
+  reserved 46, 47;
   // The plan option it bought; unset for a subscription made before options.
   optional string plan_option_id = 48;
-}
-
-// The customer's events a subscription bills: those whose `property` is `value`. A subscription
-// without one bills the customer's events that no usage filter of its other subscriptions matches.
-message UsageFilter {
-  string property = 1;
-  string value = 2;
+  // The stored resource it is for, fixed once active; absent for the whole customer.
+  optional string resource_id = 49;
 }
 
 // Trial configuration resolved from the plan version
@@ -110,6 +103,10 @@ message SubscriptionDetails {
   optional SubscriptionMinimum minimum_commitment = 9;
   // The plan option the subscription bought, when it still exists.
   optional meteroid.api.plans.v1.PlanOption plan_option = 10;
+  // What it is sold with as it stands: `plan_sold_for_mismatch`, `metric_not_attributed`.
+  repeated string warnings = 11;
+  // With `metric_not_attributed`: the codes of the metrics its resource never bills.
+  repeated string metrics_not_attributed = 12;
 }
 
 message SubscriptionMinimum {
@@ -174,6 +171,11 @@ message CreatedSubscription {
   uint32 billing_day_anchor = 20;
   optional string checkout_url = 21;
   optional string purchase_order = 22;
+  optional string resource_id = 23;
+  // `plan_sold_for_mismatch`, `metric_not_attributed`: accepted, worth showing.
+  repeated string warnings = 24;
+  // With `metric_not_attributed`: the codes of the metrics its resource never bills.
+  repeated string metrics_not_attributed = 25;
 }
 
 message CreateSubscription {
@@ -207,11 +209,12 @@ message CreateSubscription {
   bool drop_minimum_commitment = 25;
   // JSON-encoded object of custom property values, validated against the tenant's subscription definitions.
   optional string custom_properties = 26;
-  optional UsageFilter usage_filter = 27;
-  reserved 28, 29;
+  reserved 27, 28, 29;
   reserved "plan_variant_id", "price_book_id";
   // The plan option bought, by alias or id; unset: the default option sold in the currency.
   optional string option = 30;
+  // A stored resource of the customer; absent for the whole customer.
+  optional string resource_id = 31;
 }
 
 enum ActivationCondition {

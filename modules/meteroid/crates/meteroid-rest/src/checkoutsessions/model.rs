@@ -3,8 +3,8 @@ use crate::subscriptions::model::{
 };
 use chrono::NaiveDate;
 use common_domain::ids::{
-    CheckoutSessionId, CouponId, CustomerId, PlanVersionId, SubscriptionId, string_serde,
-    string_serde_opt, string_serde_vec,
+    CheckoutSessionId, CouponId, CustomerId, PlanVersionId, ResourceId, SubscriptionId,
+    string_serde, string_serde_opt, string_serde_vec,
 };
 use meteroid_rest_common::datetime::ApiDateTime;
 use serde::{Deserialize, Serialize};
@@ -58,6 +58,19 @@ pub struct CheckoutSession {
     pub payment_methods_config: Option<PaymentMethodsConfig>,
     pub success_url: Option<String>,
     pub cancel_url: Option<String>,
+    /// The stored resource the subscription is for; absent for the customer.
+    #[serde(default, with = "string_serde_opt")]
+    #[schema(value_type = Option<String>)]
+    pub resource_id: Option<ResourceId>,
+    /// On creation, what its subscription would be accepted with: `plan_sold_for_mismatch` (the
+    /// plan is sold for another target), `metric_not_attributed` (its resource would never bill
+    /// some metrics it prices, listed in `metrics_not_attributed`).
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub warnings: Vec<String>,
+    /// With `metric_not_attributed`: the codes of the metrics it prices that are not attributed
+    /// to its resource's type, so its subscription would bill none of their usage.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub metrics_not_attributed: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -117,6 +130,10 @@ pub struct CreateCheckoutSessionRequest {
     pub success_url: Option<String>,
     /// Absolute http(s) URL offered to the customer to leave the checkout without paying.
     pub cancel_url: Option<String>,
+    /// One of the customer's stored resources the subscription is for; omit for the customer.
+    #[serde(default, with = "string_serde_opt")]
+    #[schema(value_type = Option<String>)]
+    pub resource_id: Option<ResourceId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

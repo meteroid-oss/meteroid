@@ -230,6 +230,7 @@ pub mod quotes {
             }),
             last_sent_at: quote.last_sent_at.as_proto(),
             attachments: quote.attachments.iter().map(attachment_to_proto).collect(),
+            resource_id: quote.resource_id.map(|id| id.as_proto()),
         };
         if !for_portal {
             return proto;

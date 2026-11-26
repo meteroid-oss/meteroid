@@ -15,6 +15,7 @@ modules/meteroid/crates/diesel-models/src/query/checkout_sessions.rs::CheckoutSe
 modules/meteroid/crates/diesel-models/src/query/subscriptions_lifecycle.rs::SubscriptionRow::lock_subscription | dependent | subscription, NO KEY UPDATE (events, invoices and seats reference it)
 modules/meteroid/crates/diesel-models/src/query/slot_transactions.rs::SlotTransactionRow::fetch_by_subscription_id_and_quantity_locked | dependent | the seat checkpoint of a slot change, by managed quantity; reads take no lock
 modules/meteroid/crates/diesel-models/src/query/invoices.rs::InvoiceRow::lock_by_id | dependent | invoice, FOR UPDATE (drafts are deleted)
+modules/meteroid/crates/diesel-models/src/query/resources.rs::ResourceRow::lock_by_id | dependent | resource being deleted, FOR UPDATE: an override created meanwhile waits, then is seen
 modules/meteroid/crates/diesel-models/src/query/invoices.rs::InvoiceRow::find_consolidation_candidates | dependent | the customer's mergeable drafts, in id order
 modules/meteroid/crates/diesel-models/src/query/applied_coupons.rs::AppliedCouponDetailedRow::list_by_ids_for_update | dependent | the customer's applied coupons with their coupons (tenant rows), in coupon id order
 modules/meteroid/crates/diesel-models/src/query/credit_notes.rs::CreditNoteRow::find_by_id_for_update | dependent | credit note being finalized, voided or deleted
@@ -69,13 +70,20 @@ modules/meteroid/crates/diesel-models/src/query/credit_units.rs::CreditUnitRow::
 modules/meteroid/crates/diesel-models/src/query/quotes.rs::QuoteRow::find_by_id_for_update | standalone | draft quote edit
 modules/meteroid/crates/diesel-models/src/query/entity_activity.rs::EntityActivityRow::find_by_id_for_update | standalone | activity entry of an email sent again
 modules/meteroid/crates/diesel-models/src/query/entity_list_views.rs::EntityListViewRow::get_visible_for_update | standalone | a user's saved list view
+modules/meteroid/crates/diesel-models/src/query/entitlements.rs::EntitlementRow::lock_open | standalone | an entitlement lineage's open row, revoked and succeeded in the same transaction
+modules/meteroid/crates/diesel-models/src/query/entitlement_app_counts.rs::EntitlementAppCountRow::lock_or_create | standalone | a customer's app count path: its op and count are written in a transaction that locks nothing else
+modules/meteroid/crates/meteroid-workers/src/misc/entitlement_validity_scan.rs::scan | standalone | the validity scan's one cursor row: marks crossed customers and moves it in one transaction that locks no customer
 
 # Advisory locks.
 modules/meteroid/crates/diesel-models/src/query/advisory_lock.rs::try_advisory_lock | advisory | session leader election of a worker, never waits, held outside any customer transaction
 modules/meteroid/crates/meteroid-app/src/migrations.rs::<top level> | standalone | RELEASE_TABLES_LOCKED: the release's one transaction locks the tables its backfills read, before any customer lock, so a running pod's write waits for its commit
 modules/meteroid/crates/meteroid-app/src/migrations.rs::TRY_LOCK | advisory | startup migrations and the OSS bridge: one process migrates at a time, polled (never waits inside a statement), on a connection detached from the pool, before any customer transaction
+modules/meteroid/crates/diesel-models/src/query/resources.rs::ResourceRow::count_locked | advisory | the stored-resource cap of a (customer, type), taken before the upsert it guards and held until it commits
+modules/meteroid/crates/diesel-models/src/query/resources.rs::ResourceTypeRow::lock_keys_exclusive | advisory | a type's key change, exclusive, first in a transaction that locks no customer: waits for the sales of its resources in flight
+modules/meteroid/crates/diesel-models/src/query/resources.rs::ResourceTypeRow::lock_keys_shared | advisory | a sale naming one of the type's resources (subscription, patch, quote, checkout), shared, after the customer lock when it holds one: waits for a key change in flight
 modules/meteroid/crates/diesel-models/src/query/invoices.rs::InvoiceRow::advisory_xact_lock | advisory | consolidation leader per merge partition, after the customer lock
 modules/meteroid/crates/diesel-models/src/query/coupons.rs::CouponRow::lock_redemption_funding | advisory | coupon credit funding, in coupon id order, after the customer
+modules/meteroid/crates/diesel-models/src/query/entitlements.rs::EntitlementRowNew::overlaps | advisory | an entitlement key's validity, checked and written in one transaction, after the owner's lock
 modules/meteroid/crates/diesel-models/src/query/promo_code_attempts.rs::lock_customer_attempts | advisory | one customer's promo-code try count, in a transaction that locks no customer
 modules/meteroid/crates/diesel-models/src/query/payment_reminders.rs::PaymentReminderSequenceRowNew::lock_entity_seed | advisory | default sequence seeding per entity, locking no customer
 modules/meteroid/crates/diesel-models/src/query/webhooks_out.rs::WebhookOutEndpointRow::lock_tenant_endpoints | advisory | a tenant's webhook endpoint writes, locking no customer

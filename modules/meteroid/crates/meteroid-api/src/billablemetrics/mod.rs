@@ -1,6 +1,7 @@
 use meteroid_app::features::Entitlements;
 use meteroid_grpc::meteroid::api::billablemetrics::v1::billable_metrics_service_server::BillableMetricsServiceServer;
 use meteroid_store::Store;
+use meteroid_store::services::ServicesEdge;
 use meteroid_store::services::clients::usage::UsageClient;
 use std::sync::Arc;
 
@@ -10,18 +11,20 @@ mod service;
 
 pub struct BillableMetricsComponents {
     pub store: Store,
+    pub services: ServicesEdge,
     pub usage_client: Arc<dyn UsageClient>,
     pub feature_resolver: Arc<dyn Entitlements>,
 }
 
 pub fn service(
     store: Store,
-    usage_client: Arc<dyn UsageClient>,
+    services: ServicesEdge,
     feature_resolver: Arc<dyn Entitlements>,
 ) -> BillableMetricsServiceServer<BillableMetricsComponents> {
     let inner = BillableMetricsComponents {
         store,
-        usage_client,
+        usage_client: services.usage_clients(),
+        services,
         feature_resolver,
     };
 

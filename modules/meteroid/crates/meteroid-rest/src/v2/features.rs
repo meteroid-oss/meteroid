@@ -1,27 +1,36 @@
-//! `/api/v2/features`: what a customer may use (a flag, a usage cap, a setting), granted by
-//! plan versions, add-ons and products (`v2::entitlements`). A feature's code is what an
-//! application checks; archiving one frees its code and hides its grants until it is
-//! unarchived.
+//! `/api/v2/features` (ADR-0013 §23): what a customer may use (a flag, a value, a limit), its
+//! policy, its unit, the level it applies per and its default rows. A feature's code is what an
+//! application checks; archiving one frees its code and hides its rows until it is unarchived.
 use crate::AppState;
-use crate::v2::entitlements::{GrantValue, feature, grant_value, parse_feature, to_domain};
-use crate::v2::extract::{Body, Path, Query};
+use crate::v2::entitlements::model::{
+    Codes, EntitlementInput, FeatureKey, FeatureKind, Policy, checked_policy,
+};
+use crate::v2::entitlements::{Entitlement, canonical, own_defaults};
+use crate::v2::extract::{Body, Path};
 use crate::v2::idempotency::committed_write;
 use crate::v2::ids;
 use crate::v2::pagination::{Cursor, PageQuery, keyset};
-use crate::v2::problem::Problem;
-use crate::v2::refs::{ProductRef, ReferenceIds, Refs};
+use crate::v2::problem::{FieldError, Problem, ProblemCode};
+use crate::v2::refs::{ProductRef, ResourceTypeRef};
 use axum::Extension;
 use axum::Json;
-use axum::extract::State;
-use axum::response::Response;
-use common_domain::ids::{AliasOr, BaseId, BillableMetricId, FeatureId, TenantId};
+use axum::extract::{RawQuery, State};
+use axum::response::{IntoResponse, Response};
+use common_domain::ids::{
+    AliasOr, BaseId, BillableMetricId, FeatureId, ManagedQuantityId, ProductId, ResourceTypeId,
+    TenantId,
+};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use meteroid_rest_common::datetime::ApiDateTime;
+use meteroid_store::domain::entitlement_policy::FeaturePolicy;
 use meteroid_store::domain::entitlements::{
-    self as domain, EntitlementSpec, FeatureNew, FeatureUpdate,
+    self as domain, FeatureKind as DomainKind, FeatureNew, FeatureProductRef, FeatureUpdate,
+    ValueType,
 };
 use meteroid_store::domain::enums::FeatureStatusEnum;
+use meteroid_store::errors::StoreError;
+use meteroid_store::repositories::ManagedQuantitiesInterface;
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::entitlements::{EntitlementsInterface, FeaturePageFilter};
 use serde::{Deserialize, Serialize};
@@ -30,13 +39,15 @@ use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+// ── Model ───────────────────────────────────────────────────────────
+
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum FeatureStatus {
     Active,
-    /// Switched off for every customer, its grants kept.
+    /// Entitles no one; its rows and code stay.
     Disabled,
-    /// Hidden with its grants until unarchived; its code is free for another feature.
+    /// Hidden with its rows until unarchived; its code is free for another feature.
     Archived,
 }
 
@@ -60,13 +71,13 @@ impl From<FeatureStatus> for FeatureStatusEnum {
     }
 }
 
-/// What a feature is; fixed once created.
+/// What a feature is. Its type, `value_type`, `counted_by` and `metric` are fixed once created.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum FeatureKind {
+pub enum FeatureType {
     Boolean(BooleanFeature),
-    Metered(MeteredFeature),
-    Config(ConfigFeature),
+    Value(ValueFeature),
+    Limit(LimitFeature),
 }
 
 /// On or off.
@@ -74,33 +85,57 @@ pub enum FeatureKind {
 #[serde(deny_unknown_fields)]
 pub struct BooleanFeature {}
 
-/// A cap on a metric's usage.
-#[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct MeteredFeature {
-    /// The metric capped, by code (id or code on input).
-    pub metric: String,
+#[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FeatureValueType {
+    Number,
+    Text,
+    /// One of `options`.
+    Select,
+    Json,
 }
 
-/// A typed setting.
+/// A value: a number, a text, one of a select's options, or any JSON.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct ConfigFeature {
-    pub value_type: ConfigValueKind,
-    /// The values a `select` takes; required on one, refused on the others.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub options: Vec<String>,
+pub struct ValueFeature {
+    pub value_type: FeatureValueType,
+    /// A number's direction: a higher one is the better grant (true by default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub higher_is_better: Option<bool>,
+    /// A select's options, distinct; one a row still holds cannot be removed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<Vec<String>>,
+    /// A select's options rank its grants, the last the best (false by default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ordered: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum ConfigValueKind {
-    Number,
-    Boolean,
-    Text,
-    Map,
-    Json,
-    Select,
+pub enum LimitCountedBy {
+    /// A metric's usage events.
+    Events,
+    /// Your app reports the count (`POST …/entitlements/{feature}/usage`).
+    App,
+}
+
+/// A limit on usage.
+#[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct LimitFeature {
+    pub counted_by: LimitCountedBy,
+    /// `events` only: the metric counted, by code (id or code on input).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metric: Option<String>,
+    /// A managed quantity, by code (id or code on input): the limit is then per unit a
+    /// subscription holds ("5 projects per seat"), as an add-on's rows count per instance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per_unit_of: Option<String>,
+    /// Always read; on create, left out: `{resets: billing_cycle, at_limit: deny}` from events,
+    /// `{resets: never, at_limit: deny_new}` by the app.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<Policy>,
 }
 
 #[derive(Serialize, ToSchema, Debug, Clone)]
@@ -112,16 +147,23 @@ pub struct Feature {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    #[serde(rename = "type")]
-    pub kind: FeatureKind,
     /// The product it belongs to; none: every product's.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub product: Option<ProductRef>,
     pub status: FeatureStatus,
-    /// What every customer gets unless a plan, an add-on or the subscription grants otherwise.
+    #[serde(rename = "type")]
+    pub kind: FeatureType,
+    /// What a number or a limit counts (`projects`, `requests per minute`).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub default: Option<GrantValue>,
+    pub unit: Option<String>,
+    /// The resource type it applies per (each site has its own value); none: the customer as a
+    /// whole. A customer is entitled only where a row gives a value at this level.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub applies_per: Option<ResourceTypeRef>,
+    /// The feature's default rows: what every customer gets before any plan applies.
+    pub defaults: Vec<Entitlement>,
     pub created_at: ApiDateTime,
+    pub updated_at: ApiDateTime,
 }
 
 crate::v2_list!(FeatureList, Feature);
@@ -131,8 +173,12 @@ crate::v2_list!(FeatureList, Feature);
 pub struct FeatureListQuery {
     /// Only the features of this product, by code or id.
     pub product: Option<String>,
-    /// Only the features of this status; archived ones are left out by default.
-    pub status: Option<FeatureStatus>,
+    /// Only the features of these statuses (repeatable); archived ones are left out unless
+    /// asked.
+    #[param(style = Form, explode)]
+    pub status: Option<Vec<FeatureStatus>>,
+    /// Only the features applying per this resource type (by code or id), or `customer`.
+    pub applies_per: Option<String>,
     pub limit: Option<u32>,
     pub after: Option<String>,
 }
@@ -145,17 +191,55 @@ pub struct CreateFeature {
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
-    #[serde(rename = "type")]
-    pub kind: FeatureKind,
     /// The product it belongs to, by code or id; none: every product's.
     #[serde(default)]
     pub product: Option<String>,
-    /// What every customer gets unless granted otherwise.
+    #[serde(rename = "type")]
+    pub kind: FeatureType,
+    /// A number's or a limit's.
     #[serde(default)]
-    pub default: Option<GrantValue>,
+    pub unit: Option<String>,
+    /// A resource type, by code or id, for a value per resource (per site); none: the customer
+    /// as a whole.
+    #[serde(default)]
+    pub applies_per: Option<String>,
+    /// The default rows, each naming this feature (its code): what every customer gets before
+    /// any plan applies.
+    #[serde(default)]
+    pub defaults: Vec<EntitlementInput>,
 }
 
-/// A merge patch; the code, the type and the product never change.
+/// A merge patch of the type's fields that change; the others, sent, must read as they are.
+#[derive(Deserialize, ToSchema, Debug, Clone, Default)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateFeatureType {
+    /// Fixed.
+    #[serde(default, rename = "type")]
+    pub kind: Option<FeatureKind>,
+    /// Fixed.
+    #[serde(default)]
+    pub value_type: Option<FeatureValueType>,
+    #[serde(default)]
+    pub higher_is_better: Option<bool>,
+    #[serde(default)]
+    pub options: Option<Vec<String>>,
+    #[serde(default)]
+    pub ordered: Option<bool>,
+    /// Fixed.
+    #[serde(default)]
+    pub counted_by: Option<LimitCountedBy>,
+    /// Fixed.
+    #[serde(default)]
+    pub metric: Option<String>,
+    /// `null`: per subscription again.
+    #[serde(default, with = "::serde_with::rust::double_option")]
+    #[schema(value_type = Option<String>)]
+    pub per_unit_of: Option<Option<String>>,
+    #[serde(default)]
+    pub policy: Option<Policy>,
+}
+
+/// A merge patch of the feature as written. The code never changes.
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateFeature {
@@ -164,14 +248,25 @@ pub struct UpdateFeature {
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub description: Option<Option<String>>,
-    /// A `select`'s values; one still granted cannot be removed.
-    #[serde(default)]
-    pub options: Option<Vec<String>>,
-    /// `null` removes the default.
+    /// `null`: every product's.
     #[serde(default, with = "::serde_with::rust::double_option")]
-    #[schema(value_type = Option<GrantValue>)]
-    pub default: Option<Option<GrantValue>>,
+    #[schema(value_type = Option<String>)]
+    pub product: Option<Option<String>>,
+    #[serde(default, with = "::serde_with::rust::double_option")]
+    #[schema(value_type = Option<String>)]
+    pub unit: Option<Option<String>>,
+    /// `null`: the customer. Refused while the feature has rows, or counts reported by your app.
+    #[serde(default, with = "::serde_with::rust::double_option")]
+    #[schema(value_type = Option<String>)]
+    pub applies_per: Option<Option<String>>,
+    #[serde(default, rename = "type")]
+    pub kind: Option<UpdateFeatureType>,
+    /// Replaces the default rows; `[]` removes them.
+    #[serde(default)]
+    pub defaults: Option<Vec<EntitlementInput>>,
 }
+
+// ── Mapping ─────────────────────────────────────────────────────────
 
 const MAX_CODE_LENGTH: usize = 128;
 
@@ -201,91 +296,326 @@ fn check_code(code: &str) -> Result<(), Problem> {
     }
 }
 
-/// The stored type of `kind`, its metric resolved and checked to be the tenant's.
-async fn feature_type(
+fn fixed(path: &str, what: &str) -> Problem {
+    Problem::field(
+        path,
+        "invalid",
+        format!("A feature's {what} is fixed once created"),
+    )
+}
+
+/// A 404 of `lookup` as a refusal of the field at `path`.
+fn not_found_at(path: &str, what: &str, raw: &str) -> impl FnOnce(Problem) -> Problem {
+    let (path, message) = (path.to_owned(), format!("No {what} '{}'", raw.trim()));
+    move |problem| {
+        if problem.status == 404 {
+            Problem::field(path, "not_found", message)
+        } else {
+            problem
+        }
+    }
+}
+
+async fn product_of(
     state: &AppState,
     tenant_id: TenantId,
-    kind: &FeatureKind,
-) -> Result<domain::FeatureType, Problem> {
+    raw: &str,
+) -> Result<ProductId, Problem> {
+    ids::product_id(state, tenant_id, raw)
+        .await
+        .map_err(not_found_at("/product", "product", raw))
+}
+
+/// A live resource type of an id or a code, at `path`.
+async fn level_of(
+    state: &AppState,
+    tenant_id: TenantId,
+    raw: &str,
+    path: &str,
+) -> Result<ResourceTypeId, Problem> {
+    let resource_type = ids::resource_type(state, tenant_id, raw)
+        .await
+        .map_err(not_found_at(path, "resource type", raw))?;
+    if resource_type.archived_at.is_some() {
+        return Err(Problem::field(
+            path,
+            "archived",
+            format!("The resource type '{}' is archived", resource_type.code),
+        ));
+    }
+    Ok(resource_type.id)
+}
+
+async fn quantity_of(
+    state: &AppState,
+    tenant_id: TenantId,
+    raw: &str,
+) -> Result<ManagedQuantityId, Problem> {
+    let path = "/type/per_unit_of";
+    let quantity = ids::quantity(state, tenant_id, raw)
+        .await
+        .map_err(not_found_at(path, "managed quantity", raw))?;
+    if quantity.archived_at.is_some() {
+        return Err(Problem::field(
+            path,
+            "archived",
+            format!("The managed quantity '{}' is archived", quantity.code),
+        ));
+    }
+    Ok(quantity.id)
+}
+
+/// A unit, trimmed; only a number's or a limit's.
+fn unit_of(unit: Option<&str>, kind: &DomainKind) -> Result<Option<String>, Problem> {
+    let Some(unit) = unit.map(str::trim).filter(|unit| !unit.is_empty()) else {
+        return Ok(None);
+    };
+    if !matches!(
+        kind,
+        DomainKind::Limit(_) | DomainKind::Value(ValueType::Number { .. })
+    ) {
+        return Err(Problem::field(
+            "/unit",
+            "invalid",
+            "Only a number or a limit has a unit",
+        ));
+    }
+    crate::v2::bounds::name(unit, "/unit")?;
+    Ok(Some(unit.to_owned()))
+}
+
+/// The stored kind, policy and quantity of `kind`, its metric and quantity resolved.
+async fn domain_type(
+    state: &AppState,
+    tenant_id: TenantId,
+    kind: &FeatureType,
+) -> Result<(DomainKind, Option<FeaturePolicy>, Option<ManagedQuantityId>), Problem> {
     Ok(match kind {
-        FeatureKind::Boolean(_) => domain::FeatureType::Boolean,
-        FeatureKind::Metered(metered) => {
-            let metric = ids::metric(state, tenant_id, &metered.metric)
-                .await
-                .map_err(|problem| {
-                    if problem.status == 404 {
-                        Problem::field(
-                            "/type/metric",
-                            "not_found",
-                            format!("metric {} not found", metered.metric),
-                        )
-                    } else {
-                        problem
-                    }
-                })?;
-            domain::FeatureType::Metered {
-                metric_id: metric.id,
-            }
-        }
-        FeatureKind::Config(config) => {
-            let select = config.value_type == ConfigValueKind::Select;
-            if select && config.options.is_empty() {
+        FeatureType::Boolean(_) => (DomainKind::Boolean, None, None),
+        FeatureType::Value(value) => {
+            let select = value.value_type == FeatureValueType::Select;
+            if value.higher_is_better.is_some() && value.value_type != FeatureValueType::Number {
                 return Err(Problem::field(
-                    "/type/options",
-                    "required",
-                    "A `select` takes one value at least",
-                ));
-            }
-            if !select && !config.options.is_empty() {
-                return Err(Problem::field(
-                    "/type/options",
+                    "/type/higher_is_better",
                     "invalid",
-                    "Only a `select` has options",
+                    "Only a number has a direction",
                 ));
             }
-            domain::FeatureType::Config {
-                value_type: match config.value_type {
-                    ConfigValueKind::Number => domain::ConfigValueType::Number,
-                    ConfigValueKind::Boolean => domain::ConfigValueType::Boolean,
-                    ConfigValueKind::Text => domain::ConfigValueType::Text,
-                    ConfigValueKind::Map => domain::ConfigValueType::Map,
-                    ConfigValueKind::Json => domain::ConfigValueType::Json,
-                    ConfigValueKind::Select => domain::ConfigValueType::Select {
-                        options: config.options.clone(),
-                    },
-                },
+            if !select && (value.options.is_some() || value.ordered.is_some()) {
+                let path = if value.options.is_some() {
+                    "/type/options"
+                } else {
+                    "/type/ordered"
+                };
+                return Err(Problem::field(path, "invalid", "Only a select has options"));
             }
+            let value_type = match value.value_type {
+                FeatureValueType::Number => ValueType::Number {
+                    higher_is_better: value.higher_is_better.unwrap_or(true),
+                },
+                FeatureValueType::Text => ValueType::Text,
+                FeatureValueType::Json => ValueType::Json,
+                FeatureValueType::Select => {
+                    let options = value.options.clone().unwrap_or_default();
+                    check_options(&options)?;
+                    ValueType::Select {
+                        options,
+                        ordered: value.ordered.unwrap_or(false),
+                    }
+                }
+            };
+            (DomainKind::Value(value_type), None, None)
+        }
+        FeatureType::Limit(limit) => {
+            let counted_by = match (limit.counted_by, limit.metric.as_deref()) {
+                (LimitCountedBy::Events, Some(raw)) => {
+                    let metric = ids::metric(state, tenant_id, raw)
+                        .await
+                        .map_err(not_found_at("/type/metric", "metric", raw))?;
+                    domain::LimitCountedBy::Events(metric.id)
+                }
+                (LimitCountedBy::Events, None) => {
+                    return Err(Problem::field(
+                        "/type/metric",
+                        "required",
+                        "A limit counted from events names its metric",
+                    ));
+                }
+                (LimitCountedBy::App, Some(_)) => {
+                    return Err(Problem::field(
+                        "/type/metric",
+                        "invalid",
+                        "A limit counted by your app has no metric",
+                    ));
+                }
+                (LimitCountedBy::App, None) => domain::LimitCountedBy::App,
+            };
+            let kind = DomainKind::Limit(counted_by);
+            let policy = match &limit.policy {
+                Some(policy) => Some(checked_policy(policy, &kind, "/type/policy")?),
+                None => None,
+            };
+            let quantity = match limit.per_unit_of.as_deref() {
+                Some(raw) => Some(quantity_of(state, tenant_id, raw).await?),
+                None => None,
+            };
+            (kind, policy, quantity)
         }
     })
 }
 
-fn kind(
-    feature_type: &domain::FeatureType,
-    metrics: &HashMap<BillableMetricId, String>,
-) -> FeatureKind {
-    match feature_type {
-        domain::FeatureType::Boolean => FeatureKind::Boolean(BooleanFeature {}),
-        domain::FeatureType::Metered { metric_id } => FeatureKind::Metered(MeteredFeature {
-            metric: metrics
-                .get(metric_id)
-                .cloned()
-                .unwrap_or_else(|| metric_id.to_string()),
-        }),
-        domain::FeatureType::Config { value_type } => {
-            let (value_type, options) = match value_type {
-                domain::ConfigValueType::Number => (ConfigValueKind::Number, Vec::new()),
-                domain::ConfigValueType::Boolean => (ConfigValueKind::Boolean, Vec::new()),
-                domain::ConfigValueType::Text => (ConfigValueKind::Text, Vec::new()),
-                domain::ConfigValueType::Map => (ConfigValueKind::Map, Vec::new()),
-                domain::ConfigValueType::Json => (ConfigValueKind::Json, Vec::new()),
-                domain::ConfigValueType::Select { options } => {
-                    (ConfigValueKind::Select, options.clone())
-                }
-            };
-            FeatureKind::Config(ConfigFeature {
-                value_type,
-                options,
-            })
+fn check_options(options: &[String]) -> Result<(), Problem> {
+    if options.is_empty() {
+        return Err(Problem::field(
+            "/type/options",
+            "required",
+            "A select takes one option at least",
+        ));
+    }
+    for (index, option) in options.iter().enumerate() {
+        if option.trim().is_empty() || option.trim() != option {
+            return Err(Problem::field(
+                format!("/type/options/{index}"),
+                "invalid",
+                "An option is not empty and has no surrounding spaces",
+            ));
+        }
+        if options[..index].contains(option) {
+            return Err(Problem::field(
+                format!("/type/options/{index}"),
+                "duplicate",
+                format!("'{option}' is listed twice"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// What is read with features: their products', metrics', quantities' and resource types'
+/// codes, each read once.
+struct FeatureCodes {
+    codes: Codes,
+    metrics: HashMap<BillableMetricId, String>,
+    quantities: HashMap<FeatureId, String>,
+}
+
+impl FeatureCodes {
+    async fn load(
+        state: &AppState,
+        tenant_id: TenantId,
+        features: &[domain::Feature],
+    ) -> Result<Self, Problem> {
+        let mut codes = Codes::of_features(state, tenant_id, features, std::iter::empty()).await?;
+        codes
+            .features
+            .extend(features.iter().map(|f| (f.id, FeatureKey::from(f))));
+        let mut metric_ids: Vec<BillableMetricId> =
+            features.iter().filter_map(|f| f.kind.metric_id()).collect();
+        metric_ids.sort_by_key(|id| id.as_uuid());
+        metric_ids.dedup();
+        let metrics = if metric_ids.is_empty() {
+            HashMap::new()
+        } else {
+            state
+                .store
+                .find_billable_metrics_by_ids(&metric_ids, tenant_id)
+                .await?
+                .into_iter()
+                .map(|metric| (metric.id, metric.catalog_code))
+                .collect()
+        };
+        let quantities = if features
+            .iter()
+            .any(|f| matches!(f.kind, DomainKind::Limit(_)))
+        {
+            state
+                .store
+                .list_managed_quantities(tenant_id)
+                .await?
+                .into_iter()
+                .flat_map(|quantity| {
+                    let code = quantity.code;
+                    quantity
+                        .per_unit_features
+                        .into_iter()
+                        .map(move |feature| (feature, code.clone()))
+                })
+                .collect()
+        } else {
+            HashMap::new()
+        };
+        Ok(FeatureCodes {
+            codes,
+            metrics,
+            quantities,
+        })
+    }
+
+    fn kind(&self, feature: &domain::Feature) -> FeatureType {
+        match &feature.kind {
+            DomainKind::Boolean => FeatureType::Boolean(BooleanFeature {}),
+            DomainKind::Value(value_type) => FeatureType::Value(match value_type {
+                ValueType::Number { higher_is_better } => ValueFeature {
+                    value_type: FeatureValueType::Number,
+                    higher_is_better: Some(*higher_is_better),
+                    options: None,
+                    ordered: None,
+                },
+                ValueType::Text => ValueFeature {
+                    value_type: FeatureValueType::Text,
+                    higher_is_better: None,
+                    options: None,
+                    ordered: None,
+                },
+                ValueType::Json => ValueFeature {
+                    value_type: FeatureValueType::Json,
+                    higher_is_better: None,
+                    options: None,
+                    ordered: None,
+                },
+                ValueType::Select { options, ordered } => ValueFeature {
+                    value_type: FeatureValueType::Select,
+                    higher_is_better: None,
+                    options: Some(options.clone()),
+                    ordered: Some(*ordered),
+                },
+            }),
+            DomainKind::Limit(counted_by) => FeatureType::Limit(LimitFeature {
+                counted_by: match counted_by {
+                    domain::LimitCountedBy::Events(_) => LimitCountedBy::Events,
+                    domain::LimitCountedBy::App => LimitCountedBy::App,
+                },
+                metric: feature.kind.metric_id().map(|id| {
+                    self.metrics
+                        .get(&id)
+                        .cloned()
+                        .unwrap_or_else(|| id.to_string())
+                }),
+                per_unit_of: self.quantities.get(&feature.id).cloned(),
+                policy: Some(Policy::from(&feature.policy_or_default())),
+            }),
+        }
+    }
+
+    fn feature(&self, feature: domain::Feature) -> Feature {
+        let kind = self.kind(&feature);
+        let product = feature
+            .product
+            .as_ref()
+            .map(|product| self.codes.refs.product(product.id));
+        Feature {
+            id: feature.id,
+            code: feature.code,
+            name: feature.name,
+            description: feature.description,
+            product,
+            status: feature.status.into(),
+            kind,
+            unit: feature.unit,
+            applies_per: feature.level_type_id.map(|id| self.codes.type_ref(id)),
+            defaults: canonical(&self.codes, feature.defaults),
+            created_at: feature.created_at.into(),
+            updated_at: feature.updated_at.into(),
         }
     }
 }
@@ -295,46 +625,10 @@ async fn to_api(
     tenant_id: TenantId,
     features: Vec<domain::Feature>,
 ) -> Result<Vec<Feature>, Problem> {
-    let mut metric_ids: Vec<BillableMetricId> = features
-        .iter()
-        .filter_map(|feature| match feature.feature_type {
-            domain::FeatureType::Metered { metric_id } => Some(metric_id),
-            _ => None,
-        })
-        .collect();
-    metric_ids.sort_by_key(|id| id.as_uuid());
-    metric_ids.dedup();
-    let metrics: HashMap<BillableMetricId, String> = state
-        .store
-        .find_billable_metrics_by_ids(&metric_ids, tenant_id)
-        .await?
-        .into_iter()
-        .map(|metric| (metric.id, metric.catalog_code))
-        .collect();
-    let ids = ReferenceIds {
-        products: features
-            .iter()
-            .filter_map(|feature| feature.product.as_ref().map(|product| product.id))
-            .collect(),
-        ..ReferenceIds::default()
-    };
-    let refs = Refs::load(&state.store, tenant_id, &ids).await?;
+    let codes = FeatureCodes::load(state, tenant_id, &features).await?;
     Ok(features
         .into_iter()
-        .map(|feature| Feature {
-            id: feature.id,
-            kind: kind(&feature.feature_type, &metrics),
-            product: feature.product.map(|product| refs.product(product.id)),
-            status: feature.status.into(),
-            default: feature
-                .entitlement
-                .as_ref()
-                .map(|entitlement| grant_value(&entitlement.value)),
-            created_at: feature.created_at.into(),
-            code: feature.code,
-            name: feature.name,
-            description: feature.description,
-        })
+        .map(|feature| codes.feature(feature))
         .collect())
 }
 
@@ -349,8 +643,8 @@ async fn one(
         .ok_or_else(Problem::internal)
 }
 
-/// The feature written, as it reads; by its id, code, name and status when its metric and
-/// product are not read back (a write committed never answers an error).
+/// The feature written, as it reads; by its id, code, name and status when it is not read back
+/// (a write committed never answers an error).
 async fn written(
     state: &AppState,
     tenant_id: TenantId,
@@ -385,7 +679,87 @@ async fn reread(
     )
 }
 
+/// The feature of an id, or of a code: its live feature, else the one archived feature that
+/// had it (several: named by id).
+async fn found(
+    state: &AppState,
+    tenant_id: TenantId,
+    raw: &str,
+) -> Result<domain::Feature, Problem> {
+    let raw = raw.trim();
+    match ids::feature(state, tenant_id, raw).await {
+        Ok(feature) => Ok(feature),
+        Err(problem) if problem.status == 404 => {
+            let AliasOr::Alias(code) = ids::id_or_code::<FeatureId>(raw) else {
+                return Err(Problem::not_found(format!("feature {raw}")));
+            };
+            match state
+                .store
+                .find_archived_feature_by_code(&code, tenant_id)
+                .await
+            {
+                Ok(id) => Ok(state.store.get_feature(id, tenant_id).await?),
+                Err(error) => match error.current_context() {
+                    StoreError::ValueNotFound(_) => {
+                        Err(Problem::not_found(format!("feature {raw}")))
+                    }
+                    _ => Err(Problem::from(error)),
+                },
+            }
+        }
+        Err(problem) => Err(problem),
+    }
+}
+
+fn archived_conflict(feature: &domain::Feature) -> Problem {
+    Problem::conflict(
+        ProblemCode::Conflict,
+        format!(
+            "The feature '{}' is archived: unarchive it first",
+            feature.code
+        ),
+    )
+}
+
+/// The list query: `status` repeats, which the form extractor does not read.
+fn list_query(raw: Option<&str>) -> Result<FeatureListQuery, Problem> {
+    let mut query = FeatureListQuery::default();
+    for (key, value) in url::form_urlencoded::parse(raw.unwrap_or_default().as_bytes()) {
+        let value = value.into_owned();
+        match key.as_ref() {
+            "product" => query.product = Some(value),
+            "applies_per" => query.applies_per = Some(value),
+            "after" => query.after = Some(value),
+            "limit" => {
+                query.limit =
+                    Some(value.trim().parse::<u32>().map_err(|_| {
+                        Problem::field("limit", "invalid", "limit is a whole number")
+                    })?)
+            }
+            "status" => {
+                let status = serde_json::from_value::<FeatureStatus>(serde_json::Value::String(
+                    value.trim().to_owned(),
+                ))
+                .map_err(|_| {
+                    Problem::field(
+                        "status",
+                        "invalid",
+                        "status is `active`, `disabled` or `archived`",
+                    )
+                })?;
+                query.status.get_or_insert_with(Vec::new).push(status);
+            }
+            _ => {}
+        }
+    }
+    Ok(query)
+}
+
+// ── Handlers ────────────────────────────────────────────────────────
+
 /// List features
+///
+/// Paged by keyset over the id.
 #[utoipa::path(
     get,
     tag = "Features",
@@ -394,17 +768,33 @@ async fn reread(
     responses(
         (status = 200, description = "A page of the tenant's features, archived ones left out unless asked", body = FeatureList),
         (status = 401, description = "Unauthorized", body = Problem, content_type = "application/problem+json"),
+        (status = 422, description = "A parameter is refused", body = Problem, content_type = "application/problem+json"),
     ),
     security(("bearer_auth" = []))
 )]
 pub async fn list_features(
     Extension(auth): Extension<AuthorizedAsTenant>,
     State(state): State<AppState>,
-    Query(query): Query<FeatureListQuery>,
+    RawQuery(raw): RawQuery,
 ) -> Result<Json<FeatureList>, Problem> {
+    let query = list_query(raw.as_deref())?;
     let product_id = match query.product.as_deref() {
-        Some(product) => Some(ids::product_id(&state, auth.tenant_id, product).await?),
+        Some(product) => Some(
+            ids::product_id(&state, auth.tenant_id, product)
+                .await
+                .map_err(not_found_at("product", "product", product))?,
+        ),
         None => None,
+    };
+    let level = match query.applies_per.as_deref().map(str::trim) {
+        None => None,
+        Some("customer") => Some(None),
+        Some(raw) => Some(Some(
+            ids::resource_type(&state, auth.tenant_id, raw)
+                .await
+                .map_err(not_found_at("applies_per", "resource type", raw))?
+                .id,
+        )),
     };
     let page = PageQuery {
         limit: query.limit,
@@ -413,7 +803,7 @@ pub async fn list_features(
     let limit = page.limit()?;
     let after = page.cursor()?.map(|Cursor(after)| FeatureId::from(after));
     let statuses = match query.status {
-        Some(status) => vec![status.into()],
+        Some(statuses) => statuses.into_iter().map(Into::into).collect(),
         None => vec![FeatureStatusEnum::Active, FeatureStatusEnum::Disabled],
     };
     let features = state
@@ -423,11 +813,14 @@ pub async fn list_features(
             FeaturePageFilter {
                 statuses: Some(statuses),
                 product_id,
+                level,
+                order: None,
             },
             after,
             limit + 1,
         )
-        .await?;
+        .await
+        .map_err(|error| Problem::at("after", error))?;
     let paged = keyset(features, limit, |feature| feature.id.as_uuid());
     let data = to_api(&state, auth.tenant_id, paged.data).await?;
     Ok(Json(FeatureList {
@@ -439,7 +832,7 @@ pub async fn list_features(
 
 /// Get a feature
 ///
-/// By id, or by the code of its live feature.
+/// By id, or by code: the live feature holding it, else the archived one that had it.
 #[utoipa::path(
     get,
     tag = "Features",
@@ -448,6 +841,7 @@ pub async fn list_features(
     responses(
         (status = 200, description = "The feature", body = Feature),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
+        (status = 409, description = "Several archived features had the code: name one by id", body = Problem, content_type = "application/problem+json"),
     ),
     security(("bearer_auth" = []))
 )]
@@ -456,18 +850,52 @@ pub async fn get_feature(
     State(state): State<AppState>,
     Path(id_or_code): Path<String>,
 ) -> Result<Json<Feature>, Problem> {
-    let found = feature(&state, auth.tenant_id, &id_or_code).await?;
-    Ok(Json(one(&state, auth.tenant_id, found).await?))
+    let feature = found(&state, auth.tenant_id, &id_or_code).await?;
+    Ok(Json(one(&state, auth.tenant_id, feature).await?))
 }
 
 /// Create a feature
+///
+/// The feature, the managed quantity its limit counts per unit of and its default rows, in one
+/// transaction.
 #[utoipa::path(
     post,
     tag = "Features",
     path = "/api/v2/features",
-    request_body = CreateFeature,
+    request_body(
+        content = CreateFeature,
+        examples(
+            ("events" = (summary = "A limit counted from a metric's events", value = json!({
+                "code": "api_calls",
+                "name": "API calls",
+                "type": {
+                    "type": "limit",
+                    "counted_by": "events",
+                    "metric": "api_calls",
+                    "policy": {
+                        "resets": {"type": "billing_cycle"},
+                        "at_limit": "deny",
+                        "grace_pct": 10,
+                        "thresholds": [80]
+                    }
+                },
+                "unit": "calls",
+                "defaults": [{"feature": "api_calls", "value": {"type": "limit", "limit": "1000"}}]
+            }))),
+            ("app" = (summary = "A limit per site counted by your app", value = json!({
+                "code": "projects",
+                "name": "Projects",
+                "type": {"type": "limit", "counted_by": "app"},
+                "unit": "projects",
+                "applies_per": "site"
+            }))),
+        )
+    ),
     responses(
-        (status = 201, description = "Created", body = Feature),
+        (status = 201, description = "Created", body = Feature, examples(
+            ("events" = (summary = "A limit counted from a metric's events", value = json!(examples::events()))),
+            ("app" = (summary = "A limit per site counted by your app", value = json!(examples::app()))),
+        )),
         (status = 409, description = "The code is taken", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A field is refused", body = Problem, content_type = "application/problem+json"),
     ),
@@ -478,6 +906,7 @@ pub async fn create_feature(
     State(state): State<AppState>,
     Body(body): Body<CreateFeature>,
 ) -> Result<Response, Problem> {
+    let tenant_id = auth.tenant_id;
     let code = body.code.trim().to_owned();
     check_code(&code)?;
     let name = body.name.trim().to_owned();
@@ -487,51 +916,198 @@ pub async fn create_feature(
     crate::v2::bounds::name(&name, "/name")?;
     crate::v2::bounds::description(body.description.as_deref(), "/description")?;
     let product_id = match body.product.as_deref() {
-        Some(product) => Some(
-            ids::product_id(&state, auth.tenant_id, product)
-                .await
-                .map_err(|problem| {
-                    if problem.status == 404 {
-                        Problem::field(
-                            "/product",
-                            "not_found",
-                            format!("product {product} not found"),
-                        )
-                    } else {
-                        problem
-                    }
-                })?,
-        ),
+        Some(product) => Some(product_of(&state, tenant_id, product).await?),
         None => None,
     };
-    let feature_type = feature_type(&state, auth.tenant_id, &body.kind).await?;
-    let entitlement = match &body.default {
-        Some(default) => Some(to_domain(default, &feature_type, "/default")?),
+    let (kind, policy, per_unit_of) = domain_type(&state, tenant_id, &body.kind).await?;
+    let unit = unit_of(body.unit.as_deref(), &kind)?;
+    let level_type_id = match body.applies_per.as_deref() {
+        Some(raw) => Some(level_of(&state, tenant_id, raw, "/applies_per").await?),
         None => None,
     };
+    // The defaults are checked against the feature as it is being created, under its own id.
+    let now = common_clock::now();
+    let id = FeatureId::new();
+    let being_created = domain::Feature {
+        id,
+        tenant_id,
+        product: product_id.map(|id| FeatureProductRef {
+            id,
+            name: String::new(),
+        }),
+        name: name.clone(),
+        code: code.clone(),
+        description: body.description.clone(),
+        kind: kind.clone(),
+        unit: unit.clone(),
+        level_type_id,
+        policy: policy.clone(),
+        status: FeatureStatusEnum::Active,
+        created_at: now,
+        updated_at: now,
+        defaults: Vec::new(),
+    };
+    let defaults = own_defaults(
+        &state,
+        tenant_id,
+        &being_created,
+        &body.defaults,
+        "/defaults",
+    )
+    .await?;
     let created = state
         .store
-        .create_feature(
-            auth.as_actor(),
+        .create_feature_with_defaults(
+            &auth.as_actor(),
+            id,
             FeatureNew {
-                tenant_id: auth.tenant_id,
+                tenant_id,
                 product_id,
                 name,
                 code: code.clone(),
                 description: body.description,
-                feature_type,
-                entitlement,
+                kind,
+                unit,
+                level_type_id,
+                policy,
+                default: None,
             },
+            per_unit_of,
+            defaults,
         )
         .await
-        .map_err(|error| Problem::at("/default", error).code_taken(&code))?;
-    Ok(written(&state, auth.tenant_id, StatusCode::CREATED, created).await)
+        .map_err(|error| {
+            let problem = if body.defaults.is_empty() {
+                Problem::from(error)
+            } else {
+                Problem::at("/defaults", error)
+            };
+            problem.code_taken(&code)
+        })?;
+    Ok(written(&state, tenant_id, StatusCode::CREATED, created).await)
+}
+
+/// The store's patch of `kind`'s fields that change, each checked against `current`; a fixed
+/// field sent must read as it is.
+async fn type_patch(
+    state: &AppState,
+    tenant_id: TenantId,
+    current: &domain::Feature,
+    patch: &UpdateFeatureType,
+) -> Result<(FeatureUpdate, Option<Option<ManagedQuantityId>>), Problem> {
+    let mut update = FeatureUpdate::default();
+    if patch
+        .kind
+        .is_some_and(|kind| kind != FeatureKind::from(&current.kind))
+    {
+        return Err(fixed("/type/type", "type"));
+    }
+    let value_type = match &current.kind {
+        DomainKind::Value(ValueType::Number { .. }) => Some(FeatureValueType::Number),
+        DomainKind::Value(ValueType::Text) => Some(FeatureValueType::Text),
+        DomainKind::Value(ValueType::Select { .. }) => Some(FeatureValueType::Select),
+        DomainKind::Value(ValueType::Json) => Some(FeatureValueType::Json),
+        _ => None,
+    };
+    if patch.value_type.is_some() && patch.value_type != value_type {
+        return Err(fixed("/type/value_type", "value type"));
+    }
+    let counted_by = match &current.kind {
+        DomainKind::Limit(domain::LimitCountedBy::Events(_)) => Some(LimitCountedBy::Events),
+        DomainKind::Limit(domain::LimitCountedBy::App) => Some(LimitCountedBy::App),
+        _ => None,
+    };
+    if patch.counted_by.is_some() && patch.counted_by != counted_by {
+        return Err(fixed("/type/counted_by", "counting"));
+    }
+    if let Some(raw) = patch.metric.as_deref() {
+        let metric = ids::metric(state, tenant_id, raw)
+            .await
+            .map_err(not_found_at("/type/metric", "metric", raw))?;
+        if current.kind.metric_id() != Some(metric.id) {
+            return Err(fixed("/type/metric", "metric"));
+        }
+    }
+    if let Some(higher_is_better) = patch.higher_is_better {
+        if value_type != Some(FeatureValueType::Number) {
+            return Err(Problem::field(
+                "/type/higher_is_better",
+                "invalid",
+                "Only a number has a direction",
+            ));
+        }
+        update.number_higher_is_better = Some(higher_is_better);
+    }
+    if patch.options.is_some() || patch.ordered.is_some() {
+        if value_type != Some(FeatureValueType::Select) {
+            let path = if patch.options.is_some() {
+                "/type/options"
+            } else {
+                "/type/ordered"
+            };
+            return Err(Problem::field(path, "invalid", "Only a select has options"));
+        }
+        if let Some(options) = &patch.options {
+            check_options(options)?;
+        }
+        update.select_options = patch.options.clone();
+        update.select_ordered = patch.ordered;
+    }
+    if let Some(policy) = &patch.policy {
+        update.policy = Some(checked_policy(policy, &current.kind, "/type/policy")?);
+    }
+    let per_unit_of = match &patch.per_unit_of {
+        None => None,
+        Some(_) if counted_by.is_none() => {
+            return Err(Problem::field(
+                "/type/per_unit_of",
+                "invalid",
+                "Only a limit counts per unit of a quantity",
+            ));
+        }
+        Some(None) => Some(None),
+        Some(Some(raw)) => Some(Some(quantity_of(state, tenant_id, raw).await?)),
+    };
+    Ok((update, per_unit_of))
+}
+
+/// `current` as `update` leaves it, which its new defaults are checked against.
+fn as_updated(current: &domain::Feature, update: &FeatureUpdate) -> domain::Feature {
+    let mut feature = current.clone();
+    if let Some(level) = update.level_type_id {
+        feature.level_type_id = level;
+    }
+    if let Some(unit) = &update.unit {
+        feature.unit = unit.clone();
+    }
+    if let Some(policy) = &update.policy {
+        feature.policy = Some(policy.clone());
+    }
+    match &mut feature.kind {
+        DomainKind::Value(ValueType::Number { higher_is_better }) => {
+            if let Some(new) = update.number_higher_is_better {
+                *higher_is_better = new;
+            }
+        }
+        DomainKind::Value(ValueType::Select { options, ordered }) => {
+            if let Some(new) = &update.select_options {
+                *options = new.clone();
+            }
+            if let Some(new) = update.select_ordered {
+                *ordered = new;
+            }
+        }
+        _ => {}
+    }
+    feature
 }
 
 /// Update a feature
 ///
-/// A JSON merge patch of its name, description, a `select`'s options and its default; the code,
-/// the type and the product never change. An archived feature is unarchived first.
+/// A JSON merge patch of the feature as written, its fields, its quantity and its defaults in
+/// one transaction. Its type, value type, counting and metric are fixed (`422 invalid` when sent
+/// otherwise); an option a row still holds cannot be removed; `applies_per` changes only while
+/// the feature has no rows.
 #[utoipa::path(
     patch,
     tag = "Features",
@@ -541,6 +1117,7 @@ pub async fn create_feature(
     responses(
         (status = 200, description = "Updated", body = Feature),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
+        (status = 409, description = "The feature is archived", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A field is refused", body = Problem, content_type = "application/problem+json"),
     ),
     security(("bearer_auth" = []))
@@ -551,7 +1128,11 @@ pub async fn update_feature(
     Path(id_or_code): Path<String>,
     Body(body): Body<UpdateFeature>,
 ) -> Result<Response, Problem> {
-    let current = feature(&state, auth.tenant_id, &id_or_code).await?;
+    let tenant_id = auth.tenant_id;
+    let current = found(&state, tenant_id, &id_or_code).await?;
+    if current.status == FeatureStatusEnum::Archived {
+        return Err(archived_conflict(&current));
+    }
     if body
         .name
         .as_deref()
@@ -566,63 +1147,94 @@ pub async fn update_feature(
         body.description.as_ref().and_then(|text| text.as_deref()),
         "/description",
     )?;
-    if current.status == FeatureStatusEnum::Archived {
-        return Err(Problem::conflict(
-            crate::v2::problem::ProblemCode::Conflict,
-            "The feature is archived: unarchive it first",
-        ));
-    }
     // Every field is checked before the first write.
-    let default: Option<Vec<EntitlementSpec>> = match &body.default {
-        None => None,
-        Some(None) => Some(Vec::new()),
-        Some(Some(value)) => Some(vec![EntitlementSpec {
-            feature_id: current.id,
-            value: to_domain(value, &current.feature_type, "/default")?,
-        }]),
+    let (mut update, per_unit_of) = match &body.kind {
+        Some(patch) => type_patch(&state, tenant_id, &current, patch).await?,
+        None => (FeatureUpdate::default(), None),
     };
-    if body.options.is_some()
-        && !matches!(
-            current.feature_type,
-            domain::FeatureType::Config {
-                value_type: domain::ConfigValueType::Select { .. }
-            }
-        )
-    {
-        return Err(Problem::field(
-            "/options",
-            "invalid",
-            "Only a `select` has options",
-        ));
+    update.name = body.name.as_deref().map(|name| name.trim().to_owned());
+    update.description = body.description.clone();
+    update.product_id = match &body.product {
+        None => None,
+        Some(None) => Some(None),
+        Some(Some(raw)) => Some(Some(product_of(&state, tenant_id, raw).await?)),
+    };
+    update.unit = match &body.unit {
+        None => None,
+        Some(unit) => Some(unit_of(unit.as_deref(), &current.kind)?),
+    };
+    update.level_type_id = match &body.applies_per {
+        None => None,
+        Some(None) => Some(None),
+        Some(Some(raw)) => Some(Some(
+            level_of(&state, tenant_id, raw, "/applies_per").await?,
+        )),
+    };
+    let defaults = match &body.defaults {
+        None => None,
+        Some(inputs) => Some(
+            own_defaults(
+                &state,
+                tenant_id,
+                &as_updated(&current, &update),
+                inputs,
+                "/defaults",
+            )
+            .await?,
+        ),
+    };
+    // A store refusal points at the one part that could refuse it, when only one is written.
+    let mut parts: Vec<&str> = Vec::new();
+    if update.select_options.is_some() || update.select_ordered.is_some() {
+        parts.push("/type/options");
     }
-    // Its fields and its default in one transaction: a refusal of either writes neither.
-    let path = match (body.options.is_some(), default.is_some()) {
-        (true, false) => Some("/options"),
-        (false, true) => Some("/default"),
+    if update.level_type_id.is_some() {
+        parts.push("/applies_per");
+    }
+    if update.product_id.is_some() {
+        parts.push("/product");
+    }
+    if per_unit_of.is_some() {
+        parts.push("/type/per_unit_of");
+    }
+    if defaults.is_some() {
+        parts.push("/defaults");
+    }
+    let pointer = match parts.as_slice() {
+        [one] => Some(*one),
         _ => None,
     };
-    let update = (body.name.is_some() || body.description.is_some() || body.options.is_some())
-        .then(|| FeatureUpdate {
-            name: body.name.map(|name| name.trim().to_owned()),
-            description: body.description,
-            product_id: None,
-            config_options: body.options,
-        });
+    let changes_fields = update.name.is_some()
+        || update.description.is_some()
+        || update.product_id.is_some()
+        || update.unit.is_some()
+        || update.number_higher_is_better.is_some()
+        || update.select_options.is_some()
+        || update.select_ordered.is_some()
+        || update.level_type_id.is_some()
+        || update.policy.is_some();
     let updated = state
         .store
-        .update_feature_with_default(current.id, auth.tenant_id, update, default)
+        .update_feature_with_defaults(
+            &auth.as_actor(),
+            current.id,
+            tenant_id,
+            changes_fields.then_some(update),
+            per_unit_of,
+            defaults,
+        )
         .await
-        .map_err(|error| match path {
-            Some(path) => Problem::at(path, error),
+        .map_err(|error| match pointer {
+            Some(pointer) => Problem::at(pointer, error),
             None => Problem::from(error),
         })?;
-    Ok(written(&state, auth.tenant_id, StatusCode::OK, updated).await)
+    Ok(written(&state, tenant_id, StatusCode::OK, updated).await)
 }
 
 /// Archive a feature
 ///
-/// Turns it off and hides it and its grants until it is unarchived; its code is free for a new
-/// feature.
+/// It entitles no one, its code is free for a new feature, and it and its rows are hidden until
+/// it is unarchived. Archiving an archived feature changes nothing.
 #[utoipa::path(
     post,
     tag = "Features",
@@ -639,22 +1251,38 @@ pub async fn archive_feature(
     State(state): State<AppState>,
     Path(id_or_code): Path<String>,
 ) -> Result<Response, Problem> {
-    let found = feature(&state, auth.tenant_id, &id_or_code).await?;
+    let feature = found(&state, auth.tenant_id, &id_or_code).await?;
+    if feature.status == FeatureStatusEnum::Archived {
+        return Ok(Json(one(&state, auth.tenant_id, feature).await?).into_response());
+    }
     state
         .store
         .set_feature_status(
             auth.as_actor(),
-            found.id,
+            feature.id,
             auth.tenant_id,
             FeatureStatusEnum::Archived,
         )
         .await?;
-    Ok(reread(&state, auth.tenant_id, found.id, FeatureStatus::Archived).await)
+    Ok(reread(&state, auth.tenant_id, feature.id, FeatureStatus::Archived).await)
+}
+
+/// The code an archived feature had is held by a live feature.
+fn code_taken(code: &str) -> Problem {
+    let message = format!("A live feature holds the code '{code}': free it first");
+    let mut taken = Problem::conflict(ProblemCode::CodeTaken, message.clone());
+    taken.errors.push(FieldError {
+        path: "/code".to_owned(),
+        code: "duplicate".to_owned(),
+        message,
+    });
+    taken
 }
 
 /// Unarchive a feature
 ///
-/// Active again with all its grants. By id, or by the code it had when no live feature holds it.
+/// Active again with its rows. By id, or by the code it had; `409 code_taken` while a live
+/// feature holds that code. Unarchiving a feature not archived changes nothing.
 #[utoipa::path(
     post,
     tag = "Features",
@@ -663,7 +1291,7 @@ pub async fn archive_feature(
     responses(
         (status = 200, description = "Unarchived", body = Feature),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
-        (status = 409, description = "Another feature holds its code", body = Problem, content_type = "application/problem+json"),
+        (status = 409, description = "A live feature holds its code, or several archived features had it", body = Problem, content_type = "application/problem+json"),
     ),
     security(("bearer_auth" = []))
 )]
@@ -672,26 +1300,101 @@ pub async fn unarchive_feature(
     State(state): State<AppState>,
     Path(id_or_code): Path<String>,
 ) -> Result<Response, Problem> {
-    let id = match parse_feature(&id_or_code) {
-        AliasOr::Id(id) => id,
+    let tenant_id = auth.tenant_id;
+    let feature = match ids::id_or_code::<FeatureId>(&id_or_code) {
+        AliasOr::Id(id) => state.store.get_feature(id, tenant_id).await?,
         AliasOr::Alias(code) => {
-            state
-                .store
-                .find_archived_feature_by_code(&code, auth.tenant_id)
-                .await?
+            // A code a live feature holds names no archived feature to restore.
+            if ids::feature(&state, tenant_id, &code).await.is_ok() {
+                return Err(code_taken(&code));
+            }
+            found(&state, tenant_id, &code).await?
         }
     };
-    // Scoped by tenant: another tenant's id reads as not found.
+    if feature.status != FeatureStatusEnum::Archived {
+        return Ok(Json(one(&state, tenant_id, feature).await?).into_response());
+    }
     state
         .store
         .set_feature_status(
             auth.as_actor(),
-            id,
-            auth.tenant_id,
+            feature.id,
+            tenant_id,
             FeatureStatusEnum::Active,
         )
+        .await
+        .map_err(|error| match error.current_context() {
+            StoreError::FailedPrecondition(_) => code_taken(&feature.code),
+            _ => Problem::from(error),
+        })?;
+    Ok(reread(&state, tenant_id, feature.id, FeatureStatus::Active).await)
+}
+
+/// Sets a live feature's status between active and disabled.
+async fn switch(
+    state: &AppState,
+    auth: &AuthorizedAsTenant,
+    id_or_code: &str,
+    status: FeatureStatus,
+) -> Result<Response, Problem> {
+    let feature = found(state, auth.tenant_id, id_or_code).await?;
+    if feature.status == FeatureStatusEnum::Archived {
+        return Err(archived_conflict(&feature));
+    }
+    if FeatureStatus::from(feature.status.clone()) == status {
+        return Ok(Json(one(state, auth.tenant_id, feature).await?).into_response());
+    }
+    state
+        .store
+        .set_feature_status(auth.as_actor(), feature.id, auth.tenant_id, status.into())
         .await?;
-    Ok(reread(&state, auth.tenant_id, id, FeatureStatus::Active).await)
+    Ok(reread(state, auth.tenant_id, feature.id, status).await)
+}
+
+/// Disable a feature
+///
+/// It entitles no one; its rows and code stay. Disabling a disabled feature changes nothing.
+#[utoipa::path(
+    post,
+    tag = "Features",
+    path = "/api/v2/features/{id_or_code}/disable",
+    params(("id_or_code" = String, Path, description = "Feature id or code")),
+    responses(
+        (status = 200, description = "Disabled", body = Feature),
+        (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
+        (status = 409, description = "The feature is archived", body = Problem, content_type = "application/problem+json"),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub async fn disable_feature(
+    Extension(auth): Extension<AuthorizedAsTenant>,
+    State(state): State<AppState>,
+    Path(id_or_code): Path<String>,
+) -> Result<Response, Problem> {
+    switch(&state, &auth, &id_or_code, FeatureStatus::Disabled).await
+}
+
+/// Enable a feature
+///
+/// A disabled feature entitles again. Enabling an active feature changes nothing.
+#[utoipa::path(
+    post,
+    tag = "Features",
+    path = "/api/v2/features/{id_or_code}/enable",
+    params(("id_or_code" = String, Path, description = "Feature id or code")),
+    responses(
+        (status = 200, description = "Enabled", body = Feature),
+        (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
+        (status = 409, description = "The feature is archived", body = Problem, content_type = "application/problem+json"),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub async fn enable_feature(
+    Extension(auth): Extension<AuthorizedAsTenant>,
+    State(state): State<AppState>,
+    Path(id_or_code): Path<String>,
+) -> Result<Response, Problem> {
+    switch(&state, &auth, &id_or_code, FeatureStatus::Active).await
 }
 
 pub fn routes() -> OpenApiRouter<AppState> {
@@ -700,4 +1403,72 @@ pub fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(get_feature, update_feature))
         .routes(routes!(archive_feature))
         .routes(routes!(unarchive_feature))
+        .routes(routes!(disable_feature))
+        .routes(routes!(enable_feature))
+}
+
+/// The features the create operation's documentation shows, as they read back.
+mod examples {
+    use serde_json::{Value, json};
+
+    const CREATED_AT: &str = "2026-11-26T10:15:00.000Z";
+
+    pub fn events() -> Value {
+        let feature = "feat_2xK9mQ4rT7vW1yZ3bN5cP8";
+        json!({
+            "id": feature,
+            "code": "api_calls",
+            "name": "API calls",
+            "status": "active",
+            "type": {
+                "type": "limit",
+                "counted_by": "events",
+                "metric": "api_calls",
+                "policy": {
+                    "resets": {"type": "billing_cycle"},
+                    "at_limit": "deny",
+                    "grace_pct": 10,
+                    "thresholds": [80]
+                }
+            },
+            "unit": "calls",
+            "defaults": [{
+                "id": "ent_5gH7jK9lZ2xC4vB6nM8qW1",
+                "feature": "api_calls",
+                "value": {"type": "limit", "limit": "1000"},
+                "effect": "set",
+                "level": "customer",
+                "owner": {"type": "feature", "id": feature},
+                "created_by": {"type": "api_token", "id": "tkn_2aS4dF6gH8jK1lZ3xC5vB7"},
+                "created_at": CREATED_AT,
+                "updated_at": CREATED_AT
+            }],
+            "created_at": CREATED_AT,
+            "updated_at": CREATED_AT
+        })
+    }
+
+    pub fn app() -> Value {
+        json!({
+            "id": "feat_6hJ3kL8nP2qR5sT9vX1zB4",
+            "code": "projects",
+            "name": "Projects",
+            "status": "active",
+            "type": {
+                "type": "limit",
+                "counted_by": "app",
+                "policy": {
+                    "resets": {"type": "never"},
+                    "at_limit": "deny_new",
+                    "grace_pct": 0,
+                    "thresholds": []
+                }
+            },
+            "unit": "projects",
+            "applies_per": {"id": "rty_5tY7uI9oP1aS3dF5gH7jK9", "code": "site"},
+            "defaults": [],
+            "created_at": CREATED_AT,
+            "updated_at": CREATED_AT
+        })
+    }
 }

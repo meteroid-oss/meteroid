@@ -12,7 +12,7 @@ use common_domain::ids::{
 use common_domain::rbac::{Permission, RolePermissions};
 use common_grpc::middleware::server::auth::RequestExt;
 use error_stack::Report;
-use meteroid_app::features::customer_signals_gate_open;
+use meteroid_app::features::{gates, tenant_gate_open};
 use meteroid_grpc::meteroid::api::customers::v1::{
     ArchiveCustomerRequest, ArchiveCustomerResponse, AssignCustomerOwnerRequest,
     AssignCustomerOwnerResponse, CreateCustomerRequest, CreateCustomerResponse, CustomerBrief,
@@ -31,9 +31,11 @@ use meteroid_grpc::meteroid::api::customers::v1::{
 use meteroid_grpc_mapping::utils::{PaginationExt, caller_permissions, check_bulk_ids};
 use meteroid_store::domain::customer_signals::OpenSignals;
 use meteroid_store::domain::customer_summary::SummaryParts;
+use meteroid_store::domain::resources::ResourceInput;
 use meteroid_store::domain::{CustomerNew, CustomerPatch};
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::CustomersInterface;
+use meteroid_store::repositories::ResourcesInterface;
 use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::customer_connection::CustomerConnectionInterface;
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
@@ -70,11 +72,11 @@ impl CustomerServiceComponents {
     ) -> Result<HashMap<CustomerId, OpenSignals>, Status> {
         if customer_ids.is_empty()
             || !permissions.contains(Permission::AlertsRead)
-            || !customer_signals_gate_open(
+            || !tenant_gate_open(
                 self.feature_resolver.as_ref(),
-                &self.store,
                 org_id,
                 tenant_id,
+                gates::CUSTOMER_SIGNALS,
             )
             .await
         {
@@ -656,6 +658,14 @@ impl CustomersService for CustomerServiceComponents {
 
         let req = request.into_inner();
         let customer_id = CustomerId::from_proto(req.customer_id)?;
+        let client = ResourceInput {
+            resources: req.resources.into_iter().collect(),
+            attributes: req.attributes.into_iter().collect(),
+        };
+        self.store
+            .resolve_resource_input(tenant_id, customer_id, &client)
+            .await
+            .map_err(Into::<CustomerApiError>::into)?;
 
         let token = self
             .store
@@ -665,6 +675,7 @@ impl CustomersService for CustomerServiceComponents {
                 meteroid_store::jwt_claims::default_customer_portal_token_ttl(),
                 None,
                 delegated,
+                client.into(),
             )
             .await
             .map_err(Into::<CustomerApiError>::into)?

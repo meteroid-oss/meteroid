@@ -1,6 +1,6 @@
 use chrono::{DateTime, NaiveDate, Utc};
 use common_domain::ids::{
-    CheckoutSessionId, CouponId, CustomerId, PlanVersionId, SubscriptionId, TenantId,
+    CheckoutSessionId, CouponId, CustomerId, PlanVersionId, ResourceId, SubscriptionId, TenantId,
 };
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 use rust_decimal::Decimal;
@@ -55,6 +55,8 @@ pub struct CheckoutSessionRow {
     pub coupon_ids_before_payment: Option<Vec<Option<CouponId>>>,
     /// The plan option bought, by alias; its currency is the customer's.
     pub plan_option: Option<String>,
+    /// The stored resource the subscription it creates is for.
+    pub resource_id: Option<ResourceId>,
 }
 
 #[derive(Debug, Insertable)]
@@ -99,4 +101,5 @@ pub struct CheckoutSessionRowNew {
     pub success_url: Option<String>,
     pub cancel_url: Option<String>,
     pub plan_option: Option<String>,
+    pub resource_id: Option<ResourceId>,
 }

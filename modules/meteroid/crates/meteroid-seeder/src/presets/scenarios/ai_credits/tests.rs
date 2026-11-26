@@ -1281,6 +1281,8 @@ fn every_component_maps_to_an_engine_valid_price() {
     let scenario = ai_credits_scenario();
     let spec = &scenario.metrics[0];
     let metric = meteroid_store::domain::BillableMetric {
+        attributed_to_type_id: None,
+        attribution_property: None,
         id: BillableMetricId::new(),
         name: spec.name.clone(),
         description: None,

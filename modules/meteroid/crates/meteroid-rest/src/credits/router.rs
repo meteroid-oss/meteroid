@@ -77,6 +77,7 @@ fn total_pages(total_items: u64, per_page: u32) -> u32 {
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Customer or subscription not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -301,6 +302,7 @@ fn checked_add(left: i64, right: i64) -> Result<i64, RestApiError> {
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Customer not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -376,6 +378,7 @@ pub async fn list_credit_grants(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Customer not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]

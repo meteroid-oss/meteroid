@@ -508,6 +508,18 @@ function renderEntry(entry: ActivityEntry): RenderedEntry {
         icon: <CheckCircle2 className="h-4 w-4 text-success" />,
         title: <>{entityRef(entry, 'Quote', 'Quote')} accepted</>,
       }
+    case 'checkout.payment_kept_as_credit': {
+      const amount = typeof md.amount === 'number' ? md.amount : undefined
+      const currency = typeof md.currency === 'string' ? md.currency : undefined
+      const reason = typeof md.reason === 'string' ? md.reason : undefined
+      return {
+        icon: <OctagonX className="h-4 w-4 text-warning" />,
+        title: <>Checkout payment kept as credit</>,
+        subtitle: [amount !== undefined && currency ? formatCurrency(amount, currency) : undefined, reason]
+          .filter(Boolean)
+          .join(' · '),
+      }
+    }
     case 'quote.converted':
       return {
         icon: <CheckCircle2 className="h-4 w-4 text-success" />,

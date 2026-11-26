@@ -8,7 +8,7 @@ import {
   SortingState,
   flexRender,
 } from '@tanstack/react-table'
-import { ReactNode, useRef } from 'react'
+import { Fragment, ReactNode, useRef } from 'react'
 import { Link } from 'react-router'
 
 import { CustomTable } from '@/components/table/CustomTable'
@@ -43,6 +43,13 @@ interface StandardTableProps<A> {
   /** Externally controlled column visibility (e.g. an active saved view). Overrides the
    *  per-user preference while set; needs `tableKey`. */
   columnState?: ColumnState
+  /** Inserts a full-width header row wherever the key changes between consecutive rows. */
+  groupBy?: (row: A) => RowGroup
+}
+
+export interface RowGroup {
+  key: string
+  label: ReactNode
 }
 
 export interface ColumnState {
@@ -72,6 +79,7 @@ export const StandardTable = <A extends object>({
   renderSelectionActions,
   chart,
   columnState,
+  groupBy,
 }: StandardTableProps<A>) => {
   const enabled = !!tableKey
   const { columnVisibility, setColumnVisibility, showChart, setShowChart, reset } =
@@ -91,7 +99,18 @@ export const StandardTable = <A extends object>({
       setPagination={setPagination}
       totalCount={totalCount}
       emptyMessage={emptyMessage}
-      rowRenderer={row => standardRowRenderer(row, rowLink, rowClassName, onRowIntent)}
+      rowRenderer={(row, index, rows) => {
+        const rendered = standardRowRenderer(row, rowLink, rowClassName, onRowIntent)
+        if (!groupBy) return rendered
+        const group = groupBy(row.original)
+        if (index > 0 && groupBy(rows[index - 1].original).key === group.key) return rendered
+        return (
+          <Fragment key={row.id}>
+            <GroupHeaderRow colSpan={row.getVisibleCells().length}>{group.label}</GroupHeaderRow>
+            {rendered}
+          </Fragment>
+        )
+      }}
       isLoading={isLoading}
       columnVisibility={enabled ? (columnState?.visibility ?? columnVisibility) : undefined}
       onColumnVisibilityChange={
@@ -155,6 +174,15 @@ const standardRowRenderer = <A extends object>(
     </TableRow>
   )
 }
+
+const GroupHeaderRow = ({ colSpan, children }: { colSpan: number; children: ReactNode }) => (
+  // `[&&]` outranks the table's row-height rules so the header stays compact in every density.
+  <TableRow className="bg-muted/40 hover:bg-muted/40 [&&]:!h-8">
+    <TableCell colSpan={colSpan} className="py-1.5 text-xs font-medium text-muted-foreground">
+      {children}
+    </TableCell>
+  </TableRow>
+)
 
 // Long enough to skip rows the pointer only sweeps across.
 const HOVER_INTENT_MS = 80

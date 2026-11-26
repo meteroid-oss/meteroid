@@ -16,7 +16,8 @@ import {
   productScopeOptions,
 } from '@/features/billing/minimumCommitment'
 import { serializeCustomProperties } from '@/features/customproperties/CustomPropertiesFields'
-import { resolveEntitlementSpecs } from '@/features/entitlements/creation/resolveEntitlementSpecs'
+import { grantValueText } from '@/features/entitlements/rows/grantDisplay'
+import { draftsToSpecs } from '@/features/entitlements/rows/grantDraft'
 import {
   buildExistingProductRef,
   buildFeeStructure,
@@ -25,8 +26,8 @@ import {
   toPricingTypeFromFeeType,
   wrapAsNewPriceEntries,
 } from '@/features/pricing'
+import { SubscribedForSummary } from '@/features/subscriptions/SubscribedFor'
 import { InvoicePreviewCard } from '@/features/subscriptions/UpcomingInvoiceCard'
-import { formatUsageFilter } from '@/features/subscriptions/UsageFilterFields'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
@@ -44,7 +45,6 @@ import { listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connect
 import { ListCouponRequest_CouponFilter } from '@/rpc/api/coupons/v1/coupons_pb'
 import { Coupon } from '@/rpc/api/coupons/v1/models_pb'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
-import { createFeature } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import { getPlanWithVersionByVersionId } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import {
   ActivationCondition,
@@ -110,7 +110,7 @@ const buildCreateSubscriptionMessage = (
     invoiceMemo: state.invoiceMemo,
     invoiceThreshold: state.invoiceThreshold,
     purchaseOrder: state.purchaseOrder,
-    usageFilter: state.usageFilter,
+    resourceId: state.resourceId,
     autoAdvanceInvoices: state.autoAdvanceInvoices,
     chargeAutomatically: state.chargeAutomatically,
     paymentMethodsConfig: buildProtoPaymentMethodsConfig(state.paymentMethodsType),
@@ -232,7 +232,6 @@ export const StepReviewAndCreate = () => {
     },
   })
 
-  const createFeatureMutation = useMutation(createFeature)
   const netTermsDefault = useDefaultNetTerms(state)
 
   const allComponents = sale.components ?? []
@@ -279,18 +278,15 @@ export const StepReviewAndCreate = () => {
 
   const handleCreate = async () => {
     try {
-      const resolvedEntitlements = await resolveEntitlementSpecs(
-        state.entitlements,
-        req => createFeatureMutation.mutateAsync(req)
-      )
-
       const created = await createSubscriptionMutation.mutateAsync({
         subscription: {
           ...buildCreateSubscriptionMessage(state, currency, sale.handle),
-          entitlements: resolvedEntitlements,
+          entitlements: draftsToSpecs(state.entitlements),
         },
       })
       toast.success('Subscription created successfully')
+      if (created.subscription?.warnings.includes('plan_sold_for_mismatch'))
+        toast.warning('Created for another target than the plan is sold for.')
       navigate(`${basePath}/subscriptions/${created.subscription?.id}`)
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to create subscription'
@@ -366,6 +362,15 @@ export const StepReviewAndCreate = () => {
                     <div className="text-xs text-muted-foreground">Currency</div>
                     <div className="text-sm font-medium">{currency}</div>
                   </div>
+                  {state.customerId && (
+                    <SubscribedForSummary
+                      customerId={state.customerId}
+                      customerName={customerQuery.data?.customer?.name ?? ''}
+                      resourceId={state.resourceId}
+                      soldForTypeId={planQuery.data?.plan?.plan?.soldForResourceTypeId}
+                      metricsNotAttributed={previewQuery.data?.metricsNotAttributed}
+                    />
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -434,17 +439,8 @@ export const StepReviewAndCreate = () => {
 
                 {(state.invoiceMemo ||
                   state.invoiceThreshold ||
-                  state.purchaseOrder ||
-                  state.usageFilter) && (
+                  state.purchaseOrder) && (
                   <div className="mt-4 pt-4 border-t space-y-2">
-                    {state.usageFilter && (
-                      <div>
-                        <div className="text-xs text-muted-foreground">Usage filter</div>
-                        <div className="text-sm font-mono">
-                          {formatUsageFilter(state.usageFilter)}
-                        </div>
-                      </div>
-                    )}
                     {state.purchaseOrder && (
                       <div>
                         <div className="text-xs text-muted-foreground">Purchase Order</div>
@@ -468,11 +464,12 @@ export const StepReviewAndCreate = () => {
                 {(previewQuery.data?.unfilteredOverlaps ?? []).length > 0 && (
                   <Alert variant="warning" className="mt-4">
                     <AlertDescription className="text-xs">
-                      Without a usage filter, this subscription and{' '}
+                      This subscription and{' '}
                       {previewQuery
                         .data!.unfilteredOverlaps.map(overlap => overlap.planName)
                         .join(', ')}{' '}
-                      (also without one) both bill the same events of the metrics they share.
+                      are for the same {state.resourceId ? 'resource' : 'customer'} and share metrics:
+                      {state.resourceId ? ' the older one bills them.' : ' both bill the same events.'}
                     </AlertDescription>
                   </Alert>
                 )}
@@ -537,20 +534,12 @@ export const StepReviewAndCreate = () => {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
-                    {state.entitlements.map((e, i) => (
-                      <div key={i} className="flex items-center justify-between text-sm">
-                        <span className="font-medium">{e.featureDisplayName}</span>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span>
-                            {e.featureType === 'boolean'
-                              ? e.boolEnabled !== false
-                                ? 'Enabled'
-                                : 'Disabled'
-                              : e.limit
-                                ? `${e.limit} / ${e.resetPeriodType ?? 'cycle'}`
-                                : 'Unlimited'}
-                          </span>
-                        </div>
+                    {state.entitlements.map(e => (
+                      <div key={e.spec.featureId} className="flex items-center justify-between gap-3 text-sm">
+                        <span className="font-medium">{e.feature.name}</span>
+                        <span className="text-[13px] text-muted-foreground">
+                          {grantValueText(e.spec, e.feature, 'subscription')}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -632,11 +621,11 @@ export const StepReviewAndCreate = () => {
         </Button>
         <Button
           onClick={handleCreate}
-          disabled={createSubscriptionMutation.isPending || createFeatureMutation.isPending}
+          disabled={createSubscriptionMutation.isPending}
           className="min-w-[120px]"
           variant="brand"
         >
-          {createSubscriptionMutation.isPending || createFeatureMutation.isPending
+          {createSubscriptionMutation.isPending
             ? 'Creating...'
             : 'Create subscription'}
         </Button>

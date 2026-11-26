@@ -68,6 +68,7 @@ async fn create_activation_session(
             change_date: None,
             success_url: None,
             cancel_url: None,
+            resource_id: None,
         })
         .await
         .expect("Failed to create activation checkout session")

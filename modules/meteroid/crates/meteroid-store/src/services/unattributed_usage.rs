@@ -1,10 +1,12 @@
 use crate::StoreResult;
 use crate::domain::{
-    BillableMetric, SubscriptionDetails, UnattributedUsage, UsagePeriod, unattributed_spans,
-    unfiltered_overlaps,
+    BillableMetric, SaleWarnings, SubscriptionDetails, UnattributedUsage, UsagePeriod,
+    billing_overlaps, unattributed_spans, unclaimed_scope,
 };
 use crate::errors::StoreError;
-use crate::repositories::subscriptions::usage_attribution::attributed_subscriptions;
+use crate::repositories::subscriptions::usage_attribution::{
+    attributed_resources, attributed_subscriptions, sale_warnings,
+};
 use crate::services::ServicesEdge;
 use chrono::{Duration, NaiveDateTime};
 use common_domain::ids::{BillableMetricId, CustomerId, SubscriptionId, TenantId};
@@ -17,17 +19,14 @@ use std::collections::HashMap;
 const MAX_RANGE: Duration = Duration::days(366);
 
 impl ServicesEdge {
-    /// The customer's subscriptions that would bill the same events as `details` (a subscription
-    /// about to be created): both without a usage filter, sharing metrics over their lives.
-    pub async fn unfiltered_overlaps(
+    /// The customer's subscriptions for the same resource (or the customer) as `details`, a
+    /// subscription about to be created, sharing metrics over their lives.
+    pub async fn billing_overlaps(
         &self,
         tenant_id: TenantId,
         details: &SubscriptionDetails,
     ) -> StoreResult<Vec<(SubscriptionId, Vec<BillableMetricId>)>> {
         let subscription = &details.subscription;
-        if subscription.usage_filter.is_some() {
-            return Ok(Vec::new());
-        }
         let metric_ids = details
             .price_components
             .iter()
@@ -42,8 +41,15 @@ impl ServicesEdge {
         let mut conn = self.store.get_conn().await?;
         let siblings =
             attributed_subscriptions(&mut conn, tenant_id, subscription.customer_id, false).await?;
-        Ok(unfiltered_overlaps(
+        let resource = match subscription.resource_id {
+            Some(id) => attributed_resources(&mut conn, tenant_id, &[id])
+                .await?
+                .remove(&id),
+            None => None,
+        };
+        Ok(billing_overlaps(
             &siblings,
+            resource.as_ref(),
             &metric_ids,
             subscription.start_date.and_time(chrono::NaiveTime::MIN),
             subscription
@@ -52,8 +58,41 @@ impl ServicesEdge {
         ))
     }
 
-    /// The customer's usage over `[from, to)` that no subscription bills: it matches none of the
-    /// usage filters of the subscriptions pricing its metric, and none of them is unfiltered.
+    /// What creating `details`, a subscription about to be created, is accepted with (§3.5, §3.6).
+    pub async fn sale_warnings(
+        &self,
+        tenant_id: TenantId,
+        details: &SubscriptionDetails,
+    ) -> StoreResult<SaleWarnings> {
+        let subscription = &details.subscription;
+        let metric_ids = details
+            .price_components
+            .iter()
+            .map(|component| &component.fee)
+            .chain(details.add_ons.iter().map(|add_on| &add_on.fee))
+            .filter_map(|fee| fee.metric_id())
+            .unique()
+            .collect_vec();
+        let mut conn = self.store.get_conn().await?;
+        let resource_type_id = match subscription.resource_id {
+            Some(id) => attributed_resources(&mut conn, tenant_id, &[id])
+                .await?
+                .remove(&id)
+                .map(|resource| resource.type_id),
+            None => None,
+        };
+        sale_warnings(
+            &mut conn,
+            tenant_id,
+            subscription.plan_version_id,
+            resource_type_id,
+            &metric_ids,
+        )
+        .await
+    }
+
+    /// The customer's usage over `[from, to)` that no subscription bills: no subscription for its
+    /// resource prices its metric, and no customer-level one does.
     pub async fn unattributed_usage(
         &self,
         tenant_id: TenantId,
@@ -103,7 +142,7 @@ impl ServicesEdge {
                 continue;
             };
             let mut scoped = metric.clone();
-            scoped.usage_scope = span.scope;
+            scoped.usage_scope = unclaimed_scope(&subscriptions, metric);
             let quantity = self
                 .services
                 .usage_client
@@ -121,11 +160,13 @@ impl ServicesEdge {
                 let subscription_ids = subscriptions
                     .iter()
                     .filter(|subscription| {
-                        subscription.spans.iter().any(|priced| {
-                            priced.metric_id == span.metric_id
-                                && priced.from < span.until
-                                && priced.until.is_none_or(|until| until > span.from)
-                        })
+                        subscription.resource.is_some()
+                            && subscription.claims_now()
+                            && subscription.spans.iter().any(|priced| {
+                                priced.metric_id == span.metric_id
+                                    && priced.from < span.until
+                                    && priced.until.is_none_or(|until| until > span.from)
+                            })
                     })
                     .map(|subscription| subscription.id)
                     .collect();

@@ -526,7 +526,7 @@ impl ServicesEdge {
             .filter(|window| subscription_id.is_none_or(|id| window.subscription_id == id))
             .collect::<Vec<_>>();
         if let Some(details) = subscription {
-            // Scoped by the subscription's usage filter, so its reads count its events only; a
+            // Scoped by the subscription's resource, so its reads count its events only; a
             // metric a plan change removed is still billed by the windows that closed it.
             metric = details
                 .metrics
@@ -543,12 +543,13 @@ impl ServicesEdge {
             })
             .collect::<Vec<_>>();
         windows.sort_by_key(|window| window.start);
-        // Subscriptions told apart by a usage filter price disjoint events at the same time.
+        // Subscriptions for different resources price disjoint events at the same time.
         let clash = |a: &PlannedWindow, b: &PlannedWindow| {
             a.start < b.end
                 && b.start < a.end
                 && (a.subscription_id == b.subscription_id
-                    || (!a.metric.usage_scope.is_filtered() && !b.metric.usage_scope.is_filtered()))
+                    || (!a.metric.usage_scope.is_resource_scoped()
+                        && !b.metric.usage_scope.is_resource_scoped()))
         };
         if windows
             .iter()
@@ -1530,6 +1531,8 @@ mod tests {
 
     fn metric() -> BillableMetric {
         BillableMetric {
+            attributed_to_type_id: None,
+            attribution_property: None,
             id: BillableMetricId::new(),
             name: "API calls".to_owned(),
             description: None,

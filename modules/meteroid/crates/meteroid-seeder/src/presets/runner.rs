@@ -35,9 +35,9 @@ use metering_grpc::meteroid::metering::v1::Event;
 use meteroid_store::StoreResult;
 use meteroid_store::clients::usage::UsageClient;
 use meteroid_store::domain::coupons::{CouponDiscount, CouponNew, CouponTerms};
+use meteroid_store::domain::entitlement_fold::{GrantValue, LimitValue};
 use meteroid_store::domain::entitlements::{
-    ConfigValue, ConfigValueType, EntitlementSpec, EntitlementValue, FeatureNew, FeatureType,
-    OverageBehavior, ResetPeriod,
+    EntitlementSpec, FeatureKind as Kind, FeatureNew, LimitCountedBy, ValueType,
 };
 use meteroid_store::domain::plan_minimums::CreateMinimumScope;
 use meteroid_store::domain::plan_options::{PlanOption, PlanOptionRef};
@@ -363,6 +363,7 @@ async fn seed_sandbox_data(
             .insert_billable_metric(
                 Actor::System,
                 store_domain::BillableMetricNew {
+                    attributed_to: None,
                     tenant_id: tenant.id,
                     name: metric.name,
                     code: metric.code,
@@ -410,7 +411,7 @@ async fn seed_sandbox_data(
 
     let mut feature_ids: HashMap<String, FeatureId> = HashMap::new();
     for feature in &scenario.features {
-        let (feature_type, entitlement) = match &feature.kind {
+        let (kind, default) = match &feature.kind {
             FeatureKind::Metered {
                 metric_code,
                 unlimited_by_default,
@@ -421,31 +422,19 @@ async fn seed_sandbox_data(
                     .ok_or(StoreError::ValueNotFound(format!(
                         "Metric was not found {metric_code}"
                     )))?;
-                let unlimited = unlimited_by_default.then_some(EntitlementValue::Metered {
-                    limit: None,
-                    reset_period: ResetPeriod::BillingCycle,
-                    overage_behavior: OverageBehavior::Block {
-                        grace_period_pct: None,
-                    },
-                    thresholds: vec![],
-                    enabled: true,
-                    group_by: None,
-                });
-                (FeatureType::metered(metric.id), unlimited)
+                (
+                    Kind::Limit(LimitCountedBy::Events(metric.id)),
+                    unlimited_by_default.then_some(GrantValue::Limit(LimitValue::Unlimited)),
+                )
             }
-            FeatureKind::Boolean { default_enabled } => (
-                FeatureType::Boolean,
-                Some(EntitlementValue::Boolean {
-                    enabled: *default_enabled,
-                }),
-            ),
+            FeatureKind::Boolean { default_enabled } => {
+                (Kind::Boolean, Some(GrantValue::Boolean(*default_enabled)))
+            }
             FeatureKind::Number { default } => (
-                FeatureType::Config {
-                    value_type: ConfigValueType::Number,
-                },
-                Some(EntitlementValue::Config {
-                    value: ConfigValue::Number(*default),
+                Kind::Value(ValueType::Number {
+                    higher_is_better: true,
                 }),
+                Some(GrantValue::Number(*default)),
             ),
         };
         let product_id = feature
@@ -465,8 +454,11 @@ async fn seed_sandbox_data(
                     name: feature.name.clone(),
                     code: feature.code.clone(),
                     description: None,
-                    feature_type,
-                    entitlement,
+                    kind,
+                    unit: None,
+                    level_type_id: None,
+                    policy: None,
+                    default,
                 },
             )
             .await?;
@@ -511,6 +503,7 @@ async fn seed_sandbox_data(
                 Actor::System,
                 store_domain::FullPlanNew {
                     plan: store_domain::PlanNew {
+                        sold_for_resource_type_id: None,
                         name: plan.name,
                         plan_type: plan.plan_type,
                         status: PlanStatusEnum::Active,
@@ -884,7 +877,7 @@ async fn seed_sandbox_data(
                 backdate_invoices: true,
                 skip_checkout_session: false,
                 skip_past_invoices: false,
-                usage_filter: None,
+                resource_id: None,
                 custom_properties: serde_json::Value::Null,
                 external_id: None,
             };
@@ -1931,30 +1924,17 @@ fn entitlement_spec(
                 "Feature was not found {}",
                 entitlement.feature_code()
             )))?;
-    let value = match entitlement {
+    Ok(match entitlement {
         PlanEntitlementSpec::Metered {
             limit,
             warning_pct,
             block,
             ..
-        } => EntitlementValue::Metered {
-            limit: Some(*limit),
-            reset_period: ResetPeriod::BillingCycle,
-            overage_behavior: match block {
-                Some(block) => OverageBehavior::Block {
-                    grace_period_pct: block.grace_pct,
-                },
-                None => OverageBehavior::Allow,
-            },
-            thresholds: vec![*warning_pct],
-            enabled: true,
-            group_by: None,
-        },
+        } => replay::limit_row(feature_id, *limit, *block, vec![*warning_pct]),
         PlanEntitlementSpec::Boolean { enabled, .. } => {
-            EntitlementValue::Boolean { enabled: *enabled }
+            EntitlementSpec::new(feature_id, GrantValue::Boolean(*enabled))
         }
-    };
-    Ok(EntitlementSpec { feature_id, value })
+    })
 }
 
 fn subunits(amount: Decimal, currency: &str) -> StoreResult<i64> {
@@ -2205,6 +2185,7 @@ async fn seed_quotes(
             create_subscription_on_acceptance: false,
             payment_methods_config: None,
             custom_properties: serde_json::Value::Null,
+            resource_id: None,
             entitlements: vec![],
             owner_id: None,
             template_id: None,

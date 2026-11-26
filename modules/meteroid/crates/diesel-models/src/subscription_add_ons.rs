@@ -27,6 +27,8 @@ pub struct SubscriptionAddOnRow {
     /// definition or a plan change). Drives one-time-fee billing on the effective
     /// period; recurring fees are unaffected.
     pub added_by_amendment: bool,
+    /// From when it bills its metric, past usage another subscription invoiced (R-143).
+    pub usage_from: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Insertable, Debug, Clone)]

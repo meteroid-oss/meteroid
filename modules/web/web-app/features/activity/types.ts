@@ -94,6 +94,7 @@ export const KNOWN_ACTIVITY_TYPES = [
   'reminder_sequence.updated',
   'reminder_sequence.archived',
   'usage_events.voided',
+  'checkout.payment_kept_as_credit',
   'entity.field_changed',
   'entity.updated',
 ] as const

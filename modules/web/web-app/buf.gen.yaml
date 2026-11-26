@@ -52,6 +52,8 @@ types:
     - meteroid.api.quoteapprovals.v1.QuoteApprovalsService
     - meteroid.api.quotecomments.v1.QuoteCommentsService
     - meteroid.api.quotetemplates.v1.QuoteTemplatesService
+    - meteroid.api.resources.v1.ResourceTypesService
+    - meteroid.api.resources.v1.ResourcesService
     - meteroid.api.savedviews.v1.SavedViewsService
     - meteroid.api.listviews.v1.ListViewsService
     - meteroid.api.schedules.v1.SchedulesService

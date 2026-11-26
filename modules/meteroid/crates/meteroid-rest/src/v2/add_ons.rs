@@ -4,7 +4,7 @@ use crate::AppState;
 use crate::v2::charges::{
     Charge, ChargePrice, EVERY_OPTION, OptionSet, StoredCharge, StoredPrice, render, to_domain,
 };
-use crate::v2::entitlements::Grant;
+use crate::v2::entitlements::{Entitlement, EntitlementInput};
 use crate::v2::extract::{Body, Path, Query};
 use crate::v2::idempotency::committed_write;
 use crate::v2::ids;
@@ -20,6 +20,7 @@ use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use meteroid_rest_common::datetime::ApiDateTime;
 use meteroid_store::domain::add_ons::{AddOn as DomainAddOn, AddOnPatch, AddOnPriceChange};
+use meteroid_store::domain::entitlement_fold::Tier;
 use meteroid_store::domain::price_components::{PriceEntry, PriceInput, ProductRef};
 use meteroid_store::repositories::add_ons::AddOnInterface;
 use meteroid_store::repositories::products::ProductInterface;
@@ -43,8 +44,8 @@ pub struct AddOn {
     /// How many a subscription may hold; none: no limit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_instances: Option<i32>,
-    /// What it grants, by feature code.
-    pub entitlements: Vec<Grant>,
+    /// Its rows, canonical; each counts per instance held (seats held for one sold per seat).
+    pub entitlements: Vec<Entitlement>,
     pub archived: bool,
     pub created_at: ApiDateTime,
 }
@@ -76,9 +77,9 @@ pub struct CreateAddOn {
     pub self_serviceable: bool,
     #[serde(default)]
     pub max_instances: Option<i32>,
-    /// What it grants.
+    /// Its rows; `add` by default when it is bought several times or per seat, else `raise_to`.
     #[serde(default)]
-    pub entitlements: Vec<Grant>,
+    pub entitlements: Vec<EntitlementInput>,
 }
 
 /// A merge patch. `prices` replaces every price of the charge; how it bills never changes.
@@ -97,9 +98,10 @@ pub struct UpdateAddOn {
     pub max_instances: Option<Option<i32>>,
     #[serde(default)]
     pub prices: Option<Vec<ChargePrice>>,
-    /// Replaces what it grants; `[]` grants nothing.
+    /// Replaces its rows: one sent the same keeps its id and history, one changed is succeeded,
+    /// one left out is revoked; `[]` revokes them all.
     #[serde(default)]
-    pub entitlements: Option<Vec<Grant>>,
+    pub entitlements: Option<Vec<EntitlementInput>>,
 }
 
 fn stored(add_on: &DomainAddOn) -> StoredCharge {
@@ -124,15 +126,15 @@ fn stored(add_on: &DomainAddOn) -> StoredCharge {
 async fn to_api(
     state: &AppState,
     tenant_id: TenantId,
-    add_ons: Vec<DomainAddOn>,
+    mut add_ons: Vec<DomainAddOn>,
 ) -> Result<Vec<AddOn>, Problem> {
     let charges: Vec<StoredCharge> = add_ons.iter().map(stored).collect();
     let names = CatalogNames::load(state, tenant_id, &charges).await?;
-    let owners: Vec<&[meteroid_store::domain::entitlements::Entitlement]> = add_ons
-        .iter()
-        .map(|add_on| add_on.entitlements.as_slice())
+    let owners = add_ons
+        .iter_mut()
+        .map(|add_on| std::mem::take(&mut add_on.entitlements))
         .collect();
-    let grants = crate::v2::entitlements::render_each(state, tenant_id, &owners).await?;
+    let grants = crate::v2::entitlements::render_each(state, tenant_id, owners).await?;
     add_ons
         .into_iter()
         .zip(charges)
@@ -340,9 +342,14 @@ pub async fn create_add_on(
         .find_product_by_id(charge.product_id, auth.tenant_id)
         .await?;
     ids::check_code(body.code.as_deref(), AddOnId::PREFIX)?;
-    let entitlements =
-        crate::v2::entitlements::specs(&state, auth.tenant_id, &body.entitlements, "/entitlements")
-            .await?;
+    let entitlements = crate::v2::entitlements::specs(
+        &state,
+        auth.tenant_id,
+        &body.entitlements,
+        Tier::AddOn,
+        "/entitlements",
+    )
+    .await?;
     let code = body.code.clone().unwrap_or_default();
     let add_on = state
         .store
@@ -360,7 +367,15 @@ pub async fn create_add_on(
             entitlements,
         )
         .await
-        .map_err(|error| Problem::at("/charge", error).code_taken(&code))?;
+        // A store refusal points at the charge only when no row could be refused.
+        .map_err(|error| {
+            let problem = if body.entitlements.is_empty() {
+                Problem::at("/charge", error)
+            } else {
+                Problem::from(error)
+            };
+            problem.code_taken(&code)
+        })?;
     Ok(written(&state, auth.tenant_id, StatusCode::CREATED, add_on).await)
 }
 
@@ -411,8 +426,15 @@ pub async fn update_add_on(
     }
     let entitlements = match &body.entitlements {
         None => None,
-        Some(grants) => Some(
-            crate::v2::entitlements::specs(&state, auth.tenant_id, grants, "/entitlements").await?,
+        Some(inputs) => Some(
+            crate::v2::entitlements::specs(
+                &state,
+                auth.tenant_id,
+                inputs,
+                Tier::AddOn,
+                "/entitlements",
+            )
+            .await?,
         ),
     };
     let prices = match body.prices {
@@ -440,7 +462,8 @@ pub async fn update_add_on(
             Some(AddOnPriceChange::All(add_on_prices(repriced.prices, "")?))
         }
     };
-    // Its terms, prices and grants in one transaction: a refusal of any writes none.
+    let only_rows = entitlements.is_some() && prices.is_none() && body.max_instances.is_none();
+    // Its terms, prices and rows in one transaction: a refusal of any writes none.
     let add_on = state
         .store
         .update_add_on_with_entitlements(
@@ -456,7 +479,14 @@ pub async fn update_add_on(
             prices,
             entitlements,
         )
-        .await?;
+        .await
+        .map_err(|error| {
+            if only_rows {
+                Problem::at("/entitlements", error)
+            } else {
+                Problem::from(error)
+            }
+        })?;
     Ok(written(&state, auth.tenant_id, StatusCode::OK, add_on).await)
 }
 

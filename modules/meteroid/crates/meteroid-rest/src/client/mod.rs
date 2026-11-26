@@ -9,6 +9,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 mod auth;
+mod entitlements;
 mod mapping;
 pub mod model;
 mod public;
@@ -58,7 +59,9 @@ pub fn client_api(
 ) -> (axum::Router<AppState>, utoipa::openapi::OpenApi) {
     let (router, mut open_api) = OpenApiRouter::with_openapi(ClientApiDoc::openapi())
         .routes(routes!(router::get_customer))
-        .routes(routes!(router::list_entitlements))
+        .routes(routes!(entitlements::get_entitlements))
+        .routes(routes!(entitlements::check_entitlement))
+        .routes(routes!(entitlements::check_entitlement_by_query))
         .routes(routes!(router::list_subscriptions))
         .routes(routes!(public::get_pricing_page))
         .split_for_parts();

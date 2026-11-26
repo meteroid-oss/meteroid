@@ -15,8 +15,6 @@ import {
   Spinner,
 } from '../primitives'
 
-import { UsageFilterTag } from './UsageFilterTag'
-
 import type { InvoiceSummary } from '@/rpc/portal/customer/v1/models_pb'
 
 const PER_PAGE = 8
@@ -172,7 +170,6 @@ export const InvoicesScreen = () => {
               >
                 <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
                   <span style={ELLIPSIS}>{invoice.planName || '—'}</span>
-                  <UsageFilterTag subscriptionId={invoice.subscriptionId} />
                 </span>
                 {creditLine && (
                   <span style={{ ...ELLIPSIS, fontSize: 12, color: 'var(--mtp-text-3)' }}>

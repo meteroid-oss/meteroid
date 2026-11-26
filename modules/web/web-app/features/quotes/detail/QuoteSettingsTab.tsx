@@ -5,8 +5,9 @@ import { Link } from 'react-router'
 import { MinimumCommitmentDisplay, productScopeOptions } from '@/features/billing/minimumCommitment'
 import { CustomPropertyValue } from '@/features/customproperties/CustomPropertyValue'
 import { useCustomPropertyRows } from '@/features/customproperties/useCustomPropertyRows'
-import { ResolvedEntitlementsPanel } from '@/features/entitlements/resolved/ResolvedEntitlementsPanel'
+import { EntitlementRowsEditor } from '@/features/entitlements/rows/EntitlementRowsEditor'
 import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
+import { isQuoteEditable } from '@/features/quotes/quoteEditable'
 import {
   formatSubscriptionFee,
   formatSubscriptionFeeBillingPeriod,
@@ -252,7 +253,11 @@ export const QuoteSettingsTab = ({ quote, minimumCommitment, planName }: Props) 
       {env.entitlementsEnabled && (
         <div className="xl:col-span-2">
           <Section title="Entitlements">
-            <ResolvedEntitlementsPanel entity={{ type: 'quote', id: q.id }} canPin={true} />
+            <EntitlementRowsEditor
+              owner={{ case: 'quoteId', value: q.id }}
+              canEdit={isQuoteEditable(quote)}
+              title=""
+            />
           </Section>
         </div>
       )}

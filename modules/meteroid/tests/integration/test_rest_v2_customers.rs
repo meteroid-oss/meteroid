@@ -313,7 +313,8 @@ async fn test_rest_v2_customers() {
     assert_eq!(scopeless.status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(scopeless.body["errors"][0]["path"], "/scopes");
 
-    // Entitlements: a page of them, and none to a feature that does not exist.
+    // Entitlements: the snapshot, not paged, with its ETag; none to a feature that does not
+    // exist (the rest is `test_rest_v2_customer_entitlements`).
     let entitlements = f.get("/api/v2/customers/ext:acme-v2/entitlements").await;
     assert_eq!(
         entitlements.status,
@@ -321,12 +322,19 @@ async fn test_rest_v2_customers() {
         "{:#}",
         entitlements.body
     );
-    assert!(entitlements.body["data"].is_array());
-    assert_eq!(entitlements.body["has_more"], false);
+    assert!(entitlements.body["entitlements"].is_array());
+    let etag = entitlements.body["etag"].as_str().unwrap();
+    assert_eq!(
+        entitlements.header("etag"),
+        Some(format!("\"{etag}\"").as_str())
+    );
+    assert!(entitlements.body.get("has_more").is_none());
+    assert!(entitlements.body.get("data").is_none());
     let unknown = f
         .get("/api/v2/customers/ext:acme-v2/entitlements/no-such-feature")
         .await;
     assert_eq!(unknown.status, StatusCode::NOT_FOUND);
+    assert_eq!(unknown.body["code"], "not_found");
 
     // The v2 document carries them.
     let spec = f

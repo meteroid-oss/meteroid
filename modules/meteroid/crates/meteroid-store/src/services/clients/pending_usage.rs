@@ -18,7 +18,8 @@ pub struct PendingUsageRequest<'a> {
     pub keep_last_events: bool,
     pub customer_ids: &'a [CustomerId],
     pub metric: &'a BillableMetric,
-    /// A dimension to break the usage down by, on top of those the metric already groups by.
+    /// Dimensions to break the usage down by, comma-separated, on top of those the metric already
+    /// groups by.
     pub group_by: Option<&'a str>,
     /// Whole-second instants, half-open `[since, until)`.
     pub since: NaiveDateTime,

@@ -130,16 +130,17 @@ pub struct AttributionSegment {
     pub excluded: Vec<EventClaim>,
 }
 
+/// Events whose first present property of `properties` (never empty) is `value`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventMatch {
-    pub property: String,
+    pub properties: Vec<String>,
     pub value: String,
 }
 
-/// Events whose `property` is `value`, timestamped in `[from, to)`.
+/// Events an [`EventMatch`] on `properties` and `value` matches, timestamped in `[from, to)`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventClaim {
-    pub property: String,
+    pub properties: Vec<String>,
     pub value: String,
     pub from: DateTime<Utc>,
     pub to: Option<DateTime<Utc>>,

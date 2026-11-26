@@ -15,6 +15,10 @@ message CreateQuoteRequest {
 
 message CreateQuoteResponse {
   DetailedQuote quote = 1;
+  // What its subscription would be accepted with: `plan_sold_for_mismatch`, `metric_not_attributed`.
+  repeated string warnings = 2;
+  // With `metric_not_attributed`: the codes of the metrics its resource would never bill.
+  repeated string metrics_not_attributed = 3;
 }
 
 message GetQuoteRequest {
@@ -51,6 +55,10 @@ message UpdateQuoteRequest {
 
 message UpdateQuoteResponse {
   DetailedQuote quote = 1;
+  // What its subscription would be accepted with: `plan_sold_for_mismatch`, `metric_not_attributed`.
+  repeated string warnings = 2;
+  // With `metric_not_attributed`: the codes of the metrics its resource would never bill.
+  repeated string metrics_not_attributed = 3;
 }
 
 

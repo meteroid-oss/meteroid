@@ -84,6 +84,11 @@ impl Services {
         let account = crate::repositories::invoice_account::load_tx(conn, &invoice_lock.invoice)
             .await?
             .state();
+        let claims_moved =
+            diesel_models::query::invoice_claims_moved::InvoiceClaimsMoved::is_moved(
+                conn, tenant_id, id,
+            )
+            .await?;
         let invoice: Invoice = invoice_lock.invoice.try_into()?;
 
         if !invoice.can_edit() {
@@ -113,6 +118,13 @@ impl Services {
             params.line_items.is_some() || params.discount.is_some() || params.annexes.is_some();
 
         let annexes_edited = params.annexes.is_some();
+        if billing_content_edited && invoice.manually_edited_at.is_none() && claims_moved {
+            bail!(StoreError::Conflict(
+                "Usage this draft bills moved to or from another subscription since its lines were \
+                 computed: refresh it, then edit it"
+                    .into(),
+            ));
+        }
 
         let (mut invoice, customer_details_overridden_at) = self
             .prepare_invoice_update(conn, invoice, tenant_id, params)

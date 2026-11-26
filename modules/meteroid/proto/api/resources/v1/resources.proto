@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+package meteroid.api.resources.v1;
+
+import "api/resources/v1/models.proto";
+import "common/v1/pagination.proto";
+
+// The tenant's resource types (ADR 0011 §3.4). Refusals carry their code in the message:
+// RESOURCE_KEY_CLASH (ALREADY_EXISTS), RESOURCE_HIERARCHY_UNSUPPORTED (INVALID_ARGUMENT).
+service ResourceTypesService {
+  rpc ListResourceTypes(ListResourceTypesRequest) returns (ListResourceTypesResponse) {}
+  rpc GetResourceType(GetResourceTypeRequest) returns (GetResourceTypeResponse) {}
+  rpc CreateResourceType(CreateResourceTypeRequest) returns (CreateResourceTypeResponse) {}
+  rpc UpdateResourceType(UpdateResourceTypeRequest) returns (UpdateResourceTypeResponse) {}
+}
+
+// Customers' stored resources. Refusals: RESOURCE_TYPE_ARCHIVED, RESOURCE_LIMIT_REACHED
+// (INVALID_ARGUMENT); a delete while a subscription, quote, checkout session or override names it
+// is FAILED_PRECONDITION.
+service ResourcesService {
+  rpc ListResources(ListResourcesRequest) returns (ListResourcesResponse) {}
+  rpc GetResource(GetResourceRequest) returns (GetResourceResponse) {}
+  rpc UpsertResource(UpsertResourceRequest) returns (UpsertResourceResponse) {}
+  rpc ArchiveResource(ArchiveResourceRequest) returns (ArchiveResourceResponse) {}
+  rpc DeleteResource(DeleteResourceRequest) returns (DeleteResourceResponse) {}
+}
+
+message ListResourceTypesRequest {
+  bool include_archived = 1;
+}
+message ListResourceTypesResponse {
+  repeated ResourceType resource_types = 1;
+}
+
+// By id or code.
+message GetResourceTypeRequest {
+  string id_or_code = 1;
+}
+message GetResourceTypeResponse {
+  ResourceType resource_type = 1;
+}
+
+message CreateResourceTypeRequest {
+  string code = 1;
+  string name = 2;
+  string plural_name = 3;
+  // Refused: RESOURCE_HIERARCHY_UNSUPPORTED.
+  optional string parent_type_id = 4;
+  repeated string keys = 5;
+  map<string, AttributeValues> attributes = 6;
+}
+message CreateResourceTypeResponse {
+  ResourceType resource_type = 1;
+}
+
+// An unset field is left unchanged. Removing attribute values in use is FAILED_PRECONDITION.
+message UpdateResourceTypeRequest {
+  string id_or_code = 1;
+  optional string name = 2;
+  optional string plural_name = 3;
+  optional string parent_type_id = 4;
+  KeyList keys = 5;
+  AttributeMap attributes = 6;
+  optional bool archived = 7;
+}
+message UpdateResourceTypeResponse {
+  ResourceType resource_type = 1;
+}
+
+message ListResourcesRequest {
+  optional string customer_id = 1;
+  // The type's id or code.
+  optional string resource_type = 2;
+  bool include_archived = 3;
+  meteroid.common.v1.Pagination pagination = 4;
+}
+message ListResourcesResponse {
+  repeated Resource resources = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+}
+
+message GetResourceRequest {
+  string id = 1;
+}
+message GetResourceResponse {
+  Resource resource = 1;
+}
+
+// Creates the (customer, type, key value) resource, or replaces its name, attributes and archive.
+message UpsertResourceRequest {
+  string customer_id = 1;
+  // The type's id or code.
+  string resource_type = 2;
+  string key_value = 3;
+  optional string name = 4;
+  map<string, string> attributes = 5;
+  bool archived = 6;
+}
+message UpsertResourceResponse {
+  Resource resource = 1;
+}
+
+message ArchiveResourceRequest {
+  string id = 1;
+}
+message ArchiveResourceResponse {
+  Resource resource = 1;
+}
+
+message DeleteResourceRequest {
+  string id = 1;
+}
+message DeleteResourceResponse {}

@@ -845,6 +845,7 @@ fn the_reference_bills_a_cancelled_month_by_its_days() {
             billing: Billing::Advance,
             cadence: 1,
             plan_component: true,
+            usage_from: None,
             fee: Price {
                 kind: Kind::Fixed,
                 amount: 3_100,

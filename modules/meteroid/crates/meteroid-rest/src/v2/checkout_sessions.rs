@@ -7,6 +7,7 @@
 use crate::AppState;
 use crate::checkoutsessions::router::{generate_checkout_url, validate_redirect_url};
 use crate::v2::bounds;
+use crate::v2::customers::resources::{ResourceName, resource_refs, stored_resource_id};
 use crate::v2::documents::{document_not_found, filter_not_found};
 use crate::v2::extract::{Body, Path, Query};
 use crate::v2::idempotency::committed_write;
@@ -14,7 +15,7 @@ use crate::v2::ids;
 use crate::v2::pagination::{Cursor, PageQuery};
 use crate::v2::problem::{Problem, ProblemCode};
 use crate::v2::refs::{
-    AddOnRef, CouponRef, CustomerRef, PlanRef, ReferenceIds, Refs, SubscriptionRef,
+    AddOnRef, CouponRef, CustomerRef, PlanRef, ReferenceIds, Refs, ResourceRef, SubscriptionRef,
 };
 use crate::v2::subscriptions::create::{PurchaseAsked, Terms, check_terms, resolve_purchase};
 use crate::v2::subscriptions::model::{AddOnPurchase, CreateCharges, InvoicingInput};
@@ -24,7 +25,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::response::Response;
 use chrono::NaiveDate;
-use common_domain::ids::{BaseId, CheckoutSessionId, PlanId, PlanVersionId, TenantId};
+use common_domain::ids::{BaseId, CheckoutSessionId, PlanId, PlanVersionId, ResourceId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use meteroid_app::errors::RestApiError;
@@ -139,6 +140,18 @@ pub struct CheckoutSession {
     pub status: CheckoutStatus,
     pub customer: CustomerRef,
     pub plan: PlanRef,
+    /// The resource the subscription is for; none: the whole customer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resource: Option<ResourceRef>,
+    /// On creation, what its subscription would be accepted with: `plan_sold_for_mismatch` (the
+    /// plan is sold for another target), `metric_not_attributed` (its resource would never bill
+    /// some metrics it prices).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+    /// With `metric_not_attributed`: the codes of the metrics it prices that are not attributed
+    /// to its resource's type, so its subscription would bill none of their usage.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub metrics_not_attributed: Vec<String>,
     pub add_ons: Vec<CheckoutAddOn>,
     /// A coupon deleted since the session was created is left out.
     pub coupons: Vec<CouponRef>,
@@ -193,6 +206,10 @@ pub struct CreateCheckoutSessionBody {
     /// else in the plan's.
     #[serde(default)]
     pub currency: Option<String>,
+    /// A stored resource of the customer the subscription is for, `{"id": …}` or
+    /// `{"type": …, "key": …}`; the whole customer when left out.
+    #[serde(default)]
+    pub resource: Option<ResourceName>,
     /// The starting count of each managed quantity its seat charges count, by code.
     #[serde(default)]
     pub quantities: BTreeMap<String, String>,
@@ -255,6 +272,7 @@ struct Names<'a> {
     refs: Refs,
     /// The coupons of codes redeemed when paid, by code as the session holds it.
     redeemed: HashMap<String, CouponRef>,
+    resources: HashMap<ResourceId, ResourceRef>,
 }
 
 /// The code a session redeems when paid, as v1 names a coupon.
@@ -292,6 +310,12 @@ impl<'a> Names<'a> {
             }
         }
         let refs = Refs::load(&state.store, tenant_id, &ids).await?;
+        let resources = resource_refs(
+            state,
+            tenant_id,
+            sessions.iter().filter_map(|s| s.resource_id),
+        )
+        .await?;
         let redeemed = if codes.is_empty() {
             HashMap::new()
         } else {
@@ -320,7 +344,16 @@ impl<'a> Names<'a> {
             plans: HashMap::new(),
             refs,
             redeemed,
+            resources,
         })
+    }
+
+    /// The resource as read; by its id when it was deleted since.
+    fn resource(&self, id: ResourceId) -> ResourceRef {
+        self.resources
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| ResourceRef::of_id(id))
     }
 
     async fn plan(
@@ -383,6 +416,13 @@ impl<'a> Names<'a> {
             status: session.status.into(),
             customer: self.refs.customer(session.customer_id),
             plan,
+            resource: session.resource_id.map(|id| self.resource(id)),
+            warnings: session.warnings,
+            metrics_not_attributed: session
+                .metrics_not_attributed
+                .into_iter()
+                .map(|m| m.catalog_code)
+                .collect(),
             add_ons,
             coupons,
             start_date: session.billing_start_date,
@@ -470,7 +510,7 @@ fn redirect(field: &'static str, url: Option<&str>) -> Result<(), Problem> {
     request_body = CreateCheckoutSessionBody,
     responses(
         (status = 201, description = "Created, with its hosted page", body = CheckoutSession),
-        (status = 422, description = "A field is refused: an unknown customer, plan or option, a currency the plan is not sold in, a redirect URL that is not http(s)…", body = Problem, content_type = "application/problem+json"),
+        (status = 422, description = "A field is refused: an unknown customer, plan or option, a currency the plan is not sold in, a resource not the customer's or sold to another subscription, a redirect URL that is not http(s)…", body = Problem, content_type = "application/problem+json"),
     ),
     security(("bearer_auth" = []))
 )]
@@ -508,6 +548,12 @@ pub async fn create_checkout_session(
             "customer",
             &body.customer,
         ))?;
+    let resource_id = match &body.resource {
+        Some(name) => {
+            Some(stored_resource_id(&state, tenant_id, customer.id, name, "/resource").await?)
+        }
+        None => None,
+    };
     let purchase = resolve_purchase(
         &state,
         &auth,
@@ -576,9 +622,10 @@ pub async fn create_checkout_session(
             change_date: None,
             success_url: body.success_url,
             cancel_url: body.cancel_url,
+            resource_id,
         })
         .await
-        .map_err(|error| Problem::at("/plan", error))?;
+        .map_err(|error| Problem::resource_or(Some("/plan"), error))?;
     // Written: a retry replays this answer, never a second session, whatever is read back.
     let id = created.id;
     let read = render(&state, tenant_id, created).await;

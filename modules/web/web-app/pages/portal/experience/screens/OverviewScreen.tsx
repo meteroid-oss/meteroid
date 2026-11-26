@@ -32,7 +32,6 @@ import { LimitsCard, PlanLimitCard } from './LimitsCard'
 import { PlanPriceHeadline } from './PlanPriceHeadline'
 import { RecentInvoices } from './RecentInvoices'
 import { UPGRADE_SECTION_ID, UpgradeSection } from './UpgradeSection'
-import { UsageFilterTag } from './UsageFilterTag'
 
 import type { CustomerPaymentMethod } from '@/rpc/api/customers/v1/models_pb'
 import type { SubscriptionSummary } from '@/rpc/portal/customer/v1/models_pb'
@@ -198,11 +197,6 @@ export const OverviewScreen = () => {
                   <span style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em' }}>
                     {primary.planName}
                   </span>
-                  {primary.usageFilter && (
-                    <Mono style={{ fontSize: 12, color: 'var(--mtp-text-2)' }}>
-                      {primary.usageFilter.property} = {primary.usageFilter.value}
-                    </Mono>
-                  )}
                   <Pill badge={subStatusBadge(primary.status)} dot />
                 </div>
               </div>
@@ -307,7 +301,6 @@ export const OverviewScreen = () => {
                   }}
                 >
                   {s.planName}
-                  <UsageFilterTag subscriptionId={s.id} />
                 </span>
                 <span style={{ fontSize: 12, color: 'var(--mtp-text-3)' }}>
                   {s.pendingCancellationDate ? (

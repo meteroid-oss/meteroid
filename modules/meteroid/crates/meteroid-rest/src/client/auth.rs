@@ -18,7 +18,7 @@ use meteroid_store::domain::PublishableKey;
 use meteroid_store::domain::enums::TenantEnvironmentEnum;
 use meteroid_store::domain::portal_tokens::{PortalTokenStatus, is_portal_token};
 use meteroid_store::errors::StoreError;
-use meteroid_store::jwt_claims::{PortalJwtClaims, PortalTokenError, ResourceAccess};
+use meteroid_store::jwt_claims::{ClientClaims, PortalJwtClaims, PortalTokenError, ResourceAccess};
 use meteroid_store::repositories::TenantInterface;
 use meteroid_store::repositories::api_tokens::{ApiTokensInterface, is_publishable_key};
 use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
@@ -80,7 +80,7 @@ async fn authorize(
         ));
     }
 
-    let (tenant_id, resource, scopes) = if is_portal_token(token) {
+    let (tenant_id, resource, scopes, claims) = if is_portal_token(token) {
         stored_token(token, app_state).await?
     } else {
         jwt_token(token, app_state)?
@@ -103,6 +103,7 @@ async fn authorize(
         customer_id,
         scopes,
         tenant_env,
+        claims,
     })
 }
 
@@ -187,7 +188,12 @@ async fn publishable_key_cached(
     Ok(found)
 }
 
-type TokenGrant = (TenantId, ResourceAccess, Option<Vec<PortalScope>>);
+type TokenGrant = (
+    TenantId,
+    ResourceAccess,
+    Option<Vec<PortalScope>>,
+    ClientClaims,
+);
 
 async fn stored_token(token: &str, app_state: &AppState) -> Result<TokenGrant, Rejection> {
     let portal_token = app_state
@@ -209,6 +215,7 @@ async fn stored_token(token: &str, app_state: &AppState) -> Result<TokenGrant, R
         portal_token.tenant_id,
         portal_token.resource,
         portal_token.scopes,
+        portal_token.client,
     ))
 }
 
@@ -223,7 +230,12 @@ fn jwt_token(token: &str, app_state: &AppState) -> Result<TokenGrant, Rejection>
     if claims.exp.is_none() {
         return Err(Rejection::unauthorized("Token has no expiry"));
     }
-    Ok((claims.tenant_id, claims.resource, claims.scopes))
+    Ok((
+        claims.tenant_id,
+        claims.resource,
+        claims.scopes,
+        claims.client,
+    ))
 }
 
 /// `manage` implies `read`, and a legacy token without scopes has full access.

@@ -66,7 +66,7 @@ async fn subscribe(
                     backdate_invoices: false,
                     skip_checkout_session: false,
                     skip_past_invoices: false,
-                    usage_filter: None,
+                    resource_id: None,
                     custom_properties: serde_json::Value::Null,
                     external_id: None,
                 },

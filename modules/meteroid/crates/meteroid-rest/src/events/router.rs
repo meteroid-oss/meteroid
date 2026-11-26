@@ -31,6 +31,7 @@ use meteroid_store::clients::usage;
         (status = 200, description = "Events ingested successfully", body = IngestEventsResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])

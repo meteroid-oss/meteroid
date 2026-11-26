@@ -1,4 +1,5 @@
 import { create } from '@bufbuild/protobuf';
+import { Code } from '@connectrpc/connect';
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   Badge,
@@ -20,6 +21,8 @@ import { z } from 'zod'
 
 import { ValuesTagInput } from '@/components/form'
 import { Slot } from '@/edition'
+import { type Attribution, attributionInit } from '@/features/productCatalog/metrics/AttributionPreview'
+import { AttributionSection, sameAttribution } from '@/features/productCatalog/metrics/AttributionSection'
 import { MetricBuilderShell } from '@/features/productCatalog/metrics/MetricBuilderShell'
 import { MetricFiltersSection } from '@/features/productCatalog/metrics/MetricFiltersSection'
 import { MetricPreview } from '@/features/productCatalog/metrics/MetricPreview'
@@ -279,6 +282,14 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
 
   const metricQuery = useQuery(getBillableMetric, { id: metricId })
   const metric = metricQuery.data?.billableMetric
+  const storedAttribution: Attribution = metric?.attributedTo && {
+    typeId: metric.attributedTo.resourceTypeId,
+    property: metric.attributedTo.property,
+  }
+  const [attribution, setAttribution] = useState<Attribution | null>(null)
+  const currentAttribution = attribution === null ? storedAttribution : attribution
+  const attributionChanged = attribution !== null && !sameAttribution(attribution, storedAttribution)
+  const [previewed, setPreviewed] = useState(true)
 
   // Track segmentation matrix type (immutable, just for display)
   const [matrixType, setMatrixType] = useState<'NONE' | 'SINGLE' | 'DOUBLE' | 'LINKED'>('NONE')
@@ -303,7 +314,11 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
       toast.success('Metric updated successfully')
     },
     onError: error => {
-      toast.error('Failed to update metric: ' + error.message)
+      toast.error(
+        error.code === Code.FailedPrecondition
+          ? error.rawMessage
+          : 'Failed to update metric: ' + error.message
+      )
     },
   })
 
@@ -521,6 +536,7 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
           : undefined,
         segmentationMatrixValues,
         unitLabel: unitLabelChanged ? { singular: unitSingular, plural: unitPlural } : undefined,
+        attribution: attributionChanged ? { attributedTo: attributionInit(attribution) } : undefined,
         // Always send the (possibly empty) filter list — present replaces, so live edits persist.
         filters: create(MetricFilterListSchema, {
           filters: (data.filters ?? []).map(f => ({
@@ -639,6 +655,13 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
                     )}
 
                   <UnitLabelSection control={methods.control} />
+                  <AttributionSection
+                    value={currentAttribution}
+                    onChange={setAttribution}
+                    metricId={metricId}
+                    changed={attributionChanged}
+                    onPreviewed={setPreviewed}
+                  />
 
                   <Slot
                     name="metricForm.usageBreakdownKey"
@@ -776,7 +799,7 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
           >
             Cancel
           </Button>
-          <Button type="submit" disabled={!methods.formState.isValid || isSubmitting}>
+          <Button type="submit" disabled={!methods.formState.isValid || !previewed || isSubmitting}>
             {isSubmitting ? 'Saving...' : 'Save Changes'}
           </Button>
         </>

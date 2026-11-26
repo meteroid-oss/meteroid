@@ -53,8 +53,11 @@ pub enum LeaderLock {
     DomainRecheck = 92_000_024,
     /// One-shot re-encryption of secrets sealed under the legacy nonce, at startup.
     SecretsReencryption = 92_000_025,
+    /// Marks customers whose entitlement rows cross a validity bound.
+    EntitlementValidityScan = 92_000_031,
     // Retired keys, never reused: a replica of an earlier version may still hold one.
-    // 92_000_007 (stale-draft refresh), 92_000_023 (pending changes start-up migration).
+    // 92_000_007 (stale-draft refresh), 92_000_023 (pending changes start-up migration),
+    // 92_000_032 (usage claim reconcile).
 }
 
 impl LeaderLock {

@@ -219,6 +219,7 @@ async fn self_serve_session(env: &TestEnv) -> CheckoutSession {
             change_date: None,
             success_url: None,
             cancel_url: None,
+            resource_id: None,
         })
         .await
         .expect("checkout session")

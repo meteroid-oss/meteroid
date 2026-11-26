@@ -2,9 +2,12 @@
 //! holds beside its billing — its invoicing terms and custom properties, on the store's patch v1
 //! uses, its external id — and of its end date, on the store's end date service (R-140), written
 //! in one transaction (`update_subscription`). A field left out is unchanged, `null` clears it.
-use super::model::Subscription;
+use super::create::override_specs;
+use super::model::{ResourceName, Subscription};
 use super::render;
 use crate::AppState;
+use crate::v2::customers::resources::stored_resource_id;
+use crate::v2::entitlements::model::EntitlementInput;
 use crate::v2::extract::{Body, Path};
 use crate::v2::ids;
 use crate::v2::problem::{FieldError, Problem, ProblemCode};
@@ -13,12 +16,14 @@ use axum::Json;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use chrono::NaiveDate;
-use common_domain::ids::{SubscriptionId, TenantId};
+use common_domain::ids::{EntitlementEntityId, SubscriptionId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use error_stack::Report;
 use meteroid_store::domain::{SubscriptionPatch, SubscriptionUpdate, SubscriptionUpdatePart};
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::CatalogCodesInterface;
+use meteroid_store::repositories::entitlements::EntitlementsInterface;
+use meteroid_store::repositories::subscriptions::SubscriptionInterface;
 use serde::Deserialize;
 use utoipa::ToSchema;
 
@@ -66,6 +71,16 @@ pub struct UpdateSubscription {
     #[serde(default)]
     #[schema(value_type = Option<HashMap<String, Value>>)]
     pub custom_properties: Option<serde_json::Value>,
+    /// A stored resource of the customer to subscribe for, `{"id": …}` or
+    /// `{"type": …, "key": …}`; `null`: the whole customer. Only before the subscription is active.
+    #[serde(default, with = "::serde_with::rust::double_option")]
+    #[schema(value_type = Option<ResourceName>)]
+    pub resource: Option<Option<ResourceName>>,
+    /// The subscription's own entitlement rows, written whole (`set` only): a row read back the
+    /// same keeps its id and history, one changed gets a successor, one left out is revoked.
+    /// `[]` revokes them all.
+    #[serde(default)]
+    pub entitlement_overrides: Option<Vec<EntitlementInput>>,
 }
 
 fn taken(external_id: &str) -> Problem {
@@ -136,7 +151,7 @@ fn update_refused(error: Report<StoreError>, external_id: Option<&str>) -> Probl
         }
         Some(SubscriptionUpdatePart::ExternalId) => Problem::at("/external_id", error),
         Some(SubscriptionUpdatePart::EndDate) => Problem::at("/end_date", error),
-        None => error.into(),
+        None => Problem::resource_or(None, error),
     }
 }
 
@@ -151,10 +166,12 @@ fn cleared_if_empty(value: Option<Option<String>>) -> Option<Option<String>> {
 /// Update a subscription
 ///
 /// A JSON merge patch of its invoicing terms, custom properties (merged into its own), external
-/// id and end date: a field left out is unchanged, `null` clears it. The end date moves over what
-/// is not billed yet only (a date cutting a period billed is a cancellation on that date). All of
-/// it is written in one transaction: a refused field writes nothing. Its plan, charges and seats
-/// change through the change endpoints, each with its preview.
+/// id, resource (before it is active), end date and entitlement overrides: a field left out is
+/// unchanged, `null` clears it. The end date moves over what is not billed yet only (a date
+/// cutting a period billed is a cancellation on that date). `entitlement_overrides` is written
+/// whole, in its own transaction before the rest, which is written in one: a retry writes the
+/// same list again and changes nothing. Its plan, charges and seats change through the change
+/// endpoints, each with its preview.
 #[utoipa::path(
     patch,
     tag = "Subscriptions",
@@ -165,7 +182,7 @@ fn cleared_if_empty(value: Option<Option<String>>) -> Option<Option<String>> {
         (status = 200, description = "Updated", body = Subscription),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The external id is another subscription's, or the subscription's state refuses its end date: ended, a cancellation scheduled, a change scheduled on or after the date", body = Problem, content_type = "application/problem+json"),
-        (status = 422, description = "A field is refused: a custom property not defined, automatic charging without a payment provider, a subscription ended, an end date not after today or cutting a period already billed…", body = Problem, content_type = "application/problem+json"),
+        (status = 422, description = "A field is refused: a custom property not defined, automatic charging without a payment provider, a subscription ended, a resource changed once it is active, an end date not after today or cutting a period already billed…", body = Problem, content_type = "application/problem+json"),
     ),
     security(("bearer_auth" = []))
 )]
@@ -183,6 +200,27 @@ pub async fn update_subscription(
         None => None,
     };
 
+    let resource_id = match &body.resource {
+        Some(Some(name)) => {
+            let customer_id = state
+                .store
+                .get_subscription(tenant_id, id)
+                .await?
+                .customer_id;
+            Some(Some(
+                stored_resource_id(&state, tenant_id, customer_id, name, "/resource").await?,
+            ))
+        }
+        Some(None) => Some(None),
+        None => None,
+    };
+    let overrides = match &body.entitlement_overrides {
+        Some(inputs) => {
+            Some(override_specs(&state, tenant_id, inputs, "/entitlement_overrides").await?)
+        }
+        None => None,
+    };
+
     let invoicing = body.invoicing.unwrap_or_default();
     let patch = SubscriptionPatch {
         id,
@@ -193,15 +231,30 @@ pub async fn update_subscription(
         purchase_order: cleared_if_empty(invoicing.purchase_order),
         payment_methods_config: None,
         custom_properties: body.custom_properties,
-        usage_filter: None,
+        resource_id,
     };
     let patches_row = patch.charge_automatically.is_some()
         || patch.auto_advance_invoices.is_some()
         || patch.net_terms.is_some()
         || patch.invoice_memo.is_some()
         || patch.purchase_order.is_some()
-        || patch.custom_properties.is_some();
+        || patch.custom_properties.is_some()
+        || patch.resource_id.is_some();
     let asked_id = external_id.clone().flatten();
+    // Its own transaction, first: the list is written whole, so a retry of a patch refused
+    // after it writes the same rows again and changes nothing.
+    if let Some(specs) = overrides {
+        state
+            .store
+            .replace_entitlements(
+                &auth.as_actor(),
+                tenant_id,
+                EntitlementEntityId::Subscription(id),
+                specs,
+            )
+            .await
+            .map_err(|error| Problem::at("/entitlement_overrides", error))?;
+    }
     state
         .services
         .update_subscription(

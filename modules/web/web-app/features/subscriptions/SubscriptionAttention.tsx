@@ -8,14 +8,12 @@ import { CopyToClipboardButton } from '@/components/CopyToClipboard'
 import { Slot } from '@/edition'
 import { plural } from '@/features/subscriptions/subscriptionOverview'
 import { formatShortDay } from '@/features/subscriptions/utils/dates'
-import { parseUtc, parseAndFormatDate, parseAndFormatDateTime } from '@/lib/utils/date'
-import { formatQuantity } from '@/lib/utils/format'
+import { parseAndFormatDate, parseAndFormatDateTime } from '@/lib/utils/date'
 import { formatCurrency } from '@/lib/utils/numbers'
 import { ScheduledEventType, SubscriptionStatus } from '@/rpc/api/subscriptions/v1/models_pb'
 import { cancelScheduledEvent } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 
 import type { PendingScheduledEvent, Subscription } from '@/rpc/api/subscriptions/v1/models_pb'
-import type { SubscriptionFeatureUsage } from '@/rpc/api/subscriptions/v1/subscriptions_pb'
 import type { Wallet } from '@/rpc/api/wallets/v1/models_pb'
 
 export type BandVariant = 'default' | 'warning' | 'destructive'
@@ -149,18 +147,13 @@ export type AttentionProps = {
   subscription: Subscription
   pendingEvents: PendingScheduledEvent[]
   wallets: Wallet[]
-  /** Entitlement limits, overrides included; access checks deny those whose `refused` is set. */
-  featureUsage: SubscriptionFeatureUsage[]
   firstInvoiceAmount?: bigint
   hasPaymentMethod: boolean
-  /** On a free plan, a limit reached is an upsell, not an incident. */
-  freePlan?: boolean
   canManageSubscription: boolean
   canManageWallets: boolean
   onAddCredit: (wallet: Wallet) => void
   onConfigureWallet: (wallet: Wallet) => void
   onEditBilling: () => void
-  onChangePlan: () => void
   onRefetch: () => void
 }
 
@@ -169,54 +162,17 @@ export const SubscriptionAttention = ({
   subscription: data,
   pendingEvents,
   wallets,
-  featureUsage,
   firstInvoiceAmount,
   hasPaymentMethod,
-  freePlan = false,
   canManageSubscription,
   canManageWallets,
   onAddCredit,
   onConfigureWallet,
   onEditBilling,
-  onChangePlan,
   onRefetch,
 }: AttentionProps) => {
   const money = (minor: bigint) => formatCurrency(minor, data.currency)
   const bands: ReactNode[] = []
-
-  for (const feature of featureUsage.filter(f => f.refused)) {
-    const resets = feature.resetsAt ? parseUtc(feature.resetsAt) : undefined
-    const resetsOn =
-      resets && !Number.isNaN(resets.getTime()) ? formatShortDay(resets.toISOString()) : undefined
-    const reset =
-      feature.reset === 'never'
-        ? 'This lifetime limit never resets.'
-        : feature.reset === 'sliding_window'
-          ? 'Usage is allowed again as older usage leaves the rolling window.'
-          : resetsOn
-            ? `The limit resets on ${resetsOn}.`
-            : 'The limit resets at the end of its window.'
-    bands.push(
-      <Band
-        key={`limit-${feature.featureId}`}
-        variant={freePlan ? 'default' : 'destructive'}
-        title={freePlan ? 'Upsell: free limit reached' : 'Access denied: limit reached'}
-        meta={`· ${formatQuantity(feature.consumed)} of ${formatQuantity(feature.limit ?? '0')} ${feature.featureName}${feature.groupBy ? ` for the highest ${feature.groupBy}` : ''}${feature.reset === 'never' ? '' : ' this period'}.`}
-        actions={
-          canManageSubscription && (
-            <Button size="sm" variant="outline" onClick={onChangePlan}>
-              Change plan
-            </Button>
-          )
-        }
-      >
-        {feature.groupBy
-          ? `Access checks return denied for each ${feature.groupBy} that reached the limit; the others are unaffected.`
-          : 'Access checks return denied.'}{' '}
-        {reset}
-      </Band>
-    )
-  }
 
   if (data.checkoutUrl && data.status === SubscriptionStatus.PENDING) {
     bands.push(

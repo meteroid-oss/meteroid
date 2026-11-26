@@ -4,7 +4,9 @@ use crate::enums::{PlanStatusEnum, PlanTypeEnum};
 use crate::plan_versions::PlanVersionRow;
 use crate::price_components::PriceComponentRow;
 use crate::product_families::ProductFamilyOverviewRow;
-use common_domain::ids::{PlanId, PlanVersionId, ProductFamilyId, ProductId, TenantId};
+use common_domain::ids::{
+    PlanId, PlanVersionId, ProductFamilyId, ProductId, ResourceTypeId, TenantId,
+};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
@@ -44,6 +46,8 @@ pub struct PlanRow {
     pub pricing_hidden_product_ids: Vec<Option<ProductId>>,
     /// Unique per tenant and immutable; filled from the name on insert when not set (ADR-0013).
     pub code: String,
+    /// The resource type its subscriptions are for; `None` for the customer.
+    pub sold_for_resource_type_id: Option<ResourceTypeId>,
 }
 
 #[derive(Debug, Default, Insertable)]
@@ -77,6 +81,7 @@ pub struct PlanRowOverview {
     pub eligibility: Option<serde_json::Value>,
     pub pricing_sales_led: bool,
     pub pricing_hide_price: bool,
+    pub sold_for_resource_type_id: Option<ResourceTypeId>,
 }
 
 /// `SUM(mrr_cents)` of a plan's active subscriptions in one currency (minor units).

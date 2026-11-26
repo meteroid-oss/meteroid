@@ -77,7 +77,9 @@ pub struct UsageCycle {
 pub struct FeatureUsage {
     pub feature_id: FeatureId,
     pub feature_name: String,
-    pub consumed: Decimal,
+    /// Absent when metering could not answer: `usage_unavailable`.
+    pub consumed: Option<Decimal>,
+    pub usage_unavailable: bool,
     pub limit: Option<Decimal>,
     pub pct: Option<f64>,
     pub warning_threshold_pct: u32,
@@ -94,6 +96,8 @@ pub struct FeatureUsage {
     pub grace_pct: Option<u32>,
     /// The limit applies per value of this property; `consumed` is the largest value's.
     pub group_by: Option<String>,
+    /// Another subscription decides `limit`: what this one grants, and which decides.
+    pub own_grant: Option<crate::domain::entitlements::SubscriptionGrant>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

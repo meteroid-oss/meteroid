@@ -1,44 +1,44 @@
+pub mod app_counts;
+pub(crate) mod check;
 pub(crate) mod limits;
+pub(crate) mod reads;
+pub(crate) mod resolve;
+pub(crate) mod snapshot;
+pub mod subscription;
+pub(crate) mod tiers;
 
 use crate::StoreResult;
+use crate::domain::BillableMetric;
+use crate::domain::entitlement_checks::{LevelUsage, LevelValue, ResolvedFeature, ResolvedLevel};
+use crate::domain::entitlement_fold::{Contribution, EvalLevel, GrantValue, LimitValue};
 use crate::domain::entitlements::{
-    EffectiveEntitlement, EffectiveEntitlementValue, EntitlementUsage, FeatureRef, OverageBehavior,
-    ResetPeriod, ResolvedEntitlement, ResolvedEntitlementValue, ResolvedOrigin,
+    EffectiveEntitlement, EffectiveEntitlementValue, EntitlementUsage, Feature, FeatureKind,
+    FeatureRef, LimitCountedBy, OverageBehavior, ResetPeriod, ResolvedEntitlement,
+    ResolvedEntitlementValue, ResolvedOrigin, SubscriptionGrant,
 };
-use crate::domain::{BillableMetric, UsagePeriod};
-use crate::errors::StoreError;
 use crate::hooks::ExpectedMonitor;
-use crate::repositories::EntitlementsInterface;
-use crate::repositories::entitlements::{BillingCyclePeriod, ResolveTarget, compute_usage_period};
+use crate::repositories::entitlements::with_origin_names;
 use crate::repositories::subscriptions::SubscriptionInterface;
 use crate::repositories::subscriptions::usage_attribution::usage_scopes_of;
 use crate::services::Services;
 use crate::services::entitlements::limits::rules::hard_limit_reached;
-use crate::services::entitlements::limits::{
-    anchor_subscription, earliest_activation, entitlement_monitor_id, largest_group, load_metrics,
-};
+use crate::services::entitlements::limits::{level_monitor_id, load_metrics};
+use crate::services::entitlements::resolve::UsageReading;
+use crate::services::entitlements::snapshot::LevelRead;
+use crate::services::entitlements::subscription::{IncludedLevel, SubscriptionOf, included_levels};
 use crate::store::PgConn;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
-use common_domain::ids::{BillableMetricId, CustomerId, FeatureId, SubscriptionId, TenantId};
-use diesel_models::subscriptions::SubscriptionRow;
-use error_stack::Report;
+use common_domain::ids::{
+    BillableMetricId, CustomerId, EntitlementEntityId, FeatureId, ResourceId, SubscriptionId,
+    TenantId,
+};
 use futures::stream::{self, StreamExt, TryStreamExt};
-use itertools::Itertools;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use uuid::Uuid;
 
-/// Cap on concurrent metering-backend fetches per `enrich_with_usage` call.
+/// Cap on concurrent metering-backend fetches per readout.
 pub const USAGE_FETCH_CONCURRENCY: usize = 8;
-
-/// The cycle and activation the usage windows of a customer's entitlements are anchored to, and
-/// the subscription whose usage filter measures them.
-#[derive(Clone, Copy)]
-pub(crate) struct BillingContext {
-    cycle: Option<BillingCyclePeriod>,
-    activation: Option<NaiveDateTime>,
-    pub(crate) subscription_id: Option<SubscriptionId>,
-}
 
 struct MeteredMeta {
     feature: FeatureRef,
@@ -54,17 +54,12 @@ struct MeteredMeta {
     group_by: Option<String>,
 }
 
-struct PendingUsage<'a> {
-    meta: MeteredMeta,
-    metric: &'a BillableMetric,
-    period: UsagePeriod,
-}
-
 /// A subscription's current cycle, as `limited_usage_for_subscription` reads it.
 #[derive(Clone, Copy, Debug)]
 pub struct SubscriptionCycle {
     pub subscription_id: SubscriptionId,
     pub customer_id: CustomerId,
+    pub resource_id: Option<ResourceId>,
     pub period_start: NaiveDate,
     /// Exclusive, as `subscription.current_period_end`.
     pub period_end: Option<NaiveDate>,
@@ -75,7 +70,10 @@ pub struct SubscriptionCycle {
 #[derive(Clone, Debug)]
 pub struct LimitedUsage {
     pub feature: FeatureRef,
+    /// The level's: `''` for the customer, else its resource's (`site=s1`).
+    pub path: String,
     pub metric_id: BillableMetricId,
+    /// The deciding subscription's (§3.7).
     pub limit: Decimal,
     pub consumed: Decimal,
     pub reset_period: ResetPeriod,
@@ -86,6 +84,8 @@ pub struct LimitedUsage {
     pub period_end: Option<NaiveDateTime>,
     /// The limit applies to each value of this property; `consumed` is the largest group's.
     pub group_by: Option<String>,
+    /// Another subscription decides the limit: what this one grants.
+    pub own_grant: Option<SubscriptionGrant>,
 }
 
 impl LimitedUsage {
@@ -100,10 +100,17 @@ impl LimitedUsage {
     }
 }
 
+fn finite_limit(level: &ResolvedLevel) -> Option<Decimal> {
+    match level.value {
+        LevelValue::Value(GrantValue::Limit(LimitValue::Amount(limit))) => Some(limit),
+        _ => None,
+    }
+}
+
 impl Services {
-    /// Usage against every limited entitlement of the subscription at `now`, with billing-cycle
-    /// limits bounded by the subscription's own cycle. Empty once the cycle has ended and the
-    /// renewal is not processed yet: that usage belongs to a period no longer current.
+    /// Usage against every limit counted from events the subscription includes at `now`, each at
+    /// its level's deciding limit and window, counting the level's usage (§3.7). Empty once the
+    /// cycle has ended and the renewal is not processed yet: that period is no longer current.
     pub(crate) async fn limited_usage_for_subscription(
         &self,
         tenant_id: TenantId,
@@ -111,99 +118,93 @@ impl Services {
         now: NaiveDateTime,
         concurrency: usize,
     ) -> StoreResult<Vec<LimitedUsage>> {
+        Ok(self
+            .limited_usages(tenant_id, sub, now, concurrency, None)
+            .await?
+            .into_iter()
+            .map(|(usage, _)| usage)
+            .collect())
+    }
+
+    /// [`Self::limited_usage_for_subscription`] for a readout: each read as a snapshot reads it,
+    /// with what it gave; `consumed` is 0 where it gave none.
+    pub(crate) async fn limited_usage_readout(
+        &self,
+        tenant_id: TenantId,
+        sub: &SubscriptionCycle,
+        now: NaiveDateTime,
+        concurrency: usize,
+    ) -> StoreResult<Vec<(LimitedUsage, LevelUsage)>> {
+        let reading = UsageReading::readout();
+        self.limited_usages(tenant_id, sub, now, concurrency, Some(&reading))
+            .await
+    }
+
+    /// Without `reading`, metering is read with the client's deadline and its failure fails all.
+    async fn limited_usages(
+        &self,
+        tenant_id: TenantId,
+        sub: &SubscriptionCycle,
+        now: NaiveDateTime,
+        concurrency: usize,
+        reading: Option<&UsageReading>,
+    ) -> StoreResult<Vec<(LimitedUsage, LevelUsage)>> {
         if sub
             .period_end
             .is_some_and(|end| now >= end.and_time(NaiveTime::MIN))
         {
             return Ok(vec![]);
         }
-        let (resolved, metrics) = {
+        let included = {
             let mut conn = self.store.get_conn().await?;
-            let resolved = self
-                .store
-                .resolve_entitlements_for_entity(
-                    &mut conn,
-                    tenant_id,
-                    ResolveTarget::Subscription(sub.subscription_id),
-                )
-                .await?;
-            let metric_ids: Vec<BillableMetricId> = resolved
-                .iter()
-                .filter_map(|e| match &e.value {
-                    ResolvedEntitlementValue::Metered { metric_id, .. } => Some(*metric_id),
-                    _ => None,
-                })
-                .unique()
-                .collect();
-            let metrics = self
-                .load_metrics(
-                    &mut conn,
-                    &metric_ids,
-                    &tenant_id,
-                    Some(sub.subscription_id),
-                )
-                .await?;
-            (resolved, metrics)
+            let of = SubscriptionOf {
+                id: sub.subscription_id,
+                customer_id: sub.customer_id,
+                resource_id: sub.resource_id,
+            };
+            included_levels(&mut conn, tenant_id, of, now.and_utc()).await?
         };
-
-        let billing_cycle = Some(BillingCyclePeriod {
-            period_start: sub.period_start,
-            period_end: sub.period_end,
-        });
-        let limited: Vec<(LimitedUsage, &BillableMetric, Option<String>)> = resolved
+        let limited: Vec<(LimitedUsage, IncludedLevel)> = included
             .into_iter()
-            .filter_map(|ent| {
-                let ResolvedEntitlementValue::Metered {
-                    metric_id,
-                    limit: Some(limit),
-                    reset_period,
-                    overage_behavior,
-                    thresholds,
-                    enabled: true,
-                    group_by,
-                } = ent.value
+            .filter_map(|included| {
+                let FeatureKind::Limit(LimitCountedBy::Events(metric_id)) =
+                    included.feature.feature.kind
                 else {
                     return None;
                 };
-                if limit <= Decimal::ZERO {
+                let limit = finite_limit(&included.level).filter(|l| *l > Decimal::ZERO)?;
+                let window = included.level.window.as_ref()?;
+                if included.level.level != EvalLevel::Customer && included.resource.is_none() {
                     return None;
                 }
-                let Some(metric) = metrics.get(&metric_id) else {
-                    log::warn!(
-                        "metric {metric_id} not found for feature {}",
-                        ent.feature.id
-                    );
-                    return None;
-                };
-                let bounds =
-                    compute_usage_period(&reset_period, billing_cycle, sub.activated_at, now);
-                let period_end = resets_at(&reset_period, bounds.end);
                 let usage = LimitedUsage {
-                    feature: ent.feature,
+                    feature: included.feature.feature.to_ref(),
+                    path: included.level.path.clone(),
                     metric_id,
                     limit,
                     consumed: Decimal::ZERO,
-                    reset_period,
-                    overage_behavior,
-                    thresholds,
-                    period_start: bounds.start,
-                    period_end,
-                    group_by: group_by.clone(),
+                    reset_period: window.reset_period.clone(),
+                    overage_behavior: included.level.policy.overage_behavior(),
+                    thresholds: included.level.policy.thresholds.clone(),
+                    period_start: window.start.naive_utc(),
+                    period_end: resets_at(&window.reset_period, window.end.map(|e| e.naive_utc())),
+                    group_by: None,
+                    own_grant: included.own_grant.clone(),
                 };
-                Some((usage, metric, group_by))
+                Some((usage, included))
             })
             .collect();
 
         let expected = limited
             .iter()
-            .filter_map(|(usage, _, group_by)| {
+            .filter(|(_, included)| included.level.level == EvalLevel::Customer)
+            .filter_map(|(usage, _)| {
                 engine_monitor(
-                    sub.subscription_id,
+                    sub.customer_id,
                     usage.feature.id,
                     &usage.reset_period,
                     usage.period_start,
                     usage.limit,
-                    group_by.is_some(),
                 )
             })
             .collect::<Vec<_>>();
@@ -211,38 +212,60 @@ impl Services {
             .engine_usage(tenant_id, sub.customer_id, &expected, now)
             .await;
 
-        // Futures collected first: a stream `.map` closure borrowing the metrics makes the
+        // Futures collected first: a stream `.map` closure borrowing the levels makes the
         // caller's future fail the higher-ranked `Send` check when spawned.
         let fetches: Vec<_> = limited
             .into_iter()
-            .map(|(usage, metric, group_by)| {
-                let engine_consumed = engine
-                    .get(&entitlement_monitor_id(
-                        usage.feature.id,
-                        sub.subscription_id,
-                    ))
+            .map(|(usage, included)| {
+                let engine_consumed = (included.level.level == EvalLevel::Customer)
+                    .then(|| {
+                        engine.get(&level_monitor_id(
+                            usage.feature.id,
+                            sub.customer_id,
+                            EvalLevel::Customer,
+                        ))
+                    })
+                    .flatten()
                     .copied();
                 async move {
-                    let window_end = usage.period_end.map_or(now, |end| end.min(now));
-                    if usage.period_start >= window_end {
-                        return Ok(usage);
-                    }
                     if let Some(consumed) = engine_consumed {
-                        return Ok(LimitedUsage { consumed, ..usage });
+                        return Ok((
+                            LimitedUsage { consumed, ..usage },
+                            LevelUsage::Read(Some(consumed)),
+                        ));
                     }
-                    let consumed = self
-                        .metering_usage(
-                            &tenant_id,
-                            &sub.customer_id,
-                            metric,
-                            group_by.as_deref(),
-                            UsagePeriod {
-                                start: usage.period_start,
-                                end: window_end,
-                            },
-                        )
-                        .await?;
-                    Ok(LimitedUsage { consumed, ..usage })
+                    let (feature, level) = (&included.feature.feature, &included.level);
+                    let resource = included.resource.as_ref();
+                    let read = match reading {
+                        Some(reading) => {
+                            self.store
+                                .level_usage_read(
+                                    tenant_id,
+                                    sub.customer_id,
+                                    feature,
+                                    level,
+                                    resource,
+                                    now.and_utc(),
+                                    None,
+                                    reading,
+                                )
+                                .await?
+                        }
+                        None => LevelUsage::Read(
+                            self.store
+                                .level_usage(
+                                    tenant_id,
+                                    sub.customer_id,
+                                    feature,
+                                    level,
+                                    resource,
+                                    now.and_utc(),
+                                )
+                                .await?,
+                        ),
+                    };
+                    let consumed = read.used().unwrap_or(Decimal::ZERO);
+                    Ok((LimitedUsage { consumed, ..usage }, read))
                 }
             })
             .collect();
@@ -257,15 +280,7 @@ impl Services {
         customer_id: CustomerId,
         tenant_id: TenantId,
     ) -> StoreResult<Vec<EffectiveEntitlement>> {
-        // Scoped conn so it returns to the pool before `enrich_with_usage` fans out
-        // potentially many metering HTTP requests.
-        let resolved = {
-            let mut conn = self.store.get_conn().await?;
-            self.store
-                .resolve_entitlements_for_customer(&mut conn, customer_id, tenant_id)
-                .await?
-        };
-        self.enrich_with_usage(customer_id, tenant_id, resolved)
+        self.effective_entitlements(customer_id, tenant_id, None)
             .await
     }
 
@@ -275,19 +290,57 @@ impl Services {
         tenant_id: TenantId,
         feature_id: FeatureId,
     ) -> StoreResult<Option<EffectiveEntitlement>> {
+        Ok(self
+            .effective_entitlements(
+                customer_id,
+                tenant_id,
+                Some(std::slice::from_ref(&feature_id)),
+            )
+            .await?
+            .pop())
+    }
+
+    /// The customer-wide readout without a resource: each feature's own level, with its read
+    /// usage over the deciding subscription's window.
+    async fn effective_entitlements(
+        &self,
+        customer_id: CustomerId,
+        tenant_id: TenantId,
+        features: Option<&[FeatureId]>,
+    ) -> StoreResult<Vec<EffectiveEntitlement>> {
+        let now = common_clock::now();
         let resolved = {
             let mut conn = self.store.get_conn().await?;
             self.store
-                .resolve_entitlements_for_feature(&mut conn, customer_id, tenant_id, feature_id)
+                .resolve_customer_entitlements(
+                    &mut conn,
+                    tenant_id,
+                    customer_id,
+                    None,
+                    features,
+                    now,
+                )
                 .await?
         };
-        let target: Vec<ResolvedEntitlement> = resolved.into_iter().collect::<Vec<_>>();
-        let mut enriched = self
-            .enrich_with_usage(customer_id, tenant_id, target)
-            .await?;
-        Ok(enriched.pop())
+        let included = resolved
+            .features
+            .into_iter()
+            .filter_map(|feature| {
+                let level = feature.levels.iter().find(|l| l.own)?.clone();
+                Some(IncludedLevel {
+                    feature,
+                    level,
+                    resource: None,
+                    own_grant: None,
+                })
+            })
+            .collect();
+        self.effective_of(tenant_id, customer_id, included, now)
+            .await
     }
 
+    /// A subscription's readout: each feature it includes at the deciding value of its level,
+    /// with the level's usage, and its own grant when another subscription decides.
     pub(crate) async fn get_effective_entitlements_for_subscription(
         &self,
         subscription_id: SubscriptionId,
@@ -297,107 +350,56 @@ impl Services {
             .store
             .get_subscription(tenant_id, subscription_id)
             .await?;
-        let resolved = {
-            let mut conn = self.store.get_conn().await?;
-            self.store
-                .resolve_entitlements_for_entity(
-                    &mut conn,
-                    tenant_id,
-                    ResolveTarget::Subscription(subscription_id),
-                )
-                .await?
-        };
-        let context = BillingContext {
-            cycle: Some(BillingCyclePeriod {
-                period_start: sub.current_period_start,
-                period_end: sub.current_period_end,
-            }),
-            activation: sub.activated_at,
-            subscription_id: Some(subscription_id),
-        };
-        self.enrich_with_context(sub.customer_id, tenant_id, resolved, context)
-            .await
-    }
-
-    async fn enrich_with_usage(
-        &self,
-        customer_id: CustomerId,
-        tenant_id: TenantId,
-        resolved: Vec<ResolvedEntitlement>,
-    ) -> StoreResult<Vec<EffectiveEntitlement>> {
-        let metric_ids: Vec<BillableMetricId> = resolved
-            .iter()
-            .filter_map(|e| match &e.value {
-                ResolvedEntitlementValue::Metered { metric_id, .. } => Some(*metric_id),
-                ResolvedEntitlementValue::Boolean { .. }
-                | ResolvedEntitlementValue::Config { .. } => None,
-            })
-            .unique()
-            .collect();
-
-        let context = if metric_ids.is_empty() {
-            BillingContext {
-                cycle: None,
-                activation: None,
-                subscription_id: None,
-            }
-        } else {
-            let mut conn = self.store.get_conn().await?;
-            self.load_billing_context(&mut conn, customer_id, tenant_id)
-                .await?
-        };
-
-        self.enrich_with_context(customer_id, tenant_id, resolved, context)
-            .await
-    }
-
-    async fn enrich_with_context(
-        &self,
-        customer_id: CustomerId,
-        tenant_id: TenantId,
-        resolved: Vec<ResolvedEntitlement>,
-        context: BillingContext,
-    ) -> StoreResult<Vec<EffectiveEntitlement>> {
-        if resolved.is_empty() {
-            return Ok(vec![]);
-        }
-
         let now = common_clock::now();
-
-        let metric_ids: Vec<BillableMetricId> = resolved
-            .iter()
-            .filter_map(|e| match &e.value {
-                ResolvedEntitlementValue::Metered { metric_id, .. } => Some(*metric_id),
-                ResolvedEntitlementValue::Boolean { .. }
-                | ResolvedEntitlementValue::Config { .. } => None,
-            })
-            .unique()
-            .collect();
-
-        let metrics = {
+        let included = {
             let mut conn = self.store.get_conn().await?;
-            self.load_metrics(&mut conn, &metric_ids, &tenant_id, context.subscription_id)
-                .await?
+            let of = SubscriptionOf {
+                id: subscription_id,
+                customer_id: sub.customer_id,
+                resource_id: sub.resource_id,
+            };
+            included_levels(&mut conn, tenant_id, of, now).await?
         };
+        self.effective_of(tenant_id, sub.customer_id, included, now)
+            .await
+    }
 
-        let mut result: Vec<EffectiveEntitlement> = Vec::with_capacity(resolved.len());
-        let mut pending: Vec<PendingUsage<'_>> = Vec::new();
-
-        for ent in resolved {
-            match ent.value {
+    /// Each level's usage read as a snapshot reads it: metering not answering in time leaves that
+    /// entitlement's usage absent, the others answer.
+    async fn effective_of(
+        &self,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        included: Vec<IncludedLevel>,
+        now: DateTime<Utc>,
+    ) -> StoreResult<Vec<EffectiveEntitlement>> {
+        let (included, readouts): (Vec<_>, Vec<_>) = included
+            .into_iter()
+            .filter_map(|i| {
+                let readout = readout_at(&i.feature.feature, &i.level)?;
+                Some((i, readout))
+            })
+            .unzip();
+        let named = {
+            let mut conn = self.store.get_conn().await?;
+            with_origin_names(&mut conn, tenant_id, readouts).await?
+        };
+        let reads: Vec<LevelRead> = included
+            .iter()
+            .map(|i| (&i.feature.feature, &i.level, i.resource.as_ref()))
+            .collect();
+        let usages = self
+            .store
+            .read_usages(tenant_id, customer_id, &reads, now, UsageReading::readout())
+            .await?;
+        let mut result = Vec::with_capacity(named.len());
+        for ((included, ent), usage) in included.into_iter().zip(named).zip(usages) {
+            let value = match ent.value {
                 ResolvedEntitlementValue::Boolean { enabled } => {
-                    result.push(EffectiveEntitlement {
-                        feature: ent.feature,
-                        origin: ent.origin,
-                        value: EffectiveEntitlementValue::Boolean { enabled },
-                    });
+                    EffectiveEntitlementValue::Boolean { enabled }
                 }
                 ResolvedEntitlementValue::Config { value } => {
-                    result.push(EffectiveEntitlement {
-                        feature: ent.feature,
-                        origin: ent.origin,
-                        value: EffectiveEntitlementValue::Config { value },
-                    });
+                    EffectiveEntitlementValue::Config { value }
                 }
                 ResolvedEntitlementValue::Metered {
                     metric_id,
@@ -408,118 +410,44 @@ impl Services {
                     enabled,
                     group_by,
                 } => {
-                    let Some(metric) = metrics.get(&metric_id) else {
-                        // Metric row was deleted out from under an active entitlement.
-                        log::warn!(
-                            "metric {metric_id} not found for feature {} — emitting entitlement without usage",
-                            ent.feature.id
-                        );
-                        result.push(build_unavailable_metered_entitlement(
-                            ent.feature,
-                            ent.origin,
-                            metric_id,
-                            limit,
-                            reset_period,
-                            overage_behavior,
-                            thresholds,
-                            enabled,
-                            group_by,
-                        ));
-                        continue;
-                    };
-
-                    let bounds = compute_usage_period(
-                        &reset_period,
-                        context.cycle,
-                        context.activation,
-                        now.naive_utc(),
-                    );
-                    let period_start = bounds.start;
-                    let period_end = bounds.end.unwrap_or_else(|| now.naive_utc());
-                    let reset_at = resets_at(&reset_period, bounds.end).map(|t| t.and_utc());
+                    let window = included.level.window.as_ref();
                     let meta = MeteredMeta {
                         feature: ent.feature,
                         origin: ent.origin,
                         metric_id,
                         limit,
+                        reset_at: window
+                            .and_then(|w| resets_at(&reset_period, w.end.map(|e| e.naive_utc())))
+                            .map(|t| t.and_utc()),
                         reset_period,
                         overage_behavior,
                         thresholds,
                         enabled,
-                        period_start,
-                        reset_at,
+                        period_start: window.map_or(now, |w| w.start).naive_utc(),
                         group_by,
                     };
-
-                    // Empty window: metering rejects start>=end, so report zero usage directly
-                    // instead of failing the whole call.
-                    if period_start >= period_end {
-                        result.push(build_metered_entitlement(meta, Decimal::ZERO));
-                        continue;
-                    }
-
-                    pending.push(PendingUsage {
-                        meta,
-                        metric,
-                        period: UsagePeriod {
-                            start: period_start,
-                            end: period_end,
-                        },
-                    });
+                    let mut entitlement = match usage {
+                        LevelUsage::Read(Some(consumed)) => {
+                            build_metered_entitlement(meta, consumed)
+                        }
+                        unread => build_unread_metered_entitlement(
+                            meta,
+                            unread == LevelUsage::Unavailable,
+                        ),
+                    };
+                    entitlement.own_grant = included.own_grant;
+                    result.push(entitlement);
+                    continue;
                 }
-            }
+            };
+            result.push(EffectiveEntitlement {
+                feature: ent.feature,
+                value,
+                origin: ent.origin,
+                own_grant: included.own_grant,
+            });
         }
-
-        // Read live on every call, never from the engine's state: callers of this public read
-        // expect usage ingested a moment ago, which the state only holds after its next sweep.
-        let usage_futs: Vec<_> = pending
-            .iter()
-            .map(|p| {
-                self.metering_usage(
-                    &tenant_id,
-                    &customer_id,
-                    p.metric,
-                    p.meta.group_by.as_deref(),
-                    p.period.clone(),
-                )
-            })
-            .collect();
-        let consumed = stream::iter(usage_futs)
-            .buffered(USAGE_FETCH_CONCURRENCY)
-            .try_collect::<Vec<Decimal>>()
-            .await?;
-
-        for (p, consumed) in pending.into_iter().zip(consumed) {
-            result.push(build_metered_entitlement(p.meta, consumed));
-        }
-
         Ok(result)
-    }
-
-    /// What the entitlement's limit is measured against over the window: the customer's usage, or
-    /// its largest group's when the limit applies per group, added up as the engine does.
-    async fn metering_usage(
-        &self,
-        tenant_id: &TenantId,
-        customer_id: &CustomerId,
-        metric: &BillableMetric,
-        group_by: Option<&str>,
-        period: UsagePeriod,
-    ) -> StoreResult<Decimal> {
-        match group_by {
-            None => {
-                self.usage_client
-                    .fetch_total_usage(tenant_id, customer_id, metric, period)
-                    .await
-            }
-            Some(property) => {
-                let usage = self
-                    .usage_client
-                    .fetch_usage_grouped_by(tenant_id, customer_id, metric, property, period)
-                    .await?;
-                largest_group(&usage.data, property)
-            }
-        }
     }
 
     /// Usage the usage controls' monitors hold for entitlement monitors, by monitor id. A missing
@@ -554,29 +482,6 @@ impl Services {
         })
     }
 
-    pub(crate) async fn load_billing_context(
-        &self,
-        conn: &mut PgConn,
-        customer_id: CustomerId,
-        tenant_id: TenantId,
-    ) -> StoreResult<BillingContext> {
-        let sub_rows = SubscriptionRow::find_active_by_customer(conn, customer_id, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        // The customer's windows follow one subscription: the same one the usage check follows.
-        let anchor = anchor_subscription(&sub_rows);
-
-        Ok(BillingContext {
-            cycle: anchor.map(|r| BillingCyclePeriod {
-                period_start: r.current_period_start,
-                period_end: r.current_period_end,
-            }),
-            activation: earliest_activation(&sub_rows),
-            subscription_id: anchor.map(|r| r.id),
-        })
-    }
-
     /// The metrics, measured as `subscription_id`'s usage filter attributes its usage when the
     /// entitlements are that subscription's.
     pub(crate) async fn load_metrics(
@@ -598,24 +503,83 @@ impl Services {
     }
 }
 
+impl crate::Store {
+    /// The subscription's readout without usage, for the gRPC subscription entitlements.
+    pub async fn subscription_entitlements(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+    ) -> StoreResult<Vec<(ResolvedEntitlement, Option<SubscriptionGrant>)>> {
+        let sub = self.get_subscription(tenant_id, subscription_id).await?;
+        let mut conn = self.get_conn().await?;
+        let of = SubscriptionOf {
+            id: subscription_id,
+            customer_id: sub.customer_id,
+            resource_id: sub.resource_id,
+        };
+        let (grants, readouts): (Vec<_>, Vec<_>) =
+            included_levels(&mut conn, tenant_id, of, common_clock::now())
+                .await?
+                .into_iter()
+                .filter_map(|i| Some((i.own_grant, readout_at(&i.feature.feature, &i.level)?)))
+                .unzip();
+        Ok(with_origin_names(&mut conn, tenant_id, readouts)
+            .await?
+            .into_iter()
+            .zip(grants)
+            .collect())
+    }
+}
+
+/// A resolved feature as the legacy readout shows it: its own level's value, with the source
+/// of the row that set it. `None` when that level has no value or holds an app count.
+pub(crate) fn readout_of(
+    resolved: &ResolvedFeature,
+) -> Option<(FeatureRef, ResolvedEntitlementValue, EntitlementEntityId)> {
+    readout_at(&resolved.feature, resolved.levels.iter().find(|l| l.own)?)
+}
+
+/// A level's value as the legacy readout shows it, with the source of the row that set it.
+pub(crate) fn readout_at(
+    feature: &Feature,
+    level: &ResolvedLevel,
+) -> Option<(FeatureRef, ResolvedEntitlementValue, EntitlementEntityId)> {
+    let LevelValue::Value(value) = &level.value else {
+        return None;
+    };
+    let readout = ResolvedEntitlementValue::of(
+        &feature.kind,
+        value,
+        &level.policy,
+        level.deciding_subscription.is_some(),
+    )?;
+    let origin =
+        winning(&level.explain).map_or(EntitlementEntityId::Feature(feature.id), |c| c.source);
+    Some((feature.to_ref(), readout, origin))
+}
+
+/// The row that set a level's value: its last applied one.
+pub(crate) fn winning(explain: &[Contribution]) -> Option<&Contribution> {
+    explain.iter().rev().find(|c| c.running.is_some())
+}
+
 /// The monitor the engine keeps for a limited entitlement window; none for a sliding window,
 /// which it does not monitor.
 fn engine_monitor(
-    subscription_id: SubscriptionId,
+    customer_id: CustomerId,
     feature_id: FeatureId,
     reset_period: &ResetPeriod,
     period_start: NaiveDateTime,
     limit: Decimal,
-    grouped: bool,
 ) -> Option<ExpectedMonitor> {
     if matches!(reset_period, ResetPeriod::SlidingWindow { .. }) {
         return None;
     }
     Some(ExpectedMonitor {
-        id: entitlement_monitor_id(feature_id, subscription_id),
+        id: level_monitor_id(feature_id, customer_id, EvalLevel::Customer),
         window_start: period_start.and_utc(),
         limit,
-        grouped,
+        grouped: false,
     })
 }
 
@@ -652,6 +616,7 @@ fn build_metered_entitlement(meta: MeteredMeta, consumed: Decimal) -> EffectiveE
     EffectiveEntitlement {
         feature: meta.feature,
         origin: meta.origin,
+        own_grant: None,
         value: EffectiveEntitlementValue::Metered {
             metric_id: meta.metric_id,
             limit: meta.limit,
@@ -665,41 +630,34 @@ fn build_metered_entitlement(meta: MeteredMeta, consumed: Decimal) -> EffectiveE
                 remaining,
                 period_start: Some(meta.period_start.and_utc()),
                 reset_at: meta.reset_at,
+                unavailable: false,
             },
             limit_reached,
         },
     }
 }
 
-/// Build a metered entitlement whose underlying metric row is missing — usage fields are all
-/// `None` so the caller can render "usage unavailable" without losing the feature row.
-fn build_unavailable_metered_entitlement(
-    feature: FeatureRef,
-    origin: ResolvedOrigin,
-    metric_id: BillableMetricId,
-    limit: Option<Decimal>,
-    reset_period: ResetPeriod,
-    overage_behavior: OverageBehavior,
-    thresholds: Vec<u32>,
-    enabled: bool,
-    group_by: Option<String>,
-) -> EffectiveEntitlement {
+/// A metered entitlement without its usage: metering did not answer (`unavailable`), or the
+/// usage cannot be counted (its metric is gone, or its level names no resource).
+fn build_unread_metered_entitlement(meta: MeteredMeta, unavailable: bool) -> EffectiveEntitlement {
     EffectiveEntitlement {
-        feature,
-        origin,
+        feature: meta.feature,
+        origin: meta.origin,
+        own_grant: None,
         value: EffectiveEntitlementValue::Metered {
-            metric_id,
-            limit,
-            reset_period,
-            overage_behavior,
-            thresholds,
-            enabled,
-            group_by,
+            metric_id: meta.metric_id,
+            limit: meta.limit,
+            reset_period: meta.reset_period,
+            overage_behavior: meta.overage_behavior,
+            thresholds: meta.thresholds,
+            enabled: meta.enabled,
+            group_by: meta.group_by,
             usage: EntitlementUsage {
                 consumed: None,
                 remaining: None,
                 period_start: None,
                 reset_at: None,
+                unavailable,
             },
             limit_reached: false,
         },
@@ -902,35 +860,14 @@ mod tests {
 
     #[test]
     fn unavailable_entitlement_preserves_spec_and_clears_usage() {
-        // The "metric row deleted" branch in enrich_with_usage must keep the entitlement's
-        // spec (limit/reset/overage/enabled) intact so the caller can still render the
-        // feature, while signalling unavailable usage by zeroing every usage field.
-        let feature = FeatureRef {
-            id: FeatureId::new(),
-            name: "deleted-metric".to_string(),
-            code: "deleted-metric".to_string(),
-            product: None,
+        let mut m = meta(Some(500.0), common_clock::now().naive_utc());
+        m.reset_period = ResetPeriod::BillingCycle;
+        m.overage_behavior = OverageBehavior::Block {
+            grace_period_pct: Some(10),
         };
-        let origin = ResolvedOrigin {
-            entity: common_domain::ids::EntitlementEntityId::Feature(feature.id),
-            name: None,
-        };
-        let metric_id = BillableMetricId::new();
-        let limit = Some(Decimal::from(500));
-
-        let ent = build_unavailable_metered_entitlement(
-            feature.clone(),
-            origin,
-            metric_id,
-            limit,
-            ResetPeriod::BillingCycle,
-            OverageBehavior::Block {
-                grace_period_pct: Some(10),
-            },
-            vec![80],
-            true,
-            None,
-        );
+        m.thresholds = vec![80];
+        let (feature, limit) = (m.feature.clone(), m.limit);
+        let ent = build_unread_metered_entitlement(m, true);
 
         assert_eq!(ent.feature.id, feature.id);
         let EffectiveEntitlementValue::Metered {
@@ -950,5 +887,6 @@ mod tests {
         assert_eq!(usage.remaining, None);
         assert_eq!(usage.period_start, None);
         assert_eq!(usage.reset_at, None);
+        assert!(usage.unavailable);
     }
 }

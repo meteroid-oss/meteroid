@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 use crate::data::ids::{
     METRIC_BANDWIDTH, PLAN_VERSION_1_LEETCODE_ID, PLAN_VERSION_2_LEETCODE_ID,
-    PRICE_LEETCODE_RATE_ID, PRODUCT_PLATFORM_FEE_ID, TENANT_ID,
+    PLAN_VERSION_PRO_DRAFT_ID, PRICE_LEETCODE_RATE_ID, PRODUCT_PLATFORM_FEE_ID, TENANT_ID,
 };
 use crate::helpers;
 use crate::meteroid_it;
@@ -190,7 +190,7 @@ async fn test_rest_feature_and_entitlement_writes() {
                 "name": "Priority support",
                 "code": "priority-support",
                 "description": "24/7 support",
-                "feature_type": { "type": "BOOLEAN" },
+                "kind": "BOOLEAN",
             }))
             .send()
             .await
@@ -212,10 +212,7 @@ async fn test_rest_feature_and_entitlement_writes() {
             .json(&json!({
                 "name": "Bandwidth",
                 "code": "bandwidth",
-                "feature_type": {
-                    "type": "METERED",
-                    "metric_id": METRIC_BANDWIDTH.as_base62(),
-                },
+                "kind": "LIMIT", "limit": { "counted_by": "EVENTS", "metric_id": METRIC_BANDWIDTH.as_base62() },
             }))
             .send()
             .await
@@ -236,7 +233,7 @@ async fn test_rest_feature_and_entitlement_writes() {
         .json(&json!({
             "name": "Bad code",
             "code": "Not A Code",
-            "feature_type": { "type": "BOOLEAN" },
+            "kind": "BOOLEAN",
         }))
         .send()
         .await
@@ -255,7 +252,7 @@ async fn test_rest_feature_and_entitlement_writes() {
     .await;
     assert_eq!(created_feature["id"], support_id);
 
-    let plan_version = PLAN_VERSION_1_LEETCODE_ID.as_base62();
+    let plan_version = PLAN_VERSION_2_LEETCODE_ID.as_base62();
     let entitlements_path = format!("{base}/api/v1/plan-versions/{plan_version}/entitlements");
     let batch = json!({
         "entitlements": [
@@ -274,6 +271,19 @@ async fn test_rest_feature_and_entitlement_writes() {
             },
         ]
     });
+
+    // A published version's grants are fixed: they are written through its draft.
+    let published = client
+        .post(format!(
+            "{base}/api/v1/plan-versions/{}/entitlements",
+            PLAN_VERSION_1_LEETCODE_ID.as_base62()
+        ))
+        .bearer_auth(&api_key)
+        .json(&batch)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(published.status(), reqwest::StatusCode::CONFLICT);
 
     let created = json_or_panic(
         client
@@ -479,7 +489,7 @@ async fn test_rest_create_feature_reference_validation() {
     let rejected_product = f.post("/api/v1/features").json(&json!({
         "name": "Leaky product ref",
         "code": "leaky-product",
-        "feature_type": { "type": "BOOLEAN" },
+        "kind": "BOOLEAN",
         "product_id": foreign_product_id,
     }));
     assert_eq!(
@@ -496,7 +506,7 @@ async fn test_rest_create_feature_reference_validation() {
     let rejected_metric = f.post("/api/v1/features").json(&json!({
         "name": "Leaky metric ref",
         "code": "leaky-metric",
-        "feature_type": { "type": "METERED", "metric_id": foreign_metric_id },
+        "kind": "LIMIT", "limit": { "counted_by": "EVENTS", "metric_id": foreign_metric_id },
     }));
     assert_eq!(
         status_of(rejected_metric).await,
@@ -511,7 +521,7 @@ async fn test_rest_create_feature_reference_validation() {
     let unknown_metric = f.post("/api/v1/features").json(&json!({
         "name": "Unknown metric ref",
         "code": "unknown-metric",
-        "feature_type": { "type": "METERED", "metric_id": BillableMetricId::new().as_base62() },
+        "kind": "LIMIT", "limit": { "counted_by": "EVENTS", "metric_id": BillableMetricId::new().as_base62() },
     }));
     assert_eq!(
         status_of(unknown_metric).await,
@@ -523,7 +533,7 @@ async fn test_rest_create_feature_reference_validation() {
         .create_feature(json!({
             "name": "Owned bandwidth",
             "code": "owned-bandwidth",
-            "feature_type": { "type": "METERED", "metric_id": METRIC_BANDWIDTH.as_base62() },
+            "kind": "LIMIT", "limit": { "counted_by": "EVENTS", "metric_id": METRIC_BANDWIDTH.as_base62() },
             "product_id": PRODUCT_PLATFORM_FEE_ID.as_base62(),
         }))
         .await;
@@ -537,7 +547,7 @@ async fn test_rest_create_feature_reference_validation() {
     let empty_select = f.post("/api/v1/features").json(&json!({
         "name": "Support tier",
         "code": "support-tier",
-        "feature_type": { "type": "CONFIG", "value_type": "SELECT", "options": [] },
+        "kind": "VALUE", "value": { "type": "SELECT", "options": [] },
     }));
     assert_eq!(
         status_of(empty_select).await,
@@ -553,11 +563,7 @@ async fn test_rest_create_feature_reference_validation() {
         .create_feature(json!({
             "name": "Support tier",
             "code": "support-tier",
-            "feature_type": {
-                "type": "CONFIG",
-                "value_type": "SELECT",
-                "options": ["basic", "pro"],
-            },
+            "kind": "VALUE", "value": { "type": "SELECT", "options": ["basic", "pro"] },
         }))
         .await;
     assert_eq!(tier["feature_type"]["value_type"], "SELECT");
@@ -568,7 +574,7 @@ async fn test_rest_create_feature_reference_validation() {
         .create_feature(json!({
             "name": "Seat quota",
             "code": "seat-quota",
-            "feature_type": { "type": "CONFIG", "value_type": "NUMBER" },
+            "kind": "VALUE", "value": { "type": "NUMBER" },
         }))
         .await;
     assert_eq!(quota["feature_type"]["value_type"], "NUMBER");
@@ -594,7 +600,7 @@ async fn test_rest_product_and_add_on_entitlement_writes() {
         .create_feature(json!({
             "name": "SSO",
             "code": "sso",
-            "feature_type": { "type": "BOOLEAN" },
+            "kind": "BOOLEAN",
             "product_id": platform,
         }))
         .await;
@@ -639,7 +645,7 @@ async fn test_rest_product_and_add_on_entitlement_writes() {
         .create_feature(json!({
             "name": "Audit log",
             "code": "audit-log",
-            "feature_type": { "type": "BOOLEAN" },
+            "kind": "BOOLEAN",
             "product_id": platform,
         }))
         .await;
@@ -648,7 +654,7 @@ async fn test_rest_product_and_add_on_entitlement_writes() {
         .create_feature(json!({
             "name": "Global flag",
             "code": "global-flag",
-            "feature_type": { "type": "BOOLEAN" },
+            "kind": "BOOLEAN",
         }))
         .await;
     let global_id = global["id"].as_str().unwrap().to_string();
@@ -718,7 +724,7 @@ async fn test_rest_product_and_add_on_entitlement_writes() {
         .create_feature(json!({
             "name": "Boost",
             "code": "boost",
-            "feature_type": { "type": "BOOLEAN" },
+            "kind": "BOOLEAN",
             "product_id": platform,
         }))
         .await;
@@ -784,7 +790,7 @@ async fn test_rest_entitlement_update_delete_and_feature_lifecycle() {
             "name": "SSO",
             "code": "sso",
             "description": "SAML",
-            "feature_type": { "type": "BOOLEAN" },
+            "kind": "BOOLEAN",
         }))
         .await;
     let sso_id = sso["id"].as_str().unwrap().to_string();
@@ -793,12 +799,12 @@ async fn test_rest_entitlement_update_delete_and_feature_lifecycle() {
             "name": "Audit log",
             "code": "audit-log",
             "description": "retention",
-            "feature_type": { "type": "BOOLEAN" },
+            "kind": "BOOLEAN",
         }))
         .await;
     let audit_id = audit["id"].as_str().unwrap().to_string();
 
-    let plan_version = PLAN_VERSION_1_LEETCODE_ID.as_base62();
+    let plan_version = PLAN_VERSION_2_LEETCODE_ID.as_base62();
     let plan_path = format!("/api/v1/plan-versions/{plan_version}/entitlements");
     let created = json_or_panic(
         f.post(&plan_path)
@@ -1096,7 +1102,7 @@ async fn test_rest_entitlement_update_delete_and_feature_lifecycle() {
         find_resolved(&while_archived, "audit-log").is_none(),
         "an archived feature's grants stop resolving: {while_archived}"
     );
-    let other_version = PLAN_VERSION_2_LEETCODE_ID.as_base62();
+    let other_version = PLAN_VERSION_PRO_DRAFT_ID.as_base62();
     assert_eq!(
         status_of(
             f.post(&format!(
@@ -1123,7 +1129,7 @@ async fn test_rest_entitlement_update_delete_and_feature_lifecycle() {
         .create_feature(json!({
             "name": "Audit log v2",
             "code": "audit-log",
-            "feature_type": { "type": "BOOLEAN" },
+            "kind": "BOOLEAN",
         }))
         .await;
     assert_ne!(recreated["id"].as_str().unwrap(), audit_id);
@@ -1182,42 +1188,28 @@ async fn test_rest_entitlement_update_delete_and_feature_lifecycle() {
     );
 }
 
-/// A metered value is rejected with a 400 on every path that accepts one when its reset
-/// interval is 0 (a divide-by-zero at resolution time) or its limit is negative, a plan body
-/// naming the same feature twice is rejected before any write, and a metered update keeps
-/// the overage settings the REST body cannot express.
+/// A metered value is rejected with a 400 on every path that accepts one when its limit is
+/// negative, a plan body naming the same feature twice is rejected before any write, and a Set to
+/// row's policy override is validated and kept by a value update (ADR 0011 §3.1).
 #[tokio::test]
 async fn test_rest_entitlement_value_validation_and_update_carry_over() {
-    use meteroid_store::domain::EntitlementUpdate;
-    use meteroid_store::domain::entitlements::{
-        EntitlementValue, OverageBehavior, PeriodUnit, ResetPeriod,
-    };
+    use meteroid_store::domain::entitlement_fold::{GrantValue, LimitValue};
+    use meteroid_store::domain::entitlement_policy::AtLimit;
     use meteroid_store::repositories::entitlements::EntitlementsInterface;
 
     let f = start_rest_fixture("rest-entitlement-validation").await;
     let platform = PRODUCT_PLATFORM_FEE_ID.as_base62();
     let metric = METRIC_BANDWIDTH.as_base62();
 
-    let metered_value = |limit: &str, interval: u32| {
-        json!({
-            "type": "METERED",
-            "limit": limit,
-            "reset_period": { "type": "CALENDAR", "unit": "MONTH", "interval": interval },
-            "enabled": true,
-        })
-    };
-    let zero_interval = metered_value("10", 0);
-    let negative_limit = metered_value("-1", 1);
+    let metered_value = |limit: &str| json!({ "type": "METERED", "limit": limit, "enabled": true });
+    let negative_limit = metered_value("-1");
 
     // ── Feature create with a default entitlement ──
-    for (code, value) in [
-        ("zero-interval", &zero_interval),
-        ("neg-limit", &negative_limit),
-    ] {
+    for (code, value) in [("neg-limit", &negative_limit)] {
         let rejected = f.post("/api/v1/features").json(&json!({
             "name": code,
             "code": code,
-            "feature_type": { "type": "METERED", "metric_id": metric },
+            "kind": "LIMIT", "limit": { "counted_by": "EVENTS", "metric_id": metric },
             "entitlement": value,
         }));
         assert_eq!(
@@ -1236,46 +1228,49 @@ async fn test_rest_entitlement_value_validation_and_update_carry_over() {
         .create_feature(json!({
             "name": "Bandwidth",
             "code": "bandwidth",
-            "feature_type": { "type": "METERED", "metric_id": metric },
+            "kind": "LIMIT", "limit": { "counted_by": "EVENTS", "metric_id": metric },
             "product_id": platform,
         }))
         .await;
     let bandwidth_id = bandwidth["id"].as_str().unwrap().to_string();
 
     // ── Product / plan-version / add-on batch paths ──
+    // The published v1 is reopened as its draft, so what a rejection left would resolve on it.
     let plan_version = PLAN_VERSION_1_LEETCODE_ID.as_base62();
     let plan_path = format!("/api/v1/plan-versions/{plan_version}/entitlements");
     let product_path = format!("/api/v1/products/{platform}/entitlements");
-    for path in [&plan_path, &product_path] {
-        for value in [&zero_interval, &negative_limit] {
-            let rejected = f.post(path).json(&json!({
-                "entitlements": [{ "feature_id": bandwidth_id, "value": value }]
-            }));
-            assert_eq!(
-                status_of(rejected).await,
-                reqwest::StatusCode::BAD_REQUEST,
-                "{path}: {value}"
-            );
+    helpers::plans::as_draft(&f.setup.store, PLAN_VERSION_1_LEETCODE_ID, async {
+        for path in [&plan_path, &product_path] {
+            for value in [&negative_limit] {
+                let rejected = f.post(path).json(&json!({
+                    "entitlements": [{ "feature_id": bandwidth_id, "value": value }]
+                }));
+                assert_eq!(
+                    status_of(rejected).await,
+                    reqwest::StatusCode::BAD_REQUEST,
+                    "{path}: {value}"
+                );
+            }
         }
-    }
+        // The same feature twice in one batch would race on the unique key: reject it up front.
+        let duplicated = f.post(&plan_path).json(&json!({
+            "entitlements": [
+                { "feature_id": bandwidth_id, "value": metered_value("10") },
+                { "feature_id": bandwidth_id, "value": metered_value("20") },
+            ]
+        }));
+        assert_eq!(
+            status_of(duplicated).await,
+            reqwest::StatusCode::BAD_REQUEST
+        );
+    })
+    .await;
     let stored = json_or_panic(
         f.get("/api/v1/features/bandwidth").send().await.unwrap(),
         reqwest::StatusCode::OK,
     )
     .await;
     assert!(stored["entitlement"].is_null(), "{stored}");
-
-    // The same feature twice in one batch would race on the unique key: reject it up front.
-    let duplicated = f.post(&plan_path).json(&json!({
-        "entitlements": [
-            { "feature_id": bandwidth_id, "value": metered_value("10", 1) },
-            { "feature_id": bandwidth_id, "value": metered_value("20", 1) },
-        ]
-    }));
-    assert_eq!(
-        status_of(duplicated).await,
-        reqwest::StatusCode::BAD_REQUEST
-    );
     let resolved = json_or_panic(
         f.get(&plan_path).send().await.unwrap(),
         reqwest::StatusCode::OK,
@@ -1299,11 +1294,10 @@ async fn test_rest_entitlement_value_validation_and_update_carry_over() {
         })
     };
     let duplicate_specs = json!([
-        { "feature_id": bandwidth_id, "value": metered_value("10", 1) },
-        { "feature_id": bandwidth_id, "value": metered_value("20", 1) },
+        { "feature_id": bandwidth_id, "value": metered_value("10") },
+        { "feature_id": bandwidth_id, "value": metered_value("20") },
     ]);
     for entitlements in [
-        json!([{ "feature_id": bandwidth_id, "value": zero_interval }]),
         json!([{ "feature_id": bandwidth_id, "value": negative_limit }]),
         duplicate_specs.clone(),
     ] {
@@ -1332,7 +1326,7 @@ async fn test_rest_entitlement_value_validation_and_update_carry_over() {
     let created = json_or_panic(
         f.post("/api/v1/plans")
             .json(&plan_body(json!([
-                { "feature_id": bandwidth_id, "value": metered_value("10", 1) }
+                { "feature_id": bandwidth_id, "value": metered_value("10") }
             ])))
             .send()
             .await
@@ -1342,10 +1336,7 @@ async fn test_rest_entitlement_value_validation_and_update_carry_over() {
     .await;
     let plan_id = created["id"].as_str().unwrap().to_string();
     let replace_path = format!("/api/v1/plans/{plan_id}");
-    for entitlements in [
-        json!([{ "feature_id": bandwidth_id, "value": zero_interval }]),
-        duplicate_specs,
-    ] {
+    for entitlements in [duplicate_specs] {
         let rejected = f.put(&replace_path).json(&plan_body(entitlements.clone()));
         assert_eq!(
             status_of(rejected).await,
@@ -1360,233 +1351,125 @@ async fn test_rest_entitlement_value_validation_and_update_carry_over() {
     .await;
     assert_eq!(unchanged["version_id"], created["version_id"]);
 
-    // ── Update: invalid values rejected, overage settings carried over ──
-    let entitlement_id = created["entitlements"][0]["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let entitlement_path = format!("/api/v1/entitlements/{entitlement_id}");
-    for value in [&zero_interval, &negative_limit] {
-        let rejected = f.patch(&entitlement_path).json(&json!({ "value": value }));
-        assert_eq!(
-            status_of(rejected).await,
-            reqwest::StatusCode::BAD_REQUEST,
-            "{value}"
-        );
-    }
-
-    // Seeded through the store: what a client unaware of the limit terms finds and must keep.
-    let store = &f.setup.store;
-    let stored_id = EntitlementId::parse_base62(&entitlement_id).unwrap();
-    let seeded = EntitlementValue::Metered {
-        limit: Some(dec!(10)),
-        reset_period: ResetPeriod::Calendar {
-            unit: PeriodUnit::Month,
-            interval: 1,
-        },
-        overage_behavior: OverageBehavior::Allow,
-        thresholds: vec![80],
-        enabled: true,
-        group_by: None,
-    };
-    store
-        .update_entitlement(
-            stored_id,
-            TENANT_ID,
-            EntitlementUpdate {
-                value: Some(seeded),
-            },
-        )
-        .await
-        .unwrap();
-
-    let patched = json_or_panic(
-        f.patch(&entitlement_path)
-            .json(&json!({ "value": metered_value("25", 2) }))
-            .send()
-            .await
-            .unwrap(),
-        reqwest::StatusCode::OK,
-    )
-    .await;
-    assert_eq!(patched["value"]["limit"], "25");
-    assert_eq!(patched["value"]["reset_period"]["interval"], 2);
-
-    let after = store.get_entitlement(stored_id, TENANT_ID).await.unwrap();
-    let (limit, reset_period, overage_behavior, thresholds) = match after.value {
-        EntitlementValue::Metered {
-            limit,
-            reset_period,
-            overage_behavior,
-            thresholds,
-            ..
-        } => (limit, reset_period, overage_behavior, thresholds),
-        other => panic!("the entitlement is still metered: {other:?}"),
-    };
-    assert_eq!(limit, Some(dec!(25)));
-    assert_eq!(
-        reset_period,
-        ResetPeriod::Calendar {
-            unit: PeriodUnit::Month,
-            interval: 2,
+    // The plan is published: its rows change through a draft (ADR-0011 §3.2).
+    let version_id =
+        common_domain::ids::PlanVersionId::parse_base62(created["version_id"].as_str().unwrap())
+            .unwrap();
+    helpers::plans::as_draft(&f.setup.store, version_id, async {
+        // ── Update: invalid values rejected, overage settings carried over ──
+        let entitlement_id = created["entitlements"][0]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let entitlement_path = format!("/api/v1/entitlements/{entitlement_id}");
+        for value in [&negative_limit] {
+            let rejected = f.patch(&entitlement_path).json(&json!({ "value": value }));
+            assert_eq!(
+                status_of(rejected).await,
+                reqwest::StatusCode::BAD_REQUEST,
+                "{value}"
+            );
         }
-    );
-    assert_eq!(
-        overage_behavior,
-        OverageBehavior::Allow,
-        "a REST update must not reset the overage behaviour"
-    );
-    assert_eq!(
-        thresholds,
-        vec![80],
-        "a REST update must not drop the thresholds"
-    );
-    assert_eq!(patched["value"]["overage_behavior"], "ALLOW", "{patched}");
-    assert_eq!(patched["value"]["warning_threshold_pct"], 80, "{patched}");
-    assert_eq!(patched["value"]["thresholds"], json!([80]), "{patched}");
 
-    // ── The limit terms are readable and writable over REST ──
-    let mut blocking = metered_value("25", 2);
-    blocking["overage_behavior"] = json!("BLOCK");
-    blocking["grace_pct"] = json!(10);
-    blocking["warning_threshold_pct"] = Value::Null;
-    let rewritten = json_or_panic(
-        f.patch(&entitlement_path)
-            .json(&json!({ "value": blocking }))
-            .send()
+        let store = &f.setup.store;
+        let stored_id = EntitlementId::parse_base62(&entitlement_id).unwrap();
+        let patch_ok = async |body: Value| {
+            json_or_panic(
+                f.patch(&entitlement_path).json(&body).send().await.unwrap(),
+                reqwest::StatusCode::OK,
+            )
             .await
-            .unwrap(),
-        reqwest::StatusCode::OK,
-    )
-    .await;
-    assert_eq!(
-        rewritten["value"]["overage_behavior"], "BLOCK",
-        "{rewritten}"
-    );
-    assert_eq!(rewritten["value"]["grace_pct"], 10, "{rewritten}");
-    assert!(
-        rewritten["value"].get("warning_threshold_pct").is_none(),
-        "null removes the warning: {rewritten}"
-    );
-    let stored = store.get_entitlement(stored_id, TENANT_ID).await.unwrap();
-    assert!(matches!(
-        stored.value,
-        EntitlementValue::Metered {
-            overage_behavior: OverageBehavior::Block {
-                grace_period_pct: Some(10)
-            },
-            ref thresholds,
-            ..
-        } if thresholds.is_empty()
-    ));
-    let read_back = json_or_panic(
-        f.get(&entitlement_path).send().await.unwrap(),
-        reqwest::StatusCode::OK,
-    )
-    .await;
-    assert_eq!(
-        read_back["value"]["overage_behavior"], "BLOCK",
-        "{read_back}"
-    );
-    assert_eq!(read_back["value"]["grace_pct"], 10, "{read_back}");
+        };
 
-    let mut graced_allow = metered_value("25", 2);
-    graced_allow["overage_behavior"] = json!("ALLOW");
-    graced_allow["grace_pct"] = json!(10);
-    let mut unlimited_allow = metered_value("1", 1);
-    unlimited_allow["limit"] = Value::Null;
-    unlimited_allow["overage_behavior"] = json!("ALLOW");
-    let mut sliding_warning = metered_value("25", 1);
-    sliding_warning["reset_period"] =
-        json!({ "type": "SLIDING_WINDOW", "unit": "HOUR", "interval": 5 });
-    sliding_warning["warning_threshold_pct"] = json!(80);
-    for value in [&graced_allow, &unlimited_allow, &sliding_warning] {
-        let rejected = f.patch(&entitlement_path).json(&json!({ "value": value }));
+        // ── A Set to row's policy override, kept by a value update ──
+        let terms = json!({ "resets": "BILLING_CYCLE", "at_limit": "ALLOW_AND_BILL", "grace_pct": 0, "thresholds": [80] });
+        let overridden = patch_ok(json!({ "policy_override": terms })).await;
+        assert_eq!(overridden["policy_override"], terms, "{overridden}");
+        let patched = patch_ok(json!({ "value": metered_value("25") })).await;
+        assert_eq!(patched["value"]["limit"], "25");
         assert_eq!(
-            status_of(rejected).await,
-            reqwest::StatusCode::BAD_REQUEST,
-            "settings that would do nothing are refused: {value}"
+            patched["policy_override"], terms,
+            "a value update keeps the override: {patched}"
         );
-    }
+        let stored = store.get_entitlement(stored_id, TENANT_ID).await.unwrap();
+        assert_eq!(
+            stored.value,
+            GrantValue::Limit(LimitValue::Amount(dec!(25)))
+        );
+        assert_eq!(
+            stored.policy_override.map(|p| p.at_limit),
+            Some(AtLimit::AllowAndBill)
+        );
 
-    // ── Terms the body omits are carried over only while they still apply ──
-    let mut allowing = metered_value("25", 2);
-    allowing["overage_behavior"] = json!("ALLOW");
-    allowing["warning_threshold_pct"] = json!(80);
-    let patch_ok = async |value: &Value| {
-        json_or_panic(
-            f.patch(&entitlement_path)
-                .json(&json!({ "value": value }))
-                .send()
+        // An hourly calendar window keeps its unit (ADR 0011 §3.1).
+        let hourly = json!({ "resets": "CALENDAR", "period": { "unit": "HOUR", "interval": 1 }, "at_limit": "DENY", "grace_pct": 0, "thresholds": [80] });
+        let windowed = patch_ok(json!({ "policy_override": hourly })).await;
+        assert_eq!(windowed["policy_override"], hourly, "{windowed}");
+        assert_eq!(
+            store
+                .get_entitlement(stored_id, TENANT_ID)
                 .await
-                .unwrap(),
-            reqwest::StatusCode::OK,
-        )
-        .await
-    };
-    patch_ok(&allowing).await;
+                .unwrap()
+                .policy_override
+                .unwrap()
+                .reset_period(true),
+            meteroid_store::domain::entitlements::ResetPeriod::Calendar {
+                unit: meteroid_store::domain::entitlements::PeriodUnit::Hour,
+                interval: 1
+            }
+        );
 
-    let mut several = metered_value("25", 2);
-    several["thresholds"] = json!([100, 50, 80, 50]);
-    let several = patch_ok(&several).await;
-    assert_eq!(
-        several["value"]["thresholds"],
-        json!([50, 80, 100]),
-        "sorted and deduplicated: {several}"
-    );
-    assert_eq!(
-        several["value"]["warning_threshold_pct"], 50,
-        "the deprecated field reads the lowest threshold: {several}"
-    );
-    let mut too_many = metered_value("25", 2);
-    too_many["thresholds"] = json!((1..=11).collect::<Vec<u32>>());
-    let rejected = f
-        .patch(&entitlement_path)
-        .json(&json!({ "value": too_many }));
-    assert_eq!(
-        status_of(rejected).await,
-        reqwest::StatusCode::BAD_REQUEST,
-        "at most ten thresholds"
-    );
-
-    let mut grace_only = metered_value("25", 2);
-    grace_only["grace_pct"] = json!(10);
-    let rejected = f
-        .patch(&entitlement_path)
-        .json(&json!({ "value": grace_only }));
-    assert_eq!(
-        status_of(rejected).await,
-        reqwest::StatusCode::BAD_REQUEST,
-        "a grace on a stored ALLOW behavior is refused, not dropped"
-    );
-
-    let mut sliding = metered_value("25", 1);
-    sliding["reset_period"] = json!({ "type": "SLIDING_WINDOW", "unit": "HOUR", "interval": 5 });
-    let slid = patch_ok(&sliding).await;
-    assert_eq!(slid["value"]["overage_behavior"], "ALLOW", "{slid}");
-    assert!(
-        slid["value"].get("warning_threshold_pct").is_none()
-            && slid["value"].get("thresholds").is_none(),
-        "stored thresholds are dropped on a sliding window: {slid}"
-    );
-
-    let mut unlimited = metered_value("1", 1);
-    unlimited["limit"] = Value::Null;
-    let unlimited = patch_ok(&unlimited).await;
-    assert_eq!(
-        unlimited["value"]["overage_behavior"], "BLOCK",
-        "an old client removing the limit is not refused: {unlimited}"
-    );
-
-    let mut reset = metered_value("25", 2);
-    reset["overage_behavior"] = json!("ALLOW");
-    patch_ok(&reset).await;
-    reset["overage_behavior"] = Value::Null;
-    let reset = patch_ok(&reset).await;
-    assert_eq!(
-        reset["value"]["overage_behavior"], "BLOCK",
-        "null sets the default: {reset}"
-    );
+        let too_many = (1..=11).collect::<Vec<u32>>();
+        for (terms, why) in [
+            (
+                json!({ "resets": "BILLING_CYCLE", "at_limit": "ALLOW_AND_BILL", "grace_pct": 10 }),
+                "a grace applies to DENY only",
+            ),
+            (
+                json!({ "resets": "SLIDING", "period": { "unit": "DAY", "interval": 5 }, "at_limit": "DENY", "thresholds": [80] }),
+                "a sliding window takes no thresholds",
+            ),
+            (
+                json!({ "resets": "BILLING_CYCLE", "at_limit": "DENY", "thresholds": too_many }),
+                "at most ten thresholds",
+            ),
+            (
+                json!({ "resets": "FIXED", "at_limit": "DENY" }),
+                "a fixed window needs a period",
+            ),
+            (
+                json!({ "resets": "CALENDAR", "period": { "unit": "WEEK", "interval": 0 }, "at_limit": "DENY" }),
+                "a calendar window needs a positive interval",
+            ),
+            (
+                json!({ "resets": "BILLING_CYCLE", "at_limit": "DENY_NEW" }),
+                "DENY_NEW is for limits counted by the app",
+            ),
+        ] {
+            let rejected = f
+                .patch(&entitlement_path)
+                .json(&json!({ "policy_override": terms }));
+            assert_eq!(
+                status_of(rejected).await,
+                reqwest::StatusCode::BAD_REQUEST,
+                "{why}"
+            );
+        }
+        let raised = f
+            .patch(&entitlement_path)
+            .json(&json!({ "effect": "RAISE_TO" }));
+        assert_eq!(
+            status_of(raised).await,
+            reqwest::StatusCode::BAD_REQUEST,
+            "a plan row is a Set to, which alone carries an override"
+        );
+        let cleared = patch_ok(json!({ "policy_override": null })).await;
+        assert!(
+            cleared.get("policy_override").is_none(),
+            "null removes the override: {cleared}"
+        );
+    })
+    .await;
 }
 
 /// Replacing a published plan mints a new version, and entitlements hang off a version, so a
@@ -1599,7 +1482,7 @@ async fn test_rest_plan_body_carries_entitlements_across_versions() {
         .create_feature(json!({
             "name": "Single sign-on",
             "code": "plan_body_sso",
-            "feature_type": { "type": "BOOLEAN" }
+            "kind": "BOOLEAN"
         }))
         .await;
     let sso_id = sso["id"].as_str().unwrap().to_string();
@@ -1740,7 +1623,7 @@ async fn test_rest_plan_body_carries_entitlements_across_versions() {
 async fn test_rest_archived_feature_drops_out_and_comes_back() {
     use crate::data::ids::{CUST_UBER_ID, PLAN_LEETCODE_ID};
     use api::entitlements::v1::{
-        CreateEntitlementRequest, EntitlementEntity, EntitlementValue,
+        CreateEntitlementRequest, EntitlementEntity, EntitlementSpec, EntitlementValue,
         GetEffectiveEntitlementsRequest, GetResolvedForAddOnRequest,
         GetResolvedForPlanVersionRequest, GetResolvedForProductRequest, GetResolvedForQuoteRequest,
         GetResolvedForSubscriptionRequest, ListEntitlementsByEntityRequest, entitlement_entity,
@@ -1758,7 +1641,7 @@ async fn test_rest_archived_feature_drops_out_and_comes_back() {
         .create_feature(json!({
             "name": "Shelved",
             "code": "shelved",
-            "feature_type": { "type": "BOOLEAN" },
+            "kind": "BOOLEAN",
             "product_id": platform,
         }))
         .await["id"]
@@ -1769,7 +1652,7 @@ async fn test_rest_archived_feature_drops_out_and_comes_back() {
         .create_feature(json!({
             "name": "Kept",
             "code": "kept",
-            "feature_type": { "type": "BOOLEAN" },
+            "kind": "BOOLEAN",
             "product_id": platform,
         }))
         .await["id"]
@@ -1813,18 +1696,22 @@ async fn test_rest_archived_feature_drops_out_and_comes_back() {
     let plan_version = plan["version_id"].as_str().unwrap().to_string();
 
     let mut plan_version_grant_id = String::new();
+    // The published v1 is written as a fixture of the catalog; v2 is its draft.
     for version in [PLAN_VERSION_1_LEETCODE_ID, PLAN_VERSION_2_LEETCODE_ID] {
-        let created = json_or_panic(
-            f.post(&format!(
-                "/api/v1/plan-versions/{}/entitlements",
-                version.as_base62()
-            ))
-            .json(&both)
-            .send()
+        let created = helpers::plans::as_draft(&f.setup.store, version, async {
+            json_or_panic(
+                f.post(&format!(
+                    "/api/v1/plan-versions/{}/entitlements",
+                    version.as_base62()
+                ))
+                .json(&both)
+                .send()
+                .await
+                .unwrap(),
+                reqwest::StatusCode::CREATED,
+            )
             .await
-            .unwrap(),
-            reqwest::StatusCode::CREATED,
-        )
+        })
         .await;
         plan_version_grant_id = created["data"]
             .as_array()
@@ -1890,15 +1777,19 @@ async fn test_rest_archived_feature_drops_out_and_comes_back() {
         async move {
             client
                 .create_entitlement(CreateEntitlementRequest {
-                    feature_id,
                     entity: Some(EntitlementEntity {
                         entity_id: Some(entity),
                     }),
-                    value: Some(EntitlementValue {
-                        value: Some(entitlement_value::Value::BooleanValue(
-                            entitlement_value::BooleanValue { enabled: true },
-                        )),
+                    spec: Some(EntitlementSpec {
+                        feature_id,
+                        value: Some(EntitlementValue {
+                            value: Some(entitlement_value::Value::BooleanValue(
+                                entitlement_value::BooleanValue { enabled: true },
+                            )),
+                        }),
+                        ..Default::default()
                     }),
+                    resource_id: None,
                 })
                 .await
                 .unwrap();
@@ -2285,7 +2176,7 @@ async fn test_rest_unarchive_by_code() {
             f.create_feature(json!({
                 "name": code,
                 "code": code,
-                "feature_type": { "type": "BOOLEAN" }
+                "kind": "BOOLEAN"
             }))
             .await["id"]
                 .as_str()
@@ -2463,4 +2354,449 @@ async fn test_rest_plan_returns_matrix_shaped_rates_as_matrix() {
     let tokens = pricing("Tokens");
     assert_eq!(tokens["type"], "DIMENSION_RATES", "{tokens}");
     assert_eq!(tokens["dimensions"], json!(["model", "token_type"]));
+}
+
+/// ADR 0011 §8: `as_of` and `group[...]` were dropped; the check refuses them rather than
+/// answering as if they were not there.
+#[tokio::test]
+async fn test_rest_check_refuses_dropped_inputs() {
+    use crate::data::ids::CUST_UBER_ID;
+    let f = start_rest_fixture("rest-check-dropped").await;
+    f.create_feature(json!({ "name": "Audit log", "code": "audit_log", "kind": "BOOLEAN" }))
+        .await;
+    let customer = CUST_UBER_ID.as_base62();
+    let post = format!("/api/v1/customers/{customer}/entitlements/check");
+    let get = format!("/api/v1/customers/{customer}/entitlements/audit_log/check");
+    assert_eq!(
+        status_of(f.post(&post).json(&json!({ "feature": "audit_log" }))).await,
+        reqwest::StatusCode::OK
+    );
+    for body in [
+        json!({ "feature": "audit_log", "as_of": "2026-01-01T00:00:00Z" }),
+        json!({ "feature": "audit_log", "group": { "region": "eu" } }),
+    ] {
+        assert_eq!(
+            status_of(f.post(&post).json(&body)).await,
+            reqwest::StatusCode::BAD_REQUEST,
+            "{body}"
+        );
+    }
+    for query in ["group[region]=eu", "as_of=2026-01-01T00:00:00Z"] {
+        assert_eq!(
+            status_of(f.get(&format!("{get}?{query}"))).await,
+            reqwest::StatusCode::BAD_REQUEST,
+            "{query}"
+        );
+    }
+    assert_eq!(status_of(f.get(&get)).await, reqwest::StatusCode::OK);
+}
+
+/// v1 published per-row limit terms until 2.3; they are the feature's policy now. A Set to row
+/// takes the terms differing from it as its override, as the entitlements_v2 migration converts
+/// rows. Any other row refuses them unless they match, and `group_by` is refused.
+#[tokio::test]
+async fn test_rest_v1_limit_terms_are_translated_or_refused() {
+    use crate::data::ids::CUST_UBER_ID;
+
+    let f = start_rest_fixture("rest-v1-limit-terms").await;
+    let platform = PRODUCT_PLATFORM_FEE_ID.as_base62();
+    let metric = METRIC_BANDWIDTH.as_base62();
+    let api_calls = f
+        .create_feature(json!({
+            "name": "API calls",
+            "code": "api-calls",
+            "kind": "LIMIT", "limit": { "counted_by": "EVENTS", "metric_id": metric },
+        }))
+        .await;
+    let default_policy =
+        json!({ "resets": "BILLING_CYCLE", "at_limit": "DENY", "grace_pct": 0, "thresholds": [] });
+    assert_eq!(api_calls["policy"], default_policy);
+    let api_calls_id = api_calls["id"].as_str().unwrap().to_string();
+    let limit_with = |terms: Value| {
+        let mut value = json!({ "type": "METERED", "limit": "100" });
+        value
+            .as_object_mut()
+            .unwrap()
+            .extend(terms.as_object().unwrap().clone());
+        value
+    };
+    let allow_monthly = limit_with(json!({
+        "overage_behavior": "ALLOW",
+        "reset_period": { "type": "CALENDAR", "unit": "MONTH", "interval": 1 },
+        "thresholds": [80],
+    }));
+
+    // ── A Set to row on a plan version: the terms become its override ──
+    let plan_path = format!(
+        "/api/v1/plan-versions/{}/entitlements",
+        PLAN_VERSION_2_LEETCODE_ID.as_base62()
+    );
+    let created = json_or_panic(
+        f.post(&plan_path)
+            .json(&json!({ "entitlements": [{ "feature_id": api_calls_id, "value": allow_monthly }] }))
+            .send()
+            .await
+            .unwrap(),
+        reqwest::StatusCode::CREATED,
+    )
+    .await;
+    let row = &created["data"][0];
+    assert_eq!(
+        row["policy_override"],
+        json!({
+            "resets": "CALENDAR",
+            "period": { "unit": "MONTH", "interval": 1 },
+            "at_limit": "ALLOW_AND_BILL",
+            "grace_pct": 0,
+            "thresholds": [80],
+        }),
+        "{row}"
+    );
+    let resolved_terms = async || {
+        let listed = json_or_panic(
+            f.get(&plan_path).send().await.unwrap(),
+            reqwest::StatusCode::OK,
+        )
+        .await;
+        resolved_by_code(&listed, "api-calls")["value"].clone()
+    };
+    let resolved = resolved_terms().await;
+    assert_eq!(resolved["overage_behavior"], "ALLOW", "{resolved}");
+    assert_eq!(
+        resolved["reset_period"],
+        json!({ "type": "CALENDAR", "unit": "MONTH", "interval": 1 })
+    );
+    assert_eq!(resolved["thresholds"], json!([80]));
+
+    let row_path = format!("/api/v1/entitlements/{}", row["id"].as_str().unwrap());
+    let patch_ok = async |body: Value| {
+        json_or_panic(
+            f.patch(&row_path).json(&body).send().await.unwrap(),
+            reqwest::StatusCode::OK,
+        )
+        .await
+    };
+    // Terms bringing the row back to the feature's policy remove the override.
+    let back = patch_ok(json!({ "value": limit_with(json!({
+        "overage_behavior": "BLOCK",
+        "reset_period": { "type": "BILLING_CYCLE" },
+        "thresholds": null,
+    })) }))
+    .await;
+    assert!(back.get("policy_override").is_none(), "{back}");
+    let resolved = resolved_terms().await;
+    assert_eq!(resolved["overage_behavior"], "BLOCK", "{resolved}");
+    assert_eq!(resolved["reset_period"]["type"], "BILLING_CYCLE");
+    // An omitted term keeps the policy in effect.
+    let graced = patch_ok(json!({ "value": limit_with(json!({ "grace_pct": 10 })) })).await;
+    assert_eq!(
+        graced["policy_override"],
+        json!({ "resets": "BILLING_CYCLE", "at_limit": "DENY", "grace_pct": 10, "thresholds": [] }),
+        "{graced}"
+    );
+    assert_eq!(resolved_terms().await["grace_pct"], 10);
+
+    for (body, why) in [
+        (
+            json!({
+                "value": limit_with(json!({ "overage_behavior": "ALLOW" })),
+                "policy_override": default_policy,
+            }),
+            "terms disagreeing with the policy_override sent",
+        ),
+        (
+            json!({ "value": limit_with(json!({ "group_by": "user_id" })) }),
+            "group_by is gone",
+        ),
+        (
+            json!({ "value": limit_with(json!({ "overage_behavior": "ALLOW", "grace_pct": 10 })) }),
+            "a grace applies to DENY only",
+        ),
+    ] {
+        assert_eq!(
+            status_of(f.patch(&row_path).json(&body)).await,
+            reqwest::StatusCode::BAD_REQUEST,
+            "{why}"
+        );
+    }
+    assert_eq!(
+        resolved_terms().await["grace_pct"],
+        10,
+        "refusals change nothing"
+    );
+
+    // ── An add-on row adds to or raises the level: it follows the feature's policy ──
+    let transfer_id = f
+        .create_feature(json!({
+            "name": "Transfer",
+            "code": "transfer",
+            "kind": "LIMIT", "limit": { "counted_by": "EVENTS", "metric_id": metric },
+            "product_id": platform,
+        }))
+        .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let add_on_id = json_or_panic(
+        f.post("/api/v1/addons")
+            .json(&json!({
+                "name": "More transfer",
+                "product_id": platform,
+                "price_id": PRICE_LEETCODE_RATE_ID.as_base62(),
+            }))
+            .send()
+            .await
+            .unwrap(),
+        reqwest::StatusCode::CREATED,
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let add_on_path = format!("/api/v1/addons/{add_on_id}/entitlements");
+    let refused = f
+        .post(&add_on_path)
+        .json(&json!({ "entitlements": [{ "feature_id": transfer_id, "value": allow_monthly }] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), reqwest::StatusCode::BAD_REQUEST);
+    let error: Value = refused.json().await.unwrap();
+    assert!(
+        error["message"].as_str().unwrap().contains("policy"),
+        "{error}"
+    );
+    let same_terms = limit_with(json!({
+        "overage_behavior": "BLOCK",
+        "reset_period": { "type": "BILLING_CYCLE" },
+    }));
+    let accepted = json_or_panic(
+        f.post(&add_on_path)
+            .json(&json!({ "entitlements": [{ "feature_id": transfer_id, "value": same_terms }] }))
+            .send()
+            .await
+            .unwrap(),
+        reqwest::StatusCode::CREATED,
+    )
+    .await;
+    assert_eq!(accepted["data"].as_array().unwrap().len(), 1);
+    assert!(accepted["data"][0].get("policy_override").is_none());
+
+    // ── Customer overrides raise by default; as a Set to, they take the terms ──
+    let uber = CUST_UBER_ID.as_base62();
+    let customer_path = format!("/api/v1/customers/{uber}/entitlements");
+    let check = async || {
+        json_or_panic(
+            f.post(&format!("{customer_path}/check"))
+                .json(&json!({ "feature": "api-calls", "requested": "1000" }))
+                .send()
+                .await
+                .unwrap(),
+            reqwest::StatusCode::OK,
+        )
+        .await
+    };
+    assert_eq!(
+        status_of(f.post(&customer_path).json(
+            &json!({ "entitlements": [{ "feature_id": api_calls_id, "value": allow_monthly }] })
+        ))
+        .await,
+        reqwest::StatusCode::BAD_REQUEST
+    );
+    assert_eq!(check().await["allowed"], false, "nothing was written");
+    let set_row = json_or_panic(
+        f.post(&customer_path)
+            .json(&json!({ "entitlements": [{
+                "feature_id": api_calls_id,
+                "effect": "SET",
+                "value": limit_with(json!({ "overage_behavior": "ALLOW" })),
+            }] }))
+            .send()
+            .await
+            .unwrap(),
+        reqwest::StatusCode::CREATED,
+    )
+    .await;
+    assert_eq!(
+        set_row["data"][0]["policy_override"]["at_limit"], "ALLOW_AND_BILL",
+        "{set_row}"
+    );
+    let answer = check().await;
+    assert_eq!(answer["allowed"], true, "{answer}");
+    assert_eq!(answer["in_overage"], true, "{answer}");
+    let snapshot = json_or_panic(
+        f.get(&customer_path).send().await.unwrap(),
+        reqwest::StatusCode::OK,
+    )
+    .await;
+    let entry = resolved_by_code(&snapshot, "api-calls");
+    assert_eq!(
+        entry["levels"][0]["policy"]["at_limit"], "ALLOW_AND_BILL",
+        "{entry}"
+    );
+    assert_eq!(
+        entry["value"]["spec"]["overage_behavior"], "ALLOW",
+        "{entry}"
+    );
+}
+
+/// v1 created features with `feature_type` until 2.3: the shape is still accepted, mapped as the
+/// entitlements_v2 migration converts features, and reads back the same.
+#[tokio::test]
+async fn test_rest_v1_feature_type_create_shape() {
+    let f = start_rest_fixture("rest-v1-feature-type").await;
+    let metric = METRIC_BANDWIDTH.as_base62();
+
+    let metered = f
+        .create_feature(json!({
+            "name": "Legacy calls",
+            "code": "legacy-calls",
+            "feature_type": { "type": "METERED", "metric_id": metric },
+            "entitlement": { "type": "METERED", "limit": "1000", "overage_behavior": "ALLOW" },
+        }))
+        .await;
+    assert_eq!(metered["kind"], "LIMIT");
+    assert_eq!(
+        metered["limit"],
+        json!({ "counted_by": "EVENTS", "metric_id": metric })
+    );
+    assert_eq!(
+        metered["feature_type"],
+        json!({ "type": "METERED", "metric_id": metric })
+    );
+    // v1 stored an omitted reset period as never resetting.
+    assert_eq!(
+        metered["policy"],
+        json!({ "resets": "NEVER", "at_limit": "ALLOW_AND_BILL", "grace_pct": 0, "thresholds": [] })
+    );
+    assert_eq!(metered["entitlement"]["value"]["limit"], "1000");
+    assert!(metered["entitlement"].get("policy_override").is_none());
+    let read_back = json_or_panic(
+        f.get("/api/v1/features/legacy-calls").send().await.unwrap(),
+        reqwest::StatusCode::OK,
+    )
+    .await;
+    assert_eq!(read_back["policy"], metered["policy"]);
+    assert_eq!(read_back["feature_type"], metered["feature_type"]);
+
+    let bare = f
+        .create_feature(json!({
+            "name": "Legacy bare",
+            "code": "legacy-bare",
+            "feature_type": { "type": "METERED", "metric_id": metric },
+        }))
+        .await;
+    assert_eq!(
+        bare["policy"],
+        json!({ "resets": "BILLING_CYCLE", "at_limit": "DENY", "grace_pct": 0, "thresholds": [] }),
+        "a limit without rows gets the default, as migrated"
+    );
+
+    for (code, feature_type, kind, value, read_as) in [
+        (
+            "legacy-flag",
+            json!({ "type": "BOOLEAN" }),
+            "BOOLEAN",
+            Value::Null,
+            json!({ "type": "BOOLEAN" }),
+        ),
+        (
+            "legacy-config-flag",
+            json!({ "type": "CONFIG", "value_type": "BOOLEAN" }),
+            "BOOLEAN",
+            Value::Null,
+            json!({ "type": "BOOLEAN" }),
+        ),
+        (
+            "legacy-tier",
+            json!({ "type": "CONFIG", "value_type": "SELECT", "options": ["basic", "pro"] }),
+            "VALUE",
+            json!({ "type": "SELECT", "options": ["basic", "pro"], "ordered": false }),
+            json!({ "type": "CONFIG", "value_type": "SELECT", "options": ["basic", "pro"] }),
+        ),
+        (
+            "legacy-seats",
+            json!({ "type": "CONFIG", "value_type": "NUMBER" }),
+            "VALUE",
+            json!({ "type": "NUMBER", "higher_is_better": true, "ordered": false }),
+            json!({ "type": "CONFIG", "value_type": "NUMBER" }),
+        ),
+        (
+            "legacy-settings",
+            json!({ "type": "CONFIG", "value_type": "MAP" }),
+            "VALUE",
+            json!({ "type": "JSON", "ordered": false }),
+            json!({ "type": "CONFIG", "value_type": "JSON" }),
+        ),
+    ] {
+        let created = f
+            .create_feature(json!({ "name": code, "code": code, "feature_type": feature_type }))
+            .await;
+        assert_eq!(created["kind"], kind, "{code}: {created}");
+        assert_eq!(
+            created.get("value").cloned().unwrap_or(Value::Null),
+            value,
+            "{code}"
+        );
+        assert_eq!(created["feature_type"], read_as, "{code}");
+    }
+
+    // `kind` stays the primary shape; with both, they must describe the same feature.
+    let both = f
+        .create_feature(json!({
+            "name": "Both",
+            "code": "both",
+            "kind": "BOOLEAN",
+            "feature_type": { "type": "BOOLEAN" },
+        }))
+        .await;
+    assert_eq!(both["kind"], "BOOLEAN");
+    for (body, why) in [
+        (
+            json!({ "name": "x", "code": "mismatch", "kind": "BOOLEAN", "feature_type": { "type": "METERED", "metric_id": metric } }),
+            "kind and feature_type disagree",
+        ),
+        (
+            json!({ "name": "x", "code": "neither" }),
+            "kind or feature_type is required",
+        ),
+        (
+            json!({ "name": "x", "code": "spec-mix", "feature_type": { "type": "BOOLEAN" }, "value": { "type": "TEXT" } }),
+            "value goes with kind",
+        ),
+        (
+            json!({ "name": "x", "code": "no-options", "feature_type": { "type": "CONFIG", "value_type": "SELECT" } }),
+            "a select needs options",
+        ),
+        (
+            json!({
+                "name": "x",
+                "code": "policy-mix",
+                "feature_type": { "type": "METERED", "metric_id": metric },
+                "policy": { "resets": "BILLING_CYCLE", "at_limit": "DENY" },
+                "entitlement": { "type": "METERED", "limit": "5", "overage_behavior": "ALLOW" },
+            }),
+            "policy and the entitlement's terms disagree",
+        ),
+    ] {
+        assert_eq!(
+            status_of(f.post("/api/v1/features").json(&body)).await,
+            reqwest::StatusCode::BAD_REQUEST,
+            "{why}"
+        );
+    }
+    let codes = [
+        "mismatch",
+        "neither",
+        "spec-mix",
+        "no-options",
+        "policy-mix",
+    ];
+    for code in codes {
+        assert_eq!(
+            status_of(f.get(&format!("/api/v1/features/{code}"))).await,
+            reqwest::StatusCode::NOT_FOUND,
+            "{code}"
+        );
+    }
 }

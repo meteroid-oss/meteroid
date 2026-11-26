@@ -370,6 +370,7 @@ async fn a_rate_card_rates_a_metric_declaring_its_dimension_values() {
         .insert_billable_metric(
             Actor::System,
             BillableMetricNew {
+                attributed_to: None,
                 name: "Segmented tokens".to_owned(),
                 description: None,
                 code: "segmented_tokens".to_owned(),

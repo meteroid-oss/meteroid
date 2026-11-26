@@ -3,7 +3,7 @@ use super::mapping;
 use crate::wallets::{WalletApiError, grant_product_names};
 use common_domain::ids::{CustomerId, CustomerPaymentMethodId, SubscriptionId, TenantId, WalletId};
 use common_grpc::middleware::server::auth::{RequestExt, ResourceAccess};
-use meteroid_app::features::{ensure_portal_self_service, gates, tenant_gate_open};
+use meteroid_app::features::{ensure_portal_self_service, gates, portal_gate_open};
 use meteroid_grpc::meteroid::api::invoices::v1::PaymentActionRequired;
 use meteroid_grpc::meteroid::portal::wallets::v1::{
     GetBalancesRequest, GetBalancesResponse, GetCreditOverviewRequest, GetCreditOverviewResponse,
@@ -114,7 +114,7 @@ impl PortalWalletsServiceComponents {
 
     /// Whether the merchant's plan lets automatic top-ups be turned on or changed.
     async fn auto_top_up_configurable(&self, tenant_id: TenantId) -> Result<bool, Status> {
-        tenant_gate_open(
+        portal_gate_open(
             self.feature_resolver.as_ref(),
             &self.store,
             tenant_id,
@@ -126,7 +126,7 @@ impl PortalWalletsServiceComponents {
 
     /// Top-ups in money are open in every edition; buying a credit unit is credit pricing.
     async fn unit_top_ups_open(&self, tenant_id: TenantId) -> Result<bool, Status> {
-        tenant_gate_open(
+        portal_gate_open(
             self.feature_resolver.as_ref(),
             &self.store,
             tenant_id,

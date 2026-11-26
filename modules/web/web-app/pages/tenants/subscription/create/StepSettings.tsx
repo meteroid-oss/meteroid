@@ -32,13 +32,8 @@ import { PageSection } from '@/components/layouts/shared/PageSection'
 import { Slot, hasSlot } from '@/edition'
 import { scopeOptionsWithPending } from '@/features/billing/minimumCommitment'
 import { CustomPropertiesFields } from '@/features/customproperties/CustomPropertiesFields'
-import {
-  UsageFilterFields,
-  refineUsageFilter,
-  usageFilterFormFields,
-  usageFilterFromForm,
-  usageFilterToForm,
-} from '@/features/subscriptions/UsageFilterFields'
+import { useResourceTypes } from '@/features/resources/hooks'
+import { SubscribedFor } from '@/features/subscriptions/SubscribedFor'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { defaultNetTerms, formatDefaultNetTerms } from '@/lib/mapping/priceToSubscriptionFee'
@@ -129,6 +124,7 @@ export const useDefaultNetTerms = (state: CreateSubscriptionState) => {
 export const StepSettings = () => {
   const { previousStep, nextStep } = useWizard()
   const [state, setState] = useAtom(createSubscriptionAtom)
+  const { hasTypes } = useResourceTypes()
 
   // Fetch customer to get invoicing entity ID
   const customerQuery = useQuery(
@@ -199,7 +195,6 @@ export const StepSettings = () => {
       invoiceMemo: state.invoiceMemo,
       invoiceThreshold: state.invoiceThreshold,
       purchaseOrder: state.purchaseOrder,
-      ...usageFilterToForm(state.usageFilter),
       autoAdvanceInvoices: state.autoAdvanceInvoices,
       chargeAutomatically: state.chargeAutomatically,
       skipPastInvoices: state.skipPastInvoices,
@@ -276,7 +271,6 @@ export const StepSettings = () => {
       invoiceMemo: data.invoiceMemo,
       invoiceThreshold: data.invoiceThreshold,
       purchaseOrder: data.purchaseOrder,
-      usageFilter: usageFilterFromForm(data),
       autoAdvanceInvoices: data.autoAdvanceInvoices,
       chargeAutomatically: data.chargeAutomatically,
       skipPastInvoices: data.skipPastInvoices,
@@ -288,6 +282,18 @@ export const StepSettings = () => {
   return (
     <Form {...methods}>
       <form onSubmit={methods.handleSubmit(onSubmit)} className="space-y-6">
+        {hasTypes && state.customerId && (
+          <PageSection className="fadeIn" header={{ title: 'Subscribed for' }}>
+            <SubscribedFor
+              customerId={state.customerId}
+              customerName={customerQuery.data?.customer?.name ?? 'The customer'}
+              planName={planQuery.data?.plan?.plan?.name}
+              soldForTypeId={planQuery.data?.plan?.plan?.soldForResourceTypeId}
+              value={state.resourceId}
+              onChange={resourceId => setState(prev => ({ ...prev, resourceId }))}
+            />
+          </PageSection>
+        )}
         {/* Subscription Timing */}
         <PageSection
           className="fadeIn"
@@ -698,15 +704,6 @@ export const StepSettings = () => {
                 />
               </CardContent>
             </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Usage filter</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <UsageFilterFields control={methods.control} />
-              </CardContent>
-            </Card>
           </div>
         </PageSection>
 
@@ -772,13 +769,11 @@ const schema = z
     invoiceMemo: z.string().optional(),
     invoiceThreshold: z.string().optional(),
     purchaseOrder: z.string().optional(),
-    ...usageFilterFormFields,
     autoAdvanceInvoices: z.boolean().default(true),
     chargeAutomatically: z.boolean().default(true),
     skipPastInvoices: z.boolean().default(false),
     customProperties: z.record(z.string(), z.unknown()).optional(),
   })
-  .superRefine(refineUsageFilter)
   .refine(data => !data.toDate || data.toDate > data.fromDate, {
     message: 'Must be greater than the start date',
     path: ['toDate'],

@@ -6,10 +6,10 @@ import { useState } from 'react'
 import { Link } from 'react-router'
 
 import Pagination from '@/components/table/CustomTable/components/Pagination/Pagination'
+import { useResourceChips } from '@/features/resources/hooks'
 import { FeatureUsageList, byUsage } from '@/features/subscriptions/FeatureUsageList'
 import { SubscriptionStatusBadge } from '@/features/subscriptions/SubscriptionStatusBadge'
 import { useSubscriptionUsage } from '@/features/subscriptions/SubscriptionUsageSection'
-import { formatUsageFilter } from '@/features/subscriptions/UsageFilterFields'
 import { issueDay, nextInvoiceAmount } from '@/features/subscriptions/subscriptionOverview'
 import { formatShortDay } from '@/features/subscriptions/utils/dates'
 import { useBasePath } from '@/hooks/useBasePath'
@@ -78,6 +78,7 @@ export const CustomerSubscriptions = ({ customerId }: { customerId: string }) =>
 }
 
 const SubscriptionRow = ({ subscription: s }: { subscription: Subscription }) => {
+  const chips = useResourceChips(s.customerId)
   const basePath = useBasePath()
   const live = isLive(s)
   const usage = useSubscriptionUsage(live ? s.id : undefined)
@@ -106,10 +107,8 @@ const SubscriptionRow = ({ subscription: s }: { subscription: Subscription }) =>
           </span>
           <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
         </div>
-        {s.usageFilter && (
-          <span className="text-xs text-muted-foreground">
-            Usage filter <span className="font-mono">{formatUsageFilter(s.usageFilter)}</span>
-          </span>
+        {s.resourceId && (
+          <span className="text-xs text-muted-foreground">For {chips.get(s.resourceId) ?? 'a resource'}</span>
         )}
         {live && (
           <div className="flex flex-wrap items-end gap-x-4 gap-y-1">
@@ -127,6 +126,7 @@ const SubscriptionRow = ({ subscription: s }: { subscription: Subscription }) =>
         {meters.length > 0 && (
           <FeatureUsageList
             usage={meters}
+            customerId={s.customerId}
             elapsedPct={usage.data?.cycle?.elapsedPct}
             details={false}
           />

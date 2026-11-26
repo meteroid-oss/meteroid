@@ -1,6 +1,7 @@
 import { timestampDate } from '@bufbuild/protobuf/wkt';
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
+  Badge,
   Button,
   DropdownMenu,
   DropdownMenuContent,
@@ -18,6 +19,7 @@ import { toast } from 'sonner'
 import { Gate } from '@/components/Gate'
 import { StandardTable } from '@/components/table/StandardTable'
 import { BillableMetricStatusBadge } from '@/features/productCatalog/metrics/BillableMetricStatusBadge'
+import { useResourceTypes } from '@/features/resources/hooks'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import {
   archiveBillableMetric,
@@ -60,6 +62,7 @@ export const BillableMetricTable: FC<BillableMetricableProps> = ({
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const isExpress = useIsExpressOrganization()
+  const { byId: types, hasTypes } = useResourceTypes()
 
   const archiveMutation = useMutation(archiveBillableMetric, {
     onSuccess: async () => {
@@ -131,6 +134,24 @@ export const BillableMetricTable: FC<BillableMetricableProps> = ({
           </code>
         ),
       },
+      ...(hasTypes
+        ? [
+            {
+              id: 'attributed_to',
+              header: 'Attributed to',
+              enableSorting: false,
+              cell: ({ row }: { row: { original: BillableMetricMeta } }) => {
+                const a = row.original.attributedTo
+                const type = a && types.get(a.resourceTypeId)
+                return (
+                  <Badge variant="secondary" size="sm" className="font-normal">
+                    {a ? `${type?.name ?? 'Resource'} · ${a.property ?? type?.keys[0] ?? ''}` : 'Customer'}
+                  </Badge>
+                )
+              },
+            },
+          ]
+        : []),
       {
         id: 'created_at',
         header: 'Created',
@@ -211,7 +232,7 @@ export const BillableMetricTable: FC<BillableMetricableProps> = ({
           ]
         : []),
     ],
-    [isExpress]
+    [isExpress, hasTypes, types]
   )
 
   return (

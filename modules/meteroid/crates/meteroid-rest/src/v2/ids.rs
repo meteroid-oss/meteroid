@@ -11,20 +11,23 @@
 use crate::AppState;
 use crate::v2::problem::Problem;
 use common_domain::ids::{
-    AddOnId, AliasOr, BaseId, BillableMetricId, CustomerId, ManagedQuantityId, PlanId,
-    ProductFamilyId, ProductId, RateCardId, SubscriptionId, TenantId,
+    AddOnId, AliasOr, BaseId, BillableMetricId, CustomerId, FeatureId, ManagedQuantityId, PlanId,
+    ProductFamilyId, ProductId, RateCardId, ResourceTypeId, SubscriptionId, TenantId,
 };
 use meteroid_store::Store;
 use meteroid_store::domain::BillableMetric;
 use meteroid_store::domain::catalog_codes::validate_code;
+use meteroid_store::domain::entitlements::Feature;
 use meteroid_store::domain::managed_quantities::ManagedQuantity;
+use meteroid_store::domain::resources::ResourceType;
 use meteroid_store::repositories::add_ons::AddOnInterface;
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::customers::CustomersInterfaceAuto;
+use meteroid_store::repositories::entitlements::EntitlementsInterface;
 use meteroid_store::repositories::products::ProductInterface;
 use meteroid_store::repositories::{
     CatalogCodesInterface, CustomersInterface, ManagedQuantitiesInterface, ProductFamilyInterface,
-    RateCardsInterface,
+    RateCardsInterface, ResourcesInterface,
 };
 use std::str::FromStr;
 
@@ -169,6 +172,35 @@ pub async fn quantity(
         AliasOr::Alias(code) => quantities.into_iter().find(|q| q.code == code),
     };
     found.ok_or_else(|| Problem::not_found(format!("managed quantity {}", raw.trim())))
+}
+
+/// An id or a code as a path or a body names a resource of `ID`.
+pub fn id_or_code<ID: BaseId<IdType = ID> + FromStr>(raw: &str) -> AliasOr<ID> {
+    parse(raw)
+}
+
+/// The feature of an id or a code; a code names the live feature.
+pub async fn feature(state: &AppState, tenant_id: TenantId, raw: &str) -> Result<Feature, Problem> {
+    feature_in(&state.store, tenant_id, raw).await
+}
+
+/// [`feature`] for a module's handler.
+pub async fn feature_in(store: &Store, tenant_id: TenantId, raw: &str) -> Result<Feature, Problem> {
+    Ok(store
+        .get_feature_by_id_or_code(parse::<FeatureId>(raw), tenant_id)
+        .await?)
+}
+
+/// The resource type of an id or a code, archived ones included.
+pub async fn resource_type(
+    state: &AppState,
+    tenant_id: TenantId,
+    raw: &str,
+) -> Result<ResourceType, Problem> {
+    Ok(state
+        .store
+        .get_resource_type(tenant_id, parse::<ResourceTypeId>(raw))
+        .await?)
 }
 
 /// The prefix naming a customer by its alias, the integrator's own id for it.

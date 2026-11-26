@@ -11,13 +11,13 @@ import type { CreditGroup } from '@/rpc/api/wallets/v1/models_pb'
 export const CreditGroupsList = ({
   groups,
   denomination,
-  usageFilters,
+  scopeLabels,
   unbilledByGrant,
   activityState,
 }: {
   groups: CreditGroup[]
   denomination: WalletDenomination
-  usageFilters: Map<string, string>
+  scopeLabels: Map<string, string>
   unbilledByGrant: Map<string, bigint>
   /** Without the grants' usage, a group shows its credit on account, and says so. */
   activityState: ActivityState
@@ -25,7 +25,7 @@ export const CreditGroupsList = ({
   const rows = creditGroupRows(
     groups,
     denomination,
-    usageFilters,
+    scopeLabels,
     activityState === 'ready' ? unbilledByGrant : undefined
   )
   // Groups of one kind differ only by what they pay, so that is named then.
@@ -43,7 +43,7 @@ export const CreditGroupsList = ({
         return (
           <WalletBox
             key={row.key}
-            label={row.usageFilter ? `${row.label} · ${row.usageFilter}` : row.label}
+            label={row.scopeLabel ? `${row.label} · ${row.scopeLabel}` : row.label}
             value={
               activityState === 'loading' ? (
                 <Skeleton height={20} width={72} />

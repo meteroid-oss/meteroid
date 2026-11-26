@@ -874,6 +874,17 @@ impl Services {
                         },
                     )
                     .await?;
+                    // A period's end already past (the controller behind): dated as a late change.
+                    if effective_date <= common_clock::now().date_naive() {
+                        crate::repositories::subscriptions::usage_attribution::settle_late_change(
+                            conn,
+                            tenant_id,
+                            subscription_id,
+                            effective_date,
+                            "The amendment",
+                        )
+                        .await?;
+                    }
                     self.derive_state_tx(
                         conn,
                         actor,
@@ -1078,6 +1089,14 @@ impl Services {
             tenant_id,
             subscription_id,
             change_date,
+        )
+        .await?;
+        crate::repositories::subscriptions::usage_attribution::settle_late_change(
+            conn,
+            tenant_id,
+            subscription_id,
+            change_date,
+            "The amendment",
         )
         .await?;
 

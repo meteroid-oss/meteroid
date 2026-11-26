@@ -195,8 +195,13 @@ pub async fn create_plan(
         trial_is_free: t.is_free,
     });
 
+    let entitlements =
+        plan_entitlement_specs(&app_state, authorized_state.tenant_id, payload.entitlements)
+            .await?;
+
     let full_plan_new = FullPlanNew {
         plan: PlanNew {
+            sold_for_resource_type_id: payload.sold_for_resource_type_id,
             name: payload.name,
             description: payload.description,
             tenant_id: authorized_state.tenant_id,
@@ -215,7 +220,7 @@ pub async fn create_plan(
             currency: Some(payload.currency),
             billing_cycles: billing.billing_cycles,
             trial,
-            entitlements: entitlement_specs(payload.entitlements)?,
+            entitlements,
             tax_inclusive: payload.tax_inclusive,
             credit_exhausted_rule: payload
                 .credit_exhausted_rule
@@ -436,6 +441,10 @@ pub async fn replace_plan(
         .await?;
     }
 
+    let entitlements =
+        plan_entitlement_specs(&app_state, authorized_state.tenant_id, payload.entitlements)
+            .await?;
+
     let fp = app_state
         .store
         .replace_plan_version(
@@ -451,7 +460,7 @@ pub async fn replace_plan(
                 currency: Some(payload.currency),
                 billing_cycles: billing.billing_cycles,
                 trial,
-                entitlements: entitlement_specs(payload.entitlements)?,
+                entitlements,
                 tax_inclusive: payload.tax_inclusive,
                 credit_exhausted_rule,
             },
@@ -603,7 +612,7 @@ async fn ensure_minimum_kept(
 
 /// Update plan metadata
 ///
-/// Partially update plan-level fields (name, description, self_service_rank).
+/// Partially update plan-level fields (name, description, self_service_rank, sold for).
 /// Does not modify version-level configuration or components.
 #[utoipa::path(
     patch,
@@ -626,25 +635,37 @@ pub async fn patch_plan(
     ApiPath(plan_id): ApiPath<PlanId>,
     ApiValid(ApiJson(payload)): ApiValid<ApiJson<PatchPlanRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
-    app_state
-        .store
-        .patch_published_plan(
-            authorized_state.as_actor(),
-            PlanPatch {
-                id: plan_id,
-                tenant_id: authorized_state.tenant_id,
-                name: payload.name,
-                description: payload.description,
-                active_version_id: None,
-                self_service_rank: payload.self_service_rank,
-                issues_license: None,
-            },
-        )
-        .await
-        .map_err(|e| {
-            log::error!("Error patching plan: {e}");
-            RestApiError::from(e)
-        })?;
+    if let Some(sold_for) = payload.sold_for_resource_type_id {
+        app_state
+            .store
+            .set_plan_sold_for(authorized_state.tenant_id, plan_id, sold_for)
+            .await
+            .map_err(RestApiError::from)?;
+    }
+    if payload.name.is_some()
+        || payload.description.is_some()
+        || payload.self_service_rank.is_some()
+    {
+        app_state
+            .store
+            .patch_published_plan(
+                authorized_state.as_actor(),
+                PlanPatch {
+                    id: plan_id,
+                    tenant_id: authorized_state.tenant_id,
+                    name: payload.name,
+                    description: payload.description,
+                    active_version_id: None,
+                    self_service_rank: payload.self_service_rank,
+                    issues_license: None,
+                },
+            )
+            .await
+            .map_err(|e| {
+                log::error!("Error patching plan: {e}");
+                RestApiError::from(e)
+            })?;
+    }
 
     // Re-fetch full plan for consistent response (try active, fall back to draft)
     let fp = match app_state
@@ -1093,12 +1114,16 @@ pub fn parse_amount_to_subunit(amount: &str, currency: &str) -> Result<i64, Rest
     Ok(subunit)
 }
 
-fn entitlement_specs(
+async fn plan_entitlement_specs(
+    app_state: &AppState,
+    tenant_id: TenantId,
     specs: Vec<crate::entitlements::model::EntitlementSpecRequest>,
 ) -> Result<Vec<meteroid_store::domain::entitlements::EntitlementSpec>, RestApiError> {
-    specs
-        .into_iter()
-        .map(crate::entitlements::mapping::entitlement_spec_to_domain)
-        .collect::<Result<_, _>>()
-        .map_err(RestApiError::InvalidInput)
+    crate::entitlements::router::specs_to_domain(
+        app_state,
+        tenant_id,
+        meteroid_store::domain::entitlement_fold::Tier::PlanVersion,
+        specs,
+    )
+    .await
 }

@@ -4,11 +4,11 @@ use crate::meteroid_it::container::SeedLevel;
 use meteroid_app::conversions::ProtoConv;
 use meteroid_grpc::meteroid::api::entitlements::v1::{
     CreateEntitlementRequest, CreateFeatureRequest, DeleteEntitlementRequest, EntitlementEntity,
-    EntitlementValue, FeatureStatus, FeatureType, GetEffectiveEntitlementsRequest,
-    GetEntitlementRequest, GetFeatureCodeHolderRequest, GetFeatureRequest,
-    ListEntitlementsByEntityRequest, ListEntitlementsByFeatureRequest, ListFeaturesRequest,
-    OverageBehavior, ResolvedOrigin, SetFeatureStatusRequest, UpdateEntitlementRequest,
-    UpdateFeatureRequest, entitlement_entity, entitlement_value, feature_type, overage_behavior,
+    EntitlementSpec, EntitlementValue, FeatureOrder, FeatureStatus,
+    GetEffectiveEntitlementsRequest, GetEntitlementRequest, GetFeatureCodeHolderRequest,
+    GetFeatureRequest, ListEntitlementsByEntityRequest, ListEntitlementsByFeatureRequest,
+    ListFeaturesRequest, ResolvedOrigin, SetFeatureStatusRequest, UpdateEntitlementRequest,
+    UpdateFeatureRequest, entitlement_entity, entitlement_value,
 };
 use meteroid_grpc::meteroid::api::subscriptions::v1 as sub_api;
 
@@ -40,12 +40,9 @@ async fn test_features_crud() {
             code: "api-access".into(),
             description: Some("API access feature".into()),
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Boolean(
-                    feature_type::BooleanFeature {},
-                )),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Boolean.into(),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -55,10 +52,10 @@ async fn test_features_crud() {
 
     assert_eq!(created.name, "api-access");
     assert_eq!(created.description, Some("API access feature".into()));
-    assert!(matches!(
-        created.feature_type.and_then(|ft| ft.inner),
-        Some(feature_type::Inner::Boolean(_))
-    ));
+    assert_eq!(
+        created.kind,
+        meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Boolean as i32
+    );
     assert_eq!(created.status, FeatureStatus::Active as i32);
 
     // get
@@ -88,6 +85,7 @@ async fn test_features_crud() {
             clear_product_id: false,
             config_options: vec![],
             update_config_options: false,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -106,6 +104,8 @@ async fn test_features_crud() {
             statuses: vec![],
             search: None,
             product_id: None,
+            level_resource_type_id: None,
+            order: FeatureOrder::Unspecified.into(),
         })
         .await
         .unwrap()
@@ -119,15 +119,19 @@ async fn test_features_crud() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: created.id.clone(),
             entity: Some(EntitlementEntity {
                 entity_id: Some(entitlement_entity::EntityId::FeatureId(created.id.clone())),
             }),
-            value: Some(EntitlementValue {
-                value: Some(entitlement_value::Value::BooleanValue(
-                    entitlement_value::BooleanValue { enabled: true },
-                )),
+            spec: Some(EntitlementSpec {
+                feature_id: created.id.clone(),
+                value: Some(EntitlementValue {
+                    value: Some(entitlement_value::Value::BooleanValue(
+                        entitlement_value::BooleanValue { enabled: true },
+                    )),
+                }),
+                ..Default::default()
             }),
+            resource_id: None,
         })
         .await
         .unwrap();
@@ -175,6 +179,8 @@ async fn test_features_crud() {
                     statuses: statuses.into_iter().map(Into::into).collect(),
                     search: None,
                     product_id: None,
+                    level_resource_type_id: None,
+                    order: FeatureOrder::Unspecified.into(),
                 })
                 .await
                 .unwrap()
@@ -268,12 +274,9 @@ async fn test_features_crud() {
             code: created.code.clone(),
             description: None,
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Boolean(
-                    feature_type::BooleanFeature {},
-                )),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Boolean.into(),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -335,12 +338,17 @@ async fn test_entitlements_crud() {
             code: "seats".into(),
             description: None,
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Metered(feature_type::MeteredFeature {
-                    metric_id: ids::METRIC_BANDWIDTH.as_proto(),
-                })),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Limit.into(),
+            limit: Some(
+                meteroid_grpc::meteroid::api::entitlements::v1::FeatureLimitSpec {
+                    counted_by:
+                        meteroid_grpc::meteroid::api::entitlements::v1::LimitCountedBy::Events
+                            .into(),
+                    metric_id: Some(ids::METRIC_BANDWIDTH.as_proto()),
+                },
+            ),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -348,30 +356,31 @@ async fn test_entitlements_crud() {
         .feature
         .unwrap();
 
-    let plan_version_id = ids::PLAN_VERSION_NOTION_ID.as_proto();
+    let plan_version_id = ids::PLAN_VERSION_PRO_DRAFT_ID.as_proto();
 
-    // create entitlement on a plan version
+    // create entitlement on a (draft) plan version
     let entitlement = clients
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
             entity: Some(EntitlementEntity {
                 entity_id: Some(entitlement_entity::EntityId::PlanVersionId(
                     plan_version_id.clone(),
                 )),
             }),
-            value: Some(EntitlementValue {
-                value: Some(entitlement_value::Value::MeteredValue(
-                    entitlement_value::MeteredValue {
-                        limit: Some("100".into()),
-                        reset_period: None,
-                        enabled: true,
-                        group_by: None,
-                        ..Default::default()
-                    },
-                )),
+            spec: Some(EntitlementSpec {
+                feature_id: feature.id.clone(),
+                value: Some(EntitlementValue {
+                    value: Some(entitlement_value::Value::MeteredValue(
+                        entitlement_value::MeteredValue {
+                            limit: Some("100".into()),
+                            enabled: true,
+                        },
+                    )),
+                }),
+                ..Default::default()
             }),
+            resource_id: None,
         })
         .await
         .unwrap()
@@ -425,13 +434,11 @@ async fn test_entitlements_crud() {
                 value: Some(entitlement_value::Value::MeteredValue(
                     entitlement_value::MeteredValue {
                         limit: Some("500".into()),
-                        reset_period: None,
                         enabled: true,
-                        group_by: None,
-                        ..Default::default()
                     },
                 )),
             }),
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -525,12 +532,17 @@ async fn test_get_effective_entitlements() {
             code: "api-calls".into(),
             description: None,
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Metered(feature_type::MeteredFeature {
-                    metric_id: ids::METRIC_BANDWIDTH.as_proto(),
-                })),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Limit.into(),
+            limit: Some(
+                meteroid_grpc::meteroid::api::entitlements::v1::FeatureLimitSpec {
+                    counted_by:
+                        meteroid_grpc::meteroid::api::entitlements::v1::LimitCountedBy::Events
+                            .into(),
+                    metric_id: Some(ids::METRIC_BANDWIDTH.as_proto()),
+                },
+            ),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -543,52 +555,59 @@ async fn test_get_effective_entitlements() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
             entity: Some(EntitlementEntity {
                 entity_id: Some(entitlement_entity::EntityId::PlanId(
                     ids::PLAN_NOTION_ID.as_proto(),
                 )),
             }),
-            value: Some(EntitlementValue {
-                value: Some(entitlement_value::Value::MeteredValue(
-                    entitlement_value::MeteredValue {
-                        limit: Some("1000".into()),
-                        reset_period: None,
-                        enabled: true,
-                        group_by: None,
-                        ..Default::default()
-                    },
-                )),
+            spec: Some(EntitlementSpec {
+                feature_id: feature.id.clone(),
+                value: Some(EntitlementValue {
+                    value: Some(entitlement_value::Value::MeteredValue(
+                        entitlement_value::MeteredValue {
+                            limit: Some("1000".into()),
+                            enabled: true,
+                        },
+                    )),
+                }),
+                ..Default::default()
             }),
+            resource_id: None,
         })
         .await
         .unwrap();
 
-    // plan-version-level grant — should win over plan grant (higher priority)
-    clients
-        .entitlements
-        .clone()
-        .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
-            entity: Some(EntitlementEntity {
-                entity_id: Some(entitlement_entity::EntityId::PlanVersionId(
-                    ids::PLAN_VERSION_NOTION_ID.as_proto(),
-                )),
+    // plan-version-level grant — should win over plan grant (higher priority); a published
+    // version's rows are written through a draft.
+    helpers::plans::as_draft(
+        &setup.store,
+        ids::PLAN_VERSION_NOTION_ID,
+        clients
+            .entitlements
+            .clone()
+            .create_entitlement(CreateEntitlementRequest {
+                entity: Some(EntitlementEntity {
+                    entity_id: Some(entitlement_entity::EntityId::PlanVersionId(
+                        ids::PLAN_VERSION_NOTION_ID.as_proto(),
+                    )),
+                }),
+                spec: Some(EntitlementSpec {
+                    feature_id: feature.id.clone(),
+                    value: Some(EntitlementValue {
+                        value: Some(entitlement_value::Value::MeteredValue(
+                            entitlement_value::MeteredValue {
+                                limit: Some("5000".into()),
+                                enabled: true,
+                            },
+                        )),
+                    }),
+                    ..Default::default()
+                }),
+                resource_id: None,
             }),
-            value: Some(EntitlementValue {
-                value: Some(entitlement_value::Value::MeteredValue(
-                    entitlement_value::MeteredValue {
-                        limit: Some("5000".into()),
-                        reset_period: None,
-                        enabled: true,
-                        group_by: None,
-                        ..Default::default()
-                    },
-                )),
-            }),
-        })
-        .await
-        .unwrap();
+    )
+    .await
+    .unwrap();
 
     // Spotify is subscribed to Notion plan
     let resolved = clients
@@ -640,16 +659,13 @@ async fn test_create_feature_with_entitlement() {
             code: "bulk-export".into(),
             description: Some("Bulk export access".into()),
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Boolean(
-                    feature_type::BooleanFeature {},
-                )),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Boolean.into(),
             entitlement: Some(EntitlementValue {
                 value: Some(entitlement_value::Value::BooleanValue(
                     entitlement_value::BooleanValue { enabled: true },
                 )),
             }),
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -660,10 +676,10 @@ async fn test_create_feature_with_entitlement() {
 
     assert_eq!(feature.name, "bulk-export");
     assert_eq!(feature.description, Some("Bulk export access".into()));
-    assert!(matches!(
-        feature.feature_type.and_then(|ft| ft.inner),
-        Some(feature_type::Inner::Boolean(_))
-    ));
+    assert_eq!(
+        feature.kind,
+        meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Boolean as i32
+    );
 
     assert_eq!(entitlement.feature_id, feature.id);
     assert_eq!(
@@ -693,355 +709,6 @@ async fn test_create_feature_with_entitlement() {
     assert_eq!(listed[0].id, entitlement.id);
 }
 
-fn metered_grouped(limit: &str, group_by: Option<&str>) -> Option<EntitlementValue> {
-    Some(EntitlementValue {
-        value: Some(entitlement_value::Value::MeteredValue(
-            entitlement_value::MeteredValue {
-                limit: Some(limit.into()),
-                reset_period: None,
-                enabled: true,
-                group_by: group_by.map(str::to_owned),
-                ..Default::default()
-            },
-        )),
-    })
-}
-
-fn grouped_by(
-    entitlement: &meteroid_grpc::meteroid::api::entitlements::v1::Entitlement,
-) -> Option<String> {
-    match entitlement.value.clone().and_then(|v| v.value) {
-        Some(entitlement_value::Value::MeteredValue(m)) => m.group_by,
-        other => panic!("expected a metered value, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn test_entitlement_group_by_is_written_and_read_through_grpc() {
-    helpers::init::logging();
-    let postgres_connection_string =
-        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
-    let setup =
-        meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
-    let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
-    let clients = meteroid_it::clients::AllClients::from_channel(
-        setup.channel.clone(),
-        auth.token.clone().as_str(),
-        "TESTORG",
-        "testslug",
-    );
-
-    let feature = clients
-        .entitlements
-        .clone()
-        .create_feature(CreateFeatureRequest {
-            name: "api calls per key".into(),
-            code: "api_calls_per_key".into(),
-            description: None,
-            product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Metered(feature_type::MeteredFeature {
-                    metric_id: ids::METRIC_BANDWIDTH.as_proto(),
-                })),
-            }),
-            entitlement: None,
-        })
-        .await
-        .unwrap()
-        .into_inner()
-        .feature
-        .unwrap();
-
-    let created = clients
-        .entitlements
-        .clone()
-        .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
-            entity: entity_plan_version(ids::PLAN_VERSION_NOTION_ID.as_proto()),
-            value: metered_grouped("100", Some("api_key")),
-        })
-        .await
-        .unwrap()
-        .into_inner()
-        .entitlement
-        .unwrap();
-    assert_eq!(grouped_by(&created).as_deref(), Some("api_key"));
-
-    let fetched = clients
-        .entitlements
-        .clone()
-        .get_entitlement(GetEntitlementRequest {
-            id: created.id.clone(),
-        })
-        .await
-        .unwrap()
-        .into_inner()
-        .entitlement
-        .unwrap();
-    assert_eq!(grouped_by(&fetched).as_deref(), Some("api_key"));
-
-    let listed = clients
-        .entitlements
-        .clone()
-        .list_entitlements_by_feature(ListEntitlementsByFeatureRequest {
-            feature_id: feature.id.clone(),
-        })
-        .await
-        .unwrap()
-        .into_inner()
-        .entitlements;
-    assert_eq!(grouped_by(&listed[0]).as_deref(), Some("api_key"));
-
-    let update = |value| {
-        let mut client = clients.entitlements.clone();
-        let id = created.id.clone();
-        async move {
-            client
-                .update_entitlement(UpdateEntitlementRequest { id, value })
-                .await
-        }
-    };
-
-    let raised = update(metered_grouped("500", Some("api_key")))
-        .await
-        .unwrap()
-        .into_inner()
-        .entitlement
-        .unwrap();
-    assert_eq!(
-        grouped_by(&raised).as_deref(),
-        Some("api_key"),
-        "an edit that keeps the property does not clear it"
-    );
-
-    let regrouped = update(metered_grouped("500", Some("tenant")))
-        .await
-        .unwrap()
-        .into_inner()
-        .entitlement
-        .unwrap();
-    assert_eq!(grouped_by(&regrouped).as_deref(), Some("tenant"));
-
-    let ungrouped = update(metered_grouped("500", None))
-        .await
-        .unwrap()
-        .into_inner()
-        .entitlement
-        .unwrap();
-    assert_eq!(grouped_by(&ungrouped), None);
-
-    let invalid = update(metered_grouped("500", Some("a,b")))
-        .await
-        .unwrap_err();
-    assert_eq!(invalid.code(), tonic::Code::InvalidArgument);
-    let blank = update(metered_grouped("500", Some(" "))).await.unwrap_err();
-    assert_eq!(blank.code(), tonic::Code::InvalidArgument);
-}
-
-fn metered_policy(
-    limit: &str,
-    overage: Option<overage_behavior::Inner>,
-    warning_threshold_pct: Option<u32>,
-) -> Option<EntitlementValue> {
-    Some(EntitlementValue {
-        value: Some(entitlement_value::Value::MeteredValue(
-            entitlement_value::MeteredValue {
-                limit: Some(limit.into()),
-                enabled: true,
-                overage_behavior: overage.map(|inner| OverageBehavior { inner: Some(inner) }),
-                warning_threshold_pct,
-                ..Default::default()
-            },
-        )),
-    })
-}
-
-fn block(grace_period_pct: Option<u32>) -> Option<overage_behavior::Inner> {
-    Some(overage_behavior::Inner::Block(overage_behavior::Block {
-        grace_period_pct,
-    }))
-}
-
-fn policy_of(
-    entitlement: &meteroid_grpc::meteroid::api::entitlements::v1::Entitlement,
-) -> (Option<overage_behavior::Inner>, Option<u32>) {
-    match entitlement.value.clone().and_then(|v| v.value) {
-        Some(entitlement_value::Value::MeteredValue(m)) => (
-            m.overage_behavior.and_then(|o| o.inner),
-            m.warning_threshold_pct,
-        ),
-        other => panic!("expected a metered value, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn test_entitlement_overage_policy_round_trips_through_grpc() {
-    use meteroid_grpc::meteroid::api::entitlements::v1::{
-        GetResolvedForPlanVersionRequest, resolved_entitlement,
-    };
-
-    helpers::init::logging();
-    let postgres_connection_string =
-        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
-    let setup =
-        meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
-    let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
-    let clients = meteroid_it::clients::AllClients::from_channel(
-        setup.channel.clone(),
-        auth.token.clone().as_str(),
-        "TESTORG",
-        "testslug",
-    );
-
-    let feature = clients
-        .entitlements
-        .clone()
-        .create_feature(CreateFeatureRequest {
-            name: "seats".into(),
-            code: "seats".into(),
-            description: None,
-            product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Metered(feature_type::MeteredFeature {
-                    metric_id: ids::METRIC_BANDWIDTH.as_proto(),
-                })),
-            }),
-            entitlement: None,
-        })
-        .await
-        .unwrap()
-        .into_inner()
-        .feature
-        .unwrap();
-
-    let created = clients
-        .entitlements
-        .clone()
-        .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
-            entity: entity_plan_version(ids::PLAN_VERSION_NOTION_ID.as_proto()),
-            value: metered_policy("100", block(Some(25)), Some(80)),
-        })
-        .await
-        .unwrap()
-        .into_inner()
-        .entitlement
-        .unwrap();
-    assert_eq!(policy_of(&created), (block(Some(25)), Some(80)));
-
-    let fetched = clients
-        .entitlements
-        .clone()
-        .get_entitlement(GetEntitlementRequest {
-            id: created.id.clone(),
-        })
-        .await
-        .unwrap()
-        .into_inner()
-        .entitlement
-        .unwrap();
-    assert_eq!(policy_of(&fetched), (block(Some(25)), Some(80)));
-
-    let resolved = clients
-        .entitlements
-        .clone()
-        .get_resolved_entitlements_for_plan_version(GetResolvedForPlanVersionRequest {
-            plan_version_id: ids::PLAN_VERSION_NOTION_ID.as_proto(),
-        })
-        .await
-        .unwrap()
-        .into_inner()
-        .entitlements;
-    let Some(resolved_entitlement::Value::Metered(metered)) = resolved
-        .iter()
-        .find(|r| r.feature.as_ref().map(|f| f.id.as_str()) == Some(feature.id.as_str()))
-        .and_then(|r| r.value.clone())
-    else {
-        panic!("expected the seats entitlement to resolve as metered");
-    };
-    assert_eq!(
-        metered.overage_behavior.and_then(|o| o.inner),
-        block(Some(25))
-    );
-    assert_eq!(metered.warning_threshold_pct, Some(80));
-
-    let update = |value| {
-        let mut client = clients.entitlements.clone();
-        let id = created.id.clone();
-        async move {
-            client
-                .update_entitlement(UpdateEntitlementRequest { id, value })
-                .await
-        }
-    };
-
-    let raised = update(metered_policy("500", block(Some(25)), Some(80)))
-        .await
-        .unwrap()
-        .into_inner()
-        .entitlement
-        .unwrap();
-    assert_eq!(
-        policy_of(&raised),
-        (block(Some(25)), Some(80)),
-        "an edit that resends the policy does not reset it"
-    );
-
-    let allowed = update(metered_policy(
-        "500",
-        Some(overage_behavior::Inner::Allow(overage_behavior::Allow {})),
-        None,
-    ))
-    .await
-    .unwrap()
-    .into_inner()
-    .entitlement
-    .unwrap();
-    assert_eq!(
-        policy_of(&allowed),
-        (
-            Some(overage_behavior::Inner::Allow(overage_behavior::Allow {})),
-            None
-        )
-    );
-
-    let defaulted = update(metered_policy("500", None, None))
-        .await
-        .unwrap()
-        .into_inner()
-        .entitlement
-        .unwrap();
-    assert_eq!(policy_of(&defaulted), (block(None), None));
-
-    for invalid in [
-        metered_policy("500", block(Some(0)), None),
-        metered_policy("500", block(Some(1001)), None),
-        metered_policy("500", None, Some(0)),
-        metered_policy("500", None, Some(101)),
-        metered_policy(
-            "500",
-            Some(overage_behavior::Inner::Allow(overage_behavior::Allow {})),
-            Some(101),
-        ),
-    ] {
-        let status = update(invalid).await.unwrap_err();
-        assert_eq!(status.code(), tonic::Code::InvalidArgument);
-    }
-    let missing_variant = update(Some(EntitlementValue {
-        value: Some(entitlement_value::Value::MeteredValue(
-            entitlement_value::MeteredValue {
-                limit: Some("500".into()),
-                enabled: true,
-                overage_behavior: Some(OverageBehavior { inner: None }),
-                ..Default::default()
-            },
-        )),
-    }))
-    .await
-    .unwrap_err();
-    assert_eq!(missing_variant.code(), tonic::Code::InvalidArgument);
-}
-
 // ── Helpers for the integration tests below ────────────────────────────────────
 
 /// Build a metered entitlement value with just a hard limit; all other knobs unset.
@@ -1050,10 +717,7 @@ fn metered_value(limit: &str) -> Option<EntitlementValue> {
         value: Some(entitlement_value::Value::MeteredValue(
             entitlement_value::MeteredValue {
                 limit: Some(limit.into()),
-                reset_period: None,
                 enabled: true,
-                group_by: None,
-                ..Default::default()
             },
         )),
     })
@@ -1153,12 +817,9 @@ async fn test_kill_switch_suppresses_feature_resolution() {
             code: "premium-export".into(),
             description: None,
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Boolean(
-                    feature_type::BooleanFeature {},
-                )),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Boolean.into(),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -1171,24 +832,36 @@ async fn test_kill_switch_suppresses_feature_resolution() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
             entity: entity_plan(ids::PLAN_NOTION_ID.as_proto()),
-            value: boolean_value(true),
+            spec: Some(EntitlementSpec {
+                feature_id: feature.id.clone(),
+                value: boolean_value(true),
+                ..Default::default()
+            }),
+            resource_id: None,
         })
         .await
         .unwrap();
 
     // Higher-priority plan-version KillSwitch wipes the feature.
-    clients
-        .entitlements
-        .clone()
-        .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
-            entity: entity_plan_version(ids::PLAN_VERSION_NOTION_ID.as_proto()),
-            value: boolean_value(false),
-        })
-        .await
-        .unwrap();
+    helpers::plans::as_draft(
+        &setup.store,
+        ids::PLAN_VERSION_NOTION_ID,
+        clients
+            .entitlements
+            .clone()
+            .create_entitlement(CreateEntitlementRequest {
+                entity: entity_plan_version(ids::PLAN_VERSION_NOTION_ID.as_proto()),
+                spec: Some(EntitlementSpec {
+                    feature_id: feature.id.clone(),
+                    value: boolean_value(false),
+                    ..Default::default()
+                }),
+                resource_id: None,
+            }),
+    )
+    .await
+    .unwrap();
 
     let resolved = clients
         .entitlements
@@ -1339,9 +1012,13 @@ async fn test_feature_archive_and_restore_lifecycle() {
         async move {
             client
                 .create_entitlement(CreateEntitlementRequest {
-                    feature_id,
                     entity,
-                    value: boolean_value(true),
+                    spec: Some(EntitlementSpec {
+                        feature_id,
+                        value: boolean_value(true),
+                        ..Default::default()
+                    }),
+                    resource_id: None,
                 })
                 .await
                 .map(|r| r.into_inner().entitlement.unwrap())
@@ -1378,6 +1055,7 @@ async fn test_feature_archive_and_restore_lifecycle() {
                             meteroid_grpc::meteroid::api::entitlements::v1::EntitlementSpec {
                                 feature_id,
                                 value: boolean_value(true),
+                                ..Default::default()
                             },
                         ],
                         ..Default::default()
@@ -1411,9 +1089,13 @@ async fn test_feature_archive_and_restore_lifecycle() {
 
     let plan_version = entity_plan_version(ids::PLAN_VERSION_NOTION_ID.as_proto());
     let customer = entity_customer(ids::CUST_SPOTIFY_ID.as_proto());
-    let plan_grant = grant(feature.id.clone(), plan_version.clone())
-        .await
-        .unwrap();
+    let plan_grant = helpers::plans::as_draft(
+        &setup.store,
+        ids::PLAN_VERSION_NOTION_ID,
+        grant(feature.id.clone(), plan_version.clone()),
+    )
+    .await
+    .unwrap();
     grant(feature.id.clone(), customer.clone()).await.unwrap();
     let held_on_plan = grants_on(plan_version.clone()).await;
     let held_by_customer = grants_on(customer.clone()).await;
@@ -1447,6 +1129,7 @@ async fn test_feature_archive_and_restore_lifecycle() {
         .update_entitlement(UpdateEntitlementRequest {
             id: plan_grant.id.clone(),
             value: boolean_value(false),
+            ..Default::default()
         })
         .await;
     assert_eq!(edit_hidden.unwrap_err().code(), tonic::Code::NotFound);
@@ -1466,7 +1149,7 @@ async fn test_feature_archive_and_restore_lifecycle() {
     assert_archived_rejection(
         grant(
             feature.id.clone(),
-            entity_plan_version(ids::PLAN_VERSION_PRO_ID.as_proto()),
+            entity_plan_version(ids::PLAN_VERSION_PRO_DRAFT_ID.as_proto()),
         )
         .await,
         "no new grant",
@@ -1483,6 +1166,7 @@ async fn test_feature_archive_and_restore_lifecycle() {
                 clear_product_id: false,
                 config_options: vec![],
                 update_config_options: false,
+                ..Default::default()
             })
             .await,
         "the feature is read-only",
@@ -1538,7 +1222,7 @@ async fn test_feature_archive_and_restore_lifecycle() {
     );
     grant(
         feature.id.clone(),
-        entity_plan_version(ids::PLAN_VERSION_PRO_ID.as_proto()),
+        entity_plan_version(ids::PLAN_VERSION_PRO_DRAFT_ID.as_proto()),
     )
     .await
     .expect("a restored feature accepts new grants");
@@ -1603,12 +1287,17 @@ async fn test_subscription_override_beats_plan_grant() {
             code: "api-quota".into(),
             description: None,
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Metered(feature_type::MeteredFeature {
-                    metric_id: ids::METRIC_BANDWIDTH.as_proto(),
-                })),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Limit.into(),
+            limit: Some(
+                meteroid_grpc::meteroid::api::entitlements::v1::FeatureLimitSpec {
+                    counted_by:
+                        meteroid_grpc::meteroid::api::entitlements::v1::LimitCountedBy::Events
+                            .into(),
+                    metric_id: Some(ids::METRIC_BANDWIDTH.as_proto()),
+                },
+            ),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -1621,9 +1310,13 @@ async fn test_subscription_override_beats_plan_grant() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
             entity: entity_plan(ids::PLAN_NOTION_ID.as_proto()),
-            value: metered_value("1000"),
+            spec: Some(EntitlementSpec {
+                feature_id: feature.id.clone(),
+                value: metered_value("1000"),
+                ..Default::default()
+            }),
+            resource_id: None,
         })
         .await
         .unwrap();
@@ -1633,9 +1326,13 @@ async fn test_subscription_override_beats_plan_grant() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
             entity: entity_subscription_proto(sub.id.clone()),
-            value: metered_value("9000"),
+            spec: Some(EntitlementSpec {
+                feature_id: feature.id.clone(),
+                value: metered_value("9000"),
+                ..Default::default()
+            }),
+            resource_id: None,
         })
         .await
         .unwrap();
@@ -1720,12 +1417,9 @@ async fn test_feature_baseline_entitlement_lowest_priority() {
             code: "everyone-default".into(),
             description: None,
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Boolean(
-                    feature_type::BooleanFeature {},
-                )),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Boolean.into(),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -1737,9 +1431,13 @@ async fn test_feature_baseline_entitlement_lowest_priority() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
             entity: entity_feature(feature.id.clone()),
-            value: boolean_value(true),
+            spec: Some(EntitlementSpec {
+                feature_id: feature.id.clone(),
+                value: boolean_value(true),
+                ..Default::default()
+            }),
+            resource_id: None,
         })
         .await
         .unwrap();
@@ -1790,12 +1488,9 @@ async fn test_unique_feature_entity_collision_rejected() {
             code: "unique-test".into(),
             description: None,
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Boolean(
-                    feature_type::BooleanFeature {},
-                )),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Boolean.into(),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -1804,9 +1499,13 @@ async fn test_unique_feature_entity_collision_rejected() {
         .unwrap();
 
     let req = CreateEntitlementRequest {
-        feature_id: feature.id.clone(),
-        entity: entity_plan_version(ids::PLAN_VERSION_NOTION_ID.as_proto()),
-        value: boolean_value(true),
+        entity: entity_plan_version(ids::PLAN_VERSION_PRO_DRAFT_ID.as_proto()),
+        spec: Some(EntitlementSpec {
+            feature_id: feature.id.clone(),
+            value: boolean_value(true),
+            ..Default::default()
+        }),
+        resource_id: None,
     };
 
     clients
@@ -1857,12 +1556,9 @@ async fn test_value_variant_must_match_feature_type() {
             code: "bool-feat".into(),
             description: None,
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Boolean(
-                    feature_type::BooleanFeature {},
-                )),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Boolean.into(),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -1874,9 +1570,13 @@ async fn test_value_variant_must_match_feature_type() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: bool_feature.id.clone(),
-            entity: entity_plan_version(ids::PLAN_VERSION_NOTION_ID.as_proto()),
-            value: metered_value("100"),
+            entity: entity_plan_version(ids::PLAN_VERSION_PRO_DRAFT_ID.as_proto()),
+            spec: Some(EntitlementSpec {
+                feature_id: bool_feature.id.clone(),
+                value: metered_value("100"),
+                ..Default::default()
+            }),
+            resource_id: None,
         })
         .await
         .expect_err("metered value on boolean feature must be rejected");
@@ -1891,12 +1591,17 @@ async fn test_value_variant_must_match_feature_type() {
             code: "metered-feat".into(),
             description: None,
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Metered(feature_type::MeteredFeature {
-                    metric_id: ids::METRIC_BANDWIDTH.as_proto(),
-                })),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Limit.into(),
+            limit: Some(
+                meteroid_grpc::meteroid::api::entitlements::v1::FeatureLimitSpec {
+                    counted_by:
+                        meteroid_grpc::meteroid::api::entitlements::v1::LimitCountedBy::Events
+                            .into(),
+                    metric_id: Some(ids::METRIC_BANDWIDTH.as_proto()),
+                },
+            ),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -1908,9 +1613,13 @@ async fn test_value_variant_must_match_feature_type() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: metered_feature.id.clone(),
-            entity: entity_plan_version(ids::PLAN_VERSION_NOTION_ID.as_proto()),
-            value: boolean_value(true),
+            entity: entity_plan_version(ids::PLAN_VERSION_PRO_DRAFT_ID.as_proto()),
+            spec: Some(EntitlementSpec {
+                feature_id: metered_feature.id.clone(),
+                value: boolean_value(true),
+                ..Default::default()
+            }),
+            resource_id: None,
         })
         .await
         .expect_err("boolean value on metered feature must be rejected");
@@ -1949,12 +1658,9 @@ async fn test_inline_subscription_entitlement_creation() {
             code: "inline-bool-feature".into(),
             description: None,
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Boolean(
-                    feature_type::BooleanFeature {},
-                )),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Boolean.into(),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -1994,6 +1700,7 @@ async fn test_inline_subscription_entitlement_creation() {
                 entitlements: vec![EntitlementSpec {
                     feature_id: feature.id.clone(),
                     value: boolean_value(true),
+                    ..Default::default()
                 }],
                 ..Default::default()
             }),
@@ -2101,12 +1808,17 @@ async fn test_disabled_entitlement_resolved_and_overrideable() {
             code: "disabled-test-feat".into(),
             description: None,
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Metered(feature_type::MeteredFeature {
-                    metric_id: ids::METRIC_BANDWIDTH.as_proto(),
-                })),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Limit.into(),
+            limit: Some(
+                meteroid_grpc::meteroid::api::entitlements::v1::FeatureLimitSpec {
+                    counted_by:
+                        meteroid_grpc::meteroid::api::entitlements::v1::LimitCountedBy::Events
+                            .into(),
+                    metric_id: Some(ids::METRIC_BANDWIDTH.as_proto()),
+                },
+            ),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -2119,19 +1831,20 @@ async fn test_disabled_entitlement_resolved_and_overrideable() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
             entity: entity_feature(feature.id.clone()),
-            value: Some(EntitlementValue {
-                value: Some(entitlement_value::Value::MeteredValue(
-                    entitlement_value::MeteredValue {
-                        limit: Some("100".into()),
-                        reset_period: None,
-                        enabled: false,
-                        group_by: None,
-                        ..Default::default()
-                    },
-                )),
+            spec: Some(EntitlementSpec {
+                feature_id: feature.id.clone(),
+                value: Some(EntitlementValue {
+                    value: Some(entitlement_value::Value::MeteredValue(
+                        entitlement_value::MeteredValue {
+                            limit: Some("100".into()),
+                            enabled: false,
+                        },
+                    )),
+                }),
+                ..Default::default()
             }),
+            resource_id: None,
         })
         .await
         .unwrap();
@@ -2166,19 +1879,20 @@ async fn test_disabled_entitlement_resolved_and_overrideable() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
             entity: entity_subscription_proto(sub.id.clone()),
-            value: Some(EntitlementValue {
-                value: Some(entitlement_value::Value::MeteredValue(
-                    entitlement_value::MeteredValue {
-                        limit: Some("100".into()),
-                        reset_period: None,
-                        enabled: true,
-                        group_by: None,
-                        ..Default::default()
-                    },
-                )),
+            spec: Some(EntitlementSpec {
+                feature_id: feature.id.clone(),
+                value: Some(EntitlementValue {
+                    value: Some(entitlement_value::Value::MeteredValue(
+                        entitlement_value::MeteredValue {
+                            limit: Some("100".into()),
+                            enabled: true,
+                        },
+                    )),
+                }),
+                ..Default::default()
             }),
+            resource_id: None,
         })
         .await
         .unwrap();
@@ -2241,12 +1955,9 @@ async fn test_feature_level_defaults_resolve_without_subscription() {
             code: "default-on-feat".into(),
             description: None,
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Boolean(
-                    feature_type::BooleanFeature {},
-                )),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Boolean.into(),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -2258,9 +1969,13 @@ async fn test_feature_level_defaults_resolve_without_subscription() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
             entity: entity_feature(feature.id.clone()),
-            value: boolean_value(true),
+            spec: Some(EntitlementSpec {
+                feature_id: feature.id.clone(),
+                value: boolean_value(true),
+                ..Default::default()
+            }),
+            resource_id: None,
         })
         .await
         .unwrap();
@@ -2323,12 +2038,9 @@ async fn test_resolved_entitlements_for_subscription_includes_chain() {
             code: "chain-test-bool".into(),
             description: None,
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Boolean(
-                    feature_type::BooleanFeature {},
-                )),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Boolean.into(),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -2341,13 +2053,17 @@ async fn test_resolved_entitlements_for_subscription_includes_chain() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
             entity: entity_feature(feature.id.clone()),
-            value: Some(EntitlementValue {
-                value: Some(entitlement_value::Value::BooleanValue(
-                    entitlement_value::BooleanValue { enabled: true },
-                )),
+            spec: Some(EntitlementSpec {
+                feature_id: feature.id.clone(),
+                value: Some(EntitlementValue {
+                    value: Some(entitlement_value::Value::BooleanValue(
+                        entitlement_value::BooleanValue { enabled: true },
+                    )),
+                }),
+                ..Default::default()
             }),
+            resource_id: None,
         })
         .await
         .unwrap();
@@ -2357,13 +2073,17 @@ async fn test_resolved_entitlements_for_subscription_includes_chain() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
             entity: entity_plan(ids::PLAN_NOTION_ID.as_proto()),
-            value: Some(EntitlementValue {
-                value: Some(entitlement_value::Value::BooleanValue(
-                    entitlement_value::BooleanValue { enabled: true },
-                )),
+            spec: Some(EntitlementSpec {
+                feature_id: feature.id.clone(),
+                value: Some(EntitlementValue {
+                    value: Some(entitlement_value::Value::BooleanValue(
+                        entitlement_value::BooleanValue { enabled: true },
+                    )),
+                }),
+                ..Default::default()
             }),
+            resource_id: None,
         })
         .await
         .unwrap();
@@ -2409,13 +2129,17 @@ async fn test_resolved_entitlements_for_subscription_includes_chain() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
             entity: entity_subscription_proto(sub.id.clone()),
-            value: Some(EntitlementValue {
-                value: Some(entitlement_value::Value::BooleanValue(
-                    entitlement_value::BooleanValue { enabled: false },
-                )),
+            spec: Some(EntitlementSpec {
+                feature_id: feature.id.clone(),
+                value: Some(EntitlementValue {
+                    value: Some(entitlement_value::Value::BooleanValue(
+                        entitlement_value::BooleanValue { enabled: false },
+                    )),
+                }),
+                ..Default::default()
             }),
+            resource_id: None,
         })
         .await
         .unwrap();
@@ -2474,8 +2198,7 @@ async fn test_resolved_entitlements_for_addon_includes_product_features() {
     };
 
     helpers::init::logging();
-    let postgres_connection_string =
-        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
+    let postgres_connection_string = meteroid_it::container::create_test_database().await;
     // SeedLevel::PLANS is required because METRIC_BANDWIDTH is seeded as part of the METERS seed.
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
@@ -2558,12 +2281,9 @@ async fn test_resolved_entitlements_for_addon_includes_product_features() {
             code: "addon-product-bool-f1".into(),
             description: None,
             product_id: Some(product_id.clone()),
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Boolean(
-                    feature_type::BooleanFeature {},
-                )),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Boolean.into(),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -2576,13 +2296,17 @@ async fn test_resolved_entitlements_for_addon_includes_product_features() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: f1.id.clone(),
             entity: entity_feature(f1.id.clone()),
-            value: Some(EntitlementValue {
-                value: Some(entitlement_value::Value::BooleanValue(
-                    entitlement_value::BooleanValue { enabled: true },
-                )),
+            spec: Some(EntitlementSpec {
+                feature_id: f1.id.clone(),
+                value: Some(EntitlementValue {
+                    value: Some(entitlement_value::Value::BooleanValue(
+                        entitlement_value::BooleanValue { enabled: true },
+                    )),
+                }),
+                ..Default::default()
             }),
+            resource_id: None,
         })
         .await
         .unwrap();
@@ -2596,12 +2320,17 @@ async fn test_resolved_entitlements_for_addon_includes_product_features() {
             code: "addon-product-metered-f2".into(),
             description: None,
             product_id: Some(product_id.clone()),
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Metered(feature_type::MeteredFeature {
-                    metric_id: ids::METRIC_BANDWIDTH.as_proto(),
-                })),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Limit.into(),
+            limit: Some(
+                meteroid_grpc::meteroid::api::entitlements::v1::FeatureLimitSpec {
+                    counted_by:
+                        meteroid_grpc::meteroid::api::entitlements::v1::LimitCountedBy::Events
+                            .into(),
+                    metric_id: Some(ids::METRIC_BANDWIDTH.as_proto()),
+                },
+            ),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -2614,11 +2343,15 @@ async fn test_resolved_entitlements_for_addon_includes_product_features() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: f2.id.clone(),
             entity: Some(EntitlementEntity {
                 entity_id: Some(entitlement_entity::EntityId::AddOnId(add_on.id.clone())),
             }),
-            value: metered_value("1000"),
+            spec: Some(EntitlementSpec {
+                feature_id: f2.id.clone(),
+                value: metered_value("1000"),
+                ..Default::default()
+            }),
+            resource_id: None,
         })
         .await
         .unwrap();
@@ -2730,12 +2463,9 @@ async fn test_batch_create_entitlements_skips_existing() {
                 code: format!("batch-skip-feat-{}", i),
                 description: None,
                 product_id: None,
-                feature_type: Some(FeatureType {
-                    inner: Some(feature_type::Inner::Boolean(
-                        feature_type::BooleanFeature {},
-                    )),
-                }),
+                kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Boolean.into(),
                 entitlement: None,
+                ..Default::default()
             })
             .await
             .unwrap()
@@ -2786,9 +2516,13 @@ async fn test_batch_create_entitlements_skips_existing() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: features[0].id.clone(),
             entity: entity_subscription_proto(sub.id.clone()),
-            value: boolean_value(true),
+            spec: Some(EntitlementSpec {
+                feature_id: features[0].id.clone(),
+                value: boolean_value(true),
+                ..Default::default()
+            }),
+            resource_id: None,
         })
         .await
         .unwrap();
@@ -2806,6 +2540,7 @@ async fn test_batch_create_entitlements_skips_existing() {
                 .map(|f| EntitlementSpec {
                     feature_id: f.id.clone(),
                     value: boolean_value(true),
+                    ..Default::default()
                 })
                 .collect(),
         })
@@ -2931,12 +2666,9 @@ async fn test_product_grouping_in_effective_entitlements() {
             code: "product-feat-a".into(),
             description: None,
             product_id: Some(ids::PRODUCT_PLATFORM_FEE_ID.as_proto()),
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Boolean(
-                    feature_type::BooleanFeature {},
-                )),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Boolean.into(),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -2953,12 +2685,9 @@ async fn test_product_grouping_in_effective_entitlements() {
             code: "product-feat-b".into(),
             description: None,
             product_id: Some(ids::PRODUCT_SEATS_ID.as_proto()),
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Boolean(
-                    feature_type::BooleanFeature {},
-                )),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Boolean.into(),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -2975,12 +2704,9 @@ async fn test_product_grouping_in_effective_entitlements() {
             code: "global-feat-c".into(),
             description: None,
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Boolean(
-                    feature_type::BooleanFeature {},
-                )),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Boolean.into(),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -2988,15 +2714,19 @@ async fn test_product_grouping_in_effective_entitlements() {
         .feature
         .unwrap();
 
-    // Grant all three at the plan-version (Starter) level.
+    // Grant all three on the Starter plan.
     for feat in [&feat_a, &feat_b, &feat_c] {
         clients
             .entitlements
             .clone()
             .create_entitlement(CreateEntitlementRequest {
-                feature_id: feat.id.clone(),
-                entity: entity_plan_version(ids::PLAN_VERSION_STARTER_ID.as_proto()),
-                value: boolean_value(true),
+                entity: entity_plan(ids::PLAN_STARTER_ID.as_proto()),
+                spec: Some(EntitlementSpec {
+                    feature_id: feat.id.clone(),
+                    value: boolean_value(true),
+                    ..Default::default()
+                }),
+                resource_id: None,
             })
             .await
             .unwrap();
@@ -3159,12 +2889,17 @@ async fn test_plan_version_overrides_addon_entitlement() {
             code: "pv-beats-addon".into(),
             description: None,
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Metered(feature_type::MeteredFeature {
-                    metric_id: ids::METRIC_BANDWIDTH.as_proto(),
-                })),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Limit.into(),
+            limit: Some(
+                meteroid_grpc::meteroid::api::entitlements::v1::FeatureLimitSpec {
+                    counted_by:
+                        meteroid_grpc::meteroid::api::entitlements::v1::LimitCountedBy::Events
+                            .into(),
+                    metric_id: Some(ids::METRIC_BANDWIDTH.as_proto()),
+                },
+            ),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -3180,26 +2915,38 @@ async fn test_plan_version_overrides_addon_entitlement() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
             entity: Some(EntitlementEntity {
                 entity_id: Some(entitlement_entity::EntityId::AddOnId(add_on.id.clone())),
             }),
-            value: metered_value("100"),
+            spec: Some(EntitlementSpec {
+                feature_id: feature.id.clone(),
+                value: metered_value("100"),
+                ..Default::default()
+            }),
+            resource_id: None,
         })
         .await
         .unwrap();
 
     // PlanVersion grants 200 — must override.
-    clients
-        .entitlements
-        .clone()
-        .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
-            entity: entity_plan_version(ids::PLAN_VERSION_NOTION_ID.as_proto()),
-            value: metered_value("200"),
-        })
-        .await
-        .unwrap();
+    helpers::plans::as_draft(
+        &setup.store,
+        ids::PLAN_VERSION_NOTION_ID,
+        clients
+            .entitlements
+            .clone()
+            .create_entitlement(CreateEntitlementRequest {
+                entity: entity_plan_version(ids::PLAN_VERSION_NOTION_ID.as_proto()),
+                spec: Some(EntitlementSpec {
+                    feature_id: feature.id.clone(),
+                    value: metered_value("200"),
+                    ..Default::default()
+                }),
+                resource_id: None,
+            }),
+    )
+    .await
+    .unwrap();
 
     // Subscription pulling that plan + the add-on.
     let now = chrono::Utc::now().date_naive();
@@ -3310,12 +3057,17 @@ async fn test_same_priority_addons_take_permissive_max() {
             code: "permissive-same-pri".into(),
             description: None,
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Metered(feature_type::MeteredFeature {
-                    metric_id: ids::METRIC_BANDWIDTH.as_proto(),
-                })),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Limit.into(),
+            limit: Some(
+                meteroid_grpc::meteroid::api::entitlements::v1::FeatureLimitSpec {
+                    counted_by:
+                        meteroid_grpc::meteroid::api::entitlements::v1::LimitCountedBy::Events
+                            .into(),
+                    metric_id: Some(ids::METRIC_BANDWIDTH.as_proto()),
+                },
+            ),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -3331,11 +3083,15 @@ async fn test_same_priority_addons_take_permissive_max() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
             entity: Some(EntitlementEntity {
                 entity_id: Some(entitlement_entity::EntityId::AddOnId(add_on_big.id.clone())),
             }),
-            value: metered_value("700"),
+            spec: Some(EntitlementSpec {
+                feature_id: feature.id.clone(),
+                value: metered_value("700"),
+                ..Default::default()
+            }),
+            resource_id: None,
         })
         .await
         .unwrap();
@@ -3346,13 +3102,17 @@ async fn test_same_priority_addons_take_permissive_max() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
             entity: Some(EntitlementEntity {
                 entity_id: Some(entitlement_entity::EntityId::AddOnId(
                     add_on_small.id.clone(),
                 )),
             }),
-            value: metered_value("300"),
+            spec: Some(EntitlementSpec {
+                feature_id: feature.id.clone(),
+                value: metered_value("300"),
+                ..Default::default()
+            }),
+            resource_id: None,
         })
         .await
         .unwrap();
@@ -3466,12 +3226,17 @@ async fn test_plan_version_target_excludes_linked_add_on_entitlements() {
             code: "pv-linked-addon-feat".into(),
             description: None,
             product_id: Some(add_on.product_id.clone()),
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Metered(feature_type::MeteredFeature {
-                    metric_id: ids::METRIC_BANDWIDTH.as_proto(),
-                })),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Limit.into(),
+            limit: Some(
+                meteroid_grpc::meteroid::api::entitlements::v1::FeatureLimitSpec {
+                    counted_by:
+                        meteroid_grpc::meteroid::api::entitlements::v1::LimitCountedBy::Events
+                            .into(),
+                    metric_id: Some(ids::METRIC_BANDWIDTH.as_proto()),
+                },
+            ),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -3483,11 +3248,15 @@ async fn test_plan_version_target_excludes_linked_add_on_entitlements() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
             entity: Some(EntitlementEntity {
                 entity_id: Some(entitlement_entity::EntityId::AddOnId(add_on.id.clone())),
             }),
-            value: metered_value("5000"),
+            spec: Some(EntitlementSpec {
+                feature_id: feature.id.clone(),
+                value: metered_value("5000"),
+                ..Default::default()
+            }),
+            resource_id: None,
         })
         .await
         .unwrap();
@@ -3564,12 +3333,9 @@ async fn test_customer_entitlement_resolves_without_subscription() {
             code: "customer-grant-feat".into(),
             description: None,
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Boolean(
-                    feature_type::BooleanFeature {},
-                )),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Boolean.into(),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -3582,9 +3348,13 @@ async fn test_customer_entitlement_resolves_without_subscription() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
             entity: entity_customer(ids::CUST_SPOTIFY_ID.as_proto()),
-            value: boolean_value(true),
+            spec: Some(EntitlementSpec {
+                feature_id: feature.id.clone(),
+                value: boolean_value(true),
+                ..Default::default()
+            }),
+            resource_id: None,
         })
         .await
         .unwrap();
@@ -3657,12 +3427,9 @@ async fn test_customer_force_overrides_subscription() {
             code: "site-toggle-feat".into(),
             description: None,
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Boolean(
-                    feature_type::BooleanFeature {},
-                )),
-            }),
+            kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Boolean.into(),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -3675,9 +3442,13 @@ async fn test_customer_force_overrides_subscription() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
             entity: entity_customer(ids::CUST_SPOTIFY_ID.as_proto()),
-            value: boolean_value(true),
+            spec: Some(EntitlementSpec {
+                feature_id: feature.id.clone(),
+                value: boolean_value(true),
+                ..Default::default()
+            }),
+            resource_id: None,
         })
         .await
         .unwrap();
@@ -3723,9 +3494,13 @@ async fn test_customer_force_overrides_subscription() {
         .entitlements
         .clone()
         .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
             entity: entity_subscription_proto(sub.id.clone()),
-            value: boolean_value(false),
+            spec: Some(EntitlementSpec {
+                feature_id: feature.id.clone(),
+                value: boolean_value(false),
+                ..Default::default()
+            }),
+            resource_id: None,
         })
         .await
         .unwrap();
@@ -3801,7 +3576,7 @@ struct StatusContract {
     feature_readable_by_id: bool,
     accepts_writes: bool,
     code_reserved: bool,
-    /// A subscription created now on a plan version that already grants the feature gets it.
+    /// A subscription created now on a plan that already grants the feature gets it.
     new_subscription_gets_plan_grant: bool,
     /// A grant inside a new subscription, quote, add-on or plan body is stored; otherwise it is
     /// skipped and the entity is still created.
@@ -3875,12 +3650,9 @@ fn boolean_feature_request(code: &str) -> CreateFeatureRequest {
         code: code.into(),
         description: None,
         product_id: None,
-        feature_type: Some(FeatureType {
-            inner: Some(feature_type::Inner::Boolean(
-                feature_type::BooleanFeature {},
-            )),
-        }),
+        kind: meteroid_grpc::meteroid::api::entitlements::v1::FeatureKind::Boolean.into(),
         entitlement: None,
+        ..Default::default()
     }
 }
 
@@ -3917,6 +3689,8 @@ async fn listed_with_statuses(
             statuses,
             search: None,
             product_id: None,
+            level_resource_type_id: None,
+            order: FeatureOrder::Unspecified.into(),
         })
         .await
         .unwrap()
@@ -3947,9 +3721,13 @@ async fn test_feature_status_contract() {
             .entitlements
             .clone()
             .create_entitlement(CreateEntitlementRequest {
-                feature_id: feature.id.clone(),
                 entity: entity_customer(customer.clone()),
-                value: boolean_value(true),
+                spec: Some(EntitlementSpec {
+                    feature_id: feature.id.clone(),
+                    value: boolean_value(true),
+                    ..Default::default()
+                }),
+                resource_id: None,
             })
             .await
             .unwrap()
@@ -4052,9 +3830,13 @@ async fn test_feature_status_contract() {
                     .entitlements
                     .clone()
                     .create_entitlement(CreateEntitlementRequest {
-                        feature_id: feature.id.clone(),
-                        entity: entity_plan_version(ids::PLAN_VERSION_NOTION_ID.as_proto()),
-                        value: boolean_value(true),
+                        entity: entity_plan(ids::PLAN_NOTION_ID.as_proto()),
+                        spec: Some(EntitlementSpec {
+                            feature_id: feature.id.clone(),
+                            value: boolean_value(true),
+                            ..Default::default()
+                        }),
+                        resource_id: None,
                     })
                     .await
                     .map(|_| ()),
@@ -4067,6 +3849,7 @@ async fn test_feature_status_contract() {
                     .update_entitlement(UpdateEntitlementRequest {
                         id: grant.id.clone(),
                         value: boolean_value(false),
+                        ..Default::default()
                     })
                     .await
                     .map(|_| ()),
@@ -4084,6 +3867,7 @@ async fn test_feature_status_contract() {
                         clear_product_id: false,
                         config_options: vec![],
                         update_config_options: false,
+                        ..Default::default()
                     })
                     .await
                     .map(|_| ()),
@@ -4114,7 +3898,7 @@ async fn test_feature_status_contract() {
     }
 }
 
-/// Creating entities against a feature in each state: a plan version that already grants it
+/// Creating entities against a feature in each state: a plan that already grants it
 /// reaches a new subscription only while the grant resolves, and grants inside a new entity's
 /// body are kept or skipped by status, never failing the create.
 #[tokio::test]
@@ -4189,9 +3973,13 @@ async fn test_feature_status_contract_for_new_entities() {
             .entitlements
             .clone()
             .create_entitlement(CreateEntitlementRequest {
-                feature_id: feature.id.clone(),
-                entity: entity_plan_version(ids::PLAN_VERSION_NOTION_ID.as_proto()),
-                value: boolean_value(true),
+                entity: entity_plan(ids::PLAN_NOTION_ID.as_proto()),
+                spec: Some(EntitlementSpec {
+                    feature_id: feature.id.clone(),
+                    value: boolean_value(true),
+                    ..Default::default()
+                }),
+                resource_id: None,
             })
             .await
             .unwrap();
@@ -4203,6 +3991,7 @@ async fn test_feature_status_contract_for_new_entities() {
             vec![EntitlementSpec {
                 feature_id: feature.id.clone(),
                 value: boolean_value(true),
+                ..Default::default()
             }]
         };
         let check_body = |entity: &str, grants: Vec<String>| {
@@ -4230,7 +4019,7 @@ async fn test_feature_status_contract_for_new_entities() {
             .any(|e| e.feature.as_ref().is_some_and(|f| f.id == feature.id));
         assert_eq!(
             gets_it, contract.new_subscription_gets_plan_grant,
-            "{label}: new subscription gets the plan version's grant"
+            "{label}: new subscription gets the plan's grant"
         );
 
         let sub = subscribe(spec())
@@ -4321,6 +4110,7 @@ async fn test_feature_status_contract_for_new_entities() {
             .plans
             .clone()
             .create_draft_plan(api::plans::v1::CreateDraftPlanRequest {
+                sold_for_resource_type_id: None,
                 name: format!("plan-{label}"),
                 description: None,
                 product_family_local_id: "default".into(),
@@ -4400,9 +4190,13 @@ async fn test_feature_status_transitions() {
                 .entitlements
                 .clone()
                 .create_entitlement(CreateEntitlementRequest {
-                    feature_id: feature.id.clone(),
                     entity: entity_customer(customer.clone()),
-                    value: boolean_value(true),
+                    spec: Some(EntitlementSpec {
+                        feature_id: feature.id.clone(),
+                        value: boolean_value(true),
+                        ..Default::default()
+                    }),
+                    resource_id: None,
                 })
                 .await
                 .unwrap()
@@ -4488,5 +4282,207 @@ async fn test_feature_status_transitions() {
             let expected: Vec<String> = activity.map(String::from).into_iter().collect();
             assert_eq!(recorded, expected, "{label}: recorded activity");
         }
+    }
+}
+
+mod owner_validation {
+    use crate::data::ids::{ORGANIZATION_ID, PLAN_NOTION_ID, PLAN_VERSION_NOTION_ID, TENANT_ID};
+    use crate::harness::{TestEnv, test_env};
+    use common_domain::actor::Actor;
+    use common_domain::ids::{
+        AddOnId, BaseId, CustomerId, EntitlementEntityId, PlanId, PlanVersionId, QuoteId, TenantId,
+    };
+    use error_stack::Report;
+    use meteroid_store::Store;
+    use meteroid_store::domain::entitlement_fold::GrantValue;
+    use meteroid_store::domain::entitlements::{
+        EntitlementNew, EntitlementSpec, Feature, FeatureKind, FeatureNew,
+    };
+    use meteroid_store::domain::enums::TenantEnvironmentEnum;
+    use meteroid_store::domain::tenants::TenantNew;
+    use meteroid_store::errors::StoreError;
+    use meteroid_store::repositories::{EntitlementsInterface, TenantInterface};
+    use rstest::rstest;
+
+    fn is_invalid_argument<T: std::fmt::Debug>(res: &Result<T, Report<StoreError>>) -> bool {
+        matches!(
+            res.as_ref().map_err(|e| e.current_context()),
+            Err(StoreError::InvalidArgument(_))
+        )
+    }
+
+    async fn feature(
+        store: &Store,
+        tenant_id: TenantId,
+        code: &str,
+        default: Option<GrantValue>,
+    ) -> Feature {
+        store
+            .create_feature(
+                Actor::System,
+                FeatureNew {
+                    tenant_id,
+                    product_id: None,
+                    name: code.into(),
+                    code: code.into(),
+                    description: None,
+                    kind: FeatureKind::Boolean,
+                    unit: None,
+                    level_type_id: None,
+                    policy: None,
+                    default,
+                },
+            )
+            .await
+            .expect("feature")
+    }
+
+    fn grant(
+        tenant_id: TenantId,
+        entity: EntitlementEntityId,
+        feature: &Feature,
+    ) -> EntitlementNew {
+        EntitlementNew {
+            tenant_id,
+            entity,
+            resource_id: None,
+            spec: EntitlementSpec::new(feature.id, GrantValue::Boolean(true)),
+        }
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_feature_default_must_be_for_its_feature(#[future] test_env: TestEnv) {
+        let env = test_env.await;
+        let store = env.store();
+        let a = feature(store, TENANT_ID, "owner-a", None).await;
+        let b = feature(store, TENANT_ID, "owner-b", None).await;
+        let owner_a = EntitlementEntityId::Feature(a.id);
+
+        let res = store
+            .create_entitlement(&Actor::System, grant(TENANT_ID, owner_a, &b))
+            .await;
+        assert!(
+            is_invalid_argument(&res),
+            "expected InvalidArgument, got {res:?}"
+        );
+
+        let spec = EntitlementSpec::new(b.id, GrantValue::Boolean(true));
+        let res = store
+            .create_entitlements(&Actor::System, TENANT_ID, owner_a, None, vec![spec.clone()])
+            .await;
+        assert!(
+            is_invalid_argument(&res),
+            "expected InvalidArgument, got {res:?}"
+        );
+        let res = store
+            .batch_create_entitlements(&Actor::System, TENANT_ID, owner_a, vec![spec])
+            .await;
+        assert!(
+            is_invalid_argument(&res),
+            "expected InvalidArgument, got {res:?}"
+        );
+
+        let default = store
+            .create_entitlement(&Actor::System, grant(TENANT_ID, owner_a, &a))
+            .await
+            .expect("a feature's own default");
+        assert_eq!(default.feature_id, a.id);
+        let owned_by_a = store
+            .list_entitlements_by_entity(owner_a, TENANT_ID)
+            .await
+            .expect("rows");
+        assert_eq!(owned_by_a.len(), 1);
+        assert!(owned_by_a.iter().all(|row| row.feature_id == a.id));
+
+        let with_default =
+            feature(store, TENANT_ID, "owner-c", Some(GrantValue::Boolean(true))).await;
+        assert_eq!(with_default.defaults.len(), 1);
+        assert_eq!(with_default.defaults[0].feature_id, with_default.id);
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_owner_must_exist_in_tenant(#[future] test_env: TestEnv) {
+        let env = test_env.await;
+        let store = env.store();
+        let f = feature(store, TENANT_ID, "owner-exists", None).await;
+
+        for entity in [
+            EntitlementEntityId::Plan(PlanId::new()),
+            EntitlementEntityId::PlanVersion(PlanVersionId::new()),
+            EntitlementEntityId::AddOn(AddOnId::new()),
+            EntitlementEntityId::Quote(QuoteId::new()),
+        ] {
+            let res = store
+                .create_entitlement(&Actor::System, grant(TENANT_ID, entity, &f))
+                .await;
+            assert!(
+                is_invalid_argument(&res),
+                "{entity:?}: expected InvalidArgument, got {res:?}"
+            );
+        }
+        let res = store
+            .create_entitlement(
+                &Actor::System,
+                grant(
+                    TENANT_ID,
+                    EntitlementEntityId::Customer(CustomerId::new()),
+                    &f,
+                ),
+            )
+            .await;
+        assert!(res.is_err(), "unknown customer: got {res:?}");
+
+        let other = store
+            .insert_tenant(
+                TenantNew {
+                    name: "Other".to_string(),
+                    environment: TenantEnvironmentEnum::Development,
+                    email_delivery_mode: None,
+                    invoicing_entity: None,
+                },
+                ORGANIZATION_ID,
+            )
+            .await
+            .expect("other tenant")
+            .id;
+        let other_feature = feature(store, other, "owner-exists", None).await;
+        for entity in [
+            EntitlementEntityId::Plan(PLAN_NOTION_ID),
+            EntitlementEntityId::PlanVersion(PLAN_VERSION_NOTION_ID),
+        ] {
+            let res = store
+                .create_entitlement(&Actor::System, grant(other, entity, &other_feature))
+                .await;
+            assert!(
+                is_invalid_argument(&res),
+                "{entity:?} of another tenant: expected InvalidArgument, got {res:?}"
+            );
+            let res = store
+                .batch_create_entitlements(
+                    &Actor::System,
+                    other,
+                    entity,
+                    vec![EntitlementSpec::new(
+                        other_feature.id,
+                        GrantValue::Boolean(true),
+                    )],
+                )
+                .await;
+            assert!(
+                is_invalid_argument(&res),
+                "{entity:?} of another tenant: expected InvalidArgument, got {res:?}"
+            );
+        }
+
+        let row = store
+            .create_entitlement(
+                &Actor::System,
+                grant(TENANT_ID, EntitlementEntityId::Plan(PLAN_NOTION_ID), &f),
+            )
+            .await
+            .expect("a plan of the tenant");
+        assert_eq!(row.entity, EntitlementEntityId::Plan(PLAN_NOTION_ID));
     }
 }

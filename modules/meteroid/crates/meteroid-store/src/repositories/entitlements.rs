@@ -1,50 +1,70 @@
+//! Features and their rows (ADR 0011 §3.1, §3.2). Rows are addressed by lineage, and every edit
+//! revokes the open row and inserts a successor.
+use crate::domain::entitlement_checks::ResolvedCustomer;
+use crate::domain::entitlement_fold::{
+    Condition, Contribution, Effect, EvalLevel, GrantValue, RowLevel, Tier, fold,
+};
 use crate::domain::entitlements::{
-    ConfigValue, ConfigValueType, EntitlementSpec, EntitlementValue, FeatureRef, FeatureType,
-    OverageBehavior, RawResolvedEntitlement, ResetPeriod, ResolvedEntitlement,
-    ResolvedEntitlementValue, ResolvedOrigin, merge_thresholds,
+    EntitlementSpec, FeatureKind, FeatureRef, ResolvedEntitlement, ResolvedEntitlementValue,
+    ResolvedOrigin, ValueType, from_json, to_json,
 };
 use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
-use crate::domain::enums::{EntitlementModeEnum, FeatureStatusEnum};
-use crate::domain::usage_limits::{MAX_GRACE_PCT, validate_thresholds};
+use crate::domain::enums::{FeatureStatusEnum, SubscriptionStatusEnum};
+use crate::domain::prices::FeeStructure;
+use crate::domain::resources::Attributes;
 use crate::domain::{
-    BillableMetric, Entitlement, EntitlementNew, EntitlementUpdate, Feature, FeatureNew,
+    Entitlement, EntitlementNew, EntitlementUpdate, Feature, FeatureListOrder, FeatureNew,
     FeatureUpdate, PaginatedVec, PaginationRequest,
 };
 use crate::errors::StoreError;
 use crate::repositories::credit::inputs::InputsOwner;
-use crate::services::entitlements::limits::rules::{ungroupable_reason, validate_group_property};
+use crate::repositories::resources::ResourceRefusal;
+use crate::services::entitlements::resolve::{add_on_quantities, held_units, seat_quantities};
+use crate::services::entitlements::{readout_of, winning};
 use crate::store::PgConn;
 use crate::{Store, StoreResult};
 use common_domain::ids::{
-    AddOnId, AliasOr, BaseId, CustomerId, EntitlementEntityId, EntitlementId, FeatureId, PlanId,
-    PlanVersionId, ProductId, QuoteId, SubscriptionId, TenantId,
+    AddOnId, AliasOr, BaseId, CustomerId, EntitlementEntityId, EntitlementId, FeatureId,
+    ManagedQuantityId, PlanId, PlanVersionId, ProductId, QuoteId, ResourceId, ResourceTypeId,
+    SubscriptionId, TenantId,
 };
 use diesel_models::add_ons::AddOnRow;
 use diesel_models::billable_metrics::BillableMetricRow;
+use diesel_models::customer_credit::CreditRecomputeMarkRow;
+use diesel_models::entitlement_app_counts::EntitlementAppCountRow;
 use diesel_models::entitlements::{
-    EntitlementRow, EntitlementRowNew, EntitlementRowPatch, FeatureRow, FeatureRowNew,
-    FeatureRowPatch, FeatureWithProductRow,
+    EntitlementRow, EntitlementRowNew, FeatureRow, FeatureRowNew, FeatureRowPatch,
 };
-use diesel_models::enums::{EntitlementEntityTypeEnum, FeatureStatusEnum as DbFeatureStatusEnum};
+use diesel_models::enums::{
+    ActorTypeEnum, EntitlementEffectEnum, EntitlementEntityTypeEnum, EntitlementLevelEnum,
+    EntitlementModeEnum, FeatureStatusEnum as DbFeatureStatusEnum,
+};
+use diesel_models::errors::{DatabaseError, DatabaseErrorContainer};
+use diesel_models::managed_quantities::ManagedQuantityRow;
 use diesel_models::plan_versions::PlanVersionRow;
 use diesel_models::plans::PlanRow;
 use diesel_models::products::ProductRow;
+use diesel_models::query::entity_display::{
+    EntitlementSourceIds, EntitlementSourceNames, entitlement_source_names,
+};
+use diesel_models::query::managed_quantities::{
+    feature_limit_quantities, set_feature_limit_quantity,
+};
 use diesel_models::query::price_components::list_product_ids_for_plan_version;
 use diesel_models::quote_add_ons::QuoteAddOnRow;
 use diesel_models::quotes::QuoteComponentRow;
 use diesel_models::quotes::QuoteRow;
+use diesel_models::resources::{ResourceRow, ResourceTypeRow};
 use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
 use diesel_models::subscription_components::SubscriptionComponentRow;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
 use itertools::Itertools;
-use rust_decimal::Decimal;
 use scoped_futures::ScopedFutureExt;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
-/// Dispatcher target for `resolve_for_entity`.
-/// `Product` is a dispatcher-level concept only — features are product-scoped via
-/// `feature.product_id`, not through an `EntitlementEntityId::Product` variant.
+/// Dispatcher target for `resolve_entitlements_for_entity`; `Product` scopes by
+/// `feature.product_id` only.
 #[derive(Clone, Debug)]
 pub enum ResolveTarget {
     Product(ProductId),
@@ -52,9 +72,7 @@ pub enum ResolveTarget {
     PlanVersion(PlanVersionId),
     Subscription(SubscriptionId),
     Quote(QuoteId),
-    /// In-flight selection during quote/subscription creation. No real entity exists yet;
-    /// the resolution chain contains Plan, the selected AddOns, and the PlanVersion
-    /// (PlanVersion overrides linked AddOns — see [`EntitlementEntityId::priority`]).
+    /// In-flight selection during quote or subscription creation.
     Selection {
         plan_version_id: PlanVersionId,
         add_on_ids: Vec<AddOnId>,
@@ -74,6 +92,7 @@ pub trait EntitlementsInterface {
         tenant_id: TenantId,
     ) -> StoreResult<Feature>;
 
+    /// `level`: `Some(None)` lists the features applying per customer.
     async fn list_features(
         &self,
         tenant_id: TenantId,
@@ -81,9 +100,11 @@ pub trait EntitlementsInterface {
         statuses: Option<Vec<FeatureStatusEnum>>,
         product_id: Option<ProductId>,
         search: Option<String>,
+        level: Option<Option<ResourceTypeId>>,
+        order: FeatureListOrder,
     ) -> StoreResult<PaginatedVec<Feature>>;
 
-    /// The non-archived features among `ids`, with their default entitlement.
+    /// The non-archived features among `ids`, with their default rows.
     async fn list_features_by_ids(
         &self,
         ids: &[FeatureId],
@@ -97,19 +118,35 @@ pub trait EntitlementsInterface {
         update: FeatureUpdate,
     ) -> StoreResult<Feature>;
 
-    /// `update_feature` when `update` is set, and `replace_entitlements` of the feature (its
-    /// default) when `default` is, in one transaction: a refusal of either writes neither.
-    async fn update_feature_with_default(
+    /// `create_feature` under the id the caller chose, with the managed quantity its limit counts
+    /// per unit of (R-133) and its default rows (`defaults`, each of this feature), in one
+    /// transaction. `feature.default` is one more default row.
+    async fn create_feature_with_defaults(
         &self,
+        actor: &Actor,
+        id: FeatureId,
+        feature: FeatureNew,
+        per_unit_of: Option<ManagedQuantityId>,
+        defaults: Vec<EntitlementSpec>,
+    ) -> StoreResult<Feature>;
+
+    /// `update_feature` when `update` is set, the managed quantity its limit counts per unit of
+    /// when `per_unit_of` is (`Some(None)`: per subscription), and the replacement of the
+    /// feature's default rows (`replace_entitlements` on the feature) when `defaults` is, in one
+    /// transaction: a refusal of any writes none. The defaults are checked against the feature as
+    /// updated.
+    async fn update_feature_with_defaults(
+        &self,
+        actor: &Actor,
         id: FeatureId,
         tenant_id: TenantId,
         update: Option<FeatureUpdate>,
-        default: Option<Vec<EntitlementSpec>>,
+        per_unit_of: Option<Option<ManagedQuantityId>>,
+        defaults: Option<Vec<EntitlementSpec>>,
     ) -> StoreResult<Feature>;
 
-    /// Transition the feature status. Only Active entitlements resolve. Archiving releases the code
-    /// and hides the feature's entitlements without deleting them, and restoring to Active brings
-    /// them back; it fails with `FailedPrecondition` while another feature holds the code.
+    /// Only Active features resolve. Archiving releases the code and hides the rows; restoring
+    /// fails with `FailedPrecondition` while another feature holds the code.
     async fn set_feature_status(
         &self,
         actor: Actor,
@@ -118,30 +155,50 @@ pub trait EntitlementsInterface {
         status: FeatureStatusEnum,
     ) -> StoreResult<()>;
 
-    /// The archived feature that used `code`, to unarchive it by code. Fails with
-    /// `FailedPrecondition` while a non-archived feature holds the code or when several archived
-    /// features used it.
+    /// The archived feature that used `code`; `FailedPrecondition` while a non-archived feature
+    /// holds it or several archived ones used it.
     async fn find_archived_feature_by_code(
         &self,
         code: &str,
         tenant_id: TenantId,
     ) -> StoreResult<FeatureId>;
 
-    /// For an archived feature, the non-archived feature now using its code, which blocks
-    /// unarchiving.
+    /// For an archived feature, the non-archived feature now using its code.
     async fn feature_code_holder(
         &self,
         id: FeatureId,
         tenant_id: TenantId,
     ) -> StoreResult<Option<FeatureRef>>;
 
-    async fn create_entitlement(&self, entitlement: EntitlementNew) -> StoreResult<Entitlement>;
+    async fn create_entitlement(
+        &self,
+        actor: &Actor,
+        entitlement: EntitlementNew,
+    ) -> StoreResult<Entitlement>;
 
+    /// Creates rows on one owner, all or none.
+    async fn create_entitlements(
+        &self,
+        actor: &Actor,
+        tenant_id: TenantId,
+        entity: EntitlementEntityId,
+        resource_id: Option<ResourceId>,
+        specs: Vec<EntitlementSpec>,
+    ) -> StoreResult<Vec<Entitlement>>;
+
+    /// The open row of the lineage.
     async fn get_entitlement(
         &self,
         id: EntitlementId,
         tenant_id: TenantId,
     ) -> StoreResult<Entitlement>;
+
+    /// Every version of the lineage, oldest first.
+    async fn get_entitlement_history(
+        &self,
+        id: EntitlementId,
+        tenant_id: TenantId,
+    ) -> StoreResult<Vec<Entitlement>>;
 
     async fn list_entitlements_by_feature(
         &self,
@@ -155,29 +212,34 @@ pub trait EntitlementsInterface {
         tenant_id: TenantId,
     ) -> StoreResult<Vec<Entitlement>>;
 
+    /// Revokes the open row and inserts its successor, in one transaction.
     async fn update_entitlement(
         &self,
+        actor: &Actor,
         id: EntitlementId,
         tenant_id: TenantId,
         update: EntitlementUpdate,
     ) -> StoreResult<Entitlement>;
 
-    async fn delete_entitlement(&self, id: EntitlementId, tenant_id: TenantId) -> StoreResult<()>;
+    /// Revokes the open row; its history stays.
+    async fn delete_entitlement(
+        &self,
+        actor: &Actor,
+        id: EntitlementId,
+        tenant_id: TenantId,
+    ) -> StoreResult<()>;
 
-    /// Resolve all entitlements in effect for a customer across their active subscriptions.
-    /// Returns one `ResolvedEntitlement` per feature, composed across every layer that can
-    /// grant it. Priority ladder (low → high):
-    /// `Feature → Plan → AddOn → PlanVersion → Subscription → Customer`. PlanVersion overrides
-    /// its linked AddOns because the plan version is the authoritative composition; `Customer`
-    /// is the top-priority **force** — an account-wide grant that overrides whatever a
-    /// subscription composes or sets. See [`EntitlementEntityId::priority`].
-    ///
-    /// Each active subscription is resolved independently and the results are OR-combined, so a
-    /// value set on one subscription never masks another's (a feature is enabled for the
-    /// customer if it resolves enabled on any subscription). A customer-level force resolves the
-    /// same in every subscription, so it surfaces uniformly. A customer with no active
-    /// subscription still receives the `Feature` (tenant-global) and `Customer` layers — the
-    /// baseline for every customer regardless of what they have subscribed to.
+    /// Creates rows on one owner, skipping those clashing with an open row.
+    async fn batch_create_entitlements(
+        &self,
+        actor: &Actor,
+        tenant_id: TenantId,
+        target: EntitlementEntityId,
+        specs: Vec<EntitlementSpec>,
+    ) -> StoreResult<Vec<Entitlement>>;
+
+    /// The legacy customer-wide readout: each feature's own level without a resource, as
+    /// `resolve_customer_entitlements` decides it. Limits counted by the app are left out.
     async fn resolve_entitlements_for_customer(
         &self,
         conn: &mut PgConn,
@@ -185,19 +247,8 @@ pub trait EntitlementsInterface {
         tenant_id: TenantId,
     ) -> StoreResult<Vec<ResolvedEntitlement>>;
 
-    /// Single-feature variant of [`get_effective_entitlements`].
-    /// Returns `None` when the feature is outside the customer's product scope or yields no grants.
-    async fn resolve_entitlements_for_feature(
-        &self,
-        conn: &mut PgConn,
-        customer_id: CustomerId,
-        tenant_id: TenantId,
-        feature_id: FeatureId,
-    ) -> StoreResult<Option<ResolvedEntitlement>>;
-
-    /// Resolve entitlements for a single target — product, add-on, plan version, subscription,
-    /// quote, or in-flight `Selection` — used for per-entity previews in the UI.
-    /// Returns one `ResolvedEntitlement` per feature in the target's product scope.
+    /// A preview of one target's rows at each feature's own level, without conditions or
+    /// resource overrides.
     async fn resolve_entitlements_for_entity(
         &self,
         conn: &mut PgConn,
@@ -205,17 +256,9 @@ pub trait EntitlementsInterface {
         target: ResolveTarget,
     ) -> StoreResult<Vec<ResolvedEntitlement>>;
 
-    /// Create multiple entitlements for a single entity in one operation, skipping any that
-    /// already exist (same feature_id + entity). Returns all successfully inserted rows.
-    async fn batch_create_entitlements(
-        &self,
-        tenant_id: TenantId,
-        target: EntitlementEntityId,
-        specs: Vec<EntitlementSpec>,
-    ) -> StoreResult<Vec<Entitlement>>;
-
-    /// The tenant's features of `filter` in id order, those after `after`, at most `limit`, each
-    /// with its default entitlement: a keyset page of API v2.
+    /// The tenant's features of `filter` after the feature `after` in the filter's order, at
+    /// most `limit`, each with its default rows: a keyset page. An `after` that is not a feature
+    /// of the tenant is refused.
     async fn list_features_after(
         &self,
         tenant_id: TenantId,
@@ -224,150 +267,46 @@ pub trait EntitlementsInterface {
         limit: usize,
     ) -> StoreResult<Vec<Feature>>;
 
-    /// Makes the entity's entitlements of live features exactly `specs`, in one transaction:
-    /// creates the missing, updates the changed, deletes the others. Entitlements of archived
-    /// features are left as they are (hidden); naming an archived feature is refused. The entity
-    /// is an add-on, a plan, a draft plan version or a feature (its default) of the tenant.
+    /// Makes the owner's open rows of live features exactly `specs`, in one transaction under the
+    /// owner's lock: a row a spec repeats is kept, a changed one gets a successor in its lineage,
+    /// one left out is revoked, and a new spec is inserted. A spec is matched to a row by
+    /// feature, level and condition. Rows of archived features stay hidden as they are; naming
+    /// one is refused. The owner is an add-on, a plan, a draft plan version, a feature (its
+    /// defaults) or a subscription not ended (its overrides); a draft's replaced rows are
+    /// deleted, a published version is refused (write it through a draft).
     async fn replace_entitlements(
         &self,
+        actor: &Actor,
         tenant_id: TenantId,
         entity: EntitlementEntityId,
         specs: Vec<EntitlementSpec>,
     ) -> StoreResult<Vec<Entitlement>>;
 
-    /// Sets the defaults of a product's live features to `specs`, in one transaction: each spec
-    /// names a feature of the product; a feature of the product left out loses its default.
+    /// Replaces the default rows of the product's live features with `specs`, in one
+    /// transaction: each spec names a live feature of the product, and a feature left out loses
+    /// its defaults.
     async fn set_product_feature_defaults(
         &self,
+        actor: &Actor,
         tenant_id: TenantId,
         product_id: ProductId,
         specs: Vec<EntitlementSpec>,
     ) -> StoreResult<()>;
 }
 
-/// What a page of features is narrowed to.
+/// What a keyset page of features is narrowed to, and its order.
 #[derive(Debug, Clone, Default)]
 pub struct FeaturePageFilter {
     pub statuses: Option<Vec<FeatureStatusEnum>>,
     pub product_id: Option<ProductId>,
+    /// `Some(None)` keeps the features applying per customer.
+    pub level: Option<Option<ResourceTypeId>>,
+    /// `None` pages by id.
+    pub order: Option<FeatureListOrder>,
 }
 
-/// Refuses an entity that is not the tenant's, or whose entitlements are not replaced whole.
-async fn ensure_replaceable_entity(
-    conn: &mut PgConn,
-    tenant_id: TenantId,
-    entity: &EntitlementEntityId,
-) -> StoreResult<()> {
-    let not_found = || Report::new(StoreError::ValueNotFound(format!("{entity:?}")));
-    match entity {
-        EntitlementEntityId::AddOn(id) => {
-            if AddOnRow::list_by_ids(conn, &[*id], &tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .is_empty()
-            {
-                return Err(not_found());
-            }
-        }
-        EntitlementEntityId::Plan(id) => {
-            if PlanRow::list_by_ids(conn, &[*id], tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .is_empty()
-            {
-                return Err(not_found());
-            }
-        }
-        EntitlementEntityId::PlanVersion(id) => {
-            let version = PlanVersionRow::list_by_ids_and_tenant_id(conn, &[*id], tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .into_iter()
-                .next()
-                .ok_or_else(not_found)?;
-            if !version.is_draft_version {
-                return Err(Report::new(StoreError::FailedPrecondition(
-                    "a published version's entitlements are fixed: write them through a draft"
-                        .into(),
-                )));
-            }
-        }
-        EntitlementEntityId::Feature(id) => {
-            if FeatureRow::find_by_ids(conn, tenant_id, &[*id])
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .is_empty()
-            {
-                return Err(not_found());
-            }
-        }
-        EntitlementEntityId::Customer(_)
-        | EntitlementEntityId::Subscription(_)
-        | EntitlementEntityId::Quote(_) => {
-            return Err(Report::new(StoreError::InvalidArgument(
-                "only the entitlements of an add-on, a plan, a draft version or a feature are \
-                 replaced whole"
-                    .into(),
-            )));
-        }
-    }
-    Ok(())
-}
-
-/// Makes `entity`'s entitlements of live features exactly `specs`, inside a transaction.
-async fn replace_entity_entitlements_tx(
-    conn: &mut PgConn,
-    tenant_id: TenantId,
-    entity: EntitlementEntityId,
-    specs: Vec<EntitlementSpec>,
-) -> StoreResult<()> {
-    let mut seen: HashSet<FeatureId> = HashSet::new();
-    if let Some(repeated) = specs.iter().find(|spec| !seen.insert(spec.feature_id)) {
-        return Err(Report::new(StoreError::InvalidArgument(format!(
-            "feature {} is granted twice",
-            repeated.feature_id
-        ))));
-    }
-    let wanted = build_entitlement_rows(conn, specs, &entity, tenant_id, false).await?;
-    let wanted_features: HashSet<FeatureId> = wanted.iter().map(|row| row.feature_id).collect();
-    // Live features only: an archived feature's entitlements stay hidden, untouched.
-    let existing = EntitlementRow::list_by_entity(conn, tenant_id, entity)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-    for current in &existing {
-        if !wanted_features.contains(&current.feature_id) {
-            EntitlementRow::delete(conn, current.id, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-        }
-    }
-    let mut inserts = Vec::new();
-    for row in wanted {
-        match existing.iter().find(|e| e.feature_id == row.feature_id) {
-            Some(current) if current.value == row.value => {}
-            Some(current) => {
-                EntitlementRow::update(
-                    conn,
-                    current.id,
-                    tenant_id,
-                    EntitlementRowPatch {
-                        mode: None,
-                        value: Some(row.value),
-                        updated_at: Some(common_clock::now()),
-                    },
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-            }
-            None => inserts.push(row),
-        }
-    }
-    if !inserts.is_empty() {
-        EntitlementRowNew::insert_batch(&inserts, conn)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-    }
-    Ok(())
+fn invalid(message: impl Into<String>) -> Report<StoreError> {
+    Report::new(StoreError::InvalidArgument(message.into()))
 }
 
 /// A feature may only be attached to a product of its own tenant.
@@ -390,216 +329,573 @@ async fn ensure_product_in_tenant(
     Ok(())
 }
 
-fn ensure_editable(feature: &Feature) -> StoreResult<()> {
-    let reason = match feature.status {
-        FeatureStatusEnum::Active | FeatureStatusEnum::Disabled => return Ok(()),
-        FeatureStatusEnum::Archived => "feature is archived; unarchive it first",
-    };
-    Err(Report::new(StoreError::InvalidArgument(reason.into())))
-}
-
-/// Reject combinations where the entitlement value's variant does not match the feature's
-/// declared type. Without this check the resolver silently drops mismatched rows at read
-/// time (see `resolve()` `_ => log::error!(...)` branch).
-pub fn validate_value_matches_feature_type(
-    value: &EntitlementValue,
-    feature_type: &FeatureType,
-) -> Result<(), Report<StoreError>> {
-    match (feature_type, value) {
-        (FeatureType::Boolean, EntitlementValue::Boolean { .. }) => Ok(()),
-        (
-            FeatureType::Metered { .. },
-            EntitlementValue::Metered {
-                limit,
-                reset_period,
-                overage_behavior,
-                thresholds,
-                group_by,
-                ..
-            },
-        ) => validate_metered_value(
-            limit.as_ref(),
-            reset_period,
-            overage_behavior,
-            thresholds,
-            group_by.as_deref(),
-        ),
-        (FeatureType::Config { value_type }, EntitlementValue::Config { value }) => {
-            validate_config_value(value_type, value)
-        }
-        _ => Err(Report::new(StoreError::InvalidArgument(
-            "entitlement value variant does not match feature type".into(),
-        ))),
+/// A select loses its order only while its rows are all ones an unordered value takes (§3.2).
+async fn ensure_rows_take_no_order(conn: &mut PgConn, feature: &Feature) -> StoreResult<()> {
+    let own = feature.own_level();
+    let needing_order = EntitlementRow::list_by_feature(conn, feature.id, feature.tenant_id)
+        .await?
+        .into_iter()
+        .filter(|row| {
+            let level = RowLevel::from_columns(row.level, row.level_type_id);
+            row.effect != EntitlementEffectEnum::Set || level.eval(feature.level_type_id) != own
+        })
+        .count();
+    if needing_order > 0 {
+        return Err(invalid(format!(
+            "{needing_order} row(s) need an order (an effect other than Set to, or another level): revoke them first"
+        )));
     }
+    Ok(())
 }
 
-/// A grouped limit needs a metric whose usage can be told per group; otherwise the engine
-/// would silently leave the entitlement unmonitored.
-async fn validate_grouping(
+/// The lineage's open row, locked. A lineage another request edited while this one waited for
+/// the lock is a conflict, not a miss.
+async fn lock_open(
     conn: &mut PgConn,
     tenant_id: TenantId,
-    feature_type: &FeatureType,
-    value: &EntitlementValue,
-) -> Result<(), Report<StoreError>> {
-    let (
-        FeatureType::Metered { metric_id },
-        EntitlementValue::Metered {
-            group_by: Some(property),
-            ..
-        },
-    ) = (feature_type, value)
-    else {
+    id: EntitlementId,
+) -> StoreResult<EntitlementRow> {
+    match EntitlementRow::lock_open(conn, tenant_id, id).await {
+        Err(e)
+            if matches!(
+                e.error.current_context(),
+                diesel_models::errors::DatabaseError::NotFound
+            ) && EntitlementRow::has_open(conn, tenant_id, id).await? =>
+        {
+            Err(Report::new(StoreError::Conflict(
+                "the row was edited meanwhile: read it again".into(),
+            )))
+        }
+        locked => Ok(locked?),
+    }
+}
+
+fn ensure_editable(feature: &Feature) -> StoreResult<()> {
+    match feature.status {
+        FeatureStatusEnum::Archived => Err(invalid("feature is archived; unarchive it first")),
+        FeatureStatusEnum::Active | FeatureStatusEnum::Disabled => Ok(()),
+    }
+}
+
+/// An archived type keeps resolving but takes no new rows or features (§3.4).
+async fn active_type(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    type_id: ResourceTypeId,
+) -> StoreResult<ResourceTypeRow> {
+    let row = ResourceTypeRow::find_by_id(conn, tenant_id, type_id).await?;
+    match row.archived_at {
+        Some(_) => {
+            Err(ResourceRefusal::TypeArchived
+                .report(format!("resource type {} is archived", row.code)))
+        }
+        None => Ok(row),
+    }
+}
+
+/// A limit counted from events applies per type only on a metric attributed to that type.
+async fn ensure_metric_attributed(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    kind: &FeatureKind,
+    type_row: &ResourceTypeRow,
+) -> StoreResult<()> {
+    let Some(metric_id) = kind.metric_id() else {
         return Ok(());
     };
-    let row = BillableMetricRow::get_by_ids(conn, &[*metric_id], &tenant_id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?
+    let attributed = BillableMetricRow::get_by_ids(conn, &[metric_id], &tenant_id)
+        .await?
         .into_iter()
         .next()
-        .ok_or_else(|| {
-            Report::new(StoreError::InvalidArgument(format!(
-                "metric {metric_id} not found"
-            )))
-        })?;
-    let metric: BillableMetric = row.try_into()?;
-    match ungroupable_reason(&metric, Some(property)) {
-        Some(reason) => Err(Report::new(StoreError::InvalidArgument(format!(
-            "usage cannot be limited per {property}: {reason}"
-        )))),
-        None => Ok(()),
-    }
-}
-
-/// A zero interval would divide by zero in `calendar_period`/`fixed_window`, and a negative
-/// limit has no meaning for a usage cap.
-fn validate_metered_value(
-    limit: Option<&Decimal>,
-    reset_period: &ResetPeriod,
-    overage_behavior: &OverageBehavior,
-    thresholds: &[u32],
-    group_by: Option<&str>,
-) -> Result<(), Report<StoreError>> {
-    if let OverageBehavior::Block {
-        grace_period_pct: Some(grace),
-    } = overage_behavior
-        && !(1..=MAX_GRACE_PCT).contains(grace)
-    {
-        return Err(Report::new(StoreError::InvalidArgument(format!(
-            "grace percentage must be between 1 and {MAX_GRACE_PCT}"
-        ))));
-    }
-    validate_thresholds(thresholds)
-        .map_err(|e| Report::new(StoreError::InvalidArgument(e.to_string())))?;
-    if let Some(property) = group_by {
-        validate_group_property(property)
-            .map_err(|e| Report::new(StoreError::InvalidArgument(e.to_string())))?;
-    }
-    if limit.is_some_and(|l| l.is_sign_negative()) {
-        return Err(Report::new(StoreError::InvalidArgument(
-            "metered entitlement limit must not be negative".into(),
-        )));
-    }
-    let default_overage = matches!(
-        overage_behavior,
-        OverageBehavior::Block {
-            grace_period_pct: None
-        }
-    );
-    if limit.is_none() && (!default_overage || !thresholds.is_empty()) {
-        return Err(Report::new(StoreError::InvalidArgument(
-            "overage behavior, grace and alert thresholds apply to a limit: set a limit or remove them"
-                .into(),
-        )));
-    }
-    if !thresholds.is_empty() && matches!(reset_period, ResetPeriod::SlidingWindow { .. }) {
-        return Err(Report::new(StoreError::InvalidArgument(
-            "a sliding window sends no alerts, so it takes no alert thresholds".into(),
-        )));
-    }
-    match reset_period {
-        ResetPeriod::Calendar { interval: 0, .. }
-        | ResetPeriod::FixedWindow { interval: 0, .. }
-        | ResetPeriod::SlidingWindow { interval: 0, .. } => Err(Report::new(
-            StoreError::InvalidArgument("reset period interval must be at least 1".into()),
-        )),
-        _ => Ok(()),
-    }
-}
-
-/// Ensure a config entitlement value matches the feature's declared value type. A `Select`
-/// feature additionally requires a text value drawn from its allowed options.
-fn validate_config_value(
-    value_type: &ConfigValueType,
-    value: &ConfigValue,
-) -> Result<(), Report<StoreError>> {
-    let matches = match (value_type, value) {
-        (ConfigValueType::Number, ConfigValue::Number(_)) => true,
-        (ConfigValueType::Boolean, ConfigValue::Boolean(_)) => true,
-        (ConfigValueType::Text, ConfigValue::Text(_)) => true,
-        (ConfigValueType::Map | ConfigValueType::Json, ConfigValue::Json(_)) => true,
-        (ConfigValueType::Select { options }, ConfigValue::Text(s)) => {
-            if !options.iter().any(|o| o == s) {
-                return Err(Report::new(StoreError::InvalidArgument(
-                    "config value is not one of the feature's allowed options".into(),
-                )));
-            }
-            true
-        }
-        _ => false,
-    };
-    if matches {
+        .ok_or_else(|| invalid(format!("metric {metric_id} not found")))?
+        .attributed_to_type_id;
+    if attributed == Some(type_row.id) {
         Ok(())
     } else {
-        Err(Report::new(StoreError::InvalidArgument(
-            "config value does not match the feature's value type".into(),
+        Err(invalid(format!(
+            "a limit counted from events applies per {} only on a metric attributed to it",
+            type_row.code
         )))
     }
+}
+
+/// The kind, policy and level of a feature as written.
+async fn validate_feature(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    kind: &FeatureKind,
+    policy: Option<&crate::domain::entitlement_policy::FeaturePolicy>,
+    level_type_id: Option<ResourceTypeId>,
+) -> StoreResult<()> {
+    if let FeatureKind::Value(ValueType::Select { options, .. }) = kind
+        && (options.is_empty() || options.iter().unique().count() != options.len())
+    {
+        return Err(invalid("a select needs distinct options"));
+    }
+    match (kind, policy) {
+        (FeatureKind::Limit(_), Some(policy)) => policy.validate(kind.counted_by_app())?,
+        (_, Some(_)) => return Err(invalid("only a limit has a policy")),
+        (_, None) => {}
+    }
+    if let Some(type_id) = level_type_id {
+        let type_row = active_type(conn, tenant_id, type_id).await?;
+        ensure_metric_attributed(conn, tenant_id, kind, &type_row).await?;
+    }
+    Ok(())
+}
+
+/// What the actor writes into `created_by` and `created_by_kind`.
+fn author(actor: Option<&Actor>) -> (Option<uuid::Uuid>, Option<ActorTypeEnum>) {
+    actor.map_or((None, None), |a| {
+        (a.as_uuid(), Some(ActorTypeEnum::from(a.actor_type())))
+    })
+}
+
+/// Whether an add-on's rows Add by default: it is bought several times, or it charges per seat
+/// and its rows count the seats held (R-138).
+async fn is_addon_additive(
+    conn: &mut PgConn,
+    add_on_id: AddOnId,
+    tenant_id: TenantId,
+) -> StoreResult<bool> {
+    let add_on = AddOnRow::list_by_ids(conn, &[add_on_id], &tenant_id)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| invalid(format!("add-on {add_on_id} not found")))?;
+    let per_seat = matches!(
+        serde_json::from_value::<FeeStructure>(add_on.fee_structure),
+        Ok(FeeStructure::Slot { .. })
+    );
+    Ok(per_seat || add_on.max_instances_per_subscription.is_none_or(|n| n > 1))
+}
+
+/// The plan of a plan or plan version owner.
+async fn owner_plan(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    entity: &EntitlementEntityId,
+) -> StoreResult<Option<PlanRow>> {
+    let plan_id = match entity {
+        EntitlementEntityId::Plan(id) => *id,
+        EntitlementEntityId::PlanVersion(id) => {
+            match PlanVersionRow::get_plan_ids_by_version_ids(conn, &[*id])
+                .await?
+                .get(id)
+            {
+                Some(plan_id) => *plan_id,
+                None => return Ok(None),
+            }
+        }
+        _ => return Ok(None),
+    };
+    Ok(PlanRow::list_by_ids(conn, &[plan_id], tenant_id)
+        .await?
+        .into_iter()
+        .next())
+}
+
+/// An owner known to exist in the tenant. Customers and subscriptions are checked by the lock
+/// `InputsOwner::of_entitlement` takes before the insert; a feature by `new_row`.
+#[derive(Clone, Copy)]
+struct CheckedOwner(EntitlementEntityId);
+
+impl CheckedOwner {
+    /// An existing owner whose rows are written: a published plan version's are fixed, written
+    /// through a draft (the plan's own rows apply to every version).
+    async fn check(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        entity: EntitlementEntityId,
+    ) -> StoreResult<Self> {
+        Self::verify(conn, tenant_id, entity, false).await
+    }
+
+    /// An owner the caller's transaction creates with its rows: a version published at once.
+    async fn being_created(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        entity: EntitlementEntityId,
+    ) -> StoreResult<Self> {
+        Self::verify(conn, tenant_id, entity, true).await
+    }
+
+    async fn verify(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        entity: EntitlementEntityId,
+        created: bool,
+    ) -> StoreResult<Self> {
+        let missing = || invalid(format!("{} not found", owner_label(&entity)));
+        let not_found_as_invalid = |e: DatabaseErrorContainer| match e.error.current_context() {
+            DatabaseError::NotFound => missing(),
+            _ => e.into(),
+        };
+        match entity {
+            EntitlementEntityId::Plan(id) => {
+                if PlanRow::list_by_ids(conn, &[id], tenant_id)
+                    .await?
+                    .is_empty()
+                {
+                    return Err(missing());
+                }
+            }
+            EntitlementEntityId::PlanVersion(id) => {
+                let version = PlanVersionRow::list_by_ids_and_tenant_id(conn, &[id], tenant_id)
+                    .await?
+                    .into_iter()
+                    .next()
+                    .ok_or_else(missing)?;
+                if !created && !version.is_draft_version {
+                    return Err(Report::new(StoreError::FailedPrecondition(
+                        "a published version's entitlements are fixed: write them through a draft"
+                            .into(),
+                    )));
+                }
+            }
+            EntitlementEntityId::AddOn(id) => {
+                AddOnRow::get_by_id(conn, tenant_id, id)
+                    .await
+                    .map_err(not_found_as_invalid)?;
+            }
+            EntitlementEntityId::Quote(id) => {
+                QuoteRow::find_by_id(conn, tenant_id, id)
+                    .await
+                    .map_err(not_found_as_invalid)?;
+            }
+            EntitlementEntityId::Feature(_)
+            | EntitlementEntityId::Customer(_)
+            | EntitlementEntityId::Subscription(_) => {}
+        }
+        Ok(Self(entity))
+    }
+}
+
+fn owner_label(entity: &EntitlementEntityId) -> String {
+    match entity {
+        EntitlementEntityId::Feature(id) => format!("feature {id}"),
+        EntitlementEntityId::Customer(id) => format!("customer {id}"),
+        EntitlementEntityId::Plan(id) => format!("plan {id}"),
+        EntitlementEntityId::PlanVersion(id) => format!("plan version {id}"),
+        EntitlementEntityId::AddOn(id) => format!("add-on {id}"),
+        EntitlementEntityId::Subscription(id) => format!("subscription {id}"),
+        EntitlementEntityId::Quote(id) => format!("quote {id}"),
+    }
+}
+
+/// A condition names attributes of the level's resource, declared with these values (§3.2).
+fn validate_condition(condition: &Condition, level: Option<&ResourceTypeRow>) -> StoreResult<()> {
+    let Some(type_row) = level else {
+        return Err(invalid(
+            "a condition matches attributes of the level's resource; the customer level has none",
+        ));
+    };
+    let declared: BTreeMap<String, Vec<String>> =
+        from_json(type_row.attributes.clone(), "resource type attributes")?;
+    let prefix = format!("{}.", type_row.code);
+    if condition.0.is_empty() {
+        return Err(invalid("a condition needs at least one attribute"));
+    }
+    condition.0.iter().try_for_each(|(qualified, values)| {
+        let allowed = qualified
+            .strip_prefix(&prefix)
+            .and_then(|attribute| declared.get(attribute))
+            .ok_or_else(|| {
+                invalid(format!(
+                    "`{qualified}` is not an attribute of {}",
+                    type_row.code
+                ))
+            })?;
+        match values.iter().find(|v| !allowed.contains(v)) {
+            _ if values.is_empty() => Err(invalid(format!("`{qualified}` needs a value"))),
+            Some(v) => Err(invalid(format!("`{v}` is not a value of `{qualified}`"))),
+            None => Ok(()),
+        }
+    })
+}
+
+/// Validates a row against its feature (§3.1–§3.3, §3.5) and builds it; `lineage` keeps the
+/// lineage of an edit.
+#[allow(clippy::too_many_arguments)]
+async fn new_row(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    feature: &Feature,
+    owner: CheckedOwner,
+    resource_id: Option<ResourceId>,
+    spec: EntitlementSpec,
+    actor: Option<&Actor>,
+    lineage: Option<EntitlementId>,
+) -> StoreResult<EntitlementRowNew> {
+    let entity = owner.0;
+    if matches!(entity, EntitlementEntityId::Feature(id) if id != feature.id) {
+        return Err(invalid("a feature's default must be for that feature"));
+    }
+    ensure_editable(feature)?;
+    feature.kind.check_value(&spec.value).map_err(invalid)?;
+    if resource_id.is_some() && !matches!(entity, EntitlementEntityId::Customer(_)) {
+        return Err(invalid("only a customer row can be on one resource"));
+    }
+    let tier = Tier::of(&entity, resource_id.is_some());
+    let order = feature.value_order();
+    let effect = match spec.effect {
+        Some(effect) => effect,
+        None => {
+            let additive = match entity {
+                EntitlementEntityId::AddOn(id) => is_addon_additive(conn, id, tenant_id).await?,
+                _ => false,
+            };
+            tier.default_effect(&order, additive)
+        }
+    };
+    if !tier.allowed_effects(&order).contains(&effect) {
+        let (effect, tier): (&str, &str) = (effect.into(), tier.into());
+        return Err(invalid(format!(
+            "{effect} is not allowed on the {tier} tier"
+        )));
+    }
+    if let Some(policy) = &spec.policy_override {
+        if effect != Effect::Set || !matches!(feature.kind, FeatureKind::Limit(_)) {
+            return Err(invalid(
+                "only a Set to row of a limit carries a policy override",
+            ));
+        }
+        policy.validate(feature.kind.counted_by_app())?;
+    }
+    if let (Some(from), Some(until)) = (spec.valid_from, spec.valid_until)
+        && from >= until
+    {
+        return Err(invalid("valid_from must be before valid_until"));
+    }
+
+    let level = spec.level.normalised(feature.level_type_id);
+    let eval = level.eval(feature.level_type_id);
+    if order.is_unordered() && eval != feature.own_level() {
+        return Err(invalid(
+            "an unordered value only has rows on its feature's level",
+        ));
+    }
+    let type_row = match eval.type_id() {
+        Some(type_id) => Some(active_type(conn, tenant_id, type_id).await?),
+        None => None,
+    };
+    if let Some(resource_id) = resource_id {
+        let resource = ResourceRow::find_by_id(conn, tenant_id, resource_id)
+            .await?
+            .ok_or_else(|| invalid(format!("resource {resource_id} not found")))?;
+        if EntitlementEntityId::Customer(resource.customer_id) != entity {
+            return Err(invalid("the resource belongs to another customer"));
+        }
+        if eval.type_id() != Some(resource.resource_type_id) {
+            return Err(invalid(
+                "a resource override applies at its resource's level",
+            ));
+        }
+    }
+    if let Some(condition) = &spec.condition {
+        validate_condition(condition, type_row.as_ref())?;
+    }
+    if let Some(type_row) = &type_row {
+        ensure_metric_attributed(conn, tenant_id, &feature.kind, type_row).await?;
+    }
+    if eval == EvalLevel::Customer
+        && feature.level_type_id.is_some()
+        && owner_plan(conn, tenant_id, &entity)
+            .await?
+            .is_some_and(|plan| plan.sold_for_resource_type_id.is_some())
+    {
+        return Err(invalid(
+            "a plan sold for a resource type can't carry rows across all its resources",
+        ));
+    }
+
+    let id = EntitlementId::new();
+    let (level, level_type_id) = level.columns();
+    let (created_by, created_by_kind) = author(actor);
+    let now = common_clock::now();
+    Ok(EntitlementRowNew {
+        id,
+        tenant_id,
+        feature_id: feature.id,
+        entity_id: entity.as_uuid(),
+        entity_type: EntitlementEntityTypeEnum::from(&entity),
+        mode: if effect == Effect::Add {
+            EntitlementModeEnum::Stack
+        } else {
+            EntitlementModeEnum::Override
+        },
+        value: to_json(&spec.value),
+        lineage_id: lineage.unwrap_or(id),
+        lineage_created_at: now,
+        created_at: now,
+        effect: effect.into(),
+        level,
+        level_type_id,
+        resource_id,
+        condition_hash: Condition::hash_of(spec.condition.as_ref()),
+        condition: spec.condition.as_ref().map(to_json),
+        valid_from: spec.valid_from,
+        valid_until: spec.valid_until,
+        reason: spec.reason,
+        created_by,
+        created_by_kind,
+        policy_override: spec.policy_override.as_ref().map(to_json),
+    })
+}
+
+/// A clash with an open row of the same feature, owner, level, resource and condition whose
+/// validity overlaps (§3.2).
+fn duplicate() -> Report<StoreError> {
+    Report::new(StoreError::DuplicateValue {
+        entity: "entitlement",
+        key: Some("feature, owner, level, resource, condition and validity".into()),
+    })
+}
+
+/// Refuses rows another open row, or an earlier one of them, overlaps.
+async fn ensure_no_overlap(conn: &mut PgConn, rows: &[EntitlementRowNew]) -> StoreResult<()> {
+    let mut rows = rows.to_vec();
+    rows.sort_by_cached_key(EntitlementRowNew::lock_key);
+    for (i, row) in rows.iter().enumerate() {
+        if row.overlaps(conn, &rows[..i]).await? {
+            return Err(duplicate());
+        }
+    }
+    Ok(())
+}
+
+async fn feature_of(conn: &mut PgConn, id: FeatureId, tenant_id: TenantId) -> StoreResult<Feature> {
+    FeatureRow::find_by_id(conn, id, tenant_id)
+        .await?
+        .try_into()
+}
+
+async fn with_defaults(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    mut features: Vec<Feature>,
+) -> StoreResult<Vec<Feature>> {
+    let ids: Vec<FeatureId> = features.iter().map(|f| f.id).collect();
+    let mut defaults: HashMap<FeatureId, Vec<Entitlement>> = HashMap::new();
+    for row in EntitlementRow::list_feature_level_entitlements(conn, tenant_id, Some(&ids)).await? {
+        let entitlement = Entitlement::try_from(row)?;
+        defaults
+            .entry(entitlement.feature_id)
+            .or_default()
+            .push(entitlement);
+    }
+    for feature in &mut features {
+        feature.defaults = defaults.remove(&feature.id).unwrap_or_default();
+    }
+    Ok(features)
+}
+
+async fn one_with_defaults(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    feature: Feature,
+) -> StoreResult<Feature> {
+    Ok(with_defaults(conn, tenant_id, vec![feature])
+        .await?
+        .pop()
+        .expect("one feature in, one out"))
+}
+
+/// Validates a batch of rows for one owner; archived features' specs are dropped with
+/// `skip_archived`, refused otherwise.
+async fn build_entitlement_rows(
+    conn: &mut PgConn,
+    specs: Vec<EntitlementSpec>,
+    owner: CheckedOwner,
+    tenant_id: TenantId,
+    actor: Option<&Actor>,
+    skip_archived: bool,
+) -> StoreResult<Vec<EntitlementRowNew>> {
+    let feature_ids: Vec<FeatureId> = specs.iter().map(|s| s.feature_id).unique().collect();
+    let archived: HashSet<FeatureId> = FeatureRow::find_archived_ids(conn, tenant_id, &feature_ids)
+        .await?
+        .into_iter()
+        .collect();
+    let features: HashMap<FeatureId, Feature> =
+        FeatureRow::find_by_ids(conn, tenant_id, &feature_ids)
+            .await?
+            .into_iter()
+            .map(|row| Feature::try_from(row).map(|f| (f.id, f)))
+            .collect::<StoreResult<_>>()?;
+
+    let mut rows = Vec::with_capacity(specs.len());
+    for spec in specs {
+        if archived.contains(&spec.feature_id) {
+            if skip_archived {
+                continue;
+            }
+            return Err(invalid(format!("feature {} is archived", spec.feature_id)));
+        }
+        let feature = features
+            .get(&spec.feature_id)
+            .ok_or_else(|| invalid(format!("feature {} not found", spec.feature_id)))?;
+        rows.push(new_row(conn, tenant_id, feature, owner, None, spec, actor, None).await?);
+    }
+    Ok(rows)
+}
+
+/// Inserts rows on an owner being created, in the caller's transaction. Archived features'
+/// specs are skipped.
+pub(crate) async fn insert_entitlement_specs(
+    conn: &mut PgConn,
+    specs: Vec<EntitlementSpec>,
+    entity: EntitlementEntityId,
+    tenant_id: TenantId,
+) -> StoreResult<Vec<Entitlement>> {
+    if specs.is_empty() {
+        return Ok(vec![]);
+    }
+    let owner = CheckedOwner::being_created(conn, tenant_id, entity).await?;
+    let rows = build_entitlement_rows(conn, specs, owner, tenant_id, None, true).await?;
+    if rows.is_empty() {
+        return Ok(vec![]);
+    }
+    ensure_no_overlap(conn, &rows).await?;
+    EntitlementRowNew::insert_batch(&rows, conn)
+        .await?
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect()
 }
 
 #[async_trait::async_trait]
 impl EntitlementsInterface for Store {
     async fn create_feature(&self, actor: Actor, feature: FeatureNew) -> StoreResult<Feature> {
-        let mut conn = self.get_conn().await?;
-        let entitlement_value = feature.entitlement.clone();
         let tenant_id = feature.tenant_id;
-        ensure_product_in_tenant(&mut conn, tenant_id, feature.product_id).await?;
-        if let Some(value) = &entitlement_value {
-            validate_value_matches_feature_type(value, &feature.feature_type)?;
-            validate_grouping(&mut conn, tenant_id, &feature.feature_type, value).await?;
+        let default = feature.default.clone();
+        {
+            let mut conn = self.get_conn().await?;
+            ensure_product_in_tenant(&mut conn, tenant_id, feature.product_id).await?;
+            validate_feature(
+                &mut conn,
+                tenant_id,
+                &feature.kind,
+                feature.policy.as_ref(),
+                feature.level_type_id,
+            )
+            .await?;
         }
         let row: FeatureRowNew = feature.into();
-        drop(conn);
         self.transaction_bumping_tenants(|conn| {
             let actor = &actor;
             async move {
-                let inserted = row
-                    .insert(conn)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-                let joined = FeatureRow::find_by_id(conn, inserted.id, inserted.tenant_id)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-                let mut f: Feature = joined.try_into()?;
+                let inserted = row.insert(conn).await?;
+                let mut f = feature_of(conn, inserted.id, tenant_id).await?;
 
-                // A feature reaches customers only through an entitlement.
-                let bumped = entitlement_value.is_some().then_some(tenant_id);
-                if let Some(value) = entitlement_value {
-                    let entity = EntitlementEntityId::Feature(f.id);
-                    let json_value = value_to_json(&value)?;
-                    let entitlement: Entitlement = EntitlementRowNew {
-                        id: EntitlementId::new(),
-                        tenant_id,
-                        feature_id: f.id,
-                        entity_id: entity.as_uuid(),
-                        entity_type: EntitlementEntityTypeEnum::from(&entity),
-                        mode: EntitlementModeEnum::Override.into(),
-                        value: json_value,
-                    }
-                    .insert(conn)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)
-                    .and_then(TryInto::try_into)?;
-                    f.entitlement = Some(entitlement);
+                let bumped = default.is_some().then_some(tenant_id);
+                if let Some(value) = default {
+                    let owner =
+                        CheckedOwner::check(conn, tenant_id, EntitlementEntityId::Feature(f.id))
+                            .await?;
+                    let spec = EntitlementSpec::new(f.id, value);
+                    let default =
+                        new_row(conn, tenant_id, &f, owner, None, spec, Some(actor), None).await?;
+                    f.defaults = vec![default.insert(conn).await?.try_into()?];
                 }
 
                 let activity = Activity::new(
@@ -621,26 +917,8 @@ impl EntitlementsInterface for Store {
 
     async fn get_feature(&self, id: FeatureId, tenant_id: TenantId) -> StoreResult<Feature> {
         let mut conn = self.get_conn().await?;
-
-        let row = FeatureRow::find_by_id(&mut conn, id, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        let mut feature: Feature = row.try_into()?;
-
-        // Like `list_features`, keeps an archived feature's default so both reads agree.
-        let entitlement_rows =
-            EntitlementRow::list_feature_level_entitlements(&mut conn, tenant_id, Some(&vec![id]))
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-
-        feature.entitlement = entitlement_rows
-            .into_iter()
-            .next()
-            .map(TryInto::try_into)
-            .transpose()?;
-
-        Ok(feature)
+        let feature = feature_of(&mut conn, id, tenant_id).await?;
+        one_with_defaults(&mut conn, tenant_id, feature).await
     }
 
     async fn get_feature_by_id_or_code(
@@ -649,29 +927,10 @@ impl EntitlementsInterface for Store {
         tenant_id: TenantId,
     ) -> StoreResult<Feature> {
         let mut conn = self.get_conn().await?;
-
-        let row = FeatureRow::find_by_id_or_code(&mut conn, id_or_code, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        let feature_id = row.feature.id;
-        let mut feature: Feature = row.try_into()?;
-
-        let entitlement_rows = EntitlementRow::list_feature_level_entitlements(
-            &mut conn,
-            tenant_id,
-            Some(&vec![feature_id]),
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-        feature.entitlement = entitlement_rows
-            .into_iter()
-            .next()
-            .map(TryInto::try_into)
-            .transpose()?;
-
-        Ok(feature)
+        let feature = FeatureRow::find_by_id_or_code(&mut conn, id_or_code, tenant_id)
+            .await?
+            .try_into()?;
+        one_with_defaults(&mut conn, tenant_id, feature).await
     }
 
     async fn list_features(
@@ -681,49 +940,33 @@ impl EntitlementsInterface for Store {
         statuses: Option<Vec<FeatureStatusEnum>>,
         product_id: Option<ProductId>,
         search: Option<String>,
+        level: Option<Option<ResourceTypeId>>,
+        order: FeatureListOrder,
     ) -> StoreResult<PaginatedVec<Feature>> {
         let mut conn = self.get_conn().await?;
-
-        let db_statuses = statuses.map(|v| {
+        let statuses = statuses.map(|v| {
             v.into_iter()
                 .map(Into::<DbFeatureStatusEnum>::into)
-                .collect::<Vec<_>>()
+                .collect()
         });
         let rows = FeatureRow::list(
             &mut conn,
             tenant_id,
             pagination.into(),
-            db_statuses,
+            statuses,
             product_id,
             search,
+            level,
+            order.into(),
         )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-        let feature_ids: Vec<FeatureId> = rows.items.iter().map(|r| r.feature.id).collect();
-
-        let entitlement_rows = EntitlementRow::list_feature_level_entitlements(
-            &mut conn,
-            tenant_id,
-            Some(&feature_ids),
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-        let mut entitlement_map = build_feature_entitlement_map(entitlement_rows)?;
-
-        let items = rows
+        .await?;
+        let features = rows
             .items
             .into_iter()
-            .map(|row| {
-                let mut f: Feature = row.try_into()?;
-                f.entitlement = entitlement_map.remove(&f.id);
-                Ok::<Feature, Report<StoreError>>(f)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
+            .map(Feature::try_from)
+            .collect::<StoreResult<Vec<_>>>()?;
         Ok(PaginatedVec {
-            items,
+            items: with_defaults(&mut conn, tenant_id, features).await?,
             total_pages: rows.total_pages,
             total_results: rows.total_results,
         })
@@ -738,27 +981,12 @@ impl EntitlementsInterface for Store {
             return Ok(vec![]);
         }
         let mut conn = self.get_conn().await?;
-
-        let rows = FeatureRow::find_by_ids(&mut conn, tenant_id, ids)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-        let feature_ids: Vec<FeatureId> = rows.iter().map(|r| r.feature.id).collect();
-        let entitlement_rows = EntitlementRow::list_feature_level_entitlements(
-            &mut conn,
-            tenant_id,
-            Some(&feature_ids),
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-        let mut entitlement_map = build_feature_entitlement_map(entitlement_rows)?;
-
-        rows.into_iter()
-            .map(|row| {
-                let mut f: Feature = row.try_into()?;
-                f.entitlement = entitlement_map.remove(&f.id);
-                Ok(f)
-            })
-            .collect()
+        let features = FeatureRow::find_by_ids(&mut conn, tenant_id, ids)
+            .await?
+            .into_iter()
+            .map(Feature::try_from)
+            .collect::<StoreResult<Vec<_>>>()?;
+        with_defaults(&mut conn, tenant_id, features).await
     }
 
     async fn update_feature(
@@ -767,39 +995,103 @@ impl EntitlementsInterface for Store {
         tenant_id: TenantId,
         update: FeatureUpdate,
     ) -> StoreResult<Feature> {
-        self.update_feature_with_default(id, tenant_id, Some(update), None)
-            .await
+        let feature = self
+            .transaction_bumping_tenant(tenant_id, |conn| {
+                async move { update_feature_tx(conn, id, tenant_id, update).await }.scope_boxed()
+            })
+            .await?;
+        let mut conn = self.get_conn().await?;
+        one_with_defaults(&mut conn, tenant_id, feature).await
     }
 
-    async fn update_feature_with_default(
+    async fn create_feature_with_defaults(
         &self,
+        actor: &Actor,
+        id: FeatureId,
+        feature: FeatureNew,
+        per_unit_of: Option<ManagedQuantityId>,
+        mut defaults: Vec<EntitlementSpec>,
+    ) -> StoreResult<Feature> {
+        let tenant_id = feature.tenant_id;
+        if let Some(value) = feature.default.clone() {
+            defaults.push(EntitlementSpec::new(id, value));
+        }
+        self.transaction_bumping_tenants(|conn| {
+            async move {
+                ensure_product_in_tenant(conn, tenant_id, feature.product_id).await?;
+                validate_feature(
+                    conn,
+                    tenant_id,
+                    &feature.kind,
+                    feature.policy.as_ref(),
+                    feature.level_type_id,
+                )
+                .await?;
+                let mut row: FeatureRowNew = feature.into();
+                row.id = id;
+                row.insert(conn).await?;
+                let created = feature_of(conn, id, tenant_id).await?;
+                // A new feature has no rows of other owners yet: its own only move resolutions.
+                let bumped = per_unit_of.is_some() || !defaults.is_empty();
+                if per_unit_of.is_some() {
+                    set_limit_quantity_tx(conn, tenant_id, &created, per_unit_of).await?;
+                }
+                if !defaults.is_empty() {
+                    replace_entitlements_tx(
+                        conn,
+                        Some(actor),
+                        tenant_id,
+                        EntitlementEntityId::Feature(id),
+                        defaults,
+                    )
+                    .await?;
+                }
+                let activity = Activity::new(
+                    ActivityType::FeatureCreated,
+                    EntityType::Feature,
+                    id.as_uuid(),
+                )
+                .with_metadata(serde_json::json!({ "code": created.code, "name": created.name }));
+                self.internal
+                    .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
+                    .await?;
+                let created = one_with_defaults(conn, tenant_id, created).await?;
+                Ok((created, bumped.then_some(tenant_id).into_iter().collect()))
+            }
+            .scope_boxed()
+        })
+        .await
+    }
+
+    async fn update_feature_with_defaults(
+        &self,
+        actor: &Actor,
         id: FeatureId,
         tenant_id: TenantId,
         update: Option<FeatureUpdate>,
-        default: Option<Vec<EntitlementSpec>>,
+        per_unit_of: Option<Option<ManagedQuantityId>>,
+        defaults: Option<Vec<EntitlementSpec>>,
     ) -> StoreResult<Feature> {
         self.transaction_bumping_tenant(tenant_id, |conn| {
             async move {
-                let row = match update {
+                let feature = match update {
                     Some(update) => update_feature_tx(conn, id, tenant_id, update).await?,
-                    None => FeatureRow::find_by_id(conn, id, tenant_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?,
+                    None => feature_of(conn, id, tenant_id).await?,
                 };
-                let entity = EntitlementEntityId::Feature(id);
-                if let Some(specs) = default {
-                    replace_entitlements_tx(conn, tenant_id, entity, specs).await?;
+                if let Some(quantity) = per_unit_of {
+                    set_limit_quantity_tx(conn, tenant_id, &feature, quantity).await?;
                 }
-                let mut feature: Feature = row.try_into()?;
-                let entitlement_rows = EntitlementRow::list_by_entity(conn, tenant_id, entity)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-                feature.entitlement = entitlement_rows
-                    .into_iter()
-                    .next()
-                    .map(TryInto::try_into)
-                    .transpose()?;
-                Ok(feature)
+                if let Some(specs) = defaults {
+                    replace_entitlements_tx(
+                        conn,
+                        Some(actor),
+                        tenant_id,
+                        EntitlementEntityId::Feature(id),
+                        specs,
+                    )
+                    .await?;
+                }
+                one_with_defaults(conn, tenant_id, feature).await
             }
             .scope_boxed()
         })
@@ -814,18 +1106,13 @@ impl EntitlementsInterface for Store {
         status: FeatureStatusEnum,
     ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
-        let current: Feature = FeatureRow::find_by_id(&mut conn, id, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)
-            .and_then(TryInto::try_into)?;
+        let current = feature_of(&mut conn, id, tenant_id).await?;
         if current.status == status {
             return Ok(());
         }
         let activity_type = match (&current.status, &status) {
             (FeatureStatusEnum::Archived, FeatureStatusEnum::Disabled) => {
-                return Err(Report::new(StoreError::InvalidArgument(
-                    "feature is archived; unarchive it first".into(),
-                )));
+                return Err(invalid("feature is archived; unarchive it first"));
             }
             (_, FeatureStatusEnum::Archived) => ActivityType::FeatureArchived,
             (FeatureStatusEnum::Archived, _) => ActivityType::FeatureUnarchived,
@@ -834,9 +1121,7 @@ impl EntitlementsInterface for Store {
         };
         if current.status == FeatureStatusEnum::Archived
             && let Some(holder) =
-                FeatureRow::find_unarchived_by_code(&mut conn, tenant_id, &current.code, id)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?
+                FeatureRow::find_unarchived_by_code(&mut conn, tenant_id, &current.code, id).await?
         {
             return Err(Report::new(StoreError::FailedPrecondition(format!(
                 "code {} is used by feature {}",
@@ -847,10 +1132,7 @@ impl EntitlementsInterface for Store {
         self.transaction_bumping_tenant(tenant_id, |conn| {
             let actor = &actor;
             async move {
-                FeatureRow::set_status(conn, id, tenant_id, status.into())
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-
+                FeatureRow::set_status(conn, id, tenant_id, status.into()).await?;
                 let activity = Activity::new(activity_type, EntityType::Feature, id.as_uuid());
                 self.internal
                     .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
@@ -868,9 +1150,7 @@ impl EntitlementsInterface for Store {
         tenant_id: TenantId,
     ) -> StoreResult<FeatureId> {
         let mut conn = self.get_conn().await?;
-        let rows = FeatureRow::list_by_code(&mut conn, tenant_id, code)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let rows = FeatureRow::list_by_code(&mut conn, tenant_id, code).await?;
         if rows
             .iter()
             .any(|r| r.status != DbFeatureStatusEnum::Archived)
@@ -896,65 +1176,47 @@ impl EntitlementsInterface for Store {
         tenant_id: TenantId,
     ) -> StoreResult<Option<FeatureRef>> {
         let mut conn = self.get_conn().await?;
-        let feature: Feature = FeatureRow::find_by_id(&mut conn, id, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-            .try_into()?;
+        let feature = feature_of(&mut conn, id, tenant_id).await?;
         if feature.status != FeatureStatusEnum::Archived {
             return Ok(None);
         }
         let Some(holder) =
-            FeatureRow::find_unarchived_by_code(&mut conn, tenant_id, &feature.code, id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
+            FeatureRow::find_unarchived_by_code(&mut conn, tenant_id, &feature.code, id).await?
         else {
             return Ok(None);
         };
-        let holder: Feature = FeatureRow::find_by_id(&mut conn, holder.id, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-            .try_into()?;
-        Ok(Some(FeatureRef {
-            id: holder.id,
-            name: holder.name,
-            code: holder.code,
-            product: holder.product,
-        }))
+        Ok(Some(
+            feature_of(&mut conn, holder.id, tenant_id).await?.to_ref(),
+        ))
     }
 
-    async fn create_entitlement(&self, entitlement: EntitlementNew) -> StoreResult<Entitlement> {
-        let mut conn = self.get_conn().await?;
-
-        let feature: Feature =
-            FeatureRow::find_by_id(&mut conn, entitlement.feature_id, entitlement.tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)
-                .and_then(TryInto::try_into)?;
-        ensure_editable(&feature)?;
-        validate_value_matches_feature_type(&entitlement.value, &feature.feature_type)?;
-        validate_grouping(
-            &mut conn,
-            entitlement.tenant_id,
-            &feature.feature_type,
-            &entitlement.value,
-        )
-        .await?;
-
-        let mode =
-            resolve_mode_for_entity(&mut conn, &entitlement.entity, entitlement.tenant_id).await?;
-        let json_value = value_to_json(&entitlement.value)?;
-        let row = EntitlementRowNew {
-            id: EntitlementId::new(),
-            tenant_id: entitlement.tenant_id,
-            feature_id: entitlement.feature_id,
-            entity_id: entitlement.entity.as_uuid(),
-            entity_type: EntitlementEntityTypeEnum::from(&entitlement.entity),
-            mode: mode.into(),
-            value: json_value,
+    async fn create_entitlement(
+        &self,
+        actor: &Actor,
+        entitlement: EntitlementNew,
+    ) -> StoreResult<Entitlement> {
+        let EntitlementNew {
+            tenant_id,
+            entity,
+            resource_id,
+            spec,
+        } = entitlement;
+        let row = {
+            let mut conn = self.get_conn().await?;
+            let owner = CheckedOwner::check(&mut conn, tenant_id, entity).await?;
+            let feature = feature_of(&mut conn, spec.feature_id, tenant_id).await?;
+            new_row(
+                &mut conn,
+                tenant_id,
+                &feature,
+                owner,
+                resource_id,
+                spec,
+                Some(actor),
+                None,
+            )
+            .await?
         };
-
-        drop(conn);
-
         let row = self
             .transaction_bumping_tenants(|conn| {
                 async move {
@@ -965,6 +1227,7 @@ impl EntitlementsInterface for Store {
                         row.entity_id,
                     )
                     .await?;
+                    ensure_no_overlap(conn, std::slice::from_ref(&row)).await?;
                     let inserted = row.insert(conn).await?;
                     Ok((inserted, owner.bump(conn).await?))
                 }
@@ -974,17 +1237,76 @@ impl EntitlementsInterface for Store {
         row.try_into()
     }
 
+    async fn create_entitlements(
+        &self,
+        actor: &Actor,
+        tenant_id: TenantId,
+        entity: EntitlementEntityId,
+        resource_id: Option<ResourceId>,
+        specs: Vec<EntitlementSpec>,
+    ) -> StoreResult<Vec<Entitlement>> {
+        let rows = {
+            let mut conn = self.get_conn().await?;
+            let owner = CheckedOwner::check(&mut conn, tenant_id, entity).await?;
+            let mut rows = Vec::with_capacity(specs.len());
+            for spec in specs {
+                let feature = feature_of(&mut conn, spec.feature_id, tenant_id).await?;
+                rows.push(
+                    new_row(
+                        &mut conn,
+                        tenant_id,
+                        &feature,
+                        owner,
+                        resource_id,
+                        spec,
+                        Some(actor),
+                        None,
+                    )
+                    .await?,
+                );
+            }
+            rows
+        };
+        let (entity_type, entity_id) = (EntitlementEntityTypeEnum::from(&entity), entity.as_uuid());
+        let inserted = self
+            .transaction_bumping_tenants(|conn| {
+                async move {
+                    let owner =
+                        InputsOwner::of_entitlement(conn, tenant_id, &entity_type, entity_id)
+                            .await?;
+                    ensure_no_overlap(conn, &rows).await?;
+                    let inserted = EntitlementRowNew::insert_batch(&rows, conn).await?;
+                    Ok((inserted, owner.bump(conn).await?))
+                }
+                .scope_boxed()
+            })
+            .await?;
+        inserted.into_iter().map(TryInto::try_into).collect()
+    }
+
     async fn get_entitlement(
         &self,
         id: EntitlementId,
         tenant_id: TenantId,
     ) -> StoreResult<Entitlement> {
-        let mut conn = self.get_conn().await?;
+        self.get_entitlement_history(id, tenant_id)
+            .await?
+            .into_iter()
+            .rfind(|e| e.revoked_at.is_none())
+            .ok_or_else(|| Report::new(StoreError::ValueNotFound(format!("entitlement {id}"))))
+    }
 
-        EntitlementRow::find_by_id(&mut conn, id, tenant_id)
-            .await
-            .map_err(Into::into)
-            .and_then(TryInto::try_into)
+    async fn get_entitlement_history(
+        &self,
+        id: EntitlementId,
+        tenant_id: TenantId,
+    ) -> StoreResult<Vec<Entitlement>> {
+        let mut conn = self.get_conn().await?;
+        EntitlementRow::list_history(&mut conn, tenant_id, id)
+            .await?
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect()
     }
 
     async fn list_entitlements_by_feature(
@@ -993,13 +1315,11 @@ impl EntitlementsInterface for Store {
         tenant_id: TenantId,
     ) -> StoreResult<Vec<Entitlement>> {
         let mut conn = self.get_conn().await?;
-
-        let rows = EntitlementRow::list_by_feature(&mut conn, feature_id, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-        rows.into_iter()
+        EntitlementRow::list_by_feature(&mut conn, feature_id, tenant_id)
+            .await?
+            .into_iter()
             .map(TryInto::try_into)
-            .collect::<Result<Vec<_>, _>>()
+            .collect()
     }
 
     async fn list_entitlements_by_entity(
@@ -1008,55 +1328,58 @@ impl EntitlementsInterface for Store {
         tenant_id: TenantId,
     ) -> StoreResult<Vec<Entitlement>> {
         let mut conn = self.get_conn().await?;
-
-        let rows = EntitlementRow::list_by_entity(&mut conn, tenant_id, entity)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-        rows.into_iter()
+        EntitlementRow::list_by_entity(&mut conn, tenant_id, entity)
+            .await?
+            .into_iter()
             .map(TryInto::try_into)
-            .collect::<Result<Vec<_>, _>>()
+            .collect()
     }
 
     async fn update_entitlement(
         &self,
+        actor: &Actor,
         id: EntitlementId,
         tenant_id: TenantId,
         update: EntitlementUpdate,
     ) -> StoreResult<Entitlement> {
-        let mut conn = self.get_conn().await?;
-
-        let patch_value = if let Some(value) = &update.value {
-            let existing: Entitlement = EntitlementRow::find_by_id(&mut conn, id, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)
-                .and_then(TryInto::try_into)?;
-            let feature: Feature =
-                FeatureRow::find_by_id(&mut conn, existing.feature_id, tenant_id)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)
-                    .and_then(|r| r.try_into())?;
-            ensure_editable(&feature)?;
-            validate_value_matches_feature_type(value, &feature.feature_type)?;
-            validate_grouping(&mut conn, tenant_id, &feature.feature_type, value).await?;
-            Some(value_to_json(value)?)
-        } else {
-            None
-        };
-
-        let patch = EntitlementRowPatch {
-            mode: None,
-            value: patch_value,
-            updated_at: Some(common_clock::now()),
-        };
-
-        drop(conn);
-
         let row = self
             .transaction_bumping_tenants(|conn| {
                 async move {
-                    let owner = entitlement_owner(conn, id, tenant_id).await?;
-                    let updated = EntitlementRow::update(conn, id, tenant_id, patch).await?;
-                    Ok((updated, owner.bump(conn).await?))
+                    let open: Entitlement = lock_open(conn, tenant_id, id).await?.try_into()?;
+                    let feature = feature_of(conn, open.feature_id, tenant_id).await?;
+                    let spec = EntitlementSpec {
+                        feature_id: open.feature_id,
+                        value: update.value.unwrap_or(open.value),
+                        effect: Some(update.effect.unwrap_or(open.effect)),
+                        level: open.level,
+                        condition: update.condition.unwrap_or(open.condition),
+                        valid_from: update.valid_from.unwrap_or(open.valid_from),
+                        valid_until: update.valid_until.unwrap_or(open.valid_until),
+                        reason: update.reason.unwrap_or(open.reason),
+                        policy_override: update.policy_override.unwrap_or(open.policy_override),
+                    };
+                    let owner = CheckedOwner::check(conn, tenant_id, open.entity).await?;
+                    let successor = new_row(
+                        conn,
+                        tenant_id,
+                        &feature,
+                        owner,
+                        open.resource_id,
+                        spec,
+                        Some(actor),
+                        Some(id),
+                    )
+                    .await?;
+                    let owner = InputsOwner::of_entitlement(
+                        conn,
+                        tenant_id,
+                        &successor.entity_type,
+                        successor.entity_id,
+                    )
+                    .await?;
+                    ensure_no_overlap(conn, std::slice::from_ref(&successor)).await?;
+                    let inserted = successor.insert_successor(conn, actor.as_uuid()).await?;
+                    Ok((inserted, owner.bump(conn).await?))
                 }
                 .scope_boxed()
             })
@@ -1064,16 +1387,58 @@ impl EntitlementsInterface for Store {
         row.try_into()
     }
 
-    async fn delete_entitlement(&self, id: EntitlementId, tenant_id: TenantId) -> StoreResult<()> {
+    async fn delete_entitlement(
+        &self,
+        actor: &Actor,
+        id: EntitlementId,
+        tenant_id: TenantId,
+    ) -> StoreResult<()> {
         self.transaction_bumping_tenants(|conn| {
             async move {
-                let owner = entitlement_owner(conn, id, tenant_id).await?;
-                EntitlementRow::delete(conn, id, tenant_id).await?;
+                let open = lock_open(conn, tenant_id, id).await?;
+                CheckedOwner::check(conn, tenant_id, EntitlementEntityId::from(&open)).await?;
+                let owner =
+                    InputsOwner::of_entitlement(conn, tenant_id, &open.entity_type, open.entity_id)
+                        .await?;
+                EntitlementRow::revoke_open(conn, tenant_id, id, actor.as_uuid()).await?;
                 Ok(((), owner.bump(conn).await?))
             }
             .scope_boxed()
         })
         .await
+    }
+
+    async fn batch_create_entitlements(
+        &self,
+        actor: &Actor,
+        tenant_id: TenantId,
+        target: EntitlementEntityId,
+        specs: Vec<EntitlementSpec>,
+    ) -> StoreResult<Vec<Entitlement>> {
+        if specs.is_empty() {
+            return Ok(vec![]);
+        }
+        let rows = {
+            let mut conn = self.get_conn().await?;
+            let owner = CheckedOwner::check(&mut conn, tenant_id, target).await?;
+            build_entitlement_rows(&mut conn, specs, owner, tenant_id, Some(actor), false).await?
+        };
+        let entity_type = EntitlementEntityTypeEnum::from(&target);
+        let entity_id = target.as_uuid();
+        let inserted = self
+            .transaction_bumping_tenants(|conn| {
+                async move {
+                    let owner =
+                        InputsOwner::of_entitlement(conn, tenant_id, &entity_type, entity_id)
+                            .await?;
+                    let inserted =
+                        EntitlementRowNew::insert_batch_skip_conflicts(rows, conn).await?;
+                    Ok((inserted, owner.bump(conn).await?))
+                }
+                .scope_boxed()
+            })
+            .await?;
+        inserted.into_iter().map(TryInto::try_into).collect()
     }
 
     async fn resolve_entitlements_for_customer(
@@ -1082,10 +1447,21 @@ impl EntitlementsInterface for Store {
         customer_id: CustomerId,
         tenant_id: TenantId,
     ) -> StoreResult<Vec<ResolvedEntitlement>> {
-        self.transaction_with(conn, |conn| {
-            async move { resolve_entitlements_tx(conn, customer_id, tenant_id, None).await }
-                .scope_boxed()
-        })
+        let ResolvedCustomer { features } = self
+            .resolve_customer_entitlements(
+                conn,
+                tenant_id,
+                customer_id,
+                None,
+                None,
+                common_clock::now(),
+            )
+            .await?;
+        with_origin_names(
+            conn,
+            tenant_id,
+            features.iter().filter_map(readout_of).collect(),
+        )
         .await
     }
 
@@ -1095,64 +1471,117 @@ impl EntitlementsInterface for Store {
         tenant_id: TenantId,
         target: ResolveTarget,
     ) -> StoreResult<Vec<ResolvedEntitlement>> {
+        let now = common_clock::now();
+        let (subscription, add_ons) = match &target {
+            ResolveTarget::Subscription(id) => {
+                // On the read day its chain's rows are read on.
+                let period_end = SubscriptionRow::get_subscription_by_id(conn, &tenant_id, *id)
+                    .await?
+                    .subscription
+                    .current_period_end;
+                let add_ons = SubscriptionAddOnRow::list_by_subscription_id_active(
+                    conn,
+                    &tenant_id,
+                    id,
+                    Some(diesel_models::query::subscription_facts::read_day(
+                        now.date_naive(),
+                        period_end,
+                    )),
+                )
+                .await?;
+                (Some(*id), add_ons)
+            }
+            _ => (None, vec![]),
+        };
         let scope = build_chain_and_products(conn, tenant_id, target).await?;
-        resolve_for_chain(
+        let features: Vec<Feature> = FeatureRow::find_active_for_products(
             conn,
             tenant_id,
-            &scope.chain,
             &scope.product_ids,
             scope.include_globals,
-            None,
         )
-        .await
-    }
+        .await?
+        .into_iter()
+        .map(Feature::try_from)
+        .filter_ok(|f| f.status == FeatureStatusEnum::Active)
+        .collect::<StoreResult<_>>()?;
+        let feature_ids: Vec<FeatureId> = features.iter().map(|f| f.id).collect();
+        let rows: Vec<Entitlement> =
+            EntitlementRow::list_open_for_owners(conn, tenant_id, &scope.chain, Some(&feature_ids))
+                .await?
+                .into_iter()
+                .chain(
+                    EntitlementRow::list_feature_level_entitlements(
+                        conn,
+                        tenant_id,
+                        Some(&feature_ids),
+                    )
+                    .await?,
+                )
+                .map(Entitlement::try_from)
+                .collect::<StoreResult<_>>()?;
 
-    async fn resolve_entitlements_for_feature(
-        &self,
-        conn: &mut PgConn,
-        customer_id: CustomerId,
-        tenant_id: TenantId,
-        feature_id: FeatureId,
-    ) -> StoreResult<Option<ResolvedEntitlement>> {
-        self.transaction_with(conn, |conn| {
-            async move {
-                let mut all =
-                    resolve_entitlements_tx(conn, customer_id, tenant_id, Some(feature_id)).await?;
-                Ok(all.pop())
+        // What multiplies the subscription's rows: add-on instances, seats held (R-133, R-138).
+        let (quantities, per_unit, held) = match subscription {
+            Some(subscription_id) => {
+                let limits: Vec<FeatureId> = features
+                    .iter()
+                    .filter(|f| matches!(f.kind, FeatureKind::Limit(_)))
+                    .map(|f| f.id)
+                    .collect();
+                let per_unit = feature_limit_quantities(conn, tenant_id, &limits).await?;
+                let add_on_ids: Vec<AddOnId> =
+                    add_ons.iter().map(|a| a.add_on_id).unique().collect();
+                let seats = seat_quantities(conn, tenant_id, &add_on_ids).await?;
+                let pairs: Vec<(SubscriptionId, ManagedQuantityId)> = per_unit
+                    .values()
+                    .chain(seats.values())
+                    .unique()
+                    .map(|quantity| (subscription_id, *quantity))
+                    .collect();
+                let held = held_units(conn, tenant_id, &pairs, now).await?;
+                let quantities = add_on_quantities(subscription_id, &add_ons, &seats, &held);
+                (quantities, per_unit, held)
             }
-            .scope_boxed()
-        })
-        .await
-    }
-
-    async fn batch_create_entitlements(
-        &self,
-        tenant_id: TenantId,
-        target: EntitlementEntityId,
-        specs: Vec<EntitlementSpec>,
-    ) -> StoreResult<Vec<Entitlement>> {
-        if specs.is_empty() {
-            return Ok(vec![]);
-        }
-        let mut conn = self.get_conn().await?;
-        let rows = build_entitlement_rows(&mut conn, specs, &target, tenant_id, false).await?;
-        let entity_type = EntitlementEntityTypeEnum::from(&target);
-        let entity_id = target.as_uuid();
-        drop(conn);
-        let inserted = self
-            .transaction_bumping_tenants(|conn| {
-                async move {
-                    let owner =
-                        InputsOwner::of_entitlement(conn, tenant_id, &entity_type, entity_id)
-                            .await?;
-                    let inserted =
-                        EntitlementRowNew::insert_batch_skip_conflicts(&rows, conn).await?;
-                    Ok((inserted, owner.bump(conn).await?))
-                }
-                .scope_boxed()
+            None => Default::default(),
+        };
+        let no_attributes = Attributes::new();
+        let items = features
+            .iter()
+            .filter_map(|feature| {
+                let own = feature.own_level();
+                let units = subscription
+                    .zip(per_unit.get(&feature.id))
+                    .map(|(s, quantity)| held.get(&(s, *quantity)).copied().unwrap_or(0));
+                let fold_rows: Vec<_> = rows
+                    .iter()
+                    .filter(|e| {
+                        e.feature_id == feature.id
+                            && e.resource_id.is_none()
+                            && e.level.eval(feature.level_type_id) == own
+                    })
+                    .filter_map(|e| {
+                        let quantity = match (e.entity, subscription) {
+                            (EntitlementEntityId::AddOn(id), Some(_)) => *quantities.get(&id)?,
+                            _ => 1,
+                        };
+                        Some(e.fold_row(quantity, units, &no_attributes))
+                    })
+                    .collect();
+                let policy = feature.policy_or_default();
+                let folded = fold(&feature.value_order(), true, &policy, &fold_rows, now)?;
+                let value = ResolvedEntitlementValue::of(
+                    &feature.kind,
+                    folded.value.as_ref()?,
+                    &folded.policy,
+                    true,
+                )?;
+                let origin = winning(&folded.explain)
+                    .map_or(EntitlementEntityId::Feature(feature.id), |c| c.source);
+                Some((feature.to_ref(), value, origin))
             })
-            .await?;
-        inserted.into_iter().map(TryInto::try_into).collect()
+            .collect();
+        with_origin_names(conn, tenant_id, items).await
     }
 
     async fn list_features_after(
@@ -1163,65 +1592,106 @@ impl EntitlementsInterface for Store {
         limit: usize,
     ) -> StoreResult<Vec<Feature>> {
         let mut conn = self.get_conn().await?;
+        if let Some(after) = after {
+            FeatureRow::find_by_id(&mut conn, after, tenant_id)
+                .await
+                .map_err(|e| match e.error.current_context() {
+                    DatabaseError::NotFound => invalid(format!("no feature {after} to page after")),
+                    _ => e.into(),
+                })?;
+        }
         let statuses = filter.statuses.map(|statuses| {
             statuses
                 .into_iter()
                 .map(Into::<DbFeatureStatusEnum>::into)
                 .collect::<Vec<_>>()
         });
-        let rows = FeatureRow::list_page(
+        let features = FeatureRow::list_after(
             &mut conn,
             tenant_id,
             statuses,
             filter.product_id,
+            filter.level,
+            filter.order.map(Into::into),
             after,
             i64::try_from(limit).unwrap_or(i64::MAX),
         )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-        let feature_ids: Vec<FeatureId> = rows.iter().map(|r| r.feature.id).collect();
-        let entitlement_rows = EntitlementRow::list_feature_level_entitlements(
-            &mut conn,
-            tenant_id,
-            Some(&feature_ids),
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-        let mut entitlement_map = build_feature_entitlement_map(entitlement_rows)?;
-        rows.into_iter()
-            .map(|row| {
-                let mut f: Feature = row.try_into()?;
-                f.entitlement = entitlement_map.remove(&f.id);
-                Ok(f)
-            })
-            .collect()
+        .await?
+        .into_iter()
+        .map(Feature::try_from)
+        .collect::<StoreResult<Vec<_>>>()?;
+        with_defaults(&mut conn, tenant_id, features).await
     }
 
     async fn replace_entitlements(
         &self,
+        actor: &Actor,
         tenant_id: TenantId,
         entity: EntitlementEntityId,
         specs: Vec<EntitlementSpec>,
     ) -> StoreResult<Vec<Entitlement>> {
-        self.transaction_bumping_tenant(tenant_id, |conn| {
-            async move { replace_entitlements_tx(conn, tenant_id, entity, specs).await }
-                .scope_boxed()
+        let (entity_type, entity_id) = (EntitlementEntityTypeEnum::from(&entity), entity.as_uuid());
+        self.transaction_bumping_tenants(|conn| {
+            async move {
+                // A subscription's rows are written under its customer's lock, which is bumped.
+                let owner =
+                    InputsOwner::of_entitlement(conn, tenant_id, &entity_type, entity_id).await?;
+                let rows =
+                    replace_entitlements_tx(conn, Some(actor), tenant_id, entity, specs).await?;
+                Ok((rows, owner.bump(conn).await?))
+            }
+            .scope_boxed()
         })
         .await
     }
 
     async fn set_product_feature_defaults(
         &self,
+        actor: &Actor,
         tenant_id: TenantId,
         product_id: ProductId,
         specs: Vec<EntitlementSpec>,
     ) -> StoreResult<()> {
         self.transaction_bumping_tenant(tenant_id, |conn| {
-            async move { set_product_feature_defaults_tx(conn, tenant_id, product_id, specs).await }
-                .scope_boxed()
+            async move {
+                set_product_feature_defaults_tx(conn, Some(actor), tenant_id, product_id, specs)
+                    .await
+            }
+            .scope_boxed()
         })
         .await
     }
+}
+
+/// Counts the limit `feature` grants per unit of `quantity` (R-133), or per subscription again
+/// when none, as `set_feature_limit_quantity` does, on the caller's transaction.
+async fn set_limit_quantity_tx(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    feature: &Feature,
+    quantity: Option<ManagedQuantityId>,
+) -> StoreResult<()> {
+    if !matches!(feature.kind, FeatureKind::Limit(_)) {
+        return Err(invalid("only a limit counts per unit of a quantity"));
+    }
+    ensure_editable(feature)?;
+    if let Some(quantity) = quantity {
+        let live = ManagedQuantityRow::find(conn, tenant_id, quantity)
+            .await?
+            .is_some_and(|row| row.archived_at.is_none());
+        if !live {
+            return Err(invalid(format!("no live managed quantity {quantity}")));
+        }
+    }
+    set_feature_limit_quantity(conn, feature.id, quantity).await?;
+    CreditRecomputeMarkRow::mark_for_entitlement_owner(
+        conn,
+        tenant_id,
+        &EntitlementEntityTypeEnum::Feature,
+        feature.id.as_uuid(),
+    )
+    .await?;
+    Ok(())
 }
 
 /// A feature's edit on the caller's transaction: its checks, then its row.
@@ -1230,416 +1700,394 @@ async fn update_feature_tx(
     id: FeatureId,
     tenant_id: TenantId,
     update: FeatureUpdate,
-) -> StoreResult<diesel_models::entitlements::FeatureWithProductRow> {
-    let current: Feature = FeatureRow::find_by_id(conn, id, tenant_id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)
-        .and_then(TryInto::try_into)?;
+) -> StoreResult<Feature> {
+    let current = feature_of(conn, id, tenant_id).await?;
     ensure_editable(&current)?;
     ensure_product_in_tenant(conn, tenant_id, update.product_id.flatten()).await?;
 
-    // When replacing a select feature's options, reject removing any option that an
-    // existing entitlement still references.
-    let config_options_patch = if let Some(new_options) = &update.config_options {
-        let FeatureType::Config {
-            value_type:
-                ConfigValueType::Select {
-                    options: current_options,
-                },
-        } = current.feature_type
-        else {
-            return Err(Report::new(StoreError::InvalidArgument(
-                "config options can only be set on select config features".into(),
-            )));
-        };
-        if new_options.is_empty() {
-            return Err(Report::new(StoreError::InvalidArgument(
-                "a select config feature requires at least one option".into(),
-            )));
+    let mut kind = current.kind.clone();
+    match (&mut kind, update.number_higher_is_better) {
+        (FeatureKind::Value(ValueType::Number { higher_is_better }), Some(new)) => {
+            *higher_is_better = new
         }
-        let removed: Vec<String> = current_options
-            .into_iter()
-            .filter(|o| !new_options.contains(o))
-            .collect();
-        if !removed.is_empty() {
-            let rows = EntitlementRow::list_by_feature(conn, id, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-            let mut in_use: Vec<String> = Vec::new();
-            for row in rows {
-                if let Ok(EntitlementValue::Config {
-                    value: ConfigValue::Text(t),
-                }) = serde_json::from_value::<EntitlementValue>(row.value)
-                    && removed.contains(&t)
-                    && !in_use.contains(&t)
-                {
-                    in_use.push(t);
-                }
-            }
+        (_, Some(_)) => return Err(invalid("only a number has a direction")),
+        (_, None) => {}
+    }
+    if update.select_options.is_some() || update.select_ordered.is_some() {
+        let FeatureKind::Value(ValueType::Select { options, ordered }) = &mut kind else {
+            return Err(invalid("only a select has options"));
+        };
+        if let Some(new_options) = &update.select_options {
+            let removed: Vec<&String> = options
+                .iter()
+                .filter(|o| !new_options.contains(o))
+                .collect();
+            let in_use: Vec<String> = EntitlementRow::list_by_feature(conn, id, tenant_id)
+                .await?
+                .into_iter()
+                .filter_map(
+                    |row| match from_json::<GrantValue>(row.value, "entitlement value") {
+                        Ok(GrantValue::Text(t)) if removed.contains(&&t) => Some(t),
+                        _ => None,
+                    },
+                )
+                .unique()
+                .collect();
             if !in_use.is_empty() {
-                return Err(Report::new(StoreError::InvalidArgument(format!(
+                return Err(invalid(format!(
                     "Cannot remove option(s) still used by entitlements: {}",
                     in_use.join(", ")
-                ))));
+                )));
             }
+            *options = new_options.clone();
         }
-        Some(Some(new_options.iter().cloned().map(Some).collect()))
-    } else {
-        None
-    };
+        if let Some(new_ordered) = update.select_ordered {
+            if *ordered && !new_ordered {
+                ensure_rows_take_no_order(conn, &current).await?;
+            }
+            *ordered = new_ordered;
+        }
+    }
+    let new_level = update
+        .level_type_id
+        .flatten()
+        .filter(|_| update.level_type_id != Some(current.level_type_id));
+    let policy = update.policy.clone().or(current.policy.clone());
+    validate_feature(conn, tenant_id, &kind, policy.as_ref(), new_level).await?;
+    // Rows and counts were written for the old level, which a new one would reinterpret.
+    if update
+        .level_type_id
+        .is_some_and(|l| l != current.level_type_id)
+    {
+        if !EntitlementRow::list_by_feature(conn, id, tenant_id)
+            .await?
+            .is_empty()
+        {
+            return Err(invalid(
+                "the level of a feature can't change while it has rows: revoke them first",
+            ));
+        }
+        if kind.counted_by_app()
+            && EntitlementAppCountRow::exists_for_feature(conn, tenant_id, id).await?
+        {
+            return Err(invalid(
+                "the level of a limit counted by the app can't change once it has counts",
+            ));
+        }
+    }
 
+    let select = match &kind {
+        FeatureKind::Value(ValueType::Select { options, ordered }) => Some((options, *ordered)),
+        _ => None,
+    };
+    let options_changed = update.select_options.is_some();
     let patch = FeatureRowPatch {
         name: update.name,
         description: update.description,
         product_id: update.product_id,
-        config_options: config_options_patch,
+        config_options: select
+            .filter(|_| options_changed)
+            .map(|(options, _)| Some(options.iter().cloned().map(Some).collect())),
         status: None,
         updated_at: Some(common_clock::now()),
+        unit: update.unit,
+        number_higher_is_better: update.number_higher_is_better,
+        select_options: select
+            .filter(|_| options_changed)
+            .map(|(options, _)| Some(serde_json::json!(options))),
+        select_ordered: update.select_ordered,
+        level_resource_type_id: update.level_type_id,
+        policy: update.policy.as_ref().map(|p| Some(to_json(p))),
     };
     FeatureRow::update(conn, id, tenant_id, patch)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)
+        .await?
+        .try_into()
 }
 
-/// `replace_entitlements` on the caller's transaction, so a write of the entity and of its
-/// entitlements commit together.
+/// Whether the owner's replaced rows are deleted rather than revoked: those of a draft plan
+/// version, never published. Refuses an owner whose rows are not replaced whole.
+async fn replaced_by_deletion(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    entity: &EntitlementEntityId,
+) -> StoreResult<bool> {
+    match entity {
+        EntitlementEntityId::AddOn(_) | EntitlementEntityId::Plan(_) => Ok(false),
+        EntitlementEntityId::PlanVersion(id) => {
+            Ok(
+                PlanVersionRow::list_by_ids_and_tenant_id(conn, &[*id], tenant_id)
+                    .await?
+                    .first()
+                    .is_some_and(|version| version.is_draft_version),
+            )
+        }
+        EntitlementEntityId::Feature(id) => {
+            feature_of(conn, *id, tenant_id).await?;
+            Ok(false)
+        }
+        EntitlementEntityId::Subscription(id) => {
+            let status: SubscriptionStatusEnum = SubscriptionRow::get_status(conn, &tenant_id, *id)
+                .await?
+                .into();
+            if status.is_terminal() {
+                return Err(Report::new(StoreError::Conflict(
+                    "The subscription has ended: its entitlements no longer change".into(),
+                )));
+            }
+            Ok(false)
+        }
+        EntitlementEntityId::Customer(_) | EntitlementEntityId::Quote(_) => Err(invalid(
+            "only the rows of an add-on, a plan, a draft version, a feature or a subscription are \
+             replaced whole",
+        )),
+    }
+}
+
+/// What a spec is matched to an open row by: its feature, level and condition.
+fn replace_key(
+    feature_id: FeatureId,
+    level: EntitlementLevelEnum,
+    level_type_id: Option<ResourceTypeId>,
+    condition_hash: &str,
+) -> String {
+    format!("{feature_id}:{level:?}:{level_type_id:?}:{condition_hash}")
+}
+
+/// Whether the open row already is what the spec, built as `row`, asks for.
+fn repeats(open: &Entitlement, row: &EntitlementRowNew, spec: &EntitlementSpec) -> bool {
+    open.value == spec.value
+        && EntitlementEffectEnum::from(open.effect) == row.effect
+        && open.valid_from == spec.valid_from
+        && open.valid_until == spec.valid_until
+        && open.reason == spec.reason
+        && open.policy_override == spec.policy_override
+}
+
+/// `replace_entitlements` on the caller's transaction, so a write of the owner and of its rows
+/// commit together. The caller holds the owner's lock and bumps its inputs
+/// (`InputsOwner::of_entitlement`: the customer of a subscription, else the tenant).
 pub(crate) async fn replace_entitlements_tx(
     conn: &mut PgConn,
+    actor: Option<&Actor>,
     tenant_id: TenantId,
     entity: EntitlementEntityId,
     specs: Vec<EntitlementSpec>,
 ) -> StoreResult<Vec<Entitlement>> {
-    ensure_replaceable_entity(conn, tenant_id, &entity).await?;
-    replace_entity_entitlements_tx(conn, tenant_id, entity, specs).await?;
+    let deleting = replaced_by_deletion(conn, tenant_id, &entity).await?;
+    let owner = CheckedOwner::check(conn, tenant_id, entity).await?;
+    let built = build_entitlement_rows(conn, specs.clone(), owner, tenant_id, actor, false).await?;
+
+    let mut open: HashMap<String, Vec<Entitlement>> = HashMap::new();
+    for row in EntitlementRow::list_by_entity(conn, tenant_id, entity).await? {
+        let key = replace_key(
+            row.feature_id,
+            row.level,
+            row.level_type_id,
+            &row.condition_hash,
+        );
+        open.entry(key).or_default().push(row.try_into()?);
+    }
+    for rows in open.values_mut() {
+        rows.sort_by_key(|e| (e.valid_from.unwrap_or(e.lineage_created_at), e.created_at));
+    }
+    let mut wanted: Vec<(EntitlementRowNew, EntitlementSpec)> =
+        built.into_iter().zip(specs).collect();
+    wanted.sort_by_key(|(row, _)| row.valid_from);
+
+    // Paired in validity order within a key; what is left on either side goes or comes.
+    let mut inserts: Vec<EntitlementRowNew> = Vec::new();
+    let mut replaced: Vec<EntitlementId> = Vec::new();
+    for (mut row, spec) in wanted {
+        let key = replace_key(
+            row.feature_id,
+            row.level,
+            row.level_type_id,
+            &row.condition_hash,
+        );
+        let paired = open
+            .get_mut(&key)
+            .filter(|rows| !rows.is_empty())
+            .map(|rows| rows.remove(0));
+        match paired {
+            Some(current) if repeats(&current, &row, &spec) => {}
+            Some(current) => {
+                row.lineage_id = current.id;
+                row.lineage_created_at = current.lineage_created_at;
+                replaced.push(current.id);
+                inserts.push(row);
+            }
+            None => inserts.push(row),
+        }
+    }
+    let gone: Vec<EntitlementId> = open
+        .into_values()
+        .flatten()
+        .map(|e| e.id)
+        .chain(replaced)
+        .collect();
+
+    if deleting {
+        EntitlementRow::delete_lineages(conn, tenant_id, entity, &gone).await?;
+    } else {
+        let revoked_by = actor.and_then(Actor::as_uuid);
+        for lineage in &gone {
+            EntitlementRow::revoke_open(conn, tenant_id, *lineage, revoked_by).await?;
+        }
+    }
+    ensure_no_overlap(conn, &inserts).await?;
+    EntitlementRowNew::insert_batch(&inserts, conn).await?;
+
     EntitlementRow::list_by_entity(conn, tenant_id, entity)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?
+        .await?
         .into_iter()
         .map(TryInto::try_into)
-        .collect::<Result<Vec<Entitlement>, _>>()
+        .collect()
 }
 
-/// `set_product_feature_defaults` on the caller's transaction.
+/// `set_product_feature_defaults` on the caller's transaction. The caller bumps the tenant's
+/// inputs.
 pub(crate) async fn set_product_feature_defaults_tx(
     conn: &mut PgConn,
+    actor: Option<&Actor>,
     tenant_id: TenantId,
     product_id: ProductId,
     specs: Vec<EntitlementSpec>,
 ) -> StoreResult<()> {
-    ProductRow::find_by_id_and_tenant_id(conn, product_id, tenant_id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-    let features = FeatureRow::list_live_by_product(conn, tenant_id, product_id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-    let mut specs = specs;
+    ProductRow::find_by_id_and_tenant_id(conn, product_id, tenant_id).await?;
+    let features = FeatureRow::list_live_by_product(conn, tenant_id, product_id).await?;
     if let Some(stranger) = specs
         .iter()
         .find(|spec| !features.iter().any(|f| f.id == spec.feature_id))
     {
-        return Err(Report::new(StoreError::InvalidArgument(format!(
+        return Err(invalid(format!(
             "feature {} is not a live feature of product {product_id}",
             stranger.feature_id
-        ))));
+        )));
     }
+    let mut by_feature = specs.into_iter().into_group_map_by(|spec| spec.feature_id);
     for feature in &features {
-        let (own, rest): (Vec<EntitlementSpec>, Vec<EntitlementSpec>) = std::mem::take(&mut specs)
-            .into_iter()
-            .partition(|spec| spec.feature_id == feature.id);
-        specs = rest;
-        replace_entity_entitlements_tx(
+        replace_entitlements_tx(
             conn,
+            actor,
             tenant_id,
             EntitlementEntityId::Feature(feature.id),
-            own,
+            by_feature.remove(&feature.id).unwrap_or_default(),
         )
         .await?;
     }
     Ok(())
 }
 
-pub(crate) use crate::services::entitlements::limits::rules::{
-    BillingCyclePeriod, compute_usage_period,
-};
-
-async fn entitlement_owner(
-    conn: &mut PgConn,
-    id: EntitlementId,
-    tenant_id: TenantId,
-) -> StoreResult<InputsOwner> {
-    let existing = EntitlementRow::find_by_id(conn, id, tenant_id).await?;
-    InputsOwner::of_entitlement(conn, tenant_id, &existing.entity_type, existing.entity_id).await
-}
-
-fn build_feature_entitlement_map(
-    rows: Vec<EntitlementRow>,
-) -> StoreResult<std::collections::HashMap<FeatureId, Entitlement>> {
-    rows.into_iter()
-        .map(|row| {
-            let fid = FeatureId::from(row.entity_id);
-            TryInto::<Entitlement>::try_into(row).map(|e| (fid, e))
-        })
-        .collect()
-}
-
-/// Enrich each [`RawResolvedEntitlement`] with a display name for its origin entity, producing
-/// [`ResolvedEntitlement`]. Batch-loads names per variant in a single round-trip each. The
-/// non-optional `origin.name` on the returned type is the type-level signal that enrichment
-/// has happened; empty string indicates the linked entity was deleted or has no name.
-async fn with_origin_names(
+/// The readout with a display name for each origin.
+pub(crate) async fn with_origin_names(
     conn: &mut PgConn,
     tenant_id: TenantId,
-    items: Vec<RawResolvedEntitlement>,
+    items: Vec<(FeatureRef, ResolvedEntitlementValue, EntitlementEntityId)>,
 ) -> StoreResult<Vec<ResolvedEntitlement>> {
-    use std::collections::{HashMap, HashSet};
-
-    // 1) Collect distinct ids per variant.
-    let mut plan_ids: HashSet<PlanId> = HashSet::new();
-    let mut pv_ids: HashSet<PlanVersionId> = HashSet::new();
-    let mut addon_ids: HashSet<AddOnId> = HashSet::new();
-    let mut feature_ids: HashSet<FeatureId> = HashSet::new();
-    for it in items.iter() {
-        match it.origin_entity {
-            EntitlementEntityId::Plan(id) => {
-                plan_ids.insert(id);
-            }
-            EntitlementEntityId::PlanVersion(id) => {
-                pv_ids.insert(id);
-            }
-            EntitlementEntityId::AddOn(id) => {
-                addon_ids.insert(id);
-            }
-            EntitlementEntityId::Feature(id) => {
-                feature_ids.insert(id);
-            }
-            EntitlementEntityId::Customer(_)
-            | EntitlementEntityId::Subscription(_)
-            | EntitlementEntityId::Quote(_) => {}
-        }
-    }
-
-    // 2) Batch-load plan names (needed for Plan and PlanVersion origins).
-    //    For PlanVersion we also need the version number and parent plan_id from the PV row.
-    let pv_info: HashMap<PlanVersionId, (PlanId, i32)> = if pv_ids.is_empty() {
-        HashMap::new()
-    } else {
-        let ids: Vec<PlanVersionId> = pv_ids.into_iter().collect();
-        PlanVersionRow::list_by_ids_and_tenant_id(conn, &ids, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-            .into_iter()
-            .map(|pv| (pv.id, (pv.plan_id, pv.version)))
-            .collect()
-    };
-    // Add any parent plan_ids from PV rows that aren't already in plan_ids.
-    for (plan_id, _) in pv_info.values() {
-        plan_ids.insert(*plan_id);
-    }
-
-    let plan_names: HashMap<PlanId, String> = if plan_ids.is_empty() {
-        HashMap::new()
-    } else {
-        let ids: Vec<PlanId> = plan_ids.into_iter().collect();
-        PlanRow::list_by_ids(conn, &ids, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-            .into_iter()
-            .map(|p| (p.id, p.name))
-            .collect()
-    };
-
-    let addon_names: HashMap<AddOnId, String> = if addon_ids.is_empty() {
-        HashMap::new()
-    } else {
-        let ids: Vec<AddOnId> = addon_ids.into_iter().collect();
-        AddOnRow::list_by_ids(conn, &ids, &tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-            .into_iter()
-            .map(|a| (a.id, a.name))
-            .collect()
-    };
-
-    let feature_names: HashMap<FeatureId, String> = if feature_ids.is_empty() {
-        HashMap::new()
-    } else {
-        let ids: Vec<FeatureId> = feature_ids.into_iter().collect();
-        FeatureRow::find_by_ids(conn, tenant_id, &ids)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-            .into_iter()
-            .map(|r| (r.feature.id, r.feature.name))
-            .collect()
-    };
-
-    let lookup = |entity: &EntitlementEntityId| -> Option<String> {
-        match entity {
-            EntitlementEntityId::Plan(id) => plan_names.get(id).cloned(),
-            EntitlementEntityId::PlanVersion(id) => pv_info
-                .get(id)
-                .and_then(|(plan_id, ver)| plan_names.get(plan_id).map(|n| format!("{n} v{ver}"))),
-            EntitlementEntityId::AddOn(id) => addon_names.get(id).cloned(),
-            EntitlementEntityId::Feature(id) => feature_names.get(id).cloned(),
-            EntitlementEntityId::Customer(_)
-            | EntitlementEntityId::Subscription(_)
-            | EntitlementEntityId::Quote(_) => None,
-        }
-    };
-
+    let origins = items
+        .iter()
+        .map(|(_, _, origin)| *origin)
+        .filter(|origin| !matches!(origin, EntitlementEntityId::Subscription(_)));
+    let names = SourceNames::load(conn, tenant_id, origins, []).await?;
     Ok(items
         .into_iter()
-        .map(|raw| ResolvedEntitlement {
-            feature: raw.feature,
-            value: raw.value,
+        .map(|(feature, value, entity)| ResolvedEntitlement {
+            feature,
+            value,
             origin: ResolvedOrigin {
-                name: lookup(&raw.origin_entity),
-                entity: raw.origin_entity,
+                name: names.entity(&entity),
+                entity,
             },
         })
         .collect())
 }
 
-fn value_to_json(value: &EntitlementValue) -> StoreResult<serde_json::Value> {
-    serde_json::to_value(value).map_err(|e| {
-        Report::new(StoreError::InvalidArgument(format!(
-            "failed to serialize entitlement value: {e}"
-        )))
-    })
-}
+/// Display names of entitlement owners, read in one query.
+pub(crate) struct SourceNames(EntitlementSourceNames);
 
-/// Pick the composition mode automatically based on the owning entity.
-/// AddOn with `max_instances_per_subscription > 1` (or NULL = unbounded) → `Stack`, so each
-/// instance of the add-on stacks additively (e.g. each credits pack adds 1000). Everything
-/// else → `Override` (the entity's value replaces lower-priority levels in the chain).
-pub(crate) async fn resolve_mode_for_entity(
-    conn: &mut PgConn,
-    entity: &EntitlementEntityId,
-    tenant_id: TenantId,
-) -> StoreResult<EntitlementModeEnum> {
-    match entity {
-        EntitlementEntityId::AddOn(add_on_id) => {
-            is_addon_multi_instance(conn, *add_on_id, tenant_id)
-                .await
-                .map(|multi| {
-                    if multi {
-                        EntitlementModeEnum::Stack
-                    } else {
-                        EntitlementModeEnum::Override
-                    }
-                })
-        }
-        _ => Ok(EntitlementModeEnum::Override),
-    }
-}
-
-async fn is_addon_multi_instance(
-    conn: &mut PgConn,
-    add_on_id: AddOnId,
-    tenant_id: TenantId,
-) -> StoreResult<bool> {
-    let rows = AddOnRow::list_by_ids(conn, &[add_on_id], &tenant_id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-    let Some(ao) = rows.into_iter().next() else {
-        return Err(Report::new(StoreError::InvalidArgument(format!(
-            "add-on {add_on_id} not found"
-        ))));
-    };
-    Ok(match ao.max_instances_per_subscription {
-        None => true,
-        Some(n) => n > 1,
-    })
-}
-
-/// Build the `EntitlementRowNew` batch for one entity, validating each spec's value variant
-/// against its feature's type. Shared by `insert_entitlement_specs` and
-/// `batch_create_entitlements` — they differ only in which insert path runs afterwards
-/// (`insert_batch` vs `insert_batch_skip_conflicts`).
-/// Archived features take no new entitlements: with `skip_archived` their specs are dropped, so
-/// creating an entity never fails on a feature's status, and otherwise they are rejected.
-async fn build_entitlement_rows(
-    conn: &mut PgConn,
-    specs: Vec<EntitlementSpec>,
-    entity: &EntitlementEntityId,
-    tenant_id: TenantId,
-    skip_archived: bool,
-) -> StoreResult<Vec<EntitlementRowNew>> {
-    let feature_ids: Vec<FeatureId> = specs.iter().map(|s| s.feature_id).collect();
-    let archived: HashSet<FeatureId> = FeatureRow::find_archived_ids(conn, tenant_id, &feature_ids)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?
-        .into_iter()
-        .collect();
-    let features: Vec<FeatureWithProductRow> =
-        FeatureRow::find_by_ids(conn, tenant_id, &feature_ids)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-    let feature_type_map: std::collections::HashMap<FeatureId, Feature> = features
-        .into_iter()
-        .map(TryInto::try_into)
-        .collect::<Result<Vec<Feature>, _>>()?
-        .into_iter()
-        .map(|f| (f.id, f))
-        .collect();
-
-    let mode = resolve_mode_for_entity(conn, entity, tenant_id).await?;
-    let entity_id = entity.as_uuid();
-    let entity_type = EntitlementEntityTypeEnum::from(entity);
-
-    let mut rows = Vec::with_capacity(specs.len());
-    for spec in specs {
-        if archived.contains(&spec.feature_id) {
-            if skip_archived {
-                continue;
+impl SourceNames {
+    pub(crate) async fn load(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        entities: impl IntoIterator<Item = EntitlementEntityId>,
+        resources: impl IntoIterator<Item = ResourceId>,
+    ) -> StoreResult<Self> {
+        let mut ids = EntitlementSourceIds::default();
+        for entity in entities.into_iter().unique() {
+            match entity {
+                EntitlementEntityId::Feature(id) => ids.features.push(*id),
+                EntitlementEntityId::Plan(id) => ids.plans.push(*id),
+                EntitlementEntityId::PlanVersion(id) => ids.plan_versions.push(*id),
+                EntitlementEntityId::AddOn(id) => ids.add_ons.push(*id),
+                EntitlementEntityId::Subscription(id) => ids.subscriptions.push(*id),
+                EntitlementEntityId::Quote(_) | EntitlementEntityId::Customer(_) => {}
             }
-            return Err(Report::new(StoreError::InvalidArgument(format!(
-                "feature {} is archived",
-                spec.feature_id
-            ))));
         }
-        let feature = feature_type_map.get(&spec.feature_id).ok_or_else(|| {
-            Report::new(StoreError::InvalidArgument(format!(
-                "feature {} not found",
-                spec.feature_id
-            )))
-        })?;
-        validate_value_matches_feature_type(&spec.value, &feature.feature_type)?;
-        validate_grouping(conn, tenant_id, &feature.feature_type, &spec.value).await?;
-        let json_value = value_to_json(&spec.value)?;
-        rows.push(EntitlementRowNew {
-            id: EntitlementId::new(),
-            tenant_id,
-            feature_id: spec.feature_id,
-            entity_id,
-            entity_type,
-            mode: mode.clone().into(),
-            value: json_value,
-        });
-    }
-    Ok(rows)
-}
-
-/// Insert a batch of entitlement specs for a single entity inside an existing transaction.
-/// The caller provides the entity (the thing being created), tenant/actor context, and the specs.
-/// Specs for archived features are skipped, see `build_entitlement_rows`.
-pub(crate) async fn insert_entitlement_specs(
-    conn: &mut PgConn,
-    specs: Vec<EntitlementSpec>,
-    entity: EntitlementEntityId,
-    tenant_id: TenantId,
-) -> StoreResult<Vec<Entitlement>> {
-    if specs.is_empty() {
-        return Ok(vec![]);
+        ids.resources = resources.into_iter().unique().map(|id| *id).collect();
+        Ok(Self(entitlement_source_names(conn, tenant_id, &ids).await?))
     }
 
-    let rows = build_entitlement_rows(conn, specs, &entity, tenant_id, true).await?;
-    if rows.is_empty() {
-        return Ok(vec![]);
+    /// The names `contributions` need: the owners of rows above the defaults and below overrides.
+    pub(crate) async fn for_contributions<'a>(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        contributions: impl IntoIterator<Item = &'a Contribution>,
+        resources: impl IntoIterator<Item = ResourceId>,
+    ) -> StoreResult<Self> {
+        let owners = contributions
+            .into_iter()
+            .filter(|c| {
+                !matches!(
+                    c.tier,
+                    Tier::Default | Tier::Customer | Tier::ResourceOverride
+                )
+            })
+            .map(|c| c.source)
+            .collect::<Vec<_>>();
+        Self::load(conn, tenant_id, owners, resources).await
     }
-    EntitlementRowNew::insert_batch(&rows, conn)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)
-        .and_then(|rows| rows.into_iter().map(TryInto::try_into).collect())
+
+    /// An origin of the legacy readout: its own name; none for a customer, subscription or quote.
+    pub(crate) fn entity(&self, entity: &EntitlementEntityId) -> Option<String> {
+        let names = &self.0;
+        match entity {
+            EntitlementEntityId::Feature(id) => names.features.get(&**id),
+            EntitlementEntityId::Plan(id) => names.plans.get(&**id),
+            EntitlementEntityId::PlanVersion(id) => names.plan_versions.get(&**id),
+            EntitlementEntityId::AddOn(id) => names.add_ons.get(&**id),
+            EntitlementEntityId::Customer(_)
+            | EntitlementEntityId::Subscription(_)
+            | EntitlementEntityId::Quote(_) => None,
+        }
+        .cloned()
+    }
+
+    /// A resource override is named after `resource`, the one its level was read for.
+    pub(crate) fn contribution(
+        &self,
+        c: &Contribution,
+        resource: Option<ResourceId>,
+    ) -> Option<String> {
+        match (c.tier, c.source) {
+            (Tier::Default, _) => Some("Default".to_owned()),
+            (Tier::Customer, _) => Some("Customer override".to_owned()),
+            (Tier::ResourceOverride, _) => {
+                resource.and_then(|id| self.0.resources.get(&*id).cloned())
+            }
+            (_, EntitlementEntityId::Subscription(id)) => self.0.subscriptions.get(&*id).cloned(),
+            (_, entity) => self.entity(&entity),
+        }
+    }
+
+    pub(crate) fn name<'a>(
+        &self,
+        contributions: impl IntoIterator<Item = &'a mut Contribution>,
+        resource: Option<ResourceId>,
+    ) {
+        for c in contributions {
+            c.source_name = self.contribution(c, resource);
+        }
+    }
 }
 
 fn build_chain_for_product(_: ProductId) -> Vec<EntitlementEntityId> {
@@ -1650,10 +2098,7 @@ fn build_chain_for_addon(addon_id: AddOnId) -> Vec<EntitlementEntityId> {
     vec![EntitlementEntityId::AddOn(addon_id)]
 }
 
-/// Pure chain assembly for a plan version target: `[Plan, PlanVersion, AddOn₁..n]`.
-/// Shared by PlanVersion / Subscription / Quote / Selection targets. Vec order is
-/// insertion order, not priority order — `resolve()` re-sorts by priority, which
-/// puts AddOns below PlanVersion (PlanVersion overrides its linked AddOns).
+/// The owners of a plan version target, `[Plan, PlanVersion, AddOn₁..n]`; the fold orders them by tier.
 fn plan_version_chain(
     plan_id: PlanId,
     plan_version_id: PlanVersionId,
@@ -1677,7 +2122,29 @@ async fn build_chain_for_subscription(
     let addon_ids = SubscriptionAddOnRow::list_active_add_on_ids(conn, &[sub_id], &tenant_id)
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
-    let mut chain = plan_version_chain(sub.plan_id, sub.subscription.plan_version_id, &addon_ids);
+    // The plan in effect, as checks read it: a trial's trialing plan (§3.9).
+    let version = crate::services::effective_plan_versions(
+        conn,
+        tenant_id,
+        std::slice::from_ref(&sub.subscription),
+    )
+    .await?
+    .get(&sub_id)
+    .copied()
+    .unwrap_or(sub.subscription.plan_version_id);
+    let plan_id = if version == sub.subscription.plan_version_id {
+        sub.plan_id
+    } else {
+        PlanVersionRow::get_plan_ids_by_version_ids(conn, &[version])
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .get(&version)
+            .copied()
+            .ok_or_else(|| {
+                Report::new(StoreError::ValueNotFound(format!("plan version {version}")))
+            })?
+    };
+    let mut chain = plan_version_chain(plan_id, version, &addon_ids);
     chain.push(EntitlementEntityId::Customer(sub.customer_id));
     chain.push(EntitlementEntityId::Subscription(sub_id));
     Ok(chain)
@@ -1849,816 +2316,9 @@ async fn build_chain_and_products(
     }
 }
 
-/// True when `chain` contains both a `Subscription(_)` and a `Quote(_)` — a configuration
-/// the resolver assumes never occurs (a chain is built per customer subscription *or* per
-/// quote, never both). Used by a `debug_assert!` in [`resolve_for_chain`].
-fn chain_mixes_subscription_and_quote(chain: &[EntitlementEntityId]) -> bool {
-    let mut has_sub = false;
-    let mut has_quote = false;
-    for e in chain {
-        match e {
-            EntitlementEntityId::Subscription(_) => has_sub = true,
-            EntitlementEntityId::Quote(_) => has_quote = true,
-            _ => {}
-        }
-        if has_sub && has_quote {
-            return true;
-        }
-    }
-    false
-}
-
-/// Shared resolution pipeline used by both `resolve_for_entity` and `resolve_entitlements_tx`.
-///
-/// ## Resolution algorithm
-/// 1. Load scoped features (not deleted) for `product_ids`, including
-///    globally-scoped features (`product_id IS NULL`). Product names are joined at DB level.
-/// 2. Load entity-bound entitlements for every id in `chain`, optionally narrowed to
-///    `filter_feature_id` at the DB level.
-/// 3. Load feature-level (tenant-default) entitlements, restricted to scoped feature ids
-///    to prevent cross-product leakage.
-/// 4. Drop rows outside the product scope or `filter_feature_id`.
-/// 5. [`resolve`]: sort by `entity.priority()` asc — `Feature(0) < Plan(1) < AddOn(2) <
-///    PlanVersion(3) < Subscription(4) = Quote(4) < Customer(5)` — then fold. Higher priority replaces
-///    accumulated; same-priority merges permissively (or additively for multi-instance
-///    add-ons). Features with status != Active are skipped.
-/// 6. [`with_origin_names`]: batch-load display names for each distinct origin entity variant.
-async fn resolve_for_chain(
-    conn: &mut PgConn,
-    tenant_id: TenantId,
-    chain: &[EntitlementEntityId],
-    product_ids: &[ProductId],
-    include_globals: bool,
-    filter_feature_id: Option<FeatureId>,
-) -> StoreResult<Vec<ResolvedEntitlement>> {
-    debug_assert!(
-        !chain_mixes_subscription_and_quote(chain),
-        "resolution chain must not mix Subscription and Quote (they share priority 4)"
-    );
-
-    let scoped_feature_rows =
-        FeatureRow::find_active_for_products(conn, tenant_id, product_ids, include_globals)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-    let scoped_features: Vec<Feature> = scoped_feature_rows
-        .into_iter()
-        .map(TryInto::try_into)
-        .collect::<Result<Vec<_>, _>>()?;
-    let scoped_feature_ids: Vec<FeatureId> = scoped_features.iter().map(|f| f.id).collect();
-
-    let entity_rows = if chain.is_empty() {
-        Vec::new()
-    } else {
-        EntitlementRow::list_by_entity_ids(conn, tenant_id, chain, filter_feature_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-    };
-    let feature_level_rows =
-        EntitlementRow::list_feature_level_entitlements(conn, tenant_id, Some(&scoped_feature_ids))
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-    let all_entitlements: Vec<Entitlement> = entity_rows
-        .into_iter()
-        .chain(feature_level_rows)
-        .map(TryInto::try_into)
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .filter(|e: &Entitlement| scoped_feature_ids.contains(&e.feature_id))
-        .filter(|e| filter_feature_id.is_none_or(|fid| e.feature_id == fid))
-        .collect();
-
-    let features_in_play: Vec<Feature> = match filter_feature_id {
-        Some(fid) => scoped_features
-            .into_iter()
-            .filter(|f| f.id == fid)
-            .collect(),
-        None => scoped_features,
-    };
-
-    let multi_instance_addons = load_multi_instance_addons(conn, tenant_id, chain).await?;
-
-    let mut resolved = resolve(all_entitlements, features_in_play, &multi_instance_addons);
-    let subscription = chain.iter().find_map(|entity| match entity {
-        EntitlementEntityId::Subscription(id) => Some(*id),
-        _ => None,
-    });
-    if let Some(subscription) = subscription {
-        Box::pin(scale_by_quantities(
-            conn,
-            tenant_id,
-            subscription,
-            &mut resolved,
-        ))
-        .await?;
-    }
-    with_origin_names(conn, tenant_id, resolved).await
-}
-
-/// A limit counted per unit of a managed quantity is the entitlement's times the units the
-/// subscription holds now. Rules: R-133
-async fn scale_by_quantities(
-    conn: &mut PgConn,
-    tenant_id: TenantId,
-    subscription: SubscriptionId,
-    resolved: &mut [RawResolvedEntitlement],
-) -> StoreResult<()> {
-    let features: Vec<FeatureId> = resolved.iter().map(|r| r.feature.id).collect();
-    let per = diesel_models::query::managed_quantities::feature_limit_quantities(
-        conn, tenant_id, &features,
-    )
-    .await
-    .map_err(Into::<Report<StoreError>>::into)?;
-    if per.is_empty() {
-        return Ok(());
-    }
-    let now = common_clock::now().naive_utc();
-    for entitlement in resolved.iter_mut() {
-        let Some(quantity) = per.get(&entitlement.feature.id) else {
-            continue;
-        };
-        if let ResolvedEntitlementValue::Metered {
-            limit: Some(limit), ..
-        } = &mut entitlement.value
-        {
-            let held = diesel_models::slot_transactions::SlotTransactionRow::fetch_active_slots(
-                conn,
-                tenant_id,
-                subscription,
-                *quantity,
-                now,
-            )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-            .unwrap_or(0);
-            *limit *= rust_decimal::Decimal::from(held.max(0));
-        }
-    }
-    Ok(())
-}
-
-/// Identify add-ons in the chain that are multi-instance (`max_instances_per_subscription` > 1
-/// or NULL). Entitlements owned by these add-ons compose additively when colliding at the same
-/// priority; other entities compose permissively. See [`resolve`].
-async fn load_multi_instance_addons(
-    conn: &mut PgConn,
-    tenant_id: TenantId,
-    chain: &[EntitlementEntityId],
-) -> StoreResult<std::collections::HashSet<AddOnId>> {
-    let add_on_ids: Vec<AddOnId> = chain
-        .iter()
-        .filter_map(|e| match e {
-            EntitlementEntityId::AddOn(id) => Some(*id),
-            _ => None,
-        })
-        .collect();
-    if add_on_ids.is_empty() {
-        return Ok(std::collections::HashSet::new());
-    }
-    let rows = AddOnRow::list_by_ids(conn, &add_on_ids, &tenant_id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-    Ok(rows
-        .into_iter()
-        .filter(|a| a.max_instances_per_subscription.is_none_or(|n| n > 1))
-        .map(|a| a.id)
-        .collect())
-}
-
-/// Customer-wide entitlement resolution.
-///
-/// Each active subscription is resolved **independently** (its own chain — including the customer
-/// and feature layers — via [`ResolveTarget::Subscription`]) and the results are OR-combined
-/// across subscriptions: a feature is enabled for the customer if it resolves enabled on *any*
-/// subscription; metered limits take the most permissive. Folding every subscription into one
-/// flat chain would instead let a value set on one subscription mask another's — e.g. one site
-/// disabling a feature would hide another site's grant — so the per-subscription pass is what
-/// keeps `enabled on site A / disabled on site B` correct. Per-subscription resolution stays
-/// authoritative for site-scoped checks; this answers "does the customer have it anywhere".
-///
-/// Crucially the OR is across subscriptions **only**. Each subscription pass already folds in the
-/// `Feature` (baseline) and `Customer` (top-priority force) layers, so a customer-level force wins
-/// within every scope while a plan or subscription can still override the feature default. The
-/// separate account-level pass (`Feature` + `Customer` only) is a **fallback**: it fills features
-/// no subscription's product scope covers (e.g. a customer force on an unsubscribed product) and
-/// is the sole result for a customer with no active subscription. It is not OR'd as a peer — doing
-/// so would let the low-priority `Feature` default resurrect a feature a subscription disabled.
-async fn resolve_entitlements_tx(
-    conn: &mut PgConn,
-    customer_id: CustomerId,
-    tenant_id: TenantId,
-    filter_feature_id: Option<FeatureId>,
-) -> StoreResult<Vec<ResolvedEntitlement>> {
-    use std::collections::HashSet;
-
-    let sub_rows = SubscriptionRow::find_active_by_customer(conn, customer_id, tenant_id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-    // Account-level baseline: tenant-global feature defaults (priority 0) plus this customer's
-    // own overrides (priority 1). The product scope includes the products of any feature the
-    // customer overrides so product-scoped customer grants resolve too (globals are always in
-    // scope via `include_globals`).
-    let account_chain = [EntitlementEntityId::Customer(customer_id)];
-    let account_products = customer_override_product_ids(conn, tenant_id, customer_id).await?;
-    let account = resolve_for_chain(
-        conn,
-        tenant_id,
-        &account_chain,
-        &account_products,
-        true,
-        filter_feature_id,
-    )
-    .await?;
-
-    if sub_rows.is_empty() {
-        return Ok(account);
-    }
-
-    let mut sub_scopes: Vec<Vec<ResolvedEntitlement>> = Vec::with_capacity(sub_rows.len());
-    for sub in &sub_rows {
-        let scope =
-            build_chain_and_products(conn, tenant_id, ResolveTarget::Subscription(sub.id)).await?;
-        let resolved = resolve_for_chain(
-            conn,
-            tenant_id,
-            &scope.chain,
-            &scope.product_ids,
-            scope.include_globals,
-            filter_feature_id,
-        )
-        .await?;
-        sub_scopes.push(resolved);
-    }
-
-    let mut combined = aggregate_scopes_permissive(sub_scopes);
-
-    // Fallback: surface account-level entitlements for features no subscription scope covered.
-    let covered: HashSet<FeatureId> = combined.iter().map(|e| e.feature.id).collect();
-    combined.extend(
-        account
-            .into_iter()
-            .filter(|e| !covered.contains(&e.feature.id)),
-    );
-
-    Ok(combined)
-}
-
-/// Product ids of every feature this customer has a customer-level entitlement for, so the
-/// account-level resolution scope can be widened to include product-scoped customer overrides.
-/// Global features (`product_id IS NULL`) are always in scope and need no widening.
-async fn customer_override_product_ids(
-    conn: &mut PgConn,
-    tenant_id: TenantId,
-    customer_id: CustomerId,
-) -> StoreResult<Vec<ProductId>> {
-    let rows =
-        EntitlementRow::list_by_entity(conn, tenant_id, EntitlementEntityId::Customer(customer_id))
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-    if rows.is_empty() {
-        return Ok(Vec::new());
-    }
-    let feature_ids: Vec<FeatureId> = rows.iter().map(|r| r.feature_id).collect();
-    let features = FeatureRow::find_by_ids(conn, tenant_id, &feature_ids)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-    Ok(features
-        .into_iter()
-        .filter_map(|f| f.feature.product_id)
-        .unique()
-        .collect())
-}
-
-/// OR-combine per-scope resolutions into the customer-wide view. Groups by feature; when a
-/// feature resolves in more than one scope, keeps the most permissive value — boolean OR, and
-/// for metered the larger limit (`None` = unlimited) carrying its own reset/overage. The origin
-/// follows the contributing scope: an already-enabled boolean keeps its origin, and a later
-/// scope only takes it over when it flips the value on.
-fn aggregate_scopes_permissive(scopes: Vec<Vec<ResolvedEntitlement>>) -> Vec<ResolvedEntitlement> {
-    use std::collections::HashMap;
-    use std::collections::hash_map::Entry;
-
-    let mut by_feature: HashMap<FeatureId, ResolvedEntitlement> = HashMap::new();
-    for scope in scopes {
-        for ent in scope {
-            match by_feature.entry(ent.feature.id) {
-                Entry::Vacant(v) => {
-                    v.insert(ent);
-                }
-                Entry::Occupied(mut o) => {
-                    let merged = merge_resolved_permissive(o.get().clone(), ent);
-                    o.insert(merged);
-                }
-            }
-        }
-    }
-    by_feature.into_values().collect()
-}
-
-/// Permissive OR of two already-resolved values for the same feature. Mirrors
-/// [`merge_permissive`] but over [`ResolvedEntitlementValue`], and tracks which scope's origin
-/// to keep. Used only by [`aggregate_scopes_permissive`].
-fn merge_resolved_permissive(
-    a: ResolvedEntitlement,
-    b: ResolvedEntitlement,
-) -> ResolvedEntitlement {
-    match (a.value, b.value) {
-        (
-            ResolvedEntitlementValue::Boolean { enabled: ea },
-            ResolvedEntitlementValue::Boolean { enabled: eb },
-        ) => {
-            let origin = if eb && !ea { b.origin } else { a.origin };
-            ResolvedEntitlement {
-                feature: a.feature,
-                value: ResolvedEntitlementValue::Boolean { enabled: ea || eb },
-                origin,
-            }
-        }
-        (
-            ResolvedEntitlementValue::Metered {
-                metric_id,
-                limit: la,
-                reset_period: rpa,
-                overage_behavior: oba,
-                thresholds: ta,
-                enabled: ea,
-                group_by: gba,
-            },
-            ResolvedEntitlementValue::Metered {
-                limit: lb,
-                reset_period: rpb,
-                overage_behavior: obb,
-                thresholds: tb,
-                enabled: eb,
-                group_by: gbb,
-                ..
-            },
-        ) => {
-            // Larger limit wins (None = unlimited) and carries its own reset/overage/origin.
-            let b_wins = match (la, lb) {
-                (None, _) => false,
-                (Some(_), None) => true,
-                (Some(x), Some(y)) => y > x,
-            };
-            let (limit, reset_period, overage_behavior, group_by, origin) = if b_wins {
-                (lb, rpb, obb, gbb, b.origin)
-            } else {
-                (la, rpa, oba, gba, a.origin)
-            };
-            ResolvedEntitlement {
-                feature: a.feature,
-                value: ResolvedEntitlementValue::Metered {
-                    metric_id,
-                    limit,
-                    reset_period,
-                    overage_behavior,
-                    thresholds: merge_thresholds(&ta, &tb),
-                    enabled: ea || eb,
-                    group_by,
-                },
-                origin,
-            }
-        }
-        // Same feature ⇒ same variant, so a mismatch is unreachable. Keep `a` defensively.
-        (value, _) => ResolvedEntitlement {
-            feature: a.feature,
-            value,
-            origin: a.origin,
-        },
-    }
-}
-
-/// Per-feature fold over a pre-filtered, pre-scoped set of entitlements.
-///
-/// Priority ladder (low → high):
-/// `Feature(0) < Plan(1) < AddOn(2) < PlanVersion(3) < Subscription(4) = Quote(4) < Customer(5)`.
-/// A customer-level force wins for a customer; PlanVersion overrides its linked AddOns
-/// because the plan version is the authoritative composition for the plan.
-///
-/// Algorithm:
-/// - Skip switched-off features (global off-switch) and deleted ones.
-/// - Sort entitlements by `entity.priority()` asc, then `created_at`, then `id` (stable).
-/// - Walk in order. Per entitlement:
-///   - **Same priority as accumulator**: merge with the accumulated value.
-///     - If entity is a multi-instance add-on (member of `multi_instance_addons`) → additive
-///       sum via [`merge_additive`] (algorithm §3).
-///     - Else → permissive merge via [`merge_permissive`] — max for metered limits, OR for
-///       boolean (algorithm §2).
-///   - **Higher priority**: replace the accumulator (algorithm §1).
-/// - `origin` records the entity whose value actually contributed to the resolved value
-///   (algorithm §4). Override / first-seen: the new entity wins. Same-priority permissive
-///   merge: the side that contributed the visible field (the metered limit) wins; boolean
-///   ties keep the existing origin as a stable convention. Same-priority additive merge:
-///   both sides contribute, so the earlier-created entity (the existing accumulator's
-///   origin, since entries within a priority bucket are sorted by `created_at` ascending)
-///   is kept as the stable choice.
-///
-/// The stored `Entitlement.mode` column is **ignored** — composition is derived from
-/// `multi_instance_addons` at resolve time, so changes to an add-on's `max_instances_per_subscription`
-/// take effect without rewriting historic entitlement rows.
-fn resolve(
-    entitlements: Vec<Entitlement>,
-    features: Vec<Feature>,
-    multi_instance_addons: &std::collections::HashSet<AddOnId>,
-) -> Vec<RawResolvedEntitlement> {
-    use std::collections::HashMap;
-
-    let feature_map: HashMap<FeatureId, Feature> = features
-        .into_iter()
-        .filter(|f| f.status == FeatureStatusEnum::Active)
-        .map(|f| (f.id, f))
-        .collect();
-
-    let by_feature = entitlements.into_iter().into_group_map_by(|e| e.feature_id);
-
-    let mut resolved = Vec::new();
-
-    for (feature_id, mut ents) in by_feature {
-        let Some(feature) = feature_map.get(&feature_id) else {
-            continue;
-        };
-
-        ents.sort_by(|a, b| {
-            a.entity
-                .priority()
-                .cmp(&b.entity.priority())
-                .then(a.created_at.cmp(&b.created_at))
-                .then(a.id.cmp(&b.id))
-        });
-
-        let mut accumulated: Option<EntitlementValue> = None;
-        let mut accumulated_priority: Option<u8> = None;
-        let mut winning_origin: Option<EntitlementEntityId> = None;
-
-        for ent in ents {
-            let pri = ent.entity.priority();
-            let same_priority = accumulated_priority == Some(pri);
-            let is_additive = matches!(
-                ent.entity,
-                EntitlementEntityId::AddOn(aid) if multi_instance_addons.contains(&aid)
-            );
-            // Decide origin before mutating accumulated. New entity wins unless the
-            // existing accumulator's value still dominates the visible field
-            // (permissive merge) or the merge is additive (keep the earlier-created
-            // origin as a stable choice — see fn-level doc).
-            let new_origin = match (&accumulated, same_priority, is_additive) {
-                (Some(_), true, true) => winning_origin.unwrap_or(ent.entity),
-                (Some(prev), true, false) => {
-                    if prev_dominates_under_permissive(prev, &ent.value) {
-                        winning_origin.unwrap_or(ent.entity)
-                    } else {
-                        ent.entity
-                    }
-                }
-                _ => ent.entity,
-            };
-            accumulated = Some(match (accumulated, same_priority) {
-                (Some(prev), true) if is_additive => merge_additive(prev, ent.value),
-                (Some(prev), true) => merge_permissive(prev, ent.value),
-                _ => ent.value,
-            });
-            winning_origin = Some(new_origin);
-            accumulated_priority = Some(pri);
-        }
-
-        let Some(value) = accumulated else { continue };
-
-        let resolved_value = match (feature.feature_type.clone(), value) {
-            (FeatureType::Boolean, EntitlementValue::Boolean { enabled }) => {
-                ResolvedEntitlementValue::Boolean { enabled }
-            }
-            (
-                FeatureType::Metered { metric_id },
-                EntitlementValue::Metered {
-                    limit,
-                    reset_period,
-                    overage_behavior,
-                    thresholds,
-                    enabled,
-                    group_by,
-                },
-            ) => ResolvedEntitlementValue::Metered {
-                metric_id,
-                limit,
-                reset_period,
-                overage_behavior,
-                thresholds,
-                enabled,
-                group_by,
-            },
-            (FeatureType::Config { .. }, EntitlementValue::Config { value }) => {
-                ResolvedEntitlementValue::Config { value }
-            }
-            _ => {
-                log::error!(
-                    "[BUG] entitlement value type mismatch for feature {} — skipping",
-                    feature_id
-                );
-                continue;
-            }
-        };
-
-        resolved.push(RawResolvedEntitlement {
-            feature: FeatureRef {
-                id: feature.id,
-                name: feature.name.clone(),
-                code: feature.code.clone(),
-                product: feature.product.clone(),
-            },
-            value: resolved_value,
-            origin_entity: winning_origin.expect("origin set whenever accumulated is Some"),
-        });
-    }
-
-    resolved
-}
-
-/// Returns true when `prev` already dominates `new` on the visible field under permissive
-/// merge — i.e. merging will not change the field a user reads off the resolved entitlement.
-/// Used by `resolve` to keep the accumulator's origin when its value still wins, so the
-/// reported `origin` matches the entity that actually contributed the resolved value
-/// rather than the latest-iterated one.
-///
-/// - Metered: compare `limit` (None = unlimited > any finite).
-/// - Boolean: OR is symmetric; treat the new entity as the contributor when it flips the
-///   value, otherwise keep the existing origin.
-fn prev_dominates_under_permissive(prev: &EntitlementValue, new: &EntitlementValue) -> bool {
-    match (prev, new) {
-        (
-            EntitlementValue::Metered { limit: la, .. },
-            EntitlementValue::Metered { limit: lb, .. },
-        ) => match (la, lb) {
-            (None, _) => true,
-            (Some(_), None) => false,
-            (Some(x), Some(y)) => x >= y,
-        },
-        (EntitlementValue::Boolean { enabled: a }, EntitlementValue::Boolean { enabled: b }) => {
-            // Only `(false, true)` lets `new` flip the OR; in every other case `prev`
-            // is at least as enabled and keeps the origin.
-            !matches!((a, b), (false, true))
-        }
-        // Config override is last-writer-wins (see `merge_permissive`), so the new grant is
-        // the contributor — do not keep `prev`'s origin.
-        (EntitlementValue::Config { .. }, EntitlementValue::Config { .. }) => false,
-        // Type mismatch should never reach here (validated at insert; logged as `[BUG]`
-        // by the caller). Keep `prev`'s origin to avoid spurious origin churn.
-        _ => true,
-    }
-}
-
-/// Combine two same-priority `EntitlementValue`s, taking the more permissive of each
-/// *visible* field (algorithm rule §2):
-/// - `limit`: `max` (None = unlimited absorbs any finite).
-/// - `enabled`: OR — kill-switch must be set on *every* grant to disable the feature.
-/// - `thresholds`: union — alert at every threshold any grant asks for.
-///
-/// `reset_period`, `overage_behavior` and `group_by` are not part of the "more permissive" comparison;
-/// they take `b`'s value — i.e. the later-iterated grant under the `(priority, created_at, id)`
-/// sort. Callers who need a guaranteed winner across same-priority grants should set the
-/// behavioural fields consistently on every grant for a given feature.
-fn merge_permissive(a: EntitlementValue, b: EntitlementValue) -> EntitlementValue {
-    match (a, b) {
-        (EntitlementValue::Boolean { enabled: ea }, EntitlementValue::Boolean { enabled: eb }) => {
-            EntitlementValue::Boolean { enabled: ea || eb }
-        }
-        (
-            EntitlementValue::Metered {
-                limit: la,
-                reset_period: _,
-                overage_behavior: _,
-                thresholds: ta,
-                enabled: ea,
-                group_by: _,
-            },
-            EntitlementValue::Metered {
-                limit: lb,
-                reset_period: rpb,
-                overage_behavior: obb,
-                thresholds: tb,
-                enabled: eb,
-                group_by: gb,
-            },
-        ) => EntitlementValue::Metered {
-            limit: match (la, lb) {
-                (None, _) | (_, None) => None,
-                (Some(x), Some(y)) => Some(x.max(y)),
-            },
-            reset_period: rpb,
-            overage_behavior: obb,
-            thresholds: merge_thresholds(&ta, &tb),
-            enabled: ea || eb,
-            group_by: gb,
-        },
-        // Config has no "more permissive" ordering; same-priority collisions resolve
-        // last-writer-wins (`b`, later under the (priority, created_at, id) sort).
-        (EntitlementValue::Config { .. }, EntitlementValue::Config { value }) => {
-            EntitlementValue::Config { value }
-        }
-        (a, b) => {
-            log::error!(
-                "[BUG] merge_permissive called with mismatched variants — keeping `a`. \
-                 a={a:?} b={b:?}"
-            );
-            a
-        }
-    }
-}
-
-/// Combine two same-priority `EntitlementValue`s additively (algorithm §3). Triggered when
-/// both entries come from multi-instance add-ons (e.g. two "extra 1000 credits" packs):
-/// - `limit`: sum (`None` stays unlimited).
-/// - `enabled`: OR — kill-switch must be set on every grant to disable. Matches
-///   [`merge_permissive`]: a single enabled grant keeps the entitlement on.
-/// - `thresholds`: take `b`'s when it has any, otherwise fall back to `a`'s.
-/// - `reset_period`, `overage_behavior`, `group_by`: take `b`'s value — set them consistently across the
-///   multi-instance grants if you depend on a particular outcome.
-fn merge_additive(a: EntitlementValue, b: EntitlementValue) -> EntitlementValue {
-    match (a, b) {
-        (EntitlementValue::Boolean { enabled: ea }, EntitlementValue::Boolean { enabled: eb }) => {
-            EntitlementValue::Boolean { enabled: ea || eb }
-        }
-        (
-            EntitlementValue::Metered {
-                limit: la,
-                reset_period: _rpa,
-                overage_behavior: _,
-                thresholds: ta,
-                enabled: ea,
-                group_by: _,
-            },
-            EntitlementValue::Metered {
-                limit: lb,
-                reset_period: rpb,
-                overage_behavior: obb,
-                thresholds: tb,
-                enabled: eb,
-                group_by: gb,
-            },
-        ) => EntitlementValue::Metered {
-            limit: match (la, lb) {
-                (None, _) | (_, None) => None,
-                (Some(x), Some(y)) => Some(x + y),
-            },
-            reset_period: rpb,
-            overage_behavior: obb,
-            thresholds: if tb.is_empty() { ta } else { tb },
-            enabled: ea || eb,
-            group_by: gb,
-        },
-        // Config is not additive; keep last-writer-wins to match `merge_permissive`.
-        (EntitlementValue::Config { .. }, EntitlementValue::Config { value }) => {
-            EntitlementValue::Config { value }
-        }
-        (a, b) => {
-            log::error!(
-                "[BUG] merge_additive called with mismatched variants — keeping `a`. \
-                 a={a:?} b={b:?}"
-            );
-            a
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::entitlements::{
-        FeatureType, OverageBehavior, PeriodUnit, ResetPeriod, ResolvedEntitlementValue,
-    };
-
-    use common_domain::ids::{
-        AddOnId, BaseId, BillableMetricId, PlanId, PlanVersionId, QuoteId, SubscriptionId,
-    };
-
-    fn metered(
-        limit: Option<i64>,
-        reset_period: ResetPeriod,
-        overage_behavior: OverageBehavior,
-        thresholds: Vec<u32>,
-    ) -> Result<(), Report<StoreError>> {
-        validate_value_matches_feature_type(
-            &EntitlementValue::Metered {
-                limit: limit.map(Decimal::from),
-                reset_period,
-                overage_behavior,
-                thresholds,
-                enabled: true,
-                group_by: None,
-            },
-            &FeatureType::metered(BillableMetricId::new()),
-        )
-    }
-
-    #[test]
-    fn limit_settings_without_a_limit_are_rejected() {
-        let block = OverageBehavior::Block {
-            grace_period_pct: None,
-        };
-        let graced = OverageBehavior::Block {
-            grace_period_pct: Some(10),
-        };
-        assert!(metered(None, ResetPeriod::BillingCycle, block.clone(), vec![]).is_ok());
-        assert!(
-            metered(
-                None,
-                ResetPeriod::BillingCycle,
-                OverageBehavior::Allow,
-                vec![]
-            )
-            .is_err()
-        );
-        assert!(metered(None, ResetPeriod::BillingCycle, graced.clone(), vec![]).is_err());
-        assert!(metered(None, ResetPeriod::BillingCycle, block.clone(), vec![80]).is_err());
-        assert!(metered(Some(100), ResetPeriod::BillingCycle, graced, vec![80]).is_ok());
-        assert!(
-            metered(
-                Some(100),
-                ResetPeriod::Never,
-                OverageBehavior::Allow,
-                vec![50, 80, 100]
-            )
-            .is_ok()
-        );
-    }
-
-    #[test]
-    fn thresholds_are_distinct_ascending_percentages() {
-        let block = || OverageBehavior::Block {
-            grace_period_pct: None,
-        };
-        for bad in [
-            vec![0],
-            vec![101],
-            vec![80, 80],
-            vec![90, 80],
-            (1..=11).collect(),
-        ] {
-            assert!(
-                metered(Some(100), ResetPeriod::BillingCycle, block(), bad.clone()).is_err(),
-                "{bad:?}"
-            );
-        }
-        assert!(
-            metered(
-                Some(100),
-                ResetPeriod::BillingCycle,
-                block(),
-                (1..=10).collect()
-            )
-            .is_ok()
-        );
-    }
-
-    #[test]
-    fn a_stored_value_with_inert_terms_is_copied_without_them() {
-        let feature = FeatureType::metered(BillableMetricId::new());
-        let unlimited = EntitlementValue::Metered {
-            limit: None,
-            reset_period: ResetPeriod::BillingCycle,
-            overage_behavior: OverageBehavior::Allow,
-            thresholds: vec![80],
-            enabled: true,
-            group_by: None,
-        };
-        assert!(validate_value_matches_feature_type(&unlimited, &feature).is_err());
-        let copied = unlimited.without_inert_limit_terms();
-        assert!(validate_value_matches_feature_type(&copied, &feature).is_ok());
-
-        let sliding = EntitlementValue::Metered {
-            limit: Some(Decimal::from(200)),
-            reset_period: ResetPeriod::SlidingWindow {
-                unit: PeriodUnit::Hour,
-                interval: 5,
-            },
-            overage_behavior: OverageBehavior::Allow,
-            thresholds: vec![80],
-            enabled: true,
-            group_by: None,
-        };
-        let copied = sliding.without_inert_limit_terms();
-        assert!(matches!(
-            copied,
-            EntitlementValue::Metered {
-                overage_behavior: OverageBehavior::Allow,
-                ref thresholds,
-                ..
-            } if thresholds.is_empty()
-        ));
-    }
-
-    #[test]
-    fn a_sliding_window_takes_no_thresholds() {
-        let sliding = ResetPeriod::SlidingWindow {
-            unit: PeriodUnit::Hour,
-            interval: 5,
-        };
-        let block = OverageBehavior::Block {
-            grace_period_pct: None,
-        };
-        assert!(metered(Some(200), sliding.clone(), block.clone(), vec![80]).is_err());
-        assert!(metered(Some(200), sliding, block, vec![]).is_ok());
-    }
 
     #[test]
     fn chain_for_product_is_empty() {
@@ -2695,23 +2355,6 @@ mod tests {
     }
 
     #[test]
-    fn chain_mixes_sub_and_quote_detects_collision() {
-        // Chains assembled by the builders are disjoint (a chain belongs to one customer
-        // subscription OR one quote). The predicate backs the debug_assert in
-        // `resolve_for_chain`; both Sub-only and Quote-only must be accepted, and the
-        // mixed combination rejected.
-        let plan = EntitlementEntityId::Plan(PlanId::new());
-        let pv = EntitlementEntityId::PlanVersion(PlanVersionId::new());
-        let sub = EntitlementEntityId::Subscription(SubscriptionId::new());
-        let quote = EntitlementEntityId::Quote(QuoteId::new());
-        assert!(!chain_mixes_subscription_and_quote(&[]));
-        assert!(!chain_mixes_subscription_and_quote(&[plan, pv, sub]));
-        assert!(!chain_mixes_subscription_and_quote(&[plan, pv, quote]));
-        assert!(chain_mixes_subscription_and_quote(&[plan, pv, sub, quote]));
-        assert!(chain_mixes_subscription_and_quote(&[quote, sub]));
-    }
-
-    #[test]
     fn plan_version_chain_without_add_ons() {
         let plan_id = PlanId::new();
         let pv_id = PlanVersionId::new();
@@ -2722,1131 +2365,5 @@ mod tests {
                 EntitlementEntityId::PlanVersion(pv_id),
             ]
         );
-    }
-
-    fn make_feature(id: FeatureId, feature_type: FeatureType) -> Feature {
-        Feature {
-            id,
-            tenant_id: TenantId::new(),
-            product: None,
-            name: id.to_string(),
-            code: id.to_string(),
-            description: None,
-            feature_type,
-            status: FeatureStatusEnum::Active,
-            created_at: common_clock::now(),
-            updated_at: common_clock::now(),
-            entitlement: None,
-        }
-    }
-
-    fn make_entitlement(
-        feature_id: FeatureId,
-        entity: EntitlementEntityId,
-        mode: EntitlementModeEnum,
-        value: EntitlementValue,
-    ) -> Entitlement {
-        Entitlement {
-            id: EntitlementId::new(),
-            tenant_id: TenantId::new(),
-            feature_id,
-            entity,
-            mode,
-            value,
-            created_at: common_clock::now(),
-            updated_at: common_clock::now(),
-        }
-    }
-
-    #[test]
-    fn grant_boolean_merges_permissively() {
-        let fid = FeatureId::new();
-        let features = vec![make_feature(fid, FeatureType::Boolean)];
-        let entitlements = vec![
-            make_entitlement(
-                fid,
-                EntitlementEntityId::Plan(PlanId::new()),
-                EntitlementModeEnum::Stack,
-                EntitlementValue::Boolean { enabled: false },
-            ),
-            make_entitlement(
-                fid,
-                EntitlementEntityId::Subscription(SubscriptionId::new()),
-                EntitlementModeEnum::Stack,
-                EntitlementValue::Boolean { enabled: true },
-            ),
-        ];
-
-        let result = resolve(entitlements, features, &std::collections::HashSet::new());
-        assert_eq!(result.len(), 1);
-        assert!(matches!(
-            result[0].value,
-            ResolvedEntitlementValue::Boolean { enabled: true, .. }
-        ));
-    }
-
-    #[test]
-    fn customer_overrides_feature_default() {
-        // A customer-level force replaces the tenant-wide Feature(0) default for that customer.
-        let fid = FeatureId::new();
-        let features = vec![make_feature(fid, FeatureType::Boolean)];
-        let entitlements = vec![
-            make_entitlement(
-                fid,
-                EntitlementEntityId::Feature(fid),
-                EntitlementModeEnum::Override,
-                EntitlementValue::Boolean { enabled: false },
-            ),
-            make_entitlement(
-                fid,
-                EntitlementEntityId::Customer(CustomerId::new()),
-                EntitlementModeEnum::Override,
-                EntitlementValue::Boolean { enabled: true },
-            ),
-        ];
-        let result = resolve(entitlements, features, &std::collections::HashSet::new());
-        assert_eq!(result.len(), 1);
-        assert!(matches!(
-            result[0].value,
-            ResolvedEntitlementValue::Boolean { enabled: true, .. }
-        ));
-        assert!(matches!(
-            result[0].origin_entity,
-            EntitlementEntityId::Customer(_)
-        ));
-    }
-
-    #[test]
-    fn customer_force_overrides_plan() {
-        // A customer-level force (top priority) wins over a plan grant.
-        let fid = FeatureId::new();
-        let features = vec![make_feature(fid, FeatureType::Boolean)];
-        let entitlements = vec![
-            make_entitlement(
-                fid,
-                EntitlementEntityId::Plan(PlanId::new()),
-                EntitlementModeEnum::Override,
-                EntitlementValue::Boolean { enabled: false },
-            ),
-            make_entitlement(
-                fid,
-                EntitlementEntityId::Customer(CustomerId::new()),
-                EntitlementModeEnum::Override,
-                EntitlementValue::Boolean { enabled: true },
-            ),
-        ];
-        let result = resolve(entitlements, features, &std::collections::HashSet::new());
-        assert_eq!(result.len(), 1);
-        assert!(matches!(
-            result[0].value,
-            ResolvedEntitlementValue::Boolean { enabled: true, .. }
-        ));
-        assert!(matches!(
-            result[0].origin_entity,
-            EntitlementEntityId::Customer(_)
-        ));
-    }
-
-    #[test]
-    fn customer_force_overrides_subscription() {
-        // A customer-level force wins even over an explicit subscription entry — "enabled for the
-        // customer, and it sticks across every subscription" (the account-wide force).
-        let fid = FeatureId::new();
-        let features = vec![make_feature(fid, FeatureType::Boolean)];
-        let entitlements = vec![
-            make_entitlement(
-                fid,
-                EntitlementEntityId::Subscription(SubscriptionId::new()),
-                EntitlementModeEnum::Override,
-                EntitlementValue::Boolean { enabled: false },
-            ),
-            make_entitlement(
-                fid,
-                EntitlementEntityId::Customer(CustomerId::new()),
-                EntitlementModeEnum::Override,
-                EntitlementValue::Boolean { enabled: true },
-            ),
-        ];
-        let result = resolve(entitlements, features, &std::collections::HashSet::new());
-        assert_eq!(result.len(), 1);
-        assert!(matches!(
-            result[0].value,
-            ResolvedEntitlementValue::Boolean { enabled: true, .. }
-        ));
-        assert!(matches!(
-            result[0].origin_entity,
-            EntitlementEntityId::Customer(_)
-        ));
-    }
-
-    #[test]
-    fn aggregate_ors_enabled_across_scopes() {
-        // Customer-wide view: enabled on one subscription, disabled on another → enabled overall,
-        // origin pointing at the scope that has it on. This is the fix for one subscription's
-        // value masking another's.
-        let fid = FeatureId::new();
-        let on_sub = SubscriptionId::new();
-        let make = |enabled, origin| ResolvedEntitlement {
-            feature: FeatureRef {
-                id: fid,
-                name: fid.to_string(),
-                code: fid.to_string(),
-                product: None,
-            },
-            value: ResolvedEntitlementValue::Boolean { enabled },
-            origin: ResolvedOrigin {
-                entity: origin,
-                name: None,
-            },
-        };
-        let scope_a = vec![make(
-            false,
-            EntitlementEntityId::Subscription(SubscriptionId::new()),
-        )];
-        let scope_b = vec![make(true, EntitlementEntityId::Subscription(on_sub))];
-        let agg = aggregate_scopes_permissive(vec![scope_a, scope_b]);
-        assert_eq!(agg.len(), 1);
-        assert!(matches!(
-            agg[0].value,
-            ResolvedEntitlementValue::Boolean { enabled: true }
-        ));
-        assert!(
-            matches!(agg[0].origin.entity, EntitlementEntityId::Subscription(id) if id == on_sub)
-        );
-    }
-
-    #[test]
-    fn disabled_feature_suppressed() {
-        let fid = FeatureId::new();
-        let mut feature = make_feature(fid, FeatureType::Boolean);
-        feature.status = FeatureStatusEnum::Disabled;
-        let entitlements = vec![make_entitlement(
-            fid,
-            EntitlementEntityId::Plan(PlanId::new()),
-            EntitlementModeEnum::Stack,
-            EntitlementValue::Boolean { enabled: true },
-        )];
-
-        let result = resolve(
-            entitlements,
-            vec![feature],
-            &std::collections::HashSet::new(),
-        );
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn override_replaces_lower_priority() {
-        let fid = FeatureId::new();
-        let features = vec![make_feature(
-            fid,
-            FeatureType::metered(BillableMetricId::new()),
-        )];
-        let entitlements = vec![
-            make_entitlement(
-                fid,
-                EntitlementEntityId::Plan(PlanId::new()),
-                EntitlementModeEnum::Stack,
-                EntitlementValue::Metered {
-                    group_by: None,
-                    limit: Some(100.into()),
-                    reset_period: ResetPeriod::Never,
-                    overage_behavior: OverageBehavior::Block {
-                        grace_period_pct: None,
-                    },
-                    thresholds: vec![],
-                    enabled: true,
-                },
-            ),
-            make_entitlement(
-                fid,
-                EntitlementEntityId::Subscription(SubscriptionId::new()),
-                EntitlementModeEnum::Override,
-                EntitlementValue::Metered {
-                    group_by: None,
-                    limit: Some(500.into()),
-                    reset_period: ResetPeriod::Never,
-                    overage_behavior: OverageBehavior::Block {
-                        grace_period_pct: None,
-                    },
-                    thresholds: vec![],
-                    enabled: true,
-                },
-            ),
-        ];
-
-        let result = resolve(entitlements, features, &std::collections::HashSet::new());
-        assert_eq!(result.len(), 1);
-        assert!(
-            matches!(result[0].value, ResolvedEntitlementValue::Metered { limit: Some(l), .. } if l == 500.into())
-        );
-    }
-
-    #[test]
-    fn metered_grants_sum_additively() {
-        let fid = FeatureId::new();
-        let features = vec![make_feature(
-            fid,
-            FeatureType::metered(BillableMetricId::new()),
-        )];
-        // Two AddOn grants of 1000 each → 2000 total (multi-instance add-ons stack).
-        let aid1 = AddOnId::new();
-        let aid2 = AddOnId::new();
-        let multi: std::collections::HashSet<AddOnId> = [aid1, aid2].into_iter().collect();
-        let entitlements = vec![
-            make_entitlement(
-                fid,
-                EntitlementEntityId::AddOn(aid1),
-                EntitlementModeEnum::Stack,
-                EntitlementValue::Metered {
-                    group_by: None,
-                    limit: Some(1000.into()),
-                    reset_period: ResetPeriod::BillingCycle,
-                    overage_behavior: OverageBehavior::Block {
-                        grace_period_pct: None,
-                    },
-                    thresholds: vec![90],
-                    enabled: true,
-                },
-            ),
-            make_entitlement(
-                fid,
-                EntitlementEntityId::AddOn(aid2),
-                EntitlementModeEnum::Stack,
-                EntitlementValue::Metered {
-                    group_by: None,
-                    limit: Some(1000.into()),
-                    reset_period: ResetPeriod::Never,
-                    overage_behavior: OverageBehavior::Block {
-                        grace_period_pct: None,
-                    },
-                    thresholds: vec![],
-                    enabled: true,
-                },
-            ),
-        ];
-
-        let result = resolve(entitlements, features, &multi);
-        assert_eq!(result.len(), 1);
-        let ResolvedEntitlementValue::Metered { limit, .. } = &result[0].value else {
-            panic!("expected metered value");
-        };
-        assert_eq!(*limit, Some(2000.into()));
-    }
-
-    #[test]
-    fn merge_additive_metered_enabled_ors_kill_switch() {
-        // Multi-instance add-ons stack additively. The kill-switch on metered grants must
-        // OR — a single enabled grant keeps the entitlement on, matching the boolean and
-        // permissive-merge rules. Order-independence is the contract being pinned.
-        let fid = FeatureId::new();
-        let features = vec![make_feature(
-            fid,
-            FeatureType::metered(BillableMetricId::new()),
-        )];
-        let aid_on = AddOnId::new();
-        let aid_off = AddOnId::new();
-        let multi: std::collections::HashSet<AddOnId> = [aid_on, aid_off].into_iter().collect();
-
-        let metered = |enabled: bool| EntitlementValue::Metered {
-            group_by: None,
-            limit: Some(100.into()),
-            reset_period: ResetPeriod::Never,
-            overage_behavior: OverageBehavior::Block {
-                grace_period_pct: None,
-            },
-            thresholds: vec![],
-            enabled,
-        };
-
-        // (on, off) and (off, on) must both resolve to enabled=true.
-        for (first, second) in [(aid_on, aid_off), (aid_off, aid_on)] {
-            let mut a = make_entitlement(
-                fid,
-                EntitlementEntityId::AddOn(first),
-                EntitlementModeEnum::Stack,
-                metered(first == aid_on),
-            );
-            a.created_at = common_clock::now() - chrono::Duration::seconds(60);
-            let mut b = make_entitlement(
-                fid,
-                EntitlementEntityId::AddOn(second),
-                EntitlementModeEnum::Stack,
-                metered(second == aid_on),
-            );
-            b.created_at = common_clock::now();
-            let result = resolve(vec![a, b], features.clone(), &multi);
-            assert_eq!(result.len(), 1);
-            let ResolvedEntitlementValue::Metered { enabled, .. } = &result[0].value else {
-                panic!("expected metered");
-            };
-            assert!(
-                *enabled,
-                "additive merge must OR the kill-switch (order: {first:?} then {second:?})"
-            );
-        }
-    }
-
-    #[test]
-    fn metered_unlimited_wins_over_capped() {
-        let fid = FeatureId::new();
-        let features = vec![make_feature(
-            fid,
-            FeatureType::metered(BillableMetricId::new()),
-        )];
-        let entitlements = vec![
-            make_entitlement(
-                fid,
-                EntitlementEntityId::Plan(PlanId::new()),
-                EntitlementModeEnum::Stack,
-                EntitlementValue::Metered {
-                    group_by: None,
-                    limit: Some(100.into()),
-                    reset_period: ResetPeriod::Calendar {
-                        unit: PeriodUnit::Month,
-                        interval: 1,
-                    },
-                    overage_behavior: OverageBehavior::Allow,
-                    thresholds: vec![80],
-                    enabled: true,
-                },
-            ),
-            make_entitlement(
-                fid,
-                EntitlementEntityId::AddOn(AddOnId::new()),
-                EntitlementModeEnum::Stack,
-                EntitlementValue::Metered {
-                    group_by: None,
-                    limit: None,
-                    reset_period: ResetPeriod::Never,
-                    overage_behavior: OverageBehavior::Block {
-                        grace_period_pct: None,
-                    },
-                    thresholds: vec![],
-                    enabled: true,
-                },
-            ),
-        ];
-
-        let result = resolve(entitlements, features, &std::collections::HashSet::new());
-        assert_eq!(result.len(), 1);
-        let ResolvedEntitlementValue::Metered { limit, .. } = &result[0].value else {
-            panic!("expected metered value");
-        };
-        assert_eq!(*limit, None);
-    }
-
-    #[test]
-    fn override_replaces_accumulated_value() {
-        let fid = FeatureId::new();
-        let features = vec![make_feature(
-            fid,
-            FeatureType::metered(BillableMetricId::new()),
-        )];
-        let entitlements = vec![
-            make_entitlement(
-                fid,
-                EntitlementEntityId::Plan(PlanId::new()),
-                EntitlementModeEnum::Stack,
-                EntitlementValue::Metered {
-                    group_by: None,
-                    limit: Some(100.into()),
-                    reset_period: ResetPeriod::Never,
-                    overage_behavior: OverageBehavior::Block {
-                        grace_period_pct: None,
-                    },
-                    thresholds: vec![70],
-                    enabled: true,
-                },
-            ),
-            make_entitlement(
-                fid,
-                EntitlementEntityId::PlanVersion(PlanVersionId::new()),
-                EntitlementModeEnum::Override,
-                EntitlementValue::Metered {
-                    group_by: None,
-                    limit: Some(200.into()),
-                    reset_period: ResetPeriod::BillingCycle,
-                    overage_behavior: OverageBehavior::Allow,
-                    thresholds: vec![90],
-                    enabled: true,
-                },
-            ),
-        ];
-
-        let result = resolve(entitlements, features, &std::collections::HashSet::new());
-        assert_eq!(result.len(), 1);
-        let ResolvedEntitlementValue::Metered {
-            limit,
-            reset_period,
-            overage_behavior,
-            thresholds,
-            ..
-        } = &result[0].value
-        else {
-            panic!("expected metered value");
-        };
-        assert_eq!(*limit, Some(200.into()));
-        assert!(matches!(reset_period, ResetPeriod::BillingCycle));
-        assert!(matches!(overage_behavior, OverageBehavior::Allow));
-        assert_eq!(*thresholds, vec![90]);
-    }
-
-    #[test]
-    fn unknown_feature_excluded() {
-        let fid = FeatureId::new();
-        let features = vec![];
-        let entitlements = vec![make_entitlement(
-            fid,
-            EntitlementEntityId::Plan(PlanId::new()),
-            EntitlementModeEnum::Stack,
-            EntitlementValue::Boolean { enabled: true },
-        )];
-
-        let result = resolve(entitlements, features, &std::collections::HashSet::new());
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn disabled_resolves_to_higher_priority() {
-        // Metered: Plan (low priority) disables (enabled: false); Subscription (high priority)
-        // re-enables (enabled: true) → the higher-priority enabled:true wins.
-        let fid = FeatureId::new();
-        let mid = BillableMetricId::new();
-        let features = vec![make_feature(fid, FeatureType::metered(mid))];
-        let entitlements = vec![
-            make_entitlement(
-                fid,
-                EntitlementEntityId::Plan(PlanId::new()),
-                EntitlementModeEnum::Stack,
-                EntitlementValue::Metered {
-                    group_by: None,
-                    limit: Some(100.into()),
-                    reset_period: ResetPeriod::Never,
-                    overage_behavior: OverageBehavior::Block {
-                        grace_period_pct: None,
-                    },
-                    thresholds: vec![],
-                    enabled: false,
-                },
-            ),
-            make_entitlement(
-                fid,
-                EntitlementEntityId::Subscription(SubscriptionId::new()),
-                EntitlementModeEnum::Stack,
-                EntitlementValue::Metered {
-                    group_by: None,
-                    limit: Some(100.into()),
-                    reset_period: ResetPeriod::Never,
-                    overage_behavior: OverageBehavior::Block {
-                        grace_period_pct: None,
-                    },
-                    thresholds: vec![],
-                    enabled: true,
-                },
-            ),
-        ];
-        let result = resolve(entitlements, features, &std::collections::HashSet::new());
-        assert_eq!(result.len(), 1);
-        assert!(matches!(
-            result[0].value,
-            ResolvedEntitlementValue::Metered { enabled: true, .. }
-        ));
-    }
-
-    #[test]
-    fn disabled_entitlement_still_resolved() {
-        // A metered entitlement with enabled:false is NOT filtered out —
-        // it surfaces so the UI can show + override it.
-        let fid = FeatureId::new();
-        let mid = BillableMetricId::new();
-        let features = vec![make_feature(fid, FeatureType::metered(mid))];
-        let entitlements = vec![make_entitlement(
-            fid,
-            EntitlementEntityId::Plan(PlanId::new()),
-            EntitlementModeEnum::Stack,
-            EntitlementValue::Metered {
-                group_by: None,
-                limit: Some(100.into()),
-                reset_period: ResetPeriod::Never,
-                overage_behavior: OverageBehavior::Block {
-                    grace_period_pct: None,
-                },
-                thresholds: vec![],
-                enabled: false,
-            },
-        )];
-        let result = resolve(entitlements, features, &std::collections::HashSet::new());
-        assert_eq!(result.len(), 1);
-        assert!(matches!(
-            result[0].value,
-            ResolvedEntitlementValue::Metered { enabled: false, .. }
-        ));
-    }
-
-    #[test]
-    fn origin_reports_highest_priority_contributing_entity() {
-        let fid = FeatureId::new();
-        let plan_id = PlanId::new();
-        let sub_id = SubscriptionId::new();
-        let features = vec![make_feature(fid, FeatureType::Boolean)];
-        let entitlements = vec![
-            make_entitlement(
-                fid,
-                EntitlementEntityId::Plan(plan_id),
-                EntitlementModeEnum::Stack,
-                EntitlementValue::Boolean { enabled: true },
-            ),
-            make_entitlement(
-                fid,
-                EntitlementEntityId::Subscription(sub_id),
-                EntitlementModeEnum::Override,
-                EntitlementValue::Boolean { enabled: false },
-            ),
-        ];
-        let result = resolve(entitlements, features, &std::collections::HashSet::new());
-        assert_eq!(result.len(), 1);
-        assert!(matches!(
-            result[0].origin_entity,
-            EntitlementEntityId::Subscription(_)
-        ));
-    }
-
-    #[test]
-    fn same_priority_metered_takes_max() {
-        // Two Plans at priority 1, conflicting metered limits.
-        // Smaller value created later → current last-wins returns 100.
-        // Permissive rule (algorithm §2) requires max → 200.
-        let fid = FeatureId::new();
-        let features = vec![make_feature(
-            fid,
-            FeatureType::metered(BillableMetricId::new()),
-        )];
-        let mut a = make_entitlement(
-            fid,
-            EntitlementEntityId::Plan(PlanId::new()),
-            EntitlementModeEnum::Override,
-            EntitlementValue::Metered {
-                group_by: None,
-                limit: Some(200.into()),
-                reset_period: ResetPeriod::Never,
-                overage_behavior: OverageBehavior::Block {
-                    grace_period_pct: None,
-                },
-                thresholds: vec![],
-                enabled: true,
-            },
-        );
-        a.created_at = common_clock::now() - chrono::Duration::seconds(60);
-        let mut b = make_entitlement(
-            fid,
-            EntitlementEntityId::Plan(PlanId::new()),
-            EntitlementModeEnum::Override,
-            EntitlementValue::Metered {
-                group_by: None,
-                limit: Some(100.into()),
-                reset_period: ResetPeriod::Never,
-                overage_behavior: OverageBehavior::Block {
-                    grace_period_pct: None,
-                },
-                thresholds: vec![],
-                enabled: true,
-            },
-        );
-        b.created_at = common_clock::now();
-
-        let result = resolve(vec![a, b], features, &std::collections::HashSet::new());
-        assert_eq!(result.len(), 1);
-        let ResolvedEntitlementValue::Metered { limit, .. } = &result[0].value else {
-            panic!("expected metered");
-        };
-        assert_eq!(*limit, Some(200.into()), "permissive merge should pick max");
-    }
-
-    #[test]
-    fn same_priority_boolean_takes_or() {
-        // Two AddOns at same priority, one disables and one enables boolean.
-        // Permissive rule: enabled wins regardless of order/created_at.
-        let fid = FeatureId::new();
-        let features = vec![make_feature(fid, FeatureType::Boolean)];
-        let mut a = make_entitlement(
-            fid,
-            EntitlementEntityId::AddOn(AddOnId::new()),
-            EntitlementModeEnum::Override,
-            EntitlementValue::Boolean { enabled: true },
-        );
-        a.created_at = common_clock::now() - chrono::Duration::seconds(60);
-        let mut b = make_entitlement(
-            fid,
-            EntitlementEntityId::AddOn(AddOnId::new()),
-            EntitlementModeEnum::Override,
-            EntitlementValue::Boolean { enabled: false },
-        );
-        b.created_at = common_clock::now();
-
-        let result = resolve(vec![a, b], features, &std::collections::HashSet::new());
-        assert_eq!(result.len(), 1);
-        assert!(matches!(
-            result[0].value,
-            ResolvedEntitlementValue::Boolean { enabled: true }
-        ));
-    }
-
-    #[test]
-    fn winning_origin_after_permissive_merge_tracks_max_contributor() {
-        // Two Plans at the same priority, conflicting metered limits. The earlier-created
-        // entitlement carries the larger limit; the permissive merge picks max. The
-        // reported origin must point to the entity that actually contributed the
-        // winning limit, not the latest-iterated one.
-        let fid = FeatureId::new();
-        let features = vec![make_feature(
-            fid,
-            FeatureType::metered(BillableMetricId::new()),
-        )];
-        let winning_plan_id = PlanId::new();
-        let losing_plan_id = PlanId::new();
-        let mut winner = make_entitlement(
-            fid,
-            EntitlementEntityId::Plan(winning_plan_id),
-            EntitlementModeEnum::Override,
-            EntitlementValue::Metered {
-                group_by: None,
-                limit: Some(500.into()),
-                reset_period: ResetPeriod::Never,
-                overage_behavior: OverageBehavior::Block {
-                    grace_period_pct: None,
-                },
-                thresholds: vec![],
-                enabled: true,
-            },
-        );
-        winner.created_at = common_clock::now() - chrono::Duration::seconds(60);
-        let mut loser = make_entitlement(
-            fid,
-            EntitlementEntityId::Plan(losing_plan_id),
-            EntitlementModeEnum::Override,
-            EntitlementValue::Metered {
-                group_by: None,
-                limit: Some(100.into()),
-                reset_period: ResetPeriod::Never,
-                overage_behavior: OverageBehavior::Block {
-                    grace_period_pct: None,
-                },
-                thresholds: vec![],
-                enabled: true,
-            },
-        );
-        loser.created_at = common_clock::now();
-        let result = resolve(
-            vec![winner, loser],
-            features,
-            &std::collections::HashSet::new(),
-        );
-        assert_eq!(result.len(), 1);
-        let ResolvedEntitlementValue::Metered { limit, .. } = &result[0].value else {
-            panic!("expected metered");
-        };
-        assert_eq!(*limit, Some(500.into()));
-        assert!(
-            matches!(result[0].origin_entity, EntitlementEntityId::Plan(p) if p == winning_plan_id),
-            "origin should point to the entity that contributed the winning limit"
-        );
-    }
-
-    #[test]
-    fn winning_origin_after_additive_merge_stays_on_earliest_contributor() {
-        // Two multi-instance add-ons at the same priority — additive merge sums limits.
-        // Both contribute, so origin is anchored to the earlier-created entity for
-        // determinism.
-        let fid = FeatureId::new();
-        let features = vec![make_feature(
-            fid,
-            FeatureType::metered(BillableMetricId::new()),
-        )];
-        let first_addon = AddOnId::new();
-        let second_addon = AddOnId::new();
-        let mut a = make_entitlement(
-            fid,
-            EntitlementEntityId::AddOn(first_addon),
-            EntitlementModeEnum::Stack,
-            EntitlementValue::Metered {
-                group_by: None,
-                limit: Some(100.into()),
-                reset_period: ResetPeriod::Never,
-                overage_behavior: OverageBehavior::Block {
-                    grace_period_pct: None,
-                },
-                thresholds: vec![],
-                enabled: true,
-            },
-        );
-        a.created_at = common_clock::now() - chrono::Duration::seconds(60);
-        let mut b = make_entitlement(
-            fid,
-            EntitlementEntityId::AddOn(second_addon),
-            EntitlementModeEnum::Stack,
-            EntitlementValue::Metered {
-                group_by: None,
-                limit: Some(50.into()),
-                reset_period: ResetPeriod::Never,
-                overage_behavior: OverageBehavior::Block {
-                    grace_period_pct: None,
-                },
-                thresholds: vec![],
-                enabled: true,
-            },
-        );
-        b.created_at = common_clock::now();
-        let mut multi = std::collections::HashSet::new();
-        multi.insert(first_addon);
-        multi.insert(second_addon);
-        let result = resolve(vec![a, b], features, &multi);
-        assert_eq!(result.len(), 1);
-        let ResolvedEntitlementValue::Metered { limit, .. } = &result[0].value else {
-            panic!("expected metered");
-        };
-        assert_eq!(*limit, Some(150.into()), "additive merge sums limits");
-        assert!(
-            matches!(result[0].origin_entity, EntitlementEntityId::AddOn(id) if id == first_addon),
-            "additive origin should pin to the earlier-created entity"
-        );
-    }
-
-    #[test]
-    fn plan_version_overrides_add_on() {
-        // Algorithm §1: Plan Version > Add-on. PlanVersion's value must win.
-        let fid = FeatureId::new();
-        let features = vec![make_feature(
-            fid,
-            FeatureType::metered(BillableMetricId::new()),
-        )];
-        let add_on = make_entitlement(
-            fid,
-            EntitlementEntityId::AddOn(AddOnId::new()),
-            EntitlementModeEnum::Override,
-            EntitlementValue::Metered {
-                group_by: None,
-                limit: Some(100.into()),
-                reset_period: ResetPeriod::Never,
-                overage_behavior: OverageBehavior::Block {
-                    grace_period_pct: None,
-                },
-                thresholds: vec![],
-                enabled: true,
-            },
-        );
-        let plan_version = make_entitlement(
-            fid,
-            EntitlementEntityId::PlanVersion(PlanVersionId::new()),
-            EntitlementModeEnum::Override,
-            EntitlementValue::Metered {
-                group_by: None,
-                limit: Some(200.into()),
-                reset_period: ResetPeriod::Never,
-                overage_behavior: OverageBehavior::Block {
-                    grace_period_pct: None,
-                },
-                thresholds: vec![],
-                enabled: true,
-            },
-        );
-        let result = resolve(
-            vec![add_on, plan_version],
-            features,
-            &std::collections::HashSet::new(),
-        );
-        assert_eq!(result.len(), 1);
-        let ResolvedEntitlementValue::Metered { limit, .. } = &result[0].value else {
-            panic!("expected metered");
-        };
-        assert_eq!(
-            *limit,
-            Some(200.into()),
-            "PlanVersion should override AddOn"
-        );
-        assert!(matches!(
-            result[0].origin_entity,
-            EntitlementEntityId::PlanVersion(_)
-        ));
-    }
-
-    #[test]
-    fn multi_instance_add_ons_sum_via_derive_mode() {
-        // Two different multi-instance add-ons; stored mode is Override but resolve must derive
-        // additive from the multi_instance set. Algorithm §3.
-        let fid = FeatureId::new();
-        let aid1 = AddOnId::new();
-        let aid2 = AddOnId::new();
-        let multi: std::collections::HashSet<AddOnId> = [aid1, aid2].into_iter().collect();
-        let features = vec![make_feature(
-            fid,
-            FeatureType::metered(BillableMetricId::new()),
-        )];
-        let a = make_entitlement(
-            fid,
-            EntitlementEntityId::AddOn(aid1),
-            EntitlementModeEnum::Override,
-            EntitlementValue::Metered {
-                group_by: None,
-                limit: Some(1000.into()),
-                reset_period: ResetPeriod::Never,
-                overage_behavior: OverageBehavior::Block {
-                    grace_period_pct: None,
-                },
-                thresholds: vec![],
-                enabled: true,
-            },
-        );
-        let b = make_entitlement(
-            fid,
-            EntitlementEntityId::AddOn(aid2),
-            EntitlementModeEnum::Override,
-            EntitlementValue::Metered {
-                group_by: None,
-                limit: Some(1000.into()),
-                reset_period: ResetPeriod::Never,
-                overage_behavior: OverageBehavior::Block {
-                    grace_period_pct: None,
-                },
-                thresholds: vec![],
-                enabled: true,
-            },
-        );
-        let result = resolve(vec![a, b], features, &multi);
-        assert_eq!(result.len(), 1);
-        let ResolvedEntitlementValue::Metered { limit, .. } = &result[0].value else {
-            panic!("expected metered");
-        };
-        assert_eq!(*limit, Some(2000.into()));
-    }
-
-    #[test]
-    fn single_instance_add_ons_take_max_via_derive_mode() {
-        // Two different single-instance add-ons; stored mode is Stack (stale) but resolve must
-        // derive permissive from the multi_instance set (empty). Take max, not sum.
-        let fid = FeatureId::new();
-        let multi: std::collections::HashSet<AddOnId> = std::collections::HashSet::new();
-        let features = vec![make_feature(
-            fid,
-            FeatureType::metered(BillableMetricId::new()),
-        )];
-        let a = make_entitlement(
-            fid,
-            EntitlementEntityId::AddOn(AddOnId::new()),
-            EntitlementModeEnum::Stack,
-            EntitlementValue::Metered {
-                group_by: None,
-                limit: Some(1000.into()),
-                reset_period: ResetPeriod::Never,
-                overage_behavior: OverageBehavior::Block {
-                    grace_period_pct: None,
-                },
-                thresholds: vec![],
-                enabled: true,
-            },
-        );
-        let b = make_entitlement(
-            fid,
-            EntitlementEntityId::AddOn(AddOnId::new()),
-            EntitlementModeEnum::Stack,
-            EntitlementValue::Metered {
-                group_by: None,
-                limit: Some(500.into()),
-                reset_period: ResetPeriod::Never,
-                overage_behavior: OverageBehavior::Block {
-                    grace_period_pct: None,
-                },
-                thresholds: vec![],
-                enabled: true,
-            },
-        );
-        let result = resolve(vec![a, b], features, &multi);
-        assert_eq!(result.len(), 1);
-        let ResolvedEntitlementValue::Metered { limit, .. } = &result[0].value else {
-            panic!("expected metered");
-        };
-        assert_eq!(*limit, Some(1000.into()), "max, not sum");
-    }
-
-    #[test]
-    fn feature_level_default_flows_through_when_no_entity_grant() {
-        // Only a Feature-level (tenant default) entitlement, no chain entity-bound row.
-        // Should be returned as-is — Feature is the lowest priority but the only contributor wins.
-        let fid = FeatureId::new();
-        let features = vec![make_feature(
-            fid,
-            FeatureType::metered(BillableMetricId::new()),
-        )];
-        let only = make_entitlement(
-            fid,
-            EntitlementEntityId::Feature(fid),
-            EntitlementModeEnum::Override,
-            EntitlementValue::Metered {
-                group_by: None,
-                limit: Some(50.into()),
-                reset_period: ResetPeriod::Never,
-                overage_behavior: OverageBehavior::Block {
-                    grace_period_pct: None,
-                },
-                thresholds: vec![],
-                enabled: true,
-            },
-        );
-        let result = resolve(vec![only], features, &std::collections::HashSet::new());
-        assert_eq!(result.len(), 1);
-        let ResolvedEntitlementValue::Metered { limit, .. } = &result[0].value else {
-            panic!("expected metered");
-        };
-        assert_eq!(*limit, Some(50.into()));
-        assert!(matches!(
-            result[0].origin_entity,
-            EntitlementEntityId::Feature(_)
-        ));
-    }
-
-    #[test]
-    fn full_priority_chain_resolves_highest_wins() {
-        // One entitlement at every level. Subscription (4) must win.
-        let fid = FeatureId::new();
-        let features = vec![make_feature(
-            fid,
-            FeatureType::metered(BillableMetricId::new()),
-        )];
-        let mk = |entity, limit: u64| {
-            make_entitlement(
-                fid,
-                entity,
-                EntitlementModeEnum::Override,
-                EntitlementValue::Metered {
-                    group_by: None,
-                    limit: Some(limit.into()),
-                    reset_period: ResetPeriod::Never,
-                    overage_behavior: OverageBehavior::Block {
-                        grace_period_pct: None,
-                    },
-                    thresholds: vec![],
-                    enabled: true,
-                },
-            )
-        };
-        let entitlements = vec![
-            mk(EntitlementEntityId::Feature(fid), 10),
-            mk(EntitlementEntityId::Plan(PlanId::new()), 20),
-            mk(EntitlementEntityId::AddOn(AddOnId::new()), 30),
-            mk(EntitlementEntityId::PlanVersion(PlanVersionId::new()), 40),
-            mk(EntitlementEntityId::Subscription(SubscriptionId::new()), 50),
-        ];
-        let result = resolve(entitlements, features, &std::collections::HashSet::new());
-        assert_eq!(result.len(), 1);
-        let ResolvedEntitlementValue::Metered { limit, .. } = &result[0].value else {
-            panic!("expected metered");
-        };
-        assert_eq!(
-            *limit,
-            Some(50.into()),
-            "Subscription (top priority) must win"
-        );
-        assert!(matches!(
-            result[0].origin_entity,
-            EntitlementEntityId::Subscription(_)
-        ));
-    }
-
-    #[test]
-    fn cross_product_collision_takes_max_per_algorithm_rule_2() {
-        // Same globally-scoped feature, two different AddOns (different products) granting
-        // conflicting Override values at the same priority. Permissive rule applies.
-        let fid = FeatureId::new();
-        let features = vec![make_feature(
-            fid,
-            FeatureType::metered(BillableMetricId::new()),
-        )];
-        let a = make_entitlement(
-            fid,
-            EntitlementEntityId::AddOn(AddOnId::new()),
-            EntitlementModeEnum::Override,
-            EntitlementValue::Metered {
-                group_by: None,
-                limit: Some(300.into()),
-                reset_period: ResetPeriod::Never,
-                overage_behavior: OverageBehavior::Block {
-                    grace_period_pct: None,
-                },
-                thresholds: vec![],
-                enabled: true,
-            },
-        );
-        let b = make_entitlement(
-            fid,
-            EntitlementEntityId::AddOn(AddOnId::new()),
-            EntitlementModeEnum::Override,
-            EntitlementValue::Metered {
-                group_by: None,
-                limit: Some(700.into()),
-                reset_period: ResetPeriod::Never,
-                overage_behavior: OverageBehavior::Block {
-                    grace_period_pct: None,
-                },
-                thresholds: vec![],
-                enabled: true,
-            },
-        );
-        let result = resolve(vec![a, b], features, &std::collections::HashSet::new());
-        assert_eq!(result.len(), 1);
-        let ResolvedEntitlementValue::Metered { limit, .. } = &result[0].value else {
-            panic!("expected metered");
-        };
-        assert_eq!(*limit, Some(700.into()));
-    }
-
-    #[test]
-    fn higher_priority_finite_replaces_lower_priority_unlimited() {
-        // Algorithm §1: higher priority replaces entirely (no permissive merge across priorities).
-        // PlanVersion finite 100 must override Feature-level unlimited None.
-        let fid = FeatureId::new();
-        let features = vec![make_feature(
-            fid,
-            FeatureType::metered(BillableMetricId::new()),
-        )];
-        let global = make_entitlement(
-            fid,
-            EntitlementEntityId::Feature(fid),
-            EntitlementModeEnum::Override,
-            EntitlementValue::Metered {
-                group_by: None,
-                limit: None,
-                reset_period: ResetPeriod::Never,
-                overage_behavior: OverageBehavior::Block {
-                    grace_period_pct: None,
-                },
-                thresholds: vec![],
-                enabled: true,
-            },
-        );
-        let plan_version = make_entitlement(
-            fid,
-            EntitlementEntityId::PlanVersion(PlanVersionId::new()),
-            EntitlementModeEnum::Override,
-            EntitlementValue::Metered {
-                group_by: None,
-                limit: Some(100.into()),
-                reset_period: ResetPeriod::Never,
-                overage_behavior: OverageBehavior::Block {
-                    grace_period_pct: None,
-                },
-                thresholds: vec![],
-                enabled: true,
-            },
-        );
-        let result = resolve(
-            vec![global, plan_version],
-            features,
-            &std::collections::HashSet::new(),
-        );
-        assert_eq!(result.len(), 1);
-        let ResolvedEntitlementValue::Metered { limit, .. } = &result[0].value else {
-            panic!("expected metered");
-        };
-        assert_eq!(*limit, Some(100.into()));
     }
 }

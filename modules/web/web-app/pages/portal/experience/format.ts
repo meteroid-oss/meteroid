@@ -16,7 +16,7 @@ import type {
   PlanChangePackLine,
   SubscriptionFee_FeeCreditUnit,
 } from '@/rpc/api/subscriptions/v1/models_pb'
-import type { InvoiceSummary } from '@/rpc/portal/customer/v1/models_pb'
+import type { InvoiceSummary, SubscriptionSummary } from '@/rpc/portal/customer/v1/models_pb'
 import type { ComponentFee } from '@/rpc/portal/subscription/v1/subscription_pb'
 
 /** Format an integer amount of minor units in its currency, at the currency's own precision. */
@@ -397,3 +397,7 @@ export const nextPayment = <M>(invoice: {
     ? { charged: true, date: invoice.chargeDate || invoice.invoiceDate, paymentMethod }
     : { charged: false, date: invoice.dueDate || invoice.invoiceDate }
 }
+
+/** "Pro · Marketing": the resource tells two subscriptions to one plan apart. */
+export const subscriptionTitle = (s: Pick<SubscriptionSummary, 'planName' | 'resourceName'>) =>
+  s.resourceName ? `${s.planName} · ${s.resourceName}` : s.planName

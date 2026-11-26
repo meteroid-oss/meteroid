@@ -19,8 +19,16 @@ const Resets = ({ limit }: { limit: UsageLimitStatus }) =>
     </span>
   ) : null
 
+const Unavailable = ({ limit }: { limit: UsageLimitStatus }) => (
+  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13 }}>
+    <span style={{ color: 'var(--mtp-text-2)' }}>Usage unavailable</span>
+    <Mono style={{ whiteSpace: 'nowrap' }}>– / {compactNumber(limit.limit)}</Mono>
+  </div>
+)
+
 const LimitRows = ({ limit }: { limit: UsageLimitStatus }) => {
   const over = limitOverGroups(limit)
+  if (limit.usageUnavailable) return <Unavailable limit={limit} />
   return (
   <>
     {limit.groups.map(usage => {
@@ -94,16 +102,24 @@ export const PlanLimitCard = ({ limit }: { limit: UsageLimitStatus }) => {
         </Eyebrow>
         <Resets limit={limit} />
       </div>
-      <Mono style={{ fontSize: 30, fontWeight: 600, letterSpacing: '-0.02em' }}>
-        {compactNumber(used)}{' '}
-        <span style={{ fontSize: 16, color: 'var(--mtp-text-2)' }}>/ {compactNumber(limit.limit)}</span>
-      </Mono>
-      <Meter
-        pct={pct}
-        height={10}
-        tone={limit.reached ? 'warning' : 'default'}
-        label={`${decimalStr(used)} of ${decimalStr(limit.limit)} ${limitNoun(limit)} used`}
-      />
+      {limit.usageUnavailable ? (
+        <Unavailable limit={limit} />
+      ) : (
+        <>
+          <Mono style={{ fontSize: 30, fontWeight: 600, letterSpacing: '-0.02em' }}>
+            {compactNumber(used)}{' '}
+            <span style={{ fontSize: 16, color: 'var(--mtp-text-2)' }}>
+              / {compactNumber(limit.limit)}
+            </span>
+          </Mono>
+          <Meter
+            pct={pct}
+            height={10}
+            tone={limit.reached ? 'warning' : 'default'}
+            label={`${decimalStr(used)} of ${decimalStr(limit.limit)} ${limitNoun(limit)} used`}
+          />
+        </>
+      )}
       {(limit.breakdown.length > 0 || limit.reached) && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, color: 'var(--mtp-text-2)' }}>
           {limit.breakdown.map(row => {

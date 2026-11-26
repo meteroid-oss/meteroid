@@ -524,6 +524,13 @@ pub struct PortalTokenInput {
     /// a browser.
     #[serde(default)]
     pub scopes: Option<Vec<PortalScope>>,
+    /// The one resource a browser holding the token may check and read the entitlements of
+    /// (`{"id": …}` or `{"type": …, "key": …}`); without it, the customer only.
+    #[serde(default)]
+    pub resource: Option<super::resources::ResourceName>,
+    /// The attributes it may assert, `{"site.environment": "staging"}`.
+    #[serde(default)]
+    pub attributes: std::collections::BTreeMap<String, String>,
 }
 
 /// A token opening the customer portal. A call may return the token of an earlier one with the

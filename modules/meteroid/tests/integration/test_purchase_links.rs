@@ -1213,6 +1213,7 @@ async fn other_checkout(env: &TestEnv, customer_id: CustomerId) -> CheckoutSessi
             change_date: None,
             success_url: None,
             cancel_url: None,
+            resource_id: None,
         })
         .await
         .expect("checkout")

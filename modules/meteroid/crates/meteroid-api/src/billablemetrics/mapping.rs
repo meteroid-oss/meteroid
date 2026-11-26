@@ -51,6 +51,7 @@ pub mod metric {
         type Error = Report<StoreError>;
 
         fn try_from(value: domain::BillableMetric) -> Result<Self, Self::Error> {
+            let attributed_to = attribution_to_server(value.attribution());
             Ok(ServerBillableMetricWrapper(server::BillableMetric {
                 id: value.id.as_proto(),
                 local_id: value.id.as_proto(), //todo remove me
@@ -79,10 +80,33 @@ pub mod metric {
                 usage_breakdown_key: value.usage_breakdown_key,
                 product_id: value.product_id.map(|x| x.as_proto()),
                 family_local_id: value.product_family_id.as_proto(),
+                attributed_to,
                 filters: map_filters_to_server(value.filters),
                 unit_label: unit_label_to_server(value.unit_singular, value.unit_plural),
             }))
         }
+    }
+
+    pub fn attribution_to_server(
+        attribution: Option<domain::MetricAttribution>,
+    ) -> Option<server::MetricAttribution> {
+        attribution.map(|a| server::MetricAttribution {
+            resource_type_id: a.type_id.as_proto(),
+            property: a.property,
+        })
+    }
+
+    pub fn attribution_from_server(
+        attribution: Option<server::MetricAttribution>,
+    ) -> Result<Option<domain::MetricAttribution>, tonic::Status> {
+        attribution
+            .map(|a| {
+                Ok(domain::MetricAttribution {
+                    type_id: common_domain::ids::ResourceTypeId::from_proto(&a.resource_type_id)?,
+                    property: a.property,
+                })
+            })
+            .transpose()
     }
 
     pub struct ServerBillableMetricMetaWrapper(pub server::BillableMetricMeta);
@@ -91,6 +115,7 @@ pub mod metric {
         type Error = Report<StoreError>;
 
         fn try_from(value: domain::BillableMetricMeta) -> Result<Self, Self::Error> {
+            let attributed_to = attribution_to_server(value.attribution());
             Ok(ServerBillableMetricMetaWrapper(
                 server::BillableMetricMeta {
                     id: value.id.as_proto(),
@@ -105,6 +130,7 @@ pub mod metric {
                     created_at: Some(chrono_to_timestamp(value.created_at)),
                     archived_at: value.archived_at.map(chrono_to_timestamp),
                     unit_conversion_factor: value.unit_conversion_factor,
+                    attributed_to,
                     unit_label: unit_label_to_server(value.unit_singular, value.unit_plural),
                 },
             ))
@@ -183,24 +209,6 @@ pub mod metric {
                     }
                 }
             })
-    }
-
-    pub fn list_db_to_server(
-        metric: domain::billable_metrics::BillableMetricMeta,
-    ) -> server::BillableMetricMeta {
-        server::BillableMetricMeta {
-            id: metric.id.to_string(),
-            name: metric.name,
-            code: metric.code,
-            aggregation_type: super::aggregation_type::domain_to_server(metric.aggregation_type)
-                .into(),
-            aggregation_key: metric.aggregation_key,
-            archived_at: metric.archived_at.map(chrono_to_timestamp),
-            created_at: Some(chrono_to_timestamp(metric.created_at)),
-            description: metric.description,
-            unit_conversion_factor: metric.unit_conversion_factor,
-            unit_label: unit_label_to_server(metric.unit_singular, metric.unit_plural),
-        }
     }
 
     pub fn unit_label_to_server(

@@ -16,6 +16,7 @@ use crate::domain::{FullPlan, Plan, PlanNew, PlanVersion, PlanVersionFilter, Pla
 use crate::errors::StoreError;
 use crate::repositories::PlansInterface;
 use crate::repositories::entitlements::insert_entitlement_specs;
+use crate::repositories::plans::set_sold_for;
 use crate::repositories::price_components::{check_cell_prices, resolve_component_internal};
 use crate::store::{PgConn, Store};
 use common_domain::ids::{
@@ -23,6 +24,7 @@ use common_domain::ids::{
     TenantId,
 };
 use common_eventbus::Event;
+use diesel_models::entitlements::EntitlementRow;
 use diesel_models::plan_component_prices::PlanComponentPriceRowNew;
 use diesel_models::plan_version_options::PlanVersionOptionRowNew;
 use diesel_models::plan_versions::PlanVersionRow;
@@ -90,6 +92,7 @@ impl PlanDraftsInterface for Store {
                 async move {
                     let mut plan = plan;
                     plan.status = PlanStatusEnum::Draft;
+                    let sold_for = plan.sold_for_resource_type_id;
                     let inserted: Plan = plan
                         .into_raw(family.id)
                         .insert(conn)
@@ -100,6 +103,10 @@ impl PlanDraftsInterface for Store {
                         set_plan_code(conn, tenant_id, inserted.id, code)
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?;
+                    }
+                    // Before the draft's rows, which are checked against it.
+                    if sold_for.is_some() {
+                        set_sold_for(conn, tenant_id, inserted.id, sold_for).await?;
                     }
                     let version = insert_draft_tx(
                         conn,
@@ -184,6 +191,14 @@ impl PlanDraftsInterface for Store {
                             .update(conn)
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?;
+                        // Rows name their owner without a key: the draft's go with it.
+                        EntitlementRow::delete_all_of_owner(
+                            conn,
+                            tenant_id,
+                            EntitlementEntityId::PlanVersion(previous),
+                        )
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
                         PlanVersionRow::delete_draft(conn, previous, tenant_id)
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?;

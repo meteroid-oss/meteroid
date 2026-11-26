@@ -53,11 +53,11 @@ async fn promo_code(h: &Halyard, code: &str, scope: CouponCreditScope) -> Coupon
 async fn two_subscriptions(h: &Halyard) -> (CustomerId, SubscriptionId, SubscriptionId) {
     let customer = h.customer("Untaxed", Tax::Untaxed).await;
     let mut a_request = h.request(customer, h.scale, day(9, 1));
-    a_request.subscription.usage_filter = keyed("key-A");
+    a_request.subscription.resource_id = keyed(h, customer, "key-A").await;
     let (a, a1) = h.start(a_request).await;
     h.pay(a1.expect("INV-A1").id, at(9, 1)).await;
     let mut b_request = h.request(customer, h.payg, day(9, 10));
-    b_request.subscription.usage_filter = keyed("key-B");
+    b_request.subscription.resource_id = keyed(h, customer, "key-B").await;
     let (b, _) = h.start(b_request).await;
     h.keyed_tokens(customer, at_time(9, 3, 10, 0, 0), STANDARD, 50 * M, "key-A");
     h.keyed_tokens(customer, at_time(9, 20, 10, 0, 0), LITE, 10 * M, "key-A");

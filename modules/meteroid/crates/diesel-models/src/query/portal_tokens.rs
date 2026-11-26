@@ -52,6 +52,7 @@ impl PortalTokenRow {
         recipient_email: Option<&str>,
         scopes: &[Option<String>],
         delegated: bool,
+        client_claims: Option<&serde_json::Value>,
         valid_until: DateTime<Utc>,
         expires_before: Option<DateTime<Utc>>,
     ) -> DbResult<Vec<Self>> {
@@ -74,6 +75,10 @@ impl PortalTokenRow {
         query = match recipient_email {
             Some(email) => query.filter(d::recipient_email.eq(email)),
             None => query.filter(d::recipient_email.is_null()),
+        };
+        query = match client_claims {
+            Some(claims) => query.filter(d::client_claims.eq(claims)),
+            None => query.filter(d::client_claims.is_null()),
         };
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 

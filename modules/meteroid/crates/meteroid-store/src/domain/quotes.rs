@@ -13,7 +13,7 @@ use common_domain::ids::BaseId;
 use common_domain::ids::{
     AddOnId, CouponId, CustomerId, InvoiceId, PlanVersionId, PriceComponentId, PriceId, ProductId,
     QuoteAddOnId, QuoteAttachmentId, QuoteCouponId, QuoteId, QuotePriceComponentId,
-    QuoteSignatureId, QuoteTemplateId, StoredDocumentId, SubscriptionId, TenantId,
+    QuoteSignatureId, QuoteTemplateId, ResourceId, StoredDocumentId, SubscriptionId, TenantId,
 };
 use diesel_models::quote_add_ons::{QuoteAddOnRow, QuoteAddOnRowNew};
 use diesel_models::quote_coupons::{QuoteCouponRow, QuoteCouponRowNew};
@@ -115,6 +115,15 @@ pub struct Quote {
     pub last_sent_at: Option<NaiveDateTime>,
     /// The plan option sold, by alias; none: the plan's default.
     pub plan_option: Option<String>,
+    /// The stored resource its subscription will be for; kept by the conversion.
+    pub resource_id: Option<ResourceId>,
+    /// On a write, what its subscription would be accepted with: `plan_sold_for_mismatch`,
+    /// `metric_not_attributed`.
+    #[ghost({Vec::new()})]
+    pub warnings: Vec<String>,
+    /// With `metric_not_attributed`: the codes of the metrics its resource would never bill.
+    #[ghost({Vec::new()})]
+    pub metrics_not_attributed: Vec<crate::domain::usage_attribution::MetricCodes>,
 }
 
 /// How the priced lines read on the document.
@@ -223,6 +232,7 @@ pub struct QuoteNew {
     /// User-supplied custom property values. Validated against the tenant's `QUOTE` definitions
     /// by `insert_quote_with_details`; `Null` means "not managed" (stored as an empty object).
     pub custom_properties: serde_json::Value,
+    pub resource_id: Option<ResourceId>,
     /// Entitlement specs to create inline when the quote is created.
     /// Not persisted to `quote_rows` — inserted into the entitlements table instead.
     #[ghost]
@@ -316,6 +326,9 @@ impl Quote {
             allow_decline: new.allow_decline,
             last_sent_at: None,
             plan_option: new.plan_option,
+            resource_id: new.resource_id,
+            warnings: Vec::new(),
+            metrics_not_attributed: Vec::new(),
         }
     }
 }

@@ -428,6 +428,7 @@ impl Builder {
             billing,
             cadence,
             plan_component,
+            usage_from: None,
             fee: price,
         });
     }

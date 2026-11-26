@@ -1703,6 +1703,7 @@ async fn test_selfserve_checkout_with_existing_mandate_activates_in_flight(
             change_date: None,
             success_url: None,
             cancel_url: None,
+            resource_id: None,
         })
         .await
         .expect("create checkout session");
@@ -1828,6 +1829,7 @@ async fn test_deferred_checkout_materialization_prices_at_charge_date(#[future] 
             change_date: None,
             success_url: None,
             cancel_url: None,
+            resource_id: None,
         })
         .await
         .expect("create checkout session");

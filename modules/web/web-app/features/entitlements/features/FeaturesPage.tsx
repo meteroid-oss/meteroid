@@ -1,101 +1,93 @@
 import { PlusIcon } from '@md/icons'
 import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
+  Button,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Tabs,
+  TabsList,
+  TabsTrigger,
 } from '@md/ui'
-import { SortingState } from '@tanstack/react-table'
-import { Button } from '@ui/components'
-import { ChevronDown } from 'lucide-react'
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router'
 
 import { Gate } from '@/components/Gate'
 import { ListPageLayout, ListToolbarSearch, RefreshButton } from '@/components/layouts'
 import { FeaturesTable } from '@/features/entitlements/features/FeaturesTable'
+import { FeatureActionDialog, PendingFeatureAction } from '@/features/entitlements/features/statusActions'
+import { TypeFilter } from '@/features/resources/TypeSelect'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { useQueryState } from '@/hooks/useQueryState'
 import { useListPagination, useResetPageOnChange } from '@/hooks/useTablePreferences'
 import { useQuery } from '@/lib/connectrpc'
 import { listFeatures } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
-import { FeatureStatus } from '@/rpc/api/entitlements/v1/models_pb'
+import { FeatureOrder } from '@/rpc/api/entitlements/v1/entitlements_pb'
+import { type Feature, FeatureStatus } from '@/rpc/api/entitlements/v1/models_pb'
 import { listProducts } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
 
-import { FeatureActionDialog, PendingFeatureAction } from './statusActions'
+const STATUS_TABS = {
+  current: { label: 'All', statuses: [FeatureStatus.ACTIVE, FeatureStatus.DISABLED] },
+  active: { label: 'Active', statuses: [FeatureStatus.ACTIVE] },
+  disabled: { label: 'Disabled', statuses: [FeatureStatus.DISABLED] },
+  archived: { label: 'Archived', statuses: [FeatureStatus.ARCHIVED] },
+} as const
 
-const ALL_STATUSES: FeatureStatus[] = [FeatureStatus.ACTIVE, FeatureStatus.DISABLED, FeatureStatus.ARCHIVED]
-const DEFAULT_STATUSES: FeatureStatus[] = [FeatureStatus.ACTIVE, FeatureStatus.DISABLED]
+type StatusTab = keyof typeof STATUS_TABS
 
-function statusLabel(s: FeatureStatus): string {
-  switch (s) {
-    case FeatureStatus.ACTIVE:
-      return 'Active'
-    case FeatureStatus.DISABLED:
-      return 'Disabled'
-    case FeatureStatus.ARCHIVED:
-      return 'Archived'
-    default:
-      return String(s)
-  }
-}
-
-function selectionLabel(selection: Set<FeatureStatus>): string {
-  if (selection.size === ALL_STATUSES.length) return 'All statuses'
-  const shown = selection.size === 0 ? DEFAULT_STATUSES : Array.from(selection)
-  return shown.map(statusLabel).join(', ')
-}
+const ALL_PRODUCTS = '__all__'
 
 export const FeaturesPage = () => {
   const navigate = useNavigate()
 
   const [search, setSearch] = useQueryState<string | undefined>('q', undefined)
   const debouncedSearch = useDebounceValue(search, 400)
-  const [statusSelection, setStatusSelection] = useState<Set<FeatureStatus>>(
-    () => new Set(DEFAULT_STATUSES)
-  )
+  const [requestedTab, setTab] = useQueryState<string>('status', 'current')
+  const tab: StatusTab = requestedTab in STATUS_TABS ? (requestedTab as StatusTab) : 'current'
   const [productFilter, setProductFilter] = useQueryState<string | undefined>('product', undefined)
+  const [appliesPer, setAppliesPer] = useState<string>()
   const [pagination, setPagination] = useListPagination()
-  const [sorting, setSorting] = useState<SortingState>([])
   const [pendingAction, setPendingAction] = useState<PendingFeatureAction | null>(null)
 
-  useResetPageOnChange(setPagination, [debouncedSearch, statusSelection, productFilter])
+  useResetPageOnChange(setPagination, [debouncedSearch, tab, productFilter, appliesPer])
+  const onAction = useCallback(
+    (feature: Feature, target: FeatureStatus) => setPendingAction({ feature, target }),
+    []
+  )
 
-  const productsQuery = useQuery(listProducts, { pagination: { page: 0, perPage: 200 } })
-  const products = productsQuery.data?.products ?? []
+  const groupByProduct = !productFilter
+
+  const products = useQuery(listProducts, { pagination: { page: 0, perPage: 200 } }).data?.products ?? []
 
   const query = useQuery(listFeatures, {
     pagination: { page: pagination.pageIndex, perPage: pagination.pageSize },
-    statuses: Array.from(statusSelection),
+    statuses: [...STATUS_TABS[tab].statuses],
     search: debouncedSearch || undefined,
     productId: productFilter || undefined,
+    levelResourceTypeId: appliesPer,
+    order: groupByProduct ? FeatureOrder.PRODUCT : FeatureOrder.UNSPECIFIED,
   })
-
-  const toggleStatus = (s: FeatureStatus) => {
-    setStatusSelection(prev => {
-      const next = new Set(prev)
-      if (next.has(s)) {
-        next.delete(s)
-      } else {
-        next.add(s)
-      }
-      return next
-    })
-  }
 
   return (
     <ListPageLayout
       title="Features"
       count={query.data?.paginationMeta?.totalItems}
+      tabs={
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList variant="ghost">
+            {(Object.keys(STATUS_TABS) as StatusTab[]).map(key => (
+              <TabsTrigger key={key} value={key}>
+                {STATUS_TABS[key].label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      }
       actions={
         <Gate perm="catalog:manage">
           <Button variant="primary" size="sm" hasIcon onClick={() => navigate('create')}>
-            <PlusIcon className="w-4 h-4" /> New feature
+            <PlusIcon className="h-4 w-4" /> New feature
           </Button>
         </Gate>
       }
@@ -107,34 +99,15 @@ export const FeaturesPage = () => {
             placeholder="Search features"
             className="max-w-[220px]"
           />
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-8 text-sm gap-1">
-                {selectionLabel(statusSelection)}
-                <ChevronDown className="w-4 h-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              {ALL_STATUSES.map(s => (
-                <DropdownMenuCheckboxItem
-                  key={s}
-                  checked={statusSelection.has(s)}
-                  onCheckedChange={() => toggleStatus(s)}
-                >
-                  {statusLabel(s)}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
           <Select
-            value={productFilter ?? '__all__'}
-            onValueChange={v => setProductFilter(v === '__all__' ? undefined : v)}
+            value={productFilter ?? ALL_PRODUCTS}
+            onValueChange={v => setProductFilter(v === ALL_PRODUCTS ? undefined : v)}
           >
-            <SelectTrigger className="w-40 h-8 text-sm">
+            <SelectTrigger className="h-8 w-40 text-sm">
               <SelectValue placeholder="All products" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="__all__">All products</SelectItem>
+              <SelectItem value={ALL_PRODUCTS}>All products</SelectItem>
               {products.map(p => (
                 <SelectItem key={p.id} value={p.id}>
                   {p.name}
@@ -142,6 +115,7 @@ export const FeaturesPage = () => {
               ))}
             </SelectContent>
           </Select>
+          <TypeFilter value={appliesPer} onChange={setAppliesPer} anyLabel="Applies per: any" />
         </>
       }
       toolbarTrailing={<RefreshButton isLoading={query.isLoading} onClick={() => query.refetch()} />}
@@ -150,9 +124,8 @@ export const FeaturesPage = () => {
         query={query}
         pagination={pagination}
         setPagination={setPagination}
-        sorting={sorting}
-        onSortingChange={setSorting}
-        onAction={(feature, target) => setPendingAction({ feature, target })}
+        onAction={onAction}
+        groupByProduct={groupByProduct}
       />
 
       <FeatureActionDialog pending={pendingAction} onClose={() => setPendingAction(null)} />

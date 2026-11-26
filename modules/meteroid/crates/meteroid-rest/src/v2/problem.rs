@@ -5,7 +5,10 @@ use axum::response::{IntoResponse, Response};
 use error_stack::Report;
 use http::{HeaderValue, StatusCode};
 use meteroid_app::errors::RestApiError;
-use meteroid_store::errors::{IdempotencyKeyReused, NotInPlan, RateLimited, StoreError};
+use meteroid_store::errors::{
+    EntitlementRefusal, IdempotencyKeyReused, NotInPlan, RateLimited, StoreError,
+};
+use meteroid_store::repositories::resources::{ResourceAtFault, ResourceRefusal};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -31,6 +34,14 @@ pub enum ProblemCode {
     Conflict,
     /// The plan has no draft.
     NoDraft,
+    /// The feature applies per a resource type and the request names no resource of it.
+    ResourceRequired,
+    /// A count `set` older than the operations kept: the adds after it are no longer known.
+    StaleSet,
+    /// A resource type's key is held by another type of the tenant.
+    KeyTaken,
+    /// The customer holds as many stored resources of the type as allowed.
+    ResourceLimitReached,
     /// The change cannot take effect when asked (`when`): an immediate downgrade, a date where
     /// only now or the period's end are possible…
     WhenRefused,
@@ -70,6 +81,10 @@ impl ProblemCode {
             ProblemCode::AlreadyExists => "already_exists",
             ProblemCode::Conflict => "conflict",
             ProblemCode::NoDraft => "no_draft",
+            ProblemCode::ResourceRequired => "resource_required",
+            ProblemCode::StaleSet => "stale_set",
+            ProblemCode::KeyTaken => "key_taken",
+            ProblemCode::ResourceLimitReached => "resource_limit_reached",
             ProblemCode::WhenRefused => "when_refused",
             ProblemCode::IdempotencyKeyReused => "idempotency_key_reused",
             ProblemCode::IdempotencyRequestInProgress => "idempotency_request_in_progress",
@@ -99,6 +114,10 @@ impl ProblemCode {
             ProblemCode::AlreadyExists => "It already exists",
             ProblemCode::Conflict => "The resource's state refuses the change",
             ProblemCode::NoDraft => "The plan has no draft",
+            ProblemCode::ResourceRequired => "A resource is required",
+            ProblemCode::StaleSet => "The count set is older than the operations kept",
+            ProblemCode::KeyTaken => "The key is taken",
+            ProblemCode::ResourceLimitReached => "The customer holds the most resources allowed",
             ProblemCode::WhenRefused => "The change cannot take effect when asked",
             ProblemCode::IdempotencyKeyReused => {
                 "The Idempotency-Key was used with another request"
@@ -386,15 +405,28 @@ impl Problem {
 
     /// A store refusal, its message as the detail of a refused field at `path`.
     pub fn at(path: impl Into<String>, error: Report<StoreError>) -> Self {
+        let archived = ResourceRefusal::of(&error) == Some(ResourceRefusal::TypeArchived);
         let mut problem = Problem::from(error);
         if problem.code == ProblemCode::ValidationFailed && problem.errors.is_empty() {
             problem.errors.push(FieldError {
                 path: path.into(),
-                code: "invalid".to_owned(),
+                code: if archived { "archived" } else { "invalid" }.to_owned(),
                 message: problem.detail.clone().unwrap_or_default(),
             });
         }
         problem
+    }
+
+    /// A store refusal of a write naming a resource: at `/resource` when the resource is at
+    /// fault, else at `otherwise` (no field when `None`).
+    pub fn resource_or(otherwise: Option<&str>, error: Report<StoreError>) -> Self {
+        if ResourceAtFault::of(&error) {
+            return Self::at("/resource", error);
+        }
+        match otherwise {
+            Some(path) => Self::at(path, error),
+            None => Self::from(error),
+        }
     }
 
     /// A unique violation on create read as the code being taken.
@@ -473,6 +505,36 @@ impl From<Report<StoreError>> for Problem {
             );
         }
         let context = error.current_context();
+        let message = store_message(context);
+        match EntitlementRefusal::of(&error) {
+            Some(EntitlementRefusal::IdempotencyKeyReused) => {
+                return Problem::new(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    ProblemCode::IdempotencyKeyReused,
+                    message,
+                );
+            }
+            Some(EntitlementRefusal::StaleSet) => {
+                return Problem::conflict(ProblemCode::StaleSet, message);
+            }
+            Some(EntitlementRefusal::ResourceRequired) => {
+                return Problem::new(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    ProblemCode::ResourceRequired,
+                    message,
+                );
+            }
+            Some(EntitlementRefusal::NotSubscribed) | None => {}
+        }
+        match ResourceRefusal::of(&error) {
+            Some(ResourceRefusal::KeyClash) => {
+                return Problem::conflict(ProblemCode::KeyTaken, message);
+            }
+            Some(ResourceRefusal::LimitReached) => {
+                return Problem::conflict(ProblemCode::ResourceLimitReached, message);
+            }
+            Some(ResourceRefusal::TypeArchived | ResourceRefusal::HierarchyUnsupported) | None => {}
+        }
         match context {
             StoreError::ValueNotFound(_) => Problem::not_found(store_message(context)),
             // A row a query was sure to find: the resource asked for does not exist.
@@ -502,7 +564,9 @@ impl From<Report<StoreError>> for Problem {
                 ProblemCode::Forbidden,
                 store_message(context),
             ),
-            StoreError::UsageUnavailable | StoreError::MeteringNotReady => Problem::new(
+            StoreError::UsageUnavailable
+            | StoreError::MeteringNotReady
+            | StoreError::DatabaseConnectionError => Problem::new(
                 StatusCode::SERVICE_UNAVAILABLE,
                 ProblemCode::Unavailable,
                 context.to_string(),

@@ -307,6 +307,23 @@ pub async fn spawn_workers(
         });
     }
 
+    {
+        use meteroid_store::leader_lock::{LeaderLock, PgLeaderElection};
+
+        let store = store.clone();
+        let elector = Arc::new(PgLeaderElection::new(
+            store.pool.clone(),
+            LeaderLock::EntitlementValidityScan,
+        ));
+        let schedule = config.workers.entitlement_validity_scan_cron.clone();
+        join_set.spawn(async move {
+            misc::entitlement_validity_scan::run_entitlement_validity_scan_worker(
+                store, elector, schedule,
+            )
+            .await;
+        });
+    }
+
     if config.workers.payment_reminders_enabled {
         use meteroid_store::leader_lock::LeaderLock;
         use meteroid_store::leader_lock::PgLeaderElection;

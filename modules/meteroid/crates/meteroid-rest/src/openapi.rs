@@ -7,8 +7,10 @@ use crate::webhooks::out_model::{
     WebhookOutAutoTopUpCapReachedEventData, WebhookOutAutoTopUpConsentChangedEvent,
     WebhookOutAutoTopUpConsentChangedEventData, WebhookOutAutoTopUpEvent,
     WebhookOutAutoTopUpEventData, WebhookOutBudgetAlertEvent, WebhookOutBudgetAlertEventData,
+    WebhookOutCheckoutPaymentKeptAsCreditEvent, WebhookOutCheckoutPaymentKeptAsCreditEventData,
     WebhookOutCreditGrantExpiredEvent, WebhookOutCreditGrantExpiredEventData,
     WebhookOutEntitlementAlertEvent, WebhookOutEntitlementAlertEventData,
+    WebhookOutEntitlementAlertLevel, WebhookOutEntitlementAlertResource,
     WebhookOutTooManyGroupsEvent, WebhookOutTooManyGroupsEventData,
     WebhookOutWalletBalanceLowEvent, WebhookOutWalletBalanceLowEventData,
     WebhookOutWalletCreditRecoveredEvent, WebhookOutWalletCreditRecoveredEventData,
@@ -33,7 +35,7 @@ use crate::{AppState, api_routes};
 use common_domain::ids::{
     AddOnId, BaseId, BillableMetricId, BudgetId, CouponId, CreditGrantId, CreditNoteId, CustomerId,
     EventId, FeatureId, InvoiceId, LedgerEntryId, PaymentTransactionId, PlanId, ProductFamilyId,
-    ProductId, QuoteId, SubscriptionId,
+    ProductId, QuoteId, ResourceId, SubscriptionId,
 };
 use meteroid_rest_common::datetime::ApiDateTime;
 use meteroid_rest_common::model::BillingPeriodEnum;
@@ -46,10 +48,27 @@ use utoipa_axum::router::OpenApiRouter;
 /// Builds the merged spec. Beta webhooks (and their `EventType` values) are left out; beta REST
 /// operations are published, labelled as beta.
 fn build_spec(edition: &EditionSpec) -> utoipa::openapi::OpenApi {
+    build_spec_hiding(edition, |event| event.group().is_beta())
+}
+
+/// v2 lists the entitlement alerts, in the v2 model, but not the retired too-many-groups event.
+fn hidden_from_v2(event: WebhookOutEventTypeEnum) -> bool {
+    match event.group() {
+        WebhookOutEventGroupEnum::Entitlement => {
+            event == WebhookOutEventTypeEnum::EntitlementTooManyGroups
+        }
+        group => group.is_beta(),
+    }
+}
+
+fn build_spec_hiding(
+    edition: &EditionSpec,
+    hidden: impl Fn(WebhookOutEventTypeEnum) -> bool,
+) -> utoipa::openapi::OpenApi {
     let (_router, mut open_api) = assemble(api_routes());
     let schemas_before = referenced_schemas(&open_api);
     merge_edition(&mut open_api, edition);
-    remove_beta_webhooks(&mut open_api);
+    remove_hidden_webhooks(&mut open_api, hidden);
     prune_schemas(&mut open_api, &schemas_before);
     add_rate_limit_responses(&mut open_api);
     discriminate_tagged_variants(&mut open_api);
@@ -133,6 +152,11 @@ pub fn published_spec_root(edition: &EditionSpec) -> serde_json::Map<String, ser
     let mut root = promote_webhooks_to_top_level(&build_spec(edition));
     mark_beta_operations(&mut root);
     root
+}
+
+/// The v1 document whose webhook payloads the v2 document carries (`v2::published_spec_json`).
+pub fn v2_webhooks_root(edition: &EditionSpec) -> serde_json::Map<String, serde_json::Value> {
+    promote_webhooks_to_top_level(&build_spec_hiding(edition, hidden_from_v2))
 }
 
 /// Writes the specs of an edition, whose modules add `edition`, under `dir`.
@@ -225,6 +249,7 @@ pub fn generate_spec(edition: EditionSpec, dir: &str) {
         WebhookOutEntitlementAlertEvent,
         WebhookOutBudgetAlertEvent,
         WebhookOutTooManyGroupsEvent,
+        WebhookOutCheckoutPaymentKeptAsCreditEvent,
       )
     ),
     tags(
@@ -420,12 +445,15 @@ pub fn spec_json(openapi: &utoipa::openapi::OpenApi) -> serde_json::Value {
     value
 }
 
-fn remove_beta_webhooks(openapi: &mut utoipa::openapi::OpenApi) {
-    let beta = WebhookOutEventTypeEnum::iter()
-        .filter(|event| event.group().is_beta())
+fn remove_hidden_webhooks(
+    openapi: &mut utoipa::openapi::OpenApi,
+    hidden: impl Fn(WebhookOutEventTypeEnum) -> bool,
+) {
+    let names = WebhookOutEventTypeEnum::iter()
+        .filter(|event| hidden(*event))
         .map(|event| event.to_string())
         .collect::<Vec<_>>();
-    remove_webhooks(openapi, &beta);
+    remove_webhooks(openapi, &names);
 }
 
 /// Drops the named webhooks and their `EventType` values.
@@ -1033,6 +1061,26 @@ impl Modify for WebhooksAddon {
                 WebhookOutEventGroupEnum::Entitlement | WebhookOutEventGroupEnum::Budget => {
                     alert_example(event)
                 }
+                WebhookOutEventGroupEnum::Checkout => {
+                    let event = WebhookOutCheckoutPaymentKeptAsCreditEvent {
+                        id: EventId::default(),
+                        event_type: event,
+                        data: WebhookOutCheckoutPaymentKeptAsCreditEventData {
+                            customer_id: CustomerId::default(),
+                            checkout_session_id: common_domain::ids::CheckoutSessionId::default(),
+                            payment_id: PaymentTransactionId::default(),
+                            plan_version_id: Some(common_domain::ids::PlanVersionId::default()),
+                            resource_id: Some(ResourceId::default()),
+                            amount: 4900,
+                            currency: "EUR".to_string(),
+                            reason: "resource res_4cd9Hk2 is already sold by subscription \
+                                     sub_7Fq2Lm over this period: change its plan instead"
+                                .to_string(),
+                        },
+                        timestamp: Default::default(),
+                    };
+                    serde_json::to_value(&event).expect("Failed to serialize webhook example")
+                }
             };
 
             let webhook_def = json!({
@@ -1332,9 +1380,17 @@ fn alert_example(event: WebhookOutEventTypeEnum) -> serde_json::Value {
                     customer_id: CustomerId::default(),
                     customer_alias: Some("acme".to_string()),
                     feature_id: FeatureId::default(),
+                    feature_code: Some("api_requests".to_string()),
                     subscription_id: Some(SubscriptionId::default()),
-                    metric_code: "api_calls".to_string(),
-                    group: Some([("region".to_string(), "eu".to_string())].into()),
+                    metric_code: Some("api_calls".to_string()),
+                    level: Some(WebhookOutEntitlementAlertLevel::ResourceType),
+                    resource: Some(WebhookOutEntitlementAlertResource {
+                        id: Some(ResourceId::default()),
+                        resource_type: "site".to_string(),
+                        key: "s1".to_string(),
+                    }),
+                    path: Some("site=s1".to_string()),
+                    group: Some([("site_id".to_string(), "s1".to_string())].into()),
                     threshold_pct,
                     used,
                     limit: rust_decimal::Decimal::new(1000, 0),
@@ -1459,7 +1515,7 @@ mod tests {
                 "type",
                 Some(untagged::<subscriptions::model::ProductRef>),
             ),
-            // The client API's entitlements read as v2's: `Reset` is v2's, response-only.
+            // The client API's entitlements read as v2's: `Reset` is a v2 policy's, response-only.
             ("Reset", "type", None),
             (
                 "ResetPeriod",
@@ -1632,6 +1688,51 @@ mod tests {
         }
     }
 
+    /// v1's check keeps what 2.3 published: every reason, `period`, `limits` and the `group`
+    /// parameter (deprecated, refused).
+    #[test]
+    fn the_v1_check_keeps_its_released_shape() {
+        let root = published_spec_root(&EditionSpec::core());
+        let schemas = &root["components"]["schemas"];
+        let reasons = schemas["EntitlementCheckReason"]["enum"]
+            .as_array()
+            .expect("reasons");
+        for released in [
+            "WITHIN_LIMIT",
+            "LIMIT_REACHED",
+            "NO_ENTITLEMENT",
+            "DISABLED",
+            "BUDGET_EXCEEDED",
+            "INSUFFICIENT_BALANCE",
+            "TOO_MANY_GROUPS",
+        ] {
+            assert!(reasons.iter().any(|r| r == released), "{released}");
+        }
+        let check = &schemas["EntitlementCheck"]["properties"];
+        assert!(check.get("period").is_some(), "period");
+        assert_eq!(
+            check["limits"]["items"]["$ref"],
+            "#/components/schemas/EntitlementCheckLimit"
+        );
+        for name in [
+            "EntitlementCheckPeriod",
+            "EntitlementCheckLimit",
+            "EntitlementCheckLimitBehavior",
+        ] {
+            assert!(schemas.get(name).is_some(), "{name}");
+        }
+        let path = "/api/v1/customers/{id_or_alias}/entitlements/{feature_id_or_code}/check";
+        let parameters = root["paths"][path]["get"]["parameters"]
+            .as_array()
+            .expect("parameters");
+        for name in ["requested", "subscription_id", "group"] {
+            assert!(
+                parameters.iter().any(|p| p["name"] == name),
+                "GET check takes {name}"
+            );
+        }
+    }
+
     /// The credit routes and their webhooks are published (GA) under their final names; the
     /// routes of `BETA_TAGS` are published too, each marked beta, in industry vocabulary.
     #[test]
@@ -1681,10 +1782,27 @@ mod tests {
         );
         for path in [
             "/api/v1/customers/{id_or_alias}/wallets/check",
-            "/api/v1/customers/{id_or_alias}/entitlements/{feature_id_or_code}/check",
             "/api/v1/customers/{id_or_alias}/budgets",
         ] {
             assert!(paths.get(path).is_none(), "{path} is a module's");
+        }
+        // The check is core (ADR 0011 §3.14): the module only changes where its usage comes from.
+        for (path, method) in [
+            ("/api/v1/customers/{id_or_alias}/entitlements/check", "post"),
+            (
+                "/api/v1/customers/{id_or_alias}/entitlements/{feature_id_or_code}/check",
+                "get",
+            ),
+            (
+                "/api/v1/customers/{id_or_alias}/entitlements/{feature_id_or_code}/usage",
+                "post",
+            ),
+            ("/api/v1/entitlements/{entitlement_id}/history", "get"),
+        ] {
+            assert!(
+                paths.get(path).and_then(|item| item.get(method)).is_some(),
+                "{method} {path} is core's"
+            );
         }
         for (path, method) in [
             ("/api/v1/usage/customer/{customer_id}/costs", "get"),
@@ -1734,10 +1852,46 @@ mod tests {
         }
 
         let client = spec_json(&crate::client::client_api(EditionSpec::core().client).1);
+        for (path, method) in [
+            ("/api/client/v1/entitlements", "get"),
+            ("/api/client/v1/entitlements/check", "post"),
+            ("/api/client/v1/entitlements/{feature}/check", "get"),
+        ] {
+            assert!(
+                client["paths"]
+                    .get(path)
+                    .and_then(|item| item.get(method))
+                    .is_some(),
+                "{method} {path} is core's"
+            );
+        }
+        let v2 = crate::v2::spec_json(&crate::v2::spec(&EditionSpec::core()));
+        for (path, method) in [
+            ("/api/v2/customers/{id_or_alias}/entitlements", "get"),
+            ("/api/v2/customers/{id_or_alias}/entitlements/check", "post"),
+            (
+                "/api/v2/customers/{id_or_alias}/entitlements/{feature}/check",
+                "get",
+            ),
+            (
+                "/api/v2/customers/{id_or_alias}/entitlements/{feature}/usage",
+                "post",
+            ),
+            ("/api/v2/entitlements/{id}/history", "get"),
+        ] {
+            assert!(
+                v2["paths"]
+                    .get(path)
+                    .and_then(|item| item.get(method))
+                    .is_some(),
+                "{method} {path} is core's in v2"
+            );
+        }
         assert!(
-            client["paths"]
-                .get("/api/client/v1/entitlements/{feature}/check")
-                .is_none()
+            v2["paths"]["/api/v2/customers/{id_or_alias}/entitlements/check"]["post"]
+                .get("x-idempotency")
+                .is_none(),
+            "the check reads: it takes no Idempotency-Key"
         );
 
         let webhooks = root["webhooks"].as_object().expect("webhooks");

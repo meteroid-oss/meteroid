@@ -49,6 +49,7 @@ async fn with_prices(
         (status = 200, description = "The tenant's credit unit catalog", body = CreditUnitListResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -93,6 +94,7 @@ pub async fn list_credit_units(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -125,6 +127,7 @@ pub async fn get_credit_unit(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 409, description = "A credit unit with this code already exists", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -166,6 +169,7 @@ pub async fn create_credit_unit(
         (status = 404, description = "Not found", body = RestErrorResponse),
         (status = 409, description = "The product is archived", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -203,6 +207,7 @@ pub async fn update_credit_unit(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -252,6 +257,7 @@ pub async fn list_credit_unit_prices(
         (status = 404, description = "Not found", body = RestErrorResponse),
         (status = 409, description = "The credit unit is archived", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -286,6 +292,7 @@ pub async fn set_credit_unit_price(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "No active price in this currency", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]

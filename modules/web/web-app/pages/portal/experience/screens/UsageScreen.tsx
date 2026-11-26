@@ -6,10 +6,8 @@ import { getUpcomingInvoice } from '@/rpc/portal/subscription/v1/subscription-Po
 
 import { UsageChart } from '../UsageChart'
 import { usePortalNav } from '../context'
-import { date, money } from '../format'
+import { date, money, subscriptionTitle } from '../format'
 import { CenterState, Mono, PanelCard, Spinner } from '../primitives'
-
-import { UsageFilterTag } from './UsageFilterTag'
 
 import type { LineItem, SubLineItem } from '@/rpc/api/invoices/v1/models_pb'
 import type { SubscriptionSummary } from '@/rpc/portal/customer/v1/models_pb'
@@ -165,8 +163,7 @@ const UsageItemRow = ({
 
 const PlanTitle = ({ sub }: { sub: SubscriptionSummary }) => (
   <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8 }}>
-    {sub.planName}
-    <UsageFilterTag subscriptionId={sub.id} />
+    {subscriptionTitle(sub)}
   </span>
 )
 

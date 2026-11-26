@@ -1332,6 +1332,8 @@ mod tests {
             filters: None,
             usage_group_key: None,
             usage_breakdown_key: None,
+            attributed_to_type_id: None,
+            attribution_property: None,
             created_at: NaiveDateTime::default(),
             updated_at: None,
             archived_at: None,

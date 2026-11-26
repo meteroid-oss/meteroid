@@ -15,6 +15,7 @@ use meteroid_store::domain::enums::SubscriptionStatusEnum;
 use meteroid_store::domain::portal_credit::{PortalLimitOrigin, PortalPlanInputs};
 use meteroid_store::repositories::CreditNoteInterface;
 use meteroid_store::repositories::CreditUnitsInterface;
+use meteroid_store::repositories::ResourcesInterface;
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
 use meteroid_store::repositories::customers::CustomersInterfaceAuto;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
@@ -83,6 +84,18 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
             .await
             .map_err(Into::<PortalCustomerApiError>::into)?;
 
+        let mut resource_names = std::collections::HashMap::new();
+        for id in subscriptions.items.iter().filter_map(|s| s.resource_id) {
+            if let std::collections::hash_map::Entry::Vacant(name) = resource_names.entry(id) {
+                let resource = self
+                    .store
+                    .get_resource(tenant, id)
+                    .await
+                    .map_err(Into::<PortalCustomerApiError>::into)?;
+                name.insert(resource.name.unwrap_or(resource.key_value));
+            }
+        }
+
         let active_subscriptions: Vec<SubscriptionSummary> = subscriptions
             .items
             .into_iter()
@@ -99,10 +112,10 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
                     &credit_units,
                 )?;
                 Ok::<_, Status>(SubscriptionSummary {
-                    usage_filter:
-                        crate::subscriptions::mapping::subscriptions::usage_filter_to_proto(
-                            s.usage_filter.clone(),
-                        ),
+                    resource_id: s.resource_id.map(|id| id.as_proto()),
+                    resource_name: s
+                        .resource_id
+                        .and_then(|id| resource_names.get(&id).cloned()),
                     plan_price: Some(plan_price),
                     plan_description: s.plan_description.clone(),
                     id: s.id.as_proto(),
@@ -237,7 +250,7 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
         )
         .await;
         let gate = |code| async move {
-            meteroid_app::features::tenant_gate_open(
+            meteroid_app::features::portal_gate_open(
                 self.feature_resolver.as_ref(),
                 &self.store,
                 tenant,
@@ -427,6 +440,7 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
                     reached: limit.reached,
                     reached_at: limit.reached_at.map(timestamp),
                     warning: limit.warning,
+                    usage_unavailable: limit.usage_unavailable,
                     unit_label: crate::billablemetrics::mapping::metric::unit_label_to_server(
                         limit.unit_singular,
                         limit.unit_plural,

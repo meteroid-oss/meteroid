@@ -284,6 +284,7 @@ async fn test_event_insights_read_usage_like_billing() {
         .insert_billable_metric(
             Actor::System,
             BillableMetricNew {
+                attributed_to: None,
                 name: "Insight calls".to_owned(),
                 description: None,
                 code: CODE.to_owned(),

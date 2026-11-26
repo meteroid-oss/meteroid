@@ -60,8 +60,8 @@ INSERT INTO plan_version_adjustment_component(plan_version_id,kind,product_id) V
 INSERT INTO schedule(id,billing_period,plan_version_id,ramps) VALUES (gen_random_uuid(),'MONTHLY','10000000-0000-0000-0000-000000000009','{}');
 
 -- features/entitlements
-INSERT INTO feature(id,tenant_id,product_id,name,code,metric_id) VALUES ('10000000-0000-0000-0000-000000000016','10000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-000000000006','F','fc','10000000-0000-0000-0000-000000000015');
-INSERT INTO entitlement(id,tenant_id,feature_id,entity_id,entity_type,mode,value) VALUES (gen_random_uuid(),'10000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-000000000016','10000000-0000-0000-0000-000000000007','CUSTOMER','OVERRIDE','{}');
+INSERT INTO feature(id,tenant_id,product_id,name,code,metric_id,kind) VALUES ('10000000-0000-0000-0000-000000000016','10000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-000000000006','F','fc','10000000-0000-0000-0000-000000000015','BOOLEAN');
+INSERT INTO entitlement(id,tenant_id,feature_id,entity_id,entity_type,mode,value,lineage_id,lineage_created_at,lineage_anchor,effect) VALUES ('10000000-0000-0000-0000-0000000000e1','10000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-000000000016','10000000-0000-0000-0000-000000000007','CUSTOMER','OVERRIDE','{}','10000000-0000-0000-0000-0000000000e1',now(),now(),'SET');
 
 -- subscription + children
 INSERT INTO subscription(id,customer_id,billing_day_anchor,tenant_id,start_date,plan_version_id,net_terms,period,status,current_period_start, created_at) VALUES ('10000000-0000-0000-0000-00000000000a','10000000-0000-0000-0000-000000000007',1,'10000000-0000-0000-0000-000000000002',CURRENT_DATE,'10000000-0000-0000-0000-000000000009',30,'MONTHLY','PENDING_ACTIVATION',CURRENT_DATE, now());

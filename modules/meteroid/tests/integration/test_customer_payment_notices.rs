@@ -1137,6 +1137,7 @@ fn session_with_code(customer: CustomerId, coupon_code: Option<&str>) -> CreateC
         change_date: None,
         success_url: None,
         cancel_url: None,
+        resource_id: None,
     }
 }
 

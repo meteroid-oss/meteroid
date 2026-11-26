@@ -2,7 +2,6 @@ import { create } from '@bufbuild/protobuf';
 import { ConnectError } from '@connectrpc/connect'
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
-  Alert,
   DialogDescription,
   DialogTitle,
   Form,
@@ -19,7 +18,7 @@ import {
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { InfoIcon, Settings } from 'lucide-react'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
@@ -28,15 +27,8 @@ import {
   parseCustomProperties,
   serializeCustomProperties,
 } from '@/features/customproperties/CustomPropertiesFields'
-import {
-  UsageFilterFields,
-  formatUsageFilter,
-  refineUsageFilter,
-  USAGE_FILTER_CHANGE_WARNING,
-  usageFilterFormFields,
-  usageFilterFromForm,
-  usageFilterToForm,
-} from '@/features/subscriptions/UsageFilterFields'
+import { useResourceTypes } from '@/features/resources/hooks'
+import { SubscribedFor } from '@/features/subscriptions/SubscribedFor'
 import { useZodForm } from '@/hooks/useZodForm'
 import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
 import {
@@ -67,9 +59,7 @@ const editSubscriptionSchema = z
     purchaseOrder: z.string().max(100).optional(),
     paymentMethodsType: z.enum(['online', 'bankTransfer', 'external']),
     customProperties: z.record(z.string(), z.unknown()).optional(),
-    ...usageFilterFormFields,
   })
-  .superRefine(refineUsageFilter)
 
 type EditSubscriptionFormValues = z.infer<typeof editSubscriptionSchema>
 
@@ -108,22 +98,20 @@ const buildProtoPaymentMethodsConfig = (type: PaymentMethodsType): PaymentMethod
 
 interface EditSubscriptionModalProps {
   subscription: Subscription
-  /** A usage filter means something only on a subscription that has not ended and bills usage. */
-  usageFilterEditable: boolean
+  /** "Subscribed for" is fixed once active; a draft can change it. */
+  resourceEditable: boolean
   onClose: () => void
   onSuccess?: () => void
 }
 
-// The server's refusals of a usage filter, shown on the field rather than as a toast.
-const USAGE_FILTER_ERROR = /usage filter|already bills the events where/i
-
 export const EditSubscriptionModal = ({
   subscription,
-  usageFilterEditable,
+  resourceEditable,
   onClose,
   onSuccess,
 }: EditSubscriptionModalProps) => {
   const queryClient = useQueryClient()
+  const { hasTypes } = useResourceTypes()
 
   const methods = useZodForm({
     schema: editSubscriptionSchema,
@@ -135,22 +123,13 @@ export const EditSubscriptionModal = ({
       purchaseOrder: subscription.purchaseOrder ?? '',
       paymentMethodsType: getPaymentMethodsTypeFromProto(subscription.paymentMethodsConfig),
       customProperties: parseCustomProperties(subscription.customProperties),
-      ...usageFilterToForm(subscription.usageFilter),
     },
     mode: 'onSubmit',
   })
 
   // Watch payment methods type and charge automatically for cross-validation
-  const [paymentMethodsType, chargeAutomatically, usageFilterProperty, usageFilterValue] =
-    methods.watch([
-      'paymentMethodsType',
-      'chargeAutomatically',
-      'usageFilterProperty',
-      'usageFilterValue',
-    ])
-  const usageFilterChanged = (property?: string, value?: string) =>
-    (property ?? '') !== (subscription.usageFilter?.property ?? '') ||
-    (value ?? '') !== (subscription.usageFilter?.value ?? '')
+  const [paymentMethodsType, chargeAutomatically] = methods.watch(['paymentMethodsType', 'chargeAutomatically'])
+  const [resourceId, setResourceId] = useState(subscription.resourceId)
 
   // Auto-disable chargeAutomatically when Bank or External payment methods selected
   useEffect(() => {
@@ -188,20 +167,11 @@ export const EditSubscriptionModal = ({
     },
     onError: error => {
       const message = ConnectError.from(error).rawMessage
-      if (usageFilterEditable && USAGE_FILTER_ERROR.test(message)) {
-        methods.setError('usageFilterValue', { type: 'server', message })
-        return
-      }
       toast.error(`Failed to update subscription: ${message || 'Unknown error'}`)
     },
   })
 
   const onSubmit = async (values: EditSubscriptionFormValues) => {
-    // Sent only when changed: the server applies it from the first usage nobody has invoiced.
-    const usageFilter =
-      usageFilterEditable && usageFilterChanged(values.usageFilterProperty, values.usageFilterValue)
-        ? { filter: usageFilterFromForm(values) }
-        : undefined
     await updateMutation.mutateAsync({
       subscriptionId: subscription.id,
       chargeAutomatically: values.chargeAutomatically,
@@ -211,7 +181,7 @@ export const EditSubscriptionModal = ({
       purchaseOrder: values.purchaseOrder || undefined,
       paymentMethodsConfig: buildProtoPaymentMethodsConfig(values.paymentMethodsType),
       customProperties: serializeCustomProperties(values.customProperties),
-      usageFilter,
+      resource: resourceEditable && resourceId !== subscription.resourceId ? { resourceId } : undefined,
     })
   }
 
@@ -321,26 +291,16 @@ export const EditSubscriptionModal = ({
               entityType={CustomPropertyEntityType.SUBSCRIPTION}
             />
 
-            {usageFilterEditable && (
+            {resourceEditable && hasTypes && (
               <div className="space-y-3 pt-2 border-t">
-                <h4 className="text-sm font-medium">Usage filter</h4>
-                <UsageFilterFields control={methods.control} />
-                {usageFilterChanged(usageFilterProperty, usageFilterValue) && (
-                  <Alert variant="warning" className="text-xs">
-                    {USAGE_FILTER_CHANGE_WARNING}
-                  </Alert>
-                )}
-              </div>
-            )}
-            {!usageFilterEditable && subscription.usageFilter && (
-              <div className="space-y-1 pt-2 border-t">
-                <h4 className="text-sm font-medium">Usage filter</h4>
-                <p className="text-sm text-foreground">
-                  {formatUsageFilter(subscription.usageFilter)}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Applies only while the subscription bills usage, so it cannot be changed here.
-                </p>
+                <h4 className="text-sm font-medium">Subscribed for</h4>
+                <SubscribedFor
+                  customerId={subscription.customerId}
+                  customerName={subscription.customerName}
+                  planName={subscription.planName}
+                  value={resourceId}
+                  onChange={setResourceId}
+                />
               </div>
             )}
           </div>

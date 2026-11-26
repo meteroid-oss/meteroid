@@ -919,10 +919,16 @@ impl InvoiceInterface for Store {
                     .map_err(Into::<Report<StoreError>>::into)?;
                 diesel_models::query::credit_inputs::bump_customer(conn, &lock).await?;
                 // Deleting a consolidated child would sever its parent's audit trail.
-                let invoice: Invoice = InvoiceRow::find_by_id(conn, tenant_id, id)
+                let row = InvoiceRow::find_by_id(conn, tenant_id, id)
                     .await
-                    .map_err(Into::<Report<StoreError>>::into)
-                    .and_then(TryInto::try_into)?;
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                let claims_moved =
+                    diesel_models::query::invoice_claims_moved::InvoiceClaimsMoved::is_moved(
+                        conn, tenant_id, id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                let invoice: Invoice = row.try_into()?;
                 invoice.ensure_not_consolidated_child("delete")?;
 
                 // The SQL delete filters on Draft, so anything else would report success
@@ -938,6 +944,14 @@ impl InvoiceInterface for Store {
                 if invoice.invoice_type == InvoiceType::Recurring
                     && invoice.subscription_id.is_some()
                 {
+                    // Its lines would forgive usage that moved since they were computed (R-143).
+                    if claims_moved {
+                        bail!(StoreError::Conflict(
+                            "Usage this draft bills moved to or from another subscription since its \
+                             lines were computed: refresh it, then delete it"
+                                .into(),
+                        ));
+                    }
                     InvoiceRow::waive(conn, id, tenant_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;

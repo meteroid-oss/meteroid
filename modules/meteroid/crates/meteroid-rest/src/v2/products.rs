@@ -1,7 +1,7 @@
 //! `/api/v2/products`: what is sold. How a product is billed is each charge's, never the
 //! product's: a product has no fee type.
 use crate::AppState;
-use crate::v2::entitlements::{Grant, grant_value};
+use crate::v2::entitlements::{Entitlement, EntitlementInput};
 use crate::v2::extract::{Body, Path, Query};
 use crate::v2::idempotency::committed_write;
 use crate::v2::ids;
@@ -17,10 +17,7 @@ use common_domain::ids::{BaseId, ProductFamilyId, ProductId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use meteroid_rest_common::datetime::ApiDateTime;
-use meteroid_store::domain::enums::FeatureStatusEnum;
 use meteroid_store::domain::{Product as DomainProduct, ProductNew};
-use meteroid_store::repositories::EntitlementsInterface;
-use meteroid_store::repositories::entitlements::FeaturePageFilter;
 use meteroid_store::repositories::products::{ProductInterface, ProductUpdate};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -41,8 +38,8 @@ pub struct Product {
     pub icon: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
-    /// What it grants: the defaults of its features, by feature code.
-    pub entitlements: Vec<Grant>,
+    /// The default rows of its features, canonical.
+    pub entitlements: Vec<Entitlement>,
     pub archived: bool,
     pub created_at: ApiDateTime,
 }
@@ -96,52 +93,29 @@ pub struct UpdateProduct {
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub color: Option<Option<String>>,
-    /// Sets the default of each of its features named; one of its features left out loses its
-    /// default. Features are made with their product (`POST /features`).
+    /// The default rows of its features, replaced together: each names one of its features, and
+    /// one of its features left out loses its defaults. Features are made with their product
+    /// (`POST /features`).
     #[serde(default)]
-    pub entitlements: Option<Vec<Grant>>,
+    pub entitlements: Option<Vec<EntitlementInput>>,
 }
 
-/// What each product grants: the defaults of its live features, all read once.
-pub async fn product_grants(
+/// The default rows of each product's live features, all read once.
+pub async fn product_entitlements(
     state: &AppState,
     tenant_id: TenantId,
-) -> Result<HashMap<ProductId, Vec<Grant>>, Problem> {
-    let features = state
-        .store
-        .list_features_after(
-            tenant_id,
-            FeaturePageFilter {
-                statuses: Some(vec![FeatureStatusEnum::Active, FeatureStatusEnum::Disabled]),
-                product_id: None,
-            },
-            None,
-            usize::MAX,
-        )
-        .await?;
-    let mut grants: HashMap<ProductId, Vec<Grant>> = HashMap::new();
-    for feature in features {
-        let (Some(product), Some(default)) = (feature.product, feature.entitlement) else {
-            continue;
-        };
-        grants.entry(product.id).or_default().push(Grant {
-            feature: feature.code,
-            value: grant_value(&default.value),
-        });
-    }
-    for list in grants.values_mut() {
-        list.sort_by(|a, b| a.feature.cmp(&b.feature));
-    }
-    Ok(grants)
+    products: &[ProductId],
+) -> Result<HashMap<ProductId, Vec<Entitlement>>, Problem> {
+    crate::v2::entitlements::of_products(state, tenant_id, products).await
 }
 
 pub fn to_api(
     product: DomainProduct,
     families: &HashMap<ProductFamilyId, String>,
-    grants: &HashMap<ProductId, Vec<Grant>>,
+    entitlements: &mut HashMap<ProductId, Vec<Entitlement>>,
 ) -> Product {
     Product {
-        entitlements: grants.get(&product.id).cloned().unwrap_or_default(),
+        entitlements: entitlements.remove(&product.id).unwrap_or_default(),
         id: product.id,
         family: family_ref(families, product.product_family_id),
         code: product.code,
@@ -154,36 +128,27 @@ pub fn to_api(
     }
 }
 
-/// The product written, as it reads. When its family and grants are not read back, what the
-/// write returned: its family by id, and its grants as sent (`granted`), or left out when unknown
-/// (a write committed never answers an error).
+/// The product written, as it reads. When its family and rows are not read back, what the
+/// write returned: its family by id, its rows left out but those of a new product, which has
+/// none (a write committed never answers an error).
 async fn written(
     state: &AppState,
     tenant_id: TenantId,
     status: StatusCode,
     product: DomainProduct,
-    granted: Option<Vec<Grant>>,
+    created: bool,
 ) -> Response {
     let known = product.clone();
     let read = async {
         let families = family_codes(state, tenant_id).await?;
-        let grants = product_grants(state, tenant_id).await?;
-        Ok::<_, Problem>(to_api(product, &families, &grants))
+        let mut entitlements = product_entitlements(state, tenant_id, &[product.id]).await?;
+        Ok::<_, Problem>(to_api(product, &families, &mut entitlements))
     }
     .await;
     committed_write(status, read, || {
-        let grants = granted
-            .as_ref()
-            .map(|granted| HashMap::from([(known.id, granted.clone())]));
-        let mut value = serde_json::to_value(to_api(
-            known,
-            &HashMap::new(),
-            &grants.clone().unwrap_or_default(),
-        ))
-        .unwrap_or_default();
-        if grants.is_none()
-            && let Some(object) = value.as_object_mut()
-        {
+        let mut value = serde_json::to_value(to_api(known, &HashMap::new(), &mut HashMap::new()))
+            .unwrap_or_default();
+        if !created && let Some(object) = value.as_object_mut() {
             object.remove("entitlements");
         }
         value
@@ -230,10 +195,11 @@ pub async fn list_products(
         .await?;
     let paged = keyset(rows, limit, |product| product.id.as_uuid());
     let families = family_codes(&state, auth.tenant_id).await?;
-    let grants = product_grants(&state, auth.tenant_id).await?;
+    let ids_of: Vec<ProductId> = paged.data.iter().map(|product| product.id).collect();
+    let mut entitlements = product_entitlements(&state, auth.tenant_id, &ids_of).await?;
     Ok(Json(
         paged
-            .map(|product| to_api(product, &families, &grants))
+            .map(|product| to_api(product, &families, &mut entitlements))
             .into(),
     ))
 }
@@ -258,8 +224,8 @@ pub async fn get_product(
     let id = ids::product_id(&state, auth.tenant_id, &id_or_code).await?;
     let product = state.store.find_product_by_id(id, auth.tenant_id).await?;
     let families = family_codes(&state, auth.tenant_id).await?;
-    let grants = product_grants(&state, auth.tenant_id).await?;
-    Ok(Json(to_api(product, &families, &grants)))
+    let mut entitlements = product_entitlements(&state, auth.tenant_id, &[product.id]).await?;
+    Ok(Json(to_api(product, &families, &mut entitlements)))
 }
 
 /// Create a product
@@ -314,15 +280,7 @@ pub async fn create_product(
         )
         .await
         .map_err(|error| Problem::from(error).code_taken(&code))?;
-    // A new product grants nothing yet.
-    Ok(written(
-        &state,
-        auth.tenant_id,
-        StatusCode::CREATED,
-        product,
-        Some(Vec::new()),
-    )
-    .await)
+    Ok(written(&state, auth.tenant_id, StatusCode::CREATED, product, true).await)
 }
 
 /// Update a product
@@ -362,29 +320,29 @@ pub async fn update_product(
         body.description.as_ref().and_then(|text| text.as_deref()),
         "/description",
     )?;
-    // The grants are checked before anything is written (their features, values and that each
+    // The rows are checked before anything is written (their features, values and that each
     // feature is the product's, again when they are set); an icon or a color too, so a refusal
-    // of the write is the grants'.
-    let entitlements = body.entitlements.clone();
-    let feature_defaults = match &entitlements {
-        Some(grants) => Some(
+    // of the write is the rows'.
+    let feature_defaults = match &body.entitlements {
+        Some(inputs) => Some(
             crate::v2::entitlements::product_specs(
                 &state,
                 auth.tenant_id,
                 id,
-                grants,
+                inputs,
                 "/entitlements",
             )
             .await?,
         ),
         None => None,
     };
+    let rows_written = feature_defaults.is_some();
     meteroid_store::domain::validate_product_appearance(
         body.icon.as_ref().and_then(|icon| icon.as_deref()),
         body.color.as_ref().and_then(|color| color.as_deref()),
     )
     .map_err(Problem::from)?;
-    // Its fields and its grants in one transaction: a refusal of either writes neither.
+    // Its fields and its rows in one transaction: a refusal of either writes neither.
     let product = state
         .store
         .update_product_with_feature_defaults(
@@ -401,18 +359,14 @@ pub async fn update_product(
             feature_defaults,
         )
         .await
-        .map_err(|error| match &entitlements {
-            Some(_) => Problem::at("/entitlements", error),
-            None => Problem::from(error),
+        .map_err(|error| {
+            if rows_written {
+                Problem::at("/entitlements", error)
+            } else {
+                Problem::from(error)
+            }
         })?;
-    Ok(written(
-        &state,
-        auth.tenant_id,
-        StatusCode::OK,
-        product,
-        entitlements,
-    )
-    .await)
+    Ok(written(&state, auth.tenant_id, StatusCode::OK, product, false).await)
 }
 
 /// Archive a product
@@ -445,7 +399,7 @@ pub async fn archive_product(
             .archive_product(auth.as_actor(), id, auth.tenant_id)
             .await?
     };
-    Ok(written(&state, auth.tenant_id, StatusCode::OK, product, None).await)
+    Ok(written(&state, auth.tenant_id, StatusCode::OK, product, false).await)
 }
 
 /// Unarchive a product
@@ -472,7 +426,7 @@ pub async fn unarchive_product(
     } else {
         state.store.unarchive_product(id, auth.tenant_id).await?
     };
-    Ok(written(&state, auth.tenant_id, StatusCode::OK, product, None).await)
+    Ok(written(&state, auth.tenant_id, StatusCode::OK, product, false).await)
 }
 
 pub fn routes() -> OpenApiRouter<AppState> {

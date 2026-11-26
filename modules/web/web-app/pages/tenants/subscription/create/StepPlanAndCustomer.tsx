@@ -9,8 +9,9 @@ import { z } from 'zod'
 import { PageSection } from '@/components/layouts/shared/PageSection'
 import { AddOnCouponSelector } from '@/features/addons/AddOnCouponSelector'
 import { CustomerSelect } from '@/features/customers/CustomerSelect'
-import { PendingEntitlementsPanel } from '@/features/entitlements/pending/PendingEntitlementsPanel'
+import { SelectionGrantsEditor } from '@/features/entitlements/rows/DraftGrantsEditor'
 import { SubscribablePlanVersionSelect } from '@/features/plans/SubscribablePlanVersionSelect'
+import { TypeFilter } from '@/features/resources/TypeSelect'
 import {
   CreateSubscriptionPriceComponents
 } from '@/features/subscriptions/pricecomponents/CreateSubscriptionPriceComponents'
@@ -19,7 +20,7 @@ import { pricingTransitions } from '@/features/subscriptions/pricecomponents/Pri
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
-import { createSubscriptionAtom } from '@/pages/tenants/subscription/create/state'
+import { createSubscriptionAtom, resourceFor } from '@/pages/tenants/subscription/create/state'
 import { useSubscriptionSale } from '@/pages/tenants/subscription/create/useSubscriptionSale'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 import { listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
@@ -47,6 +48,7 @@ export const StepPlanAndCustomer = () => {
   })
 
   const [customerId, planVersionId] = methods.watch(['customerId', 'planVersionId'])
+  const [soldFor, setSoldFor] = useState<string>()
 
   // Reset component configs when switching plans to avoid stale component IDs
   const prevPlanVersionId = useRef(planVersionId)
@@ -133,6 +135,7 @@ export const StepPlanAndCustomer = () => {
     setState({
       ...state,
       ...data,
+      resourceId: resourceFor(data.customerId, state, customerIdFromUrl, searchParams.get('resourceId')),
     })
     nextStep()
   }
@@ -156,7 +159,10 @@ export const StepPlanAndCustomer = () => {
               label="Plan"
               name="planVersionId"
               render={({ field }) => (
-                <SubscribablePlanVersionSelect value={field.value} onChange={field.onChange}/>
+                <div className="flex items-center gap-2">
+                  <SubscribablePlanVersionSelect value={field.value} onChange={field.onChange} soldFor={soldFor}/>
+                  <TypeFilter value={soldFor} onChange={setSoldFor} anyLabel="Sold for: any" />
+                </div>
               )}
             />
             {planVersionId && sale.options.length > 1 && (
@@ -269,16 +275,15 @@ export const StepPlanAndCustomer = () => {
                   subtitle: 'Grant feature access to subscribers of this subscription',
                 }}
               >
-                <PendingEntitlementsPanel
+                <SelectionGrantsEditor
                   selection={{
                     planVersionId,
                     addOnIds: state.addOns.map(a => a.addOnId),
                     extraProductIds,
                     removedProductIds,
                   }}
-                  pending={state.entitlements}
+                  drafts={state.entitlements}
                   onChange={next => setState(prev => ({ ...prev, entitlements: next }))}
-                  entityLabel="subscription"
                 />
               </PageSection>
             )}

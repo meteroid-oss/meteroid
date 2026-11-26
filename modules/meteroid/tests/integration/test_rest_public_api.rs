@@ -362,3 +362,194 @@ async fn refused_requests_answer_with_the_json_error() {
         assert!(error["message"].is_string(), "{case}");
     }
 }
+
+/// v1 published `usage_filter` until 2.3. Resources replace it, so a filter is refused instead of
+/// being dropped into a customer-wide subscription that bills the same usage a second time.
+#[tokio::test]
+async fn v1_usage_filter_is_refused_not_ignored() {
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
+    let setup =
+        meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
+    let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
+    let clients = meteroid_it::clients::AllClients::from_channel(
+        setup.channel.clone(),
+        auth.token.as_str(),
+        "TESTORG",
+        "testslug",
+    );
+    let api_key = clients
+        .api_tokens
+        .clone()
+        .create_api_token(tonic::Request::new(
+            api::apitokens::v1::CreateApiTokenRequest {
+                name: "usage-filter-key".to_string(),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .api_key;
+    let base = setup.config.rest_api_external_url.clone();
+    let client = http_client_tracing::client();
+    let uber = CUST_UBER_ID.as_base62();
+
+    let create_body = |usage_filter: Option<Value>, resource_id: Option<&str>| {
+        let mut body = json!({
+            "plan_id": PLAN_LEETCODE_ID.as_base62(),
+            "customer_id_or_alias": uber,
+            "start_date": chrono::Utc::now().date_naive(),
+            "activation_condition": "ON_START",
+            "auto_advance_invoices": false,
+            "charge_automatically": false,
+        });
+        if let Some(filter) = usage_filter {
+            body["usage_filter"] = filter;
+        }
+        if let Some(resource_id) = resource_id {
+            body["resource_id"] = json!(resource_id);
+        }
+        body
+    };
+    let refused = async |response: reqwest::Response, why: &str| {
+        let status = response.status();
+        let error: Value = response.json().await.unwrap();
+        assert_eq!(status, reqwest::StatusCode::BAD_REQUEST, "{why}: {error}");
+        assert!(
+            error["message"].as_str().unwrap().contains("resource_id"),
+            "{why}: the refusal names what replaces it: {error}"
+        );
+    };
+    let subscriptions_of_uber = async || -> u64 {
+        let listed: Value = client
+            .get(format!("{base}/api/v1/subscriptions"))
+            .bearer_auth(&api_key)
+            .query(&[("customer_id", uber.as_str())])
+            .send()
+            .await
+            .map(json_or_panic)
+            .unwrap()
+            .await;
+        listed["pagination_meta"]["total_items"].as_u64().unwrap()
+    };
+
+    let before = subscriptions_of_uber().await;
+    refused(
+        client
+            .post(format!("{base}/api/v1/subscriptions"))
+            .bearer_auth(&api_key)
+            .json(&create_body(
+                Some(json!({ "property": "api_key", "value": "key-A" })),
+                None,
+            ))
+            .send()
+            .await
+            .unwrap(),
+        "create with a usage filter",
+    )
+    .await;
+    assert_eq!(
+        subscriptions_of_uber().await,
+        before,
+        "the refused create left no subscription"
+    );
+
+    let created: Value = client
+        .post(format!("{base}/api/v1/subscriptions"))
+        .bearer_auth(&api_key)
+        .json(&create_body(Some(Value::Null), None))
+        .send()
+        .await
+        .map(json_or_panic)
+        .unwrap()
+        .await;
+    assert!(created.get("usage_filter").is_none(), "{created}");
+    assert!(created.get("usage_filter_effective_from").is_none());
+    let subscription_path = format!(
+        "{base}/api/v1/subscriptions/{}",
+        created["id"].as_str().unwrap()
+    );
+
+    refused(
+        client
+            .patch(&subscription_path)
+            .bearer_auth(&api_key)
+            .json(&json!({ "usage_filter": { "property": "api_key", "value": "key-A" } }))
+            .send()
+            .await
+            .unwrap(),
+        "patch with a usage filter",
+    )
+    .await;
+    // Removing a filter from a subscription for the whole customer changes nothing.
+    let patched: Value = client
+        .patch(&subscription_path)
+        .bearer_auth(&api_key)
+        .json(&json!({ "usage_filter": null, "invoice_memo": "kept" }))
+        .send()
+        .await
+        .map(json_or_panic)
+        .unwrap()
+        .await;
+    assert_eq!(patched["subscription"]["invoice_memo"], "kept");
+    assert!(patched["subscription"].get("resource_id").is_none());
+
+    // On a subscription for a resource, removing the filter would have billed the whole customer.
+    let site: Value = client
+        .post(format!("{base}/api/v1/resource-types"))
+        .bearer_auth(&api_key)
+        .json(
+            &json!({ "code": "site", "name": "Site", "plural_name": "Sites", "keys": ["site_id"] }),
+        )
+        .send()
+        .await
+        .map(json_or_panic)
+        .unwrap()
+        .await;
+    assert_eq!(site["code"], "site");
+    let s1: Value = client
+        .put(format!("{base}/api/v1/customers/{uber}/resources/site/s1"))
+        .bearer_auth(&api_key)
+        .json(&json!({}))
+        .send()
+        .await
+        .map(json_or_panic)
+        .unwrap()
+        .await;
+    let s1_id = s1["id"].as_str().unwrap();
+    let for_site: Value = client
+        .post(format!("{base}/api/v1/subscriptions"))
+        .bearer_auth(&api_key)
+        .json(&create_body(None, Some(s1_id)))
+        .send()
+        .await
+        .map(json_or_panic)
+        .unwrap()
+        .await;
+    assert_eq!(for_site["resource_id"], s1_id);
+    let site_path = format!(
+        "{base}/api/v1/subscriptions/{}",
+        for_site["id"].as_str().unwrap()
+    );
+    refused(
+        client
+            .patch(&site_path)
+            .bearer_auth(&api_key)
+            .json(&json!({ "usage_filter": null }))
+            .send()
+            .await
+            .unwrap(),
+        "removing the filter of a subscription for a resource",
+    )
+    .await;
+    let unchanged: Value = client
+        .get(&site_path)
+        .bearer_auth(&api_key)
+        .send()
+        .await
+        .map(json_or_panic)
+        .unwrap()
+        .await;
+    assert_eq!(unchanged["resource_id"], s1_id);
+}

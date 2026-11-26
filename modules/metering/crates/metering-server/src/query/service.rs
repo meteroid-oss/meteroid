@@ -126,6 +126,15 @@ fn map_attribution(
             "an attribution needs at least one segment",
         ));
     }
+    let properties = |first: String, fallbacks: Vec<String>| {
+        let all = std::iter::once(first).chain(fallbacks).collect::<Vec<_>>();
+        if all.iter().any(String::is_empty) {
+            return Err(Status::invalid_argument(
+                "attribution properties must not be empty",
+            ));
+        }
+        Ok(all)
+    };
     let segments = attribution
         .segments
         .into_iter()
@@ -135,7 +144,7 @@ fn map_attribution(
                 .map(|matching| {
                     non_empty(&matching.property, &matching.value)?;
                     Ok::<_, Status>(EventMatch {
-                        property: matching.property,
+                        properties: properties(matching.property, matching.fallback_properties)?,
                         value: matching.value,
                     })
                 })
@@ -155,7 +164,7 @@ fn map_attribution(
                         ));
                     }
                     Ok(EventClaim {
-                        property: claim.property,
+                        properties: properties(claim.property, claim.fallback_properties)?,
                         value: claim.value,
                         from,
                         to,
@@ -366,6 +375,7 @@ impl UsageQueryServiceGrpc for UsageQueryService {
             usage,
             attribution_applied: true,
             grouping_applied: true,
+            fallback_properties_applied: true,
         }))
     }
 

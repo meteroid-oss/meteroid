@@ -16,23 +16,19 @@ import {
   TrendingUpIcon,
   UserCheckIcon,
 } from 'lucide-react'
-import { ReactNode, useRef, useState } from 'react'
+import { ReactNode, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router'
 
 import { InlineLoading } from '@/components/Loading'
 import { Slot, hasSlot, slotItems } from '@/edition'
 import { eligibilitySummary, isOpen } from '@/features/eligibility/eligibility'
-import {
-  ResolvedEntitlementsPanel,
-  ResolvedEntitlementsPanelHandle,
-} from '@/features/entitlements/resolved/ResolvedEntitlementsPanel'
 import { ListPlanVersionTab } from '@/features/plans/ListPlanVersion'
 import { AddRow, MoreForPlan } from '@/features/plans/MoreForPlan'
 import { PlanActions } from '@/features/plans/PlanActions'
+import { PlanEntitlementsSection } from '@/features/plans/PlanEntitlementsSection'
 import { AddOnSection } from '@/features/plans/addons/AddOnSection'
 import { LockedPrices } from '@/features/plans/canvas/LockedPrices'
 import { SellingGapsBanner } from '@/features/plans/canvas/SellingGapsBanner'
-import { useCreditPaidLabels } from '@/features/plans/creditPaidMetrics'
 import { PlanOverview, PlanVersionFooter } from '@/features/plans/details/PlanDetails'
 import { PlanEligibility } from '@/features/plans/eligibility/PlanEligibility'
 import {
@@ -327,37 +323,6 @@ const SubscriptionsTab = () => {
   )
 }
 
-const EntitlementsSectionForPlanVersion = ({ planVersionId }: { planVersionId: string }) => {
-  const panelRef = useRef<ResolvedEntitlementsPanelHandle>(null)
-  const creditPaidLabels = useCreditPaidLabels(planVersionId)
-  return (
-    <section aria-labelledby="plan-entitlements" className="space-y-3 pb-8">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <h2 id="plan-entitlements" className="text-lg font-semibold">
-            Entitlements
-          </h2>
-          <span className="text-sm text-muted-foreground">
-            From its products, unless set on the plan
-          </span>
-        </div>
-        <Button variant="outline" size="sm" hasIcon onClick={() => panelRef.current?.openAdd()}>
-          <Plus size={14} /> Entitlement
-        </Button>
-      </div>
-      <ResolvedEntitlementsPanel
-        ref={panelRef}
-        entity={{ type: 'plan-version', id: planVersionId }}
-        canPin={true}
-        hideAddButton
-        hidePinAll
-        flat
-        meteredLabels={creditPaidLabels}
-      />
-    </section>
-  )
-}
-
 const PlanBody = () => {
   const planData = usePlanWithVersion()
   const isDraft = useIsDraftVersion()
@@ -385,7 +350,9 @@ const PlanBody = () => {
         </div>
       )}
 
-      {env.entitlementsEnabled && <EntitlementsSectionForPlanVersion planVersionId={current.id} />}
+      {env.entitlementsEnabled && (
+        <PlanEntitlementsSection plan={plan} planVersionId={current.id} isDraft={isDraft} />
+      )}
 
       <MoreForPlan extras={extras} />
 

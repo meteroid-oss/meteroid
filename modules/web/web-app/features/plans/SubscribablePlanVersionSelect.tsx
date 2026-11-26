@@ -8,9 +8,11 @@ import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 interface Props {
   value?: PlanVersion['id']
   onChange: (id: PlanVersion['id']) => void
+  /** Only plans sold for this type, or for the customer when `''`. */
+  soldFor?: string
 }
 
-export const SubscribablePlanVersionSelect = ({ value, onChange }: Props) => {
+export const SubscribablePlanVersionSelect = ({ value, onChange, soldFor }: Props) => {
   const plansQuery = useQuery(listPlans, {
     filters: {
       statuses: [PlanStatus.ACTIVE],
@@ -22,6 +24,7 @@ export const SubscribablePlanVersionSelect = ({ value, onChange }: Props) => {
     plansQuery.data?.plans,
     F.defaultTo([] as PlanOverview[]),
     A.filter(p => !!p.activeVersion?.id),
+    A.filter(p => soldFor === undefined || (p.soldForResourceTypeId ?? '') === soldFor),
     A.groupBy(p => p.productFamilyName)
   )
 

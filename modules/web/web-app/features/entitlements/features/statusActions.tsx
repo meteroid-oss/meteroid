@@ -45,16 +45,16 @@ function actionCopy({ feature, target }: PendingFeatureAction): ActionCopy {
     return {
       title: 'Archive feature?',
       description:
-        'Customers who have this feature lose access, and it is hidden with its entitlements until you unarchive it. Its code is freed for a new feature.',
+        'Customers who have this feature lose access, and it is hidden with its entitlements until you restore it. Its code is freed for a new feature.',
       cta: 'Archive',
       done: 'Feature archived successfully',
     }
   if (feature.status === FeatureStatus.ARCHIVED)
     return {
-      title: 'Unarchive feature?',
+      title: 'Restore feature?',
       description: 'The feature becomes active again, and its entitlements apply as they were.',
-      cta: 'Unarchive',
-      done: 'Feature unarchived successfully',
+      cta: 'Restore',
+      done: 'Feature restored successfully',
     }
   return {
     title: 'Enable feature?',
@@ -82,7 +82,7 @@ export const FeatureActionDialog = ({
   }, [pending])
 
   const copy = pending ? actionCopy(pending) : null
-  // Unarchiving is refused while another feature uses the code, so say so before the attempt.
+  // Restoring is refused while another feature uses the code, so say so before the attempt.
   const unarchiving = pending?.feature.status === FeatureStatus.ARCHIVED
   const holderQuery = useQuery(
     getFeatureCodeHolder,

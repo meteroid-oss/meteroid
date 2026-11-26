@@ -104,6 +104,7 @@ fn fee(row: u128, of: u128, from: NaiveDate, billing: Billing, price: i64) -> Fe
         billing,
         cadence: 1,
         plan_component: true,
+        usage_from: None,
         fee: TestFee { price },
     }
 }

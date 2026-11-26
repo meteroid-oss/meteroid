@@ -461,6 +461,7 @@ async fn checkout_promo_codes_draw_on_the_customer_code_budget() {
                 change_date: None,
                 success_url: None,
                 cancel_url: None,
+                resource_id: None,
             })
             .await
             .expect("checkout session");

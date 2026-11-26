@@ -16,7 +16,8 @@ use super::entitlements::Entitlement;
 use super::enums::{BillingPeriodEnum, PlanStatusEnum, PlanTypeEnum};
 use super::plan_options::PlanOption;
 use common_domain::ids::{
-    BaseId, PlanId, PlanOptionId, PlanVersionId, ProductFamilyId, ProductId, TenantId,
+    BaseId, PlanId, PlanOptionId, PlanVersionId, ProductFamilyId, ProductId, ResourceTypeId,
+    TenantId,
 };
 use o2o::o2o;
 use rust_decimal::Decimal;
@@ -53,6 +54,8 @@ pub struct PlanNew {
     pub product_family_id: ProductFamilyId,
     pub plan_type: PlanTypeEnum,
     pub status: PlanStatusEnum,
+    /// The resource type its subscriptions are for; `None` for the customer.
+    pub sold_for_resource_type_id: Option<ResourceTypeId>,
 }
 
 impl PlanNew {
@@ -167,6 +170,8 @@ pub struct Plan {
     pub eligibility: Option<crate::domain::eligibility::Eligibility>,
     /// Sold by contacting sales: on the pricing page, never offered self-serve.
     pub pricing_sales_led: bool,
+    /// Filters the subscription wizard and drives warnings, never a block (§3.5).
+    pub sold_for_resource_type_id: Option<ResourceTypeId>,
 }
 
 #[derive(Debug, Clone, PartialEq, o2o)]
@@ -231,6 +236,7 @@ pub struct PlanOverview {
     pub eligibility: Option<crate::domain::eligibility::Eligibility>,
     pub pricing_sales_led: bool,
     pub pricing_hide_price: bool,
+    pub sold_for_resource_type_id: Option<ResourceTypeId>,
     /// The options of its active version, by position.
     #[ghost({Vec::new()})]
     pub options: Vec<PlanOption>,

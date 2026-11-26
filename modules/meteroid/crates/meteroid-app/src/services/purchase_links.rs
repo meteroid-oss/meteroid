@@ -725,6 +725,7 @@ impl PurchaseLinks {
                 change_date: None,
                 success_url: link.link.success_url.clone(),
                 cancel_url: link.link.cancel_url.clone(),
+                resource_id: None,
             })
             .await?)
     }

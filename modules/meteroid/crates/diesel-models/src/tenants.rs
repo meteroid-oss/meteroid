@@ -31,6 +31,10 @@ pub struct TenantRow {
     pub keep_last_events: bool,
     #[diesel(deserialize_as = crate::extend::non_null_array::NonNullArray<String>)]
     pub portal_embed_origins: Vec<String>,
+    pub max_resources_per_customer_type: i32,
+    pub entitlement_op_retention_days: i32,
+    /// From when the app-count op log holds every op: the purge's horizon, never moving back.
+    pub entitlement_op_log_complete_from: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Insertable)]

@@ -13,6 +13,7 @@ import "common/v1/pagination.proto";
 import "common/v1/filters.proto";
 import "api/billablemetrics/v1/models.proto";
 import "api/wallets/v1/models.proto";
+import "api/entitlements/v1/models.proto";
 
 message CreateSubscriptionsRequest {
   repeated CreateSubscription subscriptions = 1;
@@ -47,9 +48,13 @@ message PreviewCreateSubscriptionRequest {
 
 message PreviewCreateSubscriptionResponse {
   UpcomingInvoice invoice = 1;
-  // The customer's subscriptions that would bill the same events: neither has a usage filter
-  // and they share metrics over overlapping lives.
+  // The customer's subscriptions for the same resource (or the customer) sharing metrics over
+  // overlapping lives: both bill the customer's events; for a resource, the older bills.
   repeated UnfilteredOverlap unfiltered_overlaps = 2;
+  // What the creation would be accepted with: `plan_sold_for_mismatch`, `metric_not_attributed`.
+  repeated string warnings = 3;
+  // With `metric_not_attributed`: the codes of the metrics its resource never bills.
+  repeated string metrics_not_attributed = 4;
 }
 
 message UnfilteredOverlap {
@@ -206,12 +211,13 @@ message UpdateSubscriptionRequest {
   optional PaymentMethodsConfig payment_methods_config = 8;
   // JSON-encoded object of custom property values to merge (send a key with null to remove it).
   optional string custom_properties = 9;
-  // Present to change the usage filter; an empty change removes it.
-  optional UsageFilterChange usage_filter = 10;
+  reserved 10;
+  // Present to change the resource, before the subscription is active; empty: the customer.
+  optional ResourceChange resource = 11;
 }
 
-message UsageFilterChange {
-  optional UsageFilter filter = 1;
+message ResourceChange {
+  optional string resource_id = 1;
 }
 
 message UpdateSubscriptionResponse {
@@ -564,8 +570,8 @@ message SubscriptionCycle {
 message SubscriptionFeatureUsage {
   string feature_id = 1;
   string feature_name = 2;
-  // Decimal strings.
-  string consumed = 3;
+  // Decimal strings. Absent when metering could not answer: `usage_unavailable`.
+  optional string consumed = 3;
   optional string limit = 4;
   optional double pct = 5;
   uint32 warning_threshold_pct = 6;
@@ -583,6 +589,9 @@ message SubscriptionFeatureUsage {
   optional uint32 grace_pct = 13;
   // The limit applies to each value of this property; `consumed` is the largest value's.
   optional string group_by = 14;
+  // Another subscription decides `limit`: what this one grants, and which decides.
+  optional meteroid.api.entitlements.v1.SubscriptionGrant own_grant = 15;
+  bool usage_unavailable = 16;
 }
 
 message GetSubscriptionUsageResponse {

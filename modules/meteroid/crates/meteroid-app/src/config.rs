@@ -155,6 +155,10 @@ pub struct WorkersConfig {
     // Kill switch for the payment reminder sweeper.
     #[envconfig(from = "PAYMENT_REMINDERS_ENABLED", default = "true")]
     pub payment_reminders_enabled: bool,
+
+    // Entitlement validity scan (rows reaching `valid_from`/`valid_until`); every 5 minutes.
+    #[envconfig(from = "ENTITLEMENT_VALIDITY_SCAN_CRON", default = "*/5 * * * *")]
+    pub entitlement_validity_scan_cron: ParsedCron,
 }
 
 impl Config {

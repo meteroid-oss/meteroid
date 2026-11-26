@@ -32,7 +32,8 @@ use super::model::{
         (status = 200, description = "Checkout session created", body = CreateCheckoutSessionResponse),
         (status = 400, description = "Bad request", body = RestErrorResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
-        (status = 500, description = "Internal server error", body = RestErrorResponse)
+        (status = 500, description = "Internal server error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse)
     ),
     security(
         ("bearer_auth" = [])
@@ -136,6 +137,7 @@ pub async fn create_checkout_session(
         change_date: None,
         success_url: request.success_url,
         cancel_url: request.cancel_url,
+        resource_id: request.resource_id,
     };
 
     let session = app_state
@@ -173,7 +175,8 @@ pub async fn create_checkout_session(
         (status = 200, description = "Checkout session details", body = GetCheckoutSessionResponse),
         (status = 404, description = "Not found", body = RestErrorResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
-        (status = 500, description = "Internal server error", body = RestErrorResponse)
+        (status = 500, description = "Internal server error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse)
     ),
     security(
         ("bearer_auth" = [])
@@ -213,7 +216,8 @@ pub async fn get_checkout_session(
     responses(
         (status = 200, description = "List of checkout sessions", body = ListCheckoutSessionsResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
-        (status = 500, description = "Internal server error", body = RestErrorResponse)
+        (status = 500, description = "Internal server error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse)
     ),
     security(
         ("bearer_auth" = [])
@@ -266,7 +270,8 @@ pub async fn list_checkout_sessions(
         (status = 404, description = "Not found", body = RestErrorResponse),
         (status = 400, description = "Bad request - session cannot be cancelled", body = RestErrorResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
-        (status = 500, description = "Internal server error", body = RestErrorResponse)
+        (status = 500, description = "Internal server error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse)
     ),
     security(
         ("bearer_auth" = [])

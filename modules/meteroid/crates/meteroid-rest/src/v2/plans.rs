@@ -5,7 +5,7 @@ use crate::v2::bounds;
 use crate::v2::charges::{
     Cadence, Charge, EVERY_OPTION, StoredCharge, StoredPrice, option_set, render, to_domain,
 };
-use crate::v2::entitlements::Grant;
+use crate::v2::entitlements::{Entitlement, EntitlementInput};
 use crate::v2::extract::{Body, Path, Query};
 use crate::v2::idempotency::committed_write;
 use crate::v2::ids;
@@ -13,16 +13,19 @@ use crate::v2::pagination::{Cursor, PageQuery, keyset, page};
 use crate::v2::problem::{Problem, ProblemCode};
 use crate::v2::product_families::{WHOLE, family_codes, family_ref};
 use crate::v2::references::{CatalogNames, resolve_refs};
-use crate::v2::refs::ProductFamilyRef;
+use crate::v2::refs::{ProductFamilyRef, ResourceTypeRef};
 use axum::Extension;
 use axum::Json;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
-use common_domain::ids::{AddOnId, BaseId, PlanId, ProductFamilyId, ProductId, TenantId};
+use common_domain::ids::{
+    AddOnId, BaseId, PlanId, ProductFamilyId, ProductId, ResourceTypeId, TenantId,
+};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use meteroid_app::features::minimum_commitments_open;
 use meteroid_rest_common::datetime::ApiDateTime;
+use meteroid_store::domain::entitlement_fold::Tier;
 use meteroid_store::domain::entitlements::EntitlementSpec;
 use meteroid_store::domain::enums::{PlanStatusEnum, PlanTypeEnum};
 use meteroid_store::domain::plan_drafts::{
@@ -42,6 +45,7 @@ use meteroid_store::repositories::add_ons::AddOnInterfaceAuto;
 use meteroid_store::repositories::plan_version_add_ons::PlanVersionAddOnInterface;
 use meteroid_store::repositories::{
     CatalogCodesInterface, PlanDraftsInterface, PlansInterface, PricingPagesInterface,
+    ResourcesInterface,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -182,7 +186,7 @@ pub struct VersionAddOn {
     pub max_instances: Option<i32>,
 }
 
-#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+#[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct PlanVersion {
     pub number: i32,
     pub status: VersionStatus,
@@ -203,8 +207,8 @@ pub struct PlanVersion {
     /// How many periods a subscription runs; none: until cancelled.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub billing_cycles: Option<i32>,
-    /// What the version grants, by feature code.
-    pub entitlements: Vec<Grant>,
+    /// The version's rows, canonical.
+    pub entitlements: Vec<Entitlement>,
 }
 
 /// The full desired state of a draft.
@@ -241,9 +245,25 @@ pub struct VersionInput {
     /// 1 or more; none: until cancelled.
     #[serde(default)]
     pub billing_cycles: Option<i32>,
-    /// What the version grants; left out, those of the version replaced are kept.
+    /// The version's rows (`set`); left out, those of the version replaced are carried over,
+    /// sent (even `[]`) they replace them.
     #[serde(default)]
-    pub entitlements: Option<Vec<Grant>>,
+    #[schema(examples(json!([
+        {"feature": "sso", "value": {"type": "on"}},
+        {"feature": "projects", "value": {"type": "limit", "limit": "5"}},
+        {"feature": "projects", "value": {"type": "limit", "limit": "50"}, "level": "customer"},
+        {
+            "feature": "api_calls",
+            "value": {"type": "limit", "limit": "100000"},
+            "policy": {
+                "resets": {"type": "billing_cycle"},
+                "at_limit": "allow_and_bill",
+                "grace_pct": 0,
+                "thresholds": [80]
+            }
+        }
+    ])))]
+    pub entitlements: Option<Vec<EntitlementInput>>,
 }
 
 /// How the plan reads on its product family's pricing page and self-serve ladder. Live, never
@@ -303,6 +323,9 @@ pub struct Plan {
     pub status: PlanStatus,
     pub family: ProductFamilyRef,
     pub listing: Listing,
+    /// The resource type its subscriptions are for; none: the customer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sold_for: Option<ResourceTypeRef>,
     /// The number of the version new subscriptions get.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_version: Option<i32>,
@@ -339,6 +362,9 @@ pub struct CreatePlan {
     pub family: Option<String>,
     #[serde(default, rename = "type")]
     pub plan_type: PlanType,
+    /// The resource type its subscriptions are for, by code or id; none: the customer.
+    #[serde(default)]
+    pub sold_for: Option<String>,
     /// The first version, a draft.
     pub draft: VersionInput,
 }
@@ -355,6 +381,11 @@ pub struct UpdatePlan {
     pub description: Option<Option<String>>,
     #[serde(default)]
     pub listing: Option<ListingPatch>,
+    /// The resource type its subscriptions are for, by code or id; `null`: the customer. A plan
+    /// sold for a type carries no rows across all resources.
+    #[serde(default, with = "::serde_with::rust::double_option")]
+    #[schema(value_type = Option<String>)]
+    pub sold_for: Option<Option<String>>,
 }
 
 #[derive(Deserialize, IntoParams, Debug, Clone, Default)]
@@ -557,7 +588,7 @@ async fn render_version(
     });
 
     let entitlements =
-        crate::v2::entitlements::render(state, tenant_id, &fp.version.entitlements).await?;
+        crate::v2::entitlements::render(state, tenant_id, fp.version.entitlements.clone()).await?;
 
     Ok(PlanVersion {
         number: fp.version.version,
@@ -624,6 +655,7 @@ async fn render_plan(
     };
     let overview = state.store.get_plan_overview(fp.plan.id, tenant_id).await?;
     let families = family_codes(state, tenant_id).await?;
+    let sold_for = sold_for_codes(state, tenant_id, [fp.plan.sold_for_resource_type_id]).await?;
     Ok(Plan {
         id: fp.plan.id,
         code: fp.plan.code.clone(),
@@ -633,11 +665,63 @@ async fn render_plan(
         status: fp.plan.status.clone().into(),
         family: family_ref(&families, fp.plan.product_family_id),
         listing: listing(state, tenant_id, fp.plan.id, fp.plan.self_service_rank).await?,
+        sold_for: fp
+            .plan
+            .sold_for_resource_type_id
+            .map(|id| sold_for_ref(&sold_for, id)),
         active_version: overview.active_version.map(|version| version.version),
         has_draft: overview.has_draft_version,
         created_at: fp.plan.created_at.into(),
         version,
     })
+}
+
+/// The codes of the resource types plans are sold for, read when one is.
+async fn sold_for_codes(
+    state: &AppState,
+    tenant_id: TenantId,
+    sold_for: impl IntoIterator<Item = Option<ResourceTypeId>>,
+) -> Result<HashMap<ResourceTypeId, String>, Problem> {
+    if sold_for.into_iter().all(|id| id.is_none()) {
+        return Ok(HashMap::new());
+    }
+    Ok(state
+        .store
+        .list_resource_types(tenant_id, true)
+        .await?
+        .into_iter()
+        .map(|resource_type| (resource_type.id, resource_type.code))
+        .collect())
+}
+
+fn sold_for_ref(codes: &HashMap<ResourceTypeId, String>, id: ResourceTypeId) -> ResourceTypeRef {
+    ResourceTypeRef {
+        id,
+        code: codes.get(&id).cloned().unwrap_or_else(|| id.to_string()),
+    }
+}
+
+/// The resource type a plan is sold for, by code or id, refused at `path` when there is none.
+async fn sold_for_of(
+    state: &AppState,
+    tenant_id: TenantId,
+    raw: &str,
+    path: &str,
+) -> Result<ResourceTypeId, Problem> {
+    ids::resource_type(state, tenant_id, raw)
+        .await
+        .map(|resource_type| resource_type.id)
+        .map_err(|problem| {
+            if problem.status == 404 {
+                Problem::field(
+                    path,
+                    "not_found",
+                    format!("No resource type '{}'", raw.trim()),
+                )
+            } else {
+                problem
+            }
+        })
 }
 
 /// What is known of a plan written when v2 cannot read it back (the write is made all the same: a
@@ -698,17 +782,38 @@ async fn full_plan(
     }
 }
 
-/// The version as it bills, whatever its number and status: a draft reading the same as the
-/// active version publishes nothing.
+/// The version as it bills and grants, whatever its number and status: a draft reading the same
+/// as the active version publishes nothing. A row's id and history are its version's own, so
+/// rows compare by what they grant.
 fn same_sheet(a: &PlanVersion, b: &PlanVersion) -> bool {
-    let normalized = |version: &PlanVersion| {
+    const ROW_IDENTITY: [&str; 7] = [
+        "id",
+        "owner",
+        "created_by",
+        "created_at",
+        "updated_at",
+        "revoked_at",
+        "revoked_by",
+    ];
+    let sheet = |version: &PlanVersion| {
         let mut version = version.clone();
         version.number = 0;
         version.status = VersionStatus::Draft;
         version.charges.sort_by(|x, y| x.name.cmp(&y.name));
-        version
+        let mut value = serde_json::to_value(&version).unwrap_or_default();
+        if let Some(rows) = value
+            .get_mut("entitlements")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            for row in rows.iter_mut().filter_map(serde_json::Value::as_object_mut) {
+                for key in ROW_IDENTITY {
+                    row.remove(key);
+                }
+            }
+        }
+        value
     };
-    normalized(a) == normalized(b)
+    sheet(a) == sheet(b)
 }
 
 // ── Writing ─────────────────────────────────────────────────────────
@@ -731,10 +836,7 @@ impl Carried {
                 .version
                 .entitlements
                 .iter()
-                .map(|entitlement| EntitlementSpec {
-                    feature_id: entitlement.feature_id,
-                    value: entitlement.value.clone(),
-                })
+                .map(EntitlementSpec::from)
                 .collect(),
             minimum: fp
                 .version
@@ -887,14 +989,6 @@ async fn draft_of(
         &format!("{prefix}/add_ons"),
         "add-ons",
     )?;
-    if let Some(entitlements) = &input.entitlements {
-        bounds::count(
-            entitlements.len(),
-            bounds::MAX_ENTITLEMENTS,
-            &format!("{prefix}/entitlements"),
-            "entitlements",
-        )?;
-    }
     if let Some(currency) = input.currency.as_deref()
         && meteroid_store::constants::Currencies::resolve_currency(
             &currency.trim().to_ascii_uppercase(),
@@ -1093,11 +1187,12 @@ async fn draft_of(
 
     let entitlements = match &input.entitlements {
         None => carried.entitlements,
-        Some(grants) => {
+        Some(inputs) => {
             crate::v2::entitlements::specs(
                 state,
                 tenant_id,
-                grants,
+                inputs,
+                Tier::PlanVersion,
                 &format!("{prefix}/entitlements"),
             )
             .await?
@@ -1177,6 +1272,12 @@ pub async fn list_plans(
         .get_plan_pricing_pages(auth.tenant_id, &ids_of)
         .await?;
     let families: HashMap<ProductFamilyId, String> = family_codes(&state, auth.tenant_id).await?;
+    let sold_for = sold_for_codes(
+        &state,
+        auth.tenant_id,
+        paged.data.iter().map(|plan| plan.sold_for_resource_type_id),
+    )
+    .await?;
     let mut data = Vec::with_capacity(paged.data.len());
     for plan in paged.data {
         data.push(Plan {
@@ -1194,6 +1295,9 @@ pub async fn list_plans(
                 Some(page) => listing_of(page, plan.self_service_rank),
                 None => listing(&state, auth.tenant_id, plan.id, plan.self_service_rank).await?,
             },
+            sold_for: plan
+                .sold_for_resource_type_id
+                .map(|id| sold_for_ref(&sold_for, id)),
             active_version: plan.active_version.map(|version| version.version),
             has_draft: plan.has_draft_version,
             created_at: plan.created_at.into(),
@@ -1272,6 +1376,10 @@ pub async fn create_plan(
     )
     .await?;
     ids::check_code(body.code.as_deref(), PlanId::PREFIX)?;
+    let sold_for = match body.sold_for.as_deref() {
+        Some(raw) => Some(sold_for_of(&state, auth.tenant_id, raw, "/sold_for").await?),
+        None => None,
+    };
     let draft = draft_of(&state, &auth, &body.draft, Carried::default(), "/draft").await?;
     let code = body.code.clone().unwrap_or_default();
     let fp = state
@@ -1285,6 +1393,7 @@ pub async fn create_plan(
                 product_family_id: family_id,
                 plan_type: body.plan_type.into(),
                 status: PlanStatusEnum::Draft,
+                sold_for_resource_type_id: sold_for,
             },
             body.code,
             draft,
@@ -1300,8 +1409,8 @@ pub async fn create_plan(
 
 /// Update a plan
 ///
-/// A JSON merge patch of its live fields: name, description and listing, written together or not
-/// at all. Versions are written through the draft, the status by `…/archive` and `…/unarchive`.
+/// A JSON merge patch of its live fields: name, description, what it is sold for and listing,
+/// written together or not at all. Versions are written through the draft, the status by `…/archive` and `…/unarchive`.
 #[utoipa::path(
     patch,
     tag = "Plans",
@@ -1382,7 +1491,20 @@ pub async fn update_plan(
     } else {
         None
     };
-    // The live fields and the copy together, or nothing.
+    let sold_for = match &body.sold_for {
+        None => None,
+        Some(None) => Some(None),
+        Some(Some(raw)) => Some(Some(
+            sold_for_of(&state, auth.tenant_id, raw, "/sold_for").await?,
+        )),
+    };
+    // A store refusal points at the one part that could refuse it.
+    let pointer = match (sold_for.is_some(), body.listing.is_some()) {
+        (true, false) => Some("/sold_for"),
+        (false, _) => Some("/listing"),
+        (true, true) => None,
+    };
+    // The live fields, what it is sold for and the copy together, or nothing.
     state
         .store
         .update_plan_listing(
@@ -1396,10 +1518,14 @@ pub async fn update_plan(
                 self_service_rank: listing_patch.self_serve_rank,
                 issues_license: None,
             },
+            sold_for,
             page,
         )
         .await
-        .map_err(|error| Problem::at("/listing", error))?;
+        .map_err(|error| match pointer {
+            Some(pointer) => Problem::at(pointer, error),
+            None => Problem::from(error),
+        })?;
     // The live fields changed whatever the version reads as: one v2 cannot read is left out.
     Ok(committed_write(
         StatusCode::OK,
@@ -1410,11 +1536,11 @@ pub async fn update_plan(
 
 /// Write the draft
 ///
-/// The full desired state of the plan's draft: options, charges and terms. With no draft, one is
-/// made with the next version number; a draft there replaces it, keeping its number. What v2 does
-/// not write yet (the billing day, what happens once credit runs out, entitlements) is carried over
-/// from the version replaced (the draft, else the active version). The same body sent again reads
-/// the same.
+/// The full desired state of the plan's draft: options, charges, terms and rows. With no draft,
+/// one is made with the next version number; a draft there replaces it, keeping its number. What
+/// v2 does not write yet (the billing day, what happens once credit runs out), and the rows when
+/// left out, are carried over from the version replaced (the draft, else the active version). The
+/// same body sent again reads the same.
 #[utoipa::path(
     put,
     tag = "Plans",

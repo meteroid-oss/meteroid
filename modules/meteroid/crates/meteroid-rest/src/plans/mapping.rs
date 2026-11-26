@@ -54,6 +54,7 @@ pub fn plan_to_rest(
         status: plan.status.into(),
         self_service_rank: plan.self_service_rank,
         issues_license: plan.issues_license,
+        sold_for_resource_type_id: plan.sold_for_resource_type_id,
         product_family: ProductFamily {
             id: plan.product_family_id,
             name: product_family_name,

@@ -62,7 +62,7 @@ async fn patch_emits_subscription_updated_billing_config(#[future] test_env: Tes
                 invoice_memo: None,
                 purchase_order: None,
                 payment_methods_config: None,
-                usage_filter: None,
+                resource_id: None,
                 custom_properties: None,
             },
             Actor::System,

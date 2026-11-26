@@ -906,6 +906,8 @@ mod tests {
             unit_plural: None,
             created_at: chrono::Utc::now().naive_utc(),
             archived_at: None,
+            attributed_to_type_id: None,
+            attribution_property: None,
         };
         let card = card_dimensions(
             &["model".to_string(), "token_type".to_string()],

@@ -9,7 +9,7 @@ use crate::data::ids::{
 };
 use crate::harness::{subscription, test_env_with_seed_and_usage};
 use crate::helpers::credit_recompute::{
-    metric_component, started_on, subscribe, subscribe_filtered, subscribe_from, subscribe_on,
+    metric_component, started_on, subscribe, subscribe_for, subscribe_from, subscribe_on,
 };
 use crate::meteroid_it;
 use crate::meteroid_it::clients::AllClients;
@@ -34,7 +34,7 @@ use meteroid_store::domain::price_components::{
 use meteroid_store::domain::subscription_components::ExtraComponent;
 use meteroid_store::domain::{
     BillableMetric, BillableMetricNew, BillableMetricUpdate, Dimension, InvoicingEntityPatch,
-    LineItem, SegmentationMatrix, UsageFilter, UsagePeriod,
+    LineItem, SegmentationMatrix, UsagePeriod,
 };
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::SubscriptionInterface;
@@ -450,6 +450,7 @@ impl Api {
             .insert_billable_metric(
                 Actor::System,
                 BillableMetricNew {
+                    attributed_to: None,
                     name: code.to_owned(),
                     description: None,
                     code: code.to_owned(),
@@ -1418,12 +1419,17 @@ async fn split_by_region() -> (Api, SubscriptionId, SubscriptionId) {
     let bandwidth = |name: &str, rate| {
         metric_component(name, METRIC_BANDWIDTH, UsagePricingModel::PerUnit { rate })
     };
-    let europe = subscribe_filtered(
+    let region =
+        crate::helpers::resources::keyed_type(&api.setup.store, TENANT_ID, "region", &["region"])
+            .await;
+    let eu =
+        crate::helpers::resources::resource(&api.setup.store, &region, CUST_UBER_ID, "eu").await;
+    let europe = subscribe_for(
         &api.setup,
         CUST_UBER_ID,
         vec![bandwidth("Europe", dec!(0.07))],
         started_on(),
-        Some(UsageFilter::new("region".to_owned(), "eu".to_owned()).unwrap()),
+        Some(eu),
     )
     .await;
     let elsewhere = subscribe(
@@ -1445,7 +1451,7 @@ fn regions(body: &Value) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn test_a_subscription_reads_only_the_events_its_usage_filter_bills() {
+async fn test_a_subscription_reads_only_the_events_its_resource_bills() {
     let (api, europe, elsewhere) = split_by_region().await;
 
     let events = api.subscription_events(europe, "bandwidth").await;
@@ -1951,6 +1957,7 @@ async fn a_breakdown_key_breaks_the_renewal_line_down_without_repricing_it() {
                 filters: None,
                 unit_label: None,
                 usage_breakdown_key: Some(Some("region".to_owned())),
+                attributed_to: None,
             },
         )
         .await

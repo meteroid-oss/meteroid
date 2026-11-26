@@ -1,8 +1,6 @@
 import { Mono } from '../primitives'
 import { creditGroupDetail } from '../walletFormat'
 
-import { UsageFilterTag } from './UsageFilterTag'
-
 import type { Wallet } from '@/rpc/portal/wallets/v1/models_pb'
 
 /** The wallet's credit by kind, each with its own amount, expiry and what it pays. */
@@ -36,7 +34,6 @@ export const CreditGroups = ({ wallet }: { wallet: Wallet }) => {
                 style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, fontSize: 13.5 }}
               >
                 <span style={{ fontWeight: 500 }}>{group.label}</span>
-                <UsageFilterTag subscriptionId={group.subscriptionId} />
               </span>
               <span style={{ fontSize: 12.5, color: 'var(--mtp-text-2)' }}>
                 {detail.notes.join(' · ')}

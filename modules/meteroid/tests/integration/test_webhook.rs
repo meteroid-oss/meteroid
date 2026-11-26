@@ -98,6 +98,7 @@ async fn test_webhook_in_ingest_dedup_and_worker() {
             change_date: None,
             success_url: None,
             cancel_url: None,
+            resource_id: None,
         }
         .insert(&mut conn)
         .await
@@ -306,6 +307,7 @@ async fn insert_pending_gc_tx(
         change_date: None,
         success_url: None,
         cancel_url: None,
+        resource_id: None,
     }
     .insert(&mut conn)
     .await

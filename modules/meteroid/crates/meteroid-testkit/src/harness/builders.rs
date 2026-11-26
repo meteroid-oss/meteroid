@@ -238,7 +238,7 @@ impl SubscriptionBuilder {
                 backdate_invoices: self.backdate_invoices,
                 skip_checkout_session: false,
                 skip_past_invoices: self.skip_past_invoices,
-                usage_filter: None,
+                resource_id: None,
                 custom_properties: serde_json::Value::Null,
                 external_id: None,
             },

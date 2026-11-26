@@ -186,7 +186,7 @@ async fn test_config_change_affects_resolved_checkout_options(#[future] test_env
         net_terms: None,
         invoice_memo: None,
         purchase_order: None,
-        usage_filter: None,
+        resource_id: None,
         custom_properties: None,
         payment_methods_config: Some(Some(PaymentMethodsConfig::external())),
     };
@@ -234,7 +234,7 @@ async fn test_config_change_affects_resolved_checkout_options(#[future] test_env
         net_terms: None,
         invoice_memo: None,
         purchase_order: None,
-        usage_filter: None,
+        resource_id: None,
         custom_properties: None,
         payment_methods_config: Some(Some(PaymentMethodsConfig::online_specific(true, false))),
     };
@@ -411,7 +411,7 @@ async fn test_migrate_external_to_card_enables_checkout(#[future] test_env: Test
         net_terms: None,
         invoice_memo: None,
         purchase_order: None,
-        usage_filter: None,
+        resource_id: None,
         custom_properties: None,
         payment_methods_config: Some(Some(PaymentMethodsConfig::online_specific(true, false))),
     };
@@ -645,7 +645,7 @@ async fn test_charge_auto_validation_rejects_external_config(#[future] test_env:
         net_terms: None,
         invoice_memo: None,
         purchase_order: None,
-        usage_filter: None,
+        resource_id: None,
         custom_properties: None,
         payment_methods_config: None, // Keep External
     };
@@ -701,7 +701,7 @@ async fn test_charge_auto_validation_rejects_no_provider(#[future] test_env: Tes
         net_terms: None,
         invoice_memo: None,
         purchase_order: None,
-        usage_filter: None,
+        resource_id: None,
         custom_properties: None,
         payment_methods_config: None, // Keep default (Online)
     };
@@ -763,7 +763,7 @@ async fn test_charge_auto_validation_rejects_config_change_to_external(
         net_terms: None,
         invoice_memo: None,
         purchase_order: None,
-        usage_filter: None,
+        resource_id: None,
         custom_properties: None,
         payment_methods_config: Some(Some(PaymentMethodsConfig::external())), // Try to change to External
     };
@@ -807,7 +807,7 @@ async fn test_charge_auto_validation_accepts_valid_config(#[future] test_env: Te
         net_terms: None,
         invoice_memo: None,
         purchase_order: None,
-        usage_filter: None,
+        resource_id: None,
         custom_properties: None,
         payment_methods_config: Some(Some(PaymentMethodsConfig::online())), // Explicit Online
     };

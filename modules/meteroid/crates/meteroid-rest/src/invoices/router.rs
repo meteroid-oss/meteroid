@@ -34,6 +34,7 @@ use meteroid_store::repositories::payment_transactions::PaymentTransactionInterf
         (status = 200, description = "List of invoices", body = InvoiceListResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -148,6 +149,7 @@ pub async fn list_invoices(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Invoice not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -231,6 +233,7 @@ pub async fn get_invoice_by_id(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Invoice not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -305,6 +308,7 @@ pub async fn patch_invoice_custom_properties(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Invoice not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -368,6 +372,7 @@ pub async fn refresh_invoice(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Invoice not found or PDF not available", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -434,6 +439,7 @@ pub async fn download_invoice_pdf(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Invoice not found, or not issued as an e-invoice", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])

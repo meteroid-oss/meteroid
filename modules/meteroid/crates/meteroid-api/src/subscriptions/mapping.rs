@@ -4,7 +4,7 @@ pub mod subscriptions {
 
     use crate::connectors::mapping::connectors::connection_metadata_to_server;
     use crate::entitlements::mapping::entitlement_spec_from_proto;
-    use common_domain::ids::{CustomerId, PlanVersionId, SubscriptionId};
+    use common_domain::ids::{CustomerId, PlanVersionId, ResourceId, SubscriptionId};
     use common_utils::integers::ToNonNegativeU64;
     use meteroid_app::conversions::{AsProtoOpt, FromProtoOpt, ProtoConv};
     use meteroid_grpc::meteroid::api::subscriptions::v1 as proto2;
@@ -158,11 +158,8 @@ pub mod subscriptions {
             custom_properties: (!s.custom_properties.is_null())
                 .then(|| s.custom_properties.to_string()),
             tax_inclusive: s.tax_inclusive,
-            usage_filter: usage_filter_to_proto(s.usage_filter),
-            usage_filter_effective_from: s
-                .usage_filter_since
-                .map(|since| since.and_utc().to_rfc3339()),
             plan_option_id: s.plan_option_id.map(|id| id.as_proto()),
+            resource_id: s.resource_id.map(|id| id.as_proto()),
         })
     }
 
@@ -185,22 +182,6 @@ pub mod subscriptions {
                 .map(|id| id.as_proto())
                 .collect(),
         }
-    }
-
-    pub(crate) fn usage_filter_to_proto(
-        filter: Option<domain::UsageFilter>,
-    ) -> Option<proto2::UsageFilter> {
-        filter.map(|filter| proto2::UsageFilter {
-            property: filter.property,
-            value: filter.value,
-        })
-    }
-
-    pub(crate) fn usage_filter_from_proto(
-        filter: proto2::UsageFilter,
-    ) -> Result<domain::UsageFilter, Status> {
-        domain::UsageFilter::new(filter.property, filter.value)
-            .map_err(|e| Status::invalid_argument(e.current_context().to_string()))
     }
 
     pub(crate) fn create_proto_to_domain(
@@ -231,10 +212,7 @@ pub mod subscriptions {
             backdate_invoices: false,
             skip_checkout_session: false,
             skip_past_invoices: param.skip_past_invoices.unwrap_or(false),
-            usage_filter: param
-                .usage_filter
-                .map(usage_filter_from_proto)
-                .transpose()?,
+            resource_id: ResourceId::from_proto_opt(param.resource_id)?,
             custom_properties: param
                 .custom_properties
                 .map(|s| serde_json::from_str::<serde_json::Value>(&s))
@@ -305,6 +283,13 @@ pub mod subscriptions {
             mrr_cents: sub.mrr_cents.to_non_negative_u64(),
             checkout_url: sub.checkout_url,
             purchase_order: sub.purchase_order,
+            resource_id: sub.resource_id.map(|id| id.as_proto()),
+            warnings: sub.warnings,
+            metrics_not_attributed: sub
+                .metrics_not_attributed
+                .into_iter()
+                .map(|m| m.code)
+                .collect(),
         })
     }
 
@@ -357,11 +342,8 @@ pub mod subscriptions {
                 custom_properties: (!sub.custom_properties.is_null())
                     .then(|| sub.custom_properties.to_string()),
                 tax_inclusive: sub.tax_inclusive,
-                usage_filter: usage_filter_to_proto(sub.usage_filter),
-                usage_filter_effective_from: sub
-                    .usage_filter_since
-                    .map(|since| since.and_utc().to_rfc3339()),
                 plan_option_id: sub.plan_option_id.map(|id| id.as_proto()),
+                resource_id: sub.resource_id.map(|id| id.as_proto()),
             }),
             schedules: vec![], // TODO
             price_components: details
@@ -418,6 +400,8 @@ pub mod subscriptions {
                 .plan_option
                 .as_ref()
                 .map(crate::plans::mapping::plans::plan_option_to_proto),
+            warnings: Vec::new(),
+            metrics_not_attributed: Vec::new(),
         })
     }
 
@@ -467,10 +451,10 @@ pub mod subscriptions {
                 .as_ref()
                 .map(|proto_config| proto_payment_methods_config_to_domain(Some(*proto_config)))
                 .transpose()?,
-            usage_filter: req
-                .usage_filter
-                .clone()
-                .map(|change| change.filter.map(usage_filter_from_proto).transpose())
+            resource_id: req
+                .resource
+                .as_ref()
+                .map(|change| ResourceId::from_proto_opt(change.resource_id.as_ref()))
                 .transpose()?,
             custom_properties: req
                 .custom_properties
@@ -1618,7 +1602,8 @@ pub mod usage {
                 .map(|u| server::SubscriptionFeatureUsage {
                     feature_id: u.feature_id.as_proto(),
                     feature_name: u.feature_name.clone(),
-                    consumed: u.consumed.as_proto(),
+                    consumed: u.consumed.map(|c| c.as_proto()),
+                    usage_unavailable: u.usage_unavailable,
                     limit: u.limit.map(|l| l.as_proto()),
                     pct: u.pct,
                     warning_threshold_pct: u.warning_threshold_pct,
@@ -1630,6 +1615,10 @@ pub mod usage {
                     refused: u.refused,
                     grace_pct: u.grace_pct,
                     group_by: u.group_by.clone(),
+                    own_grant: u
+                        .own_grant
+                        .clone()
+                        .map(crate::entitlements::mapping::subscription_grant_to_proto),
                 })
                 .collect(),
         }

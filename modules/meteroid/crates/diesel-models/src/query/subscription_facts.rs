@@ -26,6 +26,13 @@ pub fn read_day_sql(subscription: &str) -> String {
     )
 }
 
+/// [`read_day_sql`] in Rust: `today`, held before a stored period's end not renewed past yet.
+pub fn read_day(today: NaiveDate, current_period_end: Option<NaiveDate>) -> NaiveDate {
+    current_period_end
+        .and_then(|end| end.pred_opt())
+        .map_or(today, |last| today.min(last))
+}
+
 /// `table`'s rows in force on their subscription's read day.
 pub fn in_force_sql(table: &str, subscription: &str) -> String {
     let day = read_day_sql(subscription);

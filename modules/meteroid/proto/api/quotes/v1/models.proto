@@ -152,6 +152,8 @@ message Quote {
   optional string last_sent_at = 55;
   // Part of the agreement: the document hash covers each file's SHA-256.
   repeated QuoteAttachment attachments = 56;
+  // The stored resource its subscription will be for; kept by the conversion.
+  optional string resource_id = 57;
 }
 
 // An uploaded PDF signed with the quote (Enterprise, quote-documents module).
@@ -395,6 +397,8 @@ message CreateQuote {
   optional QuoteCustomerActions customer_actions = 42;
   // The plan option quoted, by alias or id; unset: the plan's default option sold in `currency`.
   optional string option = 43;
+  // A stored resource of the customer; absent for the whole customer.
+  optional string resource_id = 44;
 }
 
 // Unsaved editor state. `payload` is the web editor's JSON, opaque to the server.

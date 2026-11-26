@@ -142,9 +142,12 @@ pub async fn catalog(client: &Client) -> Vec<String> {
         "SELECT 'enum ' || t.typname || ' ' || e.enumsortorder || ' ' || e.enumlabel
          FROM pg_type t JOIN pg_enum e ON e.enumtypid = t.oid
          WHERE t.typnamespace = 'public'::regnamespace",
+        // pgcrypto, created by the entitlements migration, stays installed on a revert.
         "SELECT 'function ' || p.proname || ' ' || md5(pg_get_functiondef(p.oid))
          FROM pg_proc p
-         WHERE p.pronamespace = 'public'::regnamespace AND p.prokind = 'f'",
+         WHERE p.pronamespace = 'public'::regnamespace AND p.prokind = 'f'
+           AND NOT EXISTS (SELECT 1 FROM pg_depend d JOIN pg_extension x ON x.oid = d.refobjid
+                           WHERE d.objid = p.oid AND d.deptype = 'e' AND x.extname = 'pgcrypto')",
         "SELECT 'trigger ' || tgrelid::regclass || ' ' || tgname || ' ' || tgenabled::text
                 || ' ' || pg_get_triggerdef(oid)
          FROM pg_trigger

@@ -22,6 +22,8 @@ message CreateBillableMetricRequest {
   // Event property, e.g. `project_id`, that breaks each invoice line down by value. The line is
   // still priced on its total usage, and each value shows its quantity and share of the amount.
   optional string usage_breakdown_key = 11;
+  // Absent: attributed to the customer only.
+  optional MetricAttribution attributed_to = 12;
 }
 
 message CreateBillableMetricResponse {
@@ -75,6 +77,34 @@ message UpdateBillableMetricRequest {
   optional MetricUnitLabel unit_label = 7;
   // Absent = keep the breakdown key; blank = remove it.
   optional string usage_breakdown_key = 8;
+  // Absent = unchanged. Applies to unfinalized periods: their drafts are recomputed.
+  optional MetricAttributionChange attribution = 9;
+}
+
+message MetricAttributionChange {
+  // Absent: the customer only.
+  optional MetricAttribution attributed_to = 1;
+}
+
+// Where the last 7 days of the metric's usage would go under `attributed_to`.
+message PreviewMetricAttributionRequest {
+  string id = 1;
+  optional MetricAttribution attributed_to = 2;
+}
+
+// Quantities summed over the sampled customers (those with subscriptions for a resource).
+message PreviewMetricAttributionResponse {
+  string from = 1;
+  string until = 2;
+  uint32 sampled_customers = 3;
+  bool sampled = 4;
+  string resource_subscriptions = 5;
+  string customer_subscriptions = 6;
+  string not_billed = 7;
+  // Drafts the change would recompute.
+  uint32 draft_invoices = 8;
+  // The quantities add up to the usage (sum, count): shares. Otherwise each is what its side bills.
+  bool additive = 9;
 }
 
 message UpdateBillableMetricResponse {
@@ -116,6 +146,7 @@ service BillableMetricsService {
   rpc UpdateBillableMetric (UpdateBillableMetricRequest) returns (UpdateBillableMetricResponse) {}
   rpc ArchiveBillableMetric (ArchiveBillableMetricRequest) returns (ArchiveBillableMetricResponse) {}
   rpc UnarchiveBillableMetric (UnarchiveBillableMetricRequest) returns (UnarchiveBillableMetricResponse) {}
+  rpc PreviewMetricAttribution (PreviewMetricAttributionRequest) returns (PreviewMetricAttributionResponse) {}
 
   // Tenant-scoped usage time series for one billable metric, aggregated across
   // all customers. Loads the metric (tenant-scoped), builds a QueryMeter over the

@@ -1,19 +1,23 @@
 //! The tenant's managed quantities. Created with the seat products and ledgers that use them;
 //! their code is immutable, their name and policies can change.
 use crate::StoreResult;
+use crate::domain::entitlements::{Feature, FeatureKind};
+use crate::domain::enums::FeatureStatusEnum;
 use crate::domain::managed_quantities::{
     ManagedQuantity, ManagedQuantityNew, ManagedQuantityPatch, validate_quantity_code,
 };
 use crate::errors::StoreError;
 use crate::store::Store;
 use common_domain::ids::{BaseId, FeatureId, ManagedQuantityId, TenantId};
+use diesel_models::customer_credit::CreditRecomputeMarkRow;
 use diesel_models::entitlements::FeatureRow;
-use diesel_models::enums::FeatureTypeEnum;
+use diesel_models::enums::EntitlementEntityTypeEnum;
 use diesel_models::managed_quantities::{
     ManagedQuantityRow, ManagedQuantityRowNew, ManagedQuantityRowPatch,
 };
 use diesel_models::query::managed_quantities::{list_feature_limits, set_feature_limit_quantity};
 use error_stack::Report;
+use scoped_futures::ScopedFutureExt;
 
 #[async_trait::async_trait]
 pub trait ManagedQuantitiesInterface {
@@ -59,8 +63,8 @@ pub trait ManagedQuantitiesInterface {
         patch: ManagedQuantityPatch,
     ) -> StoreResult<ManagedQuantity>;
 
-    /// Counts the metered `feature`'s limit per unit of `quantity` a subscription holds, or per
-    /// subscription again when none.
+    /// Counts the limit `feature` grants per unit of `quantity` a subscription holds, or per
+    /// subscription again when none (R-133). Any limit: one counted from events or by the app.
     async fn set_feature_limit_quantity(
         &self,
         tenant_id: TenantId,
@@ -195,25 +199,45 @@ impl ManagedQuantitiesInterface for Store {
         feature: FeatureId,
         quantity: Option<ManagedQuantityId>,
     ) -> StoreResult<()> {
-        let mut conn = self.get_conn().await?;
-        let found = FeatureRow::find_by_id(&mut conn, feature, tenant_id).await?;
-        if found.feature.feature_type != FeatureTypeEnum::Metered {
-            return Err(Report::new(StoreError::InvalidArgument(
-                "only a metered feature's limit counts per unit of a quantity".to_owned(),
-            )));
-        }
-        if let Some(quantity) = quantity {
-            let known = ManagedQuantityRow::list(&mut conn, tenant_id)
-                .await?
-                .iter()
-                .any(|row| row.id == quantity && row.archived_at.is_none());
-            if !known {
-                return Err(Report::new(StoreError::ValueNotFound(format!(
-                    "managed quantity {quantity}"
-                ))));
+        // Every subscription's resolved limit moves: the tenant's inputs are bumped.
+        self.transaction_bumping_tenant(tenant_id, |conn| {
+            async move {
+                let found: Feature = FeatureRow::find_by_id(conn, feature, tenant_id)
+                    .await?
+                    .try_into()?;
+                if !matches!(found.kind, FeatureKind::Limit(_)) {
+                    return Err(Report::new(StoreError::InvalidArgument(
+                        "only a limit counts per unit of a quantity".to_owned(),
+                    )));
+                }
+                if found.status == FeatureStatusEnum::Archived {
+                    return Err(Report::new(StoreError::InvalidArgument(
+                        "feature is archived; unarchive it first".to_owned(),
+                    )));
+                }
+                if let Some(quantity) = quantity {
+                    let known = ManagedQuantityRow::find(conn, tenant_id, quantity)
+                        .await?
+                        .is_some_and(|row| row.archived_at.is_none());
+                    if !known {
+                        return Err(Report::new(StoreError::ValueNotFound(format!(
+                            "managed quantity {quantity}"
+                        ))));
+                    }
+                }
+                set_feature_limit_quantity(conn, feature, quantity).await?;
+                CreditRecomputeMarkRow::mark_for_entitlement_owner(
+                    conn,
+                    tenant_id,
+                    &EntitlementEntityTypeEnum::Feature,
+                    feature.as_uuid(),
+                )
+                .await?;
+                Ok(())
             }
-        }
-        Ok(set_feature_limit_quantity(&mut conn, feature, quantity).await?)
+            .scope_boxed()
+        })
+        .await
     }
 }
 

@@ -2,11 +2,11 @@ use crate::domain::customer_emails::{EmailContext, EmailKind};
 use crate::domain::pgmq::{PgmqMessageNew, PgmqQueue, SendEmailRequest};
 use crate::domain::portal_tokens::{
     IssuedPortalToken, PortalToken, PortalTokenStatus, ResourceKey, canonical_scopes,
-    derive_portal_token, hash_portal_token, invoice_link_expiry, is_portal_token,
-    min_link_validity, quote_link_expiry, scope_names,
+    client_claims_column, derive_portal_token, hash_portal_token, invoice_link_expiry,
+    is_portal_token, min_link_validity, quote_link_expiry, scope_names,
 };
 use crate::errors::StoreError;
-use crate::jwt_claims::{PortalScope, ResourceAccess};
+use crate::jwt_claims::{ClientClaims, PortalScope, ResourceAccess};
 use crate::repositories::pgmq::PgmqInterface;
 use crate::store::PgConn;
 use crate::{Store, StoreResult};
@@ -95,6 +95,7 @@ pub trait PortalTokensInterface {
 
     /// Reuses a live token with the same scopes and delegation that has 90-100% of `ttl` left, so frequent
     /// callers don't mint a row each time and never get more lifetime than they asked for.
+    /// Callers validate `client` against the tenant's types first (`resolve_resource_input`).
     async fn customer_portal_token(
         &self,
         tenant_id: TenantId,
@@ -102,6 +103,7 @@ pub trait PortalTokensInterface {
         ttl: Duration,
         scopes: Option<Vec<PortalScope>>,
         delegated: bool,
+        client: ClientClaims,
     ) -> StoreResult<IssuedPortalToken>;
 
     async fn dashboard_portal_token(
@@ -141,9 +143,21 @@ impl Store {
         resource: &ResourceAccess,
         scopes: Option<&[PortalScope]>,
         delegated: bool,
+        client: Option<&ClientClaims>,
         expires_at: Option<DateTime<Utc>>,
         reuse: Option<Reuse>,
     ) -> StoreResult<IssuedPortalToken> {
+        let client_claims = match (resource, client) {
+            (_, None) => None,
+            (ResourceAccess::Customer(_), Some(client)) => client_claims_column(client)?,
+            (_, Some(client)) if client.is_empty() => None,
+            (_, Some(_)) => {
+                return Err(StoreError::InvalidArgument(
+                    "resources and attributes only apply to customer tokens".into(),
+                )
+                .into());
+            }
+        };
         let key = ResourceKey::from(resource);
         let secret = &self.settings.jwt_secret;
         let scopes = match resource {
@@ -160,6 +174,7 @@ impl Store {
                 key.recipient_email.as_deref(),
                 &scopes,
                 delegated,
+                client_claims.as_ref(),
                 reuse.valid_until,
                 reuse.expires_before,
             )
@@ -189,6 +204,7 @@ impl Store {
             scopes,
             delegated,
             expires_at,
+            client_claims,
         }
         .insert(conn)
         .await
@@ -218,6 +234,7 @@ impl Store {
             },
             None,
             delegated,
+            None,
             Some(quote_link_expiry(quote.expires_at, now)),
             Reuse::valid_until(now + min_link_validity()),
         )
@@ -242,6 +259,7 @@ impl Store {
             &ResourceAccess::CheckoutSession(session.id),
             None,
             delegated,
+            None,
             session.expires_at,
             Reuse::valid_until(reuse_until),
         )
@@ -352,6 +370,7 @@ impl PortalTokensInterface for Store {
             &ResourceAccess::Invoice(invoice_id),
             None,
             delegated,
+            None,
             Some(invoice_link_expiry(
                 invoice.finalized_at,
                 invoice.due_at,
@@ -399,6 +418,7 @@ impl PortalTokensInterface for Store {
         ttl: Duration,
         scopes: Option<Vec<PortalScope>>,
         delegated: bool,
+        client: ClientClaims,
     ) -> StoreResult<IssuedPortalToken> {
         let expires_at = common_clock::wall() + ttl;
         let mut conn = self.get_conn().await?;
@@ -408,6 +428,7 @@ impl PortalTokensInterface for Store {
             &ResourceAccess::Customer(customer_id),
             scopes.as_deref(),
             delegated,
+            Some(&client),
             Some(expires_at),
             Some(Reuse {
                 valid_until: expires_at - ttl / 10,
@@ -429,6 +450,7 @@ impl PortalTokensInterface for Store {
             &ResourceAccess::Dashboard(saved_view_id),
             None,
             false,
+            None,
             None,
             Reuse::valid_until(common_clock::wall()),
         )

@@ -27,6 +27,7 @@ async fn test_plans_basic() {
         .plans
         .clone()
         .create_draft_plan(api::plans::v1::CreateDraftPlanRequest {
+            sold_for_resource_type_id: None,
             name: "plan_name".into(),
             product_family_local_id: "default".into(),
             description: Some("plan_description".into()),
@@ -667,6 +668,7 @@ async fn the_self_serve_ladder_orders_a_product_lines_plans() {
                 currency: "EUR".to_string(),
                 entitlements: vec![],
                 tax_inclusive: false,
+                sold_for_resource_type_id: None,
             })
             .await
             .unwrap()

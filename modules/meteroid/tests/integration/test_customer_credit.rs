@@ -1625,7 +1625,7 @@ async fn a_plan_pack_funds_its_credit_when_paid_and_included_credit_when_invoice
                     backdate_invoices: false,
                     skip_checkout_session: false,
                     skip_past_invoices: false,
-                    usage_filter: None,
+                    resource_id: None,
                     custom_properties: serde_json::Value::Null,
                     external_id: None,
                 },

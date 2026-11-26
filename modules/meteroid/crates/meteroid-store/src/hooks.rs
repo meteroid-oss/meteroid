@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use common_domain::ids::{
-    BudgetId, CreditGrantId, CreditUnitId, CustomerId, OrganizationId, ProductId,
+    BudgetId, CreditGrantId, CreditUnitId, CustomerId, FeatureId, OrganizationId, ProductId,
     QuoteAttachmentId, QuoteId, StoredDocumentId, SubscriptionId, TenantId, UserId, WalletId,
 };
 use diesel_models::PgConn;
@@ -22,6 +22,7 @@ use crate::domain::credit::{
 };
 use crate::domain::credit_outlook::CreditOutlook;
 use crate::domain::customer_signals::OpenSignals;
+use crate::domain::entitlement_checks::{LiveCheck, LiveCheckRequest};
 use crate::domain::enums::DeclineKind;
 use crate::domain::fx::FxTable;
 use crate::domain::payment_transactions::PaymentTransaction;
@@ -621,6 +622,32 @@ pub trait CreditControlHooks: Send + Sync {
 
     /// Seeds a sandbox scenario's budget. Core's own seeds none: budgets are usage controls.
     async fn seed_budget(&self, _services: &Services, _budget: SeededBudget) -> StoreResult<()> {
+        Ok(())
+    }
+
+    /// The live parts of a check (ADR 0011 §3.14): monitor-read usage per level and budget or
+    /// credit denials. `None` keeps core's answer, read at check time.
+    async fn live_check(
+        &self,
+        _conn: &mut PgConn,
+        _tenant_id: TenantId,
+        _customer_id: CustomerId,
+        _request: &LiveCheckRequest,
+        _now: DateTime<Utc>,
+    ) -> StoreResult<Option<LiveCheck>> {
+        Ok(None)
+    }
+
+    /// After an app count write committed for `paths` (`''` is the customer).
+    async fn app_count_changed(
+        &self,
+        _conn: &mut PgConn,
+        _tenant_id: TenantId,
+        _customer_id: CustomerId,
+        _feature_id: FeatureId,
+        _paths: &[String],
+        _now: DateTime<Utc>,
+    ) -> StoreResult<()> {
         Ok(())
     }
 }

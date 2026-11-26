@@ -1,78 +1,99 @@
-/**
- * FeatureCreateSheet — sheet for creating or editing a feature in the feature catalog.
- * On create, always configures a feature-level entitlement (lowest-priority baseline).
- * Feature-level entitlements apply when no higher-priority entitlement exists for an entity.
- */
-import { create, type MessageInitShape } from '@bufbuild/protobuf';
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
+import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query'
 import {
+  Alert,
+  AlertDescription,
   Button,
-  cn,
   Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-  Input,
-  Select,
-  SelectContent,
+  GenericFormField,
+  InputFormField,
+  SelectFormField,
   SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Separator,
   Sheet,
   SheetContent,
+  SheetFooter,
   SheetHeader,
   SheetTitle,
-  Textarea,
+  SwitchFormField,
+  TextareaFormField,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router'
+import { CopyIcon, InfoIcon } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { useWatch } from 'react-hook-form'
+import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
-import { ValuesTagInput } from '@/components/form'
-import { EntityEntitlementsSection } from '@/features/entitlements/EntityEntitlementsSection'
-import { EntitlementValueFields } from '@/features/entitlements/creation/EntitlementValueFields'
-import {
-  buildConfigValue,
-  buildMeteredPolicy,
-  configFeatureTypeValue,
-  configMapIssues,
-  CONFIG_KINDS,
-  groupBySchema,
-  checkMeteredPolicy,
-  meteredPolicySchemaShape,
-} from '@/features/entitlements/creation/types'
+import ConfirmationModal from '@/components/ConfirmationModal'
+import { type ChoiceCardOption, ChoiceCardsFormField, ValuesTagInput } from '@/components/form'
+import { PolicyFields } from '@/features/entitlements/PolicyFields'
+import { KIND_ICON, KIND_NAME, type KindKey } from '@/features/entitlements/features/featureKind'
+import { featureSnippet } from '@/features/entitlements/features/featureSnippet'
+import { policyFromForm, policySchema, policyToForm } from '@/features/entitlements/model'
 import {
   FEATURE_CODE_CHARSET_MESSAGE,
   FEATURE_CODE_LENGTH_MESSAGE,
   FEATURE_CODE_MAX_LENGTH,
   FEATURE_CODE_REGEX,
-  FeatureKind,
   slugifyCode,
 } from '@/features/entitlements/utils'
+import { TypeSelect } from '@/features/resources/TypeSelect'
+import { lower, useResourceTypes } from '@/features/resources/hooks'
+import { useBasePath } from '@/hooks/useBasePath'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
-import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
+import { env } from '@/lib/env'
+import { copyToClipboard } from '@/lib/helpers'
+import {
+  getBillableMetric,
+  listBillableMetrics,
+} from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import {
   createFeature,
-  listFeatures,
+  listEntitlementsByFeature,
   updateFeature,
 } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
-import { CalendarUnit, EntitlementValueSchema, ResetPeriodSchema } from '@/rpc/api/entitlements/v1/models_pb';
+import {
+  type Feature,
+  FeatureKind,
+  FeatureValueType,
+  LimitCountedBy,
+} from '@/rpc/api/entitlements/v1/models_pb'
 import { listProducts } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
 
-function isValidJson(s: string | undefined): boolean {
-  if (!s || s.trim() === '') return false
-  try {
-    JSON.parse(s)
-    return true
-  } catch {
-    return false
-  }
+const KINDS = ['BOOLEAN', 'VALUE', 'LIMIT'] as const
+const GLOBAL = '__global__'
+const VALUE_TYPES = ['NUMBER', 'TEXT', 'SELECT', 'JSON'] as const
+const VALUE_TYPE_LABEL: Record<(typeof VALUE_TYPES)[number], string> = {
+  NUMBER: 'Number',
+  TEXT: 'Text',
+  SELECT: 'Select',
+  JSON: 'JSON',
 }
+
+const KIND_HINT: Record<KindKey, string> = {
+  BOOLEAN: 'Access granted or not',
+  VALUE: 'A number, text or a choice',
+  LIMIT: 'A cap on counted usage',
+}
+
+const KIND_OPTIONS: ChoiceCardOption<KindKey>[] = KINDS.map(kind => {
+  const Icon = KIND_ICON[kind]
+  return {
+    value: kind,
+    label: KIND_NAME[kind],
+    hint: KIND_HINT[kind],
+    icon: <Icon size={14} className="text-muted-foreground" />,
+  }
+})
+
+const COUNTED_BY_OPTIONS: ChoiceCardOption<'EVENTS' | 'APP'>[] = [
+  { value: 'EVENTS', label: 'From events', hint: 'A metric counts it' },
+  { value: 'APP', label: 'By your app', hint: 'Your app reports the count' },
+]
 
 const schema = z
   .object({
@@ -84,501 +105,451 @@ const schema = z
       .regex(FEATURE_CODE_REGEX, FEATURE_CODE_CHARSET_MESSAGE),
     description: z.string().optional(),
     productId: z.string().optional(),
-    type: z.enum(['boolean', 'metered', 'config']),
+    kind: z.enum(KINDS),
+    valueType: z.enum(VALUE_TYPES),
+    higherIsBetter: z.boolean(),
+    options: z.array(z.string()),
+    ordered: z.boolean(),
+    countedBy: z.enum(['EVENTS', 'APP']),
     metricId: z.string().optional(),
-    boolEnabled: z.boolean().optional(),
-    limit: z.string().optional(),
-    resetPeriodType: z
-      .enum(['billingCycle', 'calendar', 'fixedWindow', 'slidingWindow', 'never'])
-      .optional(),
-    resetUnit: z.nativeEnum(CalendarUnit).optional(),
-    resetInterval: z.coerce.number().int().min(1).optional(),
-    meteredEnabled: z.boolean().optional(),
-    groupBy: groupBySchema,
-    ...meteredPolicySchemaShape,
-    configKind: z.enum(CONFIG_KINDS).optional(),
-    configNumber: z.string().optional(),
-    configBoolean: z.boolean().optional(),
-    configText: z.string().optional(),
-    configJson: z.string().optional(),
-    configEntries: z
-      .array(
-        z.object({
-          key: z.string(),
-          type: z.enum(['number', 'text', 'boolean']),
-          value: z.string(),
-        })
-      )
-      .optional(),
-    configOptions: z.array(z.string()).optional(),
+    unit: z.string().optional(),
+    levelTypeId: z.string().optional(),
+    policy: policySchema,
   })
-  .refine(d => d.type !== 'metered' || !!d.metricId, {
-    message: 'Metric is required for metered features',
+  .refine(d => d.kind !== 'LIMIT' || d.countedBy !== 'EVENTS' || !!d.metricId, {
+    message: 'Pick the metric that counts it',
     path: ['metricId'],
   })
-  .superRefine((d, ctx) => {
-    if (d.type === 'metered') checkMeteredPolicy(d, ctx)
-    if (d.type === 'config' && d.configKind === 'map') {
-      const issue = configMapIssues(d.configEntries)
-      if (issue) ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue, path: ['configEntries'] })
-    }
-  })
-  .refine(d => d.type !== 'config' || d.configKind !== 'json' || isValidJson(d.configJson), {
-    message: 'Must be valid JSON',
-    path: ['configJson'],
-  })
-  .refine(d => d.type !== 'config' || d.configKind !== 'select' || (d.configOptions?.length ?? 0) > 0, {
+  .refine(d => d.kind !== 'VALUE' || d.valueType !== 'SELECT' || d.options.length > 0, {
     message: 'Add at least one option',
-    path: ['configOptions'],
-  })
-  .refine(d => d.type !== 'config' || d.configKind !== 'select' || !!d.configText, {
-    message: 'Choose a value',
-    path: ['configText'],
+    path: ['options'],
   })
 
 type FormData = z.infer<typeof schema>
 
-const FEATURE_TYPE_OPTIONS: { value: FormData['type']; label: string; description: string }[] = [
-  { value: 'boolean', label: 'Boolean', description: 'On/off access flag.' },
-  { value: 'metered', label: 'Metered', description: 'Usage counted against a metric.' },
-  { value: 'config', label: 'Config', description: 'A static value or key/value map.' },
-]
+const toForm = (f?: Feature, productId?: string): FormData => ({
+  name: f?.name ?? '',
+  code: f?.code ?? '',
+  description: f?.description ?? '',
+  productId: f?.product?.id ?? productId ?? '',
+  kind: f && f.kind !== FeatureKind.UNSPECIFIED ? (FeatureKind[f.kind] as FormData['kind']) : 'BOOLEAN',
+  valueType:
+    f?.value && f.value.type !== FeatureValueType.UNSPECIFIED
+      ? (FeatureValueType[f.value.type] as FormData['valueType'])
+      : 'NUMBER',
+  higherIsBetter: f?.value?.higherIsBetter ?? true,
+  options: f?.value?.options ?? [],
+  ordered: f?.value?.ordered ?? false,
+  countedBy: f?.limit?.countedBy === LimitCountedBy.APP ? 'APP' : 'EVENTS',
+  metricId: f?.limit?.metricId ?? '',
+  unit: f?.unit ?? '',
+  levelTypeId: f?.levelResourceTypeId,
+  policy: policyToForm(f?.policy, f?.limit?.countedBy === LimitCountedBy.APP),
+})
+
+const hasUnit = (d: Pick<FormData, 'kind' | 'valueType'>) =>
+  d.kind === 'LIMIT' || (d.kind === 'VALUE' && d.valueType === 'NUMBER')
 
 interface Props {
-  featureId?: string
-  initialName?: string
-  initialCode?: string
-  initialDescription?: string
+  feature?: Feature
   initialProductId?: string
-  initialKind?: FeatureKind
-  onClose?: () => void
+  onClose?: (saved?: Feature) => void
 }
 
-function buildEntitlementValue(
-  type: FormData['type'],
-  data: Pick<
-    FormData,
-    | 'boolEnabled'
-    | 'limit'
-    | 'resetPeriodType'
-    | 'resetUnit'
-    | 'resetInterval'
-    | 'meteredEnabled'
-    | 'groupBy'
-    | 'overageType'
-    | 'gracePct'
-    | 'thresholds'
-    | 'configKind'
-    | 'configNumber'
-    | 'configBoolean'
-    | 'configText'
-    | 'configJson'
-    | 'configEntries'
-  >
-): MessageInitShape<typeof EntitlementValueSchema> {
-  if (type === 'boolean') {
-    return {
-      value: {
-        case: 'booleanValue' as const,
-        value: { enabled: data.boolEnabled ?? true },
-      },
-    }
-  }
-  if (type === 'config') {
-    return {
-      value: {
-        case: 'configValue' as const,
-        value: buildConfigValue(data),
-      },
-    }
-  }
-  const resetPeriod: MessageInitShape<typeof ResetPeriodSchema> =
-    data.resetPeriodType === 'billingCycle'
-      ? { Inner: { case: 'billingCycle' as const, value: {} } }
-      : data.resetPeriodType === 'calendar'
-        ? {
-            Inner: {
-              case: 'calendar' as const,
-              value: { unit: data.resetUnit!, interval: data.resetInterval! },
-            },
-          }
-        : data.resetPeriodType === 'fixedWindow'
-          ? {
-              Inner: {
-                case: 'fixedWindow' as const,
-                value: { unit: data.resetUnit!, interval: data.resetInterval! },
-              },
-            }
-          : data.resetPeriodType === 'slidingWindow'
-            ? {
-                Inner: {
-                  case: 'slidingWindow' as const,
-                  value: { unit: data.resetUnit!, interval: data.resetInterval! },
-                },
-              }
-            : { Inner: { case: 'never' as const, value: {} } }
-
-  return {
-    value: {
-      case: 'meteredValue' as const,
-      value: {
-        limit: data.limit || undefined,
-        resetPeriod,
-        enabled: data.meteredEnabled ?? true,
-        groupBy: data.groupBy?.trim() || undefined,
-        ...buildMeteredPolicy(data),
-      },
-    },
-  }
-}
-
-export const FeatureCreateSheet = ({
-  featureId,
-  initialName = '',
-  initialCode = '',
-  initialDescription = '',
-  initialProductId,
-  initialKind = { type: 'boolean' },
-  onClose,
-}: Props) => {
+export const FeatureCreateSheet = ({ feature, initialProductId, onClose }: Props) => {
   const navigate = useNavigate()
-  const handleClose = onClose ?? (() => navigate('..'))
+  const basePath = useBasePath()
   const queryClient = useQueryClient()
-  const isEdit = !!featureId
-  // A "select" config feature carries a fixed option set — editable after creation.
-  const isSelectConfig = initialKind.type === 'config' && !!initialKind.options?.length
+  const isEdit = !!feature
+  const { byId: typesById, hasTypes } = useResourceTypes()
+  const [confirmingClose, setConfirmingClose] = useState(false)
 
-  const metricsQuery = useQuery(listBillableMetrics, { pagination: { page: 0, perPage: 100 } })
-  const metrics = (metricsQuery.data?.billableMetrics ?? []).slice().sort((a, b) => a.name.localeCompare(b.name))
+  const metrics =
+    useQuery(listBillableMetrics, { pagination: { page: 0, perPage: 200 } }).data?.billableMetrics ?? []
+  const products = useQuery(listProducts, { pagination: { page: 0, perPage: 200 } }).data?.products ?? []
 
-  const productsQuery = useQuery(listProducts, { pagination: { page: 0, perPage: 200 } })
-  const products = (productsQuery.data?.products ?? []).slice().sort((a, b) => a.name.localeCompare(b.name))
+  const form = useZodForm({ schema, defaultValues: toForm(feature, initialProductId) })
+  const { isDirty } = form.formState
+  const d = useWatch({ control: form.control }) as FormData
+  const appCounted = d.kind === 'LIMIT' && d.countedBy === 'APP'
+  useEffect(() => {
+    if (!isEdit && !form.formState.dirtyFields.code) form.setValue('code', slugifyCode(d.name ?? ''))
+  }, [d.name]) // eslint-disable-line react-hooks/exhaustive-deps
+  const type = d.levelTypeId ? typesById.get(d.levelTypeId) : undefined
 
-  const form = useZodForm({
-    schema,
-    defaultValues: {
-      name: initialName,
-      code: initialCode,
-      description: initialDescription,
-      productId: initialProductId ?? '',
-      type: initialKind.type,
-      metricId: initialKind.type === 'metered' ? initialKind.metricId : '',
-      boolEnabled: true,
-      resetPeriodType: 'billingCycle',
-      resetUnit: CalendarUnit.MONTH,
-      resetInterval: 1,
-      meteredEnabled: true,
-      overageType: 'block',
-      gracePct: '',
-      thresholds: '',
-      configKind: 'number',
-      configEntries: [{ key: '', type: 'number', value: '' }],
-      configOptions: initialKind.type === 'config' ? (initialKind.options ?? []) : [],
-    },
+  // A per-type limit from events needs a metric attributed to that type.
+  const metricQuery = useQuery(
+    getBillableMetric,
+    d.kind === 'LIMIT' && d.countedBy === 'EVENTS' && d.metricId ? { id: d.metricId } : skipToken
+  )
+  const metric = metricQuery.data?.billableMetric
+  const metricPending =
+    !!d.levelTypeId &&
+    d.kind === 'LIMIT' &&
+    d.countedBy === 'EVENTS' &&
+    !!d.metricId &&
+    metricQuery.isPending
+  const misattributed =
+    !!type &&
+    d.kind === 'LIMIT' &&
+    d.countedBy === 'EVENTS' &&
+    !!metric &&
+    metric.attributedTo?.resourceTypeId !== type.id
+
+  // A feature with entitlements keeps its level: they were written for it.
+  const levelChanged = !!feature && (d.levelTypeId ?? '') !== (feature.levelResourceTypeId ?? '')
+  const blockingQuery = useQuery(
+    listEntitlementsByFeature,
+    feature && levelChanged ? { featureId: feature.id } : skipToken
+  )
+  const blocking = blockingQuery.data?.entitlements
+  const blockingPending = levelChanged && blockingQuery.isPending
+  const blockingCount = levelChanged ? (blocking?.length ?? 0) : 0
+  const blocked = blockingCount > 0
+  const guarded = misattributed || metricPending || blocked || blockingPending
+
+  const snippet = useMemo(
+    () => featureSnippet({ code: d.code, kind: d.kind, countedBy: d.countedBy, type, baseUrl: env.meteroidRestApiUri }),
+    [d.code, d.kind, d.countedBy, type]
+  )
+
+  const close = (saved?: Feature) => {
+    if (onClose) onClose(saved)
+    else navigate(saved && !isEdit ? `../${saved.id}` : '..')
+  }
+  const safeClose = () => (isDirty ? setConfirmingClose(true) : close())
+
+  const done = (saved?: Feature) => {
+    queryClient.invalidateQueries({
+      queryKey: createConnectQueryKey({ schema: createFeature.parent, cardinality: undefined }),
+    })
+    close(saved)
+  }
+  const createMutation = useMutation(createFeature, {
+    onSuccess: r => done(r.feature),
+    onError: e => toast.error(e.message),
+  })
+  const updateMutation = useMutation(updateFeature, {
+    onSuccess: r => done(r.feature),
+    onError: e => toast.error(e.message),
   })
 
-  const type = form.watch('type')
-  const selectedProductId = form.watch('productId')
-  const selectedProductName = products.find(p => p.id === selectedProductId)?.name
-
-  const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-      schema: listFeatures.parent,
-      cardinality: undefined
-    }) })
-
-  const createMutation = useMutation(createFeature)
-  const updateMutation = useMutation(updateFeature)
-
-  const onSubmit = form.handleSubmit(async data => {
-    try {
-      if (isEdit) {
-        if (isSelectConfig && (data.configOptions?.length ?? 0) === 0) {
-          form.setError('configOptions', { message: 'Add at least one option' })
-          return
-        }
-        const detach = !data.productId && !!initialProductId
-        await updateMutation.mutateAsync({
-          id: featureId,
-          name: data.name,
-          description: data.description,
-          productId: data.productId || undefined,
-          clearProductId: detach,
-          ...(isSelectConfig
-            ? { configOptions: data.configOptions ?? [], updateConfigOptions: true }
-            : {}),
-        })
-      } else {
-        await createMutation.mutateAsync({
-          name: data.name,
-          code: data.code,
-          description: data.description,
-          productId: data.productId || undefined,
-          featureType:
-            data.type === 'boolean'
-              ? { Inner: { case: 'boolean', value: {} } }
-              : data.type === 'config'
-                ? {
-                    Inner: {
-                      case: 'config',
-                      value: configFeatureTypeValue(
-                        data.configKind ?? 'number',
-                        data.configOptions ?? []
-                      ),
-                    },
-                  }
-                : { Inner: { case: 'metered', value: { metricId: data.metricId! } } },
-          entitlement: create(
-            EntitlementValueSchema,
-            buildEntitlementValue(data.type, data)
-          ),
-        })
-      }
-      invalidate()
-      handleClose()
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
-      toast.error(`Failed: ${message}`)
-    }
+  const onSubmit = form.handleSubmit(data => {
+    if (guarded) return
+    const policy = data.kind === 'LIMIT' ? policyFromForm(data.policy, appCounted) : undefined
+    const unit = hasUnit(data) ? data.unit?.trim() || undefined : undefined
+    const productId = data.productId === GLOBAL ? undefined : data.productId || undefined
+    if (feature)
+      return updateMutation.mutate({
+        id: feature.id,
+        name: data.name,
+        description: data.description,
+        productId,
+        clearProductId: !productId && !!feature.product,
+        unit,
+        clearUnit: !unit && !!feature.unit,
+        levelResourceTypeId: data.levelTypeId,
+        clearLevelResourceTypeId: !data.levelTypeId && !!feature.levelResourceTypeId,
+        policy,
+        higherIsBetter: data.kind === 'VALUE' && data.valueType === 'NUMBER' ? data.higherIsBetter : undefined,
+        selectOrdered: data.kind === 'VALUE' && data.valueType === 'SELECT' ? data.ordered : undefined,
+        configOptions: data.options,
+        updateConfigOptions: data.kind === 'VALUE' && data.valueType === 'SELECT',
+      })
+    createMutation.mutate({
+      name: data.name,
+      code: data.code,
+      description: data.description,
+      productId,
+      kind: FeatureKind[data.kind],
+      value:
+        data.kind === 'VALUE'
+          ? {
+              type: FeatureValueType[data.valueType],
+              higherIsBetter: data.valueType === 'NUMBER' ? data.higherIsBetter : undefined,
+              options: data.valueType === 'SELECT' ? data.options : [],
+              ordered: data.valueType === 'SELECT' && data.ordered,
+            }
+          : undefined,
+      limit:
+        data.kind === 'LIMIT'
+          ? {
+              countedBy: LimitCountedBy[data.countedBy],
+              metricId: data.countedBy === 'EVENTS' ? data.metricId : undefined,
+            }
+          : undefined,
+      unit,
+      levelResourceTypeId: data.levelTypeId,
+      policy,
+    })
   })
 
-  const isPending = createMutation.isPending || updateMutation.isPending
+  const saving = createMutation.isPending || updateMutation.isPending
 
   return (
-    <Sheet open onOpenChange={() => handleClose()}>
-      <SheetContent size="small">
-        <SheetHeader className="pb-2">
-          <SheetTitle>{isEdit ? 'Edit Feature' : 'New Feature'}</SheetTitle>
-          <Separator />
-        </SheetHeader>
+    <>
+      <Sheet open onOpenChange={safeClose}>
+        <SheetContent size="xlarge" className="p-0 sm:max-w-[1040px]">
+          <Form {...form}>
+            <form onSubmit={onSubmit} className="flex h-full w-full flex-col">
+              <SheetHeader className="ml-6 mt-4">
+                <SheetTitle>{feature ? `Edit ${feature.name}` : 'New feature'}</SheetTitle>
+              </SheetHeader>
 
-        <Form {...form}>
-          <form onSubmit={onSubmit} className="flex flex-col gap-4 py-4">
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="e.g. Monthly API Calls"
-                      {...field}
-                      onChange={e => {
-                        field.onChange(e)
-                        // Auto-fill the code from the name until the user edits it.
-                        if (!isEdit && !form.formState.dirtyFields.code) {
-                          form.setValue('code', slugifyCode(e.target.value), {
-                            shouldValidate: true,
-                          })
-                        }
-                      }}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="code"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    Code{' '}
-                    <span className="text-muted-foreground text-xs">
-                      (stable identifier{isEdit ? ', immutable' : ''})
-                    </span>
-                  </FormLabel>
-                  <FormControl>
-                    <Input placeholder="e.g. monthly_api_calls" {...field} disabled={isEdit} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="description"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Description</FormLabel>
-                  <FormControl>
-                    <Textarea placeholder="Optional description" rows={2} {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="productId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Product</FormLabel>
-                  <Select
-                    value={field.value || '__none__'}
-                    onValueChange={v => field.onChange(v === '__none__' ? '' : v)}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Global (no product)" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="__none__">Global (no product)</SelectItem>
-                      {products.map(p => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="type"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    Type {isEdit && <span className="text-muted-foreground text-xs">(immutable)</span>}
-                  </FormLabel>
-                  <FormControl>
-                    <div className="grid grid-cols-3 gap-2">
-                      {FEATURE_TYPE_OPTIONS.map(opt => {
-                        const selected = field.value === opt.value
-                        return (
-                          <button
-                            type="button"
-                            key={opt.value}
-                            disabled={isEdit}
-                            onClick={() => field.onChange(opt.value)}
-                            className={cn(
-                              'flex flex-col gap-1 rounded-md border p-3 text-left transition-colors',
-                              selected
-                                ? 'border-primary ring-1 ring-primary bg-primary/5'
-                                : 'border-border hover:border-muted-foreground/40',
-                              isEdit && 'cursor-not-allowed opacity-60'
-                            )}
-                          >
-                            <span className="text-sm font-medium">{opt.label}</span>
-                            <span className="text-xs text-muted-foreground leading-snug">
-                              {opt.description}
-                            </span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {type === 'metered' && !isEdit && (
-              <FormField
-                control={form.control}
-                name="metricId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Metric</FormLabel>
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a metric" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {metrics.map(m => (
-                          <SelectItem key={m.id} value={m.id}>
-                            {m.name}
+              <div className="flex-1 overflow-y-auto">
+                <div className="grid w-full gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+                  <div className="flex min-w-0 flex-col gap-4">
+                    <section className="space-y-4 rounded-lg border border-border p-5">
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <InputFormField
+                          name="name"
+                          label="Name"
+                          placeholder="e.g. Projects"
+                          control={form.control}
+                        />
+                        <InputFormField
+                          name="code"
+                          label="Code"
+                          className="font-mono"
+                          disabled={isEdit}
+                          control={form.control}
+                          labelTooltip={<InfoTooltip>What your code checks. Can’t be changed later.</InfoTooltip>}
+                        />
+                      </div>
+                      <TextareaFormField
+                        name="description"
+                        label="Description (optional)"
+                        rows={2}
+                        control={form.control}
+                      />
+                      <SelectFormField
+                        name="productId"
+                        label="Product"
+                        control={form.control}
+                        placeholder="All products"
+                      >
+                        <SelectItem value={GLOBAL}>All products</SelectItem>
+                        {products.map(p => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name}
                           </SelectItem>
                         ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
+                      </SelectFormField>
+                    </section>
 
-            {!isEdit && (
-              <>
-                <Separator />
-                <div>
-                  <p className="text-sm font-medium">Default entitlement</p>
-                  <p className="text-xs text-muted-foreground">
-                    {selectedProductName
-                      ? `Applies to customers subscribed to any plan that includes ${selectedProductName}. Can be overridden per plan or subscription.`
-                      : 'Applies to all customers by default. Can be overridden per plan or subscription.'}
-                  </p>
-                </div>
-                <EntitlementValueFields
-                  featureType={type}
-                  idPrefix="fcs"
-                  canEditConfigOptions
-                  canPickConfigType
-                />
-              </>
-            )}
+                    <section className="space-y-4 rounded-lg border border-border p-5">
+                      <ChoiceCardsFormField
+                        name="kind"
+                        label="Kind"
+                        control={form.control}
+                        columns={3}
+                        disabled={isEdit}
+                        options={KIND_OPTIONS}
+                      />
+                    </section>
 
-            {isEdit && isSelectConfig && (
-              <>
-                <Separator />
-                <FormField
-                  control={form.control}
-                  name="configOptions"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Options</FormLabel>
-                      <p className="text-xs text-muted-foreground">
-                        Allowed values for this select feature. An option currently in use by an
-                        entitlement can&apos;t be removed.
-                      </p>
-                      <FormControl>
-                        <div className="min-h-9 rounded-md border border-input bg-transparent px-2 py-1.5">
-                          <ValuesTagInput
-                            value={field.value as string[] | undefined}
-                            onChange={field.onChange}
-                            placeholder="Type a value and press Enter"
-                          />
+                    {d.kind === 'VALUE' && (
+                      <section className="space-y-4 rounded-lg border border-border p-5">
+                        <h3 className="text-sm font-semibold">Value</h3>
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <SelectFormField
+                            name="valueType"
+                            label="Type"
+                            control={form.control}
+                            disabled={isEdit}
+                          >
+                            {VALUE_TYPES.map(v => (
+                              <SelectItem key={v} value={v}>
+                                {VALUE_TYPE_LABEL[v]}
+                              </SelectItem>
+                            ))}
+                          </SelectFormField>
+                          {d.valueType === 'NUMBER' && (
+                            <InputFormField
+                              name="unit"
+                              label="Unit"
+                              placeholder="e.g. days"
+                              control={form.control}
+                            />
+                          )}
                         </div>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </>
-            )}
+                        {d.valueType === 'NUMBER' && (
+                          <SwitchFormField
+                            name="higherIsBetter"
+                            label="Higher is better"
+                            control={form.control}
+                            containerClassName="py-0"
+                          />
+                        )}
+                        {d.valueType === 'SELECT' && (
+                          <>
+                            <GenericFormField
+                              name="options"
+                              label={d.ordered ? 'Options (lowest first)' : 'Options'}
+                              control={form.control}
+                              render={({ field }) => (
+                                <ValuesTagInput value={field.value} onChange={field.onChange} />
+                              )}
+                            />
+                            <SwitchFormField
+                              name="ordered"
+                              label="Ordered"
+                              control={form.control}
+                              containerClassName="py-0"
+                            />
+                          </>
+                        )}
+                      </section>
+                    )}
 
-            {isEdit && featureId && (
-              <>
-                <Separator />
-                <EntityEntitlementsSection
-                  entity={{ EntityId: { case: 'featureId', value: featureId } }}
-                  hint="The default for every customer. Plans, add-ons, and subscriptions can override it. Disabling the feature blocks it everywhere."
-                />
-              </>
-            )}
+                    {d.kind === 'LIMIT' && (
+                      <section className="space-y-4 rounded-lg border border-border p-5">
+                        <h3 className="text-sm font-semibold">Limit</h3>
+                        <InputFormField
+                          name="unit"
+                          label="Unit"
+                          placeholder="e.g. projects"
+                          control={form.control}
+                          containerClassName="sm:max-w-xs"
+                        />
+                        <ChoiceCardsFormField
+                          name="countedBy"
+                          label="Usage is counted"
+                          control={form.control}
+                          columns={2}
+                          disabled={isEdit}
+                          options={COUNTED_BY_OPTIONS}
+                          onValueChange={v =>
+                            form.setValue('policy', policyToForm(undefined, v === 'APP'), {
+                              shouldDirty: true,
+                            })
+                          }
+                        />
+                        {d.countedBy === 'EVENTS' && (
+                          <SelectFormField
+                            name="metricId"
+                            label="Metric"
+                            disabled={isEdit}
+                            control={form.control}
+                            placeholder="Select a metric"
+                            containerClassName="sm:max-w-xs"
+                          >
+                            {metrics.map(m => (
+                              <SelectItem key={m.id} value={m.id}>
+                                {m.name}
+                              </SelectItem>
+                            ))}
+                          </SelectFormField>
+                        )}
+                        <PolicyFields name="policy" appCounted={appCounted} />
+                      </section>
+                    )}
 
-            <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" onClick={() => handleClose()}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isPending}>
-                {isEdit ? 'Save' : 'Create Feature'}
-              </Button>
-            </div>
-          </form>
-        </Form>
-      </SheetContent>
-    </Sheet>
+                    {hasTypes && (
+                      <section className="space-y-4 rounded-lg border border-border p-5">
+                        <GenericFormField
+                          name="levelTypeId"
+                          label="Applies per"
+                          control={form.control}
+                          containerClassName="sm:max-w-xs"
+                          render={({ field }) => (
+                            <TypeSelect value={field.value} onChange={field.onChange} />
+                          )}
+                        />
+                        {misattributed && type && metric && (
+                          <Alert variant="warning">
+                            <AlertDescription className="flex flex-col gap-2">
+                              <span>
+                                {metric.name} isn’t attributed to {lower(type.pluralName)}.
+                              </span>
+                              <span className="flex flex-wrap gap-2">
+                                <Button asChild size="sm" variant="outline">
+                                  <Link to={`${basePath}/metrics/edit/${metric.id}`}>
+                                    Attribute to {lower(type.name)}
+                                  </Link>
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() =>
+                                    form.setValue('levelTypeId', undefined, { shouldDirty: true })
+                                  }
+                                >
+                                  Apply per customer
+                                </Button>
+                              </span>
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                        {blocked && (
+                          <Alert variant="destructive">
+                            <AlertDescription>
+                              Used by {blockingCount} entitlement{blockingCount > 1 ? 's' : ''}:
+                              remove them to change where it applies.
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                      </section>
+                    )}
+                  </div>
+
+                  <aside className="hidden lg:block">
+                    <div className="sticky top-6 space-y-3 rounded-lg border border-border p-5">
+                      <div className="flex items-center justify-between gap-2">
+                        <h3 className="text-sm font-semibold">In your code</h3>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          aria-label="Copy"
+                          onClick={() => copyToClipboard(snippet, () => toast.success('Copied'))}
+                        >
+                          <CopyIcon size={14} />
+                        </Button>
+                      </div>
+                      <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-muted p-3 font-mono text-xs leading-relaxed text-foreground">
+                        {snippet}
+                      </pre>
+                    </div>
+                  </aside>
+                </div>
+              </div>
+
+              <SheetFooter className="border-t border-border p-3">
+                <Button type="button" variant="outline" onClick={safeClose}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={guarded || saving}>
+                  {isEdit ? 'Save' : 'Create feature'}
+                </Button>
+              </SheetFooter>
+            </form>
+          </Form>
+        </SheetContent>
+      </Sheet>
+
+      <ConfirmationModal
+        visible={confirmingClose}
+        danger
+        header="Discard unsaved changes?"
+        buttonLabel="Discard"
+        onSelectCancel={() => setConfirmingClose(false)}
+        onSelectConfirm={() => {
+          setConfirmingClose(false)
+          close()
+        }}
+      />
+    </>
   )
 }
+
+const InfoTooltip = ({ children }: { children: React.ReactNode }) => (
+  <Tooltip>
+    <TooltipTrigger asChild>
+      <InfoIcon className="h-3.5 w-3.5 cursor-help text-muted-foreground" />
+    </TooltipTrigger>
+    <TooltipContent className="max-w-72">{children}</TooltipContent>
+  </Tooltip>
+)

@@ -105,6 +105,7 @@ async fn usage_costs(
         (status = 404, description = "Customer or billable metric not found", body = RestErrorResponse),
         (status = 429, description = "Too many usage cost reads", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -141,6 +142,7 @@ pub async fn list_customer_usage_events(
         (status = 404, description = "Subscription or billable metric not found", body = RestErrorResponse),
         (status = 429, description = "Too many usage cost reads", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -185,6 +187,7 @@ pub async fn list_subscription_usage_events(
         (status = 404, description = "Customer or billable metric not found", body = RestErrorResponse),
         (status = 429, description = "Too many usage cost reads", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -203,8 +206,8 @@ pub async fn list_customer_usage_costs(
 /// List a subscription's usage costs over time
 ///
 /// The subscription's usage of one billable metric and what it costs, as for a customer but
-/// counting only the events the subscription bills (see its usage filter) and only its own billing
-/// periods. The range is at most 93 days.
+/// counting only the events the subscription bills (for a subscription for a resource, those
+/// attributed to it) and only its own billing periods. The range is at most 93 days.
 #[utoipa::path(
     get,
     tag = "Usage costs",
@@ -221,6 +224,7 @@ pub async fn list_customer_usage_costs(
         (status = 404, description = "Subscription or billable metric not found", body = RestErrorResponse),
         (status = 429, description = "Too many usage cost reads", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]

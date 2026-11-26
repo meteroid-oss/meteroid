@@ -22,45 +22,7 @@ impl Services {
         conn: &mut PgConn,
         subscription: &SubscriptionRow,
     ) -> StoreResult<EffectivePlanInfo> {
-        // Fetch the plan with version to get trial config and plan info
-        let plan_with_version =
-            PlanRow::get_with_version(conn, subscription.plan_version_id, subscription.tenant_id)
-                .await?;
-
-        let plan = plan_with_version.plan;
-        let plan_version = plan_with_version
-            .version
-            .expect("Plan version should exist for subscription");
-
-        let status: SubscriptionStatusEnum = subscription.status.clone().into();
-
-        // Only during TrialActive do we potentially use a different plan
-        if status == SubscriptionStatusEnum::TrialActive
-            && let Some(trialing_plan_id) = plan_version.trialing_plan_id
-            && let Ok(trialing_plan_with_version) = PlanRow::get_with_version_by_id(
-                conn,
-                trialing_plan_id,
-                subscription.tenant_id,
-                PlanVersionFilter::Active,
-            )
-            .await
-            && let Some(trialing_version) = trialing_plan_with_version.version
-        {
-            return Ok(EffectivePlanInfo {
-                plan_version_id: trialing_version.id,
-                plan_id: trialing_plan_id,
-                plan_name: trialing_plan_with_version.plan.name,
-                source: EffectivePlanSource::TrialingPlan,
-            });
-        }
-
-        // For all other cases, use the original plan
-        Ok(EffectivePlanInfo {
-            plan_version_id: subscription.plan_version_id,
-            plan_id: plan.id,
-            plan_name: plan.name,
-            source: EffectivePlanSource::OriginalPlan,
-        })
+        effective_plan(conn, subscription).await
     }
 
     /// Convenience method that fetches the subscription and resolves its effective plan
@@ -75,4 +37,88 @@ impl Services {
         self.resolve_effective_plan(conn, &subscription_row.subscription)
             .await
     }
+}
+
+/// The plan in effect: the trialing plan's active version during an active trial that names one,
+/// else the subscription's own.
+pub(crate) async fn effective_plan(
+    conn: &mut PgConn,
+    subscription: &SubscriptionRow,
+) -> StoreResult<EffectivePlanInfo> {
+    // Fetch the plan with version to get trial config and plan info
+    let plan_with_version =
+        PlanRow::get_with_version(conn, subscription.plan_version_id, subscription.tenant_id)
+            .await?;
+
+    let plan = plan_with_version.plan;
+    let plan_version = plan_with_version
+        .version
+        .expect("Plan version should exist for subscription");
+
+    let status: SubscriptionStatusEnum = subscription.status.clone().into();
+
+    // Only during TrialActive do we potentially use a different plan
+    if status == SubscriptionStatusEnum::TrialActive
+        && let Some(trialing_plan_id) = plan_version.trialing_plan_id
+        && let Ok(trialing_plan_with_version) = PlanRow::get_with_version_by_id(
+            conn,
+            trialing_plan_id,
+            subscription.tenant_id,
+            PlanVersionFilter::Active,
+        )
+        .await
+        && let Some(trialing_version) = trialing_plan_with_version.version
+    {
+        return Ok(EffectivePlanInfo {
+            plan_version_id: trialing_version.id,
+            plan_id: trialing_plan_id,
+            plan_name: trialing_plan_with_version.plan.name,
+            source: EffectivePlanSource::TrialingPlan,
+        });
+    }
+
+    // For all other cases, use the original plan
+    Ok(EffectivePlanInfo {
+        plan_version_id: subscription.plan_version_id,
+        plan_id: plan.id,
+        plan_name: plan.name,
+        source: EffectivePlanSource::OriginalPlan,
+    })
+}
+
+/// `effective_plan`'s version for each of `subscriptions`, in one query.
+pub(crate) async fn effective_plan_versions(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscriptions: &[SubscriptionRow],
+) -> StoreResult<
+    std::collections::HashMap<
+        common_domain::ids::SubscriptionId,
+        common_domain::ids::PlanVersionId,
+    >,
+> {
+    let trialing: Vec<_> = subscriptions
+        .iter()
+        .filter(|s| {
+            SubscriptionStatusEnum::from(s.status.clone()) == SubscriptionStatusEnum::TrialActive
+        })
+        .map(|s| s.plan_version_id)
+        .collect();
+    let trialing_versions = diesel_models::plan_versions::PlanVersionRow::trialing_active_versions(
+        conn, tenant_id, &trialing,
+    )
+    .await?;
+    Ok(subscriptions
+        .iter()
+        .map(|s| {
+            let version = match SubscriptionStatusEnum::from(s.status.clone()) {
+                SubscriptionStatusEnum::TrialActive => trialing_versions
+                    .get(&s.plan_version_id)
+                    .copied()
+                    .unwrap_or(s.plan_version_id),
+                _ => s.plan_version_id,
+            };
+            (s.id, version)
+        })
+        .collect())
 }

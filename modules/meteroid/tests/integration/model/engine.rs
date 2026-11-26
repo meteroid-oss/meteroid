@@ -15,7 +15,7 @@ use meteroid::api_rest::webhooks::event_handler::handle_normalized_event;
 use meteroid_store::adapters::payment::initialize_payment_connector;
 use meteroid_store::domain::coupons::{CouponCreditScope, CouponDiscount, CouponNew};
 use meteroid_store::domain::enums::InvoiceStatusEnum;
-use meteroid_store::domain::{Invoice, PaginationRequest, UsageFilter};
+use meteroid_store::domain::{Invoice, PaginationRequest};
 use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::credit::CustomerCreditWalletsInterface;
 use meteroid_store::repositories::credit_notes::{
@@ -213,8 +213,7 @@ impl Engine {
             Action::Start { day, plan } => {
                 let sub = self.subs.len();
                 let mut request = h.request(self.customer, self.plan(*plan), *day);
-                request.subscription.usage_filter =
-                    Some(UsageFilter::new("api_key".to_owned(), key(sub)).map_err(err)?);
+                request.subscription.resource_id = h.keyed(self.customer, &key(sub)).await;
                 let (created, _) = h
                     .services()
                     .insert_subscription_started_at(

@@ -464,6 +464,82 @@ async fn a_seat_add_on_shares_the_plans_count_and_bills_it(#[future] test_env: T
     assert_eq!(renewal_on(&env, sub_id, day(3, 1)).await.total, 10_100);
 }
 
+/// A seat add-on's rows count the seats it holds, not its one instance: "Seat support" granting 2
+/// projects a seat, on Starter's 5 seats, adds 10 to the default's 1. Written without an effect,
+/// its row adds.
+/// Rules: R-138
+#[rstest]
+#[tokio::test]
+async fn a_seat_add_on_grants_per_seat_held(#[future] test_env: TestEnv) {
+    use common_domain::ids::{AliasOr, EntitlementEntityId};
+    use meteroid_store::domain::entitlement_checks::CheckRequest;
+    use meteroid_store::domain::entitlement_fold::{Effect, GrantValue, LimitValue};
+    use meteroid_store::domain::entitlements::{
+        EntitlementNew, EntitlementSpec, FeatureKind, FeatureNew, LimitCountedBy,
+    };
+    use meteroid_store::repositories::entitlements::EntitlementsInterface;
+
+    let env = test_env.await;
+    let support = seat_support(&env, None).await;
+    let sub_id = on_starter(&env).await;
+    change_seats(&env, sub_id, COMP_STARTER_SEATS_ID, 4, day(1, 2)).await;
+    add_on_at(&env, sub_id, support, day(1, 16)).await;
+    let limit = |n: i64| GrantValue::Limit(LimitValue::Amount(Decimal::from(n)));
+    let projects = env
+        .store()
+        .create_feature(
+            Actor::System,
+            FeatureNew {
+                tenant_id: TENANT_ID,
+                product_id: None,
+                name: "Projects".to_string(),
+                code: "projects".to_string(),
+                description: None,
+                kind: FeatureKind::Limit(LimitCountedBy::App),
+                unit: None,
+                level_type_id: None,
+                policy: None,
+                default: Some(limit(1)),
+            },
+        )
+        .await
+        .expect("a limit")
+        .id;
+    let row = env
+        .store()
+        .create_entitlement(
+            &Actor::System,
+            EntitlementNew {
+                tenant_id: TENANT_ID,
+                entity: EntitlementEntityId::AddOn(support),
+                resource_id: None,
+                spec: EntitlementSpec::new(projects, limit(2)),
+            },
+        )
+        .await
+        .expect("the add-on's row");
+    assert_eq!(row.effect, Effect::Add);
+
+    let checked = env
+        .store()
+        .check_entitlement(
+            TENANT_ID,
+            CUST_UBER_ID,
+            AliasOr::Id(projects),
+            CheckRequest {
+                current_count: Some(Decimal::ZERO),
+                ..CheckRequest::default()
+            },
+        )
+        .await
+        .expect("checked");
+    assert_eq!(
+        checked.value,
+        Some(limit(11)),
+        "1 + 2 for each of the 5 seats: {checked:?}"
+    );
+}
+
 /// A seat add-on is one instance at most: created to allow more is refused, a subscription
 /// asking two instances is refused.
 /// Rules: R-138

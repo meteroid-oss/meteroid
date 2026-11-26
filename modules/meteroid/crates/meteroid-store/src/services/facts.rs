@@ -18,8 +18,11 @@ use scoped_futures::ScopedFutureExt;
 use crate::StoreResult;
 use crate::domain::enums::BillingPeriodEnum;
 use crate::errors::StoreError;
+use crate::repositories::subscriptions::usage_attribution::{self, FeeRowId};
 use crate::services::Services;
 use crate::store::PgConn;
+use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
+use diesel_models::subscription_components::SubscriptionComponentRow;
 
 pub mod pending;
 
@@ -168,6 +171,24 @@ pub(crate) async fn record_cancellation_tx(
     reason: Option<String>,
     actor: &Actor,
 ) -> StoreResult<()> {
+    let recorded = cancellation_at(conn, subscription_id).await?;
+    let moved_from = recorded.map_or(at, |(_, before)| before.min(at));
+    if recorded.is_none_or(|(_, before)| before != at) {
+        usage_attribution::ensure_unfinalized_move(
+            conn,
+            tenant_id,
+            subscription_id,
+            moved_from,
+            "This cancellation",
+        )
+        .await?;
+    }
+    if recorded.is_some_and(|(_, before)| at > before) {
+        usage_attribution::ensure_still_unsold(conn, tenant_id, subscription_id, Some(at)).await?;
+    }
+    if recorded.is_none_or(|(_, before)| before != at) {
+        usage_attribution::claims_moved(conn, tenant_id, subscription_id).await?;
+    }
     db(SubscriptionEndingRow::record_cancellation(
         conn,
         &SubscriptionEndingRow {
@@ -187,7 +208,8 @@ pub(crate) async fn record_cancellation_tx(
 }
 
 /// The subscription's fixed term moved to `end_date` (its midnight), or withdrawn with `None`: it
-/// completes then, or renews until cancelled (R-140). Its `end_date` column is set beside it.
+/// completes then, or renews until cancelled (R-140). Its `end_date` column is set beside it. The
+/// usage its claim gains or gives back moves as a cancellation's does (R-143).
 pub(crate) async fn record_end_date_tx(
     conn: &mut PgConn,
     tenant_id: TenantId,
@@ -195,6 +217,30 @@ pub(crate) async fn record_end_date_tx(
     end_date: Option<NaiveDate>,
     actor: &Actor,
 ) -> StoreResult<()> {
+    let before =
+        db(SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id).await)?
+            .subscription
+            .end_date;
+    let cancelled = cancellation_at(conn, subscription_id)
+        .await?
+        .map(|(_, at)| at);
+    let claim_end = |date: Option<NaiveDate>| {
+        cancelled
+            .into_iter()
+            .chain(date.map(usage_attribution::midnight))
+            .min()
+    };
+    let (was, will) = (claim_end(before), claim_end(end_date));
+    if let Some(moved_from) = was.into_iter().chain(will).min().filter(|_| was != will) {
+        usage_attribution::ensure_unfinalized_move(
+            conn,
+            tenant_id,
+            subscription_id,
+            moved_from,
+            "This end date",
+        )
+        .await?;
+    }
     let now = common_clock::now().naive_utc();
     let row = end_date.map(|date| SubscriptionEndingRow {
         subscription_id,
@@ -209,17 +255,85 @@ pub(crate) async fn record_end_date_tx(
         requested_at: now,
     });
     db(SubscriptionEndingRow::record_completion(conn, subscription_id, row.as_ref()).await)?;
-    db(SubscriptionRow::set_end_date(conn, tenant_id, subscription_id, end_date).await)
+    db(SubscriptionRow::set_end_date(conn, tenant_id, subscription_id, end_date).await)?;
+    if was != will {
+        // Read with the end date just set: a longer term must not oversell its resource.
+        if will.is_none_or(|will| was.is_some_and(|was| will > was)) {
+            usage_attribution::ensure_still_unsold(conn, tenant_id, subscription_id, cancelled)
+                .await?;
+        }
+        usage_attribution::claims_moved(conn, tenant_id, subscription_id).await?;
+    }
+    Ok(())
 }
 
 /// The subscription's cancellation withdrawn before it applied, its `Cancelled` event with it: a
-/// revoked cancellation books no churn (R-141).
+/// revoked cancellation books no churn (R-141). Its usage from the cancellation on comes back to
+/// it: refused once another subscription finalized it (R-143).
 pub(crate) async fn withdraw_cancellation_tx(
     conn: &mut PgConn,
     subscription_id: SubscriptionId,
 ) -> StoreResult<()> {
+    if let Some((tenant_id, at)) = cancellation_at(conn, subscription_id).await? {
+        usage_attribution::ensure_unfinalized_move(
+            conn,
+            tenant_id,
+            subscription_id,
+            at,
+            "Withdrawing this cancellation",
+        )
+        .await?;
+        usage_attribution::ensure_still_unsold(conn, tenant_id, subscription_id, None).await?;
+        usage_attribution::claims_moved(conn, tenant_id, subscription_id).await?;
+    }
     db(SubscriptionEventRow::withdraw_pending_cancellation(conn, subscription_id).await)?;
     db(SubscriptionEndingRow::withdraw_cancellation(conn, subscription_id).await)
+}
+
+/// The cancellation recorded for the subscription, with its tenant.
+async fn cancellation_at(
+    conn: &mut PgConn,
+    subscription_id: SubscriptionId,
+) -> StoreResult<Option<(TenantId, NaiveDateTime)>> {
+    use diesel::{ExpressionMethods, OptionalExtension, QueryDsl};
+    use diesel_async::RunQueryDsl;
+    use diesel_models::errors::IntoDbResult;
+    use diesel_models::schema::subscription_ending::dsl as e;
+    db(e::subscription_ending
+        .filter(e::subscription_id.eq(subscription_id))
+        .filter(e::kind.eq(ENDING_CANCEL))
+        .select((e::tenant_id, e::at))
+        .first(conn)
+        .await
+        .optional()
+        .into_db_result())
+}
+
+/// From `usage_from` on, the rows `rows` bill their metric: a late change wrote them over usage
+/// another subscription of the customer invoiced (R-143).
+pub(crate) async fn record_usage_floor_tx(
+    conn: &mut PgConn,
+    rows: &[FeeRowId],
+    usage_from: NaiveDateTime,
+) -> StoreResult<()> {
+    let components = rows
+        .iter()
+        .filter_map(|row| match row {
+            FeeRowId::Component(id) => Some(*id),
+            FeeRowId::AddOn(_) => None,
+        })
+        .collect::<Vec<_>>();
+    let add_ons = rows
+        .iter()
+        .filter_map(|row| match row {
+            FeeRowId::AddOn(id) => Some(*id),
+            FeeRowId::Component(_) => None,
+        })
+        .collect::<Vec<_>>();
+    let at = usage_from.and_utc();
+    db(SubscriptionComponentRow::set_usage_from(conn, &components, at).await)?;
+    db(SubscriptionAddOnRow::set_usage_from(conn, &add_ons, at).await)?;
+    Ok(())
 }
 
 /// The start settled at `at` (a checkout, a payment, an activation); the first one is kept.

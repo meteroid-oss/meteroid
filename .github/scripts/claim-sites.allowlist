@@ -1,0 +1,3 @@
+# Functions allowed to write what derived state follows: see check-claim-sites.sh.
+modules/meteroid/crates/diesel-models/src/query/entitlements.rs::EntitlementRowNew::insert_batch | entitlement-insert | every row insert: computes the lineage anchor
+modules/meteroid/crates/diesel-models/src/query/entitlements.rs::EntitlementRow::clone_all_for_plan_version | entitlement-insert | the plan version copy: a new lineage anchored as insert_batch anchors one

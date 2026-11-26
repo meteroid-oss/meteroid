@@ -8,8 +8,8 @@ use crate::enums::{
     BillingPeriodEnum, SubscriptionActivationConditionEnum, SubscriptionStatusEnum,
 };
 use common_domain::ids::{
-    CustomerId, InvoicingEntityId, PlanId, PlanOptionId, PlanVersionId, QuoteId, SubscriptionId,
-    TenantId,
+    CustomerId, InvoicingEntityId, PlanId, PlanOptionId, PlanVersionId, QuoteId, ResourceId,
+    SubscriptionId, TenantId,
 };
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 use rust_decimal::Decimal;
@@ -80,6 +80,8 @@ pub struct SubscriptionRow {
     /// unchanged since before it was kept. `subscription_activity` has when it or what API v2
     /// reads beside it last changed, stamped as the change committed.
     pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// The stored resource it is for; `None` for the whole customer.
+    pub resource_id: Option<ResourceId>,
 }
 
 #[derive(Insertable, Debug, Clone)]
@@ -124,6 +126,7 @@ pub struct SubscriptionRowNew {
     pub plan_option_id: Option<PlanOptionId>,
     /// The integrator's own id, unique per tenant (`subscription_tenant_external_id_key`).
     pub external_id: Option<String>,
+    pub resource_id: Option<ResourceId>,
 }
 
 pub struct CancelSubscriptionParams {

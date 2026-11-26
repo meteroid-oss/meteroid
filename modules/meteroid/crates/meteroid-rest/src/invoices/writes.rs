@@ -40,6 +40,7 @@ use meteroid_store::services::{
         (status = 404, description = "Invoice not found", body = RestErrorResponse),
         (status = 409, description = "Idempotency-Key reused with another request", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -82,6 +83,7 @@ pub async fn record_invoice_payment(
         (status = 404, description = "Invoice not found", body = RestErrorResponse),
         (status = 409, description = "Idempotency-Key reused with another request", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -167,6 +169,7 @@ async fn record_payment(
         (status = 404, description = "Payment not found on the invoice", body = RestErrorResponse),
         (status = 409, description = "Idempotency-Key reused with another request", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -228,6 +231,7 @@ pub async fn reverse_invoice_payment(
         (status = 404, description = "Invoice not found", body = RestErrorResponse),
         (status = 409, description = "Idempotency-Key reused with another request", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]

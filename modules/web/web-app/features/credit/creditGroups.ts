@@ -8,8 +8,8 @@ import type { CreditGroup } from '@/rpc/api/wallets/v1/models_pb'
 export type CreditGroupRow = {
   key: string
   label: string
-  /** The usage filter of the subscription the credit belongs to, e.g. "team = mobile". */
-  usageFilter?: string
+  /** What the subscription the credit belongs to is for, e.g. "Site s2". */
+  scopeLabel?: string
   amount: string
   scheduled?: string
   paysFor: string
@@ -24,7 +24,7 @@ export type CreditGroupRow = {
 export const creditGroupRows = (
   groups: CreditGroup[],
   denomination: WalletDenomination,
-  usageFilters: Map<string, string> = new Map(),
+  scopeLabels: Map<string, string> = new Map(),
   unbilledByGrant?: Map<string, bigint>
 ): CreditGroupRow[] =>
   groups.map(group => {
@@ -45,7 +45,7 @@ export const creditGroupRows = (
     return {
       key: `${group.kind}-${group.subscriptionId ?? 'any'}-${group.appliesTo}-${group.productIds.join(',')}`,
       label: group.label,
-      usageFilter: group.subscriptionId ? usageFilters.get(group.subscriptionId) : undefined,
+      scopeLabel: group.subscriptionId ? scopeLabels.get(group.subscriptionId) : undefined,
       amount: amount(
         group.available -
           (unbilledByGrant

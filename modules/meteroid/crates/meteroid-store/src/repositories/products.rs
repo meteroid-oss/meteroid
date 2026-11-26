@@ -316,7 +316,14 @@ impl ProductInterface for Store {
             async move {
                 let product = update_product_tx(self, conn, actor, update).await?;
                 if let Some(specs) = feature_defaults {
-                    set_product_feature_defaults_tx(conn, tenant_id, product.id, specs).await?;
+                    set_product_feature_defaults_tx(
+                        conn,
+                        Some(actor),
+                        tenant_id,
+                        product.id,
+                        specs,
+                    )
+                    .await?;
                 }
                 Ok(product)
             }

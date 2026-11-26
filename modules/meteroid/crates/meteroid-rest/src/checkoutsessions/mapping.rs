@@ -33,6 +33,13 @@ pub fn domain_to_rest(
         payment_methods_config: session.payment_methods_config.map(Into::into),
         success_url: session.success_url,
         cancel_url: session.cancel_url,
+        resource_id: session.resource_id,
+        warnings: session.warnings,
+        metrics_not_attributed: session
+            .metrics_not_attributed
+            .into_iter()
+            .map(|m| m.code)
+            .collect(),
     })
 }
 

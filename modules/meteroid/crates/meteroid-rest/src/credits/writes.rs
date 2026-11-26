@@ -87,6 +87,7 @@ async fn invoice_payment_url(
         (status = 404, description = "Customer not found", body = RestErrorResponse),
         (status = 409, description = "Idempotency-Key reused with another request", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -232,6 +233,7 @@ pub async fn create_credit_grant(
         (status = 409, description = "Idempotency-Key reused with another request or the charge was declined", body = RestErrorResponse),
         (status = 429, description = "Too many top-ups for this customer in a rolling day", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -412,6 +414,7 @@ pub async fn create_top_up(
         (status = 404, description = "Customer or payment method not found", body = RestErrorResponse),
         (status = 409, description = "Idempotency-Key reused with another request", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]

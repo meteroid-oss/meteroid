@@ -15,6 +15,43 @@ pub struct NotInPlan;
 /// API v2 can answer its documented `422 idempotency_key_reused` (v1 keeps its 409).
 #[derive(Debug, Clone, Copy)]
 pub struct IdempotencyKeyReused;
+/// An entitlement refusal the APIs answer with its own code (ADR 0011 §5), attached to the
+/// report like `ResourceRefusal`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntitlementRefusal {
+    ResourceRequired,
+    NotSubscribed,
+    IdempotencyKeyReused,
+    StaleSet,
+}
+
+impl EntitlementRefusal {
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::ResourceRequired => "RESOURCE_REQUIRED",
+            Self::NotSubscribed => "NOT_SUBSCRIBED",
+            Self::IdempotencyKeyReused => "IDEMPOTENCY_KEY_REUSED",
+            Self::StaleSet => "STALE_SET",
+        }
+    }
+
+    /// The reused key and the stale set are conflicts, the others invalid arguments.
+    pub fn report(self, message: impl Into<String>) -> error_stack::Report<StoreError> {
+        let message = message.into();
+        let error = match self {
+            Self::IdempotencyKeyReused | Self::StaleSet => StoreError::Conflict(message),
+            Self::ResourceRequired | Self::NotSubscribed => StoreError::InvalidArgument(message),
+        };
+        error_stack::Report::new(error).attach_opaque(self)
+    }
+
+    pub fn of(error: &error_stack::Report<StoreError>) -> Option<Self> {
+        error
+            .frames()
+            .find_map(|f| f.downcast_ref::<Self>())
+            .copied()
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {

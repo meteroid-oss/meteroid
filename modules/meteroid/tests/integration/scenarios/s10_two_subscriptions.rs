@@ -1,10 +1,9 @@
-//! S10. Two subscriptions of one customer, each with a usage filter (attribution key): A's plan
+//! S10. Two subscriptions of one customer, each for an `api_key` resource: A's plan
 //! credit pays A's usage only, a customer-wide top-up pays both in billing order, and an event
 //! no subscription claims is kept as unattributed usage, billed to nobody.
 use chrono::{DateTime, Utc};
 use common_domain::actor::Actor;
-use common_domain::ids::{CreditGrantId, CustomerId};
-use meteroid_store::domain::UsageFilter;
+use common_domain::ids::{CreditGrantId, CustomerId, ResourceId};
 use meteroid_store::repositories::credit::CustomerCreditWalletsInterface;
 use meteroid_store::services::{InvoiceDelivery, SellCustomerCredit};
 use rust_decimal::Decimal;
@@ -63,8 +62,8 @@ pub(super) async fn top_up(
         .id
 }
 
-pub(super) fn keyed(key: &str) -> Option<UsageFilter> {
-    Some(UsageFilter::new("api_key".to_owned(), key.to_owned()).expect("a usage filter"))
+pub(super) async fn keyed(h: &Halyard, customer: CustomerId, key: &str) -> Option<ResourceId> {
+    h.keyed(customer, key).await
 }
 
 #[tokio::test]
@@ -72,7 +71,7 @@ async fn s10_two_subscriptions_scoped_plan_credit_and_a_shared_top_up() {
     let h = Halyard::new().await;
     let customer = h.customer("Untaxed", Tax::Untaxed).await;
     let mut a_request = h.request(customer, h.scale, day(9, 1));
-    a_request.subscription.usage_filter = keyed("key-A");
+    a_request.subscription.resource_id = keyed(&h, customer, "key-A").await;
     let (a, a1) = h.start(a_request).await;
     let a1 = a1.expect("INV-A1");
     assert_eq!(money(&a1), (50_000, 0, 0, 0, 50_000, 0, 50_000));
@@ -81,7 +80,7 @@ async fn s10_two_subscriptions_scoped_plan_credit_and_a_shared_top_up() {
     h.check().await;
 
     let mut b_request = h.request(customer, h.payg, day(9, 15));
-    b_request.subscription.usage_filter = keyed("key-B");
+    b_request.subscription.resource_id = keyed(&h, customer, "key-B").await;
     let (b, _) = h.start(b_request).await;
     h.check().await;
 

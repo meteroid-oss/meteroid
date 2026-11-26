@@ -1,11 +1,13 @@
 import { Dialog, DialogContent, DialogTitle, cn } from '@md/ui'
 import {
   Blocks,
+  Boxes,
   Briefcase,
   Building2,
   Coins,
   CreditCard,
   FileText,
+  FlaskConical,
   KeyRound,
   Landmark,
   Layers,
@@ -27,6 +29,7 @@ import { editionId, placeAfter, slotItems, useVisibleItems } from '@/edition'
 import { BatchJobsTab } from '@/features/batch-jobs/BatchJobsTab'
 import { CustomerEmailsTab } from '@/features/customer-emails/CustomerEmailsTab'
 import { DeliveryModeBadge } from '@/features/customer-emails/DeliveryView'
+import { CheckPlayground } from '@/features/entitlements/explain/CheckPlayground'
 import { SecuritySection } from '@/features/settings/SecuritySection'
 import { ApiDocsTab } from '@/features/settings/tabs/ApiDocsTab'
 import { ApiKeysTab } from '@/features/settings/tabs/ApiKeysTab'
@@ -38,6 +41,7 @@ import { GeneralTab } from '@/features/settings/tabs/GeneralTab'
 import { IntegrationsTab } from '@/features/settings/tabs/IntegrationsTab'
 import { InvoiceTab } from '@/features/settings/tabs/InvoiceTab'
 import { PaymentMethodsTab } from '@/features/settings/tabs/PaymentsTab'
+import { ResourceTypesTab } from '@/features/settings/tabs/ResourceTypesTab'
 import { TaxesTab } from '@/features/settings/tabs/TaxesTab'
 import { UsersTab } from '@/features/settings/tabs/UsersTab'
 import { WebhooksTab } from '@/features/settings/tabs/WebhooksTab'
@@ -47,6 +51,7 @@ import {
   useIsExpressOrganization,
 } from '@/hooks/useIsExpressOrganization'
 import { useTenant } from '@/hooks/useTenant'
+import { env } from '@/lib/env'
 import { EmailDeliveryMode, TenantEnvironmentEnum } from '@/rpc/api/tenants/v1/models_pb'
 
 import type { SettingsSectionTitle } from '@/edition/types'
@@ -134,6 +139,7 @@ export const TenantSettings: FunctionComponent = () => {
       items: [
         { value: 'integrations', label: 'Integrations', icon: Blocks, show: true, content: <IntegrationsTab /> },
         { value: 'batch-jobs', label: 'Batch jobs', icon: Layers, show: true, content: <BatchJobsTab /> },
+        { value: 'resource-types', label: 'Resource types', icon: Boxes, show: !isExpress, content: <ResourceTypesTab /> },
       ],
     },
     {
@@ -149,6 +155,7 @@ export const TenantSettings: FunctionComponent = () => {
         { value: 'api-keys', label: 'API keys', icon: KeyRound, show: true, content: <ApiKeysTab /> },
         { value: 'api-docs', label: 'API docs', icon: FileText, show: true, content: <ApiDocsTab /> },
         { value: 'webhooks', label: 'Webhooks', icon: Webhook, show: true, content: <WebhooksTab /> },
+        { value: 'test-check', label: 'Test a check', icon: FlaskConical, show: !isExpress && env.entitlementsEnabled, content: <CheckPlayground /> },
       ],
     },
   ]

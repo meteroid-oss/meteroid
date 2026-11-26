@@ -135,6 +135,12 @@ impl QuotesService for QuoteServiceComponents {
 
         Ok(Response::new(CreateQuoteResponse {
             quote: Some(detailed_quote),
+            warnings: created_quote.warnings,
+            metrics_not_attributed: created_quote
+                .metrics_not_attributed
+                .into_iter()
+                .map(|m| m.code)
+                .collect(),
         }))
     }
 
@@ -499,6 +505,12 @@ impl QuotesService for QuoteServiceComponents {
 
         Ok(Response::new(UpdateQuoteResponse {
             quote: Some(detailed_quote),
+            warnings: replaced.warnings,
+            metrics_not_attributed: replaced
+                .metrics_not_attributed
+                .into_iter()
+                .map(|m| m.code)
+                .collect(),
         }))
     }
 
@@ -1281,6 +1293,9 @@ impl QuoteServiceComponents {
                 quote.payment_methods_config,
             ),
             custom_properties,
+            resource_id: common_domain::ids::ResourceId::from_proto_opt(
+                quote.resource_id.as_ref(),
+            )?,
             entitlements: quote
                 .entitlements
                 .into_iter()

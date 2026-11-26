@@ -8,7 +8,8 @@ use crate::credits::credit_routes;
 use crate::customers::customer_routes;
 use crate::customproperties::custom_property_routes;
 use crate::entitlements::{
-    effective_entitlement_routes, entitlement_routes, entity_entitlement_routes, feature_routes,
+    check_routes, effective_entitlement_routes, entitlement_routes, entity_entitlement_routes,
+    feature_routes,
 };
 use crate::events::event_routes;
 use crate::invoices::invoice_routes;
@@ -18,6 +19,7 @@ use crate::productfamilies::product_family_routes;
 use crate::products::product_routes;
 use crate::rate_limit::RateLimiters;
 use crate::ratecards::rate_card_routes;
+use crate::resources::resource_routes;
 use crate::subscriptions::subscription_routes;
 use crate::usage::usage_routes;
 use crate::usage_costs::usage_cost_routes;
@@ -59,6 +61,7 @@ pub mod productfamilies;
 pub mod products;
 pub mod rate_limit;
 pub mod ratecards;
+pub mod resources;
 pub mod sso;
 pub mod subscriptions;
 pub mod usage;
@@ -87,10 +90,12 @@ pub fn api_routes() -> OpenApiRouter<AppState> {
         .merge(coupon_routes())
         .merge(metric_routes())
         .merge(rate_card_routes())
+        .merge(resource_routes())
         .merge(feature_routes())
         .merge(entitlement_routes())
         .merge(entity_entitlement_routes())
         .merge(effective_entitlement_routes())
+        .merge(check_routes())
         .merge(webhook_endpoint_routes())
 }
 

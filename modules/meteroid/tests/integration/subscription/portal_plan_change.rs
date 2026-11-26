@@ -291,12 +291,11 @@ async fn portal_never_offers_a_sales_led_plan(#[future] test_env: TestEnv) {
     assert_eq!(refused.code(), Code::FailedPrecondition, "{refused:?}");
 }
 
-/// RF-37: two subscriptions to one plan are told apart in the portal by their usage filters.
+/// RF-37: two subscriptions to one plan are told apart in the portal by their resources.
 #[rstest]
 #[tokio::test]
-async fn portal_lists_each_subscriptions_usage_filter(#[future] test_env: TestEnv) {
+async fn portal_lists_each_subscriptions_resource(#[future] test_env: TestEnv) {
     use meteroid_grpc::meteroid::portal::customer::v1 as customer;
-    use meteroid_store::domain::UsageFilter;
 
     let env = test_env.await;
     let mut create = subscription()
@@ -306,8 +305,11 @@ async fn portal_lists_each_subscriptions_usage_filter(#[future] test_env: TestEn
         .on_start()
         .no_trial()
         .request();
-    create.subscription.usage_filter =
-        Some(UsageFilter::new("team".into(), "mobile".into()).expect("filter"));
+    let team =
+        crate::helpers::resources::keyed_type(env.store(), TENANT_ID, "team", &["team"]).await;
+    let mobile =
+        crate::helpers::resources::resource(env.store(), &team, CUST_UBER_ID, "mobile").await;
+    create.subscription.resource_id = Some(mobile);
     let filtered = env
         .services()
         .insert_subscription(Actor::User { id: USER_ID }, create, TENANT_ID)
@@ -329,11 +331,7 @@ async fn portal_lists_each_subscriptions_usage_filter(#[future] test_env: TestEn
         .iter()
         .find(|s| s.id == filtered.to_string())
         .expect("the filtered subscription is listed");
-    let filter = summary.usage_filter.as_ref().expect("its usage filter");
-    assert_eq!(
-        (filter.property.as_str(), filter.value.as_str()),
-        ("team", "mobile")
-    );
+    assert_eq!(summary.resource_id, Some(mobile.as_proto()));
 }
 
 /// A hidden option is never offered in the portal: not among its plan's options, nor as a switch,

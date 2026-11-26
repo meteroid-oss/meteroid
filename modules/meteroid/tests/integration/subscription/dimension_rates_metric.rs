@@ -29,6 +29,7 @@ async fn metric(
         .insert_billable_metric(
             Actor::System,
             BillableMetricNew {
+                attributed_to: None,
                 name: code.to_owned(),
                 description: None,
                 code: code.to_owned(),

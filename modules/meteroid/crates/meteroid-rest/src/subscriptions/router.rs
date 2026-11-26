@@ -6,8 +6,9 @@ use std::str::FromStr;
 use axum::{extract::State, response::IntoResponse};
 
 use crate::subscriptions::mapping::{
-    domain_to_rest, domain_to_rest_details, pending_events_to_rest, rest_to_domain_create_request,
-    rest_to_domain_update_request, scheduled_cancellation_date,
+    check_usage_filter_update, domain_to_rest, domain_to_rest_details, pending_events_to_rest,
+    rest_to_domain_create_request, rest_to_domain_update_request, scheduled_cancellation_date,
+    with_warnings,
 };
 use crate::subscriptions::model::{
     Subscription, SubscriptionCreateRequest, SubscriptionDetails, SubscriptionListResponse,
@@ -42,6 +43,7 @@ use meteroid_store::repositories::{CustomersInterface, PlansInterface, Subscript
         (status = 200, description = "List of subscriptions", body = SubscriptionListResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -138,6 +140,7 @@ pub async fn list_subscriptions(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Subscription not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -160,8 +163,13 @@ pub async fn subscription_details(
             RestApiError::from(e)
         })
         .and_then(domain_to_rest_details)?;
+    let warnings = app_state
+        .store
+        .get_subscription_warnings(authorized_state.tenant_id, subscription_id)
+        .await
+        .map_err(RestApiError::from)?;
 
-    Ok(Json(res))
+    Ok(Json(with_warnings(res, warnings)))
 }
 
 /// Get subscription summary
@@ -180,6 +188,7 @@ pub async fn subscription_details(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Subscription not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -219,6 +228,7 @@ pub async fn subscription_summary(
         (status = 400, description = "Bad request", body = RestErrorResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -316,6 +326,15 @@ pub async fn create_subscription(
             RestApiError::from(e)
         })
         .and_then(domain_to_rest_details)?;
+    let res = SubscriptionDetails {
+        warnings: created.warnings,
+        metrics_not_attributed: created
+            .metrics_not_attributed
+            .into_iter()
+            .map(|m| m.code)
+            .collect(),
+        ..res
+    };
 
     Ok((StatusCode::CREATED, Json(res)))
 }
@@ -336,6 +355,7 @@ pub async fn create_subscription(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Subscription not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -406,6 +426,7 @@ pub async fn cancel_subscription(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Subscription not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -418,6 +439,20 @@ pub async fn update_subscription(
     ApiPath(subscription_id): ApiPath<SubscriptionId>,
     ApiValid(ApiJson(request)): ApiValid<ApiJson<SubscriptionUpdateRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
+    let current_resource_id = if matches!(
+        (&request.usage_filter, &request.resource_id),
+        (Some(None), None)
+    ) {
+        app_state
+            .store
+            .get_subscription(authorized_state.tenant_id, subscription_id)
+            .await
+            .map_err(RestApiError::from)?
+            .resource_id
+    } else {
+        None
+    };
+    check_usage_filter_update(&request, current_resource_id)?;
     let patch = rest_to_domain_update_request(subscription_id, request)?;
 
     app_state
@@ -444,8 +479,13 @@ pub async fn update_subscription(
             RestApiError::from(e)
         })
         .and_then(domain_to_rest_details)?;
+    let warnings = app_state
+        .store
+        .get_subscription_warnings(authorized_state.tenant_id, subscription_id)
+        .await
+        .map_err(RestApiError::from)?;
 
     Ok(Json(SubscriptionUpdateResponse {
-        subscription: details,
+        subscription: with_warnings(details, warnings),
     }))
 }

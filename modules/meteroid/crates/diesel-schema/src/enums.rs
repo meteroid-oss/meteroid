@@ -879,6 +879,60 @@ impl From<&common_domain::ids::EntitlementEntityId> for EntitlementEntityTypeEnu
     }
 }
 
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[ExistingTypePath = "crate::schema::sql_types::EntitlementEffectEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum EntitlementEffectEnum {
+    Set,
+    Add,
+    RaiseTo,
+    CapAt,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[ExistingTypePath = "crate::schema::sql_types::EntitlementLevelEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum EntitlementLevelEnum {
+    Feature,
+    Customer,
+    Type,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[ExistingTypePath = "crate::schema::sql_types::FeatureKindEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum FeatureKindEnum {
+    Boolean,
+    Value,
+    Limit,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[ExistingTypePath = "crate::schema::sql_types::FeatureValueTypeEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum FeatureValueTypeEnum {
+    Number,
+    Text,
+    Select,
+    Json,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[ExistingTypePath = "crate::schema::sql_types::FeatureLimitCountedByEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum FeatureLimitCountedByEnum {
+    Events,
+    App,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[ExistingTypePath = "crate::schema::sql_types::AppCountOpEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum AppCountOpEnum {
+    Set,
+    Add,
+}
+
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq)]
 #[ExistingTypePath = "crate::schema::sql_types::AlertConditionKindEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]

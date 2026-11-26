@@ -22,18 +22,6 @@ impl Entitlements for OpenEntitlements {
     async fn resolve(&self, _org_id: OrganizationId) -> ResolvedEntitlements {
         ResolvedEntitlements::open()
     }
-
-    async fn alert_definition_limit(&self, _org_id: OrganizationId) -> Option<u32> {
-        None
-    }
-
-    async fn production_tenant_limit(&self, _org_id: OrganizationId) -> Option<u32> {
-        None
-    }
-
-    async fn invoicing_entity_limit(&self, _org_id: OrganizationId) -> Option<u32> {
-        None
-    }
 }
 
 static CORE_TESTED: [FeatureGate; 6] = [

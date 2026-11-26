@@ -1,3 +1,4 @@
+import { create } from '@bufbuild/protobuf'
 import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query'
 import {
   DndContext,
@@ -55,7 +56,10 @@ import {
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
-import { formatResolvedValue, isEntitlementDisabled } from '@/features/entitlements/utils'
+import { plainValue } from '@/features/entitlements/rows/grantDisplay'
+import { inheritedValue } from '@/features/entitlements/rows/grantDraft'
+import { useFeatures } from '@/features/entitlements/rows/useFeatures'
+import { isEntitlementDisabled } from '@/features/entitlements/utils'
 import { type OrderRow, inOrder, movedOrder, orderRows } from '@/features/plans/pricingpage/cardOrder'
 import { priceDisplay } from '@/features/plans/pricingpage/cardPrice'
 import {
@@ -72,6 +76,7 @@ import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
 import { rpcErrorMessage } from '@/lib/rpcError'
 import { getResolvedEntitlementsForPlanVersion } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
+import { EntitlementValueSchema } from '@/rpc/api/entitlements/v1/models_pb'
 import {
   getPlanPricingPage,
   getPricingPage,
@@ -200,20 +205,27 @@ const Editor = ({
     getResolvedEntitlementsForPlanVersion,
     planVersionId && env.entitlementsEnabled ? { planVersionId } : skipToken
   ).data?.entitlements
+  // The resolved reference has no unit: the full features give "10,000 requests".
+  const fullFeatures = useFeatures(
+    useMemo(
+      () => [...new Set((entitlements ?? []).flatMap(e => (e.feature ? [e.feature.id] : [])))],
+      [entitlements]
+    )
+  )
 
-  const features = useMemo(() => {
-    const byId = new Map<string, Feature>()
-    for (const entitlement of entitlements ?? []) {
-      const feature = entitlement.feature
-      if (!feature || byId.has(feature.id) || isEntitlementDisabled(entitlement.value)) continue
-      byId.set(feature.id, {
-        id: feature.id,
-        name: feature.name,
-        value: formatResolvedValue(entitlement.value),
-      })
-    }
-    return byId
-  }, [entitlements])
+  const features = new Map<string, Feature>()
+  for (const entitlement of entitlements ?? []) {
+    const feature = entitlement.feature
+    if (!feature || features.has(feature.id) || isEntitlementDisabled(entitlement.value)) continue
+    features.set(feature.id, {
+      id: feature.id,
+      name: feature.name,
+      value: plainValue(
+        create(EntitlementValueSchema, inheritedValue(entitlement)),
+        fullFeatures.get(feature.id)
+      ),
+    })
+  }
 
   const picked = new Set(
     draft.highlights.flatMap(h => (h.kind === 'feature' ? [h.featureId] : []))

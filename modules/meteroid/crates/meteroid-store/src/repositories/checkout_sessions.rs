@@ -28,6 +28,69 @@ use diesel_models::query::coupons::CodeMatch;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
 
+impl Store {
+    /// The metrics the subscription a self-serve checkout creates prices: the plan's charges it
+    /// keeps, its extra charges and its add-ons.
+    async fn checkout_metric_ids(
+        &self,
+        conn: &mut PgConn,
+        params: &CreateCheckoutSession,
+        plan_components: &[PriceComponent],
+    ) -> StoreResult<Vec<common_domain::ids::BillableMetricId>> {
+        use crate::domain::price_components::PriceEntry;
+        use crate::domain::prices::FeeStructure;
+        use crate::repositories::add_ons::AddOnInterface;
+        use common_domain::ids::BaseId;
+        let asked = params.components.as_ref();
+        let removed = asked.map_or(&[][..], |c| c.remove_components.as_slice());
+        let mut metric_ids = plan_components
+            .iter()
+            .filter(|component| !removed.contains(&component.id))
+            .filter_map(|component| component.structure().and_then(FeeStructure::metric_id))
+            .collect::<Vec<_>>();
+        for extra in asked.iter().flat_map(|c| &c.extra_components) {
+            let structure = match extra
+                .fee_structure
+                .as_ref()
+                .or_else(|| extra.product_ref.new_product_structure())
+            {
+                Some(structure) => Some(structure.clone()),
+                None => match &extra.price_entry {
+                    PriceEntry::Existing(price_id) => {
+                        crate::repositories::price_components::linked_charge_structure(
+                            conn,
+                            params.tenant_id,
+                            *price_id,
+                        )
+                        .await?
+                    }
+                    PriceEntry::New(_) => None,
+                },
+            };
+            metric_ids.extend(structure.as_ref().and_then(FeeStructure::metric_id));
+        }
+        let add_on_ids = params
+            .add_ons
+            .iter()
+            .flat_map(|bought| bought.add_ons.iter().map(|add_on| add_on.add_on_id))
+            .collect::<Vec<_>>();
+        if !add_on_ids.is_empty() {
+            let add_ons = self
+                .list_add_ons_by_ids_with_conn(conn, params.tenant_id, add_on_ids)
+                .await?;
+            metric_ids.extend(
+                add_ons
+                    .iter()
+                    .filter_map(|add_on| add_on.fee_structure.as_ref())
+                    .filter_map(FeeStructure::metric_id),
+            );
+        }
+        metric_ids.sort_by_key(|id| id.as_uuid());
+        metric_ids.dedup();
+        Ok(metric_ids)
+    }
+}
+
 /// How long a plan-change checkout waits on the customer to authenticate its payment (3DS, a
 /// redirect) before it expires, as card issuers abandon the authentication well within it.
 const PLAN_CHANGE_AUTHENTICATION_WINDOW: Duration = Duration::hours(24);
@@ -104,6 +167,9 @@ impl CheckoutSessionsInterface for Store {
             params.checkout_type,
             CheckoutType::SelfServe | CheckoutType::PlanChange
         );
+        // Only a self-serve checkout creates a subscription for its target.
+        let creates = params.checkout_type == CheckoutType::SelfServe;
+        let mut metric_ids = Vec::new();
         if priced || redeemed_code(&params).is_some() {
             let components = self
                 .list_price_components_with_conn(
@@ -140,8 +206,50 @@ impl CheckoutSessionsInterface for Store {
             }
             // And the checks its completion runs on who the customer is, in that currency.
             refuse_unpurchasable(&mut conn, &params, &currency).await?;
+            if creates {
+                metric_ids = self
+                    .checkout_metric_ids(&mut conn, &params, &components)
+                    .await?;
+            }
         }
 
+        use crate::repositories::subscriptions::usage_attribution as attribution;
+        let mut resource_type_id = None;
+        if let Some(resource_id) = params.resource_id {
+            resource_type_id = Some(
+                attribution::ensure_resource_for(
+                    &mut conn,
+                    params.tenant_id,
+                    params.customer_id,
+                    resource_id,
+                )
+                .await?
+                .resource_type_id,
+            );
+            attribution::ensure_resource_unsold(
+                &mut conn,
+                params.tenant_id,
+                resource_id,
+                params
+                    .billing_start_date
+                    .unwrap_or_else(|| common_clock::now().date_naive()),
+                params.end_date,
+                None,
+            )
+            .await?;
+        }
+        let warnings = if creates {
+            attribution::sale_warnings(
+                &mut conn,
+                params.tenant_id,
+                params.plan_version_id,
+                resource_type_id,
+                &metric_ids,
+            )
+            .await?
+        } else {
+            crate::domain::SaleWarnings::default()
+        };
         let row_new: CheckoutSessionRowNew = params.try_into_row()?;
 
         let row = row_new
@@ -149,7 +257,11 @@ impl CheckoutSessionsInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        Ok(row.into())
+        Ok(CheckoutSession {
+            warnings: warnings.codes,
+            metrics_not_attributed: warnings.metrics_not_attributed,
+            ..row.into()
+        })
     }
 
     async fn get_checkout_session(

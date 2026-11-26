@@ -62,6 +62,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
         "quotes",
         "quotetemplates",
         "rbac",
+        "resources",
         "savedviews",
         "schedules",
         "security",

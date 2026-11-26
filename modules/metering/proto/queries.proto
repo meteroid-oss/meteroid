@@ -62,9 +62,11 @@ message UsageAttribution {
     repeated EventClaim excluded = 4;
   }
 
+  // The value is read from the first of `property`, then `fallback_properties`, the event has.
   message EventMatch {
     string property = 1;
     string value = 2;
+    repeated string fallback_properties = 3;
   }
 
   message EventClaim {
@@ -72,6 +74,7 @@ message UsageAttribution {
     string value = 2;
     google.protobuf.Timestamp from = 3;
     optional google.protobuf.Timestamp to = 4;
+    repeated string fallback_properties = 5;
   }
 }
 
@@ -122,6 +125,9 @@ message QueryMeterResponse {
   // Set by a server that applies `group_by_customer` and `top_n`, and marks `Usage.other`; one
   // predating them ignores both.
   bool grouping_applied = 3;
+  // Set by a server that reads an attribution's `fallback_properties`; one predating them reads
+  // `property` only.
+  bool fallback_properties_applied = 4;
 
   message Usage {
     optional string customer_id = 1;

@@ -227,6 +227,7 @@ fn self_serve_checkout(
         change_date: None,
         success_url: None,
         cancel_url: None,
+        resource_id: None,
     }
 }
 

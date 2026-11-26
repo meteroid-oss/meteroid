@@ -206,7 +206,6 @@ pub struct AutoTopUpSpec {
 pub struct EntitlementOverrideSpec {
     pub feature_code: String,
     pub limit: Decimal,
-    pub group_by: Option<String>,
     pub block: Option<BlockSpec>,
     pub thresholds: Vec<u32>,
 }

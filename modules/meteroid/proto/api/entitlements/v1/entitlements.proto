@@ -8,12 +8,19 @@ import "common/v1/pagination.proto";
 message CreateFeatureRequest {
   string name = 1;
   optional string description = 2;
-  FeatureType feature_type = 3;
+  // `feature_type` is read-only: send `kind`.
+  reserved 3;
   // Product the feature belongs to. Unset ⇒ tenant-global feature.
   optional string product_id = 4;
   optional EntitlementValue entitlement = 5;
   // Unique key used to reference this feature in your code. Cannot be changed after creation.
   string code = 6;
+  FeatureKind kind = 7;
+  optional FeatureValueSpec value = 8;
+  optional FeatureLimitSpec limit = 9;
+  optional string unit = 10;
+  optional string level_resource_type_id = 11;
+  optional FeaturePolicy policy = 12;
 }
 
 message CreateFeatureResponse {
@@ -35,6 +42,16 @@ message ListFeaturesRequest {
   repeated FeatureStatus statuses = 2;
   optional string search = 3;
   optional string product_id = 4;
+  // "Applies per": a type id, or "" for the customer. Unset: any level.
+  optional string level_resource_type_id = 5;
+  FeatureOrder order = 6;
+}
+
+enum FeatureOrder {
+  // By feature name.
+  FEATURE_ORDER_UNSPECIFIED = 0;
+  // Global features first, then by product name, then by feature name.
+  FEATURE_ORDER_PRODUCT = 1;
 }
 
 message ListFeaturesResponse {
@@ -53,6 +70,14 @@ message UpdateFeatureRequest {
   // `update_config_options = true`. Removing an option still referenced by an entitlement is rejected.
   repeated string config_options = 6;
   bool update_config_options = 7;
+  optional string unit = 8;
+  bool clear_unit = 9;
+  // Moves the feature's FEATURE-level rows with it.
+  optional string level_resource_type_id = 10;
+  bool clear_level_resource_type_id = 11;
+  optional FeaturePolicy policy = 12;
+  optional bool higher_is_better = 13;
+  optional bool select_ordered = 14;
 }
 
 message UpdateFeatureResponse {
@@ -79,9 +104,11 @@ message GetFeatureCodeHolderResponse {
 }
 
 message CreateEntitlementRequest {
-  string feature_id = 1;
+  reserved 1, 3;
   EntitlementEntity entity = 2;
-  EntitlementValue value = 3;
+  EntitlementSpec spec = 4;
+  // Customer rows only: an override on one of the customer's stored resources.
+  optional string resource_id = 5;
 }
 
 message CreateEntitlementResponse {
@@ -114,10 +141,24 @@ message ListEntitlementsByEntityResponse {
   repeated Feature features = 2;
 }
 
+// Edits are append-only: the open row is revoked and a successor carrying the changes is inserted.
+// Unset fields keep their value; a `clear_*` flag removes one. Owner, feature, level and resource
+// stay.
 message UpdateEntitlementRequest {
   string id = 1;
-  // Omit to leave value unchanged; set to replace.
   optional EntitlementValue value = 2;
+  EntitlementEffect effect = 3;
+  optional Condition condition = 4;
+  bool clear_condition = 5;
+  optional string valid_from = 6;
+  bool clear_valid_from = 7;
+  optional string valid_until = 8;
+  bool clear_valid_until = 9;
+  optional string reason = 10;
+  bool clear_reason = 11;
+  optional FeaturePolicy policy_override = 12;
+  bool clear_policy_override = 13;
+  reserved 14, 15;
 }
 
 message UpdateEntitlementResponse {
@@ -130,12 +171,122 @@ message DeleteEntitlementRequest {
 
 message DeleteEntitlementResponse {}
 
+message ListEntitlementHistoryRequest {
+  string id = 1;
+}
+
+// Every row of the lineage, oldest first, with `revoked_at` and `revoked_by`.
+message ListEntitlementHistoryResponse {
+  repeated Entitlement entitlements = 1;
+}
+
+message CheckEntitlementRequest {
+  string customer_id = 1;
+  // Feature id or code.
+  string feature = 2;
+  // At most one identifying key: {"site_id": "s1"}.
+  map<string, string> resources = 3;
+  // Asserted attributes, "<type code>.<attribute>" to value. Stored ones win.
+  map<string, string> attributes = 4;
+  // Defaults to 1.
+  optional string requested = 5;
+  // Limits counted by the app: replaces the stored count for this request.
+  optional string current_count = 6;
+  bool explain = 7;
+  // Deprecated: accepted and ignored, the deciding subscription answers.
+  optional string subscription_id = 8;
+}
+
+message CheckEntitlementResponse {
+  CheckedFeature feature = 1;
+  bool allowed = 2;
+  optional CheckReason reason = 3;
+  optional CheckReasonType reason_type = 4;
+  repeated EntitlementLevelState levels = 5;
+  // "resource_omitted": customer subscriptions answered while resource ones include the feature.
+  optional string hint = 6;
+  repeated string attributes_ignored = 7;
+  repeated string warnings = 8;
+  UsageSource usage_source = 9;
+  bool near_limit = 10;
+  optional string retry_after = 11;
+  bool in_overage = 12;
+  // The own level's value, capped by the others.
+  optional EntitlementValue value = 13;
+  reserved 14;
+  // When the usage answering was computed, if older than the check: a monitor's last reading
+  // kept while metering is unavailable.
+  optional string usage_as_of = 15;
+}
+
+message GetEntitlementSnapshotRequest {
+  string customer_id = 1;
+  map<string, string> resources = 2;
+  map<string, string> attributes = 3;
+  // The etag of a previous snapshot: unchanged values answer `not_modified` without features.
+  optional string if_none_match = 4;
+}
+
+message GetEntitlementSnapshotResponse {
+  string etag = 1;
+  bool not_modified = 2;
+  repeated SnapshotFeature features = 3;
+  repeated string attributes_ignored = 4;
+  // "usage_unavailable": a level's usage could not be read.
+  repeated string warnings = 5;
+}
+
+// The snapshots of a customer's stored resources, read in one pass.
+message GetEntitlementSnapshotsRequest {
+  string customer_id = 1;
+  // At most 100.
+  repeated string resource_ids = 2;
+  // Only these features; every feature when empty.
+  repeated string feature_ids = 3;
+}
+
+message ResourceSnapshot {
+  string resource_id = 1;
+  repeated SnapshotFeature features = 2;
+  // "usage_unavailable": a level's usage could not be read.
+  repeated string warnings = 3;
+}
+
+message GetEntitlementSnapshotsResponse {
+  // In the order of the request's resource ids.
+  repeated ResourceSnapshot snapshots = 1;
+}
+
+// Reports a limit counted by the app. A retried key returns the stored count.
+message ReportEntitlementUsageRequest {
+  string customer_id = 1;
+  string feature = 2;
+  map<string, string> resources = 3;
+  oneof op {
+    string set = 4;
+    string add = 5;
+  }
+  // Defaults to the receive time.
+  optional string at = 6;
+  string idempotency_key = 7;
+}
+
+message ReportEntitlementUsageResponse {
+  string path = 1;
+  string count = 2;
+  // False when older than the last set, or a retry.
+  bool applied = 3;
+  bool replayed = 4;
+}
+
 message GetEffectiveEntitlementsRequest {
   string customer_id = 1;
 }
 
 message GetEffectiveEntitlementsResponse {
   repeated EffectiveEntitlement entitlements = 1;
+  // "usage_unavailable": metering could not answer for an entitlement's usage.
+  repeated string warnings = 2;
 }
 
 message ListCreditPaidFeaturesRequest {
@@ -208,4 +359,10 @@ service EntitlementsService {
   rpc GetResolvedEntitlementsForQuote(GetResolvedForQuoteRequest) returns (GetResolvedResponse);
   rpc GetResolvedEntitlementsForSelection(GetResolvedForSelectionRequest) returns (GetResolvedResponse);
   rpc BatchCreateEntitlements(BatchCreateEntitlementsRequest) returns (BatchCreateEntitlementsResponse);
+
+  rpc ListEntitlementHistory(ListEntitlementHistoryRequest) returns (ListEntitlementHistoryResponse);
+  rpc CheckEntitlement(CheckEntitlementRequest) returns (CheckEntitlementResponse);
+  rpc GetEntitlementSnapshot(GetEntitlementSnapshotRequest) returns (GetEntitlementSnapshotResponse);
+  rpc GetEntitlementSnapshots(GetEntitlementSnapshotsRequest) returns (GetEntitlementSnapshotsResponse);
+  rpc ReportEntitlementUsage(ReportEntitlementUsageRequest) returns (ReportEntitlementUsageResponse);
 }

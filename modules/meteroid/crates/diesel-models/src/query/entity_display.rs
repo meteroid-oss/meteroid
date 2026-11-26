@@ -2,10 +2,11 @@
 
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
-use common_domain::ids::TenantId;
-use diesel::{ExpressionMethods, QueryDsl};
+use common_domain::ids::{BaseId, TenantId};
+use diesel::{ExpressionMethods, QueryDsl, QueryableByName, sql_query, sql_types};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 pub async fn customer_names(
@@ -222,4 +223,99 @@ pub async fn subscription_plan_names(
         .await
         .attach("subscription_plan_names")
         .into_db_result()
+}
+
+/// The owners an entitlement explain names, by kind.
+#[derive(Debug, Default)]
+pub struct EntitlementSourceIds {
+    pub features: Vec<Uuid>,
+    pub plans: Vec<Uuid>,
+    pub plan_versions: Vec<Uuid>,
+    pub add_ons: Vec<Uuid>,
+    pub subscriptions: Vec<Uuid>,
+    pub resources: Vec<Uuid>,
+}
+
+impl EntitlementSourceIds {
+    pub fn is_empty(&self) -> bool {
+        self.features.is_empty()
+            && self.plans.is_empty()
+            && self.plan_versions.is_empty()
+            && self.add_ons.is_empty()
+            && self.subscriptions.is_empty()
+            && self.resources.is_empty()
+    }
+}
+
+/// A plan version reads "<plan> v<n>", a subscription its plan's name, a resource its name or key.
+#[derive(Debug, Default)]
+pub struct EntitlementSourceNames {
+    pub features: HashMap<Uuid, String>,
+    pub plans: HashMap<Uuid, String>,
+    pub plan_versions: HashMap<Uuid, String>,
+    pub add_ons: HashMap<Uuid, String>,
+    pub subscriptions: HashMap<Uuid, String>,
+    pub resources: HashMap<Uuid, String>,
+}
+
+#[derive(QueryableByName)]
+struct SourceNameRow {
+    #[diesel(sql_type = sql_types::Text)]
+    kind: String,
+    #[diesel(sql_type = sql_types::Uuid)]
+    id: Uuid,
+    #[diesel(sql_type = sql_types::Text)]
+    name: String,
+}
+
+pub async fn entitlement_source_names(
+    conn: &mut PgConn,
+    tenant: TenantId,
+    ids: &EntitlementSourceIds,
+) -> DbResult<EntitlementSourceNames> {
+    let mut names = EntitlementSourceNames::default();
+    if ids.is_empty() {
+        return Ok(names);
+    }
+    let rows = sql_query(
+        "SELECT 'feature' AS kind, f.id, f.name FROM feature f \
+             WHERE f.tenant_id = $1 AND f.id = ANY($2) \
+         UNION ALL SELECT 'plan', p.id, p.name FROM plan p \
+             WHERE p.tenant_id = $1 AND p.id = ANY($3) \
+         UNION ALL SELECT 'plan_version', pv.id, p.name || ' v' || pv.version \
+             FROM plan_version pv JOIN plan p ON p.id = pv.plan_id \
+             WHERE pv.tenant_id = $1 AND pv.id = ANY($4) \
+         UNION ALL SELECT 'add_on', a.id, a.name FROM add_on a \
+             WHERE a.tenant_id = $1 AND a.id = ANY($5) \
+         UNION ALL SELECT 'subscription', s.id, p.name \
+             FROM subscription s JOIN plan_version pv ON pv.id = s.plan_version_id \
+             JOIN plan p ON p.id = pv.plan_id \
+             WHERE s.tenant_id = $1 AND s.id = ANY($6) \
+         UNION ALL SELECT 'resource', r.id, COALESCE(r.name, r.key_value) FROM resource r \
+             WHERE r.tenant_id = $1 AND r.id = ANY($7)",
+    )
+    .bind::<sql_types::Uuid, _>(tenant.as_uuid())
+    .bind::<sql_types::Array<sql_types::Uuid>, _>(&ids.features)
+    .bind::<sql_types::Array<sql_types::Uuid>, _>(&ids.plans)
+    .bind::<sql_types::Array<sql_types::Uuid>, _>(&ids.plan_versions)
+    .bind::<sql_types::Array<sql_types::Uuid>, _>(&ids.add_ons)
+    .bind::<sql_types::Array<sql_types::Uuid>, _>(&ids.subscriptions)
+    .bind::<sql_types::Array<sql_types::Uuid>, _>(&ids.resources)
+    .get_results::<SourceNameRow>(conn)
+    .await
+    .attach("entitlement_source_names")
+    .into_db_result()?;
+    for row in rows {
+        let by_kind = match row.kind.as_str() {
+            "feature" => &mut names.features,
+            "plan" => &mut names.plans,
+            "plan_version" => &mut names.plan_versions,
+            "add_on" => &mut names.add_ons,
+            "subscription" => &mut names.subscriptions,
+            "resource" => &mut names.resources,
+            _ => continue,
+        };
+        by_kind.insert(row.id, row.name);
+    }
+    Ok(names)
 }

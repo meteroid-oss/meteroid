@@ -45,8 +45,8 @@ import { dailyUsageTotal, walletDailyUsageInput } from '@/features/credit/usageC
 import { useLiveSubscriptions } from '@/features/credit/useLiveSubscriptions'
 import { MAX_FUNDING_SUBSCRIPTIONS, useWalletPeriods } from '@/features/credit/useWalletPeriods'
 import { periodCreditGranted, periodUtilization } from '@/features/credit/walletPeriodUsage'
+import { useResourceChips } from '@/features/resources/hooks'
 import { PeriodUsageBar } from '@/features/subscriptions/PeriodUsageBar'
-import { formatUsageFilter } from '@/features/subscriptions/UsageFilterFields'
 import { useQuery } from '@/lib/connectrpc'
 import { parseAndFormatDateTime } from '@/lib/utils/date'
 import {
@@ -147,22 +147,23 @@ export const CustomerWalletsPanel = ({
       ),
     [grantActivity]
   )
-  const usageFilters = useMemo(
+  const chips = useResourceChips(customerId)
+  const scopeLabels = useMemo(
     () =>
       new Map(
         liveSubscriptions.flatMap(subscription =>
-          subscription.usageFilter
-            ? [[subscription.id, formatUsageFilter(subscription.usageFilter)] as const]
+          subscription.resourceId
+            ? [[subscription.id, chips.get(subscription.resourceId) ?? 'a resource'] as const]
             : []
         )
       ),
-    [liveSubscriptions]
+    [liveSubscriptions, chips]
   )
   const subscriptionLabel = (subscriptionId: string) => {
     const plan =
       liveSubscriptions.find(subscription => subscription.id === subscriptionId)?.planName ??
       'Subscription'
-    const filter = usageFilters.get(subscriptionId)
+    const filter = scopeLabels.get(subscriptionId)
     return filter ? `${plan} (${filter})` : plan
   }
   const queryClient = useQueryClient()
@@ -288,7 +289,7 @@ export const CustomerWalletsPanel = ({
           liveSubscriptionCount={liveSubscriptionCount}
           canManage={canManage}
           paymentMethods={paymentMethods}
-          usageFilters={usageFilters}
+          scopeLabels={scopeLabels}
           subscriptionLabel={subscriptionLabel}
           onAction={next => setAction({ action: next, wallet })}
           onRemove={grant => setRemoval({ wallet, grant })}
@@ -390,7 +391,7 @@ const WalletCard = ({
   liveSubscriptionCount,
   canManage,
   paymentMethods,
-  usageFilters,
+  scopeLabels,
   subscriptionLabel,
   onAction,
   onRemove,
@@ -407,7 +408,7 @@ const WalletCard = ({
   liveSubscriptionCount: number
   canManage: boolean
   paymentMethods: CustomerPaymentMethod[]
-  usageFilters: Map<string, string>
+  scopeLabels: Map<string, string>
   subscriptionLabel: (subscriptionId: string) => string
   onAction: (action: Action) => void
   onRemove: (grant: CreditGrant) => void
@@ -500,7 +501,7 @@ const WalletCard = ({
           <CreditGroupsList
             groups={scoped.groups}
             denomination={local}
-            usageFilters={usageFilters}
+            scopeLabels={scopeLabels}
             unbilledByGrant={unbilledByGrant}
             activityState={activityState}
           />
@@ -534,7 +535,7 @@ const WalletCard = ({
             liveSubscriptionCount={liveSubscriptionCount}
             canManage={canManage}
             onRemove={onRemove}
-            usageFilters={usageFilters}
+            scopeLabels={scopeLabels}
           />
         </TabsContent>
         <TabsContent value="summary" className="mt-3">

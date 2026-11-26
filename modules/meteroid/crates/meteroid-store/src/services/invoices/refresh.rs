@@ -102,6 +102,9 @@ impl Services {
                         .await
                         .map(|_| ())
                         .map_err(Into::<Report<StoreError>>::into)?;
+                    if refresh_invoice_lines {
+                        claims_settled(conn, tenant_id, id).await?;
+                    }
 
                     Ok::<_, StoreErrorReport>(invoice)
                 }
@@ -382,4 +385,12 @@ pub(in crate::services) async fn minimum_of_its_period(
         minimum,
         ..details.clone()
     }))
+}
+
+/// Its lines recomputed, the draft reads its usage where it now goes: a hand edit may follow.
+async fn claims_settled(conn: &mut PgConn, tenant_id: TenantId, id: InvoiceId) -> StoreResult<()> {
+    diesel_models::query::invoice_claims_moved::InvoiceClaimsMoved::clear(conn, tenant_id, id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    Ok(())
 }

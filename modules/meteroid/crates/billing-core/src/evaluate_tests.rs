@@ -204,6 +204,7 @@ fn fixed(row: u128, of: u128, from: NaiveDate, cadence: u32, price: i64) -> FeeF
         billing: Billing::Advance,
         cadence,
         plan_component: true,
+        usage_from: None,
         fee: TestFee {
             price,
             ..TestFee::default()
@@ -220,6 +221,7 @@ fn metered(row: u128, of: u128, from: NaiveDate, cadence: u32, unit: i64) -> Fee
         billing: Billing::Arrears,
         cadence,
         plan_component: true,
+        usage_from: None,
         fee: TestFee {
             metric: Some(id(METRIC)),
             unit,

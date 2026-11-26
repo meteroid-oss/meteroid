@@ -4,7 +4,8 @@ use error_stack::Report;
 use thiserror::Error;
 
 use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
-use meteroid_store::errors::StoreError;
+use meteroid_store::errors::{EntitlementRefusal, StoreError};
+use meteroid_store::repositories::resources::ResourceRefusal;
 
 #[derive(Debug, Error, ErrorAsTonic)]
 pub enum EntitlementApiError {
@@ -27,10 +28,20 @@ pub enum EntitlementApiError {
 
 impl From<Report<StoreError>> for EntitlementApiError {
     fn from(err: Report<StoreError>) -> Self {
+        let code = EntitlementRefusal::of(&err)
+            .map(EntitlementRefusal::code)
+            .or_else(|| ResourceRefusal::of(&err).map(ResourceRefusal::code));
+        // A coded refusal reads `<CODE>: <message>`, as the resources service's.
+        let coded = |message: &String| match code {
+            Some(code) => format!("{code}: {message}"),
+            None => message.clone(),
+        };
         match err.current_context() {
-            StoreError::InvalidArgument(msg) => Self::InvalidArgument(msg.clone()),
+            StoreError::InvalidArgument(msg) => Self::InvalidArgument(coded(msg)),
             StoreError::ValueNotFound(msg) => Self::NotFound(msg.clone()),
-            StoreError::FailedPrecondition(msg) => Self::FailedPrecondition(msg.clone()),
+            StoreError::FailedPrecondition(msg) | StoreError::Conflict(msg) => {
+                Self::FailedPrecondition(coded(msg))
+            }
             StoreError::DuplicateValue { entity, key } => Self::InvalidArgument(format!(
                 "{entity} already exists{}",
                 key.as_deref().map(|k| format!(": {k}")).unwrap_or_default()

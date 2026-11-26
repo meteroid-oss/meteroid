@@ -12,7 +12,9 @@ use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 
 use crate::price_components::PriceComponentRow;
-use common_domain::ids::{PlanId, PlanVersionId, PriceId, ProductFamilyId, ProductId, TenantId};
+use common_domain::ids::{
+    PlanId, PlanVersionId, PriceId, ProductFamilyId, ProductId, ResourceTypeId, TenantId,
+};
 use diesel::NullableExpressionMethods;
 use diesel::{
     BelongingToDsl, BoolExpressionMethods, ExpressionMethods, JoinOnDsl, PgSortExpressionMethods,
@@ -431,6 +433,7 @@ impl PlanRow {
                 p_dsl::eligibility,
                 p_dsl::pricing_sales_led,
                 p_dsl::pricing_hide_price,
+                p_dsl::sold_for_resource_type_id,
             ));
 
         crate::debug_sql(&query);
@@ -857,6 +860,7 @@ impl PlanRowOverview {
                 p_dsl::eligibility,
                 p_dsl::pricing_sales_led,
                 p_dsl::pricing_hide_price,
+                p_dsl::sold_for_resource_type_id,
             ))
             .into_boxed();
 
@@ -948,6 +952,7 @@ impl PlanRowOverview {
                 p_dsl::eligibility,
                 p_dsl::pricing_sales_led,
                 p_dsl::pricing_hide_price,
+                p_dsl::sold_for_resource_type_id,
             ))
             .into_boxed();
 
@@ -1028,6 +1033,66 @@ impl PlanRowOverview {
             .load_and_count_pages(conn)
             .await
             .attach("Error while listing plans")
+            .into_db_result()
+    }
+}
+
+impl PlanRow {
+    /// The resource type the plan is sold for; `None` for the customer.
+    pub async fn set_sold_for_resource_type(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        plan_id: PlanId,
+        resource_type_id: Option<ResourceTypeId>,
+    ) -> DbResult<PlanRow> {
+        use crate::schema::plan::dsl as p_dsl;
+        use diesel_async::RunQueryDsl;
+
+        diesel::update(p_dsl::plan)
+            .filter(p_dsl::id.eq(plan_id))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .set(p_dsl::sold_for_resource_type_id.eq(resource_type_id))
+            .returning(PlanRow::as_returning())
+            .get_result(conn)
+            .await
+            .attach("Error while setting what a plan is sold for")
+            .into_db_result()
+    }
+
+    /// The open rows across all of a customer's resources (level `customer`) on the plan or on
+    /// any of its versions.
+    pub async fn count_open_customer_level_rows(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        plan_id: PlanId,
+    ) -> DbResult<i64> {
+        use crate::enums::{EntitlementEntityTypeEnum, EntitlementLevelEnum};
+        use crate::schema::{entitlement::dsl as e, plan_version::dsl as pv};
+        use common_domain::ids::BaseId;
+        use diesel_async::RunQueryDsl;
+
+        let versions = pv::plan_version
+            .filter(pv::tenant_id.eq(tenant_id))
+            .filter(pv::plan_id.eq(plan_id))
+            .select(pv::id);
+        let query = e::entitlement
+            .filter(e::tenant_id.eq(tenant_id))
+            .filter(e::revoked_at.is_null())
+            .filter(e::level.eq(EntitlementLevelEnum::Customer))
+            .filter(
+                (e::entity_type
+                    .eq(EntitlementEntityTypeEnum::Plan)
+                    .and(e::entity_id.eq(plan_id.as_uuid())))
+                .or(e::entity_type
+                    .eq(EntitlementEntityTypeEnum::PlanVersion)
+                    .and(e::entity_id.eq_any(versions))),
+            )
+            .count();
+        crate::debug_sql(&query);
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while counting a plan's rows across all resources")
             .into_db_result()
     }
 }

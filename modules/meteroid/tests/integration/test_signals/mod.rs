@@ -15,7 +15,9 @@ use meteroid_store::clients::usage::{
     GroupedUsageData, MockUsageDataParams, MutableMockUsageClient, UsageData,
 };
 use meteroid_store::domain::customer_summary::{CustomerSummary, RenewalMode, SummaryParts};
-use meteroid_store::domain::entitlements::{self, FeatureNew, FeatureType};
+use meteroid_store::domain::entitlement_fold::{GrantValue, LimitValue};
+use meteroid_store::domain::entitlement_policy::{AtLimit, FeaturePolicy};
+use meteroid_store::domain::entitlements::{self, FeatureNew};
 use meteroid_store::domain::enums::{InvoicePaymentStatus, InvoiceStatusEnum, InvoiceType};
 use meteroid_store::domain::{InvoiceNew, UsagePeriod};
 use meteroid_store::errors::StoreError;
@@ -244,6 +246,12 @@ async fn cycle_limit_on(
     limit: i64,
     overage_behavior: entitlements::OverageBehavior,
 ) -> FeatureId {
+    let (at_limit, grace_pct) = match overage_behavior {
+        entitlements::OverageBehavior::Allow => (AtLimit::AllowAndBill, 0),
+        entitlements::OverageBehavior::Block { grace_period_pct } => {
+            (AtLimit::Deny, grace_period_pct.unwrap_or(0))
+        }
+    };
     let feature = env
         .store()
         .create_feature(
@@ -254,30 +262,43 @@ async fn cycle_limit_on(
                 name: format!("API calls {code}"),
                 code: code.to_string(),
                 description: None,
-                feature_type: FeatureType::Metered {
-                    metric_id: METRIC_BANDWIDTH,
-                },
-                entitlement: None,
+                kind: entitlements::FeatureKind::Limit(entitlements::LimitCountedBy::Events(
+                    METRIC_BANDWIDTH,
+                )),
+                unit: None,
+                level_type_id: None,
+                policy: Some(FeaturePolicy {
+                    at_limit,
+                    grace_pct,
+                    ..FeaturePolicy::default()
+                }),
+                default: None,
             },
         )
         .await
         .unwrap();
+    let value = GrantValue::Limit(LimitValue::Amount(Decimal::from(limit)));
     env.store()
-        .create_entitlement(entitlements::EntitlementNew {
-            tenant_id: TENANT_ID,
-            feature_id: feature.id,
-            entity,
-            value: entitlements::EntitlementValue::Metered {
-                limit: Some(Decimal::from(limit)),
-                reset_period: entitlements::ResetPeriod::BillingCycle,
-                overage_behavior,
-                thresholds: vec![],
-                enabled: true,
-                group_by: None,
+        .create_entitlement(
+            &Actor::System,
+            entitlements::EntitlementNew {
+                tenant_id: TENANT_ID,
+                entity,
+                resource_id: None,
+                spec: entitlements::EntitlementSpec::new(feature.id, value),
             },
-        })
+        )
         .await
         .unwrap();
+    // The fold keeps rows created by `now()`, which the runs travel back to.
+    diesel::sql_query(
+        "UPDATE entitlement SET created_at = '2025-01-01', lineage_created_at = '2025-01-01'
+         WHERE feature_id = $1",
+    )
+    .bind::<diesel::sql_types::Uuid, _>(feature.id.as_uuid())
+    .execute(&mut env.conn().await)
+    .await
+    .unwrap();
     feature.id
 }
 

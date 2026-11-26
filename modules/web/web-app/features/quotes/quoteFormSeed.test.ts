@@ -1,13 +1,17 @@
 import { create } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'vitest'
 
-import { DetailedQuoteSchema, QuoteComponentSchema } from '@/rpc/api/quotes/v1/models_pb'
+import {
+  DetailedQuoteSchema,
+  QuoteComponentSchema,
+  QuoteSchema,
+} from '@/rpc/api/quotes/v1/models_pb'
 import {
   SubscriptionFeeBillingPeriod,
   SubscriptionFeeSchema,
 } from '@/rpc/api/subscriptions/v1/models_pb'
 
-import { quoteToPriceComponentsState } from './quoteFormSeed'
+import { quoteToFormSeed, quoteToPriceComponentsState, quoteToTemplateSeed } from './quoteFormSeed'
 
 const rate = (value: string) =>
   create(SubscriptionFeeSchema, { fee: { case: 'rate', value: { rate: value } } })
@@ -28,5 +32,20 @@ describe('quoteToPriceComponentsState', () => {
     const seeded = JSON.stringify(quoteToPriceComponentsState(quote, []).components.extra)
     expect(seeded).toContain('"100"')
     expect(seeded).not.toContain('"80"')
+  })
+})
+
+describe('the resource a quote is for', () => {
+  const quote = create(DetailedQuoteSchema, {
+    quote: create(QuoteSchema, { customerId: 'c1', resourceId: 'r1' }),
+  })
+
+  it('is kept when the quote is edited', () => {
+    expect(quoteToFormSeed(quote, []).resourceId).toBe('r1')
+  })
+
+  it('is dropped when the quote seeds one for another deal', () => {
+    const seed = quoteToTemplateSeed(quote, [], { customerId: 'c2', planVersionIsActive: true })
+    expect(seed.resourceId).toBeUndefined()
   })
 })

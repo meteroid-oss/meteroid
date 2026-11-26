@@ -1,9 +1,6 @@
 import { skipToken, useMutation } from '@connectrpc/connect-query'
 import {
   Button,
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -22,7 +19,6 @@ import {
   ChevronLeftIcon,
   Clock,
   ExternalLink,
-  InfoIcon,
   Pencil,
   Plus,
   SlidersHorizontal,
@@ -41,7 +37,7 @@ import { walletTitle } from '@/features/credit/format'
 import { paymentMethodLabel } from '@/features/credit/paymentMethods'
 import { CustomPropertyValue } from '@/features/customproperties/CustomPropertyValue'
 import { useCustomPropertyRows } from '@/features/customproperties/useCustomPropertyRows'
-import { EffectiveEntitlementsCard } from '@/features/entitlements/customer/EffectiveEntitlementsCard'
+import { useResourceTypes } from '@/features/resources/hooks'
 import {
   IntegrationType,
   SyncSubscriptionModal,
@@ -50,8 +46,10 @@ import { CancelSubscriptionModal } from '@/features/subscriptions/CancelSubscrip
 import { EditSubscriptionModal } from '@/features/subscriptions/EditSubscriptionModal'
 import { FeatureUsageList, byUsage } from '@/features/subscriptions/FeatureUsageList'
 import { SlotTransactionsModal } from '@/features/subscriptions/SlotTransactionsModal'
+import { SubscribedForDetail, SubscribedForWarnings } from '@/features/subscriptions/SubscribedFor'
 import { SubscriptionAttention } from '@/features/subscriptions/SubscriptionAttention'
 import { SubscriptionCreditSummary } from '@/features/subscriptions/SubscriptionCreditSummary'
+import { SubscriptionEntitlementsCard } from '@/features/subscriptions/SubscriptionEntitlementsCard'
 import { SubscriptionInvoicesTable } from '@/features/subscriptions/SubscriptionInvoicesTable'
 import { SubscriptionMinimumProgress } from '@/features/subscriptions/SubscriptionMinimumProgress'
 import { SubscriptionNextInvoice } from '@/features/subscriptions/SubscriptionNextInvoice'
@@ -59,11 +57,6 @@ import { SubscriptionPricingTerms } from '@/features/subscriptions/SubscriptionP
 import { SubscriptionSectionCard } from '@/features/subscriptions/SubscriptionSectionCard'
 import { useSubscriptionUsage } from '@/features/subscriptions/SubscriptionUsageSection'
 import { UpdateSlotModal } from '@/features/subscriptions/UpdateSlotModal'
-import {
-  USAGE_FILTER_NONE_HELP,
-  formatUsageFilter,
-  formatUsageFilterSince,
-} from '@/features/subscriptions/UsageFilterFields'
 import { invalidateSubscriptionBilling } from '@/features/subscriptions/invalidateSubscriptionBilling'
 import {
   issueDay,
@@ -91,7 +84,6 @@ import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsSer
 import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
-import { getEffectiveEntitlements } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import { PlanType } from '@/rpc/api/plans/v1/models_pb'
 import {
   getPlanWithVersionByVersionId,
@@ -358,6 +350,7 @@ export const Subscription = () => {
   const navigate = useNavigate()
   const basePath = useBasePath()
   const isExpress = useIsExpressOrganization()
+  const { hasTypes: hasResourceTypes } = useResourceTypes()
   const { has } = usePermissions()
   const canManageSubscriptions = has('billing:subscriptions:manage')
   const canManageCredit = has('billing:invoices:manage')
@@ -434,11 +427,6 @@ export const Subscription = () => {
     customerId
       ? { customerId, status: LIVE_STATUSES, pagination: { perPage: 20, page: 0 } }
       : skipToken
-  )
-  const entitlementsQuery = useQuery(
-    getEffectiveEntitlements,
-    { customerId: customerId ?? '' },
-    { enabled: env.entitlementsEnabled && Boolean(customerId) }
   )
 
   const fees = useMemo<PricedFee[]>(
@@ -621,7 +609,6 @@ export const Subscription = () => {
 
   const planFeatures = byUsage(usageQuery.data?.usage ?? [])
   const showUsageLimits = live && planFeatures.length > 0
-  const entitlementCount = entitlementsQuery.data?.entitlements.length ?? 0
   const refetchAll = () => {
     void invalidateSubscriptionBilling(queryClient, data.id)
   }
@@ -700,7 +687,7 @@ export const Subscription = () => {
       {showEditModal && (
         <EditSubscriptionModal
           subscription={data}
-          usageFilterEditable={!ended && metricIds.length > 0}
+          resourceEditable={!data.activatedAt && !ended}
           onClose={() => setShowEditModal(false)}
           onSuccess={refetchAll}
         />
@@ -873,16 +860,13 @@ export const Subscription = () => {
           subscription={data}
           pendingEvents={details.pendingEvents}
           wallets={wallets}
-          featureUsage={live ? planFeatures : []}
           firstInvoiceAmount={trialing ? upcoming?.amountDue : undefined}
           hasPaymentMethod={Boolean(currentPaymentMethod)}
-          freePlan={isFreePlan}
           canManageSubscription={canManageSubscriptions && canAct}
           canManageWallets={canManageWallets}
           onAddCredit={wallet => setWalletAction({ action: 'add', wallet })}
           onConfigureWallet={wallet => setWalletAction({ action: 'configure', wallet })}
           onEditBilling={() => setShowEditModal(true)}
-          onChangePlan={() => navigate('change-plan')}
           onRefetch={refetchAll}
         />
 
@@ -935,6 +919,7 @@ export const Subscription = () => {
             <div className="flex flex-col gap-4 p-4">
               <FeatureUsageList
                 usage={planFeatures}
+                customerId={data.customerId}
                 elapsedPct={usageQuery.data?.cycle?.elapsedPct}
                 freeTrialEnd={freeTrialEnd}
               />
@@ -977,21 +962,8 @@ export const Subscription = () => {
           />
         )}
 
-        {env.entitlementsEnabled && entitlementCount > 0 && (
-          <Collapsible className="mb-6 rounded-lg border border-border bg-card shadow-sm">
-            <CollapsibleTrigger className="group flex w-full items-center justify-between p-4 text-left">
-              <h3 className="text-md font-medium text-foreground">
-                Entitlements · {entitlementCount} {entitlementCount === 1 ? 'feature' : 'features'}
-              </h3>
-              <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
-            </CollapsibleTrigger>
-            <CollapsibleContent className="border-t border-border p-4">
-              <EffectiveEntitlementsCard
-                customerId={data.customerId}
-                currentSubscriptionId={data.id}
-              />
-            </CollapsibleContent>
-          </Collapsible>
+        {env.entitlementsEnabled && (
+          <SubscriptionEntitlementsCard subscriptionId={data.id} canEdit={has('catalog:manage') && !ended} />
         )}
 
         {OpenModuleDialog && (
@@ -1094,31 +1066,17 @@ export const Subscription = () => {
             <DetailRow label="Invoice Threshold" value={data.invoiceThreshold} />
           )}
           {data.purchaseOrder && <DetailRow label="Purchase Order" value={data.purchaseOrder} />}
-          <DetailRow
-            label="Usage filter"
-            value={
-              data.usageFilter ? (
-                <span className="flex flex-col items-end">
-                  <span className="font-mono break-all">{formatUsageFilter(data.usageFilter)}</span>
-                  {data.usageFilterEffectiveFrom && (
-                    <span className="text-xs font-normal text-muted-foreground">
-                      Since {formatUsageFilterSince(data.usageFilterEffectiveFrom)}
-                    </span>
-                  )}
-                </span>
-              ) : (
-                <span className="flex items-center gap-1.5">
-                  None
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <InfoIcon className="h-3.5 w-3.5 cursor-help text-muted-foreground" />
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-80">{USAGE_FILTER_NONE_HELP}</TooltipContent>
-                  </Tooltip>
-                </span>
-              )
-            }
-          />
+          {(hasResourceTypes || data.resourceId) && (
+            <DetailRow label="Subscribed for" value={<SubscribedForDetail subscription={data} />} />
+          )}
+          {details && (
+            <SubscribedForWarnings
+              subscription={data}
+              warnings={details.warnings}
+              metricsNotAttributed={details.metricsNotAttributed}
+              plan={planVersionQuery.data?.plan?.plan}
+            />
+          )}
         </DetailSection>
 
         <DetailSection title="Integrations">

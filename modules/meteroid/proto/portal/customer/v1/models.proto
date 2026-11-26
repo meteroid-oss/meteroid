@@ -53,8 +53,11 @@ message SubscriptionSummary {
   optional string pending_cancellation_date = 13;
   meteroid.portal.subscription.v1.PlanPrice plan_price = 14;
   optional string plan_description = 15;
-  // Tells two subscriptions to one plan apart: the events each bills.
-  optional api.subscriptions.v1.UsageFilter usage_filter = 16;
+  reserved 16;
+  // Tells two subscriptions to one plan apart: the resource each is for.
+  optional string resource_id = 17;
+  // The resource's display name, else its key value.
+  optional string resource_name = 18;
 }
 
 message InvoiceSummary {
@@ -110,6 +113,8 @@ message UsageLimitStatus {
   bool warning = 13;
   // The unit of the limited metric, when it names one; `limit` and usage are in it.
   optional meteroid.api.billablemetrics.v1.MetricUnitLabel unit_label = 14;
+  // Usage could not be read for now: `groups` and `breakdown` are empty.
+  bool usage_unavailable = 15;
 }
 
 message LimitGroupUsage {

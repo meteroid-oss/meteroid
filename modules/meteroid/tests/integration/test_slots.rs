@@ -101,16 +101,21 @@ async fn test_slot_transactions_comprehensive_next() {
     test_mixed_pending_and_active(&services, &store).await;
 }
 
-/// A metered feature's limit counted per seat is the entitlement's times the seats held.
+/// A metered feature's limit counted per seat is the entitlement's times the seats held, alike in
+/// the subscription's readout, the check, its explain (the amount per seat, the seats) and the
+/// snapshot.
 /// Rules: R-133
 #[tokio::test]
 async fn a_feature_limit_counts_per_seat_held() {
+    use common_domain::ids::AliasOr;
+    use meteroid_store::domain::entitlement_checks::{CheckRequest, SnapshotRead};
+    use meteroid_store::domain::entitlement_fold::{GrantValue, LimitValue, Tier};
     use meteroid_store::domain::entitlements::{
-        EntitlementValue, FeatureNew, FeatureType, OverageBehavior, ResetPeriod,
-        ResolvedEntitlementValue,
+        EffectiveEntitlementValue, FeatureKind, FeatureNew, LimitCountedBy,
     };
+    use meteroid_store::domain::resources::ResourceInput;
     use meteroid_store::repositories::ManagedQuantitiesInterface;
-    use meteroid_store::repositories::entitlements::{EntitlementsInterface, ResolveTarget};
+    use meteroid_store::repositories::entitlements::EntitlementsInterface;
 
     helpers::init::logging();
     let postgres_connection_string =
@@ -140,15 +145,11 @@ async fn a_feature_limit_counts_per_seat_held() {
                 name: "API calls".to_string(),
                 code: "api_calls".to_string(),
                 description: None,
-                feature_type: FeatureType::metered(METRIC_BANDWIDTH),
-                entitlement: Some(EntitlementValue::Metered {
-                    limit: Some(Decimal::from(1000)),
-                    reset_period: ResetPeriod::BillingCycle,
-                    overage_behavior: OverageBehavior::Allow,
-                    thresholds: vec![],
-                    enabled: true,
-                    group_by: None,
-                }),
+                kind: FeatureKind::Limit(LimitCountedBy::Events(METRIC_BANDWIDTH)),
+                unit: None,
+                level_type_id: None,
+                policy: None,
+                default: Some(GrantValue::Limit(LimitValue::Amount(Decimal::from(1000)))),
             },
         )
         .await
@@ -163,19 +164,14 @@ async fn a_feature_limit_counts_per_seat_held() {
         .expect("the seats' quantity");
 
     let limit = || async {
-        let mut conn = store.get_conn().await.expect("conn");
-        store
-            .resolve_entitlements_for_entity(
-                &mut conn,
-                TENANT_ID,
-                ResolveTarget::Subscription(subscription_id),
-            )
+        services
+            .get_effective_entitlements_for_subscription(subscription_id, TENANT_ID)
             .await
             .expect("entitlements")
             .into_iter()
             .find(|entitlement| entitlement.feature.id == feature)
             .and_then(|entitlement| match entitlement.value {
-                ResolvedEntitlementValue::Metered { limit, .. } => limit,
+                EffectiveEntitlementValue::Metered { limit, .. } => limit,
                 _ => None,
             })
     };
@@ -190,6 +186,53 @@ async fn a_feature_limit_counts_per_seat_held() {
         Some(Decimal::from(20_000)),
         "1000 for each of 20 seats"
     );
+    let amount = |n: i64| GrantValue::Limit(LimitValue::Amount(Decimal::from(n)));
+    let checked = store
+        .check_entitlement(
+            TENANT_ID,
+            CUST_UBER_ID,
+            AliasOr::Id(feature),
+            CheckRequest {
+                explain: true,
+                ..CheckRequest::default()
+            },
+        )
+        .await
+        .expect("checked");
+    assert_eq!(checked.value, Some(amount(20_000)), "{checked:?}");
+    assert_eq!(checked.levels[0].limit, Some(Decimal::from(20_000)));
+    let explained = checked.levels[0].explain.as_ref().expect("explained");
+    let default = explained
+        .contributions
+        .iter()
+        .find(|c| c.tier == Tier::Default)
+        .expect("the default's contribution");
+    assert_eq!(
+        (&default.value, default.units, &default.running),
+        (&amount(1000), Some(20), &Some(amount(20_000))),
+        "the amount per seat, the seats held, their product"
+    );
+    let SnapshotRead::Modified(snapshot) = store
+        .entitlement_snapshot(TENANT_ID, CUST_UBER_ID, &ResourceInput::default(), None)
+        .await
+        .expect("the snapshot")
+    else {
+        panic!("a first read is modified");
+    };
+    let read = snapshot
+        .features
+        .iter()
+        .find(|f| f.feature.id == feature)
+        .expect("in the snapshot");
+    assert_eq!(read.value, Some(amount(20_000)));
+    assert_eq!(
+        read.levels[0]
+            .origin
+            .as_ref()
+            .and_then(|origin| origin.units),
+        Some(20)
+    );
+
     let listed = store
         .list_managed_quantities(TENANT_ID)
         .await
@@ -204,6 +247,119 @@ async fn a_feature_limit_counts_per_seat_held() {
         .await
         .expect("counted per subscription again");
     assert_eq!(limit().await, Some(Decimal::from(1000)));
+}
+
+/// A limit counted by the app counts per seat as well: the grant scales whatever counts the usage.
+/// Only a limit counts per unit of a quantity: a switch is refused.
+/// Rules: R-133
+#[tokio::test]
+async fn a_limit_counted_by_the_app_counts_per_seat_and_a_switch_does_not() {
+    use common_domain::ids::AliasOr;
+    use meteroid_store::domain::entitlement_checks::CheckRequest;
+    use meteroid_store::domain::entitlement_fold::{GrantValue, LimitValue};
+    use meteroid_store::domain::entitlements::{FeatureKind, FeatureNew, LimitCountedBy};
+    use meteroid_store::errors::StoreError;
+    use meteroid_store::repositories::ManagedQuantitiesInterface;
+    use meteroid_store::repositories::entitlements::EntitlementsInterface;
+
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
+    let setup = meteroid_it::container::start_meteroid_with_clients(
+        postgres_connection_string,
+        SeedLevel::PLANS,
+        Arc::new(MockUsageClient::noop()),
+        Arc::new(MockMailerService::new()),
+    )
+    .await;
+    let (services, store) = (setup.services.clone(), setup.store.clone());
+    create_subscription_with_slots(
+        &services,
+        Decimal::from_str("12.00").unwrap(),
+        Some(1),
+        Some(100),
+        20,
+    )
+    .await;
+    let feature = |code: &str, kind, default| FeatureNew {
+        tenant_id: TENANT_ID,
+        product_id: Some(PRODUCT_SEATS_ID),
+        name: code.to_string(),
+        code: code.to_string(),
+        description: None,
+        kind,
+        unit: None,
+        level_type_id: None,
+        policy: None,
+        default,
+    };
+    let projects = store
+        .create_feature(
+            common_domain::actor::Actor::System,
+            feature(
+                "projects",
+                FeatureKind::Limit(LimitCountedBy::App),
+                Some(GrantValue::Limit(LimitValue::Amount(Decimal::from(5)))),
+            ),
+        )
+        .await
+        .expect("a limit counted by the app")
+        .id;
+    let sso = store
+        .create_feature(
+            common_domain::actor::Actor::System,
+            feature("sso", FeatureKind::Boolean, Some(GrantValue::Boolean(true))),
+        )
+        .await
+        .expect("a switch")
+        .id;
+    let seats = store
+        .list_managed_quantities(TENANT_ID)
+        .await
+        .expect("quantities")
+        .into_iter()
+        .find(|quantity| quantity.code == SLOT_UNIT)
+        .expect("the seats' quantity");
+
+    store
+        .set_feature_limit_quantity(TENANT_ID, projects, Some(seats.id))
+        .await
+        .expect("counted per seat");
+    let checked = store
+        .check_entitlement(
+            TENANT_ID,
+            CUST_UBER_ID,
+            AliasOr::Id(projects),
+            CheckRequest {
+                current_count: Some(Decimal::from(99)),
+                ..CheckRequest::default()
+            },
+        )
+        .await
+        .expect("checked");
+    assert_eq!(
+        checked.value,
+        Some(GrantValue::Limit(LimitValue::Amount(Decimal::from(100)))),
+        "5 for each of 20 seats: {checked:?}"
+    );
+    assert!(checked.allowed, "99 of 100 used: {checked:?}");
+
+    let refused = store
+        .set_feature_limit_quantity(TENANT_ID, sso, Some(seats.id))
+        .await
+        .expect_err("a switch counts nothing per seat");
+    assert!(
+        matches!(refused.current_context(), StoreError::InvalidArgument(m) if m.contains("only a limit")),
+        "{refused:?}"
+    );
+    let listed = store
+        .list_managed_quantities(TENANT_ID)
+        .await
+        .expect("quantities")
+        .into_iter()
+        .find(|quantity| quantity.id == seats.id)
+        .expect("the seats' quantity");
+    assert_eq!(listed.per_unit_features, vec![projects]);
 }
 
 /// A seat quantity's policies decide when a change takes effect: a decrease at once is out of
@@ -1494,7 +1650,7 @@ fn seats_at_custom_price(
             backdate_invoices: false,
             skip_checkout_session: false,
             skip_past_invoices: false,
-            usage_filter: None,
+            resource_id: None,
             custom_properties: serde_json::Value::Null,
             external_id: None,
         },

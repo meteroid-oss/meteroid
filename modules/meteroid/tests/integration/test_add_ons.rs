@@ -167,8 +167,8 @@ async fn test_add_ons_basic() {
 async fn test_add_on_skips_archived_feature_entitlement() {
     use api::entitlements::v1::{
         CreateFeatureRequest, EntitlementEntity, EntitlementSpec, EntitlementValue, FeatureStatus,
-        FeatureType, ListEntitlementsByEntityRequest, SetFeatureStatusRequest, entitlement_entity,
-        entitlement_value, feature_type,
+        ListEntitlementsByEntityRequest, SetFeatureStatusRequest, entitlement_entity,
+        entitlement_value,
     };
 
     helpers::init::logging();
@@ -193,12 +193,9 @@ async fn test_add_on_skips_archived_feature_entitlement() {
             code: "archived-for-add-on".into(),
             description: None,
             product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Boolean(
-                    feature_type::BooleanFeature {},
-                )),
-            }),
+            kind: api::entitlements::v1::FeatureKind::Boolean.into(),
             entitlement: None,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -259,6 +256,7 @@ async fn test_add_on_skips_archived_feature_entitlement() {
                         entitlement_value::BooleanValue { enabled: true },
                     )),
                 }),
+                ..Default::default()
             }],
             fee_structure: None,
         })

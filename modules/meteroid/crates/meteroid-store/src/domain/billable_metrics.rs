@@ -4,7 +4,7 @@ use chrono::NaiveDateTime;
 use std::collections::HashMap;
 
 use crate::json_value_serde;
-use common_domain::ids::{BillableMetricId, ProductFamilyId, ProductId, TenantId};
+use common_domain::ids::{BillableMetricId, ProductFamilyId, ProductId, ResourceTypeId, TenantId};
 use diesel_models::billable_metrics::{BillableMetricMetaRow, BillableMetricRow};
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
@@ -40,6 +40,9 @@ pub struct BillableMetric {
     pub tenant_id: TenantId,
     pub product_family_id: ProductFamilyId,
     pub product_id: Option<ProductId>,
+    /// `None`: attributed to the customer only; see [`BillableMetric::attribution`].
+    pub attributed_to_type_id: Option<ResourceTypeId>,
+    pub attribution_property: Option<String>,
     /// The events of the customer the metric counts when read for a subscription.
     #[ghost({crate::domain::usage_attribution::UsageScope::default()})]
     pub usage_scope: crate::domain::usage_attribution::UsageScope,
@@ -47,6 +50,23 @@ pub struct BillableMetric {
     /// filtering on their values.
     #[ghost({Vec::new()})]
     pub rated_dimensions: Vec<String>,
+}
+
+/// A metric attributed to a resource type: an event's resource is read from `property`, else
+/// from the first of the type's keys the event has, canonical first (§3.6).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MetricAttribution {
+    pub type_id: ResourceTypeId,
+    pub property: Option<String>,
+}
+
+impl BillableMetric {
+    pub fn attribution(&self) -> Option<MetricAttribution> {
+        self.attributed_to_type_id.map(|type_id| MetricAttribution {
+            type_id,
+            property: self.attribution_property.clone(),
+        })
+    }
 }
 
 /// What metering aggregates for a metric: a saved billable metric, or a draft from the editor.
@@ -232,6 +252,8 @@ pub struct BillableMetricNew {
     pub tenant_id: TenantId,
     pub product_family_id: ProductFamilyId,
     pub product_id: Option<ProductId>,
+    /// `None`: the customer only.
+    pub attributed_to: Option<MetricAttribution>,
 }
 
 #[derive(Clone, Debug)]
@@ -244,6 +266,8 @@ pub struct BillableMetricUpdate {
     pub filters: Option<Option<MetricFilters>>,
     pub unit_label: Option<Option<MetricUnitLabel>>,
     pub usage_breakdown_key: Option<Option<String>>,
+    /// `Some(None)`: back to the customer only. Applies to unfinalized periods.
+    pub attributed_to: Option<Option<MetricAttribution>>,
 }
 
 #[derive(Clone, Debug, o2o)]
@@ -268,6 +292,17 @@ pub struct BillableMetricMeta {
     pub unit_plural: Option<String>,
     pub created_at: NaiveDateTime,
     pub archived_at: Option<NaiveDateTime>,
+    pub attributed_to_type_id: Option<ResourceTypeId>,
+    pub attribution_property: Option<String>,
+}
+
+impl BillableMetricMeta {
+    pub fn attribution(&self) -> Option<MetricAttribution> {
+        self.attributed_to_type_id.map(|type_id| MetricAttribution {
+            type_id,
+            property: self.attribution_property.clone(),
+        })
+    }
 }
 
 pub const MAX_UNIT_LABEL_LEN: usize = 32;

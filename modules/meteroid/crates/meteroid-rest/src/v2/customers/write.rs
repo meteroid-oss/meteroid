@@ -5,6 +5,7 @@ use super::model::{
     Customer, CustomerInput, PortalToken, PortalTokenInput, ShippingAddress, UpdateCustomer,
 };
 use super::read::render;
+use super::resources::resource_input;
 use crate::AppState;
 use crate::auth::DelegatedCredentials;
 use crate::v2::extract::{Body, Path};
@@ -22,8 +23,8 @@ use http::StatusCode;
 use meteroid_store::domain::{self, CustomerNew, CustomerUpdate};
 use meteroid_store::errors::StoreError;
 use meteroid_store::jwt_claims::default_customer_portal_token_ttl;
-use meteroid_store::repositories::CustomersInterface;
 use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
+use meteroid_store::repositories::{CustomersInterface, ResourcesInterface};
 use std::str::FromStr;
 
 /// The customer written, as v2 reads it; as the store returned it when it cannot be read back
@@ -459,6 +460,20 @@ pub async fn create_portal_token(
         ));
     }
     let customer = ids::customer(&state, auth.tenant_id, &id_or_alias).await?;
+    let claims = resource_input(
+        &state,
+        auth.tenant_id,
+        customer.id,
+        input.resource.as_ref(),
+        input.attributes,
+        "/resource",
+    )
+    .await?;
+    state
+        .store
+        .resolve_resource_input(auth.tenant_id, customer.id, &claims)
+        .await
+        .map_err(|error| Problem::at("/attributes", error))?;
     let issued = state
         .store
         .customer_portal_token(
@@ -469,6 +484,7 @@ pub async fn create_portal_token(
                 .scopes
                 .map(|scopes| scopes.into_iter().map(Into::into).collect()),
             delegated.is_some(),
+            claims.into(),
         )
         .await?;
     let expires_at = issued.expires_at.ok_or_else(Problem::internal)?;

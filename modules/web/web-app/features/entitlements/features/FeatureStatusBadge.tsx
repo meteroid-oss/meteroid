@@ -9,7 +9,23 @@ interface Props {
 
 export const FeatureStatusBadge = ({ status }: Props) =>
   match(status)
-    .with(FeatureStatus.ACTIVE, () => <Badge variant="success">Active</Badge>)
-    .with(FeatureStatus.DISABLED, () => <Badge variant="warning">Disabled</Badge>)
-    .with(FeatureStatus.ARCHIVED, () => <Badge variant="ghost">Archived</Badge>)
-    .otherwise(() => <Badge variant="destructive">Unknown</Badge>)
+    .with(FeatureStatus.ACTIVE, () => (
+      <Badge variant="success" size="sm">
+        Active
+      </Badge>
+    ))
+    .with(FeatureStatus.DISABLED, () => (
+      <Badge variant="warning" size="sm">
+        Disabled
+      </Badge>
+    ))
+    .with(FeatureStatus.ARCHIVED, () => (
+      <Badge variant="ghost" size="sm">
+        Archived
+      </Badge>
+    ))
+    .otherwise(() => (
+      <Badge variant="destructive" size="sm">
+        Unknown
+      </Badge>
+    ))

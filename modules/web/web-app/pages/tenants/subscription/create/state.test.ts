@@ -5,7 +5,7 @@ import { PriceComponentSchema } from '@/rpc/api/pricecomponents/v1/models_pb'
 import { PriceSchema } from '@/rpc/api/prices/v1/models_pb'
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 
-import { effectiveSubscriptionPrices } from './state'
+import { effectiveSubscriptionPrices, resourceFor } from './state'
 
 const pack = (id: string, cadence: BillingPeriod, unitPrice: string) =>
   create(PriceSchema, {
@@ -32,5 +32,14 @@ describe('effectiveSubscriptionPrices', () => {
 
   it('counts nothing for a component whose price is still ambiguous', () => {
     expect(effectiveSubscriptionPrices([component], none, [], 'EUR')).toEqual([])
+  })
+})
+
+describe('resourceFor', () => {
+  it('keeps the URL resource for the URL customer only', () => {
+    expect(resourceFor('cus_a', {}, 'cus_a', 'res_1')).toBe('res_1')
+    expect(resourceFor('cus_b', {}, 'cus_a', 'res_1')).toBeUndefined()
+    expect(resourceFor('cus_b', { customerId: 'cus_a', resourceId: 'res_1' }, 'cus_a', 'res_1')).toBeUndefined()
+    expect(resourceFor('cus_a', { customerId: 'cus_a', resourceId: 'res_2' }, 'cus_a', 'res_1')).toBe('res_2')
   })
 })

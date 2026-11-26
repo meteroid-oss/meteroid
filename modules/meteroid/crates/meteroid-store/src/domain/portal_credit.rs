@@ -153,6 +153,8 @@ pub struct PortalUsageLimit {
     /// The limited metric's unit, when it names one.
     pub unit_singular: Option<String>,
     pub unit_plural: Option<String>,
+    /// Metering could not answer for the usage: `groups` and `breakdown` are empty.
+    pub usage_unavailable: bool,
 }
 
 /// What a subscription's recurring price is computed from, beyond its plan components.

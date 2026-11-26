@@ -4,17 +4,22 @@ use crate::domain::billable_metrics::{
 use crate::domain::entity_activity::Actor;
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{
-    BillableMetric, BillableMetricMeta, BillableMetricNew, MetricUnitLabel, PaginatedVec,
-    PaginationRequest,
+    BillableMetric, BillableMetricMeta, BillableMetricNew, MetricAttribution, MetricUnitLabel,
+    PaginatedVec, PaginationRequest,
 };
 use crate::errors::StoreError;
+use crate::repositories::subscriptions::usage_attribution::PricingSubscription;
 use crate::{Store, StoreResult, domain};
 use common_domain::identifiers::validate_code;
 use common_domain::ids::{BaseId, BillableMetricId, ProductFamilyId, TenantId};
 use common_eventbus::Event;
+use diesel::{ExpressionMethods, QueryDsl};
+use diesel_models::PgConn;
 use diesel_models::billable_metrics::{BillableMetricRow, BillableMetricRowNew};
+use diesel_models::customer_credit::CreditRecomputeMarkRow;
 use diesel_models::product_families::ProductFamilyRow;
-use error_stack::Report;
+use diesel_models::resources::ResourceTypeRow;
+use error_stack::{Report, bail};
 use scoped_futures::ScopedFutureExt;
 
 #[async_trait::async_trait]
@@ -223,7 +228,11 @@ impl BillableMetricInterface for Store {
         .map_err(Into::<Report<StoreError>>::into)?;
         crate::repositories::product_families::ensure_family_live(&family)?;
 
-        // TODO create product if None ?
+        if let Some(attribution) = &billable_metric.attributed_to {
+            validate_attribution(&mut conn, billable_metric.tenant_id, attribution).await?;
+        }
+        let (attributed_to_type_id, attribution_property) =
+            attribution_columns(billable_metric.attributed_to);
 
         let (unit_singular, unit_plural) = billable_metric
             .unit_label
@@ -265,6 +274,8 @@ impl BillableMetricInterface for Store {
             product_family_id: family.id,
             product_id: billable_metric.product_id,
             catalog_code: billable_metric.catalog_code,
+            attributed_to_type_id,
+            attribution_property,
         };
 
         let tenant_id = insertable_entity.tenant_id;
@@ -407,6 +418,11 @@ impl BillableMetricInterface for Store {
                 (Some(Some(singular)), Some(Some(plural)))
             }
         };
+        let attributed_to = update.attributed_to;
+        let (attributed_to_type_id, attribution_property) = attributed_to
+            .clone()
+            .map(attribution_columns)
+            .map_or((None, None), |(t, p)| (Some(t), Some(p)));
         let patch = BillableMetricRowPatch {
             name: update.name,
             description: update.description,
@@ -443,11 +459,31 @@ impl BillableMetricInterface for Store {
                 .usage_breakdown_key
                 .map(normalize_usage_breakdown_key),
             updated_at: Some(common_clock::now().naive_utc()),
+            attributed_to_type_id,
+            attribution_property,
         };
 
         self.transaction_bumping_tenant(tenant_id, |conn| {
             let actor = &actor;
+            let attributed_to = &attributed_to;
             async move {
+                if let Some(new) = attributed_to {
+                    let before: BillableMetric = BillableMetricRow::find_by_id(conn, id, tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)
+                        .and_then(TryInto::try_into)?;
+                    if let Some(attribution) = new {
+                        validate_attribution(conn, tenant_id, attribution).await?;
+                    }
+                    if before.attribution() != *new {
+                        let pricing = crate::repositories::subscriptions::usage_attribution::priced_for_a_resource(
+                            conn, tenant_id, id,
+                        )
+                        .await?;
+                        refuse_while_priced_for_a_resource(conn, tenant_id, &pricing).await?;
+                        mark_attribution_change(conn, tenant_id, &pricing).await?;
+                    }
+                }
                 let metric: BillableMetric = BillableMetricRow::update(conn, id, tenant_id, patch)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)
@@ -474,4 +510,153 @@ impl BillableMetricInterface for Store {
         })
         .await
     }
+}
+
+fn attribution_columns(
+    attribution: Option<MetricAttribution>,
+) -> (Option<common_domain::ids::ResourceTypeId>, Option<String>) {
+    attribution.map_or((None, None), |a| (Some(a.type_id), a.property))
+}
+
+pub(crate) const MAX_ATTRIBUTION_PROPERTY_LEN: usize = 256;
+
+/// The type exists and is not archived; a set property is a plain event property name.
+pub(crate) async fn validate_attribution(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    attribution: &MetricAttribution,
+) -> StoreResult<()> {
+    let resource_type = ResourceTypeRow::find_by_id(conn, tenant_id, attribution.type_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    if resource_type.archived_at.is_some() {
+        bail!(StoreError::InvalidArgument(format!(
+            "resource type {} is archived",
+            resource_type.code
+        )));
+    }
+    if let Some(property) = &attribution.property
+        && (property.trim().is_empty()
+            || property.trim() != property
+            || property.len() > MAX_ATTRIBUTION_PROPERTY_LEN)
+    {
+        bail!(StoreError::InvalidArgument(format!(
+            "the attribution property must be a non-blank name of at most \
+             {MAX_ATTRIBUTION_PROPERTY_LEN} bytes, without surrounding whitespace"
+        )));
+    }
+    Ok(())
+}
+
+/// A change would move usage between a subscription for a resource and its customer's other
+/// subscriptions over periods they already finalized, or that its own draft still bills.
+/// Attribution is not versioned: once one of them has an invoice, it is fixed (§3.6).
+async fn refuse_while_priced_for_a_resource(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    pricing: &[PricingSubscription],
+) -> StoreResult<()> {
+    use diesel_async::RunQueryDsl;
+    if pricing.iter().any(|s| s.live) {
+        bail!(StoreError::InvalidArgument(
+            "a subscription for a resource prices this metric, so its attribution can't change \
+             while one is live: create a new metric instead"
+                .to_owned()
+        ));
+    }
+    #[derive(diesel::QueryableByName)]
+    struct Invoices {
+        #[diesel(sql_type = diesel::sql_types::BigInt)]
+        invoices: i64,
+    }
+    let invoices = diesel::sql_query(
+        "SELECT count(*) AS invoices
+         FROM invoice i
+         LEFT JOIN invoice parent ON parent.id = i.consolidated_into_invoice_id
+         WHERE i.tenant_id = $1 AND i.subscription_id = ANY($2)
+           AND COALESCE(parent.status, i.status) <> 'VOID'",
+    )
+    .bind::<diesel::sql_types::Uuid, _>(tenant_id.as_uuid())
+    .bind::<diesel::sql_types::Array<diesel::sql_types::Uuid>, _>(
+        pricing.iter().map(|s| s.id.as_uuid()).collect::<Vec<_>>(),
+    )
+    .get_result::<Invoices>(conn)
+    .await
+    .map_err(|e| Report::new(StoreError::from(e)))?
+    .invoices;
+    if invoices > 0 {
+        bail!(StoreError::InvalidArgument(
+            "a subscription for a resource that priced this metric has invoiced it, or has an \
+             invoice in draft: its attribution can no longer change, create a new metric instead"
+                .to_owned()
+        ));
+    }
+    Ok(())
+}
+
+/// The drafts [`mark_attribution_change`] refreshes for `pricing`, counted with its filter.
+pub(crate) async fn attribution_drafts(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    pricing: &[PricingSubscription],
+) -> StoreResult<i64> {
+    use diesel_async::RunQueryDsl;
+    use diesel_models::schema::invoice::dsl as i;
+    let customers = pricing
+        .iter()
+        .map(|s| s.customer_id)
+        .collect::<std::collections::HashSet<_>>();
+    if customers.is_empty() {
+        return Ok(0);
+    }
+    i::invoice
+        .filter(i::tenant_id.eq(tenant_id))
+        .filter(i::status.eq(diesel_models::enums::InvoiceStatusEnum::Draft))
+        .filter(i::subscription_id.is_not_null())
+        .filter(i::consolidated_into_invoice_id.is_null())
+        .filter(i::customer_id.eq_any(customers.into_iter().collect::<Vec<_>>()))
+        .count()
+        .get_result(conn)
+        .await
+        .map_err(|e| Report::new(StoreError::from(e)))
+}
+
+/// A change of attribution moves usage of the customers whose subscriptions for a resource priced
+/// the metric: their credit projection is recomputed and their drafts refreshed by the draft worker.
+async fn mark_attribution_change(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    pricing: &[PricingSubscription],
+) -> StoreResult<()> {
+    use diesel_async::RunQueryDsl;
+    use diesel_models::schema::invoice::dsl as i;
+    let customers = pricing
+        .iter()
+        .map(|s| s.customer_id)
+        .collect::<std::collections::HashSet<_>>();
+    if customers.is_empty() {
+        return Ok(());
+    }
+    CreditRecomputeMarkRow::upsert_many(
+        conn,
+        &customers
+            .iter()
+            .map(|customer_id| (tenant_id, *customer_id))
+            .collect::<Vec<_>>(),
+    )
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?;
+    diesel::update(
+        i::invoice
+            .filter(i::tenant_id.eq(tenant_id))
+            .filter(i::status.eq(diesel_models::enums::InvoiceStatusEnum::Draft))
+            .filter(i::subscription_id.is_not_null())
+            .filter(i::consolidated_into_invoice_id.is_null())
+            .filter(i::customer_id.eq_any(customers.into_iter().collect::<Vec<_>>())),
+    )
+    .set(i::data_updated_at.eq(None::<chrono::NaiveDateTime>))
+    .execute(conn)
+    .await
+    .map_err(|e| Report::new(StoreError::from(e)))?;
+    Ok(())
 }

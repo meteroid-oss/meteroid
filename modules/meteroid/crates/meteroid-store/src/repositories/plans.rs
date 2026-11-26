@@ -23,7 +23,8 @@ use crate::repositories::plan_options::{
 };
 use crate::repositories::price_components::{attach_prices, resolve_component_internal};
 use common_domain::ids::{
-    BaseId, PlanId, PlanVersionId, PriceComponentId, ProductFamilyId, ProductId, TenantId,
+    BaseId, PlanId, PlanVersionId, PriceComponentId, ProductFamilyId, ProductId, ResourceTypeId,
+    TenantId,
 };
 use common_domain::ids::{EntitlementEntityId, PriceId};
 use common_eventbus::Event;
@@ -40,7 +41,7 @@ use diesel_models::prices::PriceRowNew;
 use diesel_models::product_families::ProductFamilyRow;
 use diesel_models::products::{ProductRow, ProductRowNew};
 use diesel_models::tenants::TenantRow;
-use error_stack::Report;
+use error_stack::{Report, bail};
 use meteroid_store_macros::with_conn_delegate;
 use rust_decimal::Decimal;
 use scoped_futures::ScopedFutureExt;
@@ -233,6 +234,48 @@ pub trait PlansInterface {
         plan_version_id: PlanVersionId,
         auth_tenant_id: TenantId,
     ) -> StoreResult<()>;
+}
+
+impl Store {
+    /// What the plan's subscriptions are for: a resource type, or `None` for the customer.
+    pub async fn set_plan_sold_for(
+        &self,
+        tenant_id: TenantId,
+        plan_id: PlanId,
+        resource_type_id: Option<ResourceTypeId>,
+    ) -> StoreResult<Plan> {
+        let mut conn = self.get_conn().await?;
+        set_sold_for(&mut conn, tenant_id, plan_id, resource_type_id).await
+    }
+}
+
+/// A plan sold for a type is checked against the tenant's types and can't carry across-all
+/// rows: customer-wide caps belong on customer-level plans and overrides (§3.5).
+pub(crate) async fn set_sold_for(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    plan_id: PlanId,
+    resource_type_id: Option<ResourceTypeId>,
+) -> StoreResult<Plan> {
+    if let Some(type_id) = resource_type_id {
+        diesel_models::resources::ResourceTypeRow::find_by_id(conn, tenant_id, type_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        let across_all = PlanRow::count_open_customer_level_rows(conn, tenant_id, plan_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        if across_all > 0 {
+            bail!(StoreError::InvalidArgument(
+                "a plan sold for a resource type can't carry rows across all resources: move \
+                 them to a customer-level plan or an override"
+                    .to_string()
+            ));
+        }
+    }
+    PlanRow::set_sold_for_resource_type(conn, tenant_id, plan_id, resource_type_id)
+        .await
+        .map(Into::into)
+        .map_err(Into::into)
 }
 
 /// Convert a FullPlanRow into a FullPlan with prices and products loaded.
@@ -500,6 +543,7 @@ impl PlansInterface for Store {
             price_components,
         } = full_plan;
         let version_entitlements = version.entitlements.clone();
+        let sold_for = plan.sold_for_resource_type_id;
 
         let product_family_row =
             ProductFamilyRow::find_by_id(&mut conn, plan.product_family_id, plan.tenant_id)
@@ -522,6 +566,9 @@ impl PlansInterface for Store {
                         .await
                         .map(Into::into)
                         .map_err(Into::<Report<StoreError>>::into)?;
+                    if sold_for.is_some() {
+                        set_sold_for(conn, inserted.tenant_id, inserted.id, sold_for).await?;
+                    }
 
                     let plan_version_to_insert: PlanVersionRowNew = PlanVersionNew {
                         tenant_id: inserted.tenant_id,
@@ -1320,14 +1367,33 @@ impl PlansInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
+                // Rows name their owner without a key: a draft's go with it.
+                if original.is_draft_version {
+                    EntitlementRow::delete_all_of_owner(
+                        conn,
+                        auth_tenant_id,
+                        EntitlementEntityId::PlanVersion(plan_version_id),
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                }
                 PlanVersionRow::delete_draft(conn, plan_version_id, auth_tenant_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
                 // only deletes if no versions left
-                PlanRow::delete(conn, plan_id, auth_tenant_id)
+                let plan_deleted = PlanRow::delete(conn, plan_id, auth_tenant_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
+                if plan_deleted > 0 {
+                    EntitlementRow::delete_all_of_owner(
+                        conn,
+                        auth_tenant_id,
+                        EntitlementEntityId::Plan(plan_id),
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                }
 
                 let activity = Activity::new(
                     ActivityType::PlanDraftDiscarded,
@@ -1857,6 +1923,13 @@ impl PlansInterface for Store {
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
+                        EntitlementRow::delete_all_of_owner(
+                            conn,
+                            tenant_id,
+                            EntitlementEntityId::PlanVersion(draft_id),
+                        )
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
                         PlanVersionRow::delete_draft(conn, draft_id, tenant_id)
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?;

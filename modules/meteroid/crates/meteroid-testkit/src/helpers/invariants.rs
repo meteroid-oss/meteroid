@@ -517,20 +517,19 @@ const CHECKS: &[(&str, &str)] = &[
          GROUP BY grant_id HAVING count(*) > 1",
     ),
     (
-        "D2 one live subscription per usage filter value",
-        "SELECT format('subscriptions %s and %s of customer %s both claim %s = %s', a.subscription_id,
-                       b.subscription_id, sa.customer_id, a.property, a.value) AS message
-         FROM subscription_usage_filter a
-         JOIN subscription_usage_filter b
-           ON b.tenant_id = a.tenant_id AND b.subscription_id > a.subscription_id
-          AND b.property = a.property AND b.value = a.value
-          AND a.effective_from < coalesce(b.effective_until, 'infinity')
-          AND b.effective_from < coalesce(a.effective_until, 'infinity')
-         JOIN subscription sa ON sa.id = a.subscription_id
-         JOIN subscription sb ON sb.id = b.subscription_id AND sb.customer_id = sa.customer_id
+        "D2 one live subscription per resource (R-145)",
+        "SELECT format('subscriptions %s and %s both sell resource %s', a.id, b.id, a.resource_id)
+                AS message
+         FROM subscription a
+         LEFT JOIN subscription_ending ae ON ae.subscription_id = a.id AND ae.kind = 'CANCEL'
+         JOIN subscription b
+           ON b.tenant_id = a.tenant_id AND b.resource_id = a.resource_id AND b.id > a.id
+         LEFT JOIN subscription_ending be ON be.subscription_id = b.id AND be.kind = 'CANCEL'
          WHERE a.tenant_id = $1
-           AND sa.status IN ('PENDING_ACTIVATION', 'TRIAL_ACTIVE', 'ACTIVE')
-           AND sb.status IN ('PENDING_ACTIVATION', 'TRIAL_ACTIVE', 'ACTIVE')",
+           AND a.start_date::timestamp < coalesce(least(b.end_date::timestamp, be.at), 'infinity')
+           AND b.start_date::timestamp < coalesce(least(a.end_date::timestamp, ae.at), 'infinity')
+           AND a.status IN ('PENDING_ACTIVATION', 'TRIAL_ACTIVE', 'ACTIVE')
+           AND b.status IN ('PENDING_ACTIVATION', 'TRIAL_ACTIVE', 'ACTIVE')",
     ),
     (
         "I22 a line's total is its taxable amount plus its tax",

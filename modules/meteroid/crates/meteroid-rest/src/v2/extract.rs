@@ -177,6 +177,20 @@ pub struct Path<T>(pub T);
 #[from_request(via(axum::extract::Query), rejection(Problem))]
 pub struct Query<T>(pub T);
 
+/// A merge patch's field `null` cannot clear (a name, a list a resource needs): refused at
+/// `path`; left out, it is unchanged.
+pub fn kept<T>(field: Option<Option<T>>, path: &str) -> Result<Option<T>, Problem> {
+    match field {
+        Some(None) => Err(Problem::field(
+            path,
+            "required",
+            "This field cannot be cleared",
+        )),
+        Some(Some(value)) => Ok(Some(value)),
+        None => Ok(None),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

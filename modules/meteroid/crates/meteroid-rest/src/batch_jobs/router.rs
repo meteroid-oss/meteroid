@@ -28,6 +28,7 @@ use meteroid_rest_common::model::PaginationExt;
         (status = 200, description = "List of batch jobs", body = BatchJobListResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -83,6 +84,7 @@ pub async fn list_batch_jobs(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Batch job not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -182,6 +184,7 @@ pub async fn get_batch_job(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Batch job not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
+        (status = 503, description = "Temporarily unavailable; retry shortly", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])

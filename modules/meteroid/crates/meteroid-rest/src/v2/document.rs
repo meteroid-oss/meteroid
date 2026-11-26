@@ -12,8 +12,8 @@
 //!   response.
 //! - Every operation answers `400`, `401` and `429` as problems (`components.responses`), the
 //!   `401` with its `WWW-Authenticate`, the `429` with the rate limit's headers.
-//! - Every POST but a preview carries `x-idempotency: required | optional`; every list paged by
-//!   cursor carries `x-pagination`.
+//! - Every POST but a preview and the entitlement check carries `x-idempotency: required |
+//!   optional`; every list paged by cursor carries `x-pagination`.
 //! - Every object a JSON body holds is closed (`additionalProperties: false`): the body extractor
 //!   refuses a field it does not have (`v2::extract`). One a response flattens (`allOf`) is left
 //!   open, as closing it would refuse the response's own fields.
@@ -26,7 +26,7 @@ use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Whether an operation takes an `Idempotency-Key`: `required` or `optional`. A GET, a PATCH, a
-/// PUT, a DELETE and a preview take none, and carry no such extension.
+/// PUT, a DELETE, a preview and the entitlement check take none, and carry no such extension.
 pub const IDEMPOTENCY_EXTENSION: &str = "x-idempotency";
 
 /// How a list is paged: the query parameter taking the cursor, the response fields giving the
@@ -34,8 +34,8 @@ pub const IDEMPOTENCY_EXTENSION: &str = "x-idempotency";
 pub const PAGINATION_EXTENSION: &str = "x-pagination";
 
 /// The operations refusing a request without an `Idempotency-Key` (`400
-/// idempotency_key_required`): the writes that can invoice, credit or record money, which a retry
-/// must never apply twice.
+/// idempotency_key_required`): the writes that can invoice, credit or record money, and the usage
+/// counted by the app, which a retry must never apply twice.
 pub const KEY_REQUIRED: &[&str] = &[
     "create_subscription",
     "change_plan",
@@ -49,6 +49,7 @@ pub const KEY_REQUIRED: &[&str] = &[
     "create_credit_note",
     "create_credit_grant",
     "create_top_up",
+    "report_entitlement_usage",
 ];
 
 /// Bodies v1 defines (and an edition's module shares with its v1 routes), published in v2 under
@@ -87,6 +88,7 @@ const KEY_ORDER: [&str; 6] = ["openapi", "info", "servers", "paths", "components
 pub fn finish(root: &mut Map<String, Value>) {
     rename_schemas(root);
     close_bodies(root);
+    drop_retired_event_types(root);
     root.insert("servers".to_owned(), servers());
     let paged = paged_lists(root);
     if let Some(paths) = root.get_mut("paths").and_then(Value::as_object_mut) {
@@ -116,6 +118,25 @@ pub fn finish(root: &mut Map<String, Value>) {
         }
     }
     root.extend(rest);
+}
+
+/// v1 event types v2 does not list: never emitted any more, refused on v2's writes.
+pub const RETIRED_EVENT_TYPES: [&str; 1] = ["entitlement.too_many_groups"];
+
+fn drop_retired_event_types(root: &mut Map<String, Value>) {
+    if let Some(values) = root
+        .get_mut("components")
+        .and_then(|components| components.get_mut("schemas"))
+        .and_then(|schemas| schemas.get_mut("EventType"))
+        .and_then(|event_type| event_type.get_mut("enum"))
+        .and_then(Value::as_array_mut)
+    {
+        values.retain(|value| {
+            !value
+                .as_str()
+                .is_some_and(|name| RETIRED_EVENT_TYPES.contains(&name))
+        });
+    }
 }
 
 /// Where the API is served; every path starts with `/api/v2`.
@@ -315,6 +336,7 @@ fn finish_operation(
     // OAuth's endpoints authenticate the client in the request: no key claims a key there.
     let keyed = method == "post"
         && !path.ends_with("/preview")
+        && !crate::v2::idempotency::reads_only(path)
         && !path.starts_with(crate::v2::OAUTH_PREFIX);
     let idempotency = keyed.then(|| {
         let id = operation
@@ -782,6 +804,11 @@ mod tests {
                 .into_iter()
                 .flatten()
                 .filter(|parameter| parameter["in"] == "header")
+                // A conditional read's `If-None-Match` is the caller's, per call: kept on it.
+                .filter(|parameter| {
+                    !(parameter["name"] == "If-None-Match"
+                        && operation["responses"].get("304").is_some())
+                })
                 .collect();
             assert!(headers.is_empty(), "{method} {path}: {headers:?}");
             for (status, response) in operation["responses"].as_object().expect("responses") {
@@ -830,6 +857,7 @@ mod tests {
             let taken = operation.get(IDEMPOTENCY_EXTENSION).and_then(Value::as_str);
             if *method != "post"
                 || path.ends_with("/preview")
+                || crate::v2::idempotency::reads_only(path)
                 || path.starts_with(crate::v2::OAUTH_PREFIX)
             {
                 assert_eq!(taken, None, "{method} {path}");
@@ -1078,8 +1106,13 @@ mod tests {
             "SlidingWindowReset",
             "BillingCycleReset",
             "NeverReset",
-            "BooleanEntitlement",
-            "ConfigEntitlement",
+            "OnValue",
+            "OffValue",
+            "LimitValue",
+            "UnlimitedValue",
+            "NumberValue",
+            "TextValue",
+            "JsonValue",
             "BooleanFeature",
             "CouponDuration",
             "CouponStatus",
@@ -1121,6 +1154,53 @@ mod tests {
         let mut sorted = names.clone();
         sorted.sort();
         assert_eq!(names, sorted, "schemas stay sorted");
+    }
+
+    /// Integrators read the v2 and client documents: none of the engine's own words, the v1
+    /// document's list and the entitlement engine's.
+    #[test]
+    fn the_documents_say_no_engine_jargon() {
+        let client = crate::client::client_api(utoipa::openapi::OpenApiBuilder::new().build()).1;
+        for (document, spec) in [
+            ("v2", published()),
+            ("client", crate::openapi::spec_json(&client)),
+        ] {
+            let published = serde_json::to_string(&spec).expect("a document");
+            for jargon in [
+                "live_balance",
+                "pending_usage",
+                "available_balance",
+                "available_usage_only",
+                "upcoming_grants",
+                "actor_id",
+                "Freshness SLO",
+                "bounded",
+                "overshoot",
+                "monitor",
+                "projection",
+                "watermark",
+                "quiesce",
+                "answer cache",
+                "metering backend",
+                "p95",
+                "overflow",
+                "fence",
+                "lineage",
+                "engine",
+                "readout",
+                "own level",
+                "resource_override",
+                "FeatureScope",
+                "PathLevel",
+                "RowLevel",
+                "PathResource",
+            ] {
+                assert!(
+                    !published.contains(jargon),
+                    "the {document} document says {jargon:?}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -85,6 +85,17 @@ BEGIN
     WHERE to_regclass(name) IS NOT NULL;
     EXECUTE 'LOCK TABLE ' || locked || ' IN ACCESS EXCLUSIVE MODE';
 END $$"#;
+// Nullable columns of entitlements v2 the conversion selects, added bare: that migration converts data
+// written in the final schema, so it cannot run before the conversion; it adds them `IF NOT EXISTS`.
+const COLUMNS_THE_CONVERSION_READS: &str = "
+    ALTER TABLE subscription ADD COLUMN IF NOT EXISTS resource_id UUID;
+    ALTER TABLE quote ADD COLUMN IF NOT EXISTS resource_id UUID;
+    ALTER TABLE checkout_session ADD COLUMN IF NOT EXISTS resource_id UUID;
+    ALTER TABLE plan ADD COLUMN IF NOT EXISTS sold_for_resource_type_id UUID;
+    ALTER TABLE billable_metric ADD COLUMN IF NOT EXISTS attributed_to_type_id UUID,
+        ADD COLUMN IF NOT EXISTS attribution_property TEXT;
+    ALTER TABLE subscription_component ADD COLUMN IF NOT EXISTS usage_from TIMESTAMPTZ;
+    ALTER TABLE subscription_add_on ADD COLUMN IF NOT EXISTS usage_from TIMESTAMPTZ;";
 const RELEASE_ATTEMPTS: u32 = 120;
 const RELEASE_RETRY: Duration = Duration::from_secs(5);
 
@@ -162,6 +173,7 @@ fn apply_release(
         let mut applied = apply(conn, |version| {
             version < RELEASE_LAST || READ_BY_THE_CONVERSION.contains(&version)
         })?;
+        conn.batch_execute(COLUMNS_THE_CONVERSION_READS)?;
         let conversion = runtime
             .block_on(
                 meteroid_store::services::facts::pending::write_pending_scheduled_changes(conn),

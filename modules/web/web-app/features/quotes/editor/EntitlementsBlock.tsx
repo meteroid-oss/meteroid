@@ -1,15 +1,15 @@
 import { Badge, Card, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@md/ui'
 import { ChevronRight } from 'lucide-react'
 
-import { PendingEntitlementsPanel } from '@/features/entitlements/pending/PendingEntitlementsPanel'
+import { SelectionGrantsEditor } from '@/features/entitlements/rows/DraftGrantsEditor'
 
-import type { PendingEntitlementSpec } from '@/features/entitlements/creation/types'
-import type { ComponentProps } from 'react'
+import type { SelectionInput } from '@/features/entitlements/resolved/useResolvedEntitlements'
+import type { GrantDraft } from '@/features/entitlements/rows/grantDraft'
 
 interface EntitlementsBlockProps {
-  selection: ComponentProps<typeof PendingEntitlementsPanel>['selection']
-  pending: PendingEntitlementSpec[]
-  onChange: (pending: PendingEntitlementSpec[]) => void
+  selection: SelectionInput
+  pending: GrantDraft[]
+  onChange: (pending: GrantDraft[]) => void
 }
 
 export const EntitlementsBlock = ({ selection, pending, onChange }: EntitlementsBlockProps) => (
@@ -27,12 +27,7 @@ export const EntitlementsBlock = ({ selection, pending, onChange }: Entitlements
         </span>
       </CollapsibleTrigger>
       <CollapsibleContent className="px-5 pb-5">
-        <PendingEntitlementsPanel
-          selection={selection}
-          pending={pending}
-          onChange={onChange}
-          entityLabel="quote"
-        />
+        <SelectionGrantsEditor selection={selection} drafts={pending} onChange={onChange} />
       </CollapsibleContent>
     </Collapsible>
   </Card>

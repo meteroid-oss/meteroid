@@ -128,6 +128,7 @@ async fn test_usage_series_and_event_paging_over_clickhouse() {
         .insert_billable_metric(
             Actor::System,
             BillableMetricNew {
+                attributed_to: None,
                 name: "Cost calls".to_owned(),
                 description: None,
                 code: CODE.to_owned(),

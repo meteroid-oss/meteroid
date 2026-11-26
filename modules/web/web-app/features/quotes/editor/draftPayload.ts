@@ -1,3 +1,4 @@
+import { decodeDrafts, encodeDrafts } from '@/features/entitlements/rows/grantDraft'
 import { emptyQuoteV2State, withLegacyDocument } from '@/features/quotes/editor/quoteV2'
 import { emptyPriceComponentsState } from '@/features/quotes/quoteFormSeed'
 
@@ -43,8 +44,9 @@ const decodeV2 = (v2: Partial<QuoteV2State> | undefined): QuoteV2State => {
   }
 }
 
+// Entitlement drafts hold protobuf messages: they're stored as their proto JSON.
 export const encodeSnapshot = (snapshot: QuoteFormSeed): string =>
-  JSON.stringify(snapshot, replacer)
+  JSON.stringify({ ...snapshot, pendingEntitlements: encodeDrafts(snapshot.pendingEntitlements) }, replacer)
 
 /** A snapshot from a payload of any age: what it lacks takes the editor's defaults. */
 export function decodeSnapshot(payload: string): QuoteFormSeed | undefined {
@@ -60,8 +62,9 @@ export function decodeSnapshot(payload: string): QuoteFormSeed | undefined {
       addOns: parsed.addOns ?? [],
       coupons: parsed.coupons ?? [],
       minimumCommitment: parsed.minimumCommitment,
-      pendingEntitlements: parsed.pendingEntitlements ?? [],
+      pendingEntitlements: decodeDrafts(parsed.pendingEntitlements),
       v2: { ...v2, sections: withLegacyDocument(v2.sections, overview, terms) },
+      resourceId: parsed.resourceId,
     }
   } catch {
     return undefined
@@ -85,6 +88,7 @@ export function toTemplatePayload(snapshot: QuoteFormSeed): unknown {
     ...snapshot,
     values,
     v2: { ...snapshot.v2, templateId: undefined, hubspotDealId: '' },
+    resourceId: undefined,
   }
   return JSON.parse(encodeSnapshot(template))
 }

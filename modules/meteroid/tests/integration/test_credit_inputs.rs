@@ -26,8 +26,9 @@ use diesel_models::errors::{DatabaseError, DatabaseErrorContainer};
 use diesel_models::products::ProductRowNew;
 use diesel_models::query::credit_inputs;
 use diesel_models::schema::sql_types::CreditInputChangeKindEnum;
+use meteroid_store::domain::entitlement_fold::GrantValue;
 use meteroid_store::domain::entitlements::{
-    EntitlementNew, EntitlementValue, FeatureNew, FeatureType,
+    EntitlementNew, EntitlementSpec, FeatureKind, FeatureNew,
 };
 use meteroid_store::domain::prices::MatrixPriceUpdate;
 use meteroid_store::domain::{CustomerPaymentMethodNew, PaymentMethodTypeEnum, SubscriptionPatch};
@@ -211,7 +212,7 @@ async fn customer_and_tenant_writers_bump_their_tokens() -> TestResult {
                     purchase_order: None,
                     payment_methods_config: None,
                     custom_properties: None,
-                    usage_filter: None,
+                    resource_id: None,
                 },
                 Actor::System,
             )
@@ -257,20 +258,26 @@ async fn customer_and_tenant_writers_bump_their_tokens() -> TestResult {
                 name: "Exports".to_owned(),
                 code: "exports".to_owned(),
                 description: None,
-                feature_type: FeatureType::Boolean,
-                entitlement: None,
+                kind: FeatureKind::Boolean,
+                unit: None,
+                level_type_id: None,
+                policy: None,
+                default: None,
             },
         )
         .await
         .map_err(test_error)?;
     expect_bump(&mut conn, "customer entitlement", uber, async {
         env.store()
-            .create_entitlement(EntitlementNew {
-                tenant_id: TENANT_ID,
-                feature_id: feature.id,
-                entity: EntitlementEntityId::Customer(CUST_UBER_ID),
-                value: EntitlementValue::Boolean { enabled: true },
-            })
+            .create_entitlement(
+                &Actor::System,
+                EntitlementNew {
+                    tenant_id: TENANT_ID,
+                    entity: EntitlementEntityId::Customer(CUST_UBER_ID),
+                    resource_id: None,
+                    spec: EntitlementSpec::new(feature.id, GrantValue::Boolean(true)),
+                },
+            )
             .await
             .map(|_| ())
             .map_err(test_error)

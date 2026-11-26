@@ -436,6 +436,17 @@ impl Services {
                         },
                     )
                     .await?;
+                    // A period's end already past (the controller behind): dated as a late change.
+                    if effective_date <= common_clock::now().date_naive() {
+                        crate::repositories::subscriptions::usage_attribution::settle_late_change(
+                            conn,
+                            tenant_id,
+                            subscription_id,
+                            effective_date,
+                            "The plan change",
+                        )
+                        .await?;
+                    }
                     self.derive_state_tx(
                         conn,
                         actor,
@@ -1592,6 +1603,14 @@ impl Services {
                 .clone()
                 .unwrap_or_else(|| prepared.subscription_details.subscription.period.into()),
             prepared.is_trial() && prepared.is_free_trial(),
+        )
+        .await?;
+        crate::repositories::subscriptions::usage_attribution::settle_late_change(
+            conn,
+            tenant_id,
+            subscription_id,
+            change_date,
+            "The plan change",
         )
         .await?;
 

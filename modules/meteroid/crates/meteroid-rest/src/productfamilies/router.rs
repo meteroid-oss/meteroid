@@ -29,6 +29,7 @@ use meteroid_store::repositories::ProductFamilyInterface;
         (status = 400, description = "Bad request"),
         (status = 401, description = "Unauthorized"),
         (status = 500, description = "Internal error"),
+        (status = 503, description = "Temporarily unavailable; retry shortly"),
     ),
     security(
         ("bearer_auth" = [])
@@ -82,6 +83,7 @@ pub async fn list_product_families(
         (status = 400, description = "Bad request"),
         (status = 401, description = "Unauthorized"),
         (status = 500, description = "Internal error"),
+        (status = 503, description = "Temporarily unavailable; retry shortly"),
     ),
     security(
         ("bearer_auth" = [])
@@ -122,6 +124,7 @@ pub async fn create_product_family(
         (status = 400, description = "Bad request"),
         (status = 401, description = "Unauthorized"),
         (status = 500, description = "Internal error"),
+        (status = 503, description = "Temporarily unavailable; retry shortly"),
     ),
     security(
         ("bearer_auth" = [])

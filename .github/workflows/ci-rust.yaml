@@ -240,6 +240,8 @@ jobs:
       - uses: actions/checkout@v6
       - name: Check every row lock is in an allowlisted function
         run: ./.github/scripts/check-lock-sites.sh
+      - name: Check every derived-state write is in an allowlisted function
+        run: ./.github/scripts/check-claim-sites.sh
 
   fact-writers:
     name: Fact writers

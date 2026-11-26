@@ -263,6 +263,11 @@ pub struct CustomerPortalTokenRequest {
     /// Use `["read"]` for tokens that only read billing state, e.g. to gate features in a browser.
     #[schema(min_items = 1)]
     pub scopes: Option<Vec<CustomerPortalScope>>,
+    /// The one resource the token's entitlement checks are for, by one of its type's keys, e.g.
+    /// `{"site_id": "s1"}`. The client API refuses any other; without it, the customer only.
+    pub resources: Option<std::collections::BTreeMap<String, String>>,
+    /// Attributes of that resource the token asserts, e.g. `{"site.environment": "staging"}`.
+    pub attributes: Option<std::collections::BTreeMap<String, String>>,
 }
 
 #[derive(ToSchema, serde::Serialize, serde::Deserialize)]

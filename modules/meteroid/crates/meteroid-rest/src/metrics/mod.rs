@@ -14,4 +14,5 @@ pub fn metric_routes() -> OpenApiRouter<AppState> {
         .routes(routes!(router::update_metric))
         .routes(routes!(router::archive_metric))
         .routes(routes!(router::unarchive_metric))
+        .routes(routes!(router::preview_metric_attribution))
 }

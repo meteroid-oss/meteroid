@@ -73,12 +73,14 @@ pub trait PricingPagesInterface {
         page: PlanPricingPage,
     ) -> StoreResult<PlanPricingPage>;
 
-    /// A plan's live fields (`patch`) and its copy (`page`) written together, in one
-    /// transaction: both or neither. A `patch` changing nothing is not written.
+    /// A plan's live fields (`patch`), what it is sold for (`sold_for`, `Some(None)` the
+    /// customer) and its copy (`page`) written together, in one transaction: all or none. A
+    /// `patch` changing nothing is not written.
     async fn update_plan_listing(
         &self,
         actor: crate::domain::entity_activity::Actor,
         patch: crate::domain::PlanPatch,
+        sold_for: Option<Option<common_domain::ids::ResourceTypeId>>,
         page: Option<PlanPricingPage>,
     ) -> StoreResult<()>;
 
@@ -699,6 +701,7 @@ impl PricingPagesInterface for Store {
         &self,
         actor: crate::domain::entity_activity::Actor,
         patch: crate::domain::PlanPatch,
+        sold_for: Option<Option<common_domain::ids::ResourceTypeId>>,
         page: Option<PlanPricingPage>,
     ) -> StoreResult<()> {
         use crate::domain::entity_activity::{Activity, ActivityType, AuditInput, EntityType};
@@ -717,30 +720,37 @@ impl PricingPagesInterface for Store {
         if patch.issues_license.is_some() {
             changed.push("issues_license");
         }
-        let changes_plan = !changed.is_empty() || patch.active_version_id.is_some();
+        let changes_row = !changed.is_empty() || patch.active_version_id.is_some();
+        if sold_for.is_some() {
+            changed.push("sold_for_resource_type_id");
+        }
         let (plan_id, tenant_id) = (patch.id, patch.tenant_id);
         let row_patch: diesel_models::plans::PlanRowPatch = patch.into();
         self.transaction(|conn| {
             let actor = &actor;
             async move {
-                if changes_plan {
+                if changes_row {
                     row_patch.update(conn).await?;
-                    if !changed.is_empty() {
-                        let activity = Activity::new(
-                            ActivityType::EntityUpdated,
-                            EntityType::Plan,
-                            plan_id.as_uuid(),
-                        )
-                        .with_metadata(serde_json::json!({
-                            "changes": changed
-                                .iter()
-                                .map(|field| serde_json::json!({ "field": field }))
-                                .collect::<Vec<_>>(),
-                        }));
-                        self.internal
-                            .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
-                            .await?;
-                    }
+                }
+                if let Some(sold_for) = sold_for {
+                    crate::repositories::plans::set_sold_for(conn, tenant_id, plan_id, sold_for)
+                        .await?;
+                }
+                if !changed.is_empty() {
+                    let activity = Activity::new(
+                        ActivityType::EntityUpdated,
+                        EntityType::Plan,
+                        plan_id.as_uuid(),
+                    )
+                    .with_metadata(serde_json::json!({
+                        "changes": changed
+                            .iter()
+                            .map(|field| serde_json::json!({ "field": field }))
+                            .collect::<Vec<_>>(),
+                    }));
+                    self.internal
+                        .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
+                        .await?;
                 }
                 if let Some(page) = page {
                     if page.plan_id != plan_id {

@@ -3,7 +3,7 @@ use crate::entitlements::model::Entitlement;
 use chrono::NaiveDate;
 use common_domain::ids::{
     AddOnId, AliasOr, AppliedCouponId, BankAccountId, BillableMetricId, CouponId, CreditUnitId,
-    CustomerId, PlanVersionId, PriceComponentId, PriceId, ProductId, ScheduledEventId,
+    CustomerId, PlanVersionId, PriceComponentId, PriceId, ProductId, ResourceId, ScheduledEventId,
     SubscriptionAddOnId,
 };
 use common_domain::ids::{PlanId, PlanOptionId, string_serde_opt, string_serde_vec_opt};
@@ -203,22 +203,25 @@ pub struct Subscription {
     /// User-defined custom property values, keyed by definition `key`.
     #[schema(value_type = serde_json::Value)]
     pub custom_properties: serde_json::Value,
-    /// The customer's events this subscription bills, when it does not bill all of them.
+    /// The stored resource it is for, fixed once active; absent for the whole customer.
+    #[serde(
+        with = "string_serde_opt",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub resource_id: Option<ResourceId>,
+    /// Deprecated, always empty: usage filters are replaced by `resource_id`.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(deprecated)]
     pub usage_filter: Option<UsageFilter>,
-    /// When the current usage filter, or its removal, started to apply: the start of the usage
-    /// neither this subscription nor the customer's others had invoiced when it was set.
+    /// Deprecated, always empty: usage filters are replaced by `resource_id`.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(deprecated)]
     pub usage_filter_effective_from: Option<ApiDateTime>,
 }
 
-/// Restricts the customer's usage events a subscription bills to those whose `property` equals
-/// `value` (for example `api_key` = `key-A`). Among the customer's subscriptions pricing the same
-/// metric, one with a usage filter bills the events matching it (an event two filters match goes
-/// to the older subscription); one without bills the events matching no other subscription's
-/// filter. Two subscriptions without a usage filter both bill every such event. Events matching
-/// no filter while every subscription pricing their metric has one are billed by none and
-/// reported as unattributed usage.
+/// Deprecated: usage filters are replaced by resources. A subscription for a resource
+/// (`resource_id`) bills the events of the metrics attributed to its type that carry its key.
 #[derive(Clone, ToSchema, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct UsageFilter {
     /// Event property name, e.g. `api_key`.
@@ -330,13 +333,31 @@ pub struct SubscriptionDetails {
     /// User-defined custom property values, keyed by definition `key`.
     #[schema(value_type = serde_json::Value)]
     pub custom_properties: serde_json::Value,
-    /// The customer's events this subscription bills, when it does not bill all of them.
+    /// The stored resource it is for: it bills the metrics attributed to that resource's type,
+    /// for the events carrying its key value. Absent for the whole customer.
+    #[serde(
+        with = "string_serde_opt",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub resource_id: Option<ResourceId>,
+    /// Deprecated, always empty: usage filters are replaced by `resource_id`.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(deprecated)]
     pub usage_filter: Option<UsageFilter>,
-    /// When the current usage filter, or its removal, started to apply: the start of the usage
-    /// neither this subscription nor the customer's others had invoiced when it was set.
+    /// Deprecated, always empty: usage filters are replaced by `resource_id`.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(deprecated)]
     pub usage_filter_effective_from: Option<ApiDateTime>,
+    /// What it is sold with as it stands, worth showing: `plan_sold_for_mismatch` (the plan is
+    /// sold for another target), `metric_not_attributed` (its resource never bills some metrics
+    /// it prices, listed in `metrics_not_attributed`).
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub warnings: Vec<String>,
+    /// With `metric_not_attributed`: the codes of the metrics it prices that are not attributed
+    /// to its resource's type, so it bills none of their usage.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub metrics_not_attributed: Vec<String>,
     /// Changes scheduled to apply later: cancellation, plan change or amendment.
     #[serde(default)]
     pub pending_events: Vec<PendingScheduledEvent>,
@@ -430,9 +451,12 @@ pub struct SubscriptionCreateRequest {
     /// tenant's subscription definitions.
     #[schema(nullable = false, value_type = Option<serde_json::Value>)]
     pub custom_properties: Option<serde_json::Value>,
-    /// Bill only the customer's events whose property has this value. Omit to bill the events
-    /// no usage filter of the customer's other subscriptions matches.
+    /// A stored resource of the customer to subscribe for. Omit for the whole customer.
     #[schema(nullable = false)]
+    #[serde(default, with = "string_serde_opt")]
+    pub resource_id: Option<ResourceId>,
+    /// Deprecated: usage filters are replaced by `resource_id`. Any value is refused with 400.
+    #[schema(nullable = false, deprecated)]
     pub usage_filter: Option<UsageFilter>,
     /// The plan option bought, by its alias (e.g. `annual`, as the plan names it) or id; one sold
     /// in the customer's currency. Omitted: the plan's default option sold in that currency, or
@@ -1361,14 +1385,23 @@ pub struct SubscriptionUpdateRequest {
     #[serde(default)]
     #[schema(value_type = Option<serde_json::Value>)]
     pub custom_properties: Option<serde_json::Value>,
-    /// Omit to leave the usage filter unchanged; `null` removes it; an object replaces it. The
-    /// change applies to all usage not yet invoiced, the current period included.
+    /// Omit to leave the resource unchanged; `null` subscribes for the whole customer. Only
+    /// before the subscription is active.
     #[serde(
         default,
         with = "::serde_with::rust::double_option",
         skip_serializing_if = "Option::is_none"
     )]
-    #[schema(value_type = Option<UsageFilter>)]
+    #[schema(value_type = Option<String>)]
+    pub resource_id: Option<Option<ResourceId>>,
+    /// Deprecated: usage filters are replaced by `resource_id`. An object is refused with 400;
+    /// `null` is accepted when the subscription is for the whole customer.
+    #[serde(
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(value_type = Option<UsageFilter>, deprecated)]
     pub usage_filter: Option<Option<UsageFilter>>,
 }
 

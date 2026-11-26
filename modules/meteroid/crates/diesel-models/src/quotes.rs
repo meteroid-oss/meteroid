@@ -7,8 +7,8 @@ use chrono::{NaiveDate, NaiveDateTime};
 use crate::customers::CustomerRow;
 use common_domain::ids::{
     CustomerId, InvoiceId, PlanVersionId, PriceComponentId, PriceId, ProductId, QuoteId,
-    QuotePriceComponentId, QuoteSignatureId, QuoteTemplateId, StoredDocumentId, SubscriptionId,
-    TenantId, UserId,
+    QuotePriceComponentId, QuoteSignatureId, QuoteTemplateId, ResourceId, StoredDocumentId,
+    SubscriptionId, TenantId, UserId,
 };
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
@@ -80,6 +80,7 @@ pub struct QuoteRow {
     pub last_sent_at: Option<NaiveDateTime>,
     /// The plan option sold, by alias.
     pub plan_option: Option<String>,
+    pub resource_id: Option<ResourceId>,
 }
 
 #[derive(Insertable, Debug)]
@@ -132,6 +133,7 @@ pub struct QuoteRowNew {
     pub allow_change_requests: bool,
     pub allow_decline: bool,
     pub plan_option: Option<String>,
+    pub resource_id: Option<ResourceId>,
 }
 
 #[derive(Debug, AsChangeset, Default)]
@@ -226,6 +228,7 @@ pub struct QuoteRowReplace {
     pub allow_change_requests: bool,
     pub allow_decline: bool,
     pub plan_option: Option<String>,
+    pub resource_id: Option<ResourceId>,
 }
 
 impl From<QuoteRowNew> for QuoteRowReplace {
@@ -270,6 +273,7 @@ impl From<QuoteRowNew> for QuoteRowReplace {
             allow_change_requests: row.allow_change_requests,
             allow_decline: row.allow_decline,
             plan_option: row.plan_option,
+            resource_id: row.resource_id,
         }
     }
 }

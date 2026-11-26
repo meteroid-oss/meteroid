@@ -31,6 +31,7 @@ async fn release_migrations_revert_exactly_and_reapply_identically() -> TestResu
         "column invoice.store_xid ",
         "index usage_monitor_state usage_monitor_state_heartbeat_idx ",
         "index subscription subscription_live_customer_idx ",
+        "constraint subscription subscription_usage_filter_needs_resource true ",
     ] {
         assert!(
             applied.iter().any(|l| l.starts_with(expected)),

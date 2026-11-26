@@ -264,10 +264,11 @@ async fn annex_attribution(
             .await
             .map_err(Into::<error_stack::Report<StoreError>>::into)?
         {
+            let metric: domain::BillableMetric = row.try_into()?;
             by_code
-                .entry(row.code.clone())
+                .entry(metric.code.clone())
                 .or_default()
-                .push(scopes.scope_of(row.id));
+                .push(scopes.scope_of(&metric));
         }
     }
     Ok(AnnexAttribution {

@@ -6,7 +6,7 @@ import { MinimumCommitment } from '@/rpc/api/plans/v1/models_pb'
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 import { ActivationCondition } from '@/rpc/api/subscriptions/v1/models_pb'
 
-import type { PendingEntitlementSpec } from '@/features/entitlements/creation/types'
+import type { GrantDraft } from '@/features/entitlements/rows/grantDraft'
 import type { ComponentFeeType } from '@/features/pricing'
 import type { PriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
 import type { Price } from '@/rpc/api/prices/v1/models_pb'
@@ -116,7 +116,8 @@ export interface CreateSubscriptionState {
   invoiceMemo?: string
   invoiceThreshold?: string
   purchaseOrder?: string
-  usageFilter?: { property: string; value: string }
+  // The stored resource the subscription is for; unset for the whole customer.
+  resourceId?: string
   autoAdvanceInvoices: boolean
   chargeAutomatically: boolean
   skipPastInvoices: boolean
@@ -137,7 +138,7 @@ export interface CreateSubscriptionState {
   coupons: CreateSubscriptionCoupon[]
 
   // Entitlements
-  entitlements: PendingEntitlementSpec[]
+  entitlements: GrantDraft[]
 
   // Optional operator-set minimum-commitment override applied at creation.
   minimumOverride?: MinimumCommitment
@@ -162,7 +163,7 @@ export const createSubscriptionAtom = atomWithReset<CreateSubscriptionState>({
   invoiceMemo: undefined,
   invoiceThreshold: undefined,
   purchaseOrder: undefined,
-  usageFilter: undefined,
+  resourceId: undefined,
   autoAdvanceInvoices: true,
   chargeAutomatically: true,
   skipPastInvoices: false,
@@ -181,3 +182,15 @@ export const createSubscriptionAtom = atomWithReset<CreateSubscriptionState>({
   minimumOverride: undefined,
   dropMinimum: false
 })
+
+/** A resource only belongs to its customer: the URL's goes with the URL's customer, and switching
+ * customers drops it. */
+export const resourceFor = (
+  customerId: string,
+  state: { customerId?: string; resourceId?: string },
+  customerIdFromUrl: string | null,
+  resourceIdFromUrl: string | null
+): string | undefined => {
+  if (state.customerId && customerId === state.customerId) return state.resourceId
+  return customerId === customerIdFromUrl ? (resourceIdFromUrl ?? undefined) : undefined
+}

@@ -387,12 +387,17 @@ impl CreditRecomputeMarkRow {
             }
             Owner::Quote => return Ok(0),
             Owner::Subscription => "FROM subscription s WHERE s.tenant_id = $1 AND s.id = $2".to_owned(),
+            // A trial reads its trialing plan's active version as its plan tier.
             Owner::PlanVersion => format!(
-                "FROM subscription s WHERE s.tenant_id = $1 AND s.plan_version_id = $2 AND {ACTIVE}"
+                "FROM subscription s JOIN plan_version pv ON pv.id = s.plan_version_id
+                 LEFT JOIN plan tp ON tp.id = pv.trialing_plan_id AND s.status = 'TRIAL_ACTIVE'
+                 WHERE s.tenant_id = $1 AND {ACTIVE}
+                   AND (s.plan_version_id = $2 OR tp.active_version_id = $2)"
             ),
             Owner::Plan => format!(
                 "FROM subscription s JOIN plan_version pv ON pv.id = s.plan_version_id
-                 WHERE s.tenant_id = $1 AND pv.plan_id = $2 AND {ACTIVE}"
+                 WHERE s.tenant_id = $1 AND {ACTIVE}
+                   AND (pv.plan_id = $2 OR (s.status = 'TRIAL_ACTIVE' AND pv.trialing_plan_id = $2))"
             ),
             Owner::AddOn => format!(
                 "FROM subscription s

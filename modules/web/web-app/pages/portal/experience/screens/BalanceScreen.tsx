@@ -42,7 +42,6 @@ import {
 
 import { PortalAlerts } from './AlertBanner'
 import { CreditGroups } from './CreditGroups'
-import { UsageFilterTag } from './UsageFilterTag'
 import { WalletStatement } from './WalletStatement'
 import { creditPaysLine, roundCreditPresets } from './creditCopy'
 
@@ -369,7 +368,6 @@ const YourCredit = ({ overview, named }: { overview: LoadedOverview; named: bool
                   style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, fontSize: 13.5 }}
                 >
                   <span style={{ fontWeight: 500 }}>{grantLabel(grant)}</span>
-                  <UsageFilterTag subscriptionId={grant.scope?.subscriptionId} />
                 </span>
                 {grant.scope && (
                   <span style={{ fontSize: 12.5, color: 'var(--mtp-text-2)' }}>

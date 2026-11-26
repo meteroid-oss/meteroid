@@ -360,8 +360,12 @@ fn event_types(asked: &[String], path: &str) -> Result<Vec<String>, Problem> {
         .enumerate()
         .map(|(index, name)| {
             WebhookOutEventTypeEnum::from_str(name.trim())
+                .ok()
+                .filter(|event| {
+                    !crate::v2::document::RETIRED_EVENT_TYPES.contains(&event.to_string().as_str())
+                })
                 .map(|event| event.to_string())
-                .map_err(|_| {
+                .ok_or_else(|| {
                     Problem::field(
                         format!("{path}/{index}"),
                         "invalid",

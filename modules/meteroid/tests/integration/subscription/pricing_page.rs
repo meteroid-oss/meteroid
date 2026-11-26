@@ -6,8 +6,9 @@ use common_domain::ids::{
 };
 use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
 use meteroid_store::domain::UsagePricingModel;
+use meteroid_store::domain::entitlement_fold::{GrantValue, LimitValue};
 use meteroid_store::domain::entitlements::{
-    EntitlementNew, EntitlementValue, FeatureNew, FeatureType, OverageBehavior, ResetPeriod,
+    EntitlementNew, EntitlementSpec, FeatureKind, FeatureNew, LimitCountedBy,
 };
 use meteroid_store::domain::enums::BillingPeriodEnum;
 use meteroid_store::domain::plan_options::PlanOptionRef;
@@ -638,73 +639,67 @@ async fn capacity_levels_show_from_the_lowest() {
     assert!(!scale.free);
 }
 
-/// Highlights read the published version's entitlements: a switch by its name, a limit by its
-/// value, no limit as unlimited; a feature the plan does not grant, or one twice, is refused.
+/// Highlights read what the published version resolves, its plan's rows included: a switch by its
+/// name, a limit by its value, no limit as unlimited; a feature the plan does not grant, or one
+/// twice, is refused.
 #[tokio::test]
 async fn highlights_render_the_versions_entitlements() {
     let env = test_env().await;
     let pro = PlanId::new();
-    let (version, _) = pro_plan(&env, pro).await;
+    pro_plan(&env, pro).await;
     ladder(&env, vec![pro]).await;
 
-    let feature = |name: &str, code: &str, feature_type| FeatureNew {
+    let feature = |name: &str, code: &str, kind| FeatureNew {
         tenant_id: TENANT_ID,
         product_id: None,
         name: name.to_owned(),
         code: code.to_owned(),
         description: None,
-        feature_type,
-        entitlement: None,
+        kind,
+        unit: None,
+        level_type_id: None,
+        policy: None,
+        default: None,
     };
     let store = env.store();
     let create = |new| async move { store.create_feature(Actor::System, new).await };
-    let sso = create(feature("SSO", "sso", FeatureType::Boolean))
+    let sso = create(feature("SSO", "sso", FeatureKind::Boolean))
         .await
         .expect("sso");
     let events = create(feature(
         "events",
         "events",
-        FeatureType::metered(METRIC_BANDWIDTH),
+        FeatureKind::Limit(LimitCountedBy::Events(METRIC_BANDWIDTH)),
     ))
     .await
     .expect("events");
     let projects = create(feature(
         "projects",
         "projects",
-        FeatureType::metered(METRIC_DATABASE_SIZE),
+        FeatureKind::Limit(LimitCountedBy::Events(METRIC_DATABASE_SIZE)),
     ))
     .await
     .expect("projects");
-    let audit = create(feature("Audit log", "audit", FeatureType::Boolean))
+    let audit = create(feature("Audit log", "audit", FeatureKind::Boolean))
         .await
         .expect("audit");
 
     let grant = |feature_id, value| EntitlementNew {
         tenant_id: TENANT_ID,
-        feature_id,
-        entity: EntitlementEntityId::PlanVersion(version),
-        value,
-    };
-    let metered = |limit| EntitlementValue::Metered {
-        limit,
-        reset_period: ResetPeriod::BillingCycle,
-        overage_behavior: match limit {
-            Some(_) => OverageBehavior::Allow,
-            None => OverageBehavior::Block {
-                grace_period_pct: None,
-            },
-        },
-        thresholds: vec![],
-        enabled: true,
-        group_by: None,
+        entity: EntitlementEntityId::Plan(pro),
+        resource_id: None,
+        spec: EntitlementSpec::new(feature_id, value),
     };
     for new in [
-        grant(sso.id, EntitlementValue::Boolean { enabled: true }),
-        grant(events.id, metered(Some(dec!(10000)))),
-        grant(projects.id, metered(None)),
+        grant(sso.id, GrantValue::Boolean(true)),
+        grant(
+            events.id,
+            GrantValue::Limit(LimitValue::Amount(dec!(10000))),
+        ),
+        grant(projects.id, GrantValue::Limit(LimitValue::Unlimited)),
     ] {
         env.store()
-            .create_entitlement(new)
+            .create_entitlement(&Actor::System, new)
             .await
             .expect("an entitlement");
     }

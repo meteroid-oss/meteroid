@@ -541,7 +541,7 @@ impl Halyard {
                 backdate_invoices: true,
                 skip_checkout_session: false,
                 skip_past_invoices: false,
-                usage_filter: None,
+                resource_id: None,
                 custom_properties: serde_json::Value::Null,
                 external_id: None,
             },
@@ -618,6 +618,18 @@ impl Halyard {
 
     pub fn tokens(&self, customer: CustomerId, at: DateTime<Utc>, model: &str, tokens: u64) {
         self.usage.record(customer, at, model, tokens, None);
+    }
+
+    /// The customer's `api_key` resource for `key`, for a subscription to bill that key's events.
+    pub async fn keyed(
+        &self,
+        customer: CustomerId,
+        key: &str,
+    ) -> Option<common_domain::ids::ResourceId> {
+        Some(
+            crate::helpers::resources::api_key_resource(self.store(), self.tenant, customer, key)
+                .await,
+        )
     }
 
     pub fn keyed_tokens(

@@ -12,6 +12,7 @@ use meteroid_grpc::meteroid::api::billablemetrics::v1::{
     CreateBillableMetricRequest, CreateBillableMetricResponse, GetBillableMetricRequest,
     GetBillableMetricResponse, GetBillableMetricUsageRequest, GetBillableMetricUsageResponse,
     ListBillableMetricsRequest, ListBillableMetricsResponse, MetricFilter,
+    PreviewMetricAttributionRequest, PreviewMetricAttributionResponse,
     UnarchiveBillableMetricRequest, UnarchiveBillableMetricResponse, UpdateBillableMetricRequest,
     UpdateBillableMetricResponse, UsageDataPoint, UsageGrain,
     billable_metrics_service_server::BillableMetricsService,
@@ -89,6 +90,7 @@ impl BillableMetricsService for BillableMetricsComponents {
             .insert_billable_metric(
                 actor_typed,
                 domain::BillableMetricNew {
+                    attributed_to: mapping::metric::attribution_from_server(inner.attributed_to)?,
                     name: inner.name,
                     description: inner.description,
                     code: inner.code,
@@ -286,6 +288,10 @@ impl BillableMetricsService for BillableMetricsComponents {
             .transpose()?;
 
         let update = domain::BillableMetricUpdate {
+            attributed_to: inner
+                .attribution
+                .map(|change| mapping::metric::attribution_from_server(change.attributed_to))
+                .transpose()?,
             name: inner.name,
             description: inner.description.map(Some),
             unit_conversion_factor: unit_conversion.as_ref().map(|u| Some(u.factor as i32)),
@@ -302,7 +308,7 @@ impl BillableMetricsService for BillableMetricsComponents {
         };
 
         let domain_billable_metric = self
-            .store
+            .services
             .update_billable_metric(actor, billable_metric_id, tenant_id, update)
             .await
             .map_err(Into::<BillableMetricApiError>::into)?;
@@ -313,6 +319,35 @@ impl BillableMetricsService for BillableMetricsComponents {
 
         Ok(Response::new(UpdateBillableMetricResponse {
             billable_metric: Some(server_billable_metric),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn preview_metric_attribution(
+        &self,
+        request: Request<PreviewMetricAttributionRequest>,
+    ) -> Result<Response<PreviewMetricAttributionResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+        let preview = self
+            .services
+            .preview_metric_attribution(
+                tenant_id,
+                BillableMetricId::from_proto(&req.id)?,
+                mapping::metric::attribution_from_server(req.attributed_to)?,
+            )
+            .await
+            .map_err(Into::<BillableMetricApiError>::into)?;
+        Ok(Response::new(PreviewMetricAttributionResponse {
+            from: preview.from.and_utc().to_rfc3339(),
+            until: preview.until.and_utc().to_rfc3339(),
+            sampled_customers: preview.sampled_customers,
+            sampled: preview.sampled,
+            resource_subscriptions: preview.resource_subscriptions.normalize().to_string(),
+            customer_subscriptions: preview.customer_subscriptions.normalize().to_string(),
+            not_billed: preview.not_billed.normalize().to_string(),
+            draft_invoices: preview.draft_invoices,
+            additive: preview.additive,
         }))
     }
 

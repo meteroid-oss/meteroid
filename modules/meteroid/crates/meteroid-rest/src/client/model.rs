@@ -45,7 +45,7 @@ pub struct ClientPlanRef {
 
 /// A subscription of the customer, as v2's summary reads it (`GET
 /// /api/v2/subscriptions/{id}/summary`), less what only the merchant reads: its MRR, invoicing,
-/// custom properties, usage filter and external id.
+/// custom properties, resource and external id.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct ClientSubscription {
     #[serde(serialize_with = "string_serde::serialize")]

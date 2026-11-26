@@ -36,6 +36,7 @@ pub mod quantities;
 pub mod quotes;
 pub mod ratecards;
 pub mod rbac;
+pub mod resources;
 pub mod schedules;
 pub mod stats;
 pub mod subscriptions;

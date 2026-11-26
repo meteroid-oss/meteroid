@@ -360,6 +360,8 @@ async fn the_currencies_and_coupons_preset_prices_three_currencies_and_applies_c
             None,
             None,
             None,
+            None,
+            meteroid_store::domain::entitlements::FeatureListOrder::default(),
         )
         .await
         .unwrap()

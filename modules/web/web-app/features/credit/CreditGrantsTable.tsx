@@ -58,7 +58,7 @@ export const CreditGrantsTable = ({
   liveSubscriptionCount,
   canManage,
   onRemove,
-  usageFilters,
+  scopeLabels,
 }: {
   wallet: Wallet
   /** The subscription whose credit is shown: its own and the customer-wide credit. */
@@ -69,8 +69,8 @@ export const CreditGrantsTable = ({
   liveSubscriptionCount: number
   canManage: boolean
   onRemove: (grant: CreditGrant) => void
-  /** The usage filter of each live subscription that has one, e.g. "team = mobile". */
-  usageFilters: Map<string, string>
+  /** What each live subscription for a resource is for, e.g. "Site s2". */
+  scopeLabels: Map<string, string>
 }) => {
   const [showUsedUp, setShowUsedUp] = useState(false)
   // A page of another scope's used-up grants starts over.
@@ -105,7 +105,7 @@ export const CreditGrantsTable = ({
       activity={grantActivity}
       activityState={state}
       severalSubscriptions={liveSubscriptionCount >= 2}
-      usageFilter={grant.subscriptionId ? usageFilters.get(grant.subscriptionId) : undefined}
+      scopeLabel={grant.subscriptionId ? scopeLabels.get(grant.subscriptionId) : undefined}
       canRemove={canManage && grant.removable}
       onRemove={() => onRemove(grant)}
     />
@@ -179,7 +179,7 @@ const GrantRow = ({
   activity,
   activityState,
   severalSubscriptions,
-  usageFilter,
+  scopeLabel,
   canRemove,
   onRemove,
 }: {
@@ -188,7 +188,7 @@ const GrantRow = ({
   activity?: GrantActivity
   activityState: ActivityState
   severalSubscriptions: boolean
-  usageFilter?: string
+  scopeLabel?: string
   canRemove: boolean
   onRemove: () => void
 }) => {
@@ -316,7 +316,7 @@ const GrantRow = ({
               grant={grant}
               activity={activity}
               severalSubscriptions={severalSubscriptions}
-              usageFilter={usageFilter}
+              scopeLabel={scopeLabel}
             />
           </TableCell>
         </TableRow>
@@ -346,12 +346,12 @@ const GrantChips = ({
   grant,
   activity,
   severalSubscriptions,
-  usageFilter,
+  scopeLabel,
 }: {
   grant: CreditGrant
   activity?: GrantActivity
   severalSubscriptions: boolean
-  usageFilter?: string
+  scopeLabel?: string
 }) => {
   const basePath = useBasePath()
   // Included credit names its plan in its label already: that label links to the subscription.
@@ -400,7 +400,7 @@ const GrantChips = ({
         </Badge>
       ))}
       {subscription}
-      {subscription && usageFilter && <span className="text-xs">{usageFilter}</span>}
+      {subscription && scopeLabel && <span className="text-xs">{scopeLabel}</span>}
       {!grant.subscriptionId && severalSubscriptions && (
         <Badge size="sm" variant="outline">
           Any subscription

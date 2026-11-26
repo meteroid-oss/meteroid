@@ -127,6 +127,7 @@ async fn test_metering_ingestion() {
         .metrics
         .clone()
         .create_billable_metric(api::billablemetrics::v1::CreateBillableMetricRequest {
+            attributed_to: None,
             name: "best metric ever".to_string(),
             code: "api_calls".to_string(),
             description: None,
@@ -511,6 +512,7 @@ async fn test_metering_ingestion() {
     };
 
     let filter_on_model = |op: Operator| UpdateBillableMetricRequest {
+        attribution: None,
         id: created_metric.id.clone(),
         name: None,
         description: None,

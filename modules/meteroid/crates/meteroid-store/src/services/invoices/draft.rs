@@ -1003,6 +1003,16 @@ impl Services {
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
+        // Settled days after it was priced, the purchase may date its rows before what another
+        // subscription of the customer invoiced since.
+        crate::repositories::subscriptions::usage_attribution::settle_late_change(
+            conn,
+            tenant_id,
+            subscription_id,
+            on,
+            "The add-on purchase",
+        )
+        .await?;
         crate::services::facts::pending::record_amendment_cadence_tx(
             conn,
             tenant_id,

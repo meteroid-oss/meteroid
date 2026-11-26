@@ -724,6 +724,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -796,6 +806,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -910,6 +930,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -993,6 +1023,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1061,6 +1101,16 @@
           },
           "500": {
             "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -1139,6 +1189,16 @@
           },
           "500": {
             "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -1227,6 +1287,16 @@
           },
           "500": {
             "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -1934,6 +2004,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2007,6 +2087,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -2114,6 +2204,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2187,6 +2287,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -2276,6 +2386,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2338,6 +2458,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -2431,6 +2561,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2503,6 +2643,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -2617,6 +2767,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2698,6 +2858,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -2823,6 +2993,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2902,6 +3082,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -3009,6 +3199,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -3070,6 +3270,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -3185,6 +3395,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -3270,6 +3490,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -3342,6 +3572,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -3445,6 +3685,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -3508,6 +3758,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -3605,6 +3865,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -3774,6 +4044,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -3883,6 +4163,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -4020,6 +4310,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -4037,7 +4337,8 @@
           "Entitlements"
         ],
         "summary": "List customer entitlements",
-        "operationId": "get_effective_entitlements",
+        "description": "Every feature with its levels: the customer, and the resource named by `resources`, each with\nits value, usage and policy. The `ETag` header changes with the values, not the usage: send it\nback as `If-None-Match` to get a 304 while nothing changed. A level whose usage cannot be read\nhas no `used`, and the warning `usage_unavailable`.",
+        "operationId": "get_entitlement_snapshot",
         "parameters": [
           {
             "name": "id_or_alias",
@@ -4047,6 +4348,35 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "resources",
+            "in": "query",
+            "description": "At most one resource, as `resources[<key>]=<value>`",
+            "required": false,
+            "schema": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "propertyNames": {
+                "type": "string"
+              }
+            },
+            "style": "deepObject",
+            "explode": true
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "description": "The `ETag` of a previous answer",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
@@ -4055,7 +4385,20 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EffectiveEntitlementListResponse"
+                  "$ref": "#/components/schemas/EntitlementSnapshot"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Unchanged since the `If-None-Match` etag"
+          },
+          "400": {
+            "description": "Unknown resource key, or more than one resource",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
                 }
               }
             }
@@ -4072,6 +4415,522 @@
           },
           "404": {
             "description": "Customer not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss"
+      },
+      "post": {
+        "tags": [
+          "Customers",
+          "Entitlements"
+        ],
+        "summary": "Create customer overrides",
+        "description": "Rows on the customer, or with `resource_id` on one of its stored resources. `effect` defaults\nto Raise to. All the rows are written, or none.",
+        "operationId": "create_customer_entitlements",
+        "parameters": [
+          {
+            "name": "id_or_alias",
+            "in": "path",
+            "description": "Customer ID or alias",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCustomerEntitlementsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Entitlements created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntitlementListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Customer not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A row with the same feature, level, resource and condition exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss"
+      }
+    },
+    "/api/v1/customers/{id_or_alias}/entitlements/check": {
+      "post": {
+        "tags": [
+          "Checks"
+        ],
+        "summary": "Check customer entitlement",
+        "description": "Whether the customer may consume `requested` more of a feature right now, at every level of\nthe path: the customer, and the resource named by `resources`. Each level answers from its\nown value and usage, and all must allow. A boolean answers from its state, a value feature\nreturns its `value`, a limit counted by your app answers from its exact count, and a limit\ncounted from events from its usage. A limit that allows overage never refuses: `in_overage`\ntells when the request goes beyond it. Usage that cannot be read refuses a limit that denies\nwith `USAGE_UNAVAILABLE` (`reason_type: unavailable`), and warns `usage_unavailable`.\n`explain` and `current_count` take a server key.\n\nBeta: the request and response shapes of this endpoint may change before general availability.",
+        "operationId": "check_entitlement",
+        "parameters": [
+          {
+            "name": "id_or_alias",
+            "in": "path",
+            "description": "Customer ID or alias",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntitlementCheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Whether the customer may consume the requested units",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntitlementCheck"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request, an unknown resource key or attribute, or more than one resource",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Customer or feature not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The check could not be answered in time; retry shortly. Usage metering cannot read is answered 200 `USAGE_UNAVAILABLE`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss",
+        "x-beta": true
+      }
+    },
+    "/api/v1/customers/{id_or_alias}/entitlements/{feature_id_or_code}/check": {
+      "get": {
+        "tags": [
+          "Checks"
+        ],
+        "summary": "Check customer entitlement (GET)",
+        "description": "The `GET` form of `POST /api/v1/customers/{id_or_alias}/entitlements/check`, with the same\ninputs as query parameters: `resources[<key>]=<value>` and\n`attributes[<type>.<attribute>]=<value>`.\n\nBeta: the request and response shapes of this endpoint may change before general availability.",
+        "operationId": "check_entitlement_get",
+        "parameters": [
+          {
+            "name": "id_or_alias",
+            "in": "path",
+            "description": "Customer ID or alias",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "feature_id_or_code",
+            "in": "path",
+            "description": "Feature ID or code",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "requested",
+            "in": "query",
+            "description": "Units about to be consumed. Defaults to 1.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "decimal"
+            }
+          },
+          {
+            "name": "current_count",
+            "in": "query",
+            "description": "Limits counted by your app: replaces the stored count for this request. Server key only.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "decimal"
+            }
+          },
+          {
+            "name": "explain",
+            "in": "query",
+            "description": "Adds how each level's value was built. Server key only.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "subscription_id",
+            "in": "query",
+            "description": "Deprecated, ignored: the subscription deciding the feature answers.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resources",
+            "in": "query",
+            "description": "At most one resource, as `resources[<key>]=<value>`",
+            "required": false,
+            "schema": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "propertyNames": {
+                "type": "string"
+              }
+            },
+            "style": "deepObject",
+            "explode": true
+          },
+          {
+            "name": "attributes",
+            "in": "query",
+            "description": "Asserted attributes, as `attributes[<type>.<attribute>]=<value>`",
+            "required": false,
+            "schema": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "propertyNames": {
+                "type": "string"
+              }
+            },
+            "style": "deepObject",
+            "explode": true
+          },
+          {
+            "name": "group",
+            "in": "query",
+            "description": "No longer supported: limits are not grouped, and a check sending `group[<property>]` is refused with 400",
+            "required": false,
+            "deprecated": true,
+            "schema": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "propertyNames": {
+                "type": "string"
+              }
+            },
+            "style": "deepObject",
+            "explode": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Whether the customer may consume the requested units",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntitlementCheck"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request, an unknown resource key or attribute, more than one resource, or a `group`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Customer or feature not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The check could not be answered in time; retry shortly. Usage metering cannot read is answered 200 `USAGE_UNAVAILABLE`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss",
+        "x-beta": true
+      }
+    },
+    "/api/v1/customers/{id_or_alias}/entitlements/{feature_id_or_code}/usage": {
+      "post": {
+        "tags": [
+          "Customers",
+          "Entitlements"
+        ],
+        "summary": "Report usage counted by your app",
+        "description": "For a limit counted by your app: `set` the count, or `add` to it (negative to remove), for the\ncustomer or one resource. A retried `idempotency_key` returns the stored count without applying\nanything; a change older than the last `set` is recorded and ignored.",
+        "operationId": "report_usage",
+        "parameters": [
+          {
+            "name": "id_or_alias",
+            "in": "path",
+            "description": "Customer ID or alias",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "feature_id_or_code",
+            "in": "path",
+            "description": "Feature ID or code",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportUsageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The count after the report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportUsageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a limit counted by your app, or an invalid resource",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Customer or feature not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`IDEMPOTENCY_KEY_REUSED` with another body, or `STALE_SET` older than the kept operations",
             "content": {
               "application/json": {
                 "schema": {
@@ -4181,6 +5040,491 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss"
+      }
+    },
+    "/api/v1/customers/{id_or_alias}/resources": {
+      "get": {
+        "tags": [
+          "Resources"
+        ],
+        "summary": "List a customer's resources",
+        "operationId": "list_resources",
+        "parameters": [
+          {
+            "name": "id_or_alias",
+            "in": "path",
+            "description": "Customer ID or alias",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "description": "The type's code or id.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "include_archived",
+            "in": "query",
+            "description": "Include archived resources. Defaults to false.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number (0-indexed)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "description": "Number of items per page",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The customer's stored resources",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Customer or type not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss"
+      }
+    },
+    "/api/v1/customers/{id_or_alias}/resources/{type}/{key_value}": {
+      "get": {
+        "tags": [
+          "Resources"
+        ],
+        "summary": "Get a resource",
+        "operationId": "get_resource",
+        "parameters": [
+          {
+            "name": "id_or_alias",
+            "in": "path",
+            "description": "Customer ID or alias",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "in": "path",
+            "description": "Resource type code or ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key_value",
+            "in": "path",
+            "description": "The resource's key value, percent-encoded",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The resource",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Resource"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss"
+      },
+      "put": {
+        "tags": [
+          "Resources"
+        ],
+        "summary": "Upsert a resource",
+        "description": "Creates the customer's resource with this type and key value, or replaces its name,\nattributes and archive. Resources are never created by a check or an event.",
+        "operationId": "upsert_resource",
+        "parameters": [
+          {
+            "name": "id_or_alias",
+            "in": "path",
+            "description": "Customer ID or alias",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "in": "path",
+            "description": "Resource type code or ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key_value",
+            "in": "path",
+            "description": "The resource's key value, percent-encoded",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResourceUpsertRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The resource",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Resource"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request, `RESOURCE_TYPE_ARCHIVED` or `RESOURCE_LIMIT_REACHED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Customer or type not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss"
+      },
+      "delete": {
+        "tags": [
+          "Resources"
+        ],
+        "summary": "Delete a resource",
+        "description": "Refused while a subscription (not aborted), quote or checkout session is for it, or once an\nentitlement override, current or past, names it: archive it instead.",
+        "operationId": "delete_resource",
+        "parameters": [
+          {
+            "name": "id_or_alias",
+            "in": "path",
+            "description": "Customer ID or alias",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "in": "path",
+            "description": "Resource type code or ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key_value",
+            "in": "path",
+            "description": "The resource's key value, percent-encoded",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A subscription, quote, checkout session or override names it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss"
+      }
+    },
+    "/api/v1/customers/{id_or_alias}/resources/{type}/{key_value}/archive": {
+      "post": {
+        "tags": [
+          "Resources"
+        ],
+        "summary": "Archive a resource",
+        "description": "It keeps resolving in checks; upsert it with `archived: false` to restore it.",
+        "operationId": "archive_resource",
+        "parameters": [
+          {
+            "name": "id_or_alias",
+            "in": "path",
+            "description": "Customer ID or alias",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "in": "path",
+            "description": "Resource type code or ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key_value",
+            "in": "path",
+            "description": "The resource's key value, percent-encoded",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The archived resource",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Resource"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -4306,6 +5650,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -4370,6 +5724,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -4468,6 +5832,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -4612,6 +5986,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -4694,6 +6078,7 @@
           "Entitlements"
         ],
         "summary": "Delete an entitlement",
+        "description": "Revokes the row; its history stays readable.",
         "operationId": "delete_entitlement",
         "parameters": [
           {
@@ -4730,6 +6115,16 @@
               }
             }
           },
+          "409": {
+            "description": "Edited meanwhile: read it again, or of a published plan version: write it through a draft",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
           "429": {
             "description": "Too many requests",
             "content": {
@@ -4753,7 +6148,7 @@
           "Entitlements"
         ],
         "summary": "Update an entitlement",
-        "description": "The new value must match the feature's declared type.",
+        "description": "Revokes the row and writes a successor under the same id, carrying the changes; the history\nkeeps both. The new value must match the feature's kind.",
         "operationId": "update_entitlement",
         "parameters": [
           {
@@ -4793,6 +6188,85 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Entitlement not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Edited meanwhile: read it again, or of a published plan version: write it through a draft",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss"
+      }
+    },
+    "/api/v1/entitlements/{entitlement_id}/history": {
+      "get": {
+        "tags": [
+          "Entitlements"
+        ],
+        "summary": "List an entitlement's history",
+        "description": "Every row of the entitlement, oldest first: those edits replaced, the revoked one of a deleted\nentitlement, and the open one, with `revoked_at` and `revoked_by`.",
+        "operationId": "get_entitlement_history",
+        "parameters": [
+          {
+            "name": "entitlement_id",
+            "in": "path",
+            "description": "Entitlement ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/EntitlementId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The entitlement's rows",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntitlementHistoryResponse"
                 }
               }
             }
@@ -4887,6 +6361,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -5153,7 +6637,7 @@
           "Features"
         ],
         "summary": "Update a feature",
-        "description": "Partially update feature fields. Code, feature type and product are immutable.",
+        "description": "Partially update feature fields. Code, kind and product are immutable. Changing the level moves\nthe rows on the feature's level with it.",
         "operationId": "update_feature",
         "parameters": [
           {
@@ -5503,6 +6987,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -5576,6 +7070,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -5683,6 +7187,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -5758,6 +7272,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -5893,6 +7417,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -5997,6 +7531,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -6125,6 +7669,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -6269,6 +7823,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -6359,6 +7923,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -6434,6 +8008,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -6770,6 +8354,16 @@
               }
             }
           },
+          "409": {
+            "description": "A subscription for a resource has invoiced the metric: its attribution is fixed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
           "429": {
             "description": "Too many requests",
             "content": {
@@ -6810,6 +8404,95 @@
         "responses": {
           "204": {
             "description": "Metric archived"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Metric not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss"
+      }
+    },
+    "/api/v1/metrics/{metric_id}/attribution-preview": {
+      "post": {
+        "tags": [
+          "Metrics"
+        ],
+        "summary": "Preview a metric's attribution",
+        "description": "Where the last 7 days of usage would go under `attributed_to`, sampled over 20 customers.",
+        "operationId": "preview_metric_attribution",
+        "parameters": [
+          {
+            "name": "metric_id",
+            "in": "path",
+            "description": "Metric ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/BillableMetricId"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttributionPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Attribution coverage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttributionPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid attribution",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           },
           "401": {
             "description": "Unauthorized",
@@ -7041,6 +8724,16 @@
           },
           "404": {
             "description": "Plan version not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The plan version is published: write them through a draft",
             "content": {
               "application/json": {
                 "schema": {
@@ -7615,7 +9308,7 @@
           "Plans"
         ],
         "summary": "Update plan metadata",
-        "description": "Partially update plan-level fields (name, description, self_service_rank).\nDoes not modify version-level configuration or components.",
+        "description": "Partially update plan-level fields (name, description, self_service_rank, sold for).\nDoes not modify version-level configuration or components.",
         "operationId": "patch_plan",
         "parameters": [
           {
@@ -8068,6 +9761,9 @@
           },
           "500": {
             "description": "Internal error"
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly"
           }
         },
         "security": [
@@ -8122,6 +9818,9 @@
           },
           "500": {
             "description": "Internal error"
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly"
           }
         },
         "security": [
@@ -8180,6 +9879,9 @@
           },
           "500": {
             "description": "Internal error"
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly"
           }
         },
         "security": [
@@ -8845,6 +10547,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -8942,6 +10654,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -9025,6 +10747,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -9132,6 +10864,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -9141,6 +10883,306 @@
         ],
         "x-meteroid-edition": "oss",
         "x-beta": true
+      }
+    },
+    "/api/v1/resource-types": {
+      "get": {
+        "tags": [
+          "Resources"
+        ],
+        "summary": "List resource types",
+        "description": "The tenant's resource types, by code.",
+        "operationId": "list_resource_types",
+        "parameters": [
+          {
+            "name": "include_archived",
+            "in": "query",
+            "description": "Include archived types. Defaults to false.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The tenant's resource types",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceTypeListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss"
+      },
+      "post": {
+        "tags": [
+          "Resources"
+        ],
+        "summary": "Create a resource type",
+        "description": "A kind of thing a customer has several of, identified by its keys in checks and events.",
+        "operationId": "create_resource_type",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResourceTypeCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceType"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request, or `RESOURCE_HIERARCHY_UNSUPPORTED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The code is taken, or `RESOURCE_KEY_CLASH`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss"
+      }
+    },
+    "/api/v1/resource-types/{id_or_code}": {
+      "get": {
+        "tags": [
+          "Resources"
+        ],
+        "summary": "Get a resource type",
+        "operationId": "get_resource_type",
+        "parameters": [
+          {
+            "name": "id_or_code",
+            "in": "path",
+            "description": "Resource type ID or code",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The resource type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceType"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss"
+      },
+      "patch": {
+        "tags": [
+          "Resources"
+        ],
+        "summary": "Update a resource type",
+        "description": "Partial update. The code is immutable; archiving keeps the type resolving in checks.",
+        "operationId": "update_resource_type",
+        "parameters": [
+          {
+            "name": "id_or_code",
+            "in": "path",
+            "description": "Resource type ID or code",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResourceTypeUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceType"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request, or `RESOURCE_HIERARCHY_UNSUPPORTED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`RESOURCE_KEY_CLASH`, or removed attribute values still in use",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss"
       }
     },
     "/api/v1/subscriptions": {
@@ -9269,6 +11311,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -9338,6 +11390,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -9417,6 +11479,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -9521,6 +11593,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -9604,6 +11686,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -9759,6 +11851,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -9857,6 +11959,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -10014,6 +12126,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -10163,6 +12285,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -10180,7 +12312,7 @@
           "Usage"
         ],
         "summary": "Get unattributed usage",
-        "description": "Retrieve a customer's usage that no subscription bills. When subscriptions of the customer\npricing a metric set a usage filter, events matching none of the filters are billed by a\nsubscription without one; when every such subscription has a filter, those events are kept\nand reported here instead of being billed.",
+        "description": "Retrieve a customer's usage that no subscription bills. A subscription for a resource bills\nthe events attributed to its resource, and a subscription for the customer the rest; while\nonly subscriptions for resources price a metric, the events attributed to none of their\nresources are kept and reported here instead of being billed.",
         "operationId": "get_unattributed_usage",
         "parameters": [
           {
@@ -10266,6 +12398,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -10378,6 +12520,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -10394,7 +12546,7 @@
           "Usage costs"
         ],
         "summary": "List a subscription's usage costs over time",
-        "description": "The subscription's usage of one billable metric and what it costs, as for a customer but\ncounting only the events the subscription bills (see its usage filter) and only its own billing\nperiods. The range is at most 93 days.\n\nBeta: the request and response shapes of this endpoint may change before general availability.",
+        "description": "The subscription's usage of one billable metric and what it costs, as for a customer but\ncounting only the events the subscription bills (for a subscription for a resource, those\nattributed to it) and only its own billing periods. The range is at most 93 days.\n\nBeta: the request and response shapes of this endpoint may change before general availability.",
         "operationId": "list_subscription_usage_costs",
         "parameters": [
           {
@@ -10521,6 +12673,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -10677,6 +12839,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -10757,6 +12929,16 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable; retry shortly",
             "content": {
               "application/json": {
                 "schema": {
@@ -11696,6 +13878,93 @@
           }
         }
       },
+      "AppCountExplain": {
+        "type": "object",
+        "description": "A limit counted by your app, per path: the exact count, the last set, and the adds since.",
+        "required": [
+          "path",
+          "count",
+          "adds_since",
+          "adds_sum"
+        ],
+        "properties": {
+          "adds_since": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "adds_sum": {
+            "type": "string",
+            "format": "decimal"
+          },
+          "count": {
+            "type": "string",
+            "format": "decimal"
+          },
+          "last_add_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_set_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_set_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_set_value": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "AppCountedEffectiveEntitlementValue": {
+        "type": "object",
+        "description": "A limit counted by your app: its value and the count reported.",
+        "required": [
+          "enabled",
+          "type"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "APP_COUNTED"
+            ]
+          },
+          "used": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal"
+          }
+        }
+      },
       "AppliedCoupon": {
         "type": "object",
         "required": [
@@ -11762,6 +14031,115 @@
         "examples": [
           "sub_cou_7n42DGM5Tflk9n8mt7Fhc7"
         ]
+      },
+      "AttributedTo": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "customer"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "type"
+                ]
+              },
+              "property": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type_id": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "description": "`customer`: the customer's own subscriptions bill every event. `type`: the subscriptions of the\nresource whose key the event carries (`property`, else the type's keys, canonical first) bill\nit; events naming no subscribed resource go to the customer's own subscriptions."
+      },
+      "AttributionPreview": {
+        "type": "object",
+        "description": "Where the last 7 days of the metric's usage would go, summed over up to 20 customers with\nsubscriptions for a resource (`sampled` when there are more): what each side's subscriptions\nbill, each reading the metric's aggregation over its own events.",
+        "required": [
+          "from",
+          "until",
+          "sampled_customers",
+          "sampled",
+          "additive",
+          "resource_subscriptions",
+          "customer_subscriptions",
+          "not_billed",
+          "draft_invoices"
+        ],
+        "properties": {
+          "additive": {
+            "type": "boolean",
+            "description": "The three quantities add up to the usage (a `SUM` or `COUNT` metric) and split it in\nshares. False for `LATEST`, `MAX`, `MIN`, `MEAN` and `COUNT_DISTINCT`: each is what its\nsubscriptions bill, and they don't add up to the usage."
+          },
+          "customer_subscriptions": {
+            "type": "string",
+            "format": "decimal"
+          },
+          "draft_invoices": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Unfinalized drafts the change recomputes.",
+            "minimum": 0
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "not_billed": {
+            "type": "string",
+            "format": "decimal"
+          },
+          "resource_subscriptions": {
+            "type": "string",
+            "format": "decimal"
+          },
+          "sampled": {
+            "type": "boolean"
+          },
+          "sampled_customers": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "until": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AttributionPreviewRequest": {
+        "type": "object",
+        "required": [
+          "attributed_to"
+        ],
+        "properties": {
+          "attributed_to": {
+            "$ref": "#/components/schemas/AttributedTo"
+          }
+        }
       },
       "AutoTopUp": {
         "type": "object",
@@ -12714,6 +15092,91 @@
           }
         }
       },
+      "CheckoutPaymentKeptAsCreditEvent": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CheckoutPaymentKeptAsCreditEventData"
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "type",
+              "timestamp"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/EventId"
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "type": {
+                "$ref": "#/components/schemas/EventType"
+              }
+            }
+          }
+        ]
+      },
+      "CheckoutPaymentKeptAsCreditEventData": {
+        "type": "object",
+        "description": "A self-serve checkout was paid but its subscription could not be created (its resource was\nsold meanwhile, or is no longer the customer's): the payment is kept as the customer's credit\nand the checkout is cancelled.",
+        "required": [
+          "customer_id",
+          "checkout_session_id",
+          "payment_id",
+          "amount",
+          "currency",
+          "reason"
+        ],
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Credited to the customer, in the currency's minor units."
+          },
+          "checkout_session_id": {
+            "$ref": "#/components/schemas/CheckoutSessionId"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "customer_id": {
+            "$ref": "#/components/schemas/CustomerId"
+          },
+          "payment_id": {
+            "$ref": "#/components/schemas/PaymentTransactionId",
+            "description": "The payment kept as credit."
+          },
+          "plan_version_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PlanVersionId",
+                "description": "The plan version the checkout sold."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why the subscription was refused."
+          },
+          "resource_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ResourceId",
+                "description": "The resource the subscription was for; absent for the whole customer."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
       "CheckoutSession": {
         "type": "object",
         "required": [
@@ -12785,6 +15248,13 @@
           "id": {
             "$ref": "#/components/schemas/CheckoutSessionId"
           },
+          "metrics_not_attributed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "With `metric_not_attributed`: the codes of the metrics it prices that are not attributed\nto its resource's type, so its subscription would bill none of their usage."
+          },
           "net_terms": {
             "type": [
               "integer",
@@ -12812,6 +15282,13 @@
           "plan_version_id": {
             "$ref": "#/components/schemas/PlanVersionId"
           },
+          "resource_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The stored resource the subscription is for; absent for the customer."
+          },
           "status": {
             "$ref": "#/components/schemas/CheckoutSessionStatus"
           },
@@ -12837,6 +15314,13 @@
               "null"
             ],
             "format": "int32"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "On creation, what its subscription would be accepted with: `plan_sold_for_mismatch` (the\nplan is sold for another target), `metric_not_attributed` (its resource would never bill\nsome metrics it prices, listed in `metrics_not_attributed`)."
           }
         }
       },
@@ -13526,6 +16010,13 @@
               "null"
             ]
           },
+          "resource_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "One of the customer's stored resources the subscription is for; omit for the customer."
+          },
           "success_url": {
             "type": [
               "string",
@@ -13715,6 +16206,27 @@
         },
         "additionalProperties": false
       },
+      "CreateCustomerEntitlementsRequest": {
+        "type": "object",
+        "description": "Customer overrides. With `resource_id`, every row overrides that stored resource of the\ncustomer. Unlike the other owners, a row clashing with an open one is a 409.",
+        "required": [
+          "entitlements"
+        ],
+        "properties": {
+          "entitlements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntitlementSpecRequest"
+            }
+          },
+          "resource_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "CreateEntitlementsRequest": {
         "type": "object",
         "description": "Entitlements already present on the entity are skipped, so the call can be replayed.",
@@ -13734,8 +16246,7 @@
         "type": "object",
         "required": [
           "name",
-          "code",
-          "feature_type"
+          "code"
         ],
         "properties": {
           "code": {
@@ -13760,17 +16271,81 @@
             ]
           },
           "feature_type": {
-            "$ref": "#/components/schemas/FeatureType",
-            "description": "Fixed at creation — a feature never changes type."
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FeatureType",
+                "description": "Deprecated: send `kind`. `METERED` is a `LIMIT` counted from events, a `CONFIG` boolean is\n`BOOLEAN`, any other `CONFIG` a `VALUE` (`MAP` is `JSON`). With `kind`, both must agree."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FeatureKind",
+                "description": "Fixed at creation. Required, unless the deprecated `feature_type` is sent."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "level": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The resource type the feature applies per (`rty_…`). Omit for the customer."
+          },
+          "limit": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FeatureLimitSpec",
+                "description": "`LIMIT` only."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "name": {
             "type": "string"
+          },
+          "policy": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FeaturePolicy",
+                "description": "Limits only."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "product_id": {
             "oneOf": [
               {
                 "$ref": "#/components/schemas/ProductId",
                 "description": "Product this feature belongs to. Omit for a tenant-global feature."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FeatureValueSpec",
+                "description": "`VALUE` only."
               },
               {
                 "type": "null"
@@ -13796,6 +16371,9 @@
           },
           "aggregation_type": {
             "$ref": "#/components/schemas/BillingMetricAggregateEnum"
+          },
+          "attributed_to": {
+            "$ref": "#/components/schemas/AttributedTo"
           },
           "code": {
             "type": "string"
@@ -13961,6 +16539,17 @@
               "null"
             ],
             "format": "int32"
+          },
+          "sold_for_resource_type_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ResourceTypeId",
+                "description": "The resource type its subscriptions are for; omit for the customer."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "status": {
             "$ref": "#/components/schemas/PlanStatusEnum"
@@ -16423,6 +19012,19 @@
       "CustomerPortalTokenRequest": {
         "type": "object",
         "properties": {
+          "attributes": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Attributes of that resource the token asserts, e.g. `{\"site.environment\": \"staging\"}`.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
           "expires_in_seconds": {
             "type": [
               "integer",
@@ -16431,6 +19033,19 @@
             "format": "int32",
             "description": "Token lifetime in seconds. Defaults to 86400 (24 hours).\nMust be between 60 and 2592000 (30 days).",
             "minimum": 0
+          },
+          "resources": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "The one resource the token's entitlement checks are for, by one of its type's keys, e.g.\n`{\"site_id\": \"s1\"}`. The client API refuses any other; without it, the customer only.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           },
           "scopes": {
             "type": [
@@ -16635,6 +19250,35 @@
           }
         }
       },
+      "DecidingCandidate": {
+        "type": "object",
+        "description": "A subscription including the feature at the level, with the value its rows give there.",
+        "required": [
+          "subscription_id"
+        ],
+        "properties": {
+          "resource_path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Absent for the whole customer."
+          },
+          "subscription_id": {
+            "type": "string"
+          },
+          "value": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementValue"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
       "DeclineKind": {
         "type": "string",
         "description": "Why the payment provider declined a charge.",
@@ -16716,6 +19360,18 @@
           }
         }
       },
+      "DiscardReason": {
+        "type": "string",
+        "enum": [
+          "REPLACED_BY_HIGHER_TIER",
+          "LOST_WITHIN_TIER",
+          "NO_EFFECT",
+          "NO_BASE_ON_LEVEL",
+          "EFFECT_NOT_ALLOWED",
+          "CONDITION_NOT_MET",
+          "NOT_IN_EFFECT"
+        ]
+      },
       "DoubleSegmentationMatrix": {
         "type": "object",
         "required": [
@@ -16786,6 +19442,17 @@
           "feature": {
             "$ref": "#/components/schemas/FeatureRef"
           },
+          "own_grant": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionGrant",
+                "description": "On a subscription's entitlements, when another subscription decides the value."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "value": {
             "$ref": "#/components/schemas/EffectiveEntitlementValue"
           }
@@ -16794,7 +19461,8 @@
       "EffectiveEntitlementListResponse": {
         "type": "object",
         "required": [
-          "data"
+          "data",
+          "warnings"
         ],
         "properties": {
           "data": {
@@ -16802,6 +19470,13 @@
             "items": {
               "$ref": "#/components/schemas/EffectiveEntitlement"
             }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "New: `usage_unavailable` when metering could not answer for an entitlement's usage, whose\n`consumed` is then absent."
           }
         }
       },
@@ -16815,31 +19490,66 @@
           },
           {
             "$ref": "#/components/schemas/ConfigEffectiveEntitlementValue"
+          },
+          {
+            "$ref": "#/components/schemas/AppCountedEffectiveEntitlementValue"
+          },
+          {
+            "$ref": "#/components/schemas/NotEntitledEffectiveEntitlementValue"
           }
         ],
+        "description": "SDKs that predate a variant read it as an unknown value rather than failing the response.",
         "discriminator": {
           "propertyName": "type",
           "mapping": {
+            "APP_COUNTED": "#/components/schemas/AppCountedEffectiveEntitlementValue",
             "BOOLEAN": "#/components/schemas/BooleanEffectiveEntitlementValue",
             "CONFIG": "#/components/schemas/ConfigEffectiveEntitlementValue",
-            "METERED": "#/components/schemas/MeteredEffectiveEntitlementValue"
+            "METERED": "#/components/schemas/MeteredEffectiveEntitlementValue",
+            "NOT_ENTITLED": "#/components/schemas/NotEntitledEffectiveEntitlementValue"
           }
         }
       },
       "Entitlement": {
         "type": "object",
-        "description": "A raw entitlement row attached to one entity (feature, plan version, add-on, or subscription).",
+        "description": "One row. `id` is its lineage: an edit revokes the row and writes a successor under the same id.",
         "required": [
           "id",
           "feature_id",
           "value",
+          "effect",
+          "level",
           "created_at",
           "updated_at"
         ],
         "properties": {
+          "condition": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementCondition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_at": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "When the lineage was created."
+          },
+          "created_by": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Actor"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "effect": {
+            "$ref": "#/components/schemas/EntitlementEffect"
           },
           "feature_id": {
             "$ref": "#/components/schemas/FeatureId"
@@ -16847,12 +19557,525 @@
           "id": {
             "$ref": "#/components/schemas/EntitlementId"
           },
+          "level": {
+            "$ref": "#/components/schemas/EntitlementLevel"
+          },
+          "level_type_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "policy_override": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FeaturePolicy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resource_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A customer override on one stored resource."
+          },
+          "revoked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "History rows: when an edit replaced the row, or it was deleted."
+          },
+          "revoked_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "updated_at": {
             "type": "string",
+            "format": "date-time",
+            "description": "When this row was written."
+          },
+          "valid_from": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "valid_until": {
+            "type": [
+              "string",
+              "null"
+            ],
             "format": "date-time"
           },
           "value": {
             "$ref": "#/components/schemas/EntitlementValue"
+          }
+        }
+      },
+      "EntitlementCheck": {
+        "type": "object",
+        "description": "Whether a customer may consume more of a feature now. Every level on the path must allow.",
+        "required": [
+          "feature",
+          "allowed",
+          "has_access",
+          "reason",
+          "levels",
+          "attributes_ignored",
+          "warnings",
+          "usage_source",
+          "as_of",
+          "lag_ms",
+          "exact",
+          "near_limit",
+          "limits",
+          "in_overage"
+        ],
+        "properties": {
+          "allowed": {
+            "type": "boolean"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the answer was given; while usage cannot be read, when the live engine last counted the\nusage that answered."
+          },
+          "attributes_ignored": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "exact": {
+            "type": "boolean",
+            "description": "True when the usage was read when checking."
+          },
+          "feature": {
+            "$ref": "#/components/schemas/EntitlementCheckFeature"
+          },
+          "has_access": {
+            "type": "boolean",
+            "description": "Same as `allowed`."
+          },
+          "hint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`resource_omitted`: customer subscriptions answered while resource ones include the feature."
+          },
+          "in_overage": {
+            "type": "boolean",
+            "description": "A limit that allows overage is exceeded by the request: access is granted, and billed."
+          },
+          "lag_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Deprecated: always 0."
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntitlementLevelState"
+            }
+          },
+          "limit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal"
+          },
+          "limits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntitlementCheckLimit"
+            },
+            "description": "Deprecated: always empty. Customer-specific limits are entitlement overrides, reported in\n`used`, `limit` and `remaining`."
+          },
+          "near_limit": {
+            "type": "boolean",
+            "description": "True when a level is within 5% of its hard limit or past it (used against the limit). While\ntrue, check before every request and do not cache an answer that grants access."
+          },
+          "period": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementCheckPeriod",
+                "description": "The current period of the limit's usage; absent for a limit counted by your app."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "$ref": "#/components/schemas/EntitlementCheckReason"
+          },
+          "reason_type": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementCheckReasonType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "remaining": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal",
+            "description": "Units left before the limit, grace excluded."
+          },
+          "retry_after_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When to check again, in milliseconds."
+          },
+          "usage_source": {
+            "$ref": "#/components/schemas/UsageSource"
+          },
+          "used": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal",
+            "description": "`used`, `limit`, `remaining` and `period` report the level that denies, else the feature's\nown. Absent without a limit."
+          },
+          "value": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ConfigValue",
+                "description": "The value of a `VALUE` feature."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "EntitlementCheckFeature": {
+        "type": "object",
+        "required": [
+          "id",
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "id": {
+            "$ref": "#/components/schemas/FeatureId"
+          }
+        }
+      },
+      "EntitlementCheckLimit": {
+        "type": "object",
+        "description": "Deprecated: customer usage limits were replaced by entitlement overrides; never returned.",
+        "required": [
+          "usage_limit_id",
+          "behavior",
+          "used",
+          "limit",
+          "remaining",
+          "has_access"
+        ],
+        "properties": {
+          "behavior": {
+            "$ref": "#/components/schemas/EntitlementCheckLimitBehavior"
+          },
+          "group": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "The group the limit was evaluated for, when the limit is grouped.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "has_access": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "string",
+            "format": "decimal"
+          },
+          "remaining": {
+            "type": "string",
+            "format": "decimal"
+          },
+          "usage_limit_id": {
+            "$ref": "#/components/schemas/UsageLimitId"
+          },
+          "used": {
+            "type": "string",
+            "format": "decimal"
+          }
+        }
+      },
+      "EntitlementCheckLimitBehavior": {
+        "type": "string",
+        "enum": [
+          "TRACK",
+          "SOFT",
+          "HARD"
+        ]
+      },
+      "EntitlementCheckPeriod": {
+        "type": "object",
+        "required": [
+          "start"
+        ],
+        "properties": {
+          "end": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Absent when the period never ends."
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "EntitlementCheckReason": {
+        "type": "string",
+        "enum": [
+          "WITHIN_LIMIT",
+          "LIMIT_REACHED",
+          "NO_ENTITLEMENT",
+          "DISABLED",
+          "BUDGET_EXCEEDED",
+          "INSUFFICIENT_BALANCE",
+          "TOO_MANY_GROUPS",
+          "RESOURCE_REQUIRED",
+          "NOT_SUBSCRIBED",
+          "METRIC_NOT_FOUND",
+          "USAGE_UNAVAILABLE"
+        ]
+      },
+      "EntitlementCheckReasonType": {
+        "type": "string",
+        "enum": [
+          "denied",
+          "misconfigured",
+          "unavailable"
+        ]
+      },
+      "EntitlementCheckRequest": {
+        "type": "object",
+        "required": [
+          "feature"
+        ],
+        "properties": {
+          "attributes": {
+            "type": "object",
+            "description": "Asserted attributes, `{\"site.environment\": \"staging\"}`. A stored resource's own win.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "current_count": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal",
+            "description": "Limits counted by your app: replaces the stored count for this request. Server key only."
+          },
+          "explain": {
+            "type": "boolean",
+            "description": "Adds how each level's value was built. Server key only."
+          },
+          "feature": {
+            "type": "string",
+            "description": "Feature id or code."
+          },
+          "requested": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal",
+            "description": "Units about to be consumed. Defaults to 1."
+          },
+          "resources": {
+            "type": "object",
+            "description": "At most one resource, by any of its type's keys: `{\"site_id\": \"s1\"}`.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "subscription_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Deprecated, ignored: the subscription deciding the feature answers."
+          }
+        }
+      },
+      "EntitlementCondition": {
+        "type": "object",
+        "description": "`{\"<type code>.<attribute>\": [\"value\", …]}`: the row applies when every attribute holds one of\nits values.",
+        "additionalProperties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "propertyNames": {
+          "type": "string"
+        }
+      },
+      "EntitlementContribution": {
+        "type": "object",
+        "description": "One row's part in a level's value.",
+        "required": [
+          "entitlement_id",
+          "source",
+          "tier",
+          "effect",
+          "value",
+          "quantity",
+          "policy_override"
+        ],
+        "properties": {
+          "condition": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementCondition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "discarded": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DiscardReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "effect": {
+            "$ref": "#/components/schemas/EntitlementEffect"
+          },
+          "entitlement_id": {
+            "$ref": "#/components/schemas/EntitlementId"
+          },
+          "policy_override": {
+            "type": "boolean"
+          },
+          "quantity": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "running": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementValue",
+                "description": "The value after this row; absent when it was discarded."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "type": "string",
+            "description": "The entity holding the row, as `<type>:<id>`."
+          },
+          "source_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tier": {
+            "$ref": "#/components/schemas/EntitlementTier"
+          },
+          "units": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "A limit counted per unit of a managed quantity: the units held, which multiply `value`.",
+            "minimum": 0
+          },
+          "value": {
+            "$ref": "#/components/schemas/EntitlementValue"
+          }
+        }
+      },
+      "EntitlementEffect": {
+        "type": "string",
+        "description": "How a row combines with the value below it.",
+        "enum": [
+          "SET",
+          "ADD",
+          "RAISE_TO",
+          "CAP_AT"
+        ]
+      },
+      "EntitlementHistoryResponse": {
+        "type": "object",
+        "description": "Every row of the entitlement, oldest first.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Entitlement"
+            }
           }
         }
       },
@@ -16862,6 +20085,105 @@
         "examples": [
           "ent_7n42DGM5Tflk9n8mt7Fhc7"
         ]
+      },
+      "EntitlementLevel": {
+        "type": "string",
+        "description": "`FEATURE` follows the feature's level, `CUSTOMER` is across all the customer's resources,\n`TYPE` is per resource of `level_type_id`.",
+        "enum": [
+          "FEATURE",
+          "CUSTOMER",
+          "TYPE"
+        ]
+      },
+      "EntitlementLevelState": {
+        "type": "object",
+        "description": "A feature at one level of the path: the customer, or the resource the request names.",
+        "required": [
+          "path",
+          "near_limit",
+          "in_overage",
+          "allowed"
+        ],
+        "properties": {
+          "allowed": {
+            "type": "boolean"
+          },
+          "deciding_subscription_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "explain": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LevelExplain"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "in_overage": {
+            "type": "boolean",
+            "description": "Past the limit of a level that allows and bills."
+          },
+          "level": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The level's resource type code, e.g. `site`; absent for the customer level."
+          },
+          "limit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal"
+          },
+          "near_limit": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string",
+            "description": "`\"\"` for the customer, else `<type code>=<key value>`."
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementCheckReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reset_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "used": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal"
+          },
+          "value": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementValue"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
       },
       "EntitlementListResponse": {
         "type": "object",
@@ -16901,21 +20223,128 @@
           }
         }
       },
+      "EntitlementSnapshot": {
+        "type": "object",
+        "description": "Every feature with its levels. `etag` is also the `ETag` header: send it back as\n`If-None-Match` to get a 304 while nothing changed.",
+        "required": [
+          "etag",
+          "data",
+          "attributes_ignored",
+          "warnings"
+        ],
+        "properties": {
+          "attributes_ignored": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Asserted attributes the stored resource's own overrode."
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SnapshotEntitlement"
+            }
+          },
+          "etag": {
+            "type": "string"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "`usage_unavailable`: a level's usage could not be read, its `used` is absent."
+          }
+        }
+      },
       "EntitlementSpecRequest": {
         "type": "object",
-        "description": "One entitlement to create: which feature, and the value granted by the entity.",
+        "description": "One row to create. `effect` defaults to the source's: Set to for defaults, plans and\nsubscriptions, Add (several instances) or Raise to for add-ons, Raise to for overrides.",
         "required": [
           "feature_id",
           "value"
         ],
         "properties": {
+          "condition": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementCondition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "effect": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementEffect"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "feature_id": {
             "$ref": "#/components/schemas/FeatureId"
+          },
+          "level": {
+            "$ref": "#/components/schemas/EntitlementLevel"
+          },
+          "level_type_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "policy_override": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FeaturePolicy",
+                "description": "Set to rows only."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "valid_from": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "valid_until": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "value": {
             "$ref": "#/components/schemas/EntitlementValue"
           }
         }
+      },
+      "EntitlementTier": {
+        "type": "string",
+        "enum": [
+          "DEFAULT",
+          "PLAN",
+          "PLAN_VERSION",
+          "SUBSCRIPTION",
+          "ADD_ON",
+          "CUSTOMER",
+          "RESOURCE_OVERRIDE"
+        ]
       },
       "EntitlementValue": {
         "oneOf": [
@@ -16948,7 +20377,15 @@
           "UNAUTHORIZED",
           "TOKEN_EXPIRED",
           "TOO_MANY_REQUESTS",
-          "INTERNAL_SERVER_ERROR"
+          "INTERNAL_SERVER_ERROR",
+          "RESOURCE_REQUIRED",
+          "NOT_SUBSCRIBED",
+          "RESOURCE_TYPE_ARCHIVED",
+          "RESOURCE_LIMIT_REACHED",
+          "RESOURCE_HIERARCHY_UNSUPPORTED",
+          "IDEMPOTENCY_KEY_REUSED",
+          "STALE_SET",
+          "RESOURCE_KEY_CLASH"
         ]
       },
       "Event": {
@@ -17050,7 +20487,8 @@
           "wallet.debited",
           "wallet.credit_unrecovered",
           "wallet.credit_recovered",
-          "credit_grant.expired"
+          "credit_grant.expired",
+          "checkout.payment_kept_as_credit"
         ]
       },
       "ExistingPriceRef": {
@@ -17224,9 +20662,10 @@
           "id",
           "name",
           "code",
-          "feature_type",
+          "kind",
           "status",
-          "created_at"
+          "created_at",
+          "defaults"
         ],
         "properties": {
           "code": {
@@ -17236,6 +20675,13 @@
           "created_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "defaults": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Entitlement"
+            },
+            "description": "The feature's default rows, the lowest tier."
           },
           "description": {
             "type": [
@@ -17247,7 +20693,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Entitlement",
-                "description": "Feature-level (default) entitlement, applied to all subscriptions as the lowest-priority."
+                "description": "Deprecated: the first of `defaults`."
               },
               {
                 "type": "null"
@@ -17255,13 +20701,51 @@
             ]
           },
           "feature_type": {
-            "$ref": "#/components/schemas/FeatureType"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FeatureType",
+                "description": "Deprecated: read `kind`; absent for a limit counted by your app. Removed once every client\nreads `kind`."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "id": {
             "$ref": "#/components/schemas/FeatureId"
           },
+          "kind": {
+            "$ref": "#/components/schemas/FeatureKind"
+          },
+          "level": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The resource type the feature applies per; absent: the customer."
+          },
+          "limit": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FeatureLimitSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "name": {
             "type": "string"
+          },
+          "policy": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FeaturePolicy"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "product": {
             "oneOf": [
@@ -17276,6 +20760,22 @@
           },
           "status": {
             "$ref": "#/components/schemas/FeatureStatus"
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FeatureValueSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -17285,6 +20785,32 @@
         "examples": [
           "feat_7n42DGM5Tflk9n8mt7Fhc7"
         ]
+      },
+      "FeatureKind": {
+        "type": "string",
+        "enum": [
+          "BOOLEAN",
+          "VALUE",
+          "LIMIT"
+        ]
+      },
+      "FeatureLimitSpec": {
+        "type": "object",
+        "description": "How a `LIMIT` feature is counted.",
+        "required": [
+          "counted_by"
+        ],
+        "properties": {
+          "counted_by": {
+            "$ref": "#/components/schemas/LimitCountedBy"
+          },
+          "metric_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
       },
       "FeatureListResponse": {
         "type": "object",
@@ -17301,6 +20827,47 @@
           },
           "pagination_meta": {
             "$ref": "#/components/schemas/PaginationResponse"
+          }
+        }
+      },
+      "FeaturePolicy": {
+        "type": "object",
+        "description": "A limit's policy. A limit counted by your app never resets and is `DENY_NEW`.",
+        "required": [
+          "resets",
+          "at_limit"
+        ],
+        "properties": {
+          "at_limit": {
+            "$ref": "#/components/schemas/PolicyAtLimit"
+          },
+          "grace_pct": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "period": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PolicyPeriod",
+                "description": "`CALENDAR`, `FIXED` and `SLIDING` only."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resets": {
+            "$ref": "#/components/schemas/PolicyResets"
+          },
+          "thresholds": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "description": "Percents of the limit at which an alert is sent, ascending."
           }
         }
       },
@@ -17334,6 +20901,13 @@
           }
         }
       },
+      "FeatureScope": {
+        "type": "string",
+        "enum": [
+          "customer",
+          "resource"
+        ]
+      },
       "FeatureStatus": {
         "type": "string",
         "description": "Lifecycle status of a feature.",
@@ -17363,6 +20937,44 @@
             "METERED": "#/components/schemas/MeteredFeatureType"
           }
         }
+      },
+      "FeatureValueSpec": {
+        "type": "object",
+        "description": "What a `VALUE` feature holds.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "higher_is_better": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Numbers: which way is better, for Raise to and Cap at."
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Select: the allowed values, worst first when `ordered`."
+          },
+          "ordered": {
+            "type": "boolean"
+          },
+          "type": {
+            "$ref": "#/components/schemas/FeatureValueType"
+          }
+        }
+      },
+      "FeatureValueType": {
+        "type": "string",
+        "enum": [
+          "NUMBER",
+          "TEXT",
+          "SELECT",
+          "JSON"
+        ]
       },
       "Fee": {
         "oneOf": [
@@ -18463,6 +22075,41 @@
           }
         }
       },
+      "LevelExplain": {
+        "type": "object",
+        "required": [
+          "contributions",
+          "candidates",
+          "app_counts"
+        ],
+        "properties": {
+          "app_counts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppCountExplain"
+            }
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DecidingCandidate"
+            }
+          },
+          "contributions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntitlementContribution"
+            }
+          }
+        }
+      },
+      "LimitCountedBy": {
+        "type": "string",
+        "enum": [
+          "EVENTS",
+          "APP"
+        ]
+      },
       "LinkedSegmentationMatrix": {
         "type": "object",
         "required": [
@@ -18729,13 +22376,13 @@
       },
       "MeteredEntitlementValue": {
         "type": "object",
+        "description": "A limit: no `limit` is unlimited, `enabled: false` is off. Resets, behavior at the limit and\nthresholds are the feature's `policy` or a Set to row's `policy_override`. The deprecated terms\nare read on writes: a Set to row takes them as its override, others refuse them unless equal.",
         "required": [
           "type"
         ],
         "properties": {
           "enabled": {
-            "type": "boolean",
-            "description": "Per-entitlement kill switch. `false` means disabled."
+            "type": "boolean"
           },
           "grace_pct": {
             "type": [
@@ -18743,7 +22390,8 @@
               "null"
             ],
             "format": "int32",
-            "description": "`BLOCK` only: usage allowed beyond the limit before it is refused, in percent of the\nlimit (1 to 1000).",
+            "description": "Deprecated: the policy's `grace_pct`.",
+            "deprecated": true,
             "minimum": 0
           },
           "group_by": {
@@ -18751,21 +22399,21 @@
               "string",
               "null"
             ],
-            "description": "Event property the limit applies to separately, one limit per value (e.g. `user_id`)."
+            "description": "Deprecated: no longer supported, a limit applies per resource instead (`level`). Only\n`null` is accepted.",
+            "deprecated": true
           },
           "limit": {
             "type": [
               "string",
               "null"
             ],
-            "format": "decimal",
-            "description": "Cap on usage. Null means unlimited."
+            "format": "decimal"
           },
           "overage_behavior": {
             "oneOf": [
               {
                 "$ref": "#/components/schemas/EntitlementOverageBehavior",
-                "description": "What happens at the limit; requires a limit.\n\nThe limit terms (`overage_behavior`, `grace_pct`, `thresholds`, `group_by`) follow one\nrule: omitted, a term keeps its current value on update (its default on create); `null`\nsets it to its default (`BLOCK`, no grace, no thresholds, no grouping). An omitted term\nthat no longer applies (no limit, or a sliding window for the thresholds) falls back to its\ndefault; one sent explicitly is refused with 400."
+                "description": "Deprecated: the policy's `at_limit` (`ALLOW` is `ALLOW_AND_BILL`, `BLOCK` is `DENY`)."
               },
               {
                 "type": "null"
@@ -18773,7 +22421,15 @@
             ]
           },
           "reset_period": {
-            "$ref": "#/components/schemas/ResetPeriod"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ResetPeriod",
+                "description": "Deprecated: the policy's `resets` and `period`. Write-only, like the terms below: one\nomitted keeps the policy in effect; `null` sets the others to their default."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "thresholds": {
             "type": [
@@ -18785,7 +22441,8 @@
               "format": "int32",
               "minimum": 0
             },
-            "description": "Percents of the limit (1 to 100, at most 10) at which an alert is sent, once per period:\n`entitlement.usage_threshold_reached`, or `entitlement.limit_reached` at 100. Requires a\nlimit and a window that is not sliding."
+            "description": "Deprecated: the policy's `thresholds`.",
+            "deprecated": true
           },
           "type": {
             "type": "string",
@@ -18799,7 +22456,8 @@
               "null"
             ],
             "format": "int32",
-            "description": "Deprecated: use `thresholds`. A single alert threshold, read only when `thresholds` is\nomitted; returned as the lowest of `thresholds`.",
+            "description": "Deprecated: a single threshold, read only when `thresholds` is omitted or empty.",
+            "deprecated": true,
             "minimum": 0
           }
         }
@@ -18911,6 +22569,7 @@
           "code",
           "aggregation_type",
           "product_family_id",
+          "attributed_to",
           "created_at"
         ],
         "properties": {
@@ -18929,6 +22588,9 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "attributed_to": {
+            "$ref": "#/components/schemas/AttributedTo"
           },
           "code": {
             "type": "string"
@@ -19249,6 +22911,7 @@
           "name",
           "code",
           "aggregation_type",
+          "attributed_to",
           "created_at"
         ],
         "properties": {
@@ -19267,6 +22930,9 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "attributed_to": {
+            "$ref": "#/components/schemas/AttributedTo"
           },
           "code": {
             "type": "string"
@@ -19447,6 +23113,21 @@
             "type": "string",
             "enum": [
               "NEW"
+            ]
+          }
+        }
+      },
+      "NotEntitledEffectiveEntitlementValue": {
+        "type": "object",
+        "description": "A value feature the customer isn't entitled to, or one read without the resource it needs.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "NOT_ENTITLED"
             ]
           }
         }
@@ -19747,6 +23428,13 @@
               "null"
             ],
             "format": "int32"
+          },
+          "sold_for_resource_type_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "\"Sold for\": the resource type its subscriptions are for, `null` for the customer."
           }
         }
       },
@@ -20128,6 +23816,17 @@
             ],
             "format": "int32"
           },
+          "sold_for_resource_type_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ResourceTypeId",
+                "description": "The resource type its subscriptions are for; absent for the customer. A mismatch at\nsubscription creation is a warning, never a refusal."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "status": {
             "$ref": "#/components/schemas/PlanStatusEnum"
           },
@@ -20443,6 +24142,42 @@
             "format": "int32"
           }
         }
+      },
+      "PolicyAtLimit": {
+        "type": "string",
+        "enum": [
+          "DENY",
+          "ALLOW_AND_BILL",
+          "DENY_NEW"
+        ]
+      },
+      "PolicyPeriod": {
+        "type": "object",
+        "description": "The length of a calendar, fixed or sliding window.",
+        "required": [
+          "unit",
+          "interval"
+        ],
+        "properties": {
+          "interval": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "unit": {
+            "$ref": "#/components/schemas/CalendarUnit"
+          }
+        }
+      },
+      "PolicyResets": {
+        "type": "string",
+        "enum": [
+          "BILLING_CYCLE",
+          "CALENDAR",
+          "FIXED",
+          "SLIDING",
+          "NEVER"
+        ]
       },
       "PriceComponent": {
         "type": "object",
@@ -21806,6 +25541,77 @@
           }
         }
       },
+      "ReportUsageRequest": {
+        "type": "object",
+        "description": "Reports a limit counted by your app: `set` the count, or `add` to it (negative to remove).",
+        "required": [
+          "idempotency_key"
+        ],
+        "properties": {
+          "add": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal"
+          },
+          "at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the change happened. Defaults to the time received."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "A retry with the same key returns the stored count; another body with it is a 409."
+          },
+          "resources": {
+            "type": "object",
+            "description": "The resource counted, by any of its type's keys. Omit for the customer.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "set": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal"
+          }
+        }
+      },
+      "ReportUsageResponse": {
+        "type": "object",
+        "required": [
+          "path",
+          "count",
+          "applied",
+          "replayed"
+        ],
+        "properties": {
+          "applied": {
+            "type": "boolean",
+            "description": "False when older than the last set, or a retry."
+          },
+          "count": {
+            "type": "string",
+            "format": "decimal"
+          },
+          "path": {
+            "type": "string",
+            "description": "`\"\"` for the customer, else `<type code>=<key value>`."
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        }
+      },
       "ResetPeriod": {
         "oneOf": [
           {
@@ -21890,6 +25696,295 @@
             "METERED": "#/components/schemas/MeteredResolvedEntitlementValue"
           }
         }
+      },
+      "Resource": {
+        "type": "object",
+        "description": "A customer's stored resource: needed for one-resource overrides, subscriptions, attributes the\ncaller must not assert, and listing.",
+        "required": [
+          "id",
+          "customer_id",
+          "resource_type_id",
+          "key_value",
+          "attributes",
+          "archived"
+        ],
+        "properties": {
+          "archived": {
+            "type": "boolean"
+          },
+          "attributes": {
+            "type": "object",
+            "description": "`{\"<attribute>\": \"<value>\"}`, without the type code. They win over asserted ones in checks.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "customer_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "key_value": {
+            "type": "string",
+            "description": "The value of the type's keys, e.g. `s1`."
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resource_type_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ResourceId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "res_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "ResourceListResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "pagination_meta"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Resource"
+            }
+          },
+          "pagination_meta": {
+            "$ref": "#/components/schemas/PaginationResponse"
+          }
+        }
+      },
+      "ResourceType": {
+        "type": "object",
+        "description": "What a customer has several of (sites, workspaces), one level below the customer.",
+        "required": [
+          "id",
+          "code",
+          "name",
+          "plural_name",
+          "keys",
+          "attributes",
+          "archived",
+          "created_at"
+        ],
+        "properties": {
+          "archived": {
+            "type": "boolean",
+            "description": "Archived types still resolve in checks, but take no new resources or entitlement rows."
+          },
+          "attributes": {
+            "type": "object",
+            "description": "Each attribute with its closed list of values.",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "code": {
+            "type": "string",
+            "description": "Immutable: conditions name attributes as `<code>.<attribute>`."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string"
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Identifying keys, the canonical one first, then its aliases. Unique across the tenant's\ntypes, archived ones included."
+          },
+          "name": {
+            "type": "string"
+          },
+          "parent_type_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Always null: every type sits directly below the customer."
+          },
+          "plural_name": {
+            "type": "string"
+          }
+        }
+      },
+      "ResourceTypeCreateRequest": {
+        "type": "object",
+        "required": [
+          "code",
+          "name",
+          "plural_name",
+          "keys"
+        ],
+        "properties": {
+          "attributes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "code": {
+            "type": "string",
+            "description": "Lowercase letters, digits and underscores, e.g. `site`. Immutable."
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "At least one, canonical first, e.g. `[\"site_id\", \"website_id\"]`. A key another type holds\ngives 409 `RESOURCE_KEY_CLASH`."
+          },
+          "name": {
+            "type": "string"
+          },
+          "parent_type_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Refused with 400 `RESOURCE_HIERARCHY_UNSUPPORTED`: no second level yet."
+          },
+          "plural_name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ResourceTypeId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "rty_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "ResourceTypeListResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResourceType"
+            }
+          }
+        }
+      },
+      "ResourceTypeUpdateRequest": {
+        "type": "object",
+        "description": "Partial update: an absent field is left unchanged.",
+        "properties": {
+          "archived": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "attributes": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Replaces the attributes. Removing a value a resource or an entitlement condition uses is\nrefused with 409, listing the usages.",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "keys": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Replaces the keys, with the same clash check as on create."
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parent_type_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Refused with 400 `RESOURCE_HIERARCHY_UNSUPPORTED`."
+          },
+          "plural_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "ResourceUpsertRequest": {
+        "type": "object",
+        "description": "Replaces the name, attributes and archive of the resource, creating it when new.",
+        "properties": {
+          "archived": {
+            "type": "boolean",
+            "description": "Archived resources still resolve in checks. Defaults to false."
+          },
+          "attributes": {
+            "type": "object",
+            "description": "From the type's closed lists, without the type code.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
       },
       "RestErrorResponse": {
         "type": "object",
@@ -22197,6 +26292,111 @@
           "PRORATED"
         ]
       },
+      "SnapshotEntitlement": {
+        "type": "object",
+        "description": "`feature` and `value` keep the shape of the earlier list; `scope` and `levels` add each level.",
+        "required": [
+          "feature",
+          "value",
+          "scope",
+          "levels"
+        ],
+        "properties": {
+          "feature": {
+            "$ref": "#/components/schemas/FeatureRef"
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SnapshotLevel"
+            }
+          },
+          "scope": {
+            "$ref": "#/components/schemas/FeatureScope"
+          },
+          "value": {
+            "$ref": "#/components/schemas/EffectiveEntitlementValue",
+            "description": "The feature's own level's value capped by the others, with its usage: always present."
+          }
+        }
+      },
+      "SnapshotLevel": {
+        "type": "object",
+        "description": "A feature at one level, as the snapshot reads it.",
+        "required": [
+          "path",
+          "policy"
+        ],
+        "properties": {
+          "deciding_subscription_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "level": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The level's resource type code, e.g. `site`; absent for the customer level."
+          },
+          "origin": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementContribution",
+                "description": "The row that set the value, with its source's name; absent without a value."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "path": {
+            "type": "string",
+            "description": "`\"\"` for the customer, else `<type code>=<key value>`."
+          },
+          "policy": {
+            "$ref": "#/components/schemas/FeaturePolicy"
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementCheckReason",
+                "description": "`RESOURCE_REQUIRED` or `NOT_SUBSCRIBED` when the level needs another resource."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reset_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "used": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal"
+          },
+          "value": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementValue",
+                "description": "Absent without a value: see `reason`; else nothing is imposed, or on the feature's own\nlevel, it is not entitled."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
       "SubLineItem": {
         "type": "object",
         "required": [
@@ -22398,6 +26598,17 @@
               "null"
             ]
           },
+          "resource_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ResourceId",
+                "description": "The stored resource it is for, fixed once active; absent for the whole customer."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "start_date": {
             "type": "string",
             "format": "date",
@@ -22423,7 +26634,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/UsageFilter",
-                "description": "The customer's events this subscription bills, when it does not bill all of them."
+                "description": "Deprecated, always empty: usage filters are replaced by `resource_id`."
               },
               {
                 "type": "null"
@@ -22436,7 +26647,8 @@
               "null"
             ],
             "format": "date-time",
-            "description": "When the current usage filter, or its removal, started to apply: the start of the usage\nneither this subscription nor the customer's others had invoiced when it was set."
+            "description": "Deprecated, always empty: usage filters are replaced by `resource_id`.",
+            "deprecated": true
           }
         }
       },
@@ -22753,6 +26965,10 @@
               "null"
             ]
           },
+          "resource_id": {
+            "$ref": "#/components/schemas/ResourceId",
+            "description": "A stored resource of the customer to subscribe for. Omit for the whole customer."
+          },
           "skip_past_invoices": {
             "type": "boolean",
             "description": "Migration mode: when true with a past start_date, skip creating invoices for past cycles.\nThe subscription will be set to the current billing period with correct cycle_index."
@@ -22771,7 +26987,7 @@
           },
           "usage_filter": {
             "$ref": "#/components/schemas/UsageFilter",
-            "description": "Bill only the customer's events whose property has this value. Omit to bill the events\nno usage filter of the customer's other subscriptions matches."
+            "description": "Deprecated: usage filters are replaced by `resource_id`. Any value is refused with 400."
           },
           "version": {
             "type": "integer",
@@ -22935,6 +27151,13 @@
             ],
             "description": "Default memo for invoices"
           },
+          "metrics_not_attributed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "With `metric_not_attributed`: the codes of the metrics it prices that are not attributed\nto its resource's type, so it bills none of their usage."
+          },
           "minimum_commitment": {
             "oneOf": [
               {
@@ -23010,6 +27233,17 @@
               "null"
             ]
           },
+          "resource_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ResourceId",
+                "description": "The stored resource it is for: it bills the metrics attributed to that resource's type,\nfor the events carrying its key value. Absent for the whole customer."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "scheduled_cancellation_date": {
             "type": [
               "string",
@@ -23043,7 +27277,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/UsageFilter",
-                "description": "The customer's events this subscription bills, when it does not bill all of them."
+                "description": "Deprecated, always empty: usage filters are replaced by `resource_id`."
               },
               {
                 "type": "null"
@@ -23056,7 +27290,15 @@
               "null"
             ],
             "format": "date-time",
-            "description": "When the current usage filter, or its removal, started to apply: the start of the usage\nneither this subscription nor the customer's others had invoiced when it was set."
+            "description": "Deprecated, always empty: usage filters are replaced by `resource_id`.",
+            "deprecated": true
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What it is sold with as it stands, worth showing: `plan_sold_for_mismatch` (the plan is\nsold for another target), `metric_not_attributed` (its resource never bills some metrics\nit prices, listed in `metrics_not_attributed`)."
           }
         }
       },
@@ -23286,6 +27528,42 @@
           "ANNUAL"
         ]
       },
+      "SubscriptionGrant": {
+        "type": "object",
+        "description": "What a subscription's own rows grant on a level another subscription decides: \"grants 1k;\nPro on the customer decides 10k\".",
+        "required": [
+          "deciding_subscription_id"
+        ],
+        "properties": {
+          "deciding_plan_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deciding_resource_path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The deciding subscription's resource (`site=s1`); absent for the customer's own."
+          },
+          "deciding_subscription_id": {
+            "type": "string"
+          },
+          "value": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementValue",
+                "description": "Absent when the subscription includes the feature through its product alone."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
       "SubscriptionId": {
         "type": "string",
         "format": "MeteroidId",
@@ -23384,11 +27662,18 @@
             ],
             "description": "Purchase order number"
           },
+          "resource_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Omit to leave the resource unchanged; `null` subscribes for the whole customer. Only\nbefore the subscription is active."
+          },
           "usage_filter": {
             "oneOf": [
               {
                 "$ref": "#/components/schemas/UsageFilter",
-                "description": "Omit to leave the usage filter unchanged; `null` removes it; an object replaces it. The\nchange applies to all usage not yet invoiced, the current period included."
+                "description": "Deprecated: usage filters are replaced by `resource_id`. An object is refused with 400;\n`null` is accepted when the subscription is for the whole customer."
               },
               {
                 "type": "null"
@@ -23852,7 +28137,7 @@
       },
       "UnattributedMetricUsage": {
         "type": "object",
-        "description": "A metric's usage over `[from, until)` that no subscription bills: it matches none of the\nusage filters of the subscriptions pricing the metric, and none of them bills without one.",
+        "description": "A metric's usage over `[from, until)` that no subscription bills: only subscriptions for\nresources price the metric, and the usage is attributed to none of their resources.",
         "required": [
           "metric_id",
           "metric_name",
@@ -24022,12 +28307,63 @@
       },
       "UpdateEntitlementRequest": {
         "type": "object",
+        "description": "An omitted field keeps its stored value; `null` clears it. Owner, feature, level and resource\nstay: delete the row and create another to change them.",
         "properties": {
+          "condition": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementCondition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "effect": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementEffect"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "policy_override": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FeaturePolicy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "valid_from": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "valid_until": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "value": {
             "oneOf": [
               {
                 "$ref": "#/components/schemas/EntitlementValue",
-                "description": "Omit to leave the entitlement unchanged. Must match the feature's type."
+                "description": "Must match the feature's kind."
               },
               {
                 "type": "null"
@@ -24038,7 +28374,7 @@
       },
       "UpdateFeatureRequest": {
         "type": "object",
-        "description": "Partial update. Code, feature type and product are immutable.",
+        "description": "Partial update. Code, kind and product are immutable.",
         "properties": {
           "description": {
             "type": [
@@ -24047,7 +28383,53 @@
             ],
             "description": "Omit to leave unchanged; send `null` to clear."
           },
+          "higher_is_better": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Numbers only."
+          },
+          "level": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Moves the rows on the feature's level with it. `null`: the customer."
+          },
           "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "policy": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FeaturePolicy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "select_options": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Selects only. An option a row still uses can't be removed."
+          },
+          "select_ordered": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "unit": {
             "type": [
               "string",
               "null"
@@ -24058,6 +28440,17 @@
       "UpdateMetricRequest": {
         "type": "object",
         "properties": {
+          "attributed_to": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AttributedTo",
+                "description": "Absent = unchanged. Refused with 400 once a subscription for a resource prices the metric\nand is not terminated, or has an invoice that is not void, a draft included: create a new\nmetric instead. Otherwise the customers' drafts are recomputed; finalized invoices stay."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "description": {
             "type": [
               "string",
@@ -24424,7 +28817,7 @@
       },
       "UsageFilter": {
         "type": "object",
-        "description": "Restricts the customer's usage events a subscription bills to those whose `property` equals\n`value` (for example `api_key` = `key-A`). Among the customer's subscriptions pricing the same\nmetric, one with a usage filter bills the events matching it (an event two filters match goes\nto the older subscription); one without bills the events matching no other subscription's\nfilter. Two subscriptions without a usage filter both bill every such event. Events matching\nno filter while every subscription pricing their metric has one are billed by none and\nreported as unattributed usage.",
+        "description": "Deprecated: usage filters are replaced by resources. A subscription for a resource\n(`resource_id`) bills the events of the metrics attributed to its type that carry its key.",
         "required": [
           "property",
           "value"
@@ -24445,6 +28838,13 @@
             ]
           }
         }
+      },
+      "UsageLimitId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "ulim_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
       },
       "UsageModelEnum": {
         "type": "string",
@@ -24592,6 +28992,14 @@
             }
           }
         }
+      },
+      "UsageSource": {
+        "type": "string",
+        "description": "Where the usage came from: `read` when checking, else `live`, kept up to date by the live\nengine.",
+        "enum": [
+          "read",
+          "live"
+        ]
       },
       "VolumePlanPricing": {
         "type": "object",
@@ -25625,6 +30033,11 @@
       "name": "Checkout Sessions"
     },
     {
+      "name": "Checks",
+      "description": "Beta: may change before general availability. Whether a customer may consume more of a feature right now.",
+      "x-beta": true
+    },
+    {
       "name": "Coupons"
     },
     {
@@ -25672,6 +30085,9 @@
       "name": "Rate cards",
       "description": "Beta: may change before general availability. The rates of a metric's usage by its dimensions (model, token type), a rate per currency for each key, that usage prices name with a multiplier.",
       "x-beta": true
+    },
+    {
+      "name": "Resources"
     },
     {
       "name": "Subscriptions"
@@ -25795,6 +30211,44 @@
                 "self_serviceable": true,
                 "max_instances_per_subscription": 5,
                 "created_at": "1970-01-01T00:00:00.000Z",
+                "timestamp": "1970-01-01T00:00:00.000Z"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        }
+      }
+    },
+    "checkout.payment_kept_as_credit": {
+      "post": {
+        "summary": "checkout.payment_kept_as_credit webhook",
+        "description": "A self-serve checkout was paid but its subscription could not be created; the payment was kept as the customer's credit and the checkout cancelled",
+        "operationId": "webhook_checkout_payment_kept_as_credit",
+        "tags": [
+          "webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutPaymentKeptAsCreditEvent"
+              },
+              "example": {
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "type": "checkout.payment_kept_as_credit",
+                "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
+                "checkout_session_id": "che_7n42DGM5Tflk9n8mt7Fhc7",
+                "payment_id": "pay_7n42DGM5Tflk9n8mt7Fhc7",
+                "plan_version_id": "plv_7n42DGM5Tflk9n8mt7Fhc7",
+                "resource_id": "res_7n42DGM5Tflk9n8mt7Fhc7",
+                "amount": 4900,
+                "currency": "EUR",
+                "reason": "resource res_4cd9Hk2 is already sold by subscription sub_7Fq2Lm over this period: change its plan instead",
                 "timestamp": "1970-01-01T00:00:00.000Z"
               }
             }

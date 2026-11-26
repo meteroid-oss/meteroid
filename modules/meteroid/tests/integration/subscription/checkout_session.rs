@@ -72,6 +72,7 @@ async fn test_checkout_session_paid_trial_invoice_dates(#[future] test_env: Test
             change_date: None,
             success_url: None,
             cancel_url: None,
+            resource_id: None,
         })
         .await
         .expect("Failed to create checkout session");
@@ -250,6 +251,7 @@ async fn test_checkout_session_free_trial_invoice_dates(#[future] test_env: Test
             change_date: None,
             success_url: None,
             cancel_url: None,
+            resource_id: None,
         })
         .await
         .expect("Failed to create checkout session");
@@ -435,6 +437,7 @@ async fn test_checkout_session_free_trial_no_anchor(#[future] test_env: TestEnv)
             change_date: None,
             success_url: None,
             cancel_url: None,
+            resource_id: None,
         })
         .await
         .expect("Failed to create checkout session");
@@ -606,6 +609,7 @@ async fn test_checkout_session_no_trial_invoice_dates(#[future] test_env: TestEn
             change_date: None,
             success_url: None,
             cancel_url: None,
+            resource_id: None,
         })
         .await
         .expect("Failed to create checkout session");
@@ -748,6 +752,7 @@ async fn test_checkout_session_100_percent_coupon(#[future] test_env: TestEnv) {
             change_date: None,
             success_url: None,
             cancel_url: None,
+            resource_id: None,
         })
         .await
         .expect("Failed to create checkout session");
@@ -866,6 +871,7 @@ async fn test_checkout_declined_charge_persists_failed_transaction(#[future] tes
             change_date: None,
             success_url: None,
             cancel_url: None,
+            resource_id: None,
         })
         .await
         .expect("Failed to create checkout session");
@@ -908,6 +914,7 @@ async fn a_checkout_preview_s_fees_live_from_its_billing_start(#[future] test_en
     let session = env
         .store()
         .create_checkout_session(CreateCheckoutSession {
+            resource_id: None,
             tenant_id: TENANT_ID,
             customer_id: CUST_UBER_ID,
             plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
@@ -1029,6 +1036,7 @@ async fn a_mixed_cadence_checkout_charges_the_first_invoice_creation_bills(
             change_date: None,
             success_url: None,
             cancel_url: None,
+            resource_id: None,
         })
         .await
         .expect("checkout session");

@@ -34,8 +34,6 @@ import {
 } from '../primitives'
 import { boundaryDay } from '../walletFormat'
 
-import { UsageFilterTag } from './UsageFilterTag'
-
 import type { LevelUnit } from '@/features/subscriptions/capacityLevels'
 import type { LineItem } from '@/rpc/api/invoices/v1/models_pb'
 import type {
@@ -124,7 +122,6 @@ export const SubscriptionDetailScreen = ({
             <span style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.02em' }}>
               {sub.planName}
             </span>
-            <UsageFilterTag subscriptionId={sub.id} />
             <Pill badge={subStatusBadge(sub.status)} dot />
           </div>
           <span style={{ fontSize: 13, color: 'var(--mtp-text-2)' }}>

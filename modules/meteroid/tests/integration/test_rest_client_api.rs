@@ -1,21 +1,42 @@
 //! Browser-facing client API (`/api/client/v1`): customer portal token auth, customer
-//! isolation, the shapes of API v2, CORS and the published spec. Its public routes, read with a
-//! publishable key, are `test_rest_client_public`.
+//! isolation, the shapes of API v2 (the entitlement snapshot with its `ETag`, the checks), the
+//! resources and attributes a token claims, CORS and the published spec. Its public routes, read
+//! with a publishable key, are `test_rest_client_public`.
 
-use reqwest::StatusCode;
+use reqwest::header::HeaderMap;
+use reqwest::{Method, StatusCode};
 use secrecy::SecretString;
 use serde_json::{Value, json};
 
-use crate::data::ids::{
-    CUST_SPOTIFY_ID, CUST_UBER_ID, PLAN_LEETCODE_ID, PLAN_VERSION_1_LEETCODE_ID, TENANT_ID,
-};
+use crate::data::ids::{CUST_SPOTIFY_ID, CUST_UBER_ID, PLAN_LEETCODE_ID, TENANT_ID};
 use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
-use common_domain::ids::{BaseId, CustomerId, InvoiceId, SavedViewId};
+use common_domain::actor::Actor;
+use common_domain::ids::{
+    AliasOr, BaseId, CustomerId, EntitlementEntityId, InvoiceId, SavedViewId,
+};
 use meteroid_grpc::meteroid::api;
+use meteroid_store::domain::entitlement_fold::GrantValue;
+use meteroid_store::domain::entitlements::{EntitlementNew, EntitlementSpec};
 use meteroid_store::jwt_claims::{PortalJwtClaims, PortalScope, ResourceAccess};
+use meteroid_store::repositories::EntitlementsInterface;
 use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
+
+/// What the checks of the client and of the server answer alike; `as_of` is when each answered.
+const CHECK_FIELDS: [&str; 11] = [
+    "feature",
+    "allowed",
+    "reason",
+    "value",
+    "used",
+    "limit",
+    "remaining",
+    "near_limit",
+    "in_overage",
+    "levels",
+    "usage_source",
+];
 
 struct Fixture {
     http: reqwest::Client,
@@ -54,6 +75,47 @@ impl Fixture {
         serde_json::from_str(&body).unwrap()
     }
 
+    async fn server_put(&self, path: &str, body: Value) -> Value {
+        let res = self
+            .http
+            .put(format!("{}{path}", self.base))
+            .bearer_auth(&self.api_key)
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        let status = res.status();
+        let body = res.text().await.unwrap();
+        assert!(status.is_success(), "{path} {status}: {body}");
+        serde_json::from_str(&body).unwrap()
+    }
+
+    /// A client API request with the customer's token.
+    fn client(&self, method: Method, path: &str, token: &str) -> reqwest::RequestBuilder {
+        self.http
+            .request(method, format!("{}/api/client/v1{path}", self.base))
+            .bearer_auth(token)
+    }
+
+    async fn send(&self, request: reqwest::RequestBuilder) -> (StatusCode, HeaderMap, Value) {
+        let res = request.send().await.unwrap();
+        let status = res.status();
+        let headers = res.headers().clone();
+        let body = res.text().await.unwrap();
+        let body = serde_json::from_str(&body).unwrap_or(Value::String(body));
+        (status, headers, body)
+    }
+
+    async fn client_post(
+        &self,
+        path: &str,
+        token: &str,
+        body: Value,
+    ) -> (StatusCode, HeaderMap, Value) {
+        self.send(self.client(Method::POST, path, token).json(&body))
+            .await
+    }
+
     async fn mint(&self, customer: CustomerId, body: Value) -> String {
         let minted = self
             .server_post(
@@ -89,7 +151,12 @@ impl Fixture {
 
     /// Refused on every customer route, as a problem carrying the request id.
     async fn assert_rejected(&self, token: Option<&str>, status: StatusCode, code: &str) {
-        for path in ["/customer", "/entitlements", "/subscriptions"] {
+        for path in [
+            "/customer",
+            "/entitlements",
+            "/entitlements/sso/check",
+            "/subscriptions",
+        ] {
             let (actual, body) = self.client_get(path, token).await;
             assert_eq!(actual, status, "{path}: {body}");
             assert_eq!(body["code"], code, "{path}: {body}");
@@ -159,24 +226,30 @@ async fn test_rest_client_api() {
         jwt_secret: setup.config.jwt_secret.clone(),
     };
 
-    // Uber gets an SSO entitlement through a LeetCode subscription; Spotify has neither.
-    let sso = fx
-        .server_post(
-            "/api/v1/features",
-            json!({ "name": "SSO", "code": "sso", "feature_type": { "type": "BOOLEAN" } }),
-        )
-        .await;
+    // Uber gets SSO through its LeetCode subscription, the plan granting it; Spotify has neither.
     fx.server_post(
-        &format!(
-            "/api/v1/plan-versions/{}/entitlements",
-            PLAN_VERSION_1_LEETCODE_ID.as_base62()
-        ),
-        json!({ "entitlements": [{
-            "feature_id": sso["id"],
-            "value": { "type": "BOOLEAN", "enabled": true },
-        }] }),
+        "/api/v2/features",
+        json!({ "code": "sso", "name": "SSO", "type": { "type": "boolean" } }),
     )
     .await;
+    let sso = setup
+        .store
+        .get_feature_by_id_or_code(AliasOr::Alias("sso".to_owned()), TENANT_ID)
+        .await
+        .unwrap();
+    setup
+        .store
+        .create_entitlement(
+            &Actor::System,
+            EntitlementNew {
+                tenant_id: TENANT_ID,
+                entity: EntitlementEntityId::Plan(PLAN_LEETCODE_ID),
+                resource_id: None,
+                spec: EntitlementSpec::new(sso.id, GrantValue::Boolean(true)),
+            },
+        )
+        .await
+        .unwrap();
     let subscription = fx
         .server_post(
             "/api/v1/subscriptions",
@@ -225,33 +298,216 @@ async fn test_rest_client_api() {
     assert_eq!(customer["name"], "Uber");
     assert_eq!(customer["type"], "company");
 
-    // Entitlements: API v2's customer entitlements, paged by cursor.
-    let entitlements = fx.client_ok("/entitlements", &uber_token).await;
+    // Entitlements: the server API's snapshot of the customer, unchanged, with its etag.
+    let uber = CUST_UBER_ID.as_base62();
+    let (status, headers, entitlements) = fx
+        .send(fx.client(Method::GET, "/entitlements", &uber_token))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{entitlements}");
     let server_entitlements = fx
-        .server_get(&format!(
-            "/api/v2/customers/{}/entitlements",
-            CUST_UBER_ID.as_base62()
-        ))
+        .server_get(&format!("/api/v2/customers/{uber}/entitlements"))
         .await;
     assert_eq!(entitlements, server_entitlements);
-    assert_eq!(entitlements["has_more"], false);
-    let sso_entitlement = entitlements["data"]
+    let etag = entitlements["etag"].as_str().unwrap();
+    assert_eq!(
+        headers.get("etag").and_then(|v| v.to_str().ok()),
+        Some(format!("\"{etag}\"").as_str())
+    );
+    let sso_entitlement = entitlements["entitlements"]
         .as_array()
         .unwrap()
         .iter()
         .find(|e| e["feature"]["code"] == "sso")
         .expect("the subscribed plan grants sso");
-    assert_eq!(
-        sso_entitlement["value"],
-        json!({ "type": "boolean", "enabled": true })
-    );
-    let first = fx.client_ok("/entitlements?limit=1", &uber_token).await;
-    assert_eq!(first["data"].as_array().unwrap().len(), 1, "{first}");
-    let (status, refused) = fx
-        .client_get("/entitlements?limit=0", Some(&uber_token))
+    assert_eq!(sso_entitlement["value"], json!({ "type": "on" }));
+    let (status, _, unchanged) = fx
+        .send(
+            fx.client(Method::GET, "/entitlements", &uber_token)
+                .header("if-none-match", format!("\"{etag}\"")),
+        )
         .await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
-    assert_eq!(refused["code"], "validation_failed");
+    assert_eq!(status, StatusCode::NOT_MODIFIED, "{unchanged}");
+
+    // Checks, GET and POST: the token's customer, answered as the server API answers it.
+    let server_check = fx
+        .server_get(&format!("/api/v2/customers/{uber}/entitlements/sso/check"))
+        .await;
+    assert_eq!(server_check["allowed"], true, "{server_check}");
+    let (status, headers, by_query) = fx
+        .send(fx.client(Method::GET, "/entitlements/sso/check", &uber_token))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{by_query}");
+    assert!(headers.get("deprecation").is_none());
+    let (status, headers, by_body) = fx
+        .client_post(
+            "/entitlements/check",
+            &uber_token,
+            json!({ "feature": "sso" }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{by_body}");
+    assert!(headers.get("deprecation").is_none());
+    for key in CHECK_FIELDS {
+        assert_eq!(by_query[key], server_check[key], "GET {key}");
+        assert_eq!(by_body[key], server_check[key], "POST {key}");
+    }
+    assert_eq!(by_query["feature"]["code"], "sso");
+    assert_eq!(by_query["value"], json!({ "type": "on" }));
+    assert!(by_query.get("reason").is_none(), "{by_query}");
+    let (status, refused) = fx
+        .client_get("/entitlements/no-such-feature/check", Some(&uber_token))
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{refused}");
+    assert_eq!(refused["code"], "not_found", "{refused}");
+    let spotify_check = fx
+        .client_ok("/entitlements/sso/check", &spotify_token)
+        .await;
+    assert_eq!(spotify_check["allowed"], false, "{spotify_check}");
+    assert_eq!(spotify_check["reason"], "not_entitled", "{spotify_check}");
+
+    // `explain` and `current_count` take a secret key.
+    for path in [
+        "/entitlements/sso/check?explain=true",
+        "/entitlements/sso/check?current_count=1",
+    ] {
+        let (status, body) = fx.client_get(path, Some(&uber_token)).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{path}: {body}");
+        assert_eq!(body["code"], "forbidden", "{path}: {body}");
+    }
+    for body in [
+        json!({ "feature": "sso", "explain": true }),
+        json!({ "feature": "sso", "current_count": "1" }),
+    ] {
+        let (status, _, refused) = fx
+            .client_post("/entitlements/check", &uber_token, body.clone())
+            .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}: {refused}");
+        assert_eq!(refused["code"], "forbidden", "{body}: {refused}");
+    }
+
+    // The client API takes API v2's inputs: v1's, and the inputs no check takes any more, are
+    // refused.
+    for (query, parameter) in [
+        ("group[region]=eu", "group"),
+        ("group_by=region", "group_by"),
+        ("as_of=2024-01-01T00:00:00Z", "as_of"),
+        ("subscription_id=sub_1", "subscription_id"),
+        ("resources[site_id]=s1", "resources"),
+    ] {
+        let path = format!("/entitlements/sso/check?{query}");
+        let (status, body) = fx.client_get(&path, Some(&uber_token)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{path}: {body}");
+        assert_eq!(body["errors"][0]["path"], parameter, "{path}: {body}");
+    }
+    let (status, body) = fx
+        .client_get("/entitlements?resources[site_id]=s1", Some(&uber_token))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(body["errors"][0]["path"], "resources", "{body}");
+    for body in [
+        json!({ "feature": "sso", "subscription_id": subscription_id }),
+        json!({ "feature": "sso", "resources": { "site_id": "s1" } }),
+    ] {
+        let (status, _, refused) = fx
+            .client_post("/entitlements/check", &uber_token, body.clone())
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}: {refused}");
+    }
+    let (status, _, unknown) = fx
+        .client_post(
+            "/entitlements/check",
+            &uber_token,
+            json!({ "feature": "sso", "group": { "region": "eu" } }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{unknown}");
+
+    // A token names only what it claims: its resource and attributes, run whole when the request
+    // names none; without claims, the customer only.
+    fx.server_post(
+        "/api/v2/resource-types",
+        json!({
+            "code": "site",
+            "name": "Site",
+            "plural_name": "Sites",
+            "keys": ["site_id"],
+            "attributes": { "environment": ["production", "staging"] },
+        }),
+    )
+    .await;
+    let s1 = fx
+        .server_put(
+            &format!("/api/v2/customers/{uber}/resources/site/s1"),
+            json!({}),
+        )
+        .await;
+    let claimed = fx
+        .server_post(
+            &format!("/api/v2/customers/{uber}/portal-token"),
+            json!({
+                "resource": { "type": "site", "key": "s1" },
+                "attributes": { "site.environment": "staging" },
+            }),
+        )
+        .await["token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let on_s1 = fx.client_ok("/entitlements", &claimed).await;
+    assert_eq!(
+        on_s1["resource"],
+        json!({ "type": "site", "key": "s1", "id": s1["id"] }),
+        "{on_s1}"
+    );
+    let named = fx
+        .client_ok(
+            "/entitlements?resource[type]=site&resource[key]=s1",
+            &claimed,
+        )
+        .await;
+    assert_eq!(named["resource"], on_s1["resource"], "{named}");
+    let s1_id = s1["id"].as_str().unwrap();
+    let by_id = fx
+        .client_ok(&format!("/entitlements?resource={s1_id}"), &claimed)
+        .await;
+    assert_eq!(by_id["resource"], on_s1["resource"], "{by_id}");
+    fx.client_ok(
+        "/entitlements/sso/check?resource[type]=site&resource[key]=s1",
+        &claimed,
+    )
+    .await;
+    let (status, _, body) = fx
+        .client_post(
+            "/entitlements/check",
+            &claimed,
+            json!({ "feature": "sso", "resource": { "type": "site", "key": "s1" } }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    for path in [
+        "/entitlements?resource[type]=site&resource[key]=s2",
+        "/entitlements?attributes[site.environment]=production",
+        "/entitlements/sso/check?resource[type]=site&resource[key]=s2",
+    ] {
+        let (status, body) = fx.client_get(path, Some(&claimed)).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{path}: {body}");
+        assert_eq!(body["code"], "forbidden", "{path}: {body}");
+    }
+    for path in [
+        "/entitlements?resource[type]=site&resource[key]=s1",
+        "/entitlements/sso/check?resource[type]=site&resource[key]=s1",
+    ] {
+        let (status, body) = fx.client_get(path, Some(&uber_token)).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{path}: {body}");
+    }
+    let (status, _, body) = fx
+        .client_post(
+            "/entitlements/check",
+            &uber_token,
+            json!({ "feature": "sso", "resource": { "type": "site", "key": "s1" } }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
 
     // Subscriptions: API v2's summary of each, less what only the merchant reads.
     let subscriptions = fx.client_ok("/subscriptions", &uber_token).await;
@@ -295,7 +551,8 @@ async fn test_rest_client_api() {
         "mrr",
         "invoicing",
         "custom_properties",
-        "usage_filter",
+        "resource_id",
+        "resource",
         "customer",
     ] {
         assert!(listed.get(internal).is_none(), "{internal}: {listed}");
@@ -316,7 +573,12 @@ async fn test_rest_client_api() {
     );
     let spotify_entitlements = fx.client_ok("/entitlements", &spotify_token).await;
     assert!(
-        !spotify_entitlements.to_string().contains("\"sso\""),
+        spotify_entitlements["entitlements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["feature"]["code"] == "sso")
+            .all(|e| e.get("value").is_none()),
         "{spotify_entitlements}"
     );
 
@@ -361,6 +623,7 @@ async fn test_rest_client_api() {
             chrono::Duration::minutes(-1),
             Some(vec![PortalScope::Read]),
             false,
+            Default::default(),
         )
         .await
         .unwrap()
@@ -513,8 +776,8 @@ async fn test_rest_client_api() {
         assert!(exposed.contains(header), "{header} not in {exposed}");
     }
 
-    // Spec: the client API is published on its own, and only there. Its entitlement check is the
-    // usage controls module's.
+    // Spec: the client API is published on its own, and only there. Its entitlement check is core's
+    // (ADR 0011 §3.14).
     let client_spec = fx.server_get("/api-docs/client/openapi.json").await;
     let mut client_paths = keys(&client_spec["paths"]);
     client_paths.sort_unstable();
@@ -523,6 +786,8 @@ async fn test_rest_client_api() {
         [
             "/api/client/v1/customer",
             "/api/client/v1/entitlements",
+            "/api/client/v1/entitlements/check",
+            "/api/client/v1/entitlements/{feature}/check",
             "/api/client/v1/pricing-pages/{family_code}",
             "/api/client/v1/subscriptions",
         ]

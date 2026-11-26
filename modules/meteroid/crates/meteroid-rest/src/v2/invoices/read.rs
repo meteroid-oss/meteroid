@@ -297,7 +297,7 @@ pub async fn list_invoices(
 
 /// Get an invoice
 ///
-/// With its lines as the engine wrote them (tiers, packages, dimension rates and levels as
+/// With its lines as they were billed (tiers, packages, dimension rates and levels as
 /// sublines), its taxes, coupons, payments and credit notes. A draft reads as it would be issued
 /// today.
 #[utoipa::path(
