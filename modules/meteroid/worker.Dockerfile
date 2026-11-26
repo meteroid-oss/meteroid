@@ -1,5 +1,5 @@
 
-FROM lukemathwalker/cargo-chef:latest-rust-1.96.0-bookworm AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.96.0-trixie AS chef
 ARG CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 WORKDIR /opt/src
@@ -59,7 +59,7 @@ RUN edition="$EDITION"; \
     fi
 
 
-FROM debian:stable-slim AS runtime
+FROM debian:trixie-slim AS runtime
 COPY LICENSE /usr/share/doc/meteroid/LICENSE
 # Official images send the anonymous daily report (docs.meteroid.com/self-hosting/telemetry); METEROID_TELEMETRY=off stops it.
 ENV METEROID_TELEMETRY=on \
