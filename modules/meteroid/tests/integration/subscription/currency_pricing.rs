@@ -1247,3 +1247,39 @@ async fn an_option_on_the_same_cadence_applies_at_the_period_end() {
     assert_eq!(fee_of(&env, sub, "Platform").await.0, dec!(15));
     assert_eq!(option_of(&env, sub).await.as_deref(), Some("startup"));
 }
+
+/// The plans list prices a v1 charge from its legacy fee: €49 a month, not free.
+#[tokio::test]
+async fn the_plans_list_reads_a_legacy_charge() {
+    use meteroid_store::repositories::PlansInterface;
+    let env = test_env().await;
+    let plan_id = PlanId::new();
+    let version = PlanVersionId::new();
+    PlanSeed::new(plan_id, "Legacy", version)
+        .seed(&mut env.conn().await)
+        .await
+        .expect("plan");
+    set_draft(&env, version, true).await;
+    let component = charge(
+        &env,
+        version,
+        "Platform",
+        vec![rate("EUR", Monthly, dec!(49))],
+    )
+    .await;
+    set_draft(&env, version, false).await;
+    to_legacy(&env, component, dec!(49)).await;
+
+    let overview = env
+        .store()
+        .get_plan_overview(plan_id, TENANT_ID)
+        .await
+        .expect("the overview");
+    assert!(!overview.free, "a €49 charge is not free");
+    let [priced] = overview.priced_options.as_slice() else {
+        panic!("one priced option, got {:?}", overview.priced_options);
+    };
+    assert_eq!(priced.currency, "EUR");
+    assert_eq!(priced.amount, Some(dec!(49)));
+    assert_eq!(priced.period, Some(Monthly));
+}

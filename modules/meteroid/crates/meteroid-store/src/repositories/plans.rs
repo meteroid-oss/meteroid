@@ -2429,6 +2429,54 @@ async fn fill_mrr(
     Ok(())
 }
 
+/// A v1 charge (no price, its fee in `legacy_fee`) read as the prices its fee stands for, in
+/// its version's currency and every option, so a headline prices it. Never stored.
+async fn read_legacy_cells(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    components: &mut [PriceComponent],
+    version_of: &[PlanVersionId],
+    legacy_fees: Vec<Option<serde_json::Value>>,
+    options: &HashMap<PlanVersionId, Vec<crate::domain::plan_options::PlanOption>>,
+) -> StoreResult<()> {
+    let legacy: Vec<_> = components
+        .iter_mut()
+        .zip(version_of)
+        .zip(legacy_fees)
+        .filter_map(|((component, version), fee)| {
+            (component.prices.is_empty())
+                .then_some(())
+                .and(fee)
+                .map(|fee| (component, *version, fee))
+        })
+        .collect();
+    if legacy.is_empty() {
+        return Ok(());
+    }
+    let versions: Vec<_> = legacy.iter().map(|(_, version, _)| *version).collect();
+    let currencies: HashMap<PlanVersionId, String> =
+        PlanVersionRow::list_by_ids_and_tenant_id(conn, &versions, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .map(|version| (version.id, version.currency))
+            .collect();
+    for (component, version, fee) in legacy {
+        let Some(currency) = currencies.get(&version) else {
+            continue;
+        };
+        match extract_legacy_pricing(&fee, currency.clone()) {
+            Ok(pricing) => component.read_legacy_as_prices(
+                &pricing,
+                options.get(&version).map(Vec::as_slice).unwrap_or_default(),
+                tenant_id,
+            ),
+            Err(e) => log::warn!("legacy fee of {} unreadable: {e:?}", component.id),
+        }
+    }
+    Ok(())
+}
+
 async fn fill_offers(
     conn: &mut PgConn,
     tenant_id: TenantId,
@@ -2446,14 +2494,25 @@ async fn fill_offers(
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
     let mut version_of: Vec<PlanVersionId> = Vec::new();
+    let mut legacy_fees: Vec<Option<serde_json::Value>> = Vec::new();
     let mut components: Vec<PriceComponent> = Vec::new();
     for (version, version_rows) in rows {
         for row in version_rows {
             version_of.push(version);
+            legacy_fees.push(row.legacy_fee.clone());
             components.push(row.try_into()?);
         }
     }
     attach_prices(conn, tenant_id, &mut components).await?;
+    read_legacy_cells(
+        conn,
+        tenant_id,
+        &mut components,
+        &version_of,
+        legacy_fees,
+        &options,
+    )
+    .await?;
     for plan in plans {
         let Some(version) = plan.active_version.as_ref().map(|v| v.id) else {
             continue;

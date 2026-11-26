@@ -11,6 +11,7 @@ use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
 use common_domain::ids::{
     BaseId, BillableMetricId, PlanOptionId, PlanVersionId, PriceComponentId, PriceId, ProductId,
+    TenantId,
 };
 use diesel_models::price_components::{PriceComponentRow, PriceComponentRowNew};
 use golden::golden;
@@ -259,6 +260,37 @@ impl PriceComponent {
                 option_id: link.option_id,
                 price_id: link.price_id,
             });
+        }
+    }
+
+    /// A v1 charge's pricing entries as prices in every one of `options`, for a headline to
+    /// read: their ids are minted here, never stored nor returned.
+    pub fn read_legacy_as_prices(
+        &mut self,
+        legacy: &LegacyPricingData,
+        options: &[super::plan_options::PlanOption],
+        tenant_id: TenantId,
+    ) {
+        let product_id = self.product_id.unwrap_or_default();
+        for (cadence, pricing) in &legacy.pricing_entries {
+            let price = Price {
+                id: PriceId::new(),
+                product_id,
+                cadence: *cadence,
+                currency: legacy.currency.clone(),
+                pricing: pricing.clone(),
+                tenant_id,
+                created_at: common_clock::now().naive_utc(),
+                archived_at: None,
+                catalog: false,
+                credit_unit: None,
+            };
+            self.option_prices
+                .extend(options.iter().map(|option| OptionPrice {
+                    option_id: option.id,
+                    price_id: price.id,
+                }));
+            self.prices.push(price);
         }
     }
 
