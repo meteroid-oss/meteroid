@@ -67,6 +67,7 @@ async fn release_migrations_revert_exactly_and_reapply_identically() -> TestResu
         "enum DeclineKindEnum 9 DO_NOT_RETRY",
         "enum DeclineKindEnum 10 UNCONFIRMED",
         "enum FeeTypeEnum 7 CREDIT",
+        "enum MilestoneEnum 17 FIRST_MOLLIE_CONNECTED",
         "enum PaymentTypeEnum 3 TOP_UP",
         "enum PaymentTypeEnum 4 AUTO_TOPUP",
         "enum StoredObjectKindEnum 10 QUOTE_CERTIFICATE_PDF",

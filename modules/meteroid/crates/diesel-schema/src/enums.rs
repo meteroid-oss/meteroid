@@ -1031,6 +1031,7 @@ pub enum MilestoneEnum {
     FirstCreditNoteCreated,
     FirstStripeConnected,
     FirstGocardlessConnected,
+    FirstMollieConnected,
 }
 
 /// What a *customer* of a tenant did on the way to first revenue. Distinct from
@@ -1236,6 +1237,7 @@ impl MilestoneEnum {
         MilestoneEnum::FirstCreditNoteCreated,
         MilestoneEnum::FirstStripeConnected,
         MilestoneEnum::FirstGocardlessConnected,
+        MilestoneEnum::FirstMollieConnected,
     ];
 }
 
