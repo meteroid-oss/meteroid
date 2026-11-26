@@ -4,9 +4,9 @@ use crate::domain::enums::{BillingPeriodEnum, SubscriptionFeeBillingPeriod};
 use crate::domain::price_components::{PriceEntry, ProductRef};
 use crate::domain::subscriptions::PaymentMethodsConfig;
 use crate::domain::{
-    CreateSubscriptionAddOns, CreateSubscriptionComponents, CreatedSubscription, PriceComponent,
-    Subscription, SubscriptionAddOnNewInternal, SubscriptionComponentNewInternal,
-    SubscriptionDetails, SubscriptionFee, SubscriptionNew,
+    AppliedCouponDetailed, CreateSubscriptionAddOns, CreateSubscriptionComponents,
+    CreatedSubscription, PriceComponent, Subscription, SubscriptionAddOnNewInternal,
+    SubscriptionComponentNewInternal, SubscriptionDetails, SubscriptionFee, SubscriptionNew,
 };
 use crate::errors::StoreError;
 use crate::hooks::CreditControlHooks;
@@ -26,7 +26,11 @@ use crate::domain::coupons::{Coupon, CouponCreditRedemption, CouponDiscount};
 use crate::domain::outbox_event::{OutboxEvent, SubscriptionEvent, SubscriptionUpdateType};
 use crate::domain::subscription_add_ons::SubscriptionAddOnCustomization;
 use diesel_models::DbResult;
-use diesel_models::applied_coupons::{AppliedCouponRow, AppliedCouponRowNew};
+use diesel_models::applied_coupons::{
+    AppliedCouponDetailedRow, AppliedCouponRow, AppliedCouponRowNew,
+};
+use diesel_models::coupon_add_ons::CouponAddOnRow;
+use diesel_models::coupon_plans::CouponPlanRow;
 use diesel_models::coupons::CouponRow;
 use diesel_models::plan_versions::PlanVersionRow;
 use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
@@ -1167,6 +1171,61 @@ async fn validate_coupons_at(
         }
     }
 
+    Ok(())
+}
+
+/// Rescopes the discounts of `subscription_id` redeemed on its whole invoice to what a redemption
+/// on the plan `plan_version_id` is a version of takes: still the whole invoice on a plan in the
+/// coupon's scope, else the lines of its add-ons, else nothing (the redemption ends).
+pub(crate) async fn rescope_coupons_to_plan_tx(
+    conn: &mut PgConn,
+    subscription_id: SubscriptionId,
+    plan_version_id: PlanVersionId,
+) -> StoreResult<()> {
+    let mut whole_invoice = Vec::new();
+    for row in AppliedCouponDetailedRow::list_by_subscription_id(conn, &subscription_id).await? {
+        let scoped_to_add_ons = row.applied_coupon.add_on_ids.is_some();
+        let applied: AppliedCouponDetailed = row.try_into()?;
+        if applied.applied_coupon.is_active
+            && !applied.coupon.discount.is_credit()
+            && !scoped_to_add_ons
+        {
+            whole_invoice.push((applied.applied_coupon.id, applied.coupon.id));
+        }
+    }
+    if whole_invoice.is_empty() {
+        return Ok(());
+    }
+    let coupon_ids: Vec<CouponId> = whole_invoice.iter().map(|(_, c)| *c).unique().collect();
+    let plans = CouponPlanRow::list_by_coupon_ids(conn, &coupon_ids).await?;
+    let add_ons = CouponAddOnRow::list_by_coupon_ids(conn, &coupon_ids).await?;
+    if plans.values().all(Vec::is_empty) {
+        return Ok(());
+    }
+    let plan_id = PlanVersionRow::get_plan_ids_by_version_ids(conn, &[plan_version_id])
+        .await?
+        .remove(&plan_version_id);
+
+    for (applied_coupon_id, coupon_id) in whole_invoice {
+        let Some(plan_ids) = plans.get(&coupon_id).filter(|plans| !plans.is_empty()) else {
+            continue;
+        };
+        if plan_id.is_some_and(|plan_id| plan_ids.contains(&plan_id)) {
+            continue;
+        }
+        match add_ons
+            .get(&coupon_id)
+            .filter(|add_ons| !add_ons.is_empty())
+        {
+            Some(add_on_ids) => {
+                AppliedCouponRow::scope_to_add_ons(conn, applied_coupon_id, add_on_ids).await?;
+            }
+            None => AppliedCouponRow::deactivate(conn, applied_coupon_id).await?,
+        }
+        log::info!(
+            "Applied coupon {applied_coupon_id} of subscription {subscription_id} rescoped: plan version {plan_version_id} is not in its coupon's plans"
+        );
+    }
     Ok(())
 }
 

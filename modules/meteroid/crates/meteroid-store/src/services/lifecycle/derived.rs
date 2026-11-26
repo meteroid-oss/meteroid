@@ -414,6 +414,14 @@ impl Services {
             .cadence
             .and_then(cadence_of)
             .unwrap_or(stored_period);
+        if plan_version != row.plan_version_id {
+            crate::services::subscriptions::utils::rescope_coupons_to_plan_tx(
+                conn,
+                subscription_id,
+                plan_version,
+            )
+            .await?;
+        }
         if plan_version != row.plan_version_id || cadence != stored_period {
             db(SubscriptionRow::update_plan_version(
                 conn,

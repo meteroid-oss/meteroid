@@ -1584,6 +1584,9 @@ impl Services {
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
+        super::utils::rescope_coupons_to_plan_tx(conn, subscription_id, new_plan_version_id)
+            .await?;
+
         if !ended_addons.is_empty() {
             log::info!(
                 "Ended {} incompatible add-on(s) during plan change for subscription {}: {:?}",

@@ -5,7 +5,9 @@ use crate::errors::IntoDbResult;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::lock::CustomerLock;
 use crate::{DbResult, PgConn};
-use common_domain::ids::{AppliedCouponId, CouponId, CustomerId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    AddOnId, AppliedCouponId, CouponId, CustomerId, SubscriptionId, TenantId,
+};
 use diesel::{BoolExpressionMethods, ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
@@ -323,6 +325,25 @@ impl AppliedCouponRow {
             .await
             .map(|_| ())
             .attach("Error while deactivating an applied coupon")
+            .into_db_result()
+    }
+
+    /// Narrows a redemption discounting the whole invoice to the lines of `add_on_ids`.
+    pub async fn scope_to_add_ons(
+        conn: &mut PgConn,
+        id: AppliedCouponId,
+        add_on_ids: &[AddOnId],
+    ) -> DbResult<()> {
+        use crate::schema::applied_coupon::dsl as ac_dsl;
+
+        let mut add_on_ids: Vec<Option<AddOnId>> = add_on_ids.iter().copied().map(Some).collect();
+        add_on_ids.sort();
+        diesel::update(ac_dsl::applied_coupon.filter(ac_dsl::id.eq(id)))
+            .set(ac_dsl::add_on_ids.eq(Some(add_on_ids)))
+            .execute(conn)
+            .await
+            .map(|_| ())
+            .attach("Error while scoping an applied coupon to add-ons")
             .into_db_result()
     }
 

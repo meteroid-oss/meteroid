@@ -11,7 +11,8 @@
 
 use std::sync::Arc;
 
-use chrono::{NaiveDate, NaiveTime};
+use chrono::{NaiveDate, NaiveTime, TimeZone, Utc};
+use common_domain::actor::Actor;
 use common_domain::ids::{
     BaseId, PlanId, PlanVersionId, PriceComponentId, PriceId, SubscriptionId,
 };
@@ -20,6 +21,7 @@ use meteroid_store::clients::usage::{
     GroupedUsageData, MockUsageDataParams, MutableMockUsageClient, UsageData,
 };
 use meteroid_store::domain::UsagePeriod;
+use meteroid_store::domain::enums::InvoiceType;
 use meteroid_store::domain::price_components::UsagePricingModel;
 use meteroid_store::services::CheckoutPaymentOutcome;
 use rstest::rstest;
@@ -2385,4 +2387,257 @@ async fn the_draft_finalized_first_under_a_one_invoice_coupon_leaves_it_to_the_o
     };
     assert_eq!(of(february.id), (9_000, 0, 9_000, 0));
     assert_eq!(of(january.id), (5_000, 1_250, 3_750, 1_250));
+}
+
+// =============================================================================
+// PLAN RESTRICTIONS ACROSS A PLAN CHANGE
+// =============================================================================
+
+/// Starter from Jan 1 with a 20% coupon restricted to Starter and a 10% one allowed on both
+/// Starter and Pro: both discount January.
+async fn starter_with_restricted_coupons(env: &TestEnv) -> SubscriptionId {
+    env.set_now(Utc.with_ymd_and_hms(2024, 1, 1, 12, 0, 0).unwrap());
+    let starter_only = env
+        .create_plan_restricted_coupon("STARTERONLY", 20, vec![PLAN_STARTER_ID])
+        .await;
+    let both = env
+        .create_plan_restricted_coupon("BOTHPLANS", 10, vec![PLAN_STARTER_ID, PLAN_PRO_ID])
+        .await;
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .coupon(starter_only)
+        .coupon(both)
+        .create(env.services())
+        .await;
+    env.get_invoices(sub_id)
+        .await
+        .assert()
+        .invoice_at(0)
+        .with_context("Starter January")
+        .has_coupons_count(2);
+    sub_id
+}
+
+/// The recurring invoice of February 2024.
+async fn february(env: &TestEnv, sub_id: SubscriptionId) -> Vec<meteroid_store::domain::Invoice> {
+    env.get_invoices(sub_id)
+        .await
+        .into_iter()
+        .filter(|invoice| {
+            invoice.invoice_type == InvoiceType::Recurring
+                && invoice.billing_period_start == NaiveDate::from_ymd_opt(2024, 2, 1).unwrap()
+        })
+        .collect()
+}
+
+/// Pro's February, 9900 + 2500: only the coupon Pro allows discounts it, 10%.
+async fn assert_pro_february_keeps_only_the_allowed_coupon(env: &TestEnv, sub_id: SubscriptionId) {
+    february(env, sub_id)
+        .await
+        .assert()
+        .has_count(1)
+        .invoice_at(0)
+        .with_context("Pro February")
+        .has_subtotal(12_400)
+        .has_discount(1_240)
+        .has_coupons_count(1);
+}
+
+/// A coupon restricted to Starter stops discounting once an immediate change moves the
+/// subscription to Pro, as it would be refused on a new Pro subscription.
+#[rstest]
+#[tokio::test]
+async fn test_plan_restricted_coupon_ends_on_immediate_plan_change(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let sub_id = starter_with_restricted_coupons(&env).await;
+
+    env.set_now(Utc.with_ymd_and_hms(2024, 1, 16, 12, 0, 0).unwrap());
+    env.services()
+        .apply_plan_change_immediate(
+            Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+        )
+        .await
+        .expect("Pro from Jan 16");
+
+    env.set_now(Utc.with_ymd_and_hms(2024, 2, 1, 1, 0, 0).unwrap());
+    env.process_cycles().await;
+    assert_pro_february_keeps_only_the_allowed_coupon(&env, sub_id).await;
+}
+
+/// A coupon restricted to Starter stops discounting from the renewal a scheduled change to Pro
+/// applies on.
+#[rstest]
+#[tokio::test]
+async fn test_plan_restricted_coupon_ends_on_scheduled_plan_change(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let sub_id = starter_with_restricted_coupons(&env).await;
+
+    env.set_now(Utc.with_ymd_and_hms(2024, 1, 15, 12, 0, 0).unwrap());
+    env.services()
+        .schedule_plan_change(
+            Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+        )
+        .await
+        .expect("Pro at the period end");
+
+    env.set_now(Utc.with_ymd_and_hms(2024, 2, 1, 1, 0, 0).unwrap());
+    env.process_cycles().await;
+    assert_eq!(
+        env.get_subscription(sub_id).await.plan_version_id,
+        PLAN_VERSION_PRO_ID
+    );
+    assert_pro_february_keeps_only_the_allowed_coupon(&env, sub_id).await;
+}
+
+/// "20% off Starter, or Priority on any plan", redeemed on Starter with Priority (€20/mo in
+/// advance): it discounts the whole invoice. Moved to Pro, it discounts Priority alone, as it
+/// would redeemed on Pro: 20% of 2000 on Pro's February of 12400 + 2000.
+#[rstest]
+#[tokio::test]
+async fn test_plan_or_add_on_coupon_narrows_to_its_add_on_on_plan_change(
+    #[future] test_env: TestEnv,
+) {
+    use meteroid_store::domain::CreateSubscriptionAddOns;
+    use meteroid_store::domain::enums::{BillingPeriodEnum, BillingType, FeeTypeEnum};
+    use meteroid_store::domain::plan_version_add_ons::PlanVersionAddOnNew;
+    use meteroid_store::domain::price_components::{PriceEntry, PriceInput, ProductRef};
+    use meteroid_store::domain::prices::{FeeStructure, Pricing};
+    use meteroid_store::domain::subscription_add_ons::{
+        CreateSubscriptionAddOn, SubscriptionAddOnCustomization,
+    };
+    use meteroid_store::repositories::add_ons::AddOnInterface;
+    use meteroid_store::repositories::plan_version_add_ons::PlanVersionAddOnInterface;
+
+    let env = test_env.await;
+    env.set_now(Utc.with_ymd_and_hms(2024, 1, 1, 12, 0, 0).unwrap());
+    let priority = env
+        .store()
+        .create_add_on_from_ref(
+            "Priority".to_string(),
+            ProductRef::New {
+                name: "Priority Product".to_string(),
+                fee_type: FeeTypeEnum::ExtraRecurring,
+                fee_structure: FeeStructure::ExtraRecurring {
+                    billing_type: BillingType::Advance,
+                },
+            },
+            PriceEntry::New(PriceInput {
+                cadence: BillingPeriodEnum::Monthly,
+                currency: "EUR".to_string(),
+                pricing: Pricing::ExtraRecurring {
+                    unit_price: Decimal::new(2000, 2),
+                    quantity: 1,
+                    model: None,
+                },
+                credit_unit: None,
+            }),
+            None,
+            true,
+            None,
+            TENANT_ID,
+            PRODUCT_FAMILY_ID,
+            vec![],
+        )
+        .await
+        .expect("an advance add-on")
+        .id;
+    for plan_version_id in [PLAN_VERSION_STARTER_ID, PLAN_VERSION_PRO_ID] {
+        env.store()
+            .attach_add_on_to_plan_version(PlanVersionAddOnNew {
+                plan_version_id,
+                add_on_id: priority,
+                price_id: None,
+                self_serviceable: None,
+                max_instances_per_subscription: None,
+                tenant_id: TENANT_ID,
+            })
+            .await
+            .expect("Priority offered");
+    }
+    let coupon_id = env
+        .store()
+        .create_coupon_with_terms(
+            Actor::System,
+            CouponNew {
+                code: "STARTERORPRIORITY".to_string(),
+                description: "20% off Starter, or Priority".to_string(),
+                tenant_id: TENANT_ID,
+                discount: CouponDiscount::Percentage(Decimal::from(20)),
+                expires_at: None,
+                redemption_limit: None,
+                recurring_value: None,
+                reusable: true,
+                plan_ids: vec![PLAN_STARTER_ID],
+            },
+            CouponTerms {
+                add_on_ids: vec![priority],
+                ..CouponTerms::default()
+            },
+        )
+        .await
+        .expect("a coupon on Starter or Priority")
+        .id;
+
+    let mut request = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .coupon(coupon_id)
+        .request();
+    request.add_ons = Some(CreateSubscriptionAddOns {
+        add_ons: vec![CreateSubscriptionAddOn {
+            add_on_id: priority,
+            customization: SubscriptionAddOnCustomization::None,
+            quantity: 1,
+        }],
+    });
+    let sub_id = env
+        .services()
+        .insert_subscription(Actor::System, request, TENANT_ID)
+        .await
+        .expect("Starter with Priority")
+        .id;
+    env.get_invoices(sub_id)
+        .await
+        .assert()
+        .invoice_at(0)
+        .with_context("Starter January, the whole invoice")
+        .has_subtotal(5_900)
+        .has_discount(1_180);
+
+    env.set_now(Utc.with_ymd_and_hms(2024, 1, 16, 12, 0, 0).unwrap());
+    env.services()
+        .apply_plan_change_immediate(
+            Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+        )
+        .await
+        .expect("Pro from Jan 16");
+
+    env.set_now(Utc.with_ymd_and_hms(2024, 2, 1, 1, 0, 0).unwrap());
+    env.process_cycles().await;
+    february(&env, sub_id)
+        .await
+        .assert()
+        .has_count(1)
+        .invoice_at(0)
+        .with_context("Pro February, Priority alone")
+        .has_subtotal(14_400)
+        .has_discount(400)
+        .has_coupons_count(1);
 }
