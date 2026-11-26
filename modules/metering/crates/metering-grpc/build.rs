@@ -2,7 +2,8 @@ use std::fs;
 use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    // Relative to the package dir (the build script's cwd), so rerun-if-changed paths don't depend on the checkout.
+    let root = PathBuf::from("../..");
     let proto_root = root.join("proto");
     let common_proto_root = root.join("../../crates/common-grpc/proto");
 

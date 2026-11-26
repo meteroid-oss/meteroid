@@ -46,15 +46,21 @@ fn main() {
     println!("cargo:rerun-if-env-changed=GIT_SHA");
 
     // Docker builds have no .git (see .dockerignore): they pass the commit instead.
+    // Debug builds skip git: watching the branch ref reran this on every commit and rebuilt
+    // every crate depending on it.
+    let profile = std::env::var("PROFILE").unwrap_or_else(|_| "UNKNOWN".to_owned());
     let info = std::env::var("GIT_SHA")
         .ok()
         .filter(|sha| !sha.is_empty())
-        .or_else(git_info)
+        .or_else(|| {
+            if profile == "debug" {
+                Some("dev".to_owned())
+            } else {
+                git_info()
+            }
+        })
         .unwrap_or_else(|| "None".to_owned());
 
     println!("cargo:rustc-env=COMMON_BUILD_INFO_GIT={info}");
-    println!(
-        "cargo:rustc-env=COMMON_BUILD_INFO_PROFILE={}",
-        std::env::var("PROFILE").unwrap_or_else(|_| "UNKNOWN".to_owned())
-    );
+    println!("cargo:rustc-env=COMMON_BUILD_INFO_PROFILE={profile}");
 }

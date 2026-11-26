@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 fn main() -> Result<(), Report<BuildError>> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    // Relative to the package dir (the build script's cwd), so rerun-if-changed paths don't depend on the checkout.
+    let root = PathBuf::from("../..");
     generate_grpc_types(&root)?;
 
     Ok(())
