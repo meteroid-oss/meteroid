@@ -122,7 +122,7 @@ impl UserDeletionInterface for Store {
             .await?;
 
         for tenant_id in &marked_tenants {
-            crate::repositories::tenants::invalidate_tenant_cache(tenant_id).await;
+            self.invalidate_tenant_cache(tenant_id);
         }
 
         for org_id in &deleted.organizations_left {

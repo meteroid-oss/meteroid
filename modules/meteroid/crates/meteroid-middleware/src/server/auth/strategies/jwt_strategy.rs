@@ -1,4 +1,3 @@
-use cached::proc_macro::cached;
 use common_domain::auth::{Audience, JwtClaims, OrgMemberRole};
 use common_domain::ids::{OrganizationId, TenantId, UserId};
 use common_domain::rbac::RolePermissions;
@@ -104,67 +103,58 @@ async fn resolve_slugs(
     Ok(ids)
 }
 
-#[cached(
-    result = true,
-    size = 150,
-    time = 300, // 5 min. TODO: redis-backed cache invalidated on role change.
-    key = "(UserId, OrganizationId)",
-    convert = r#"{ (*user_id, org_id) }"#
-)]
+/// Cached by the store (`Store::auth_cache`), for 5 minutes.
 async fn get_member_access_cached(
     store: &Store,
     user_id: &UserId,
     org_id: OrganizationId,
 ) -> Result<MemberAccess, Status> {
-    store
+    let key = (*user_id, org_id);
+    if let Some(access) = store.auth_cache.member_access.get(&key) {
+        return Ok(access);
+    }
+    let access = store
         .resolve_member_access(*user_id, org_id)
         .await
         .map_err(|_| {
             Status::permission_denied(format!(
                 "Failed to resolve access for organization {org_id} and user {user_id}"
             ))
-        })
+        })?;
+    store.auth_cache.member_access.insert(key, access.clone());
+    Ok(access)
 }
 
 /// Drop the cached access for one member so a role change takes effect on their
 /// next request instead of after the 5-minute TTL.
-pub async fn invalidate_member_access_cache(user_id: UserId, org_id: OrganizationId) {
-    use cached::Cached;
-    let mut cache = GET_MEMBER_ACCESS_CACHED.lock().await;
-    cache.cache_remove(&(user_id, org_id));
+pub fn invalidate_member_access_cache(store: &Store, user_id: UserId, org_id: OrganizationId) {
+    store.auth_cache.member_access.remove(&(user_id, org_id));
 }
 
-/// Short TTL: invalidation only reaches the replica that deleted the user, so this bounds how
-/// long a deleted user's session survives on the others.
-#[cached(
-    result = true,
-    size = 10_000,
-    time = 60,
-    key = "UserId",
-    convert = r#"{ user_id }"#
-)]
+/// Cached by the store (`Store::auth_cache`), for a minute.
 pub async fn user_session_state_cached(
     store: &Store,
     user_id: UserId,
 ) -> Result<UserSessionState, Status> {
-    store
+    if let Some(state) = store.auth_cache.session_states.get(&user_id) {
+        return Ok(state);
+    }
+    let state = store
         .user_session_state(user_id)
         .await
-        .map_err(|e| Status::internal(format!("Failed to check user: {e}")))
+        .map_err(|e| Status::internal(format!("Failed to check user: {e}")))?;
+    store.auth_cache.session_states.insert(user_id, state);
+    Ok(state)
 }
 
-pub async fn invalidate_user_active_cache(user_id: UserId) {
-    use cached::Cached;
-    let mut cache = USER_SESSION_STATE_CACHED.lock().await;
-    cache.cache_remove(&user_id);
+pub fn invalidate_user_active_cache(store: &Store, user_id: UserId) {
+    store.auth_cache.session_states.remove(&user_id);
 }
 
 /// Clear all cached member access. Used when a custom role's permissions change
 /// or the role is deleted, which can affect any number of members at once.
-pub async fn invalidate_all_member_access_cache() {
-    use cached::Cached;
-    let mut cache = GET_MEMBER_ACCESS_CACHED.lock().await;
-    cache.cache_clear();
+pub fn invalidate_all_member_access_cache(store: &Store) {
+    store.auth_cache.member_access.clear();
 }
 
 fn extract_context(header_map: &HeaderMap) -> Result<(String, Option<String>), Status> {

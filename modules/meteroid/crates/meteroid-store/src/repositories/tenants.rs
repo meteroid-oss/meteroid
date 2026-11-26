@@ -2,7 +2,6 @@ use crate::domain::{
     InvoicingEntityNew, OrganizationWithTenants, Tenant, TenantEnvironmentEnum, TenantNew,
     TenantUpdate, TenantWithOrganization,
 };
-use cached::proc_macro::cached;
 use cached::{Cached, TimedSizedCache};
 use error_stack::Report;
 use scoped_futures::ScopedFutureExt;
@@ -365,8 +364,8 @@ impl TenantInterface for Store {
             })
             .await?;
 
-        invalidate_reporting_currency_cache(&tenant_id).await;
-        invalidate_tenant_cache(&tenant_id).await;
+        self.invalidate_reporting_currency_cache(&tenant_id);
+        self.invalidate_tenant_cache(&tenant_id);
         self.keep_last_events.invalidate(&tenant_id);
 
         Ok(res)
@@ -538,7 +537,7 @@ impl TenantInterface for Store {
         })
         .await?;
 
-        invalidate_tenant_cache(&tenant_id).await;
+        self.invalidate_tenant_cache(&tenant_id);
 
         let mut conn = self.get_conn().await?;
         let actor_email = UserRow::find_by_id(&mut conn, actor)
@@ -586,7 +585,7 @@ impl TenantInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
             for id in chunk {
-                invalidate_tenant_cache(id).await;
+                self.invalidate_tenant_cache(id);
             }
         }
         Ok(())
@@ -596,7 +595,23 @@ impl TenantInterface for Store {
         &self,
         tenant_id: TenantId,
     ) -> StoreResult<Currency> {
-        get_reporting_currency_by_tenant_id_cached(self, tenant_id).await
+        if let Some(currency) = self.reporting_currency_cache.get(&tenant_id) {
+            return Ok(currency);
+        }
+        // The connection is taken on a miss only, so a hit (the common case, 1h TTL) never
+        // touches the pool: otherwise every stats/explore call checks out a connection just to
+        // read a cached value, exhausting the pool under load.
+        let mut conn = self.get_conn().await?;
+        let currency = TenantRow::get_reporting_currency_by_id(&mut conn, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        let res = Currencies::resolve_currency(&currency).ok_or_else(|| {
+            StoreError::ValueNotFound(format!("Currency not found for code {currency}"))
+        })?;
+
+        self.reporting_currency_cache.insert(tenant_id, res.clone());
+        Ok(res)
     }
 
     async fn list_tenant_currencies_with_customer_count(
@@ -627,14 +642,14 @@ impl TenantInterface for Store {
             .await
             .map_err(Into::into);
 
-        invalidate_reporting_currency_cache(&tenant_id).await;
-        invalidate_tenant_cache(&tenant_id).await;
+        self.invalidate_reporting_currency_cache(&tenant_id);
+        self.invalidate_tenant_cache(&tenant_id);
 
         res
     }
 
     async fn find_tenant_by_id(&self, tenant_id: TenantId) -> StoreResult<TenantWithOrganization> {
-        find_tenant_by_id_cached(&self.pool, tenant_id).await
+        find_tenant_by_id_cached(self, tenant_id).await
     }
 
     async fn get_portal_embed_origins(&self, tenant_id: TenantId) -> StoreResult<Vec<String>> {
@@ -656,13 +671,10 @@ impl TenantInterface for Store {
         let mut resolved: Vec<TenantWithOrganization> = Vec::with_capacity(tenant_ids.len());
         let mut missing: Vec<TenantId> = Vec::new();
 
-        {
-            let mut cache = FIND_TENANT_BY_ID_CACHED.lock().await;
-            for &tid in tenant_ids {
-                match cache.cache_get(&tid) {
-                    Some(hit) => resolved.push(hit.clone()),
-                    None => missing.push(tid),
-                }
+        for &tid in tenant_ids {
+            match self.tenant_cache.get(&tid) {
+                Some(hit) => resolved.push(hit),
+                None => missing.push(tid),
             }
         }
 
@@ -687,9 +699,10 @@ impl TenantInterface for Store {
                 log::warn!(
                     "Batched tenants lookup failed, falling back to per-id resolution: {e:?}"
                 );
-                let lookups = missing.iter().copied().map(|tid| async move {
-                    (tid, find_tenant_by_id_cached(&self.pool, tid).await)
-                });
+                let lookups = missing
+                    .iter()
+                    .copied()
+                    .map(|tid| async move { (tid, find_tenant_by_id_cached(self, tid).await) });
                 let results = futures::future::join_all(lookups).await;
                 let mut list = Vec::with_capacity(results.len());
                 for (tid, res) in results {
@@ -702,11 +715,8 @@ impl TenantInterface for Store {
             }
         };
 
-        {
-            let mut cache = FIND_TENANT_BY_ID_CACHED.lock().await;
-            for t in &fetched {
-                cache.cache_set(t.tenant.id, t.clone());
-            }
+        for t in &fetched {
+            self.tenant_cache.insert(t.tenant.id, t.clone());
         }
 
         resolved.extend(fetched);
@@ -781,55 +791,32 @@ impl StoreInternal {
     }
 }
 
-#[cached(
-    result = true,
-    size = 100,
-    time = 3600, // 1h
-    key = "TenantId",
-    convert = r#"{ tenant_id }"#
-)]
-async fn get_reporting_currency_by_tenant_id_cached(
+impl Store {
+    /// Drops the cached reporting currency, for a change made outside `update_tenant`.
+    pub fn invalidate_reporting_currency_cache(&self, tenant_id: &TenantId) {
+        self.reporting_currency_cache.remove(tenant_id);
+    }
+
+    /// Drops the cached tenant, for a change made outside `update_tenant`.
+    pub fn invalidate_tenant_cache(&self, tenant_id: &TenantId) {
+        self.tenant_cache.remove(tenant_id);
+    }
+}
+
+async fn find_tenant_by_id_cached(
     store: &Store,
     tenant_id: TenantId,
-) -> StoreResult<Currency> {
-    // Acquire the connection inside the cached body so a cache hit (the common case,
-    // 1h TTL) never touches the pool — otherwise every stats/explore call checks out a
-    // connection just to read a cached value, exhausting the pool under load.
-    let mut conn = store.get_conn().await?;
-    let currency = TenantRow::get_reporting_currency_by_id(&mut conn, tenant_id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-    let res = Currencies::resolve_currency(&currency).ok_or_else(|| {
-        StoreError::ValueNotFound(format!("Currency not found for code {currency}"))
-    })?;
-
-    Ok(res)
-}
-
-pub async fn invalidate_reporting_currency_cache(tenant_id: &TenantId) {
-    GET_REPORTING_CURRENCY_BY_TENANT_ID_CACHED
-        .lock()
-        .await
-        .cache_remove(tenant_id);
-}
-
-#[cached(
-    result = true,
-    size = 200,
-    time = 300, // 5 min
-    key = "TenantId",
-    convert = r#"{ tenant_id }"#
-)]
-async fn find_tenant_by_id_cached(
-    pool: &PgPool,
-    tenant_id: TenantId,
 ) -> StoreResult<TenantWithOrganization> {
-    let mut conn = pool_conn(pool).await?;
-    TenantRow::find_by_id_with_org(&mut conn, tenant_id)
+    if let Some(hit) = store.tenant_cache.get(&tenant_id) {
+        return Ok(hit);
+    }
+    let mut conn = store.get_conn().await?;
+    let tenant: TenantWithOrganization = TenantRow::find_by_id_with_org(&mut conn, tenant_id)
         .await
-        .map_err(Into::into)
-        .map(Into::into)
+        .map_err(Into::<Report<StoreError>>::into)?
+        .into();
+    store.tenant_cache.insert(tenant_id, tenant.clone());
+    Ok(tenant)
 }
 
 type SlugKey = (String, Option<String>);
@@ -1012,13 +999,6 @@ impl Drop for InFlight<'_> {
             loading.remove(&self.tenant_id);
         }
     }
-}
-
-pub async fn invalidate_tenant_cache(tenant_id: &TenantId) {
-    FIND_TENANT_BY_ID_CACHED
-        .lock()
-        .await
-        .cache_remove(tenant_id);
 }
 
 async fn set_tenant_status(

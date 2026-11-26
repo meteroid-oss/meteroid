@@ -98,7 +98,7 @@ impl RbacService for RbacServiceComponents {
             .await
             .map_err(Into::<RbacApiError>::into)?;
         // Take effect on the member's next request, not after the 5-minute TTL.
-        invalidate_member_access_cache(target, org_id).await;
+        invalidate_member_access_cache(&self.store, target, org_id);
         Ok(Response::new(server::AssignRoleResponse {}))
     }
 }

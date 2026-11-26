@@ -337,7 +337,7 @@ impl UsersService for UsersServiceComponents {
             )
             .await
             .map_err(Into::<UserApiError>::into)?;
-        invalidate_user_active_cache(user_id).await;
+        invalidate_user_active_cache(&self.store, user_id);
 
         Ok(Response::new(ResetPasswordResponse {}))
     }
@@ -625,7 +625,7 @@ impl UsersService for UsersServiceComponents {
             .await
             .map_err(Into::<UserApiError>::into)?;
         // Their next request is denied, not served from the cached membership.
-        invalidate_member_access_cache(actor, org_id).await;
+        invalidate_member_access_cache(&self.store, actor, org_id);
 
         Ok(Response::new(LeaveOrganizationResponse {}))
     }
@@ -646,7 +646,7 @@ impl UsersService for UsersServiceComponents {
             .remove_member(actor, target_user_id, org_id, request_context)
             .await
             .map_err(Into::<UserApiError>::into)?;
-        invalidate_member_access_cache(target_user_id, org_id).await;
+        invalidate_member_access_cache(&self.store, target_user_id, org_id);
 
         Ok(Response::new(RemoveMemberResponse {}))
     }

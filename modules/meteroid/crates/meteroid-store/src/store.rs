@@ -1,7 +1,8 @@
 use crate::StoreResult;
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::services::clients::usage::UsageClient;
-use common_domain::ids::{OrganizationId, TenantId};
+use crate::utils::timed_cache::TimedCache;
+use common_domain::ids::{OrganizationId, TenantId, UserId};
 use common_eventbus::{Event, EventBus};
 use diesel::{ConnectionError, ConnectionResult};
 use diesel_async::pooled_connection::deadpool::{Object, Pool};
@@ -95,6 +96,31 @@ pub struct Store {
     pub usage_client: Arc<dyn UsageClient>,
     pub keep_last_events: crate::repositories::tenants::KeepLastEventsLookup,
     pub slug_ids: crate::repositories::tenants::SlugIds,
+    /// Tenants with their organization, by id, for 5 minutes.
+    pub(crate) tenant_cache: TimedCache<TenantId, crate::domain::TenantWithOrganization>,
+    /// The tenant's reporting currency, for an hour.
+    pub(crate) reporting_currency_cache: TimedCache<TenantId, crate::constants::Currency>,
+    pub auth_cache: AuthCache,
+}
+
+/// What the auth layer reads on every request, held by the store like its other caches.
+#[derive(Clone)]
+pub struct AuthCache {
+    /// A member's access to an organization, for 5 minutes.
+    /// TODO: redis-backed cache invalidated on role change.
+    pub member_access: TimedCache<(UserId, OrganizationId), crate::domain::roles::MemberAccess>,
+    /// Short-lived: invalidation only reaches the replica that deleted the user, so this bounds
+    /// how long a deleted user's session survives on the others.
+    pub session_states: TimedCache<UserId, crate::domain::users::UserSessionState>,
+}
+
+impl AuthCache {
+    fn new() -> Self {
+        Self {
+            member_access: TimedCache::new(150, Duration::from_secs(300)),
+            session_states: TimedCache::new(10_000, Duration::from_secs(60)),
+        }
+    }
 }
 
 pub struct StoreConfig {
@@ -220,6 +246,9 @@ impl Store {
         Ok(Store {
             keep_last_events: crate::repositories::tenants::KeepLastEventsLookup::new(lookup_pool),
             slug_ids: crate::repositories::tenants::SlugIds::new(),
+            tenant_cache: TimedCache::new(200, Duration::from_secs(300)),
+            reporting_currency_cache: TimedCache::new(100, Duration::from_secs(3600)),
+            auth_cache: AuthCache::new(),
             pool,
             eventbus: config.eventbus,
             settings: Settings {

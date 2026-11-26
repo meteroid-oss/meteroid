@@ -1050,7 +1050,7 @@ impl OrganizationsInterface for Store {
             .await?;
 
         for tid in &tenant_ids {
-            crate::repositories::tenants::invalidate_tenant_cache(tid).await;
+            self.invalidate_tenant_cache(tid);
         }
 
         let mut conn = self.get_conn().await?;

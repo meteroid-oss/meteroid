@@ -309,10 +309,10 @@ INSERT INTO tenant(id,name,slug,organization_id,reporting_currency,environment) 
     .expect("demote");
     // What AssignRole does after changing a role.
     meteroid_middleware::server::auth::strategies::jwt_strategy::invalidate_member_access_cache(
+        &setup.store,
         platform_admin,
         ORGANIZATION_ID,
-    )
-    .await;
+    );
 
     let denied = list_customers(&in_org_b).await.unwrap_err();
     assert_eq!(denied.code(), tonic::Code::PermissionDenied, "{denied:?}");

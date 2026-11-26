@@ -448,9 +448,6 @@ async fn start_meteroid_from_config(
     let token = CancellationToken::new();
     let cloned_token = token.clone();
 
-    meteroid_middleware::server::auth::strategies::jwt_strategy::invalidate_all_member_access_cache()
-        .await;
-
     let egress = meteroid::process::egress(&config.webhook_out);
 
     let store = meteroid_store::Store::new(StoreConfig {
