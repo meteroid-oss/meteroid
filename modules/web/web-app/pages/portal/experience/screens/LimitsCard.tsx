@@ -4,6 +4,7 @@ import {
   limitNoun,
   limitOverGroups,
   limitPct,
+  limitSections,
   limitSubject,
   limitWindow,
 } from '../limits'
@@ -72,15 +73,24 @@ export const LimitsCard = ({ limits }: { limits: UsageLimitStatus[] }) => {
       {single ? (
         <LimitRows limit={single} />
       ) : (
-        limits.map(limit => (
-          <div key={limit.id} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-              <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--mtp-text-2)' }}>
-                {limitSubject(limit)}
+        limitSections(limits).map(section => (
+          <div key={section.key} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {section.heading && (
+              <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--mtp-text-3)' }}>
+                {section.heading}
               </span>
-              <Resets limit={limit} />
-            </div>
-            <LimitRows limit={limit} />
+            )}
+            {section.limits.map(limit => (
+              <div key={limit.id} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--mtp-text-2)' }}>
+                    {limitSubject(limit)}
+                  </span>
+                  <Resets limit={limit} />
+                </div>
+                <LimitRows limit={limit} />
+              </div>
+            ))}
           </div>
         ))
       )}

@@ -1582,6 +1582,7 @@ pub mod upcoming {
 }
 
 pub mod usage {
+    use crate::entitlements::mapping::product_ref_to_proto;
     use meteroid_app::conversions::{AsProtoOpt, ProtoConv};
     use meteroid_grpc::meteroid::api::subscriptions::v1 as server;
     use meteroid_store::domain::customer_summary as domain;
@@ -1602,6 +1603,7 @@ pub mod usage {
                 .map(|u| server::SubscriptionFeatureUsage {
                     feature_id: u.feature_id.as_proto(),
                     feature_name: u.feature_name.clone(),
+                    product: u.product.clone().map(product_ref_to_proto),
                     consumed: u.consumed.map(|c| c.as_proto()),
                     usage_unavailable: u.usage_unavailable,
                     limit: u.limit.map(|l| l.as_proto()),

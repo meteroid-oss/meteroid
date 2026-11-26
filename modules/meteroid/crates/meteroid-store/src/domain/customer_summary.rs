@@ -77,6 +77,8 @@ pub struct UsageCycle {
 pub struct FeatureUsage {
     pub feature_id: FeatureId,
     pub feature_name: String,
+    /// `None` for a tenant-wide feature.
+    pub product: Option<crate::domain::entitlements::FeatureProductRef>,
     /// Absent when metering could not answer: `usage_unavailable`.
     pub consumed: Option<Decimal>,
     pub usage_unavailable: bool,

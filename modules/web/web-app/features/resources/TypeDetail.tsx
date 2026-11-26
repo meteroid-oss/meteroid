@@ -22,6 +22,7 @@ import { Boxes } from 'lucide-react'
 import { Link } from 'react-router'
 
 import { PanelEmptyState } from '@/components/empty-state/PanelEmptyState'
+import { type ProductRefLike, productSections } from '@/features/entitlements/productGroups'
 import { AttributionPreviewRow } from '@/features/productCatalog/metrics/AttributionPreview'
 import { lower } from '@/features/resources/hooks'
 import { useBasePath } from '@/hooks/useBasePath'
@@ -147,6 +148,8 @@ export const AttributeBadges = ({ attributes }: { attributes: Record<string, str
   )
 }
 
+type Item = { id: string; name: string; to: string; product?: ProductRefLike }
+
 /** The metrics attributed to the type, the features applying per it and the plans sold for it. */
 export const TypeUsedBy = ({ type }: { type: ResourceType }) => {
   const basePath = useBasePath()
@@ -156,34 +159,52 @@ export const TypeUsedBy = ({ type }: { type: ResourceType }) => {
   const plans = (
     useQuery(listPlans, { filters: { statuses: [PlanStatus.ACTIVE, PlanStatus.INACTIVE], types: [] } }).data?.plans ?? []
   ).filter(p => p.soldForResourceTypeId === type.id)
-  const groups = [
+  const groups: { title: string; items: Item[] }[] = [
     { title: 'Attributed metrics', items: metrics.map(m => ({ id: m.id, name: m.name, to: `metrics/${m.id}` })) },
     {
       title: `Features applying per ${lower(type.name)}`,
-      items: features.map(f => ({ id: f.id, name: f.name, to: `features/${f.id}` })),
+      items: features.map(f => ({
+        id: f.id,
+        name: f.name,
+        to: `features/${f.id}`,
+        product: f.product,
+      })),
     },
     { title: 'Plans sold for it', items: plans.map(p => ({ id: p.id, name: p.name, to: `plans/${p.id}` })) },
   ]
+  const badges = (items: Item[]) => (
+    <div className="flex flex-wrap gap-1.5">
+      {items.map(i => (
+        <Link key={i.id} to={`${basePath}/${i.to}`}>
+          <Badge variant="outline" className="font-normal hover:bg-accent">
+            {i.name}
+          </Badge>
+        </Link>
+      ))}
+    </div>
+  )
   return (
     <div className="flex flex-col gap-6">
-      {groups.map(g => (
-        <section key={g.title} className="flex flex-col gap-3">
-          <h3 className="text-sm font-medium text-muted-foreground">{g.title}</h3>
-          {g.items.length ? (
-            <div className="flex flex-wrap gap-1.5">
-              {g.items.map(i => (
-                <Link key={i.id} to={`${basePath}/${i.to}`}>
-                  <Badge variant="outline" className="font-normal hover:bg-accent">
-                    {i.name}
-                  </Badge>
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <span className="text-sm text-muted-foreground">—</span>
-          )}
-        </section>
-      ))}
+      {groups.map(g => {
+        const sections = productSections(g.items, i => i.product)
+        return (
+          <section key={g.title} className="flex flex-col gap-3">
+            <h3 className="text-sm font-medium text-muted-foreground">{g.title}</h3>
+            {!g.items.length ? (
+              <span className="text-sm text-muted-foreground">—</span>
+            ) : sections ? (
+              sections.map(section => (
+                <div key={section.key} className="flex flex-col gap-1.5">
+                  <span className="text-xs font-medium text-muted-foreground">{section.label}</span>
+                  {badges(section.items)}
+                </div>
+              ))
+            ) : (
+              badges(g.items)
+            )}
+          </section>
+        )
+      })}
     </div>
   )
 }

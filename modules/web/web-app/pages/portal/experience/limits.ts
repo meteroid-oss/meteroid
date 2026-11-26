@@ -1,5 +1,6 @@
 import { timestampDate } from '@bufbuild/protobuf/wkt'
 
+import { productSections } from '@/features/entitlements/productGroups'
 import { LimitOrigin } from '@/rpc/portal/customer/v1/models_pb'
 
 import { clampPct, decimalStr } from './format'
@@ -28,6 +29,16 @@ export const planLimitOf = (limits: UsageLimitStatus[]) =>
   limits.find(limit => limit.origin === LimitOrigin.PLAN && limit.hard)
 
 const ACRONYMS = new Set(['api', 'id', 'ip', 'url', 'sdk'])
+
+/** The limits by product when they span several; one group without a heading else. */
+export const limitSections = (
+  limits: UsageLimitStatus[]
+): { key: string; heading?: string; limits: UsageLimitStatus[] }[] =>
+  productSections(limits, limit => limit.product)?.map(group => ({
+    key: group.key,
+    heading: group.label,
+    limits: group.items,
+  })) ?? [{ key: '', limits }]
 
 /** "api_key" -> "API key". */
 export const groupByLabel = (groupBy: string) =>

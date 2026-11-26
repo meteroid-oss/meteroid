@@ -5,7 +5,9 @@ import {
   InputFormField,
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
   cn,
@@ -16,12 +18,14 @@ import { z } from 'zod'
 import { type CheckAmounts, type Target } from '@/features/entitlements/explain/checkRequest'
 import { displayValue } from '@/features/entitlements/explain/display'
 import { isAppCounted, isLimit, isWarningReason, reasonLabel } from '@/features/entitlements/model'
+import { productSections } from '@/features/entitlements/productGroups'
 import { useResourceTypes } from '@/features/resources/hooks'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { listFeatures } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
+import { FeatureOrder } from '@/rpc/api/entitlements/v1/entitlements_pb'
 import { type Feature, FeatureStatus } from '@/rpc/api/entitlements/v1/models_pb'
 
 import type { CheckEntitlementResponse } from '@/rpc/api/entitlements/v1/entitlements_pb'
@@ -42,7 +46,13 @@ export function useCheckSubject({
   const picked = useQuery(getCustomerById, !fixed && pickedId ? { id: pickedId } : skipToken)
   const featuresQuery = useQuery(
     listFeatures,
-    preset ? skipToken : { pagination: { page: 0, perPage: 200 }, statuses: [FeatureStatus.ACTIVE] }
+    preset
+      ? skipToken
+      : {
+          pagination: { page: 0, perPage: 200 },
+          statuses: [FeatureStatus.ACTIVE],
+          order: FeatureOrder.PRODUCT,
+        }
   )
   const features = featuresQuery.data?.features ?? []
   return {
@@ -72,20 +82,33 @@ export const FeatureSelect = ({
   onChange: (id: string) => void
   features: Feature[]
   className?: string
-}) => (
-  <Select value={value ?? ''} onValueChange={onChange}>
-    <SelectTrigger className={className} aria-label="Feature">
-      <SelectValue placeholder="Feature" />
-    </SelectTrigger>
-    <SelectContent>
-      {features.map(f => (
-        <SelectItem key={f.id} value={f.id}>
-          {f.name}
-        </SelectItem>
-      ))}
-    </SelectContent>
-  </Select>
-)
+}) => {
+  const sections = productSections(features, f => f.product)
+  const item = (f: Feature) => (
+    <SelectItem key={f.id} value={f.id}>
+      {f.name}
+    </SelectItem>
+  )
+  return (
+    <Select value={value ?? ''} onValueChange={onChange}>
+      <SelectTrigger className={className} aria-label="Feature">
+        <SelectValue placeholder="Feature" />
+      </SelectTrigger>
+      <SelectContent>
+        {sections
+          ? sections.map(section => (
+              <SelectGroup key={section.key}>
+                <SelectLabel className="text-xs font-medium text-muted-foreground">
+                  {section.name}
+                </SelectLabel>
+                {section.items.map(item)}
+              </SelectGroup>
+            ))
+          : features.map(item)}
+      </SelectContent>
+    </Select>
+  )
+}
 
 const amount = z
   .string()

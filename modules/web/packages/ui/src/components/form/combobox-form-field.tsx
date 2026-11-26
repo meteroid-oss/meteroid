@@ -19,12 +19,33 @@ import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from './form'
 import { genericFormFieldVariants as genVariants } from './generic-form-field'
 
+type ComboboxOption = { label: React.ReactNode; value: string; keywords?: string[]; group?: string }
+
+/** Consecutive options of the same `group` under its heading; ungrouped options stay flat. */
+const renderOptions = (
+  options: ComboboxOption[],
+  renderItem: (option: ComboboxOption, index: number) => React.ReactNode
+) => {
+  if (!options.some(option => option.group !== undefined)) return options.map(renderItem)
+  const runs: { group: string; start: number; options: ComboboxOption[] }[] = []
+  options.forEach((option, index) => {
+    const last = runs[runs.length - 1]
+    if (last && last.group === (option.group ?? '')) last.options.push(option)
+    else runs.push({ group: option.group ?? '', start: index, options: [option] })
+  })
+  return runs.map(run => (
+    <CommandGroup key={`${run.start}:${run.group}`} heading={run.group || undefined}>
+      {run.options.map((option, i) => renderItem(option, run.start + i))}
+    </CommandGroup>
+  ))
+}
+
 interface FormComboboxProps<
   TFieldValues extends FieldValues,
   TName extends FieldPath<TFieldValues>,
 > extends Omit<ControllerProps<TFieldValues, TName>, 'render'> {
   control: Control<TFieldValues>
-  options: { label: React.ReactNode; value: string; keywords?: string[] }[]
+  options: ComboboxOption[]
   required?: boolean
   label?: string
   description?: string
@@ -136,7 +157,7 @@ export function ComboboxFormField<
                 )}
 
                 <CommandList>
-                  {options.map((option, index) => (
+                  {renderOptions(options, (option, index) => (
                     <CommandItem
                       value={`${option.value}/${option.keywords?.join(' ')}`}
                       key={option.value}

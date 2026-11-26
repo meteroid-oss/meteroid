@@ -168,6 +168,7 @@ impl Services {
                 FeatureUsage {
                     feature_id: u.feature.id,
                     feature_name: u.feature.name,
+                    product: u.feature.product,
                     pct: consumed.and_then(|c| usage_pct(c, u.limit)),
                     projected: consumed.and_then(|c| {
                         project_linear(

@@ -116,6 +116,7 @@ export const SubscriptionEntitlementsCard = ({ subscriptionId, canEdit }: Props)
       featureId: id,
       feature,
       featureName: r.feature!.name,
+      product: r.feature!.product,
       value: (
         <span className="text-sm font-medium">
           {plainValue(create(EntitlementValueSchema, inheritedValue(r)), feature)}

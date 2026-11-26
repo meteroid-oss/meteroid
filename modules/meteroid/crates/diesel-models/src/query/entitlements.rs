@@ -211,7 +211,7 @@ impl FeatureRow {
                     .into_boxed();
                 let query = apply_filters!(joined)
                     .order((
-                        f_dsl::product_id.is_not_null().asc(),
+                        f_dsl::product_id.is_null().asc(),
                         lower(product::name.nullable()).asc(),
                         f_dsl::product_id.asc(),
                         lower(f_dsl::name.nullable()).asc(),
@@ -539,11 +539,11 @@ impl FeatureRow {
         use diesel::sql_types::{Bool, Uuid as SqlUuid};
         use diesel_async::RunQueryDsl;
 
-        // The keys of each order, the id last; a global feature sorts first, by its name.
+        // The keys of each order, the id last; a global feature sorts last, by its name.
         const BY_ID: &[&str] = &["feature.id"];
         const BY_NAME: &[&str] = &["feature.name", "feature.id"];
         const BY_PRODUCT: &[&str] = &[
-            "feature.product_id IS NOT NULL",
+            "feature.product_id IS NULL",
             "COALESCE(lower(product.name), '')",
             "COALESCE(feature.product_id, '00000000-0000-0000-0000-000000000000'::uuid)",
             "lower(feature.name)",

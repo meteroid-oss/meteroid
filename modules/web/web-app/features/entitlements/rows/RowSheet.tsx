@@ -57,6 +57,7 @@ import {
   policyLabel,
   sourceOf,
 } from '@/features/entitlements/model'
+import { productSections } from '@/features/entitlements/productGroups'
 import { OverridePreview } from '@/features/entitlements/rows/OverridePreview'
 import { RowConsequence, hasConsequence } from '@/features/entitlements/rows/RowConsequence'
 import { isOverrideSource } from '@/features/entitlements/rows/grantDisplay'
@@ -83,6 +84,7 @@ import {
   listFeatures,
   updateEntitlement,
 } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
+import { FeatureOrder } from '@/rpc/api/entitlements/v1/entitlements_pb'
 import {
   type Entitlement,
   EntitlementEffect,
@@ -463,11 +465,15 @@ const FeaturePicker = ({
     pagination: { page: 0, perPage: 100 },
     statuses: [FeatureStatus.ACTIVE, FeatureStatus.DISABLED],
     search: debounced || undefined,
+    order: FeatureOrder.PRODUCT,
   })
   const features = useMemo(
     () => (query.data?.features ?? []).filter(f => !exclude?.has(f.id)),
     [query.data, exclude]
   )
+  const groups: { name?: string; items: Feature[] }[] = productSections(features, f => f.product) ?? [
+    { items: features },
+  ]
   const featureId = useWatch({ control, name: 'featureId' })
   useEffect(() => {
     const f = features.find(x => x.id === featureId)
@@ -493,16 +499,19 @@ const FeaturePicker = ({
           <PlusIcon size={14} /> New feature
         </button>
       }
-      options={features.map(f => ({
-        value: f.id,
-        label: (
-          <span className="flex min-w-0 items-baseline gap-2">
-            <span className="truncate">{f.name}</span>
-            <span className="truncate font-mono text-xs text-muted-foreground">{f.code}</span>
-          </span>
-        ),
-        keywords: [f.name, f.code],
-      }))}
+      options={groups.flatMap(group =>
+        group.items.map(f => ({
+          value: f.id,
+          label: (
+            <span className="flex min-w-0 items-baseline gap-2">
+              <span className="truncate">{f.name}</span>
+              <span className="truncate font-mono text-xs text-muted-foreground">{f.code}</span>
+            </span>
+          ),
+          keywords: [f.name, f.code],
+          group: group.name,
+        }))
+      )}
     />
   )
 }

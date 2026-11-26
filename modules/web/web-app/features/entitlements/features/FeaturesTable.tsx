@@ -12,10 +12,11 @@ import { useMemo } from 'react'
 import { useNavigate } from 'react-router'
 
 import { Gate } from '@/components/Gate'
-import { RowGroup, StandardTable } from '@/components/table/StandardTable'
+import { StandardTable } from '@/components/table/StandardTable'
 import { FeatureStatusBadge } from '@/features/entitlements/features/FeatureStatusBadge'
 import { KindCell } from '@/features/entitlements/features/featureKind'
 import { appliesPerLabel } from '@/features/entitlements/model'
+import { productRows } from '@/features/entitlements/productGroups'
 import { useResourceTypes } from '@/features/resources/hooks'
 import { ListFeaturesResponse } from '@/rpc/api/entitlements/v1/entitlements_pb'
 import { Feature, FeatureStatus } from '@/rpc/api/entitlements/v1/models_pb'
@@ -29,8 +30,6 @@ interface Props {
   groupByProduct: boolean
 }
 
-const productKey = (feature: Feature) => feature.product?.id ?? ''
-
 export const FeaturesTable = ({
   query,
   pagination,
@@ -41,18 +40,15 @@ export const FeaturesTable = ({
   const navigate = useNavigate()
   const { byId: typesById, hasTypes } = useResourceTypes()
   const features = query.data?.features
+  const totalItems = query.data?.paginationMeta?.totalItems ?? 0
 
-  const groupBy = useMemo(() => {
-    if (!groupByProduct) return undefined
-    const pageCounts = new Map<string, number>()
-    for (const f of features ?? []) {
-      pageCounts.set(productKey(f), (pageCounts.get(productKey(f)) ?? 0) + 1)
-    }
-    return (f: Feature): RowGroup => ({
-      key: productKey(f),
-      label: `${f.product?.name ?? 'All products'} · ${pageCounts.get(productKey(f)) ?? 0}`,
-    })
-  }, [features, groupByProduct])
+  // One page of a longer list keeps its header: the next page may hold another product.
+  const grouped = useMemo(() => {
+    const page = features ?? []
+    if (!groupByProduct) return { rows: page, groupOf: undefined }
+    return productRows(page, f => f.product, { force: totalItems > page.length })
+  }, [features, groupByProduct, totalItems])
+  const showProduct = !grouped.groupOf && (features ?? []).some(f => f.product)
 
   const columns = useMemo<ColumnDef<Feature>[]>(
     () => [
@@ -82,7 +78,7 @@ export const FeaturesTable = ({
             } satisfies ColumnDef<Feature>,
           ]
         : []),
-      ...(groupByProduct
+      ...(!showProduct
         ? []
         : [
             {
@@ -168,21 +164,21 @@ export const FeaturesTable = ({
         },
       },
     ],
-    [onAction, hasTypes, typesById, navigate, groupByProduct]
+    [onAction, hasTypes, typesById, navigate, showProduct]
   )
 
   return (
     <StandardTable
       tableKey="features"
       columns={columns}
-      data={features ?? []}
+      data={grouped.rows}
       pagination={pagination}
       setPagination={setPagination}
       totalCount={query.data?.paginationMeta?.totalItems ?? 0}
       isLoading={query.isLoading}
       emptyMessage="No features"
       rowLink={row => row.original.id}
-      groupBy={groupBy}
+      groupBy={grouped.groupOf}
     />
   )
 }

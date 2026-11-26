@@ -13,6 +13,7 @@ import {
   levelKeyOf,
   levelLabel,
 } from '@/features/entitlements/model'
+import { productSections } from '@/features/entitlements/productGroups'
 import { RowSheet } from '@/features/entitlements/rows/RowSheet'
 import { useResourceTypes } from '@/features/resources/hooks'
 import { usePermissions } from '@/hooks/usePermissions'
@@ -49,6 +50,21 @@ export const OverridesCard = ({ customerId }: { customerId: string }) => {
       onOpen={canEdit ? () => setEditing({ existing: e, feature: features.get(e.featureId) }) : undefined}
     />
   )
+  const list = (items: Entitlement[]) => {
+    const sections = productSections(items, e => features.get(e.featureId)?.product)
+    return sections ? (
+      <div className="flex flex-col gap-4">
+        {sections.map(section => (
+          <div key={section.key} className="flex flex-col gap-2">
+            <span className="text-xs font-medium text-muted-foreground">{section.label}</span>
+            {section.items.map(card)}
+          </div>
+        ))}
+      </div>
+    ) : (
+      <div className="flex flex-col gap-2">{items.map(card)}</div>
+    )
+  }
 
   return (
     <Card className="flex flex-col gap-3 p-4">
@@ -73,7 +89,7 @@ export const OverridesCard = ({ customerId }: { customerId: string }) => {
           {active.length === 0 ? (
             <PanelEmptyState quiet title="No overrides" className="py-6" />
           ) : (
-            <div className="flex flex-col gap-2">{active.map(card)}</div>
+            list(active)
           )}
           {ended.length > 0 && (
             <Button
@@ -85,7 +101,7 @@ export const OverridesCard = ({ customerId }: { customerId: string }) => {
               {showEnded ? 'Hide ended' : `Show ended (${ended.length})`}
             </Button>
           )}
-          {showEnded && <div className="flex flex-col gap-2">{ended.map(card)}</div>}
+          {showEnded && list(ended)}
         </>
       )}
 

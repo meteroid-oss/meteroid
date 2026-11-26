@@ -16,7 +16,9 @@ import {
 import { MoreVerticalIcon } from 'lucide-react'
 import { Fragment, type ReactNode } from 'react'
 
+import { GroupHeaderRow } from '@/components/table/GroupHeaderRow'
 import { FeatureStatusBadge } from '@/features/entitlements/features/FeatureStatusBadge'
+import { type ProductRefLike, productRows } from '@/features/entitlements/productGroups'
 import { FeatureStatus } from '@/rpc/api/entitlements/v1/models_pb'
 
 import type { Feature } from '@/rpc/api/entitlements/v1/models_pb'
@@ -35,46 +37,63 @@ export type GrantsTableRow = {
   feature?: Feature
   /** Shown when the feature isn't loaded. */
   featureName?: string
+  /** Groups the row while the feature isn't loaded; else the feature's. */
+  product?: ProductRefLike
   value: ReactNode
   when: ReactNode
   actions: GrantAction[]
 }
 
-/** Rows of the same feature are consecutive; the feature shows on the first. */
-export const GrantsTable = ({ rows, whenLabel = 'Only when' }: { rows: GrantsTableRow[]; whenLabel?: string }) => (
-  <div className="overflow-hidden rounded-lg border border-border">
-    <Table>
-      <TableHeader className="border-t-0">
-        <TableRow>
-          <TableHead className="pl-3">Feature</TableHead>
-          <TableHead>Value</TableHead>
-          <TableHead>{whenLabel}</TableHead>
-          <TableHead className="w-px">
-            <span className="sr-only">Actions</span>
-          </TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {rows.map((row, i) => {
-          const first = rows[i - 1]?.featureId !== row.featureId
-          const continues = rows[i + 1]?.featureId === row.featureId
-          return (
-            <TableRow key={row.key} className={cn(continues && 'border-b-0')}>
-              <TableCell className="py-2.5 pl-3 align-top">
-                {first && <FeatureCell feature={row.feature} name={row.featureName ?? row.featureId} />}
-              </TableCell>
-              <TableCell className="py-2.5 align-top">{row.value}</TableCell>
-              <TableCell className="py-2.5 align-top">{row.when}</TableCell>
-              <TableCell className="w-px py-1.5 align-top">
-                {row.actions.length > 0 && <RowActions actions={row.actions} />}
-              </TableCell>
-            </TableRow>
-          )
-        })}
-      </TableBody>
-    </Table>
-  </div>
-)
+const productOfRow = (row: GrantsTableRow) => row.product ?? row.feature?.product
+
+/** Rows of the same feature are consecutive; the feature shows on the first. Grouped by product. */
+export const GrantsTable = ({
+  rows: input,
+  whenLabel = 'Only when',
+}: {
+  rows: GrantsTableRow[]
+  whenLabel?: string
+}) => {
+  const { rows, headerAt } = productRows(input, productOfRow, { countBy: r => r.featureId })
+  return (
+    <div className="overflow-hidden rounded-lg border border-border">
+      <Table>
+        <TableHeader className="border-t-0">
+          <TableRow>
+            <TableHead className="pl-3">Feature</TableHead>
+            <TableHead>Value</TableHead>
+            <TableHead>{whenLabel}</TableHead>
+            <TableHead className="w-px">
+              <span className="sr-only">Actions</span>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row, i) => {
+            const first = rows[i - 1]?.featureId !== row.featureId
+            const continues = rows[i + 1]?.featureId === row.featureId
+            const header = headerAt(i)
+            return (
+              <Fragment key={row.key}>
+                {header && <GroupHeaderRow colSpan={4}>{header}</GroupHeaderRow>}
+                <TableRow className={cn(continues && 'border-b-0')}>
+                  <TableCell className="py-2.5 pl-3 align-top">
+                    {first && <FeatureCell feature={row.feature} name={row.featureName ?? row.featureId} />}
+                  </TableCell>
+                  <TableCell className="py-2.5 align-top">{row.value}</TableCell>
+                  <TableCell className="py-2.5 align-top">{row.when}</TableCell>
+                  <TableCell className="w-px py-1.5 align-top">
+                    {row.actions.length > 0 && <RowActions actions={row.actions} />}
+                  </TableCell>
+                </TableRow>
+              </Fragment>
+            )
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  )
+}
 
 const FeatureCell = ({ feature, name }: { feature?: Feature; name: string }) => (
   <div className="flex flex-col gap-0.5">

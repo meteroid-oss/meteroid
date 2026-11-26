@@ -129,6 +129,7 @@ const SubscriptionRow = ({ subscription: s }: { subscription: Subscription }) =>
             customerId={s.customerId}
             elapsedPct={usage.data?.cycle?.elapsedPct}
             details={false}
+            groupByProduct={false}
           />
         )}
       </Link>

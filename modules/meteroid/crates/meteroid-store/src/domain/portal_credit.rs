@@ -135,6 +135,8 @@ pub struct PortalLimitGroupUsage {
 pub struct PortalUsageLimit {
     pub feature_id: FeatureId,
     pub name: String,
+    /// `None` for a tenant-wide feature.
+    pub product: Option<crate::domain::entitlements::FeatureProductRef>,
     pub origin: PortalLimitOrigin,
     pub group_by: Option<String>,
     pub limit: Decimal,

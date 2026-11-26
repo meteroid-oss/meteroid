@@ -50,7 +50,7 @@ message ListFeaturesRequest {
 enum FeatureOrder {
   // By feature name.
   FEATURE_ORDER_UNSPECIFIED = 0;
-  // Global features first, then by product name, then by feature name.
+  // By product name, global features last, then by feature name.
   FEATURE_ORDER_PRODUCT = 1;
 }
 

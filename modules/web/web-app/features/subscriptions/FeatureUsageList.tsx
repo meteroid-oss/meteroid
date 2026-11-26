@@ -1,6 +1,7 @@
 import { Badge } from '@md/ui'
 import { format } from 'date-fns'
 
+import { productSections } from '@/features/entitlements/productGroups'
 import { usePathLabel } from '@/features/resources/hooks'
 import { UsageMeter } from '@/features/subscriptions/UsageMeter'
 import { compactQuantity, formatQuantity, parseInstant } from '@/lib/utils/format'
@@ -70,6 +71,7 @@ export const FeatureUsageList = ({
   details = true,
   freeTrialEnd,
   customerId,
+  groupByProduct = true,
 }: {
   usage: SubscriptionFeatureUsage[]
   /** Names the resource of another subscription deciding a limit. */
@@ -80,11 +82,13 @@ export const FeatureUsageList = ({
   details?: boolean
   /** Set while the subscription is in a free trial: when it ends. */
   freeTrialEnd?: Date
+  /** Off for a summary ranked across products, e.g. the most used meters. */
+  groupByProduct?: boolean
 }) => {
   const pathLabel = usePathLabel(customerId)
-  return (
+  const list = (items: SubscriptionFeatureUsage[]) => (
     <ul className="flex flex-col gap-3">
-      {usage.map(u => (
+      {items.map(u => (
         <FeatureUsageItem
           key={u.featureId}
           usage={u}
@@ -95,6 +99,18 @@ export const FeatureUsageList = ({
         />
       ))}
     </ul>
+  )
+  const sections = groupByProduct ? productSections(usage, u => u.product) : undefined
+  if (!sections) return list(usage)
+  return (
+    <div className="flex flex-col gap-4">
+      {sections.map(section => (
+        <section key={section.key} className="flex flex-col gap-2">
+          <span className="text-xs font-medium text-muted-foreground">{section.label}</span>
+          {list(section.items)}
+        </section>
+      ))}
+    </div>
   )
 }
 

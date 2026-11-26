@@ -17,12 +17,14 @@ import { ChevronRightIcon } from 'lucide-react'
 import { Fragment, type KeyboardEvent, useState } from 'react'
 
 import { PanelEmptyState } from '@/components/empty-state/PanelEmptyState'
+import { GroupHeaderRow } from '@/components/table/GroupHeaderRow'
 import { ComputationTrace } from '@/features/entitlements/explain/ComputationTrace'
 import { EvaluateFor } from '@/features/entitlements/explain/EvaluateFor'
 import { type Target, isTargetReady, targetRequest } from '@/features/entitlements/explain/checkRequest'
 import { displayValue, isOffValue, isOnValue, sourceLabel } from '@/features/entitlements/explain/display'
 import { subscriptionName, useExplain } from '@/features/entitlements/explain/useExplain'
 import { isAppCounted, isLimit, kindLabel, reasonLabel } from '@/features/entitlements/model'
+import { productRows } from '@/features/entitlements/productGroups'
 import { formatDecimalGrouped } from '@/features/entitlements/utils'
 import { lower, useResourceSubscriptions, useResourceTypes } from '@/features/resources/hooks'
 import { useQuery } from '@/lib/connectrpc'
@@ -63,8 +65,11 @@ export const EffectiveEntitlementsCard = ({ customerId, customerName, creditPaid
     statuses: [FeatureStatus.ACTIVE, FeatureStatus.DISABLED],
   })
   const features = new Map((featuresQuery.data?.features ?? []).map(f => [f.id, f]))
-  const rows = [...(snapshot.data?.features ?? [])].sort((a, b) =>
-    (a.feature?.name ?? '').localeCompare(b.feature?.name ?? '')
+  const { rows, headerAt } = productRows(
+    [...(snapshot.data?.features ?? [])].sort((a, b) =>
+      (a.feature?.name ?? '').localeCompare(b.feature?.name ?? '')
+    ),
+    sf => sf.feature?.product
   )
 
   const toggle = (id: string) =>
@@ -107,21 +112,24 @@ export const EffectiveEntitlementsCard = ({ customerId, customerName, creditPaid
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map(sf => {
+            {rows.map((sf, i) => {
               const id = sf.feature?.id ?? ''
+              const header = headerAt(i)
               return (
-                <FeatureRow
-                  key={id}
-                  snapshot={sf}
-                  feature={features.get(id)}
-                  target={evaluated}
-                  customerId={customerId}
-                  customerName={customerName}
-                  paidWithCredit={creditPaid.has(id)}
-                  expanded={expanded.has(id)}
-                  onToggle={() => toggle(id)}
-                  types={typesById}
-                />
+                <Fragment key={id}>
+                  {header && <GroupHeaderRow colSpan={5}>{header}</GroupHeaderRow>}
+                  <FeatureRow
+                    snapshot={sf}
+                    feature={features.get(id)}
+                    target={evaluated}
+                    customerId={customerId}
+                    customerName={customerName}
+                    paidWithCredit={creditPaid.has(id)}
+                    expanded={expanded.has(id)}
+                    onToggle={() => toggle(id)}
+                    types={typesById}
+                  />
+                </Fragment>
               )
             })}
           </TableBody>

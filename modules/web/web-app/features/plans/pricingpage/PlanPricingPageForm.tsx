@@ -22,6 +22,7 @@ import {
   Checkbox,
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
@@ -56,6 +57,7 @@ import {
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
+import { productSections } from '@/features/entitlements/productGroups'
 import { plainValue } from '@/features/entitlements/rows/grantDisplay'
 import { inheritedValue } from '@/features/entitlements/rows/grantDraft'
 import { useFeatures } from '@/features/entitlements/rows/useFeatures'
@@ -76,7 +78,7 @@ import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
 import { rpcErrorMessage } from '@/lib/rpcError'
 import { getResolvedEntitlementsForPlanVersion } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
-import { EntitlementValueSchema } from '@/rpc/api/entitlements/v1/models_pb'
+import { EntitlementValueSchema, type ProductRef } from '@/rpc/api/entitlements/v1/models_pb'
 import {
   getPlanPricingPage,
   getPricingPage,
@@ -178,6 +180,7 @@ interface Feature {
   id: string
   name: string
   value: string
+  product?: ProductRef
 }
 
 const Editor = ({
@@ -220,6 +223,7 @@ const Editor = ({
     features.set(feature.id, {
       id: feature.id,
       name: feature.name,
+      product: feature.product,
       value: plainValue(
         create(EntitlementValueSchema, inheritedValue(entitlement)),
         fullFeatures.get(feature.id)
@@ -231,6 +235,10 @@ const Editor = ({
     draft.highlights.flatMap(h => (h.kind === 'feature' ? [h.featureId] : []))
   )
   const available = [...features.values()].filter(feature => !picked.has(feature.id))
+  const availableGroups: { key: string; name: string; items: Feature[] }[] = productSections(
+    available,
+    feature => feature.product
+  ) ?? [{ key: '', name: 'Features of this plan', items: available }]
   const full = draft.highlights.length >= MAX_HIGHLIGHTS
 
   const payload = payloadOf(planId, draft)
@@ -459,24 +467,28 @@ const Editor = ({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
-                  <DropdownMenuLabel className="text-xs text-muted-foreground">
-                    Features of this plan
-                  </DropdownMenuLabel>
-                  {available.map(feature => (
-                    <DropdownMenuItem
-                      key={feature.id}
-                      onSelect={() =>
-                        setHighlights(list => [
-                          ...list,
-                          { key: draftKey(), kind: 'feature', featureId: feature.id },
-                        ])
-                      }
-                    >
-                      <span className="truncate">{feature.name}</span>
-                      <span className="ml-auto pl-4 text-xs text-muted-foreground">
-                        {feature.value}
-                      </span>
-                    </DropdownMenuItem>
+                  {availableGroups.map(group => (
+                    <DropdownMenuGroup key={group.key}>
+                      <DropdownMenuLabel className="text-xs text-muted-foreground">
+                        {group.name}
+                      </DropdownMenuLabel>
+                      {group.items.map(feature => (
+                        <DropdownMenuItem
+                          key={feature.id}
+                          onSelect={() =>
+                            setHighlights(list => [
+                              ...list,
+                              { key: draftKey(), kind: 'feature', featureId: feature.id },
+                            ])
+                          }
+                        >
+                          <span className="truncate">{feature.name}</span>
+                          <span className="ml-auto pl-4 text-xs text-muted-foreground">
+                            {feature.value}
+                          </span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuGroup>
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>

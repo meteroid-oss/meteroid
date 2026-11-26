@@ -1077,6 +1077,7 @@ impl ServicesEdge {
                     PortalUsageLimit {
                         feature_id: feature.id,
                         name: feature.name,
+                        product: feature.product,
                         origin,
                         group_by,
                         limit,

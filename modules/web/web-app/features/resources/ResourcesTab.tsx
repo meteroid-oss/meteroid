@@ -6,6 +6,7 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Separator,
@@ -27,15 +28,17 @@ import {
 } from '@md/ui'
 import { useQueries } from '@tanstack/react-query'
 import { ArchiveIcon, Boxes, Columns3Icon, HelpCircleIcon, MoreVerticalIcon, PencilIcon, PlusIcon } from 'lucide-react'
-import { type KeyboardEvent, useEffect, useState , ReactNode } from 'react'
+import { Fragment, type KeyboardEvent, type ReactNode, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
 import { PanelEmptyState } from '@/components/empty-state/PanelEmptyState'
 import { ListToolbarSearch } from '@/components/layouts/ListPageLayout'
+import { GroupHeaderRow } from '@/components/table/GroupHeaderRow'
 import { ExplainDialog } from '@/features/entitlements/explain/ExplainDialog'
 import { type Target } from '@/features/entitlements/explain/checkRequest'
 import { isLimit, reasonLabel, valueLabel } from '@/features/entitlements/model'
+import { productGroups, productRows } from '@/features/entitlements/productGroups'
 import { EntitlementRowsEditor } from '@/features/entitlements/rows/EntitlementRowsEditor'
 import { formatDecimalGrouped } from '@/features/entitlements/utils'
 import { ResourceDialog } from '@/features/resources/ResourceDialog'
@@ -197,19 +200,28 @@ const ResourcesCard = ({ customerId, customerName, type, switcher }: Scope & { s
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {limits.map(f => {
-                  const checked = usage.some(u => u.id === f.id)
-                  return (
-                    <DropdownMenuCheckboxItem
-                      key={f.id}
-                      checked={checked}
-                      disabled={!checked && usage.length >= MAX_USAGE_COLUMNS}
-                      onCheckedChange={() => toggleColumn(f.id)}
-                    >
-                      {f.name}
-                    </DropdownMenuCheckboxItem>
-                  )
-                })}
+                {productGroups(limits, f => f.product).map((group, _, groups) => (
+                  <Fragment key={group.key}>
+                    {groups.length > 1 && (
+                      <DropdownMenuLabel className="text-xs text-muted-foreground">
+                        {group.label}
+                      </DropdownMenuLabel>
+                    )}
+                    {group.items.map(f => {
+                      const checked = usage.some(u => u.id === f.id)
+                      return (
+                        <DropdownMenuCheckboxItem
+                          key={f.id}
+                          checked={checked}
+                          disabled={!checked && usage.length >= MAX_USAGE_COLUMNS}
+                          onCheckedChange={() => toggleColumn(f.id)}
+                        >
+                          {f.name}
+                        </DropdownMenuCheckboxItem>
+                      )
+                    })}
+                  </Fragment>
+                ))}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -468,6 +480,7 @@ const ResourceSheet = ({
   const [explain, setExplain] = useState<Feature>()
   const selector = resourceSelector(type, resource.keyValue)
   const snapshot = useResourceSnapshot(customerId, type, resource)
+  const entitled = productRows(snapshot.data?.features ?? [], sf => sf.feature?.product)
   const features = new Map(
     (
       useQuery(listFeatures, {
@@ -540,7 +553,8 @@ const ResourceSheet = ({
               <div className="overflow-hidden rounded-lg border border-border">
                 <Table>
                   <TableBody>
-                    {snapshot.data.features.map(sf => {
+                    {entitled.rows.map((sf, i) => {
+                      const header = entitled.headerAt(i)
                       const feature = features.get(sf.feature?.id ?? '')
                       const own = sf.levels.find(l => l.resourceTypeId === type.id)
                       const reason =
@@ -548,33 +562,36 @@ const ResourceSheet = ({
                           ? reasonLabel(own.reason, type)
                           : undefined
                       return (
-                        <TableRow key={sf.feature?.id}>
-                          <TableCell className="text-sm font-medium">{sf.feature?.name}</TableCell>
-                          <TableCell className="text-[13px]">
-                            {reason ? (
-                              <span className="text-muted-foreground">{reason}</span>
-                            ) : own?.used !== undefined || own?.usageUnavailable ? (
-                              <UsageBar level={own} feature={feature} />
-                            ) : sf.value ? (
-                              valueLabel(sf.value, feature)
-                            ) : (
-                              <span className="text-muted-foreground">Not entitled</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="w-px">
-                            {feature && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                aria-label={`Why this value for ${feature.name}`}
-                                onClick={() => setExplain(feature)}
-                              >
-                                <HelpCircleIcon size={16} />
-                              </Button>
-                            )}
-                          </TableCell>
-                        </TableRow>
+                        <Fragment key={sf.feature?.id}>
+                          {header && <GroupHeaderRow colSpan={3}>{header}</GroupHeaderRow>}
+                          <TableRow>
+                            <TableCell className="text-sm font-medium">{sf.feature?.name}</TableCell>
+                            <TableCell className="text-[13px]">
+                              {reason ? (
+                                <span className="text-muted-foreground">{reason}</span>
+                              ) : own?.used !== undefined || own?.usageUnavailable ? (
+                                <UsageBar level={own} feature={feature} />
+                              ) : sf.value ? (
+                                valueLabel(sf.value, feature)
+                              ) : (
+                                <span className="text-muted-foreground">Not entitled</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="w-px">
+                              {feature && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  aria-label={`Why this value for ${feature.name}`}
+                                  onClick={() => setExplain(feature)}
+                                >
+                                  <HelpCircleIcon size={16} />
+                                </Button>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        </Fragment>
                       )
                     })}
                   </TableBody>

@@ -16,6 +16,7 @@ import {
   productScopeOptions,
 } from '@/features/billing/minimumCommitment'
 import { serializeCustomProperties } from '@/features/customproperties/CustomPropertiesFields'
+import { productGroups } from '@/features/entitlements/productGroups'
 import { grantValueText } from '@/features/entitlements/rows/grantDisplay'
 import { draftsToSpecs } from '@/features/entitlements/rows/grantDraft'
 import {
@@ -533,15 +534,29 @@ export const StepReviewAndCreate = () => {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-2">
-                    {state.entitlements.map(e => (
-                      <div key={e.spec.featureId} className="flex items-center justify-between gap-3 text-sm">
-                        <span className="font-medium">{e.feature.name}</span>
-                        <span className="text-[13px] text-muted-foreground">
-                          {grantValueText(e.spec, e.feature, 'subscription')}
-                        </span>
-                      </div>
-                    ))}
+                  <div className="space-y-4">
+                    {productGroups(state.entitlements, e => e.feature.product).map(
+                      (group, _, groups) => (
+                        <div key={group.key} className="space-y-2">
+                          {groups.length > 1 && (
+                            <div className="text-xs font-medium text-muted-foreground">
+                              {group.label}
+                            </div>
+                          )}
+                          {group.items.map(e => (
+                            <div
+                              key={e.spec.featureId}
+                              className="flex items-center justify-between gap-3 text-sm"
+                            >
+                              <span className="font-medium">{e.feature.name}</span>
+                              <span className="text-[13px] text-muted-foreground">
+                                {grantValueText(e.spec, e.feature, 'subscription')}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    )}
                   </div>
                 </CardContent>
               </Card>

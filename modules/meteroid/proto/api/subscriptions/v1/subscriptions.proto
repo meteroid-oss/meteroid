@@ -592,6 +592,8 @@ message SubscriptionFeatureUsage {
   // Another subscription decides `limit`: what this one grants, and which decides.
   optional meteroid.api.entitlements.v1.SubscriptionGrant own_grant = 15;
   bool usage_unavailable = 16;
+  // Unset for a tenant-wide feature.
+  optional meteroid.api.entitlements.v1.ProductRef product = 17;
 }
 
 message GetSubscriptionUsageResponse {

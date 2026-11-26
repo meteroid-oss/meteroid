@@ -23,7 +23,7 @@ pub struct FeatureProductMeta {
 pub enum FeatureListOrder {
     #[default]
     Name,
-    /// Global features first, then grouped by product name.
+    /// Grouped by product name, global features last.
     Product,
 }
 

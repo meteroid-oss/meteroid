@@ -435,8 +435,8 @@ async fn paged(env: &TestEnv, filter: FeaturePageFilter) -> Vec<String> {
     }
 }
 
-/// Keyset pages of features, by id, by name or by product (global features first, then by
-/// product name), each feature with its defaults; narrowed to a product or a level. A cursor that
+/// Keyset pages of features, by id, by name or by product (by product name, global features
+/// last), each feature with its defaults; narrowed to a product or a level. A cursor that
 /// is not a feature of the tenant is refused.
 #[rstest]
 #[tokio::test]
@@ -494,8 +494,8 @@ async fn features_are_read_in_keyset_pages(#[future] test_env: TestEnv) {
     );
     assert_eq!(
         paged(&env, order(FeatureListOrder::Product)).await,
-        vec!["alpha", "pages", "zeta", "beta", "gamma", "mid"],
-        "global first, then Platform Fee, then Seats"
+        vec!["beta", "gamma", "mid", "alpha", "pages", "zeta"],
+        "Platform Fee, then Seats, then global"
     );
     assert_eq!(
         paged(

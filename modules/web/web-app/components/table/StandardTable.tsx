@@ -12,6 +12,7 @@ import { Fragment, ReactNode, useRef } from 'react'
 import { Link } from 'react-router'
 
 import { CustomTable } from '@/components/table/CustomTable'
+import { GroupHeaderRow } from '@/components/table/GroupHeaderRow'
 import { useTableDensity, useTablePreferences } from '@/hooks/useTablePreferences'
 
 interface StandardTableProps<A> {
@@ -174,15 +175,6 @@ const standardRowRenderer = <A extends object>(
     </TableRow>
   )
 }
-
-const GroupHeaderRow = ({ colSpan, children }: { colSpan: number; children: ReactNode }) => (
-  // `[&&]` outranks the table's row-height rules so the header stays compact in every density.
-  <TableRow className="bg-muted/40 hover:bg-muted/40 [&&]:!h-8">
-    <TableCell colSpan={colSpan} className="py-1.5 text-xs font-medium text-muted-foreground">
-      {children}
-    </TableCell>
-  </TableRow>
-)
 
 // Long enough to skip rows the pointer only sweeps across.
 const HOVER_INTENT_MS = 80

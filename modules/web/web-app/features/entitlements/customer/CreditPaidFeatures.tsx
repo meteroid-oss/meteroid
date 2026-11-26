@@ -12,6 +12,7 @@ import {
 } from '@md/ui'
 import { useQueries } from '@tanstack/react-query'
 
+import { GroupHeader } from '@/components/table/GroupHeaderRow'
 import { formatWalletAmount, walletTitle } from '@/features/credit/format'
 import { LimitTermsBadges, termsOfValue } from '@/features/entitlements/LimitTermsBadges'
 import {
@@ -24,6 +25,7 @@ import {
   sourcesSummary,
   usageOfCredit,
 } from '@/features/entitlements/customer/creditPaidFeaturesModel'
+import { productSections } from '@/features/entitlements/productGroups'
 import { effectiveValueLabel, isLimitReached } from '@/features/entitlements/utils'
 import { formatShortDay } from '@/features/subscriptions/utils/dates'
 import { useQuery } from '@/lib/connectrpc'
@@ -48,6 +50,52 @@ export const CreditPaidFeatures = ({ customerId, entitlements, paid, onViewCredi
     return entitlement ? [{ feature, entitlement }] : []
   })
   if (rows.length === 0) return null
+  const sorted = rows.sort((a, b) =>
+    (a.entitlement.feature?.name ?? '').localeCompare(b.entitlement.feature?.name ?? '')
+  )
+  const sections = productSections(sorted, r => r.entitlement.feature?.product)
+  const row = ({ feature, entitlement }: (typeof rows)[number]) => (
+    <div key={feature.featureId} className="flex flex-col gap-2 px-5 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <span className="truncate text-sm font-medium">{entitlement.feature?.name}</span>
+            <span className="truncate font-mono text-xs text-muted-foreground">
+              {entitlement.feature?.code}
+            </span>
+          </div>
+          <LimitTermsBadges terms={termsOfValue(entitlement.value)} />
+          {isLimitReached(entitlement.value) && (
+            <Badge size="sm" variant="destructive">
+              Limit reached
+            </Badge>
+          )}
+        </div>
+        {termsOfValue(entitlement.value)?.limit && (
+          <span className="text-[13px] font-medium tabular-nums">
+            {effectiveValueLabel(entitlement.value)}
+          </span>
+        )}
+      </div>
+      {wallets.isLoading ? (
+        <Skeleton height={36} />
+      ) : (
+        byWallet(feature.payers).map(([walletId, payers]) => {
+          const wallet = wallets.data?.wallets.find(w => w.id === walletId)
+          return (
+            wallet && (
+              <WalletStanding
+                key={walletId}
+                wallet={wallet}
+                payers={payers}
+                metricId={feature.metricId}
+              />
+            )
+          )
+        })
+      )}
+    </div>
+  )
   return (
     <Card className="overflow-hidden">
       <div className="flex items-center justify-between gap-2 px-5 py-4">
@@ -57,52 +105,14 @@ export const CreditPaidFeatures = ({ customerId, entitlements, paid, onViewCredi
         </Button>
       </div>
       <div className="divide-y divide-border border-t border-border">
-        {rows
-          .sort((a, b) =>
-            (a.entitlement.feature?.name ?? '').localeCompare(b.entitlement.feature?.name ?? '')
-          )
-          .map(({ feature, entitlement }) => (
-            <div key={feature.featureId} className="flex flex-col gap-2 px-5 py-3">
-              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <div className="flex min-w-0 flex-col gap-0.5">
-                    <span className="truncate text-sm font-medium">{entitlement.feature?.name}</span>
-                    <span className="truncate font-mono text-xs text-muted-foreground">
-                      {entitlement.feature?.code}
-                    </span>
-                  </div>
-                  <LimitTermsBadges terms={termsOfValue(entitlement.value)} />
-                  {isLimitReached(entitlement.value) && (
-                    <Badge size="sm" variant="destructive">
-                      Limit reached
-                    </Badge>
-                  )}
-                </div>
-                {termsOfValue(entitlement.value)?.limit && (
-                  <span className="text-[13px] font-medium tabular-nums">
-                    {effectiveValueLabel(entitlement.value)}
-                  </span>
-                )}
-              </div>
-              {wallets.isLoading ? (
-                <Skeleton height={36} />
-              ) : (
-                byWallet(feature.payers).map(([walletId, payers]) => {
-                  const wallet = wallets.data?.wallets.find(w => w.id === walletId)
-                  return (
-                    wallet && (
-                      <WalletStanding
-                        key={walletId}
-                        wallet={wallet}
-                        payers={payers}
-                        metricId={feature.metricId}
-                      />
-                    )
-                  )
-                })
-              )}
-            </div>
-          ))}
+        {sections
+          ? sections.flatMap(section => [
+              <GroupHeader key={`group-${section.key}`} className="px-5">
+                {section.label}
+              </GroupHeader>,
+              ...section.items.map(row),
+            ])
+          : sorted.map(row)}
       </div>
     </Card>
   )

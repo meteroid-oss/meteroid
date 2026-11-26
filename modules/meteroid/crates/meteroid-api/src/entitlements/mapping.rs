@@ -17,8 +17,8 @@ use meteroid_store::domain::entitlement_levels::{CheckReason, ReasonType};
 use meteroid_store::domain::entitlement_policy::{AtLimit, FeaturePolicy, Period, Resets};
 use meteroid_store::domain::entitlements::{
     ConfigValue, EffectiveEntitlementValue, EntitlementSpec, EntitlementUpdate, FeatureKind,
-    LimitCountedBy, OverageBehavior, PeriodUnit, ResetPeriod, ResolvedEntitlement,
-    ResolvedEntitlementValue, ResolvedOrigin, SubscriptionGrant, ValueType,
+    FeatureProductRef, LimitCountedBy, OverageBehavior, PeriodUnit, ResetPeriod,
+    ResolvedEntitlement, ResolvedEntitlementValue, ResolvedOrigin, SubscriptionGrant, ValueType,
 };
 use meteroid_store::domain::enums::FeatureStatusEnum;
 use meteroid_store::domain::{EffectiveEntitlement, Entitlement, Feature};
@@ -69,6 +69,13 @@ pub fn grant_value_to_proto(v: GrantValue) -> proto::EntitlementValue {
         GrantValue::Json(j) => config(ConfigValue::Json(j)),
     };
     proto::EntitlementValue { value: Some(value) }
+}
+
+pub fn product_ref_to_proto(p: FeatureProductRef) -> proto::ProductRef {
+    proto::ProductRef {
+        id: p.id.as_proto(),
+        name: p.name,
+    }
 }
 
 pub fn subscription_grant_to_proto(g: SubscriptionGrant) -> proto::SubscriptionGrant {
@@ -320,10 +327,7 @@ pub fn feature_to_proto(f: Feature) -> proto::Feature {
         description: f.description,
         feature_type,
         status: feature_status_to_proto(f.status),
-        product: f.product.map(|p| proto::ProductRef {
-            id: p.id.as_proto(),
-            name: p.name,
-        }),
+        product: f.product.map(product_ref_to_proto),
         created_at: f.created_at.as_proto(),
         code: f.code,
         entitlement: defaults.first().cloned(),
@@ -862,10 +866,7 @@ pub fn feature_ref_to_proto(
         id: f.id.as_proto(),
         name: f.name,
         code: f.code,
-        product: f.product.map(|p| proto::ProductRef {
-            id: p.id.as_proto(),
-            name: p.name,
-        }),
+        product: f.product.map(product_ref_to_proto),
     }
 }
 

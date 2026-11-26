@@ -1,4 +1,5 @@
 use crate::customers::mapping::customer::ServerCustomerWrapper;
+use crate::entitlements::mapping::product_ref_to_proto;
 use crate::portal::customer::PortalCustomerServiceComponents;
 use crate::portal::customer::error::PortalCustomerApiError;
 use crate::portal::pricing::subscription_plan_price;
@@ -425,6 +426,7 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
                 .map(|limit| UsageLimitStatus {
                     id: limit.feature_id.as_proto(),
                     name: limit.name,
+                    product: limit.product.map(product_ref_to_proto),
                     origin: match limit.origin {
                         PortalLimitOrigin::Plan => LimitOrigin::Plan,
                         PortalLimitOrigin::Account => LimitOrigin::Account,

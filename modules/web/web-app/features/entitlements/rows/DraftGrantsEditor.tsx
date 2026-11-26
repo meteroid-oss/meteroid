@@ -38,7 +38,7 @@ import { useFeatures } from '@/features/entitlements/rows/useFeatures'
 import { originLabel } from '@/features/entitlements/utils'
 import { EntitlementSchema } from '@/rpc/api/entitlements/v1/models_pb'
 
-import type { Feature, ResolvedEntitlement } from '@/rpc/api/entitlements/v1/models_pb'
+import type { Feature, ProductRef, ResolvedEntitlement } from '@/rpc/api/entitlements/v1/models_pb'
 
 type Props = DraftScope & {
   drafts: GrantDraft[]
@@ -54,7 +54,13 @@ type Props = DraftScope & {
   emptyText?: string
 }
 
-type Row = { featureId: string; name: string; inherited?: ResolvedEntitlement; draft?: GrantDraft }
+type Row = {
+  featureId: string
+  name: string
+  product?: ProductRef
+  inherited?: ResolvedEntitlement
+  draft?: GrantDraft
+}
 type Editing = { feature?: Feature; existing?: GrantDraft }
 
 const keyOf = (d: GrantDraft) => d.spec.featureId
@@ -85,12 +91,18 @@ const DraftGrantsEditor = ({
     ...inheritedRows.map(r => ({
       featureId: r.feature!.id,
       name: r.feature!.name,
+      product: r.feature!.product,
       inherited: r,
       draft: draftsById.get(r.feature!.id),
     })),
     ...drafts
       .filter(d => !inheritedRows.some(r => r.feature!.id === keyOf(d)))
-      .map(d => ({ featureId: keyOf(d), name: d.feature.name, draft: d })),
+      .map(d => ({
+        featureId: keyOf(d),
+        name: d.feature.name,
+        product: d.feature.product,
+        draft: d,
+      })),
   ].sort((a, b) => a.name.localeCompare(b.name))
 
   const upsert = (draft: GrantDraft) => {
@@ -160,6 +172,7 @@ const DraftGrantsEditor = ({
         featureId: row.featureId,
         feature,
         featureName: row.name,
+        product: row.product,
         value: <GrantValue row={shown} feature={feature} source={scope.source} />,
         when: (
           <GrantWhen
@@ -181,6 +194,7 @@ const DraftGrantsEditor = ({
       featureId: row.featureId,
       feature,
       featureName: row.name,
+      product: row.product,
       value: <GrantValue row={shown} feature={feature} source="plan" />,
       when: (
         <GrantWhen

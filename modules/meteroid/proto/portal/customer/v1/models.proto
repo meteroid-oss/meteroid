@@ -4,6 +4,7 @@ package meteroid.portal.customer.v1;
 
 import "api/billablemetrics/v1/models.proto";
 import "api/customers/v1/models.proto";
+import "api/entitlements/v1/models.proto";
 import "api/subscriptions/v1/models.proto";
 import "api/invoices/v1/models.proto";
 import "google/protobuf/timestamp.proto";
@@ -115,6 +116,8 @@ message UsageLimitStatus {
   optional meteroid.api.billablemetrics.v1.MetricUnitLabel unit_label = 14;
   // Usage could not be read for now: `groups` and `breakdown` are empty.
   bool usage_unavailable = 15;
+  // The limited feature's product; unset for a tenant-wide feature.
+  optional meteroid.api.entitlements.v1.ProductRef product = 16;
 }
 
 message LimitGroupUsage {
