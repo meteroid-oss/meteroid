@@ -112,7 +112,6 @@ async fn owed_invoice(
             invoice_type: InvoiceType::Recurring,
             finalized_at: Some(invoice_date.and_hms_opt(0, 0, 0).unwrap()),
             subtotal: amount_due,
-            subtotal_recurring: amount_due,
             discount: 0,
             tax_amount: 0,
             total: amount_due,

@@ -7,14 +7,11 @@ pub struct LineAmounts {
     pub tax: i64,
     /// Promotional credit taken off the line before tax.
     pub promotional: i64,
-    /// A line billing no metered usage.
-    pub recurring: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Totals {
     pub subtotal: i64,
-    pub subtotal_recurring: i64,
     pub discount: i64,
     pub promotional: i64,
     pub tax: i64,
@@ -34,9 +31,6 @@ impl Totals {
             totals.subtotal += line.subtotal;
             totals.tax += line.tax;
             totals.promotional += line.promotional;
-            if line.recurring {
-                totals.subtotal_recurring += line.subtotal;
-            }
         }
         totals.total = totals.subtotal - totals.discount - totals.promotional + totals.tax;
         totals
@@ -63,26 +57,21 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
 
-    fn line(subtotal: i64, tax: i64, promotional: i64, recurring: bool) -> LineAmounts {
+    fn line(subtotal: i64, tax: i64, promotional: i64) -> LineAmounts {
         LineAmounts {
             subtotal,
             tax,
             promotional,
-            recurring,
         }
     }
 
     #[test]
     fn a_document_adds_up_its_lines() {
-        let totals = Totals::of(
-            [line(10_000, 1_800, 1_000, true), line(500, 100, 0, false)],
-            500,
-        );
+        let totals = Totals::of([line(10_000, 1_800, 1_000), line(500, 100, 0)], 500);
         assert_eq!(
             totals,
             Totals {
                 subtotal: 10_500,
-                subtotal_recurring: 10_000,
                 discount: 500,
                 promotional: 1_000,
                 tax: 1_900,
@@ -96,12 +85,12 @@ mod tests {
     proptest! {
         #[test]
         fn the_total_is_the_identity_of_its_parts(
-            amounts in prop::collection::vec((-1_000_000i64..1_000_000, 0i64..100_000, 0i64..100_000, any::<bool>()), 0..20),
+            amounts in prop::collection::vec((-1_000_000i64..1_000_000, 0i64..100_000, 0i64..100_000), 0..20),
             discount in 0i64..1_000_000,
             paid in 0i64..1_000_000,
             credit in 0i64..1_000_000,
         ) {
-            let totals = Totals::of(amounts.iter().map(|&(s, t, p, r)| line(s, t, p, r)), discount);
+            let totals = Totals::of(amounts.iter().map(|&(s, t, p)| line(s, t, p)), discount);
             prop_assert_eq!(totals.total, totals.subtotal - totals.discount - totals.promotional + totals.tax);
             prop_assert!(totals.amount_due(paid, credit) >= 0);
             prop_assert!(totals.amount_due(paid, credit) <= totals.total.max(0));

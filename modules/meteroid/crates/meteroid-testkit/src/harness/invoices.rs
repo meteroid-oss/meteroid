@@ -207,7 +207,6 @@ impl TestEnv {
                 invoice_type: InvoiceType::Recurring,
                 finalized_at: None,
                 subtotal: 0,
-                subtotal_recurring: 0,
                 discount: 0,
                 tax_amount: 0,
                 total: 0,

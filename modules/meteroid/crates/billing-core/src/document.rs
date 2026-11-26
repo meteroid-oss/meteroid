@@ -74,8 +74,6 @@ pub struct Line {
     pub subscription: Option<SubscriptionId>,
     /// The product credit restricted to products answers to.
     pub product: Option<ProductId>,
-    /// It bills no metered usage (R-076).
-    pub recurring: bool,
     /// As stored: net on a tax-inclusive line that bore tax.
     pub figures: Figures,
     /// The tax-included figures a netted line was quoted in (R-031).
@@ -161,7 +159,6 @@ impl Line {
             subtotal: self.figures.subtotal,
             tax: self.tax,
             promotional: self.net_promotional(),
-            recurring: self.recurring,
         }
     }
 }
@@ -228,7 +225,6 @@ pub fn apply_rates(lines: &mut [Line], rates: &[&[Rate]], tax_inclusive: bool) -
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Header {
     pub subtotal: i64,
-    pub subtotal_recurring: i64,
     pub tax: i64,
     pub promotional: i64,
     pub total: i64,
@@ -263,7 +259,6 @@ mod tests {
             kind: LineKind::Fee,
             subscription: None,
             product: None,
-            recurring: true,
             figures: Figures {
                 subtotal: amount,
                 unit_price: None,

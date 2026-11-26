@@ -14,6 +14,12 @@ pub fn domain_to_rest(
     child_invoice_id: Option<InvoiceId>,
     settled_by_credit_notes: bool,
 ) -> Result<Invoice, RestApiError> {
+    let subtotal_recurring = d
+        .line_items
+        .iter()
+        .filter(|line| line.metric_id.is_none())
+        .map(|line| line.amount_subtotal)
+        .sum();
     Ok(Invoice {
         id: d.id,
         currency: currencies::mapping::from_str(d.currency.as_str())?,
@@ -27,7 +33,7 @@ pub fn domain_to_rest(
         customer_id: d.customer_id,
         subscription_id: d.subscription_id,
         subtotal: d.subtotal,
-        subtotal_recurring: d.subtotal_recurring,
+        subtotal_recurring,
         tax_amount: d.tax_amount,
         total: d.total,
         amount_due: d.amount_due,

@@ -400,7 +400,6 @@ async fn a_churn_booked_by_an_earlier_invoice_of_the_end_day_is_not_booked_again
             tax_inclusive: false,
             finalized_at: None,
             subtotal: 0,
-            subtotal_recurring: 0,
             discount: 0,
             tax_amount: 0,
             total: 0,

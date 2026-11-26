@@ -34,6 +34,7 @@ pub struct Invoice {
     /// carved out of the quoted price, so `total` is that price to the unit.
     pub tax_inclusive: bool,
     pub subtotal: i64,
+    /// The part of `subtotal` billing no metered usage.
     pub subtotal_recurring: i64,
     pub tax_amount: i64,
     pub total: i64,

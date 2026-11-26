@@ -133,7 +133,6 @@ pub(crate) fn taxed_base(line: &LineItem, tax_inclusive: bool) -> i64 {
 pub(in crate::services) struct TaxedDocument<'a> {
     pub lines: &'a mut Vec<LineItem>,
     pub subtotal: &'a mut i64,
-    pub subtotal_recurring: &'a mut i64,
     pub discount: i64,
     pub tax_inclusive: bool,
     pub tax_amount: &'a mut i64,
@@ -152,7 +151,6 @@ impl TaxedDocument<'_> {
             subscription: scope.subscription_id,
             header: Header {
                 subtotal: *self.subtotal,
-                subtotal_recurring: *self.subtotal_recurring,
                 tax: *self.tax_amount,
                 promotional: *self.promotional_credits,
                 total: *self.total,
@@ -195,7 +193,6 @@ impl TaxedDocument<'_> {
         carry_over_tax_findings(self.tax_breakdown.as_slice(), &mut breakdown);
         *self.tax_breakdown = breakdown;
         *self.subtotal = settled.header.subtotal;
-        *self.subtotal_recurring = settled.header.subtotal_recurring;
         *self.tax_amount = settled.header.tax;
         *self.total = settled.header.total;
         *self.promotional_credits = settled.header.promotional;
@@ -218,7 +215,6 @@ impl Services {
     ) -> StoreResult<i64> {
         let billing_core::Totals {
             mut subtotal,
-            mut subtotal_recurring,
             promotional: mut promotional_credits,
             tax: mut tax_amount,
             mut total,
@@ -230,7 +226,6 @@ impl Services {
             &mut TaxedDocument {
                 lines,
                 subtotal: &mut subtotal,
-                subtotal_recurring: &mut subtotal_recurring,
                 discount,
                 tax_inclusive,
                 tax_amount: &mut tax_amount,
@@ -523,11 +518,10 @@ mod tests {
         let mut total = lines.iter().map(|l| l.amount_total).sum::<i64>();
         let mut promotional = net_total(lines).unwrap();
         let discount = subtotal - promotional + tax - total;
-        let (mut recurring, mut breakdown) = (0, Vec::new());
+        let mut breakdown = Vec::new();
         TaxedDocument {
             lines,
             subtotal: &mut subtotal,
-            subtotal_recurring: &mut recurring,
             discount,
             tax_inclusive,
             tax_amount: &mut tax,

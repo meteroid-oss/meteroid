@@ -244,7 +244,6 @@ async fn a_line_the_credit_took_whole_is_taxed_again_once_the_credit_is_gone() -
             invoice_type: InvoiceType::OneOff,
             finalized_at: None,
             subtotal: content.subtotal,
-            subtotal_recurring: content.subtotal_recurring,
             discount: content.discount,
             tax_amount: content.tax_amount,
             total: content.total,

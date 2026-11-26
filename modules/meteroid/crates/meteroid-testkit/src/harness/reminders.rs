@@ -243,7 +243,6 @@ impl TestEnv {
                 invoice_type: fixture.invoice_type,
                 finalized_at: Some(now),
                 subtotal: fixture.amount_due,
-                subtotal_recurring: 0,
                 discount: 0,
                 tax_amount: 0,
                 total: fixture.amount_due,

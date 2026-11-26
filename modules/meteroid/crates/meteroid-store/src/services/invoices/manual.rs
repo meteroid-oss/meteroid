@@ -216,7 +216,6 @@ impl Services {
             applied_credits: 0, // manual invoices don't use customer credits ?
             promotional_credits: 0,
             subtotal,
-            subtotal_recurring: 0, // no recurring items in manual invoices
             tax_amount: total_tax_amount,
             net_terms: invoicing_entity.net_terms, // todo derive from due_date?
             discount: discount.unwrap_or(0) - discount_tax,

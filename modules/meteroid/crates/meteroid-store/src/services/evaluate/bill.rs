@@ -777,7 +777,7 @@ impl Services {
             None => Box::default(),
         };
 
-        Ok(PricedInvoice::Lines(PricedLines {
+        Ok(PricedInvoice::Lines(Box::new(PricedLines {
             lines,
             invoice_date: read_at,
             currency_precision: currency.precision,
@@ -788,7 +788,7 @@ impl Services {
             invoice_id: invoice.map(|invoice| invoice.id),
             true_up,
             reopened,
-        }))
+        })))
     }
 
     /// The slot of the invoice of `invoice_date`, with the periods it catches up: those since the

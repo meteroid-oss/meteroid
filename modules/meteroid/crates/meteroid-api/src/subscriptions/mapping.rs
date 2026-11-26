@@ -1435,7 +1435,6 @@ pub mod upcoming {
                 .map(domain_tax_breakdown_to_server)
                 .collect(),
             subtotal: content.subtotal,
-            subtotal_recurring: content.subtotal_recurring,
             tax_amount: content.tax_amount,
             total: content.total,
             amount_due: content.amount_due,
@@ -1553,7 +1552,6 @@ pub mod upcoming {
                 .map(domain_tax_breakdown_to_server)
                 .collect(),
             subtotal: content.subtotal,
-            subtotal_recurring: content.subtotal_recurring,
             tax_amount: content.tax_amount,
             total: content.total,
             amount_due: content.amount_due,

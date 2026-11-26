@@ -85,7 +85,6 @@ pub(crate) fn line_of(item: &LineItem, subscription: Option<SubscriptionId>) -> 
         kind,
         subscription,
         product: item.credit_product(),
-        recurring: item.metric_id.is_none(),
         figures: core::Figures {
             subtotal: item.amount_subtotal,
             unit_price: item.unit_price,

@@ -17782,7 +17782,8 @@
           },
           "subtotal_recurring": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "description": "The part of `subtotal` billing no metered usage."
           },
           "tax_amount": {
             "type": "integer",

@@ -96,7 +96,8 @@ message DetailedInvoice {
   InvoiceType invoice_type = 21;
   optional string finalized_at = 22;
   int64 subtotal = 23;
-  int64 subtotal_recurring = 24;
+  reserved 24;
+  reserved "subtotal_recurring";
   repeated TaxBreakdownItem tax_breakdown = 25;
   int64 tax_amount = 26;
   int64 total = 27;

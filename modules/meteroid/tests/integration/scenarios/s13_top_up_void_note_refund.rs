@@ -149,7 +149,6 @@ pub(super) async fn one_off(
             invoice_type: InvoiceType::OneOff,
             finalized_at: None,
             subtotal,
-            subtotal_recurring: 0,
             discount: subtotal + tax - total,
             tax_amount: tax,
             total,

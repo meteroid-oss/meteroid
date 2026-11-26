@@ -1809,7 +1809,6 @@ async fn legacy_pending_adjustment(
             invoice_type: InvoiceType::Adjustment,
             finalized_at: None,
             subtotal: 8_500,
-            subtotal_recurring: 0,
             discount: 0,
             tax_amount: 0,
             total: 8_500,

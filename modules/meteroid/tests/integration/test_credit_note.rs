@@ -2447,7 +2447,6 @@ pub(crate) async fn insert_plain_draft(
             tax_inclusive: false,
             finalized_at: None,
             subtotal: from.subtotal,
-            subtotal_recurring: from.subtotal_recurring,
             discount: from.discount,
             tax_amount: from.tax_amount,
             total: from.total,

@@ -294,7 +294,6 @@ impl Services {
                 coupons,
                 tax_breakdown,
                 subtotal,
-                subtotal_recurring,
                 tax_amount,
                 total,
                 discount,
@@ -329,7 +328,6 @@ impl Services {
                 invoice_type: InvoiceType::Recurring,
                 finalized_at: None,
                 subtotal,
-                subtotal_recurring,
                 discount,
                 tax_amount,
                 total,
@@ -417,7 +415,6 @@ struct Merged {
     coupons: Vec<CouponLineItem>,
     tax_breakdown: Vec<TaxBreakdownItem>,
     subtotal: i64,
-    subtotal_recurring: i64,
     tax_amount: i64,
     total: i64,
     discount: i64,
@@ -440,7 +437,6 @@ fn merge_members(members: &[Invoice]) -> Merged {
         coupons,
         tax_breakdown,
         subtotal: totals.subtotal,
-        subtotal_recurring: totals.subtotal_recurring,
         tax_amount: totals.tax,
         total: totals.total,
         discount: totals.discount,
@@ -483,7 +479,6 @@ impl Services {
             &mut TaxedDocument {
                 lines: &mut merged.line_items,
                 subtotal: &mut merged.subtotal,
-                subtotal_recurring: &mut merged.subtotal_recurring,
                 discount: merged.discount,
                 tax_inclusive,
                 tax_amount: &mut merged.tax_amount,
@@ -549,7 +544,6 @@ impl Services {
                 amount_due: billing_core::amount_due(totals.total, *paid, applied),
                 subtotal: totals.subtotal,
                 discount: totals.discount,
-                subtotal_recurring: totals.subtotal_recurring,
                 total: totals.total,
                 tax_amount: totals.tax,
                 applied_credits: applied,
@@ -660,7 +654,7 @@ impl Services {
             let content = match priced {
                 PricedInvoice::Stored(content) => content,
                 PricedInvoice::Lines(lines) => {
-                    self.finish_invoice_content(conn, child_details, lines, at.at, None)
+                    self.finish_invoice_content(conn, child_details, *lines, at.at, None)
                         .await?
                 }
             };
@@ -669,7 +663,6 @@ impl Services {
                 coupons: content.applied_coupons,
                 tax_breakdown: content.tax_breakdown,
                 subtotal: content.subtotal,
-                subtotal_recurring: content.subtotal_recurring,
                 tax_amount: content.tax_amount,
                 total: content.total,
                 discount: content.discount,
@@ -712,7 +705,6 @@ impl Services {
             total: merged.total,
             tax_amount: merged.tax_amount,
             amount_due: billing_core::amount_due(merged.total, 0, applied_credits),
-            subtotal_recurring: merged.subtotal_recurring,
         })
     }
 }

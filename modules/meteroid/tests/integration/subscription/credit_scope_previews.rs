@@ -664,7 +664,7 @@ async fn a_draft_reserves_what_finalizing_it_will_bill_from_current_usage() {
     let mut conn = env.store().get_conn().await.expect("connection");
     conn.batch_execute(&format!(
         "UPDATE invoice SET status = 'DRAFT', finalized_at = NULL, line_items = '{stored}'::jsonb,
-         subtotal = 1000, subtotal_recurring = 1000, total = 1000, amount_due = 1000,
+         subtotal = 1000, total = 1000, amount_due = 1000,
          tax_amount = 0 WHERE id = '{}'",
         draft.id.as_uuid()
     ))

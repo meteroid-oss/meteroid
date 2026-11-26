@@ -524,7 +524,6 @@ async fn test_metering_e2e() {
             invoice_type: InvoiceType::Recurring,
             finalized_at: None,
             subtotal: 100,
-            subtotal_recurring: 100,
             discount: 0,
             tax_amount: 0,
             customer_details: InlineCustomer {

@@ -30,7 +30,6 @@ fn lines_patch(invoice: &Invoice) -> InvoiceRowLinesPatch {
         amount_due: invoice.amount_due,
         subtotal: invoice.subtotal,
         discount: invoice.discount,
-        subtotal_recurring: invoice.subtotal_recurring,
         total: invoice.total,
         tax_amount: invoice.tax_amount,
         applied_credits: invoice.applied_credits,

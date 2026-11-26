@@ -152,8 +152,6 @@ pub struct ComputedInvoiceContent {
     pub total: i64,
     pub tax_amount: i64,
     pub amount_due: i64,
-    //
-    pub subtotal_recurring: i64,
 }
 
 /// Assembles priced `lines` in place (`billing_core::assembly::assemble`): what an earlier estimate
@@ -183,7 +181,6 @@ pub(crate) fn totals_of(lines: &[LineItem], discount: i64) -> Totals {
             subtotal: line.amount_subtotal,
             tax: line.tax_amount,
             promotional: promotional::net_share(line),
-            recurring: line.metric_id.is_none(),
         }),
         discount,
     )
@@ -209,7 +206,6 @@ impl ComputedInvoiceContent {
             promotional_credits: totals.promotional,
             total: totals.total,
             amount_due: totals.amount_due(already_paid, applied_credits),
-            subtotal_recurring: totals.subtotal_recurring,
             tax_amount: totals.tax,
         }
     }
@@ -227,7 +223,6 @@ impl ComputedInvoiceContent {
             total: 0,
             tax_amount: 0,
             amount_due: 0,
-            subtotal_recurring: 0,
         }
     }
 }
@@ -238,7 +233,7 @@ impl ComputedInvoiceContent {
 #[allow(clippy::large_enum_variant)]
 pub(in crate::services) enum PricedInvoice {
     Stored(ComputedInvoiceContent),
-    Lines(PricedLines),
+    Lines(Box<PricedLines>),
 }
 
 pub(in crate::services) struct PricedLines {
@@ -378,7 +373,7 @@ impl Services {
             .await?
         {
             PricedInvoice::Stored(content) => return Ok(content),
-            PricedInvoice::Lines(priced) => priced,
+            PricedInvoice::Lines(priced) => *priced,
         };
         self.cover_credit_unit_lines_on(
             conn,
@@ -422,7 +417,6 @@ impl Services {
         let mut promotional_credits = invoice.promotional_credits;
         let mut total = invoice.total;
         let mut subtotal = invoice.subtotal;
-        let mut subtotal_recurring = invoice.subtotal_recurring;
         let applied_credits = self
             .settle_estimate(
                 conn,
@@ -430,7 +424,6 @@ impl Services {
                 &mut TaxedDocument {
                     lines: &mut lines,
                     subtotal: &mut subtotal,
-                    subtotal_recurring: &mut subtotal_recurring,
                     discount: invoice.discount,
                     tax_inclusive: invoice.tax_inclusive,
                     tax_amount: &mut tax_amount,

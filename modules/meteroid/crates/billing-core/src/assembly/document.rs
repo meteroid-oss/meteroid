@@ -114,7 +114,6 @@ mod tests {
             kind: LineKind::Fee,
             subscription: None,
             product: None,
-            recurring: true,
             figures: Figures {
                 subtotal: amount,
                 unit_price: None,

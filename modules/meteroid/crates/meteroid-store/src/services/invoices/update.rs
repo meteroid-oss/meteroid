@@ -150,7 +150,6 @@ impl Services {
             due_at: invoice.due_at,
             invoicing_entity_id: invoice.invoicing_entity_id,
             subtotal: invoice.subtotal,
-            subtotal_recurring: invoice.subtotal_recurring,
             tax_amount: invoice.tax_amount,
             total: invoice.total,
             amount_due: invoice.amount_due,
@@ -460,7 +459,6 @@ impl Services {
             book: None,
         };
         let mut promotional_credits = 0;
-        let mut repriced_recurring = 0;
         // A draft applies no paid credit: only the promotional part of the settlement is kept.
         self.settle_estimate(
             conn,
@@ -468,7 +466,6 @@ impl Services {
             &mut crate::services::credit::promotional::TaxedDocument {
                 lines: &mut lines,
                 subtotal: &mut subtotal,
-                subtotal_recurring: &mut repriced_recurring,
                 discount,
                 tax_inclusive: invoice.tax_inclusive,
                 tax_amount: &mut total_tax_amount,
@@ -489,7 +486,6 @@ impl Services {
 
         invoice.line_items = lines;
         invoice.subtotal = totals.subtotal;
-        invoice.subtotal_recurring = totals.subtotal_recurring;
         invoice.tax_amount = totals.tax;
         invoice.total = totals.total;
         invoice.amount_due = totals.amount_due(collected, invoice.applied_credits);

@@ -254,7 +254,6 @@ mod tests {
             amount_due: 700,
             subtotal: 1_000,
             discount: 0,
-            subtotal_recurring: 1_000,
             total: 1_000,
             tax_amount: 0,
             applied_credits: 0,

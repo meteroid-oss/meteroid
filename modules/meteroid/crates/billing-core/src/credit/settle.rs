@@ -438,11 +438,6 @@ impl Document {
             self.lines[*index] = line;
         }
         let subtotal = sum(self.lines.iter().map(|line| line.figures.subtotal))?;
-        let subtotal_recurring = sum(self
-            .lines
-            .iter()
-            .filter(|line| line.recurring)
-            .map(|line| line.figures.subtotal))?;
         let tax = sum(self.lines.iter().map(|line| line.tax))?;
         let total = sum(self.lines.iter().map(|line| line.total))?;
         let promotional = subtotal
@@ -452,7 +447,6 @@ impl Document {
             .ok_or(Overflow)?;
         self.header = Header {
             subtotal,
-            subtotal_recurring,
             tax,
             promotional,
             total,
@@ -743,7 +737,6 @@ mod tests {
             kind,
             subscription: None,
             product: None,
-            recurring: !matches!(kind, LineKind::Usage { .. }),
             figures: Figures {
                 subtotal: amount,
                 unit_price: None,
@@ -809,7 +802,6 @@ mod tests {
         let totals = document.totals();
         document.header = Header {
             subtotal: totals.subtotal,
-            subtotal_recurring: totals.subtotal_recurring,
             tax: totals.tax,
             promotional: totals.promotional,
             total: totals.total,
@@ -1131,7 +1123,6 @@ mod tests {
     fn promotional_credit_never_pays_usage_a_kept_settlement_paid() {
         let mut metered = taxed("usage", 5_000, dec!(0.20));
         metered.kind = usage();
-        metered.recurring = false;
         let document = document(vec![metered], 0, false);
         let grants = Grants {
             drawable: vec![grant(1, 10_000, Classification::Promotional)],
@@ -1162,8 +1153,7 @@ mod tests {
     /// Rules: R10
     #[test]
     fn a_kept_settlement_pays_usage_only() {
-        let mut metered = line("usage", 1_000, usage());
-        metered.recurring = false;
+        let metered = line("usage", 1_000, usage());
         let document = document(vec![line("fee", 3_000, LineKind::Fee), metered], 0, false);
         let grants = Grants {
             drawable: vec![grant(1, 2_500, Classification::Paid)],

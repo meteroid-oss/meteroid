@@ -46,7 +46,6 @@ pub struct Invoice {
     pub invoice_type: InvoiceType,
     pub finalized_at: Option<NaiveDateTime>,
     pub subtotal: i64,
-    pub subtotal_recurring: i64,
     pub tax_amount: i64,
     pub total: i64,
     pub amount_due: i64,
@@ -69,7 +68,6 @@ pub struct Invoice {
     #[map(~.map(|v| v.try_into()).transpose()?)]
     pub conn_meta: Option<ConnectionMeta>,
     pub auto_advance: bool,
-    pub issued_at: Option<NaiveDateTime>,
     #[from(~.into())]
     pub payment_status: InvoicePaymentStatus,
     pub paid_at: Option<NaiveDateTime>,
@@ -556,7 +554,6 @@ pub struct InvoiceNew {
     pub invoice_type: InvoiceType,
     pub finalized_at: Option<NaiveDateTime>,
     pub subtotal: i64,
-    pub subtotal_recurring: i64,
     pub discount: i64,
     pub tax_amount: i64,
     pub total: i64,
@@ -616,7 +613,6 @@ pub struct InvoiceLinesPatch {
     /// What the lines' coupons took off, written with them so the header never keeps a stale
     /// discount (R-076).
     pub discount: i64,
-    pub subtotal_recurring: i64,
     pub total: i64,
     pub tax_amount: i64,
     pub applied_credits: i64,
@@ -833,7 +829,6 @@ impl From<InvoiceNew> for Invoice {
             invoice_type: value.invoice_type,
             finalized_at: None,
             subtotal: value.subtotal,
-            subtotal_recurring: value.subtotal_recurring,
             tax_amount: value.tax_amount,
             total: value.total,
             amount_due: value.amount_due,
@@ -853,7 +848,6 @@ impl From<InvoiceNew> for Invoice {
             einvoicing_report: None,
             conn_meta: None,
             auto_advance: value.auto_advance,
-            issued_at: None,
             payment_status: value.payment_status,
             paid_at: None,
             coupons: value.coupons,
@@ -1072,7 +1066,6 @@ mod identity_tests {
             invoice_type: super::super::enums::InvoiceType::Recurring,
             finalized_at: None,
             subtotal: 0,
-            subtotal_recurring: 0,
             tax_amount: 0,
             total: 0,
             amount_due: 0,
@@ -1090,7 +1083,6 @@ mod identity_tests {
             einvoicing_report: None,
             conn_meta: None,
             auto_advance: false,
-            issued_at: None,
             payment_status: super::super::enums::InvoicePaymentStatus::Unpaid,
             paid_at: None,
             coupons: vec![],

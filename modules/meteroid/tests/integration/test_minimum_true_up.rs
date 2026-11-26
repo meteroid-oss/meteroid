@@ -685,7 +685,6 @@ async fn append_up_front_shortfall(
         .set((
             i::line_items.eq(serde_json::to_value(&line_items).expect("lines")),
             i::subtotal.eq(invoice.subtotal + amount),
-            i::subtotal_recurring.eq(invoice.subtotal_recurring + amount),
             i::total.eq(invoice.total + amount),
             i::amount_due.eq(invoice.amount_due + amount),
         ))
@@ -1216,7 +1215,6 @@ async fn as_written_before_the_true_up(
         .set((
             i::line_items.eq(serde_json::to_value(&line_items).expect("lines")),
             i::subtotal.eq(invoice.subtotal + delta),
-            i::subtotal_recurring.eq(invoice.subtotal_recurring + delta),
             i::total.eq(invoice.total + delta),
             i::amount_due.eq(invoice.amount_due + delta),
         ))

@@ -174,7 +174,6 @@ impl Services {
             amount_due: content.amount_due,
             subtotal: content.subtotal,
             discount: content.discount,
-            subtotal_recurring: content.subtotal_recurring,
             total: content.total,
             tax_amount: content.tax_amount,
             applied_credits: content.applied_credits,

@@ -378,7 +378,6 @@ pub mod invoices {
             invoice_type: invoicing_type_domain_to_server(invoice.invoice_type).into(),
             finalized_at: invoice.finalized_at.as_proto(),
             subtotal: invoice.subtotal,
-            subtotal_recurring: invoice.subtotal_recurring,
             tax_amount: invoice.tax_amount,
             discount: invoice.discount,
             total: invoice.total,

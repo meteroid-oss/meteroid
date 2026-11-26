@@ -442,7 +442,6 @@ async fn renew_as_earlier_release(
              'cycle_index', coalesce(i.cycle_index, 0) + 1,
              'line_items', k.lines,
              'subtotal', k.subtotal,
-             'subtotal_recurring', k.subtotal,
              'tax_amount', k.tax,
              'promotional_credits', k.promo,
              'discount', 0,
@@ -464,7 +463,7 @@ async fn renew_as_earlier_release(
     .expect("renewal of an earlier release");
     diesel::sql_query(
         "UPDATE invoice
-         SET status = 'DRAFT', invoice_number = 'draft', finalized_at = NULL, issued_at = NULL,
+         SET status = 'DRAFT', invoice_number = 'draft', finalized_at = NULL,
              payment_status = 'UNPAID'
          WHERE subscription_id = $1 AND billing_period_start = $2 AND $3",
     )

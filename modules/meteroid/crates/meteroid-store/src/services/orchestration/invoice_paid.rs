@@ -56,7 +56,7 @@ impl Services {
             .get_invoice_by_id(tenant_id, event.invoice_id)
             .await?;
 
-        if invoice.issued_at.is_some() || self.invoice_delivery_held(tenant_id, invoice.id).await? {
+        if self.invoice_delivery_held(tenant_id, invoice.id).await? {
             return Ok(());
         }
 

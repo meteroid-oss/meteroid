@@ -466,7 +466,8 @@ message UpcomingInvoice {
   repeated meteroid.api.invoices.v1.CouponLineItem coupon_line_items = 4;
   repeated meteroid.api.invoices.v1.TaxBreakdownItem tax_breakdown = 5;
   int64 subtotal = 6;
-  int64 subtotal_recurring = 7;
+  reserved 7;
+  reserved "subtotal_recurring";
   int64 tax_amount = 8;
   int64 total = 9;
   int64 amount_due = 10;

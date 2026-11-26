@@ -703,7 +703,6 @@ impl Services {
         let mut document = TaxedDocument {
             lines: &mut patch.line_items,
             subtotal: &mut patch.subtotal,
-            subtotal_recurring: &mut patch.subtotal_recurring,
             discount,
             tax_inclusive: invoice.tax_inclusive,
             tax_amount: &mut patch.tax_amount,

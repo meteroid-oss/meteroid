@@ -254,7 +254,6 @@ async fn draft(
             invoice_type: InvoiceType::OneOff,
             finalized_at: None,
             subtotal: content.subtotal,
-            subtotal_recurring: content.subtotal_recurring,
             discount: content.discount,
             tax_amount: content.tax_amount,
             total: content.total,
