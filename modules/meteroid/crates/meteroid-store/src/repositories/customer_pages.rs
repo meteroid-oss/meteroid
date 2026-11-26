@@ -18,6 +18,10 @@ pub struct CustomerPageFilter {
     pub archived: bool,
     /// Only those written after it.
     pub updated_after: Option<DateTime<Utc>>,
+    /// Only those created after it.
+    pub created_after: Option<DateTime<Utc>>,
+    /// Only those created before it.
+    pub created_before: Option<DateTime<Utc>>,
 }
 
 /// A customer with when its row was last written (`store_committed_at`, trigger-maintained: the
@@ -78,6 +82,8 @@ impl CustomerPagesInterface for Store {
                 .filter(|search| !search.is_empty()),
             filter.archived,
             filter.updated_after,
+            filter.created_after.map(|at| at.naive_utc()),
+            filter.created_before.map(|at| at.naive_utc()),
             after,
             i64::try_from(limit).unwrap_or(i64::MAX),
         )

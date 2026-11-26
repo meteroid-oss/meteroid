@@ -1,4 +1,4 @@
-//! `/api/v2/features` (ADR-0013 §23): what a customer may use (a flag, a value, a limit), its
+//! `/api/v2/features` (ADR-0013 §25): what a customer may use (a flag, a value, a limit), its
 //! policy, its unit, the level it applies per and its default rows. A feature's code is what an
 //! application checks; archiving one frees its code and hides its rows until it is unarchived.
 use crate::AppState;
@@ -41,6 +41,9 @@ use utoipa_axum::routes;
 
 // ── Model ───────────────────────────────────────────────────────────
 
+/// Where a feature is: `active`, entitling as its rows say; `disabled`, entitling no one, its
+/// rows kept; `archived`, hidden with its rows until unarchived, its code free for another
+/// feature.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum FeatureStatus {
@@ -138,6 +141,8 @@ pub struct LimitFeature {
     pub policy: Option<Policy>,
 }
 
+/// What a customer may use: on or off, a value or a limit, checked by its `code` and granted by
+/// its default rows and those of plans, add-ons, subscriptions and customers.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct Feature {
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
@@ -179,10 +184,13 @@ pub struct FeatureListQuery {
     pub status: Option<Vec<FeatureStatus>>,
     /// Only the features applying per this resource type (by code or id), or `customer`.
     pub applies_per: Option<String>,
+    /// How many items, 1 to 100; 20 by default.
     pub limit: Option<u32>,
+    /// The `next_cursor` of the previous page.
     pub after: Option<String>,
 }
 
+/// A feature to create, with its default rows.
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct CreateFeature {
@@ -759,7 +767,8 @@ fn list_query(raw: Option<&str>) -> Result<FeatureListQuery, Problem> {
 
 /// List features
 ///
-/// Paged by keyset over the id.
+/// The tenant's features in creation order, paged by cursor: the active and disabled ones, or
+/// those of `status` (`archived` to list the archived ones).
 #[utoipa::path(
     get,
     tag = "Features",

@@ -3,9 +3,10 @@
 //! against an invoice by an operator on the store write the dashboard uses
 //! (`create_operator_credit_note`). A subscription change issues its own (`ChangeResult`).
 use crate::AppState;
+use crate::v2::Reader;
 use crate::v2::documents::{
     self, DocumentCustomer, DocumentFiles, DocumentLine, DocumentTax, EInvoicingStatus,
-    ProductCodes, document_not_found, filter_not_found,
+    ProductCodes, document_not_found, filter_not_found, moment,
 };
 use crate::v2::extract::{Body, Path, Query};
 use crate::v2::idempotency::{IDEMPOTENCY_KEY_HEADER, committed_write};
@@ -48,6 +49,8 @@ pub fn routes() -> OpenApiRouter<AppState> {
 
 // ── Model ───────────────────────────────────────────────────────────
 
+/// Where a credit note is: `draft`, not issued yet, its credit not applied; `finalized`, issued,
+/// its credit applied as its `type` says; `voided`, cancelled.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CreditNoteStatus {
@@ -76,7 +79,9 @@ impl From<CreditNoteStatus> for DomainStatus {
     }
 }
 
-/// How the credited amount goes back to the customer.
+/// How the credited amount goes back to the customer: `credit_to_balance`, to the customer's
+/// credit balance, drawn on later invoices; `refund`, refunded in money; `debt_cancellation`,
+/// what the invoice still owed, cancelled.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum CreditNoteType {
@@ -109,7 +114,11 @@ impl From<CreditNoteType> for CreditType {
     }
 }
 
-/// Who issued it: an operator, or Meteroid for a subscription change it settled.
+/// Who issued it, and why: `manual`, an operator's goodwill credit; `correction`, an operator
+/// correcting what was billed; `amendment`, `plan_change` and `cancellation`, Meteroid for a
+/// subscription change it settled; `late_pack`, a credit pack billed late, given back;
+/// `unapplied_change`, a scheduled change that did not apply, given back; `void`, its invoice
+/// voided.
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CreditNoteOrigin {
@@ -146,23 +155,34 @@ impl From<DomainOrigin> for CreditNoteOrigin {
 /// Lists carry what the note itself holds; `lines` are read on a single one.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct CreditNote {
+    /// The credit note's id.
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub id: CreditNoteId,
+    /// Its number as printed.
     pub number: String,
+    /// Where it is.
     pub status: CreditNoteStatus,
+    /// How the credited amount goes back to the customer.
     #[serde(rename = "type")]
     pub kind: CreditNoteType,
+    /// Who issued it, and why.
     pub origin: CreditNoteOrigin,
     /// The invoice it credits: `GET /api/v2/invoices/{id}`.
     pub invoice: InvoiceRef,
+    /// The customer credited.
     pub customer: CustomerRef,
     /// The customer as the note prints it.
     pub customer_details: DocumentCustomer,
+    /// The subscription its invoice bills; absent for a one-off invoice's.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subscription: Option<SubscriptionRef>,
+    /// ISO 4217, its invoice's.
     pub currency: String,
+    /// Before tax.
     pub subtotal: i64,
+    /// The tax given back.
     pub tax: i64,
+    /// `subtotal + tax`.
     pub total: i64,
     /// Of the total, what was refunded in money (positive).
     pub refunded: i64,
@@ -170,23 +190,34 @@ pub struct CreditNote {
     pub credited: i64,
     /// Of the total, the invoice's debt it cancelled (positive).
     pub debt_cancelled: i64,
+    /// Its lines, as issued; read on a single note, absent from lists.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lines: Option<Vec<DocumentLine>>,
+    /// Its tax, one entry per rate.
     pub taxes: Vec<DocumentTax>,
+    /// Why it was issued.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// A note printed on it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memo: Option<String>,
+    /// Which of its files (PDF, e-invoice XML) are ready to download.
     pub files: DocumentFiles,
+    /// Whether the structured e-invoice was produced; none when e-invoicing was off.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub einvoicing_status: Option<EInvoicingStatus>,
+    /// Values of the tenant's credit note properties, by key.
     #[schema(value_type = HashMap<String, Value>)]
     pub custom_properties: serde_json::Value,
+    /// When it was created.
     pub created_at: ApiDateTime,
+    /// When it last changed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<ApiDateTime>,
+    /// When it was issued.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finalized_at: Option<ApiDateTime>,
+    /// When it was voided.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub voided_at: Option<ApiDateTime>,
 }
@@ -202,7 +233,16 @@ pub struct CreditNoteListQuery {
     pub invoice: Option<String>,
     /// Only this subscription's, by id or external id.
     pub subscription: Option<String>,
-    pub status: Option<CreditNoteStatus>,
+    /// Only those in one of these statuses: repeat the parameter for several
+    /// (`?status=draft&status=finalized`).
+    #[param(style = Form, explode)]
+    pub status: Option<Vec<CreditNoteStatus>>,
+    /// Only those created after this moment (RFC 3339).
+    #[param(format = DateTime)]
+    pub created_after: Option<String>,
+    /// Only those created before this moment (RFC 3339).
+    #[param(format = DateTime)]
+    pub created_before: Option<String>,
     /// How many items, 1 to 100; 20 by default.
     pub limit: Option<u32>,
     /// The `next_cursor` of the previous page.
@@ -226,6 +266,7 @@ pub struct UpdateCreditNote {
 pub struct CreditedSubLine {
     /// The sub-line, by its `id` (`lines[].sub_lines[].id` of the invoice).
     pub sub_line: String,
+    /// Units of the sub-line credited, positive, as a decimal string.
     #[schema(value_type = String, format = "decimal", example = "2")]
     pub quantity: Decimal,
 }
@@ -280,10 +321,13 @@ pub struct IssueCreditNote {
     /// what a later change takes back.
     #[serde(default)]
     pub correction: bool,
+    /// Why it is issued.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// A note printed on it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memo: Option<String>,
+    /// `finalized` by default.
     #[serde(default)]
     pub status: IssuedStatus,
     /// Validated against the tenant's credit note custom property definitions.
@@ -441,13 +485,13 @@ fn summary(note: &DomainCreditNote, refs: &Refs) -> CreditNote {
     }
 }
 
-async fn detailed(
-    state: &AppState,
+pub(crate) async fn detailed(
+    state: &impl Reader,
     tenant_id: TenantId,
     note: &DomainCreditNote,
 ) -> Result<CreditNote, Problem> {
     let products = ProductCodes::load(state, tenant_id, &note.line_items).await?;
-    let refs = Refs::load(&state.store, tenant_id, &reference_ids([note])).await?;
+    let refs = Refs::load(state.store(), tenant_id, &reference_ids([note])).await?;
     let mut out = summary(note, &refs);
     out.lines = Some(documents::lines(&note.line_items, &products));
     Ok(out)
@@ -518,6 +562,16 @@ pub async fn list_credit_notes(
         ),
         None => None,
     };
+    let created_after = query
+        .created_after
+        .as_deref()
+        .map(|raw| moment(raw, "created_after"))
+        .transpose()?;
+    let created_before = query
+        .created_before
+        .as_deref()
+        .map(|raw| moment(raw, "created_before"))
+        .transpose()?;
     let mut items = state
         .store
         .list_credit_notes_after(
@@ -526,7 +580,11 @@ pub async fn list_credit_notes(
                 customer_id,
                 invoice_id,
                 subscription_id,
-                statuses: query.status.map(|status| vec![status.into()]),
+                statuses: query
+                    .status
+                    .map(|statuses| statuses.into_iter().map(Into::into).collect()),
+                created_after,
+                created_before,
             },
             cursor.map(|Cursor(after)| CreditNoteId::from(after)),
             limit + 1,

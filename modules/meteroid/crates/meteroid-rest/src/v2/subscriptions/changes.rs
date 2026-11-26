@@ -464,9 +464,9 @@ async fn charges_after(
     tag = "Subscriptions",
     path = "/api/v2/subscriptions/{id_or_external_id}/plan-change/preview",
     params(("id_or_external_id" = String, Path, description = "Subscription id or external id")),
-    request_body = PlanChangeInput,
+    request_body(content = PlanChangeInput, example = json!(crate::v2::examples::request("preview_plan_change"))),
     responses(
-        (status = 200, description = "What the change would do", body = ChangePreview),
+        (status = 200, description = "What the change would do", body = ChangePreview, example = json!(crate::v2::examples::response("preview_plan_change"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A field is refused, or the change cannot take effect when asked (`when_refused`)", body = Problem, content_type = "application/problem+json"),
     ),
@@ -540,9 +540,9 @@ pub async fn preview_plan_change(
     tag = "Subscriptions",
     path = "/api/v2/subscriptions/{id_or_external_id}/plan-change",
     params(("id_or_external_id" = String, Path, description = "Subscription id or external id")),
-    request_body = PlanChangeInput,
+    request_body(content = PlanChangeInput, example = json!(crate::v2::examples::request("change_plan"))),
     responses(
-        (status = 200, description = "Applied or scheduled", body = ChangeResult),
+        (status = 200, description = "Applied or scheduled", body = ChangeResult, example = json!(crate::v2::examples::response("change_plan"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The subscription's state refuses the change (another change is pending…)", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A field is refused, the change cannot take effect when asked (`when_refused`), or no Idempotency-Key was sent", body = Problem, content_type = "application/problem+json"),
@@ -682,6 +682,13 @@ async fn seat_ask(
 }
 
 /// Preview a seat change
+///
+/// What setting (`set`) or changing (`delta`) the count of a managed quantity would bill and
+/// leave, nothing written: the prorated invoice an increase in force at once issues, and the
+/// subscription with its new count and MRR. The count is checked against the bounds of the charge
+/// counting it. With `activation: on_payment` the preview is the same: the invoice is the one the
+/// increase waits on, and the subscription after is as it reads once that invoice is paid. No
+/// `Idempotency-Key` is taken.
 #[utoipa::path(
     post,
     tag = "Subscriptions",
@@ -690,9 +697,9 @@ async fn seat_ask(
         ("id_or_external_id" = String, Path, description = "Subscription id or external id"),
         ("quantity_code" = String, Path, description = "Managed quantity code or id"),
     ),
-    request_body = QuantityChangeInput,
+    request_body(content = QuantityChangeInput, example = json!(crate::v2::examples::request("preview_quantity_change"))),
     responses(
-        (status = 200, description = "What the change would do", body = ChangePreview),
+        (status = 200, description = "What the change would do", body = ChangePreview, example = json!(crate::v2::examples::response("preview_quantity_change"))),
         (status = 404, description = "Not found, or the subscription holds no such quantity", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A field is refused", body = Problem, content_type = "application/problem+json"),
     ),
@@ -779,9 +786,9 @@ pub async fn preview_quantity_change(
         ("id_or_external_id" = String, Path, description = "Subscription id or external id"),
         ("quantity_code" = String, Path, description = "Managed quantity code or id"),
     ),
-    request_body = QuantityChangeInput,
+    request_body(content = QuantityChangeInput, example = json!(crate::v2::examples::request("change_quantity"))),
     responses(
-        (status = 200, description = "Applied, waiting for the period's end, or for the payment of its invoice", body = ChangeResult),
+        (status = 200, description = "Applied, waiting for the period's end, or for the payment of its invoice", body = ChangeResult, example = json!(crate::v2::examples::response("change_quantity"))),
         (status = 404, description = "Not found, or the subscription holds no such quantity", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The subscription's state refuses the change", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A field is refused, the count is out of the charge's bounds, or no Idempotency-Key was sent", body = Problem, content_type = "application/problem+json"),
@@ -954,6 +961,11 @@ async fn level_ask(
 }
 
 /// Preview a level change
+///
+/// What moving a usage-levels charge, named by its product, to another of its levels
+/// (`included`) would bill and leave, nothing written. Without `when` a higher level applies at
+/// once and a lower one at the period's end; a higher level at `period_end` or a lower one
+/// `immediate` is refused (`422 when_refused`). No `Idempotency-Key` is taken.
 #[utoipa::path(
     post,
     tag = "Subscriptions",
@@ -962,9 +974,9 @@ async fn level_ask(
         ("id_or_external_id" = String, Path, description = "Subscription id or external id"),
         ("product_code" = String, Path, description = "The product of the usage-levels charge, by code or id"),
     ),
-    request_body = LevelChangeInput,
+    request_body(content = LevelChangeInput, example = json!(crate::v2::examples::request("preview_level_change"))),
     responses(
-        (status = 200, description = "What the move would do", body = ChangePreview),
+        (status = 200, description = "What the move would do", body = ChangePreview, example = json!(crate::v2::examples::response("preview_level_change"))),
         (status = 404, description = "Not found, or no charge of the product is sold in levels", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "Not a level of the charge, or the move cannot take effect when asked", body = Problem, content_type = "application/problem+json"),
     ),
@@ -1038,9 +1050,9 @@ pub async fn preview_level_change(
         ("id_or_external_id" = String, Path, description = "Subscription id or external id"),
         ("product_code" = String, Path, description = "The product of the usage-levels charge, by code or id"),
     ),
-    request_body = LevelChangeInput,
+    request_body(content = LevelChangeInput, example = json!(crate::v2::examples::request("change_level"))),
     responses(
-        (status = 200, description = "Applied or scheduled", body = ChangeResult),
+        (status = 200, description = "Applied or scheduled", body = ChangeResult, example = json!(crate::v2::examples::response("change_level"))),
         (status = 404, description = "Not found, or no charge of the product is sold in levels", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "Another change is scheduled", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "Not a level of the charge, the move cannot take effect when asked, or no Idempotency-Key was sent", body = Problem, content_type = "application/problem+json"),
@@ -1307,14 +1319,19 @@ fn introduces_credit(amendment: &SubscriptionAmendment) -> bool {
 }
 
 /// Preview an amendment
+///
+/// What changing the subscription's charges and add-ons would bill and leave, nothing written:
+/// the documents it issues and the subscription after it. `when` is required, `immediate` or
+/// `period_end`. A charge selling credit is refused (`403 feature_not_available`) unless the
+/// organization's plan includes credit pricing. No `Idempotency-Key` is taken.
 #[utoipa::path(
     post,
     tag = "Subscriptions",
     path = "/api/v2/subscriptions/{id_or_external_id}/amendments/preview",
     params(("id_or_external_id" = String, Path, description = "Subscription id or external id")),
-    request_body = AmendmentInput,
+    request_body(content = AmendmentInput, example = json!(crate::v2::examples::request("preview_amendment"))),
     responses(
-        (status = 200, description = "What the amendment would do", body = ChangePreview),
+        (status = 200, description = "What the amendment would do", body = ChangePreview, example = json!(crate::v2::examples::response("preview_amendment"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A field is refused, or the model cannot express a charge", body = Problem, content_type = "application/problem+json"),
     ),
@@ -1372,9 +1389,9 @@ pub async fn preview_amendment(
     path = "/api/v2/subscriptions/{id_or_external_id}/amendments",
     operation_id = "amend_subscription",
     params(("id_or_external_id" = String, Path, description = "Subscription id or external id")),
-    request_body = AmendmentInput,
+    request_body(content = AmendmentInput, example = json!(crate::v2::examples::request("amend_subscription"))),
     responses(
-        (status = 200, description = "Applied or scheduled", body = ChangeResult),
+        (status = 200, description = "Applied or scheduled", body = ChangeResult, example = json!(crate::v2::examples::response("amend_subscription"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The subscription's state refuses the change", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A field is refused, the model cannot express a charge, or no Idempotency-Key was sent", body = Problem, content_type = "application/problem+json"),
@@ -1454,9 +1471,9 @@ fn cancellation_at(timing: Timing) -> CancellationEffectiveAt {
     path = "/api/v2/subscriptions/{id_or_external_id}/cancel/preview",
     operation_id = "preview_cancellation",
     params(("id_or_external_id" = String, Path, description = "Subscription id or external id")),
-    request_body = CancelInput,
+    request_body(content = CancelInput, example = json!(crate::v2::examples::request("preview_cancellation"))),
     responses(
-        (status = 200, description = "When the cancellation would take effect and what it would issue", body = ChangePreview),
+        (status = 200, description = "When the cancellation would take effect and what it would issue", body = ChangePreview, example = json!(crate::v2::examples::response("preview_cancellation"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The subscription has ended", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A field is refused: a date before today or after the subscription's end (`when_refused`)", body = Problem, content_type = "application/problem+json"),
@@ -1534,9 +1551,9 @@ pub async fn preview_cancel(
     path = "/api/v2/subscriptions/{id_or_external_id}/cancel",
     operation_id = "cancel_subscription",
     params(("id_or_external_id" = String, Path, description = "Subscription id or external id")),
-    request_body = CancelInput,
+    request_body(content = CancelInput, example = json!(crate::v2::examples::request("cancel_subscription"))),
     responses(
-        (status = 200, description = "Cancelled, or scheduled to be", body = ChangeResult),
+        (status = 200, description = "Cancelled, or scheduled to be", body = ChangeResult, example = json!(crate::v2::examples::response("cancel_subscription"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The subscription has ended, or a customer's request would move the cancellation the account manager scheduled", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A field is refused, the subscription cannot be cancelled then, or no Idempotency-Key was sent", body = Problem, content_type = "application/problem+json"),
@@ -1618,7 +1635,7 @@ pub async fn cancel(
     operation_id = "revoke_cancellation",
     params(("id_or_external_id" = String, Path, description = "Subscription id or external id")),
     responses(
-        (status = 200, description = "Revoked", body = Subscription),
+        (status = 200, description = "Revoked", body = Subscription, example = json!(crate::v2::examples::response("revoke_cancellation"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "No cancellation is scheduled", body = Problem, content_type = "application/problem+json"),
     ),
@@ -1660,7 +1677,10 @@ pub async fn revoke_cancel(
     Ok(committed(Json(subscription).into_response()))
 }
 
-/// The changes scheduled
+/// Get a subscription's schedule
+///
+/// The changes waiting for their date, soonest first: plan changes, cancellations and amendments
+/// scheduled for the period's end or a date. A cancellation is revoked with `POST …/cancel/revoke`.
 #[utoipa::path(
     get,
     tag = "Subscriptions",
@@ -1668,7 +1688,7 @@ pub async fn revoke_cancel(
     operation_id = "get_subscription_schedule",
     params(("id_or_external_id" = String, Path, description = "Subscription id or external id")),
     responses(
-        (status = 200, description = "The changes waiting for their date, soonest first", body = Schedule),
+        (status = 200, description = "The changes waiting for their date, soonest first", body = Schedule, example = json!(crate::v2::examples::response("get_subscription_schedule"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
     ),
     security(("bearer_auth" = []))

@@ -8,6 +8,7 @@ use super::model::{
     Subscription, SubscriptionCharge, SubscriptionStatus, TrialState,
 };
 use crate::AppState;
+use crate::v2::Reader;
 use crate::v2::charges::{OptionSet, StoredCharge, StoredPrice, render};
 use crate::v2::customers::resources::resource_refs;
 use crate::v2::documents::{self, ProductCodes};
@@ -257,7 +258,7 @@ pub fn charge_sources(details: &SubscriptionDetails) -> Result<Vec<ChargeSource>
 
 /// The charges of `sources`, their references named by code.
 pub async fn render_charges(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     sources: &[ChargeSource],
     add_on_codes: &HashMap<AddOnId, String>,
@@ -286,7 +287,7 @@ pub fn add_on_ref(codes: &HashMap<AddOnId, String>, id: AddOnId) -> AddOnRef {
 }
 
 pub async fn add_on_codes(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     ids: Vec<AddOnId>,
 ) -> Result<HashMap<AddOnId, String>, Problem> {
@@ -294,7 +295,7 @@ pub async fn add_on_codes(
         return Ok(HashMap::new());
     }
     Ok(state
-        .store
+        .store()
         .list_add_ons_by_ids(tenant_id, ids)
         .await?
         .into_iter()
@@ -325,11 +326,11 @@ pub fn held_quantities(details: &SubscriptionDetails) -> Vec<ManagedQuantityId> 
 }
 
 pub async fn quantity_codes(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
 ) -> Result<HashMap<ManagedQuantityId, String>, Problem> {
     Ok(state
-        .store
+        .store()
         .list_managed_quantities(tenant_id)
         .await?
         .into_iter()
@@ -340,18 +341,18 @@ pub async fn quantity_codes(
 /// The count of `quantity` the subscription holds now, and the counts to come: a decrease waiting
 /// for the period's end, an increase waiting for its payment or the next period.
 pub async fn quantity_state(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     subscription_id: SubscriptionId,
     quantity: ManagedQuantityId,
 ) -> Result<QuantityState, Problem> {
     let held = state
-        .store
+        .store()
         .get_active_slots_value(tenant_id, subscription_id, quantity, None)
         .await?;
     let now = common_clock::now().naive_utc();
     let mut waiting: Vec<SlotTransaction> = state
-        .store
+        .store()
         .list_slot_transactions(tenant_id, subscription_id, Some(quantity), None)
         .await?
         .into_iter()
@@ -467,12 +468,12 @@ fn resource_of(
 /// The subscription's own open rows, canonical: by feature code, level, resource type and
 /// condition.
 pub async fn entitlement_overrides(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     id: SubscriptionId,
 ) -> Result<Vec<Entitlement>, Problem> {
     let rows = state
-        .store
+        .store()
         .list_entitlements_by_entity(EntitlementEntityId::Subscription(id), tenant_id)
         .await?;
     if rows.is_empty() {
@@ -492,12 +493,12 @@ pub async fn entitlement_overrides(
 }
 
 pub async fn plan_code(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     plan_id: PlanId,
 ) -> Result<String, Problem> {
     Ok(state
-        .store
+        .store()
         .plan_codes(tenant_id, &[plan_id])
         .await?
         .remove(&plan_id)
@@ -510,14 +511,14 @@ pub fn version_number(version: u32) -> i32 {
 
 /// A page of subscriptions, as lists read them.
 pub async fn summaries(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     listed: Vec<ListedSubscription>,
 ) -> Result<Vec<Subscription>, Problem> {
     let mut plan_ids: Vec<PlanId> = listed.iter().map(|l| l.subscription.plan_id).collect();
     plan_ids.sort_by_key(|id| id.as_uuid());
     plan_ids.dedup();
-    let codes = state.store.plan_codes(tenant_id, &plan_ids).await?;
+    let codes = state.store().plan_codes(tenant_id, &plan_ids).await?;
     let resources = resource_refs(
         state,
         tenant_id,
@@ -529,7 +530,7 @@ pub async fn summaries(
         let version = item.subscription.plan_version_id;
         if item.subscription.plan_option_id.is_some() && !options.contains_key(&version) {
             let aliases = state
-                .store
+                .store()
                 .list_plan_options(tenant_id, version)
                 .await?
                 .into_iter()
@@ -569,11 +570,11 @@ pub async fn summaries(
 
 /// The subscription as lists read it: its own fields, nothing read beside.
 pub async fn summary(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     id: SubscriptionId,
 ) -> Result<Subscription, Problem> {
-    let listed = state.store.get_listed_subscription(tenant_id, id).await?;
+    let listed = state.store().get_listed_subscription(tenant_id, id).await?;
     summaries(state, tenant_id, vec![listed])
         .await?
         .pop()
@@ -582,24 +583,27 @@ pub async fn summary(
 
 /// The subscription, read whole.
 pub async fn subscription(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     id: SubscriptionId,
 ) -> Result<Subscription, Problem> {
-    let listed = state.store.get_listed_subscription(tenant_id, id).await?;
-    let details = state.store.get_subscription_details(tenant_id, id).await?;
+    let listed = state.store().get_listed_subscription(tenant_id, id).await?;
+    let details = state
+        .store()
+        .get_subscription_details(tenant_id, id)
+        .await?;
     detailed(state, tenant_id, listed, &details).await
 }
 
 pub async fn detailed(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     listed: ListedSubscription,
     details: &SubscriptionDetails,
 ) -> Result<Subscription, Problem> {
     let level_products = level_products(state, tenant_id, details).await?;
     let warnings = state
-        .store
+        .store()
         .get_subscription_warnings(tenant_id, details.subscription.id)
         .await?;
     let mut out = read_whole(state, tenant_id, listed, details, &level_products).await?;
@@ -615,12 +619,12 @@ pub async fn detailed(
 /// The products the subscription's usage-levels charges bill; none when its levels cannot be
 /// read (a read never fails on them).
 async fn level_products(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     details: &SubscriptionDetails,
 ) -> Result<HashSet<ProductId>, Problem> {
     let levels = match state
-        .services
+        .services()
         .list_capacity_levels(tenant_id, details.subscription.id)
         .await
     {
@@ -671,7 +675,7 @@ fn levels_of(
 
 /// `details` read whole, its usage-levels charges those billing `level_products`.
 async fn read_whole(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     listed: ListedSubscription,
     details: &SubscriptionDetails,
@@ -813,7 +817,7 @@ pub async fn after_change(
 
 /// The changes waiting for their date, soonest first.
 pub async fn schedule(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     events: &[PendingScheduledEvent],
 ) -> Result<Vec<ScheduledChange>, Problem> {
@@ -826,7 +830,7 @@ pub async fn schedule(
                 let plan = match event.new_plan_version_id {
                     Some(version_id) => {
                         let target = state
-                            .store
+                            .store()
                             .get_plan_by_version_id(version_id, tenant_id)
                             .await?;
                         Some(PlanRef {
@@ -884,7 +888,7 @@ pub fn cancellation(events: &[PendingScheduledEvent]) -> Option<Cancellation> {
 }
 
 async fn minimum(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     details: &SubscriptionDetails,
 ) -> Result<Option<Minimum>, Problem> {
@@ -898,7 +902,7 @@ async fn minimum(
                 HashMap::new()
             } else {
                 state
-                    .store
+                    .store()
                     .find_products_by_ids(ids, tenant_id)
                     .await?
                     .into_iter()

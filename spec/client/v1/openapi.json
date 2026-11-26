@@ -756,7 +756,7 @@
       },
       "Cadence": {
         "type": "string",
-        "description": "How often a price bills. Usage and one-time prices read their usage or fee whatever it is.",
+        "description": "How often a price bills: `monthly`, `quarterly`, `semiannual` (every 6 months) or `annual`.\nUsage and one-time prices read their usage or fee whatever it is.",
         "enum": [
           "monthly",
           "quarterly",
@@ -806,7 +806,8 @@
               "string",
               "null"
             ],
-            "format": "decimal"
+            "format": "decimal",
+            "description": "A decimal string in the page's currency: the base price; per seat or unit; once; a\npack's. None for usage at a rate card's or by-dimension rates, and levels whose overage\nvaries."
           },
           "block_size": {
             "type": [
@@ -819,7 +820,7 @@
           },
           "from_lowest": {
             "type": "boolean",
-            "description": "`amount` is the lowest rate of its tiers."
+            "description": "`amount` is the lowest rate of its tiers: \"from\"."
           },
           "included": {
             "type": [
@@ -827,10 +828,12 @@
               "null"
             ],
             "format": "int64",
+            "description": "Units free before `amount` applies (\"3 seats included\").",
             "minimum": 0
           },
           "kind": {
-            "$ref": "#/components/schemas/ExtraKind"
+            "$ref": "#/components/schemas/ExtraKind",
+            "description": "What it prices."
           },
           "lead": {
             "type": "boolean",
@@ -843,7 +846,8 @@
           "period": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/Cadence"
+                "$ref": "#/components/schemas/Cadence",
+                "description": "How often a recurring item bills."
               },
               {
                 "type": "null"
@@ -854,12 +858,14 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "What a unit is called (\"seat\", \"request\")."
           }
         }
       },
       "CardLevel": {
         "type": "object",
+        "description": "A usage level a visitor may pick on a card.",
         "required": [
           "included",
           "amount"
@@ -867,11 +873,13 @@
         "properties": {
           "amount": {
             "type": "string",
-            "format": "decimal"
+            "format": "decimal",
+            "description": "The card's amount with this level, a decimal string in the page's currency."
           },
           "included": {
             "type": "integer",
             "format": "int64",
+            "description": "The usage included each period, in the metric's unit.",
             "minimum": 0
           },
           "monthly_equivalent": {
@@ -879,14 +887,16 @@
               "string",
               "null"
             ],
-            "format": "decimal"
+            "format": "decimal",
+            "description": "`amount` per month, for a card billed on a longer period."
           },
           "overage_rate": {
             "type": [
               "string",
               "null"
             ],
-            "format": "decimal"
+            "format": "decimal",
+            "description": "Per unit used above `included`; none when priced in a credit unit or left off the card."
           }
         }
       },
@@ -902,18 +912,21 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/CardLevel"
-            }
+            },
+            "description": "By the usage they include, smallest first."
           },
           "metric_name": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "What the charge counts, as its metric names it."
           },
           "more": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/LevelsMore"
+                "$ref": "#/components/schemas/LevelsMore",
+                "description": "A last stop past the largest level, sold by contacting sales; none when the ladder sells\nnothing so."
               },
               {
                 "type": "null"
@@ -921,24 +934,28 @@
             ]
           },
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "The charge's name."
           },
           "unit_plural": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "The metric's unit, for several (\"tokens\")."
           },
           "unit_singular": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "The metric's unit, for one (\"token\")."
           }
         }
       },
       "CardPrice": {
         "type": "object",
+        "description": "What a card reads as its price.",
         "required": [
           "amount",
           "from_lowest",
@@ -948,13 +965,15 @@
         "properties": {
           "amount": {
             "type": "string",
-            "format": "decimal"
+            "format": "decimal",
+            "description": "A decimal string in the page's currency: the card's lead price."
           },
           "extras": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/CardExtra"
-            }
+            },
+            "description": "The card's items in the order they read, one of them its `lead`."
           },
           "from_lowest": {
             "type": "boolean",
@@ -963,7 +982,8 @@
           "levels": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/CardLevels"
+                "$ref": "#/components/schemas/CardLevels",
+                "description": "The usage levels a visitor picks between, the card's amount reading the lowest."
               },
               {
                 "type": "null"
@@ -975,7 +995,8 @@
               "string",
               "null"
             ],
-            "format": "decimal"
+            "format": "decimal",
+            "description": "`amount` per month, for a price billed on a longer period."
           },
           "partial": {
             "type": "boolean",
@@ -998,6 +1019,7 @@
               "null"
             ],
             "format": "int32",
+            "description": "Whole percent saved paying `amount` each `period` rather than the monthly price each\nmonth, rounded down; none unless something is saved.",
             "minimum": 0
           }
         }
@@ -1329,6 +1351,7 @@
       },
       "ClientSubscriptionList": {
         "type": "object",
+        "description": "A page of `ClientSubscription` items, by cursor: pass `next_cursor` as `after` for the next.",
         "required": [
           "data",
           "has_more"
@@ -1338,10 +1361,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ClientSubscription"
-            }
+            },
+            "description": "The items of the page, in the list's order."
           },
           "has_more": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether another page follows: `next_cursor` is set when it does."
           },
           "next_cursor": {
             "type": [
@@ -1439,6 +1464,7 @@
       },
       "CurrentPeriod": {
         "type": "object",
+        "description": "The billing period the subscription is in.",
         "required": [
           "start"
         ],
@@ -1453,7 +1479,8 @@
           },
           "start": {
             "type": "string",
-            "format": "date"
+            "format": "date",
+            "description": "Its first day."
           }
         }
       },
@@ -1533,13 +1560,14 @@
       "CustomerId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `cus_` and base62; a request also reads its UUID form.",
         "examples": [
           "cus_7n42DGM5Tflk9n8mt7Fhc7"
         ]
       },
       "CustomerKind": {
         "type": "string",
-        "description": "A company, or a person (B2C): a person is named by `first_name` and `last_name`, and needs a\nbilling country.",
+        "description": "A company, or a person (B2C): a person is named by `first_name` and `last_name`, and needs a\nbilling country. `company`: a business, named by `name` (the default); `individual`: a person,\nwhose `name` is made of `first_name` and `last_name`.",
         "enum": [
           "company",
           "individual"
@@ -1547,6 +1575,7 @@
       },
       "Dates": {
         "type": "object",
+        "description": "The subscription's dates. Days are ISO 8601 dates, moments RFC 3339.",
         "required": [
           "start"
         ],
@@ -1556,7 +1585,8 @@
               "string",
               "null"
             ],
-            "format": "date-time"
+            "format": "date-time",
+            "description": "When it was first activated (its start, its checkout or a manual activation); absent\nbefore."
           },
           "billing_start": {
             "type": [
@@ -1781,6 +1811,7 @@
       "EntitlementId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `ent_` and base62; a request also reads its UUID form.",
         "examples": [
           "ent_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -2017,6 +2048,7 @@
       },
       "ExtraKind": {
         "type": "string",
+        "description": "What an item of a card prices: `base`, the fixed fees billed on the card's period, summed;\n`per_seat`, per seat of a managed quantity; `usage`, metered usage; `one_time`, a fee billed\nonce; `credit_pack`, a pack of credit; `recurring`, a fixed fee billed on its own period.",
         "enum": [
           "base",
           "per_seat",
@@ -2029,6 +2061,7 @@
       "FeatureId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `feat_` and base62; a request also reads its UUID form.",
         "examples": [
           "feat_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -2043,16 +2076,19 @@
       },
       "FeatureRef": {
         "type": "object",
+        "description": "A feature named by another resource.",
         "required": [
           "id",
           "code"
         ],
         "properties": {
           "code": {
-            "type": "string"
+            "type": "string",
+            "description": "Its code; its id when the code cannot be read."
           },
           "id": {
-            "$ref": "#/components/schemas/FeatureId"
+            "$ref": "#/components/schemas/FeatureId",
+            "description": "Its id."
           }
         }
       },
@@ -2070,7 +2106,8 @@
             "description": "Why the field is refused."
           },
           "message": {
-            "type": "string"
+            "type": "string",
+            "description": "What is wrong with it, in English, for a person to read; it may change at any time."
           },
           "path": {
             "type": "string",
@@ -2233,13 +2270,15 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Where to contact sales."
           },
           "plan_name": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "The sales-led plan of the ladder it leads to; none when it is the card's own."
           }
         }
       },
@@ -2368,22 +2407,26 @@
       },
       "PageOption": {
         "type": "object",
+        "description": "An option of the page's switch (\"Monthly\", \"Annual\").",
         "required": [
           "alias",
           "name"
         ],
         "properties": {
           "alias": {
-            "type": "string"
+            "type": "string",
+            "description": "The option's alias, as `?option=` takes it."
           },
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "What a visitor reads."
           }
         }
       },
       "PlanId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `plan_` and base62; a request also reads its UUID form.",
         "examples": [
           "plan_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -2397,10 +2440,12 @@
         ],
         "properties": {
           "code": {
-            "type": "string"
+            "type": "string",
+            "description": "The plan's code; its id when the code cannot be read."
           },
           "id": {
-            "$ref": "#/components/schemas/PlanId"
+            "$ref": "#/components/schemas/PlanId",
+            "description": "The plan's id."
           },
           "option": {
             "type": [
@@ -2454,6 +2499,7 @@
       },
       "PricingCard": {
         "type": "object",
+        "description": "A plan of the ladder as its card reads.",
         "required": [
           "plan",
           "name",
@@ -2469,25 +2515,30 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Where a sales-led card's button leads."
           },
           "cta_label": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "The label of the card's button."
           },
           "free": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Its price is 0 with no other item: nothing to pay."
           },
           "hide_price": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "The price is not shown: `price` is none and the card reads \"Custom pricing\"."
           },
           "highlights": {
             "type": "array",
             "items": {
               "type": "string"
-            }
+            },
+            "description": "The lines listed on the card."
           },
           "includes_plan_name": {
             "type": [
@@ -2497,7 +2548,8 @@
             "description": "\"Everything in <plan>, plus\"."
           },
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "The plan's name."
           },
           "option_note": {
             "type": [
@@ -2514,10 +2566,12 @@
             "description": "The aliases of the options the plan sells in the currency."
           },
           "plan": {
-            "$ref": "#/components/schemas/PlanRef"
+            "$ref": "#/components/schemas/PlanRef",
+            "description": "The plan, without version or option."
           },
           "popular": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Highlighted."
           },
           "price": {
             "oneOf": [
@@ -2531,13 +2585,15 @@
             ]
           },
           "sales_led": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Sold by contacting sales."
           },
           "tagline": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "The plan's listing tagline."
           },
           "trial_days": {
             "type": [
@@ -2545,12 +2601,14 @@
               "null"
             ],
             "format": "int32",
+            "description": "The trial's length in days, when the plan has one.",
             "minimum": 0
           }
         }
       },
       "PricingPage": {
         "type": "object",
+        "description": "A product family's pricing page: its self-serve ladder, one card per plan, priced in one\ncurrency and one option.",
         "required": [
           "family",
           "name",
@@ -2564,23 +2622,27 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/PricingCard"
-            }
+            },
+            "description": "One per plan of the ladder sold in the currency or by contacting sales, in ladder order."
           },
           "currencies": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "The currencies a visitor switches between."
+            "description": "The currencies a visitor switches between: those the ladder is sold in."
           },
           "currency": {
-            "type": "string"
+            "type": "string",
+            "description": "The currency the page is priced in (ISO 4217)."
           },
           "family": {
-            "$ref": "#/components/schemas/ProductFamilyRef"
+            "$ref": "#/components/schemas/ProductFamilyRef",
+            "description": "The product family."
           },
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "The product family's name."
           },
           "option": {
             "type": [
@@ -2609,19 +2671,22 @@
         ],
         "properties": {
           "code": {
-            "$ref": "#/components/schemas/ProblemCode"
+            "$ref": "#/components/schemas/ProblemCode",
+            "description": "What went wrong; branch on it, not on `title` or `detail`."
           },
           "detail": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "What went wrong with this request, in English, for a person to read; it may change at any\ntime."
           },
           "errors": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/FieldError"
-            }
+            },
+            "description": "The fields refused, each at its path; absent when the problem is not a field's."
           },
           "request_id": {
             "type": [
@@ -2633,14 +2698,16 @@
           "status": {
             "type": "integer",
             "format": "int32",
+            "description": "The HTTP status of the response.",
             "minimum": 0
           },
           "title": {
-            "type": "string"
+            "type": "string",
+            "description": "A short summary of the kind of problem, the same for every problem of its `code`."
           },
           "type": {
             "type": "string",
-            "description": "A URI naming the kind of problem, documented per `code`."
+            "description": "A URI naming the kind of problem, documented per `code`:\n`https://docs.meteroid.com/api/v2/errors/<code>`."
           }
         }
       },
@@ -2681,44 +2748,52 @@
       "ProductFamilyId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `pf_` and base62; a request also reads its UUID form.",
         "examples": [
           "pf_7n42DGM5Tflk9n8mt7Fhc7"
         ]
       },
       "ProductFamilyRef": {
         "type": "object",
+        "description": "A product family named by another resource.",
         "required": [
           "id",
           "code"
         ],
         "properties": {
           "code": {
-            "type": "string"
+            "type": "string",
+            "description": "Its code; its id when the code cannot be read."
           },
           "id": {
-            "$ref": "#/components/schemas/ProductFamilyId"
+            "$ref": "#/components/schemas/ProductFamilyId",
+            "description": "Its id."
           }
         }
       },
       "ProductId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `prd_` and base62; a request also reads its UUID form.",
         "examples": [
           "prd_7n42DGM5Tflk9n8mt7Fhc7"
         ]
       },
       "ProductRef": {
         "type": "object",
+        "description": "A product named by another resource.",
         "required": [
           "id",
           "code"
         ],
         "properties": {
           "code": {
-            "type": "string"
+            "type": "string",
+            "description": "Its code; its id when the code cannot be read."
           },
           "id": {
-            "$ref": "#/components/schemas/ProductId"
+            "$ref": "#/components/schemas/ProductId",
+            "description": "Its id."
           }
         }
       },
@@ -2755,6 +2830,7 @@
       "ResourceId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `res_` and base62; a request also reads its UUID form.",
         "examples": [
           "res_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -2790,22 +2866,26 @@
       "ResourceTypeId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `rty_` and base62; a request also reads its UUID form.",
         "examples": [
           "rty_7n42DGM5Tflk9n8mt7Fhc7"
         ]
       },
       "ResourceTypeRef": {
         "type": "object",
+        "description": "A resource type named by another resource.",
         "required": [
           "id",
           "code"
         ],
         "properties": {
           "code": {
-            "type": "string"
+            "type": "string",
+            "description": "Its code; its id when the code cannot be read."
           },
           "id": {
-            "$ref": "#/components/schemas/ResourceTypeId"
+            "$ref": "#/components/schemas/ResourceTypeId",
+            "description": "Its id."
           }
         }
       },
@@ -2868,6 +2948,7 @@
       "SubscriptionId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `sub_` and base62; a request also reads its UUID form.",
         "examples": [
           "sub_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -2887,12 +2968,14 @@
             "description": "The integrator's own id of the subscription; paths take it in place of the id."
           },
           "id": {
-            "$ref": "#/components/schemas/SubscriptionId"
+            "$ref": "#/components/schemas/SubscriptionId",
+            "description": "The subscription's id."
           }
         }
       },
       "SubscriptionStatus": {
         "type": "string",
+        "description": "Where the subscription is in its life: `pending_activation` before its start, or waiting for\nits checkout or a manual activation; `trial_active` in its trial; `active` billing;\n`trial_expired` a free trial ended without the checkout that starts billing; `cancelled`\nended by a cancellation; `aborted` cancelled before it was ever active; `completed` ended on\nits end date.",
         "enum": [
           "pending_activation",
           "trial_active",
@@ -2925,6 +3008,7 @@
       },
       "TrialState": {
         "type": "object",
+        "description": "The subscription's trial; absent when it has none.",
         "required": [
           "days"
         ],
@@ -2932,6 +3016,7 @@
           "days": {
             "type": "integer",
             "format": "int32",
+            "description": "Its length in days, from the start date.",
             "minimum": 0
           },
           "ends_on": {

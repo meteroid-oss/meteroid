@@ -102,6 +102,7 @@ mod test_rest_v2_invoices;
 mod test_rest_v2_subscriptions;
 mod test_rest_v2_usage;
 mod test_rest_v2_validation;
+mod test_rest_v2_webhook_payloads;
 mod test_rest_v2_webhooks;
 mod test_rest_wallets;
 mod test_sandbox_credits;

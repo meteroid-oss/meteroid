@@ -13796,6 +13796,7 @@
       "AddOnId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `add_` and base62; a request also reads its UUID form.",
         "examples": [
           "add_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -14028,6 +14029,7 @@
       "AppliedCouponId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `sub_cou_` and base62; a request also reads its UUID form.",
         "examples": [
           "sub_cou_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -14392,6 +14394,7 @@
       "BankAccountId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `ba_` and base62; a request also reads its UUID form.",
         "examples": [
           "ba_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -14423,6 +14426,7 @@
       "BatchJobChunkId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `bjch_` and base62; a request also reads its UUID form.",
         "examples": [
           "bjch_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -14539,6 +14543,7 @@
       "BatchJobId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `bjob_` and base62; a request also reads its UUID form.",
         "examples": [
           "bjob_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -14678,6 +14683,7 @@
       "BillableMetricId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `bm_` and base62; a request also reads its UUID form.",
         "examples": [
           "bm_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -15327,6 +15333,7 @@
       "CheckoutSessionId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `che_` and base62; a request also reads its UUID form.",
         "examples": [
           "che_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -15560,6 +15567,7 @@
       "CountryCode": {
         "type": "string",
         "format": "CountryCode",
+        "description": "A country, as its ISO 3166-1 alpha-2 code.",
         "examples": [
           "US",
           "GB",
@@ -15779,6 +15787,7 @@
       "CouponId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `cou_` and base62; a request also reads its UUID form.",
         "examples": [
           "cou_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -17346,6 +17355,7 @@
       "CreditGrantId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `cgr_` and base62; a request also reads its UUID form.",
         "examples": [
           "cgr_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -17701,6 +17711,7 @@
       "CreditNoteId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `crn_` and base62; a request also reads its UUID form.",
         "examples": [
           "crn_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -18319,6 +18330,7 @@
       "CustomPropertyDefinitionId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `cpd_` and base62; a request also reads its UUID form.",
         "examples": [
           "cpd_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -18809,6 +18821,7 @@
       "CustomerId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `cus_` and base62; a request also reads its UUID form.",
         "examples": [
           "cus_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -18997,6 +19010,7 @@
       "CustomerPaymentMethodId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `pm_` and base62; a request also reads its UUID form.",
         "examples": [
           "pm_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -20082,6 +20096,7 @@
       "EntitlementId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `ent_` and base62; a request also reads its UUID form.",
         "examples": [
           "ent_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -20437,12 +20452,14 @@
       "EventId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `evt_` and base62; a request also reads its UUID form.",
         "examples": [
           "evt_7n42DGM5Tflk9n8mt7Fhc7"
         ]
       },
       "EventType": {
         "type": "string",
+        "description": "An event type, as a payload's `type` names it: the resource and what happened to it\n(`invoice.paid`).",
         "enum": [
           "metric.created",
           "customer.created",
@@ -20782,6 +20799,7 @@
       "FeatureId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `feat_` and base62; a request also reads its UUID form.",
         "examples": [
           "feat_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -21640,6 +21658,7 @@
       "InvoiceId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `inv_` and base62; a request also reads its UUID form.",
         "examples": [
           "inv_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -21887,6 +21906,7 @@
       "InvoicingEntityId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `ive_` and base62; a request also reads its UUID form.",
         "examples": [
           "ive_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -22040,6 +22060,7 @@
       "LedgerEntryId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `wle_` and base62; a request also reads its UUID form.",
         "examples": [
           "wle_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -23586,6 +23607,7 @@
       "PaymentTransactionId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `pay_` and base62; a request also reads its UUID form.",
         "examples": [
           "pay_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -23979,6 +24001,7 @@
       "PlanId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `plan_` and base62; a request also reads its UUID form.",
         "examples": [
           "plan_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -24029,6 +24052,7 @@
       "PlanOptionId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `opt_` and base62; a request also reads its UUID form.",
         "examples": [
           "opt_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -24092,6 +24116,7 @@
       "PlanVersionId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `plv_` and base62; a request also reads its UUID form.",
         "examples": [
           "plv_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -24217,6 +24242,7 @@
       "PriceComponentId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `price_` and base62; a request also reads its UUID form.",
         "examples": [
           "price_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -24266,6 +24292,7 @@
       "PriceId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `pri_` and base62; a request also reads its UUID form.",
         "examples": [
           "pri_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -24488,6 +24515,7 @@
       "ProductFamilyId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `pf_` and base62; a request also reads its UUID form.",
         "examples": [
           "pf_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -24563,6 +24591,7 @@
       "ProductId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `prd_` and base62; a request also reads its UUID form.",
         "examples": [
           "prd_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -24719,6 +24748,7 @@
       "QuoteId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `quo_` and base62; a request also reads its UUID form.",
         "examples": [
           "quo_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -25746,6 +25776,7 @@
       "ResourceId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `res_` and base62; a request also reads its UUID form.",
         "examples": [
           "res_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -25883,6 +25914,7 @@
       "ResourceTypeId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `rty_` and base62; a request also reads its UUID form.",
         "examples": [
           "rty_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -26045,6 +26077,7 @@
       "ScheduledEventId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `sev_` and base62; a request also reads its UUID form.",
         "examples": [
           "sev_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -26711,6 +26744,7 @@
       "SubscriptionAddOnId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `sub_add_` and base62; a request also reads its UUID form.",
         "examples": [
           "sub_add_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -27567,6 +27601,7 @@
       "SubscriptionId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `sub_` and base62; a request also reads its UUID form.",
         "examples": [
           "sub_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -28842,6 +28877,7 @@
       "UsageLimitId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `ulim_` and base62; a request also reads its UUID form.",
         "examples": [
           "ulim_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -29784,6 +29820,7 @@
       "WebhookDeliveryId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `whd_` and base62; a request also reads its UUID form.",
         "examples": [
           "whd_7n42DGM5Tflk9n8mt7Fhc7"
         ]
@@ -29938,6 +29975,7 @@
       "WebhookEndpointId": {
         "type": "string",
         "format": "MeteroidId",
+        "description": "An id in its prefixed form, `whe_` and base62; a request also reads its UUID form.",
         "examples": [
           "whe_7n42DGM5Tflk9n8mt7Fhc7"
         ]

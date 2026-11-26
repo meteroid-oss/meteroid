@@ -1,5 +1,6 @@
-//! `Idempotency-Key` on every v2 `POST` (ADR-0013 §3), on v1's `api_idempotency_key` claims: the
-//! first call with a key runs and its response is kept; a retry with the same request replays
+//! `Idempotency-Key` on every v2 `POST` but the entitlement check ([`reads_only`]) and on the
+//! `PATCH`es of [`KEYED_PATCHES`] (ADR-0013 §3), on v1's `api_idempotency_key` claims: the first
+//! call with a key runs and its response is kept; a retry with the same request replays
 //! it (`Idempotent-Replayed: true`), with its status, its content type and its body as they were;
 //! the same key with another request is refused (422), and a retry while the first still runs is
 //! refused (409). A call that fails before it writes releases its key; once a handler marks its
@@ -11,7 +12,7 @@ use crate::AppState;
 use crate::v2::problem::{Problem, ProblemCode};
 use axum::Json;
 use axum::body::Body;
-use axum::extract::State;
+use axum::extract::{MatchedPath, State};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
@@ -22,6 +23,10 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 pub const IDEMPOTENCY_KEY_HEADER: &str = "Idempotency-Key";
+/// The PATCHes taking an `Idempotency-Key` as a POST does, by path: those whose body lists
+/// changes rather than a merge patch, which a retry would apply again (`x-idempotency:
+/// optional`). Any other PATCH, a PUT and a DELETE take none.
+pub const KEYED_PATCHES: &[&str] = &["/api/v2/rate-cards/{id_or_code}/rates"];
 pub const REPLAYED_HEADER: &str = "Idempotent-Replayed";
 /// Every v2 write shares one key space per tenant: a key names one request.
 const OPERATION: &str = "v2";
@@ -43,6 +48,7 @@ pub enum IdempotentReplay {
 /// for its result, by `id` when the first response named one.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq, Eq)]
 pub struct IdempotentReplayMarker {
+    /// `response_not_kept`: what tells a marker from the response it stands for.
     pub idempotent_replay: IdempotentReplay,
     /// The first response's status, which the replay answers with too.
     pub status: u16,
@@ -50,6 +56,7 @@ pub struct IdempotentReplayMarker {
     /// write created or changed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    /// Why the response was not kept, and how to read the result, for a person to read.
     pub detail: String,
 }
 
@@ -133,6 +140,20 @@ fn fingerprint(method: &Method, path: &str, body: &[u8]) -> Result<[u8; 32], Pro
         .map_err(|_| Problem::internal())
 }
 
+/// Whether the request takes an `Idempotency-Key`: a POST but one that only reads
+/// ([`reads_only`]), or a PATCH of [`KEYED_PATCHES`] (the route matched, as the document names
+/// its path).
+fn takes_key(req: &Request<Body>) -> bool {
+    match *req.method() {
+        Method::POST => !reads_only(req.uri().path()),
+        Method::PATCH => req
+            .extensions()
+            .get::<MatchedPath>()
+            .is_some_and(|path| KEYED_PATCHES.contains(&path.as_str())),
+        _ => false,
+    }
+}
+
 /// A POST that only reads: the entitlement check. It takes no key, so no answer is kept.
 pub fn reads_only(path: &str) -> bool {
     path.ends_with("/entitlements/check")
@@ -143,7 +164,7 @@ pub async fn idempotency(
     req: Request<Body>,
     next: Next,
 ) -> Response {
-    if req.method() != Method::POST || reads_only(req.uri().path()) {
+    if !takes_key(&req) {
         return next.run(req).await;
     }
     let Some(key) = req

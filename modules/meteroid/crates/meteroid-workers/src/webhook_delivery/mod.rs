@@ -279,7 +279,12 @@ async fn attempt_webhook_delivery(
         .await;
     }
 
-    let message = match store.get_webhook_message(delivery.message_id).await {
+    // The payload rendered at the delivery's version when it was created: the same bytes on
+    // every attempt, whatever the endpoint holds since.
+    let message = match store
+        .get_webhook_message(delivery.message_id, delivery.api_version.as_deref())
+        .await
+    {
         Ok(message) => message,
         Err(e) => {
             log::error!(

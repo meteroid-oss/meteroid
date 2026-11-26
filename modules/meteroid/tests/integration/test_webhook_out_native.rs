@@ -26,6 +26,7 @@ use meteroid::workers::webhook_delivery::WebhookDeliveryWorker;
 use meteroid_store::domain::enums::CustomerType;
 use meteroid_store::domain::enums::{WebhookDeliveryStatus, WebhookEndpointDisabledReason};
 use meteroid_store::domain::misc::PaginationRequest;
+use meteroid_store::domain::webhooks_out::WebhookOutTarget;
 use meteroid_store::domain::webhooks_out::{
     WebhookDelivery, WebhookDeliveryListItem, WebhookEndpoint, WebhookEndpointNew,
 };
@@ -212,7 +213,11 @@ async fn create_customer(env: &TestEnv, name: &str) {
 }
 
 async fn fan_out(env: &TestEnv) {
-    processors::run_once_webhook_out(Arc::new(env.store().clone())).await;
+    processors::run_once_webhook_out(
+        Arc::new(env.store().clone()),
+        Arc::new(env.services().clone()),
+    )
+    .await;
 }
 
 fn worker(env: &TestEnv) -> WebhookDeliveryWorker {
@@ -1054,7 +1059,11 @@ async fn a_backlog_on_one_endpoint_does_not_hide_another(#[future] test_env_mini
                         event_type: "customer.created".to_string(),
                         payload: serde_json::json!({ "index": index }),
                     },
-                    &[endpoint_id],
+                    vec![],
+                    &[WebhookOutTarget {
+                        endpoint_id,
+                        api_version: None,
+                    }],
                 )
                 .await
                 .expect("insert delivery");
@@ -1186,7 +1195,11 @@ async fn insert_deliveries(env: &TestEnv, endpoint_id: WebhookEndpointId, count:
                     event_type: "customer.created".to_string(),
                     payload: serde_json::json!({ "index": index }),
                 },
-                &[endpoint_id],
+                vec![],
+                &[WebhookOutTarget {
+                    endpoint_id,
+                    api_version: None,
+                }],
             )
             .await
             .expect("insert message");

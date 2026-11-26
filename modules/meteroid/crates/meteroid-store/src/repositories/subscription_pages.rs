@@ -20,6 +20,10 @@ pub struct SubscriptionPageFilter {
     pub status: Option<Vec<SubscriptionStatusEnum>>,
     /// Only those changed after it.
     pub updated_after: Option<DateTime<Utc>>,
+    /// Only those created after it.
+    pub created_after: Option<DateTime<Utc>>,
+    /// Only those created before it.
+    pub created_before: Option<DateTime<Utc>>,
 }
 
 /// A subscription with the handles API v2 reads beside it.
@@ -98,6 +102,8 @@ impl SubscriptionPagesInterface for Store {
                 .status
                 .map(|status| status.into_iter().map(Into::into).collect()),
             filter.updated_after,
+            filter.created_after.map(|at| at.naive_utc()),
+            filter.created_before.map(|at| at.naive_utc()),
             after,
             i64::try_from(limit).unwrap_or(i64::MAX),
         )

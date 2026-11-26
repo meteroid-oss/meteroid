@@ -23,7 +23,9 @@ use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-/// When an increase takes effect.
+/// When an increase of a subscription's count takes effect: `immediately` (the default), billed
+/// as the change's collection mode says; `next_period`, from the next renewal, nothing billed
+/// now.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum OnIncrease {
@@ -34,7 +36,8 @@ pub enum OnIncrease {
     NextPeriod,
 }
 
-/// When a decrease takes effect.
+/// When a decrease of a subscription's count takes effect: `at_period_end` (the default), the
+/// count billed until the next renewal; `immediately`, the unused time given back.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum OnDecrease {
@@ -45,15 +48,24 @@ pub enum OnDecrease {
     Immediately,
 }
 
+/// A count a subscription holds and changes over time (seats, licences), shared by every charge
+/// naming it: a seat change changes it once for all of them.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct ManagedQuantity {
+    /// The managed quantity's id.
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub id: ManagedQuantityId,
+    /// Unique per tenant, immutable; charges and seat changes name it by it.
     pub code: String,
+    /// What a buyer reads ("Seats").
     pub name: String,
+    /// When an increase takes effect, for every subscription counting it.
     pub on_increase: OnIncrease,
+    /// When a decrease takes effect, for every subscription counting it.
     pub on_decrease: OnDecrease,
+    /// Takes no new charge; the subscriptions holding it keep counting and changing it.
     pub archived: bool,
+    /// When the quantity was created.
     pub created_at: ApiDateTime,
 }
 
@@ -65,18 +77,24 @@ pub struct ManagedQuantityListQuery {
     /// Archived quantities too.
     #[serde(default)]
     pub include_archived: bool,
+    /// How many items, 1 to 100; 20 by default.
     pub limit: Option<u32>,
+    /// The `next_cursor` of the previous page.
     pub after: Option<String>,
 }
 
+/// A managed quantity to create.
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct CreateManagedQuantity {
-    /// Lowercase letters, digits, `_` and `-`; unique per tenant, immutable.
+    /// Lowercase letters, digits, `_` and `-`, 64 at most; unique per tenant, immutable.
     pub code: String,
+    /// 1 to 255 characters.
     pub name: String,
+    /// `immediately` when left out.
     #[serde(default)]
     pub on_increase: OnIncrease,
+    /// `at_period_end` when left out.
     #[serde(default)]
     pub on_decrease: OnDecrease,
 }
@@ -85,10 +103,13 @@ pub struct CreateManagedQuantity {
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateManagedQuantity {
+    /// 1 to 255 characters.
     #[serde(default)]
     pub name: Option<String>,
+    /// Applies to the changes made from then on.
     #[serde(default)]
     pub on_increase: Option<OnIncrease>,
+    /// Applies to the changes made from then on.
     #[serde(default)]
     pub on_decrease: Option<OnDecrease>,
 }
@@ -126,6 +147,9 @@ fn to_api(quantity: DomainQuantity) -> ManagedQuantity {
 }
 
 /// List managed quantities
+///
+/// The tenant's managed quantities in creation order, paged by cursor. Archived ones are left
+/// out unless `include_archived`.
 #[utoipa::path(
     get,
     tag = "Managed quantities",
@@ -166,6 +190,8 @@ pub async fn list_managed_quantities(
 }
 
 /// Get a managed quantity
+///
+/// By id or code, archived or not.
 #[utoipa::path(
     get,
     tag = "Managed quantities",
@@ -187,6 +213,9 @@ pub async fn get_managed_quantity(
 }
 
 /// Create a managed quantity
+///
+/// A count charges can bill per unit of (seats), its code chosen: charges and subscriptions name
+/// it by it. Each subscription sets its own starting count.
 #[utoipa::path(
     post,
     tag = "Managed quantities",
@@ -227,6 +256,10 @@ pub async fn create_managed_quantity(
 }
 
 /// Update a managed quantity
+///
+/// A JSON merge patch of its name and when changes take effect; the code never changes. A new
+/// `on_increase` or `on_decrease` applies to every subscription counting it, from its next
+/// change.
 #[utoipa::path(
     patch,
     tag = "Managed quantities",
@@ -300,6 +333,8 @@ pub async fn archive_managed_quantity(
 }
 
 /// Unarchive a managed quantity
+///
+/// New charges may count it again. Unarchiving a live quantity changes nothing.
 #[utoipa::path(
     post,
     tag = "Managed quantities",

@@ -227,9 +227,9 @@ pub(super) async fn written(
     post,
     tag = "Invoices",
     path = "/api/v2/invoices",
-    request_body = CreateInvoice,
+    request_body(content = CreateInvoice, example = json!(crate::v2::examples::request("create_invoice"))),
     responses(
-        (status = 201, description = "Created", body = Invoice),
+        (status = 201, description = "Created", body = Invoice, example = json!(crate::v2::examples::response("create_invoice"))),
         (status = 409, description = "Created as a draft, but not issued: see `detail`", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A field is refused, or no Idempotency-Key", body = Problem, content_type = "application/problem+json"),
     ),
@@ -378,9 +378,9 @@ pub async fn create_invoice(
     tag = "Invoices",
     path = "/api/v2/invoices/{id}",
     params(("id" = String, Path, description = "Invoice id")),
-    request_body(content = UpdateInvoice, content_type = "application/merge-patch+json"),
+    request_body(content = UpdateInvoice, content_type = "application/merge-patch+json", example = json!(crate::v2::examples::request("update_invoice"))),
     responses(
-        (status = 200, description = "Updated", body = Invoice),
+        (status = 200, description = "Updated", body = Invoice, example = json!(crate::v2::examples::response("update_invoice"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "Not a draft, for what only a draft changes", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A field is refused", body = Problem, content_type = "application/problem+json"),

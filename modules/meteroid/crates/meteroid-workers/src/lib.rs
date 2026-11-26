@@ -97,9 +97,10 @@ pub async fn spawn_workers(
 
         {
             let store = store.clone();
+            let services = services.clone();
             consumed.push(PgmqQueue::WebhookOut);
             join_set.spawn(async move {
-                processors::run_webhook_out(store).await;
+                processors::run_webhook_out(store, services).await;
             });
         }
 

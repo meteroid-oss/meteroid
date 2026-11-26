@@ -44,6 +44,7 @@ interface Props {
   onRevealSecret: () => void
   onRotateSecret: () => void
   onToggleDisabled: () => void
+  onUpgradeApiVersion: () => void
   onRemove: () => void
 }
 
@@ -57,6 +58,7 @@ export const EndpointPage = ({
   onRevealSecret,
   onRotateSecret,
   onToggleDisabled,
+  onUpgradeApiVersion,
   onRemove,
 }: Props) => {
   const [tab, setTab] = useState<EndpointTab>(initialTab)
@@ -126,6 +128,7 @@ export const EndpointPage = ({
             onRotateSecret={onRotateSecret}
             onEditHeaders={onEdit}
             onToggleDisabled={onToggleDisabled}
+            onUpgradeApiVersion={onUpgradeApiVersion}
             onRemove={onRemove}
           />
         </TabsContent>

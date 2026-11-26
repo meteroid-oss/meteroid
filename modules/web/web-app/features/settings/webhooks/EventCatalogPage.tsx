@@ -8,6 +8,9 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  Tabs,
+  TabsList,
+  TabsTrigger,
   cn,
 } from '@md/ui'
 import { githubDark, githubLight } from '@uiw/codemirror-theme-github'
@@ -21,9 +24,23 @@ import { type WebhookEventType } from '@/rpc/api/webhooksout/v1/models_pb'
 import { listWebhookEventTypes } from '@/rpc/api/webhooksout/v1/webhooksout-WebhooksService_connectquery'
 import { useTheme } from 'providers/ThemeProvider'
 
-/** Every event an endpoint can subscribe to, with what it means and its payload. */
-export const EventCatalogPage = ({ onBack }: { onBack: () => void }) => {
-  const eventTypesQuery = useQuery(listWebhookEventTypes)
+type Payloads = 'v2' | 'v1'
+
+interface Props {
+  onBack: () => void
+  /** Some endpoint still receives API v1's payloads: their catalog is offered beside v2's. */
+  hasV1Endpoints: boolean
+}
+
+/**
+ * Every event an endpoint can subscribe to, with what it means and its payload: as API v2's
+ * payloads carry it (what an endpoint created now receives), or API v1's.
+ */
+export const EventCatalogPage = ({ onBack, hasV1Endpoints }: Props) => {
+  const [payloads, setPayloads] = useState<Payloads>('v2')
+  const eventTypesQuery = useQuery(listWebhookEventTypes, {
+    v2Payloads: !hasV1Endpoints || payloads === 'v2',
+  })
   const [selectedName, setSelectedName] = useState<string | null>(null)
   const [search, setSearch] = useState('')
 
@@ -55,6 +72,14 @@ export const EventCatalogPage = ({ onBack }: { onBack: () => void }) => {
             minor unit, so 129000 in EUR is €1,290.00.
           </p>
         </div>
+        {hasV1Endpoints && (
+          <Tabs value={payloads} onValueChange={value => setPayloads(value as Payloads)}>
+            <TabsList className="justify-start">
+              <TabsTrigger value="v2">API v2 payloads</TabsTrigger>
+              <TabsTrigger value="v1">API v1 payloads</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        )}
       </div>
 
       {eventTypesQuery.isLoading ? (

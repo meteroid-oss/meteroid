@@ -11,24 +11,28 @@
 //!   `Idempotent-Replayed` where a key is taken) are `components.headers`, referenced by each
 //!   response.
 //! - Every operation answers `400`, `401` and `429` as problems (`components.responses`), the
-//!   `401` with its `WWW-Authenticate`, the `429` with the rate limit's headers.
+//!   `401` with its `WWW-Authenticate`, the `429` with the rate limit's headers and limits.
+//! - Every list's `after` says what a cursor is, how long it reads and what refuses one.
 //! - Every POST but a preview and the entitlement check carries `x-idempotency: required |
-//!   optional`; every list paged by cursor carries `x-pagination`.
+//!   optional`, and so does a PATCH taking a key (`idempotency::KEYED_PATCHES`); every list
+//!   paged by cursor carries `x-pagination`.
 //! - Every object a JSON body holds is closed (`additionalProperties: false`): the body extractor
 //!   refuses a field it does not have (`v2::extract`). One a response flattens (`allOf`) is left
 //!   open, as closing it would refuse the response's own fields.
 //! - Every enum a response holds is open: its values are `x-extensible-enum`, not `enum`, so a
 //!   generated client accepts a value it does not know. A tag (a single value) stays an `enum`.
 use crate::v2::envelope::{CALLER_REQUEST_ID_HEADER, REQUEST_ID_HEADER};
-use crate::v2::idempotency::{IDEMPOTENCY_KEY_HEADER, REPLAYED_HEADER};
+use crate::v2::idempotency::{IDEMPOTENCY_KEY_HEADER, KEYED_PATCHES, REPLAYED_HEADER};
 use crate::v2::pagination::{DEFAULT_LIMIT, MAX_LIMIT};
 use crate::v2::problem::PROBLEM_CONTENT_TYPE;
 use crate::v2::version::{VERSION_HEADER, VERSIONS};
+use meteroid_app::config::RestRateLimitConfig;
 use serde_json::{Map, Value, json};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
-/// Whether an operation takes an `Idempotency-Key`: `required` or `optional`. A GET, a PATCH, a
-/// PUT, a DELETE, a preview and the entitlement check take none, and carry no such extension.
+/// Whether an operation takes an `Idempotency-Key`: `required` or `optional`. A GET, a PUT, a
+/// DELETE, a preview, the entitlement check and a PATCH but those of
+/// `idempotency::KEYED_PATCHES` take none, and carry no such extension.
 pub const IDEMPOTENCY_EXTENSION: &str = "x-idempotency";
 
 /// The values of an open enum, which may grow without a new version (Zalando's convention, which
@@ -86,6 +90,64 @@ const COMMON_PROBLEMS: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// What a list's `after` says, on every list paged by cursor: what a list's own text adds follows
+/// it.
+pub const CURSOR_DESCRIPTION: &str = "The `next_cursor` of the previous page; the first page when \
+     left out. A cursor is opaque: send it back as it was answered, with the same filters. It \
+     names the last item read, never a position, so a later page neither repeats nor skips an \
+     item however the list changes, and it stays valid unless this list says otherwise. A \
+     cursor that is not one of this list's is refused, `422 validation_failed` with \
+     `errors[0]` at `after`, code `invalid`.";
+
+/// The text of a list's `after` the document replaces with [`CURSOR_DESCRIPTION`].
+const PLAIN_CURSOR: &str = "The `next_cursor` of the previous page.";
+
+/// The limits of the request rate and those counted within a request, at their defaults
+/// (`RestRateLimitConfig`, and the Enterprise event corrections'), for the `429` response.
+fn rate_limits() -> String {
+    let limits = RestRateLimitConfig::default();
+    let grouped = |count: u64| {
+        let digits = count.to_string();
+        let mut out = String::new();
+        for (index, digit) in digits.chars().enumerate() {
+            if index > 0 && (digits.len() - index).is_multiple_of(3) {
+                out.push(',');
+            }
+            out.push(digit);
+        }
+        out
+    };
+    format!(
+        "Too many requests: retry later, with the same `Idempotency-Key` for a POST.\n\n\
+         Limits are per tenant environment, every API key of the tenant sharing them, each a \
+         token bucket refilled continuously over its window. At their defaults (a self-hosted \
+         instance sets its own, `RATE_LIMIT_REST_*`), production first, then any other \
+         environment:\n\n\
+         - Requests: {} and {} a second, every route but the event routes; `RateLimit-Policy` \
+         names the bucket `rest:api` (`rest:non_prod:api`).\n\
+         - Requests to the event routes (`/api/v2/events/…`): {} and {} a second, bucket \
+         `rest:metering` (`rest:non_prod:metering`).\n\
+         - Events ingested: {} and {} a second, each `POST /events/ingest` counting the events \
+         it holds.\n\
+         - Usage reads (`/usage/summary`, and `…/usage…` under a customer or a subscription): \
+         {} and {} a minute, unless the organization's plan sets its own.\n\
+         - Event corrections (`/events/{{event_id}}/void` and `…/amend`, Enterprise edition): \
+         600 and 120 changes a minute.\n\n\
+         The first two count requests: their `429` carries `Retry-After` and the `RateLimit` \
+         headers, which every response they counted carries too. The others are counted within \
+         the request, after it passed the first: their `429 rate_limited` says its wait in \
+         `detail` (`Retry after <n> seconds`), without `Retry-After`.",
+        grouped(limits.prod_rps),
+        grouped(limits.non_prod_rps),
+        grouped(limits.prod_metering_rps),
+        grouped(limits.non_prod_metering_rps),
+        grouped(limits.prod_metering_eps),
+        grouped(limits.non_prod_metering_eps),
+        grouped(limits.prod_usage_costs_rpm),
+        grouped(limits.non_prod_usage_costs_rpm),
+    )
+}
+
 const METHODS: [&str; 5] = ["get", "put", "post", "delete", "patch"];
 
 const KEY_ORDER: [&str; 6] = ["openapi", "info", "servers", "paths", "components", "tags"];
@@ -94,6 +156,7 @@ const KEY_ORDER: [&str; 6] = ["openapi", "info", "servers", "paths", "components
 pub fn finish(root: &mut Map<String, Value>) {
     rename_schemas(root);
     close_bodies(root);
+    describe_properties(root);
     drop_retired_event_types(root);
     root.insert("servers".to_owned(), servers());
     let paged = paged_lists(root);
@@ -125,6 +188,95 @@ pub fn finish(root: &mut Map<String, Value>) {
         }
     }
     root.extend(rest);
+}
+
+/// Gives a description its property, where a generator reads it for the field's docstring: an
+/// optional reference's (`oneOf: [{$ref, description}, {type: null}]`, as utoipa writes a
+/// documented `Option<_>`) moves up to the property, and a variant's tag says which variant of
+/// which union it names.
+fn describe_properties(root: &mut Map<String, Value>) {
+    let Some(schemas) = root
+        .get_mut("components")
+        .and_then(|components| components.get_mut("schemas"))
+        .and_then(Value::as_object_mut)
+    else {
+        return;
+    };
+    let mut tags = Vec::new();
+    for (union, schema) in schemas.iter() {
+        let Some(property) = schema["discriminator"]["propertyName"].as_str() else {
+            continue;
+        };
+        for (tag, target) in schema["discriminator"]["mapping"]
+            .as_object()
+            .into_iter()
+            .flatten()
+        {
+            if let Some(variant) = target
+                .as_str()
+                .and_then(|target| target.strip_prefix(SCHEMA_REF))
+            {
+                tags.push((
+                    variant.to_owned(),
+                    property.to_owned(),
+                    tag.clone(),
+                    union.clone(),
+                ));
+            }
+        }
+    }
+    for (variant, property, tag, union) in tags {
+        if let Some(declared) = schemas
+            .get_mut(&variant)
+            .and_then(|schema| schema.get_mut("properties"))
+            .and_then(|properties| properties.get_mut(&property))
+            .and_then(Value::as_object_mut)
+            && !declared.contains_key("description")
+        {
+            declared.insert(
+                "description".to_owned(),
+                json!(format!("`{tag}`: names this variant of `{union}`.")),
+            );
+        }
+    }
+    for schema in schemas.values_mut() {
+        hoist_descriptions(schema);
+    }
+}
+
+fn hoist_descriptions(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            if let Some(properties) = object.get_mut("properties").and_then(Value::as_object_mut) {
+                for property in properties.values_mut() {
+                    let Some(property) = property.as_object_mut() else {
+                        continue;
+                    };
+                    if property.contains_key("description") {
+                        continue;
+                    }
+                    let Some(members) = property.get_mut("oneOf").and_then(Value::as_array_mut)
+                    else {
+                        continue;
+                    };
+                    if members.len() != 2 || !members.iter().any(|member| member["type"] == "null")
+                    {
+                        continue;
+                    }
+                    let described = members
+                        .iter_mut()
+                        .filter_map(Value::as_object_mut)
+                        .find_map(|member| member.remove("description"));
+                    if let Some(description) = described {
+                        property.insert("description".to_owned(), description);
+                    }
+                }
+            }
+            object.values_mut().for_each(hoist_descriptions);
+        }
+        Value::Array(items) => items.iter_mut().for_each(hoist_descriptions),
+        _ => {}
+    }
 }
 
 /// v1 event types v2 does not list: never emitted any more, refused on v2's writes.
@@ -403,10 +555,11 @@ fn finish_operation(
     paged: &BTreeSet<String>,
 ) {
     // OAuth's endpoints authenticate the client in the request: no key claims a key there.
-    let keyed = method == "post"
+    let keyed = (method == "post"
         && !path.ends_with("/preview")
         && !crate::v2::idempotency::reads_only(path)
-        && !path.starts_with(crate::v2::OAUTH_PREFIX);
+        && !path.starts_with(crate::v2::OAUTH_PREFIX))
+        || (method == "patch" && KEYED_PATCHES.contains(&path));
     let idempotency = keyed.then(|| {
         let id = operation
             .get("operationId")
@@ -502,9 +655,17 @@ fn page_parameters(operation: &mut Map<String, Value>) -> bool {
             }
             Some("after") => {
                 after = true;
-                parameter
-                    .entry("description")
-                    .or_insert_with(|| json!("The `next_cursor` of the previous page."));
+                let own = parameter
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .map(|text| text.strip_prefix(PLAIN_CURSOR).unwrap_or(text).trim())
+                    .filter(|text| !text.is_empty())
+                    .map(str::to_owned);
+                let described = match own {
+                    Some(own) => format!("{CURSOR_DESCRIPTION} {own}"),
+                    None => CURSOR_DESCRIPTION.to_owned(),
+                };
+                parameter.insert("description".to_owned(), json!(described));
             }
             _ => {}
         }
@@ -549,6 +710,11 @@ fn problem_responses() -> Value {
         if let Some(headers) = headers.as_object_mut() {
             headers.extend(problem_headers(status));
         }
+        let description = if *status == "429" {
+            rate_limits()
+        } else {
+            (*description).to_owned()
+        };
         responses.insert(
             (*name).to_owned(),
             json!({
@@ -654,9 +820,10 @@ fn request_headers() -> Value {
     let mut key = header(
         IDEMPOTENCY_KEY_HEADER,
         format!(
-            "Taken by a POST whose `{IDEMPOTENCY_EXTENSION}` is `required` or `optional`, kept 24 \
-             hours; a `required` one is refused without it (`400 idempotency_key_required`). Only \
-             a POST takes one: a PATCH, a PUT and a DELETE are sent again as they are. A retry \
+            "Taken by an operation whose `{IDEMPOTENCY_EXTENSION}` is `required` or `optional` \
+             (a POST, and a PATCH whose body lists changes), kept 24 hours; a `required` one is \
+             refused without it (`400 idempotency_key_required`). Any other PATCH, a PUT and a \
+             DELETE are sent again as they are. A retry \
              with the same key and request replays the first response (`{REPLAYED_HEADER}: \
              true`), or an `{REPLAY_MARKER}` (its `x-replay-marker`) when the first response was \
              not kept; the same key with another request is refused (`422 \
@@ -721,31 +888,30 @@ fn response_headers() -> Value {
     Value::Object(headers)
 }
 
-/// v1's webhook payloads, until v2 has payloads of its own (ADR-0013 §15): the `webhooks` of the
-/// edition's v1 document, with every schema they reach. A schema whose name v2 gives another
-/// shape is copied as `V1<Name>`, and every reference to it rewritten, so a generator sees both.
-/// Each payload's description says it is v1's ([`V1_PAYLOAD_NOTE`]).
-pub fn attach_v1_webhooks(v2: &mut Map<String, Value>, v1: &Map<String, Value>) {
-    let Some(mut webhooks) = v1.get("webhooks").cloned() else {
+/// The edition's webhooks (those its v1 document publishes) in v2's payloads (ADR-0013 §15):
+/// each event type's payload is an envelope schema, `<Data>Event`, whose `data` is the resource's
+/// own schema (`Invoice`) or the notification's (`WalletFundedEventData`, copied from
+/// `webhook_payloads::WebhookPayloadsDoc` with what it names that v2 does not hold yet). v1's
+/// payload schemas stay in v1's document. The `Webhooks` tag gains what it says of versions
+/// (`webhook_payloads::VERSIONS_NOTE`), a paragraph of its own.
+pub fn attach_webhooks(v2: &mut Map<String, Value>, v1: &Map<String, Value>) {
+    use crate::v2::webhook_payloads::{
+        VERSIONS_NOTE, WebhookPayloadsDoc, data_schema, envelope_schema, read_as,
+    };
+    use crate::webhooks::out_model::WebhookOutEventTypeEnum;
+    use std::str::FromStr;
+    use utoipa::OpenApi;
+
+    let Some(published) = v1.get("webhooks").and_then(Value::as_object) else {
         return;
     };
-    let Some(v1_schemas) = v1
-        .get("components")
-        .and_then(|components| components.get("schemas"))
-        .and_then(Value::as_object)
-    else {
-        return;
-    };
-    let mut needed = BTreeSet::new();
-    let mut stack = schema_refs(&webhooks);
-    while let Some(name) = stack.pop() {
-        if needed.insert(name.clone())
-            && let Some(schema) = v1_schemas.get(&name)
-        {
-            stack.extend(schema_refs(schema));
-        }
-    }
-    let v2_schemas = v2
+    let notices = serde_json::to_value(WebhookPayloadsDoc::openapi())
+        .expect("the payloads' document serializes");
+    let notices = notices["components"]["schemas"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    let schemas = v2
         .entry("components")
         .or_insert_with(|| Value::Object(Map::new()))
         .as_object_mut()
@@ -754,46 +920,108 @@ pub fn attach_v1_webhooks(v2: &mut Map<String, Value>, v1: &Map<String, Value>) 
         .or_insert_with(|| Value::Object(Map::new()))
         .as_object_mut()
         .expect("schemas is an object");
-    let renames: BTreeMap<String, String> = needed
-        .iter()
-        .filter(|name| {
-            v2_schemas
-                .get(*name)
-                .is_some_and(|existing| Some(existing) != v1_schemas.get(*name))
-        })
-        .map(|name| (name.clone(), format!("V1{name}")))
-        .collect();
-    for name in &needed {
-        let Some(schema) = v1_schemas.get(name) else {
+
+    let mut webhooks = Map::new();
+    for name in published.keys() {
+        let Ok(event) = WebhookOutEventTypeEnum::from_str(name) else {
             continue;
         };
-        let mut schema = schema.clone();
-        rename_refs(&mut schema, &renames);
-        let target = renames.get(name).cloned().unwrap_or_else(|| name.clone());
-        v2_schemas.entry(target).or_insert(schema);
-    }
-    rename_refs(&mut webhooks, &renames);
-    for operation in webhooks
-        .as_object_mut()
-        .into_iter()
-        .flat_map(|webhooks| webhooks.values_mut())
-        .filter_map(Value::as_object_mut)
-        .flat_map(|item| item.values_mut())
-        .filter_map(Value::as_object_mut)
-    {
-        let described = match operation.get("description").and_then(Value::as_str) {
-            Some(description) => format!("{description}\n\n{V1_PAYLOAD_NOTE}"),
-            None => V1_PAYLOAD_NOTE.to_owned(),
+        let data = data_schema(event);
+        let mut stack = vec![data.to_owned()];
+        while let Some(needed) = stack.pop() {
+            if schemas.contains_key(&needed) {
+                continue;
+            }
+            if let Some(schema) = notices.get(&needed) {
+                stack.extend(schema_refs(schema));
+                schemas.insert(needed, schema.clone());
+            }
+        }
+        let envelope = envelope_schema(event);
+        schemas
+            .entry(envelope.clone())
+            .or_insert_with(|| envelope_of(data));
+        let reads = match read_as(event) {
+            Some(get) => {
+                format!("`data` is the resource as `{get}` reads it, when the event is processed.")
+            }
+            None => "`data` is what the notification observed.".to_owned(),
         };
-        operation.insert("description".to_owned(), Value::String(described));
+        webhooks.insert(
+            name.clone(),
+            json!({
+                "post": {
+                    "summary": format!("{name} webhook"),
+                    "description": format!("{}\n\n{reads}", event.description()),
+                    "operationId": format!("webhook_{}", name.replace('.', "_")),
+                    "tags": ["Webhooks"],
+                    "requestBody": {
+                        "required": true,
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": schema_ref(&envelope)}
+                            }
+                        }
+                    },
+                    "responses": {
+                        "200": {"description": "Received: any 2xx answer acknowledges it"}
+                    }
+                }
+            }),
+        );
     }
-    v2.insert("webhooks".to_owned(), webhooks);
+    // The schemas added beside the routes' keep the document's order: by name.
+    let mut sorted: Vec<(String, Value)> = std::mem::take(schemas).into_iter().collect();
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    schemas.extend(sorted);
+    v2.insert("webhooks".to_owned(), Value::Object(webhooks));
+
+    if let Some(tag) = v2
+        .get_mut("tags")
+        .and_then(Value::as_array_mut)
+        .and_then(|tags| tags.iter_mut().find(|tag| tag["name"] == "Webhooks"))
+        .and_then(Value::as_object_mut)
+    {
+        let described = match tag.get("description").and_then(Value::as_str) {
+            Some(description) => format!("{description}\n\n{VERSIONS_NOTE}"),
+            None => VERSIONS_NOTE.to_owned(),
+        };
+        tag.insert("description".to_owned(), Value::String(described));
+    }
 }
 
-/// What every payload in v2's document says of its shape.
-pub const V1_PAYLOAD_NOTE: &str = "Rendered in API v1's shape (v1's field names and enum \
-     spellings), whatever API created the endpoint. An endpoint's `api_version` will pin its \
-     payloads' shape when v2 payloads ship.";
+/// An event's payload in v2's shape, `data` of the schema `data`.
+fn envelope_of(data: &str) -> Value {
+    json!({
+        "type": "object",
+        "description": format!(
+            "An event's payload in API v2's shape, sent to an endpoint whose `api_version` is \
+             `{}` or later; `data` is a `{data}`.",
+            crate::v2::version::V2_WEBHOOK_PAYLOADS
+        ),
+        "required": ["id", "type", "created_at", "api_version", "data"],
+        "properties": {
+            "id": {
+                "$ref": schema_ref("EventId"),
+                "description": "The event's id, also its `webhook-id` header: the same on every \
+                    retry and to every endpoint."
+            },
+            "type": {"$ref": schema_ref("EventType")},
+            "created_at": {
+                "type": "string",
+                "format": "date-time",
+                "description": "When the event was recorded."
+            },
+            "api_version": {
+                "type": "string",
+                "description": "The version the payload is rendered at: the endpoint's \
+                    `api_version` when the event was processed.",
+                "example": crate::v2::version::V2_WEBHOOK_PAYLOADS
+            },
+            "data": {"$ref": schema_ref(data)}
+        }
+    })
+}
 
 const SCHEMA_REF: &str = "#/components/schemas/";
 
@@ -814,22 +1042,6 @@ fn schema_refs(value: &Value) -> Vec<String> {
         }
     }
     found
-}
-
-fn rename_refs(value: &mut Value, renames: &BTreeMap<String, String>) {
-    match value {
-        Value::String(text) => {
-            if let Some(renamed) = text
-                .strip_prefix(SCHEMA_REF)
-                .and_then(|name| renames.get(name))
-            {
-                *text = format!("{SCHEMA_REF}{renamed}");
-            }
-        }
-        Value::Array(items) => items.iter_mut().for_each(|item| rename_refs(item, renames)),
-        Value::Object(map) => map.values_mut().for_each(|item| rename_refs(item, renames)),
-        _ => {}
-    }
 }
 
 #[cfg(test)]
@@ -922,9 +1134,19 @@ mod tests {
                 "{id}"
             );
         }
+        for keyed in KEYED_PATCHES {
+            assert!(
+                operations
+                    .iter()
+                    .any(|(method, path, _)| *method == "patch" && path == keyed),
+                "{keyed} is no PATCH"
+            );
+        }
         for (method, path, operation) in &operations {
             let taken = operation.get(IDEMPOTENCY_EXTENSION).and_then(Value::as_str);
-            if *method != "post"
+            if *method == "patch" && KEYED_PATCHES.contains(path) {
+                assert_eq!(taken, Some("optional"), "{method} {path}");
+            } else if *method != "post"
                 || path.ends_with("/preview")
                 || crate::v2::idempotency::reads_only(path)
                 || path.starts_with(crate::v2::OAUTH_PREFIX)
@@ -1271,6 +1493,255 @@ mod tests {
         assert_eq!(names, sorted, "schemas stay sorted");
     }
 
+    /// Where each example of the document is, the schema it shows and itself: a request body's
+    /// and a response's, `example` or each of `examples`.
+    fn examples(spec: &Value) -> Vec<(String, &Value, &Value)> {
+        let mut found = Vec::new();
+        for (method, path, operation) in operations(spec) {
+            let id = operation["operationId"].as_str().unwrap_or(path);
+            let mut media = Vec::new();
+            if let Some(content) = operation
+                .get("requestBody")
+                .and_then(|body| body["content"].as_object())
+            {
+                media.extend(
+                    content
+                        .iter()
+                        .map(|(kind, media)| (format!("request {kind}"), media)),
+                );
+            }
+            for (status, response) in operation["responses"].as_object().expect("responses") {
+                if let Some(content) = response["content"].as_object() {
+                    media.extend(
+                        content
+                            .iter()
+                            .map(|(kind, media)| (format!("{status} {kind}"), media)),
+                    );
+                }
+            }
+            for (at, media) in media {
+                let schema = &media["schema"];
+                if let Some(example) = media.get("example") {
+                    found.push((format!("{method} {id} {at}"), schema, example));
+                }
+                for (name, example) in media["examples"].as_object().into_iter().flatten() {
+                    found.push((
+                        format!("{method} {id} {at} {name}"),
+                        schema,
+                        &example["value"],
+                    ));
+                }
+            }
+        }
+        found
+    }
+
+    /// The properties `schema` declares, its `allOf` parts' included, followed through
+    /// references.
+    fn declared<'a>(spec: &'a Value, schema: &'a Value, out: &mut BTreeSet<&'a str>) {
+        let schema = schema["$ref"]
+            .as_str()
+            .and_then(|reference| resolves(spec, reference))
+            .unwrap_or(schema);
+        out.extend(
+            schema["properties"]
+                .as_object()
+                .into_iter()
+                .flat_map(|properties| properties.keys().map(String::as_str)),
+        );
+        for part in schema["allOf"].as_array().into_iter().flatten() {
+            declared(spec, part, out);
+        }
+    }
+
+    fn is_type(value: &Value, kind: &str) -> bool {
+        match kind {
+            "null" => value.is_null(),
+            "boolean" => value.is_boolean(),
+            "integer" => value.is_i64() || value.is_u64(),
+            "number" => value.is_number(),
+            "string" => value.is_string(),
+            "array" => value.is_array(),
+            "object" => value.is_object(),
+            _ => true,
+        }
+    }
+
+    /// Checks `value` against `schema`, structurally: references, `allOf`, `oneOf` (by its
+    /// discriminator when it has one, else exactly one member) and `anyOf`, types, enums,
+    /// required properties, items, bounds and the formats the document uses (dates, decimals,
+    /// ids by their prefix). An example names no property its schema does not declare, unless
+    /// `additionalProperties` holds a schema: stricter than JSON Schema, so a misspelled
+    /// optional field is caught. `open` is set for an `allOf` part, its siblings' properties.
+    fn check(
+        spec: &Value,
+        schema: &Value,
+        value: &Value,
+        at: &str,
+        open: Option<&BTreeSet<&str>>,
+        errors: &mut Vec<String>,
+    ) {
+        if let Some(reference) = schema["$ref"].as_str() {
+            match resolves(spec, reference) {
+                Some(target) => check(spec, target, value, at, open, errors),
+                None => errors.push(format!("{at}: {reference} does not resolve")),
+            }
+            return;
+        }
+        if let Some(parts) = schema["allOf"].as_array() {
+            let mut all = BTreeSet::new();
+            declared(spec, schema, &mut all);
+            if let Some(open) = open {
+                all.extend(open.iter().copied());
+            }
+            for part in parts {
+                check(spec, part, value, at, Some(&all), errors);
+            }
+        }
+        if let Some(members) = schema["oneOf"].as_array() {
+            let tag = schema["discriminator"]["propertyName"]
+                .as_str()
+                .and_then(|property| value.get(property))
+                .and_then(Value::as_str);
+            match (tag, schema["discriminator"]["mapping"].as_object()) {
+                (Some(tag), Some(mapping)) => match mapping.get(tag) {
+                    Some(target) => check(spec, &json!({"$ref": target}), value, at, open, errors),
+                    None => errors.push(format!("{at}: no variant is tagged `{tag}`")),
+                },
+                _ => {
+                    let matching: Vec<Vec<String>> = members
+                        .iter()
+                        .map(|member| {
+                            let mut refused = Vec::new();
+                            check(spec, member, value, at, open, &mut refused);
+                            refused
+                        })
+                        .collect();
+                    let matched = matching.iter().filter(|refused| refused.is_empty()).count();
+                    if matched != 1 {
+                        errors.push(format!(
+                            "{at}: {matched} members of oneOf match {value}: {matching:?}"
+                        ));
+                    }
+                }
+            }
+        }
+        if let Some(members) = schema["anyOf"].as_array() {
+            let mut refusals = Vec::new();
+            let matched = members.iter().any(|member| {
+                let mut refused = Vec::new();
+                check(spec, member, value, at, open, &mut refused);
+                refusals.extend(refused.iter().cloned());
+                refused.is_empty()
+            });
+            if !matched {
+                errors.push(format!("{at}: no member of anyOf matches: {refusals:?}"));
+            }
+        }
+        let types: Vec<&str> = match &schema["type"] {
+            Value::String(kind) => vec![kind.as_str()],
+            Value::Array(kinds) => kinds.iter().filter_map(Value::as_str).collect(),
+            _ => Vec::new(),
+        };
+        if !types.is_empty() && !types.iter().any(|kind| is_type(value, kind)) {
+            errors.push(format!("{at}: {value} is not {types:?}"));
+            return;
+        }
+        // An example names a value an open enum lists, as a closed one's.
+        if let Some(allowed) = schema["enum"]
+            .as_array()
+            .or_else(|| schema[EXTENSIBLE_ENUM].as_array())
+            && !allowed.contains(value)
+        {
+            errors.push(format!("{at}: {value} is not one of {allowed:?}"));
+        }
+        if let (Some(bound), Some(number)) = (schema["minimum"].as_f64(), value.as_f64())
+            && number < bound
+        {
+            errors.push(format!("{at}: {number} is below {bound}"));
+        }
+        if let (Some(bound), Some(number)) = (schema["maximum"].as_f64(), value.as_f64())
+            && number > bound
+        {
+            errors.push(format!("{at}: {number} is above {bound}"));
+        }
+        if let Some(text) = value.as_str() {
+            check_format(schema, text, at, errors);
+        }
+        match value {
+            Value::Object(object) => {
+                for required in schema["required"].as_array().into_iter().flatten() {
+                    let required = required.as_str().unwrap_or_default();
+                    if !object.contains_key(required) {
+                        errors.push(format!("{at}: `{required}` is required"));
+                    }
+                }
+                let properties = schema["properties"].as_object();
+                let extra = &schema["additionalProperties"];
+                for (key, item) in object {
+                    let at = format!("{at}/{key}");
+                    match properties.and_then(|properties| properties.get(key)) {
+                        Some(property) => check(spec, property, item, &at, None, errors),
+                        None if extra.is_object() => check(spec, extra, item, &at, None, errors),
+                        None if extra == &Value::Bool(true) => {}
+                        None if properties.is_some()
+                            && !open.is_some_and(|open| open.contains(key.as_str())) =>
+                        {
+                            errors.push(format!("{at}: not a property of its schema"));
+                        }
+                        None => {}
+                    }
+                }
+            }
+            Value::Array(items) => {
+                if let Some(schema) = schema.get("items") {
+                    for (index, item) in items.iter().enumerate() {
+                        check(spec, schema, item, &format!("{at}/{index}"), None, errors);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The formats the document gives its strings, checked: an id by the prefix of its schema's
+    /// own example.
+    fn check_format(schema: &Value, text: &str, at: &str, errors: &mut Vec<String>) {
+        let read = match schema["format"].as_str() {
+            Some("date") => chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d").is_ok(),
+            Some("date-time") => chrono::DateTime::parse_from_rfc3339(text).is_ok(),
+            Some("decimal") => text.parse::<rust_decimal::Decimal>().is_ok(),
+            Some("MeteroidId") => {
+                let prefix = schema["examples"][0]
+                    .as_str()
+                    .and_then(|example| example.rsplit_once('_'))
+                    .map(|(prefix, _)| format!("{prefix}_"));
+                prefix.is_none_or(|prefix| {
+                    text.strip_prefix(&prefix).is_some_and(|rest| {
+                        !rest.is_empty() && rest.chars().all(|c| c.is_ascii_alphanumeric())
+                    })
+                })
+            }
+            _ => true,
+        };
+        if !read {
+            errors.push(format!(
+                "{at}: `{text}` is not a {}",
+                schema["format"].as_str().unwrap_or_default()
+            ));
+        }
+        if let Some(most) = schema["maxLength"].as_u64()
+            && text.chars().count() as u64 > most
+        {
+            errors.push(format!("{at}: longer than {most}"));
+        }
+        if let Some(least) = schema["minLength"].as_u64()
+            && (text.chars().count() as u64) < least
+        {
+            errors.push(format!("{at}: shorter than {least}"));
+        }
+    }
+
     /// Integrators read the v2 and client documents: none of the engine's own words, the v1
     /// document's list and the entitlement engine's.
     #[test]
@@ -1319,19 +1790,160 @@ mod tests {
     }
 
     #[test]
-    fn webhook_payloads_say_they_are_v1s() {
+    fn every_example_reads_as_its_schema() {
+        let spec = published();
+        let examples = examples(&spec);
+        assert!(!examples.is_empty());
+        let mut errors = Vec::new();
+        for (at, schema, example) in examples {
+            check(&spec, schema, example, &at, None, &mut errors);
+        }
+        assert!(errors.is_empty(), "{errors:#?}");
+    }
+
+    /// The check refuses what an example could get wrong.
+    #[test]
+    fn the_example_check_refuses_a_wrong_example() {
+        let spec = published();
+        let customer = json!({"$ref": "#/components/schemas/Customer"});
+        let refused = |value: Value| {
+            let mut errors = Vec::new();
+            check(&spec, &customer, &value, "customer", None, &mut errors);
+            errors
+        };
+        let mut good = crate::v2::examples::response("get_customer");
+        assert_eq!(refused(good.clone()), Vec::<String>::new());
+        good["nickname"] = json!("nw");
+        assert!(refused(good.clone())[0].contains("nickname"));
+        good.as_object_mut().unwrap().remove("nickname");
+        good["type"] = json!("partnership");
+        assert!(!refused(good.clone()).is_empty());
+        good["type"] = json!("company");
+        good["id"] = json!("sub_2LjsL3pvKFIUjovfWsyd2S");
+        assert!(!refused(good.clone()).is_empty());
+        good.as_object_mut().unwrap().remove("id");
+        assert!(refused(good)[0].contains("`id` is required"));
+    }
+
+    /// The first integration (customers, plans, subscriptions, invoices, events, webhook
+    /// endpoints) shows a request and a response for each operation: a JSON body sent has its
+    /// example, and so has its JSON success.
+    #[test]
+    fn the_first_integration_is_shown_by_example() {
+        let spec = published();
+        let mut missing = Vec::new();
+        for (method, path, operation) in operations(&spec) {
+            let id = operation["operationId"].as_str().unwrap_or(path);
+            if !crate::v2::examples::SHOWN.contains(&id) {
+                continue;
+            }
+            let shown =
+                |media: &Value| media.get("example").is_some() || media.get("examples").is_some();
+            let sent = operation
+                .get("requestBody")
+                .and_then(|body| body["content"].as_object());
+            for (kind, media) in sent.into_iter().flatten() {
+                if kind.ends_with("json") && !shown(media) {
+                    missing.push(format!("{method} {id} request {kind}"));
+                }
+            }
+            for (status, response) in operation["responses"].as_object().expect("responses") {
+                if !status.starts_with('2') {
+                    continue;
+                }
+                for (kind, media) in response["content"].as_object().into_iter().flatten() {
+                    if kind.ends_with("json") && !shown(media) {
+                        missing.push(format!("{method} {id} {status} {kind}"));
+                    }
+                }
+            }
+        }
+        assert!(missing.is_empty(), "{missing:#?}");
+        let ids: BTreeSet<&str> = operations(&spec)
+            .iter()
+            .filter_map(|(_, _, operation)| operation["operationId"].as_str())
+            .collect();
+        for id in crate::v2::examples::SHOWN {
+            assert!(ids.contains(id), "{id} is no operation");
+        }
+    }
+
+    /// A generator reads a field's docstring off its property: an optional reference's is
+    /// there, and a variant's tag says what it names.
+    #[test]
+    fn properties_carry_their_descriptions() {
+        let spec = published();
+        let schemas = &spec["components"]["schemas"];
+        let address = &schemas["Customer"]["properties"]["billing_address"];
+        assert!(address["description"].is_string(), "{address}");
+        assert!(
+            address["oneOf"]
+                .as_array()
+                .expect("oneOf")
+                .iter()
+                .all(|member| member.get("description").is_none())
+        );
+        assert_eq!(
+            schemas["PerUnitModel"]["properties"]["type"]["description"],
+            "`per_unit`: names this variant of `PriceModel`."
+        );
+        assert!(schemas["CustomerList"]["description"].is_string());
+        assert!(schemas["ProductRef"]["description"].is_string());
+    }
+
+    #[test]
+    fn webhook_payloads_are_v2s() {
         let spec = crate::v2::published_spec_json(
             &crate::v2::spec(&EditionSpec::core()),
             &EditionSpec::core(),
         );
+        let schemas = spec["components"]["schemas"].as_object().unwrap();
         let webhooks = spec["webhooks"].as_object().expect("webhooks");
-        assert!(!webhooks.is_empty());
+        assert!(
+            webhooks.contains_key("invoice.paid"),
+            "{:?}",
+            webhooks.keys()
+        );
         for (name, item) in webhooks {
-            let description = item["post"]["description"].as_str().unwrap_or_default();
+            let reference =
+                item["post"]["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+                    .as_str()
+                    .unwrap_or_else(|| panic!("{name} names its payload"));
+            let envelope = &schemas[reference.trim_start_matches(SCHEMA_REF)];
+            assert_eq!(
+                envelope["required"],
+                json!(["id", "type", "created_at", "api_version", "data"]),
+                "{name}"
+            );
+            let data = envelope["properties"]["data"]["$ref"].as_str().unwrap();
             assert!(
-                description.ends_with(V1_PAYLOAD_NOTE),
-                "{name}: {description}"
+                schemas.contains_key(data.trim_start_matches(SCHEMA_REF)),
+                "{name}: {data}"
             );
         }
+        assert!(
+            !schemas.keys().any(|name| name.starts_with("V1")),
+            "v1's payload schemas stay in v1's document"
+        );
+        let names: Vec<&String> = schemas.keys().collect();
+        let mut sorted = names.clone();
+        sorted.sort();
+        assert_eq!(names, sorted, "schemas stay sorted");
+        assert_eq!(
+            schemas["InvoiceEvent"]["properties"]["data"]["$ref"], "#/components/schemas/Invoice",
+            "an invoice's events carry the invoice as its GET reads it"
+        );
+        let tag = spec["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tag| tag["name"] == "Webhooks")
+            .unwrap();
+        assert!(
+            tag["description"]
+                .as_str()
+                .unwrap()
+                .ends_with(crate::v2::webhook_payloads::VERSIONS_NOTE)
+        );
     }
 }

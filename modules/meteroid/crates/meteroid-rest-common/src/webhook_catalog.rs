@@ -1,6 +1,10 @@
-//! The webhook event catalog's shape. The REST crate builds it from its OpenAPI document; the
-//! gRPC API receives it as a [`WebhookCatalog`] so it does not depend on the REST crate.
+//! The webhook event catalog's shape, one per payload shape: API v1's and API v2's (ADR-0013
+//! §15). The REST crate builds each from its OpenAPI document; the gRPC API receives them as a
+//! [`WebhookCatalog`] so it does not depend on the REST crate.
 
+use crate::api_versions::webhook_envelope;
+use crate::datetime::ApiDateTime;
+use common_domain::ids::EventId;
 use serde_json::Value;
 
 #[derive(Clone, Debug)]
@@ -26,8 +30,12 @@ pub struct WebhookEventField {
 }
 
 pub trait WebhookCatalog: Send + Sync {
-    /// Every webhook event type.
+    /// Every webhook event type, in API v1's payloads.
     fn events(&self) -> &'static [WebhookEventDoc];
+
+    /// Every event type API v2's payloads carry, each example the envelope `{id, type,
+    /// created_at, api_version, data}` at the latest version.
+    fn events_v2(&self) -> &'static [WebhookEventDoc];
 
     fn is_known(&self, event_type: &str) -> bool {
         self.events().iter().any(|doc| doc.name == event_type)
@@ -53,5 +61,25 @@ pub trait WebhookCatalog: Send + Sync {
         }
 
         Some(example)
+    }
+
+    /// An event type's example in API v2's payloads, as an endpoint holding `api_version` receives
+    /// it: its envelope stamped with a real event id and `created_at`. `None` for an event type
+    /// v2's payloads do not carry.
+    fn example_payload_v2(
+        &self,
+        event_type: &str,
+        id: EventId,
+        created_at: ApiDateTime,
+        api_version: &str,
+    ) -> Option<Value> {
+        let doc = self.events_v2().iter().find(|doc| doc.name == event_type)?;
+        Some(webhook_envelope(
+            id,
+            event_type,
+            created_at,
+            api_version,
+            &doc.example["data"],
+        ))
     }
 }

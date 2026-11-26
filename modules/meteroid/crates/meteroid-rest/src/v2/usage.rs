@@ -53,7 +53,9 @@ const MAX_USAGE_RANGE_DAYS: i64 = 366;
 /// An amount in minor units of its currency, or of its credit unit for usage priced in credit.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq, Eq)]
 pub struct UsageAmount {
+    /// In minor units of `currency`, or of `credit_unit`.
     pub amount: i64,
+    /// ISO 4217, for an amount in money; absent beside `credit_unit`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub currency: Option<String>,
     /// The credit unit; what credit leaves uncovered is invoiced in money, not counted here.
@@ -64,17 +66,24 @@ pub struct UsageAmount {
 /// The usage of one group of a metric's dimensions.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct UsageGroup {
+    /// The value of each dimension the metric groups by, by dimension.
     pub dimensions: BTreeMap<String, String>,
+    /// The group's usage, aggregated as the metric aggregates.
     #[schema(value_type = String, format = "decimal")]
     pub quantity: Decimal,
 }
 
+/// One metric's usage over the report's range.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct MetricUsage {
+    /// The metric.
     pub metric: MetricRef,
+    /// The metric's name.
     pub name: String,
+    /// The usage, aggregated as the metric aggregates.
     #[schema(value_type = String, format = "decimal")]
     pub quantity: Decimal,
+    /// The usage by the values of the metric's dimensions.
     pub groups: Vec<UsageGroup>,
     /// Beta, on a subscription's current period only: what the usage adds so far to its next
     /// invoice, before discounts and credits; empty while it bills nothing (a free trial).
@@ -86,8 +95,11 @@ pub struct MetricUsage {
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 #[schema(as = UsageReport)]
 pub struct Usage {
+    /// The start, inclusive.
     pub from: ApiDateTime,
+    /// The end, exclusive.
     pub to: ApiDateTime,
+    /// The usage of each metric.
     pub metrics: Vec<MetricUsage>,
     /// Beta, on a subscription's current period only: when `costs` and `totals` were computed;
     /// the reading is shared for up to 30 seconds.
@@ -98,7 +110,7 @@ pub struct Usage {
     pub totals: Option<Vec<UsageAmount>>,
 }
 
-/// How long a cost bucket is.
+/// How long a cost bucket is: an hour, a day or a calendar month, cut at UTC boundaries.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Granularity {
@@ -130,10 +142,12 @@ impl From<CostGranularity> for Granularity {
 /// A bucket of usage and what it costs, priced as its invoice line prices it.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct CostBucket {
+    /// When the bucket starts; it lasts the read's `granularity`.
     pub start: ApiDateTime,
     /// The value of `group_by`; absent when not grouped, or for usage without the property.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
+    /// The bucket's usage, aggregated as the metric aggregates.
     #[schema(value_type = String, format = "decimal")]
     pub quantity: Decimal,
     /// Rounded to the minor unit, so a period's buckets add up to what it invoices. Absent when
@@ -149,10 +163,15 @@ pub struct CostBucket {
 /// billing periods pricing it.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct UsageCosts {
+    /// The metric.
     pub metric: MetricRef,
+    /// How long each bucket is.
     pub granularity: Granularity,
+    /// The start, inclusive.
     pub from: ApiDateTime,
+    /// The end, exclusive.
     pub to: ApiDateTime,
+    /// The buckets, oldest first.
     pub buckets: Vec<CostBucket>,
 }
 
@@ -160,19 +179,25 @@ pub struct UsageCosts {
 /// credit unit's) major unit.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct EventCost {
+    /// In the major unit of `currency` or `credit_unit`.
     #[schema(value_type = String, format = "decimal")]
     pub amount: Decimal,
+    /// ISO 4217, for a cost in money; absent beside `credit_unit`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub currency: Option<String>,
+    /// The credit unit, for usage priced in credit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credit_unit: Option<CreditUnitRef>,
 }
 
+/// A usage event a metric read, as metering keeps it.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct UsageEvent {
     /// The id the event was ingested with.
     pub id: String,
+    /// When it happened: the `timestamp` it was ingested with.
     pub timestamp: ApiDateTime,
+    /// Its properties, each value as text.
     pub properties: BTreeMap<String, String>,
     /// The billed units it adds; absent when the aggregation cannot be split per event, or the
     /// event does not count.
@@ -190,10 +215,15 @@ crate::v2_list!(UsageEventList, UsageEvent);
 /// A stretch of a metric's usage no subscription bills.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct UnattributedMetricUsage {
+    /// The metric.
     pub metric: MetricRef,
+    /// The metric's name.
     pub name: String,
+    /// The stretch's start, inclusive.
     pub from: ApiDateTime,
+    /// The stretch's end, exclusive.
     pub to: ApiDateTime,
+    /// The usage no subscription bills, aggregated as the metric aggregates.
     #[schema(value_type = String, format = "decimal")]
     pub quantity: Decimal,
     /// The subscriptions for a resource pricing the metric then, none of whose resources the
@@ -204,8 +234,11 @@ pub struct UnattributedMetricUsage {
 /// A customer's usage over `[from, to)` that no subscription bills.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct UnattributedUsage {
+    /// The start, inclusive.
     pub from: ApiDateTime,
+    /// The end, exclusive.
     pub to: ApiDateTime,
+    /// The stretches of usage no subscription bills, by metric.
     pub metrics: Vec<UnattributedMetricUsage>,
 }
 
@@ -240,6 +273,7 @@ pub struct SubscriptionUsageQuery {
 pub struct UsageCostQuery {
     /// The metric, by code (or id).
     pub metric: String,
+    /// How long each bucket is.
     pub granularity: Granularity,
     /// The start, inclusive: a date or an RFC 3339 date-time.
     pub from: String,

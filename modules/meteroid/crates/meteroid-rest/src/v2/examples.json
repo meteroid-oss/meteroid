@@ -1,0 +1,5821 @@
+{
+  "create_customer": {
+    "request": {
+      "alias": "northwind",
+      "name": "Northwind Labs GmbH",
+      "email": "billing@northwind.example",
+      "currency": "EUR",
+      "billing_address": {
+        "line1": "Friedrichstraße 68",
+        "city": "Berlin",
+        "postal_code": "10117",
+        "country": "DE"
+      },
+      "invoicing": {
+        "emails": [
+          "finance@northwind.example"
+        ],
+        "preferred_locales": [
+          "en"
+        ]
+      }
+    },
+    "response": {
+      "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+      "alias": "northwind",
+      "type": "company",
+      "name": "Northwind Labs GmbH",
+      "email": "billing@northwind.example",
+      "currency": "EUR",
+      "billing_address": {
+        "line1": "Friedrichstraße 68",
+        "city": "Berlin",
+        "postal_code": "10117",
+        "country": "DE"
+      },
+      "tax": {
+        "status": "taxable",
+        "custom_rates": []
+      },
+      "invoicing": {
+        "entity": "ive_33J0JGPQ1hlPEUrNbGRUJA",
+        "emails": [
+          "finance@northwind.example"
+        ],
+        "preferred_locales": [
+          "en"
+        ]
+      },
+      "custom_properties": {},
+      "archived": false,
+      "created_at": "2026-11-25T23:51:25.281Z",
+      "updated_at": "2026-11-25T23:51:25.283Z"
+    }
+  },
+  "get_customer": {
+    "response": {
+      "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+      "alias": "northwind",
+      "type": "company",
+      "name": "Northwind Labs GmbH",
+      "email": "billing@northwind.example",
+      "currency": "EUR",
+      "billing_address": {
+        "line1": "Friedrichstraße 68",
+        "city": "Berlin",
+        "postal_code": "10117",
+        "country": "DE"
+      },
+      "tax": {
+        "status": "taxable",
+        "custom_rates": []
+      },
+      "invoicing": {
+        "entity": "ive_33J0JGPQ1hlPEUrNbGRUJA",
+        "emails": [
+          "finance@northwind.example"
+        ],
+        "preferred_locales": [
+          "en"
+        ]
+      },
+      "custom_properties": {},
+      "archived": false,
+      "created_at": "2026-11-25T23:51:25.281Z",
+      "updated_at": "2026-11-25T23:51:25.283Z"
+    }
+  },
+  "list_customers": {
+    "response": {
+      "data": [
+        {
+          "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+          "alias": "northwind",
+          "type": "company",
+          "name": "Northwind Labs GmbH",
+          "email": "billing@northwind.example",
+          "currency": "EUR",
+          "billing_address": {
+            "line1": "Friedrichstraße 68",
+            "city": "Berlin",
+            "postal_code": "10117",
+            "country": "DE"
+          },
+          "tax": {
+            "status": "taxable",
+            "custom_rates": []
+          },
+          "invoicing": {
+            "entity": "ive_33J0JGPQ1hlPEUrNbGRUJA",
+            "emails": [
+              "finance@northwind.example"
+            ],
+            "preferred_locales": [
+              "en"
+            ]
+          },
+          "custom_properties": {},
+          "archived": false,
+          "created_at": "2026-11-25T23:51:25.281Z",
+          "updated_at": "2026-11-25T23:51:25.283Z"
+        }
+      ],
+      "next_cursor": null,
+      "has_more": false
+    }
+  },
+  "update_customer": {
+    "request": {
+      "phone": "+49 30 1234567",
+      "invoicing": {
+        "buyer_reference": "NW-OPS"
+      }
+    },
+    "response": {
+      "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+      "alias": "northwind",
+      "type": "company",
+      "name": "Northwind Labs GmbH",
+      "email": "billing@northwind.example",
+      "phone": "+49 30 1234567",
+      "currency": "EUR",
+      "billing_address": {
+        "line1": "Friedrichstraße 68",
+        "city": "Berlin",
+        "postal_code": "10117",
+        "country": "DE"
+      },
+      "tax": {
+        "status": "taxable",
+        "custom_rates": []
+      },
+      "invoicing": {
+        "entity": "ive_33J0JGPQ1hlPEUrNbGRUJA",
+        "emails": [
+          "finance@northwind.example"
+        ],
+        "preferred_locales": [
+          "en"
+        ],
+        "buyer_reference": "NW-OPS"
+      },
+      "custom_properties": {},
+      "archived": false,
+      "created_at": "2026-11-25T23:51:25.281Z",
+      "updated_at": "2026-11-25T23:51:25.314Z"
+    }
+  },
+  "create_plan": {
+    "request": {
+      "code": "growth",
+      "name": "Growth",
+      "description": "For teams shipping AI features to production.",
+      "draft": {
+        "currency": "EUR",
+        "net_terms": 14,
+        "options": [
+          {
+            "alias": "monthly",
+            "name": "Monthly"
+          },
+          {
+            "alias": "annual",
+            "name": "Annual"
+          }
+        ],
+        "charges": [
+          {
+            "product": "platform",
+            "preset": "flat_fee",
+            "prices": [
+              {
+                "option": "monthly",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "49"
+                }
+              },
+              {
+                "option": "annual",
+                "currency": "EUR",
+                "cadence": "annual",
+                "model": {
+                  "type": "flat",
+                  "amount": "490"
+                }
+              }
+            ]
+          },
+          {
+            "product": "seats",
+            "preset": "seats",
+            "quantity": {
+              "type": "managed",
+              "quantity": "seats",
+              "min": 1
+            },
+            "prices": [
+              {
+                "currency": "EUR",
+                "model": {
+                  "type": "per_unit",
+                  "unit_price": "15"
+                }
+              }
+            ]
+          },
+          {
+            "product": "tokens",
+            "preset": "usage_levels",
+            "quantity": {
+              "type": "metered",
+              "metric": "tokens"
+            },
+            "prices": [
+              {
+                "currency": "EUR",
+                "model": {
+                  "type": "levels",
+                  "levels": [
+                    {
+                      "included": 10000000,
+                      "price": "99",
+                      "overage_unit_price": "0.00001"
+                    },
+                    {
+                      "included": 50000000,
+                      "price": "399",
+                      "overage_unit_price": "0.000008"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "add_ons": [
+          {
+            "add_on": "support"
+          }
+        ]
+      }
+    },
+    "response": {
+      "id": "plan_712rjYySSV0DRvyVf6ZS04",
+      "code": "growth",
+      "name": "Growth",
+      "description": "For teams shipping AI features to production.",
+      "type": "standard",
+      "status": "draft",
+      "family": {
+        "id": "pf_4xN37N01VKgBTsOBjaJXO9",
+        "code": "default"
+      },
+      "listing": {
+        "popular": false,
+        "sales_led": false,
+        "hide_price": false
+      },
+      "has_draft": true,
+      "created_at": "2026-11-25T23:51:25.352Z",
+      "version": {
+        "number": 1,
+        "status": "draft",
+        "currency": "EUR",
+        "options": [
+          {
+            "alias": "monthly",
+            "name": "Monthly",
+            "default": true,
+            "hidden": false
+          },
+          {
+            "alias": "annual",
+            "name": "Annual",
+            "default": false,
+            "hidden": false
+          }
+        ],
+        "charges": [
+          {
+            "product": "platform",
+            "name": "Platform",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "monthly",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "49"
+                }
+              },
+              {
+                "option": "annual",
+                "currency": "EUR",
+                "cadence": "annual",
+                "model": {
+                  "type": "flat",
+                  "amount": "490"
+                }
+              }
+            ]
+          },
+          {
+            "product": "seats",
+            "name": "Seats",
+            "preset": "seats",
+            "quantity": {
+              "type": "managed",
+              "quantity": "seats",
+              "min": 1
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "per_unit",
+                  "unit_price": "15"
+                }
+              }
+            ]
+          },
+          {
+            "product": "tokens",
+            "name": "Tokens",
+            "preset": "usage_levels",
+            "quantity": {
+              "type": "metered",
+              "metric": "tokens"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "levels",
+                  "levels": [
+                    {
+                      "included": 10000000,
+                      "price": "99",
+                      "overage_unit_price": "0.00001"
+                    },
+                    {
+                      "included": 50000000,
+                      "price": "399",
+                      "overage_unit_price": "0.000008"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "net_terms": 14,
+        "add_ons": [
+          {
+            "add_on": "support"
+          }
+        ],
+        "tax_inclusive": false,
+        "entitlements": []
+      }
+    }
+  },
+  "publish_plan_draft": {
+    "response": {
+      "id": "plan_712rjYySSV0DRvyVf6ZS04",
+      "code": "growth",
+      "name": "Growth",
+      "description": "For teams shipping AI features to production.",
+      "type": "standard",
+      "status": "active",
+      "family": {
+        "id": "pf_4xN37N01VKgBTsOBjaJXO9",
+        "code": "default"
+      },
+      "listing": {
+        "popular": false,
+        "sales_led": false,
+        "hide_price": false
+      },
+      "active_version": 1,
+      "has_draft": false,
+      "created_at": "2026-11-25T23:51:25.352Z",
+      "version": {
+        "number": 1,
+        "status": "active",
+        "currency": "EUR",
+        "options": [
+          {
+            "alias": "monthly",
+            "name": "Monthly",
+            "default": true,
+            "hidden": false
+          },
+          {
+            "alias": "annual",
+            "name": "Annual",
+            "default": false,
+            "hidden": false
+          }
+        ],
+        "charges": [
+          {
+            "product": "platform",
+            "name": "Platform",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "monthly",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "49"
+                }
+              },
+              {
+                "option": "annual",
+                "currency": "EUR",
+                "cadence": "annual",
+                "model": {
+                  "type": "flat",
+                  "amount": "490"
+                }
+              }
+            ]
+          },
+          {
+            "product": "seats",
+            "name": "Seats",
+            "preset": "seats",
+            "quantity": {
+              "type": "managed",
+              "quantity": "seats",
+              "min": 1
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "per_unit",
+                  "unit_price": "15"
+                }
+              }
+            ]
+          },
+          {
+            "product": "tokens",
+            "name": "Tokens",
+            "preset": "usage_levels",
+            "quantity": {
+              "type": "metered",
+              "metric": "tokens"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "levels",
+                  "levels": [
+                    {
+                      "included": 10000000,
+                      "price": "99",
+                      "overage_unit_price": "0.00001"
+                    },
+                    {
+                      "included": 50000000,
+                      "price": "399",
+                      "overage_unit_price": "0.000008"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "net_terms": 14,
+        "add_ons": [
+          {
+            "add_on": "support"
+          }
+        ],
+        "tax_inclusive": false,
+        "entitlements": []
+      }
+    }
+  },
+  "get_plan": {
+    "response": {
+      "id": "plan_712rjYySSV0DRvyVf6ZS04",
+      "code": "growth",
+      "name": "Growth",
+      "description": "For teams shipping AI features to production.",
+      "type": "standard",
+      "status": "active",
+      "family": {
+        "id": "pf_4xN37N01VKgBTsOBjaJXO9",
+        "code": "default"
+      },
+      "listing": {
+        "popular": false,
+        "sales_led": false,
+        "hide_price": false
+      },
+      "active_version": 1,
+      "has_draft": false,
+      "created_at": "2026-11-25T23:51:25.352Z",
+      "version": {
+        "number": 1,
+        "status": "active",
+        "currency": "EUR",
+        "options": [
+          {
+            "alias": "monthly",
+            "name": "Monthly",
+            "default": true,
+            "hidden": false
+          },
+          {
+            "alias": "annual",
+            "name": "Annual",
+            "default": false,
+            "hidden": false
+          }
+        ],
+        "charges": [
+          {
+            "product": "platform",
+            "name": "Platform",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "monthly",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "49"
+                }
+              },
+              {
+                "option": "annual",
+                "currency": "EUR",
+                "cadence": "annual",
+                "model": {
+                  "type": "flat",
+                  "amount": "490"
+                }
+              }
+            ]
+          },
+          {
+            "product": "seats",
+            "name": "Seats",
+            "preset": "seats",
+            "quantity": {
+              "type": "managed",
+              "quantity": "seats",
+              "min": 1
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "per_unit",
+                  "unit_price": "15"
+                }
+              }
+            ]
+          },
+          {
+            "product": "tokens",
+            "name": "Tokens",
+            "preset": "usage_levels",
+            "quantity": {
+              "type": "metered",
+              "metric": "tokens"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "levels",
+                  "levels": [
+                    {
+                      "included": 10000000,
+                      "price": "99",
+                      "overage_unit_price": "0.00001"
+                    },
+                    {
+                      "included": 50000000,
+                      "price": "399",
+                      "overage_unit_price": "0.000008"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "net_terms": 14,
+        "add_ons": [
+          {
+            "add_on": "support"
+          }
+        ],
+        "tax_inclusive": false,
+        "entitlements": []
+      }
+    }
+  },
+  "list_plans": {
+    "response": {
+      "data": [
+        {
+          "id": "plan_3eGEvFsUO3rR4pikBddimz",
+          "code": "leetcode",
+          "name": "LeetCode",
+          "type": "standard",
+          "status": "active",
+          "family": {
+            "id": "pf_4xN37N01VKgBTsOBjaJXO9",
+            "code": "default"
+          },
+          "listing": {
+            "popular": false,
+            "sales_led": false,
+            "hide_price": false
+          },
+          "active_version": 1,
+          "has_draft": true,
+          "created_at": "2026-11-25T23:38:05.611Z"
+        },
+        {
+          "id": "plan_3VuGSURJLqmaOnq2YXVwyT",
+          "code": "notion",
+          "name": "Notion",
+          "type": "standard",
+          "status": "active",
+          "family": {
+            "id": "pf_4xN37N01VKgBTsOBjaJXO9",
+            "code": "default"
+          },
+          "listing": {
+            "popular": false,
+            "sales_led": false,
+            "hide_price": false
+          },
+          "active_version": 1,
+          "has_draft": false,
+          "created_at": "2026-11-25T23:38:05.611Z"
+        }
+      ],
+      "next_cursor": "MDE4YzM0NGItZGE4NS03MGRjLWFlNmYtNWI5MTk4NDdkYmJm",
+      "has_more": true
+    }
+  },
+  "update_plan": {
+    "request": {
+      "listing": {
+        "popular": true,
+        "tagline": "Ship AI features"
+      }
+    },
+    "response": {
+      "id": "plan_712rjYySSV0DRvyVf6ZS04",
+      "code": "growth",
+      "name": "Growth",
+      "description": "For teams shipping AI features to production.",
+      "type": "standard",
+      "status": "active",
+      "family": {
+        "id": "pf_4xN37N01VKgBTsOBjaJXO9",
+        "code": "default"
+      },
+      "listing": {
+        "tagline": "Ship AI features",
+        "popular": true,
+        "sales_led": false,
+        "hide_price": false
+      },
+      "active_version": 1,
+      "has_draft": false,
+      "created_at": "2026-11-25T23:51:25.352Z",
+      "version": {
+        "number": 1,
+        "status": "active",
+        "currency": "EUR",
+        "options": [
+          {
+            "alias": "monthly",
+            "name": "Monthly",
+            "default": true,
+            "hidden": false
+          },
+          {
+            "alias": "annual",
+            "name": "Annual",
+            "default": false,
+            "hidden": false
+          }
+        ],
+        "charges": [
+          {
+            "product": "platform",
+            "name": "Platform",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "monthly",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "49"
+                }
+              },
+              {
+                "option": "annual",
+                "currency": "EUR",
+                "cadence": "annual",
+                "model": {
+                  "type": "flat",
+                  "amount": "490"
+                }
+              }
+            ]
+          },
+          {
+            "product": "seats",
+            "name": "Seats",
+            "preset": "seats",
+            "quantity": {
+              "type": "managed",
+              "quantity": "seats",
+              "min": 1
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "per_unit",
+                  "unit_price": "15"
+                }
+              }
+            ]
+          },
+          {
+            "product": "tokens",
+            "name": "Tokens",
+            "preset": "usage_levels",
+            "quantity": {
+              "type": "metered",
+              "metric": "tokens"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "levels",
+                  "levels": [
+                    {
+                      "included": 10000000,
+                      "price": "99",
+                      "overage_unit_price": "0.00001"
+                    },
+                    {
+                      "included": 50000000,
+                      "price": "399",
+                      "overage_unit_price": "0.000008"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "net_terms": 14,
+        "add_ons": [
+          {
+            "add_on": "support"
+          }
+        ],
+        "tax_inclusive": false,
+        "entitlements": []
+      }
+    }
+  },
+  "put_plan_draft": {
+    "request": {
+      "currency": "EUR",
+      "net_terms": 14,
+      "options": [
+        {
+          "alias": "monthly",
+          "name": "Monthly"
+        },
+        {
+          "alias": "annual",
+          "name": "Annual"
+        }
+      ],
+      "charges": [
+        {
+          "product": "platform",
+          "preset": "flat_fee",
+          "prices": [
+            {
+              "option": "monthly",
+              "currency": "EUR",
+              "cadence": "monthly",
+              "model": {
+                "type": "flat",
+                "amount": "59"
+              }
+            },
+            {
+              "option": "annual",
+              "currency": "EUR",
+              "cadence": "annual",
+              "model": {
+                "type": "flat",
+                "amount": "490"
+              }
+            }
+          ]
+        },
+        {
+          "product": "seats",
+          "preset": "seats",
+          "quantity": {
+            "type": "managed",
+            "quantity": "seats",
+            "min": 1
+          },
+          "prices": [
+            {
+              "currency": "EUR",
+              "model": {
+                "type": "per_unit",
+                "unit_price": "15"
+              }
+            }
+          ]
+        },
+        {
+          "product": "tokens",
+          "preset": "usage_levels",
+          "quantity": {
+            "type": "metered",
+            "metric": "tokens"
+          },
+          "prices": [
+            {
+              "currency": "EUR",
+              "model": {
+                "type": "levels",
+                "levels": [
+                  {
+                    "included": 10000000,
+                    "price": "99",
+                    "overage_unit_price": "0.00001"
+                  },
+                  {
+                    "included": 50000000,
+                    "price": "399",
+                    "overage_unit_price": "0.000008"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "add_ons": [
+        {
+          "add_on": "support"
+        }
+      ]
+    },
+    "response": {
+      "id": "plan_712rjYySSV0DRvyVf6ZS04",
+      "code": "growth",
+      "name": "Growth",
+      "description": "For teams shipping AI features to production.",
+      "type": "standard",
+      "status": "active",
+      "family": {
+        "id": "pf_4xN37N01VKgBTsOBjaJXO9",
+        "code": "default"
+      },
+      "listing": {
+        "tagline": "Ship AI features",
+        "popular": true,
+        "sales_led": false,
+        "hide_price": false
+      },
+      "active_version": 1,
+      "has_draft": true,
+      "created_at": "2026-11-25T23:51:25.352Z",
+      "version": {
+        "number": 2,
+        "status": "draft",
+        "currency": "EUR",
+        "options": [
+          {
+            "alias": "monthly",
+            "name": "Monthly",
+            "default": true,
+            "hidden": false
+          },
+          {
+            "alias": "annual",
+            "name": "Annual",
+            "default": false,
+            "hidden": false
+          }
+        ],
+        "charges": [
+          {
+            "product": "platform",
+            "name": "Platform",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "monthly",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "59"
+                }
+              },
+              {
+                "option": "annual",
+                "currency": "EUR",
+                "cadence": "annual",
+                "model": {
+                  "type": "flat",
+                  "amount": "490"
+                }
+              }
+            ]
+          },
+          {
+            "product": "seats",
+            "name": "Seats",
+            "preset": "seats",
+            "quantity": {
+              "type": "managed",
+              "quantity": "seats",
+              "min": 1
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "per_unit",
+                  "unit_price": "15"
+                }
+              }
+            ]
+          },
+          {
+            "product": "tokens",
+            "name": "Tokens",
+            "preset": "usage_levels",
+            "quantity": {
+              "type": "metered",
+              "metric": "tokens"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "levels",
+                  "levels": [
+                    {
+                      "included": 10000000,
+                      "price": "99",
+                      "overage_unit_price": "0.00001"
+                    },
+                    {
+                      "included": 50000000,
+                      "price": "399",
+                      "overage_unit_price": "0.000008"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "net_terms": 14,
+        "add_ons": [
+          {
+            "add_on": "support"
+          }
+        ],
+        "tax_inclusive": false,
+        "entitlements": []
+      }
+    }
+  },
+  "list_plan_versions": {
+    "response": {
+      "data": [
+        {
+          "number": 1,
+          "status": "active",
+          "currency": "EUR",
+          "created_at": "2026-11-25T23:51:25.352Z"
+        },
+        {
+          "number": 2,
+          "status": "draft",
+          "currency": "EUR",
+          "created_at": "2026-11-25T23:51:25.609Z"
+        }
+      ],
+      "next_cursor": null,
+      "has_more": false
+    }
+  },
+  "archive_plan": {
+    "response": {
+      "id": "plan_5qln5TMgqcT7O4XrA0xMiC",
+      "code": "scale",
+      "name": "Scale",
+      "type": "standard",
+      "status": "archived",
+      "family": {
+        "id": "pf_4xN37N01VKgBTsOBjaJXO9",
+        "code": "default"
+      },
+      "listing": {
+        "popular": false,
+        "sales_led": false,
+        "hide_price": false
+      },
+      "active_version": 1,
+      "has_draft": false,
+      "created_at": "2026-11-25T23:51:25.462Z",
+      "version": {
+        "number": 1,
+        "status": "active",
+        "currency": "EUR",
+        "options": [
+          {
+            "alias": "monthly",
+            "name": "Monthly",
+            "default": true,
+            "hidden": false
+          },
+          {
+            "alias": "annual",
+            "name": "Annual",
+            "default": false,
+            "hidden": false
+          }
+        ],
+        "charges": [
+          {
+            "product": "platform",
+            "name": "Platform",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "monthly",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "199"
+                }
+              },
+              {
+                "option": "annual",
+                "currency": "EUR",
+                "cadence": "annual",
+                "model": {
+                  "type": "flat",
+                  "amount": "490"
+                }
+              }
+            ]
+          },
+          {
+            "product": "seats",
+            "name": "Seats",
+            "preset": "seats",
+            "quantity": {
+              "type": "managed",
+              "quantity": "seats",
+              "min": 1
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "per_unit",
+                  "unit_price": "15"
+                }
+              }
+            ]
+          },
+          {
+            "product": "tokens",
+            "name": "Tokens",
+            "preset": "usage_levels",
+            "quantity": {
+              "type": "metered",
+              "metric": "tokens"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "levels",
+                  "levels": [
+                    {
+                      "included": 20000000,
+                      "price": "99",
+                      "overage_unit_price": "0.00001"
+                    },
+                    {
+                      "included": 50000000,
+                      "price": "399",
+                      "overage_unit_price": "0.000008"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "net_terms": 14,
+        "add_ons": [
+          {
+            "add_on": "support"
+          }
+        ],
+        "tax_inclusive": false,
+        "entitlements": []
+      }
+    }
+  },
+  "unarchive_plan": {
+    "response": {
+      "id": "plan_5qln5TMgqcT7O4XrA0xMiC",
+      "code": "scale",
+      "name": "Scale",
+      "type": "standard",
+      "status": "active",
+      "family": {
+        "id": "pf_4xN37N01VKgBTsOBjaJXO9",
+        "code": "default"
+      },
+      "listing": {
+        "popular": false,
+        "sales_led": false,
+        "hide_price": false
+      },
+      "active_version": 1,
+      "has_draft": false,
+      "created_at": "2026-11-25T23:51:25.462Z",
+      "version": {
+        "number": 1,
+        "status": "active",
+        "currency": "EUR",
+        "options": [
+          {
+            "alias": "monthly",
+            "name": "Monthly",
+            "default": true,
+            "hidden": false
+          },
+          {
+            "alias": "annual",
+            "name": "Annual",
+            "default": false,
+            "hidden": false
+          }
+        ],
+        "charges": [
+          {
+            "product": "platform",
+            "name": "Platform",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "monthly",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "199"
+                }
+              },
+              {
+                "option": "annual",
+                "currency": "EUR",
+                "cadence": "annual",
+                "model": {
+                  "type": "flat",
+                  "amount": "490"
+                }
+              }
+            ]
+          },
+          {
+            "product": "seats",
+            "name": "Seats",
+            "preset": "seats",
+            "quantity": {
+              "type": "managed",
+              "quantity": "seats",
+              "min": 1
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "per_unit",
+                  "unit_price": "15"
+                }
+              }
+            ]
+          },
+          {
+            "product": "tokens",
+            "name": "Tokens",
+            "preset": "usage_levels",
+            "quantity": {
+              "type": "metered",
+              "metric": "tokens"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "levels",
+                  "levels": [
+                    {
+                      "included": 20000000,
+                      "price": "99",
+                      "overage_unit_price": "0.00001"
+                    },
+                    {
+                      "included": 50000000,
+                      "price": "399",
+                      "overage_unit_price": "0.000008"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "net_terms": 14,
+        "add_ons": [
+          {
+            "add_on": "support"
+          }
+        ],
+        "tax_inclusive": false,
+        "entitlements": []
+      }
+    }
+  },
+  "create_subscription": {
+    "request": {
+      "customer": "ext:northwind",
+      "plan": "growth",
+      "option": "monthly",
+      "external_id": "northwind-growth",
+      "quantities": {
+        "seats": "5"
+      },
+      "levels": {
+        "tokens": "10000000"
+      },
+      "invoicing": {
+        "charge_automatically": false
+      }
+    },
+    "response": {
+      "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+      "external_id": "northwind-growth",
+      "customer": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH"
+      },
+      "plan": {
+        "id": "plan_712rjYySSV0DRvyVf6ZS04",
+        "code": "growth",
+        "version": 1,
+        "option": "monthly"
+      },
+      "status": "active",
+      "currency": "EUR",
+      "period": "monthly",
+      "activation": "on_start",
+      "billing_day_anchor": 25,
+      "dates": {
+        "start": "2026-11-25",
+        "billing_start": "2026-11-25",
+        "activated_at": "2026-11-25T00:00:00.000Z"
+      },
+      "current_period": {
+        "start": "2026-11-25",
+        "end": "2026-12-25"
+      },
+      "quantities": {
+        "seats": {
+          "held": "5",
+          "pending": []
+        }
+      },
+      "levels": {
+        "tokens": "10000000"
+      },
+      "charges": [
+        {
+          "origin": "plan",
+          "product": "platform",
+          "name": "Platform",
+          "preset": "flat_fee",
+          "quantity": {
+            "type": "fixed",
+            "value": "1"
+          },
+          "timing": {
+            "recurrence": "recurring",
+            "billing": "advance"
+          },
+          "prices": [
+            {
+              "option": "*",
+              "currency": "EUR",
+              "cadence": "monthly",
+              "model": {
+                "type": "flat",
+                "amount": "49"
+              }
+            }
+          ]
+        },
+        {
+          "origin": "plan",
+          "product": "seats",
+          "name": "Seats",
+          "preset": "seats",
+          "quantity": {
+            "type": "managed",
+            "quantity": "seats",
+            "min": 1
+          },
+          "timing": {
+            "recurrence": "recurring",
+            "billing": "advance"
+          },
+          "prices": [
+            {
+              "option": "*",
+              "currency": "EUR",
+              "cadence": "monthly",
+              "model": {
+                "type": "per_unit",
+                "unit_price": "15"
+              }
+            }
+          ]
+        },
+        {
+          "origin": "plan",
+          "product": "tokens",
+          "name": "Tokens",
+          "preset": "usage_levels",
+          "quantity": {
+            "type": "metered",
+            "metric": "tokens"
+          },
+          "timing": {
+            "recurrence": "recurring",
+            "billing": "advance"
+          },
+          "prices": [
+            {
+              "option": "*",
+              "currency": "EUR",
+              "cadence": "monthly",
+              "model": {
+                "type": "levels",
+                "levels": [
+                  {
+                    "included": 10000000,
+                    "price": "99",
+                    "overage_unit_price": "0.00001"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "add_ons": [],
+      "coupons": [],
+      "schedule": [],
+      "mrr": {
+        "amount": 22300,
+        "currency": "EUR"
+      },
+      "tax_inclusive": false,
+      "invoicing": {
+        "net_terms": 14,
+        "auto_finalize": true,
+        "charge_automatically": false
+      },
+      "custom_properties": {},
+      "created_at": "2026-11-25T23:51:25.750Z",
+      "updated_at": "2026-11-25T23:51:25.822Z"
+    }
+  },
+  "get_subscription": {
+    "response": {
+      "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+      "external_id": "northwind-growth",
+      "customer": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH"
+      },
+      "plan": {
+        "id": "plan_712rjYySSV0DRvyVf6ZS04",
+        "code": "growth",
+        "version": 1,
+        "option": "monthly"
+      },
+      "status": "active",
+      "currency": "EUR",
+      "period": "monthly",
+      "activation": "on_start",
+      "billing_day_anchor": 25,
+      "dates": {
+        "start": "2026-11-25",
+        "billing_start": "2026-11-25",
+        "activated_at": "2026-11-25T00:00:00.000Z"
+      },
+      "current_period": {
+        "start": "2026-11-25",
+        "end": "2026-12-25"
+      },
+      "quantities": {
+        "seats": {
+          "held": "5",
+          "pending": []
+        }
+      },
+      "levels": {
+        "tokens": "10000000"
+      },
+      "charges": [
+        {
+          "origin": "plan",
+          "product": "platform",
+          "name": "Platform",
+          "preset": "flat_fee",
+          "quantity": {
+            "type": "fixed",
+            "value": "1"
+          },
+          "timing": {
+            "recurrence": "recurring",
+            "billing": "advance"
+          },
+          "prices": [
+            {
+              "option": "*",
+              "currency": "EUR",
+              "cadence": "monthly",
+              "model": {
+                "type": "flat",
+                "amount": "49"
+              }
+            }
+          ]
+        },
+        {
+          "origin": "plan",
+          "product": "seats",
+          "name": "Seats",
+          "preset": "seats",
+          "quantity": {
+            "type": "managed",
+            "quantity": "seats",
+            "min": 1
+          },
+          "timing": {
+            "recurrence": "recurring",
+            "billing": "advance"
+          },
+          "prices": [
+            {
+              "option": "*",
+              "currency": "EUR",
+              "cadence": "monthly",
+              "model": {
+                "type": "per_unit",
+                "unit_price": "15"
+              }
+            }
+          ]
+        },
+        {
+          "origin": "plan",
+          "product": "tokens",
+          "name": "Tokens",
+          "preset": "usage_levels",
+          "quantity": {
+            "type": "metered",
+            "metric": "tokens"
+          },
+          "timing": {
+            "recurrence": "recurring",
+            "billing": "advance"
+          },
+          "prices": [
+            {
+              "option": "*",
+              "currency": "EUR",
+              "cadence": "monthly",
+              "model": {
+                "type": "levels",
+                "levels": [
+                  {
+                    "included": 10000000,
+                    "price": "99",
+                    "overage_unit_price": "0.00001"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "add_ons": [],
+      "coupons": [],
+      "schedule": [],
+      "mrr": {
+        "amount": 22300,
+        "currency": "EUR"
+      },
+      "tax_inclusive": false,
+      "invoicing": {
+        "net_terms": 14,
+        "auto_finalize": true,
+        "charge_automatically": false
+      },
+      "custom_properties": {},
+      "created_at": "2026-11-25T23:51:25.750Z",
+      "updated_at": "2026-11-25T23:51:25.822Z"
+    }
+  },
+  "list_subscriptions": {
+    "response": {
+      "data": [
+        {
+          "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+          "external_id": "northwind-growth",
+          "customer": {
+            "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+            "alias": "northwind",
+            "name": "Northwind Labs GmbH"
+          },
+          "plan": {
+            "id": "plan_712rjYySSV0DRvyVf6ZS04",
+            "code": "growth",
+            "version": 1,
+            "option": "monthly"
+          },
+          "status": "active",
+          "currency": "EUR",
+          "period": "monthly",
+          "activation": "on_start",
+          "billing_day_anchor": 25,
+          "dates": {
+            "start": "2026-11-25",
+            "billing_start": "2026-11-25",
+            "activated_at": "2026-11-25T00:00:00.000Z"
+          },
+          "current_period": {
+            "start": "2026-11-25",
+            "end": "2026-12-25"
+          },
+          "mrr": {
+            "amount": 22300,
+            "currency": "EUR"
+          },
+          "tax_inclusive": false,
+          "invoicing": {
+            "net_terms": 14,
+            "auto_finalize": true,
+            "charge_automatically": false
+          },
+          "custom_properties": {},
+          "created_at": "2026-11-25T23:51:25.750Z",
+          "updated_at": "2026-11-25T23:51:25.822Z"
+        }
+      ],
+      "next_cursor": null,
+      "has_more": false
+    }
+  },
+  "get_subscription_summary": {
+    "response": {
+      "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+      "external_id": "northwind-growth",
+      "customer": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH"
+      },
+      "plan": {
+        "id": "plan_712rjYySSV0DRvyVf6ZS04",
+        "code": "growth",
+        "version": 1,
+        "option": "monthly"
+      },
+      "status": "active",
+      "currency": "EUR",
+      "period": "monthly",
+      "activation": "on_start",
+      "billing_day_anchor": 25,
+      "dates": {
+        "start": "2026-11-25",
+        "billing_start": "2026-11-25",
+        "activated_at": "2026-11-25T00:00:00.000Z"
+      },
+      "current_period": {
+        "start": "2026-11-25",
+        "end": "2026-12-25"
+      },
+      "mrr": {
+        "amount": 22300,
+        "currency": "EUR"
+      },
+      "tax_inclusive": false,
+      "invoicing": {
+        "net_terms": 14,
+        "auto_finalize": true,
+        "charge_automatically": false
+      },
+      "custom_properties": {},
+      "created_at": "2026-11-25T23:51:25.750Z",
+      "updated_at": "2026-11-25T23:51:25.822Z"
+    }
+  },
+  "update_subscription": {
+    "request": {
+      "invoicing": {
+        "purchase_order": "PO-2026-114"
+      }
+    },
+    "response": {
+      "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+      "external_id": "northwind-growth",
+      "customer": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH"
+      },
+      "plan": {
+        "id": "plan_712rjYySSV0DRvyVf6ZS04",
+        "code": "growth",
+        "version": 1,
+        "option": "monthly"
+      },
+      "status": "active",
+      "currency": "EUR",
+      "period": "monthly",
+      "activation": "on_start",
+      "billing_day_anchor": 25,
+      "dates": {
+        "start": "2026-11-25",
+        "billing_start": "2026-11-25",
+        "activated_at": "2026-11-25T00:00:00.000Z"
+      },
+      "current_period": {
+        "start": "2026-11-25",
+        "end": "2026-12-25"
+      },
+      "quantities": {
+        "seats": {
+          "held": "5",
+          "pending": []
+        }
+      },
+      "levels": {
+        "tokens": "10000000"
+      },
+      "charges": [
+        {
+          "origin": "plan",
+          "product": "platform",
+          "name": "Platform",
+          "preset": "flat_fee",
+          "quantity": {
+            "type": "fixed",
+            "value": "1"
+          },
+          "timing": {
+            "recurrence": "recurring",
+            "billing": "advance"
+          },
+          "prices": [
+            {
+              "option": "*",
+              "currency": "EUR",
+              "cadence": "monthly",
+              "model": {
+                "type": "flat",
+                "amount": "49"
+              }
+            }
+          ]
+        },
+        {
+          "origin": "plan",
+          "product": "seats",
+          "name": "Seats",
+          "preset": "seats",
+          "quantity": {
+            "type": "managed",
+            "quantity": "seats",
+            "min": 1
+          },
+          "timing": {
+            "recurrence": "recurring",
+            "billing": "advance"
+          },
+          "prices": [
+            {
+              "option": "*",
+              "currency": "EUR",
+              "cadence": "monthly",
+              "model": {
+                "type": "per_unit",
+                "unit_price": "15"
+              }
+            }
+          ]
+        },
+        {
+          "origin": "plan",
+          "product": "tokens",
+          "name": "Tokens",
+          "preset": "usage_levels",
+          "quantity": {
+            "type": "metered",
+            "metric": "tokens"
+          },
+          "timing": {
+            "recurrence": "recurring",
+            "billing": "advance"
+          },
+          "prices": [
+            {
+              "option": "*",
+              "currency": "EUR",
+              "cadence": "monthly",
+              "model": {
+                "type": "levels",
+                "levels": [
+                  {
+                    "included": 10000000,
+                    "price": "99",
+                    "overage_unit_price": "0.00001"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "add_ons": [],
+      "coupons": [],
+      "schedule": [],
+      "mrr": {
+        "amount": 22300,
+        "currency": "EUR"
+      },
+      "tax_inclusive": false,
+      "invoicing": {
+        "net_terms": 14,
+        "purchase_order": "PO-2026-114",
+        "auto_finalize": true,
+        "charge_automatically": false
+      },
+      "custom_properties": {},
+      "created_at": "2026-11-25T23:51:25.750Z",
+      "updated_at": "2026-11-25T23:51:25.907Z"
+    }
+  },
+  "preview_quantity_change": {
+    "request": {
+      "delta": "+3"
+    },
+    "response": {
+      "effective_date": "2026-11-25",
+      "direction": "upgrade",
+      "when": "immediate",
+      "documents": [
+        {
+          "type": "invoice",
+          "currency": "EUR",
+          "subtotal": 4500,
+          "discount": 0,
+          "tax": 0,
+          "total": 4500,
+          "amount_due": 4500,
+          "lines": [
+            {
+              "id": "5bjOI0Js2M4W8",
+              "name": "3 Seats upgrade",
+              "description": "Prorated charge for 3 additional Seats",
+              "product": {
+                "id": "prd_2quh7Q0B26cO",
+                "code": "seats"
+              },
+              "kind": "charge",
+              "billing": "recurring",
+              "quantity": "3",
+              "unit_price": "15",
+              "amount": 4500,
+              "taxable_amount": 4500,
+              "tax_rate": "0",
+              "tax": 0,
+              "total": 4500,
+              "start_date": "2026-11-25",
+              "end_date": "2026-12-25",
+              "prorated": true
+            }
+          ]
+        }
+      ],
+      "incomplete": false,
+      "subscription_after": {
+        "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+        "external_id": "northwind-growth",
+        "customer": {
+          "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+          "alias": "northwind",
+          "name": "Northwind Labs GmbH"
+        },
+        "plan": {
+          "id": "plan_712rjYySSV0DRvyVf6ZS04",
+          "code": "growth",
+          "version": 1,
+          "option": "monthly"
+        },
+        "status": "active",
+        "currency": "EUR",
+        "period": "monthly",
+        "activation": "on_start",
+        "billing_day_anchor": 25,
+        "dates": {
+          "start": "2026-11-25",
+          "billing_start": "2026-11-25",
+          "activated_at": "2026-11-25T00:00:00.000Z"
+        },
+        "current_period": {
+          "start": "2026-11-25",
+          "end": "2026-12-25"
+        },
+        "quantities": {
+          "seats": {
+            "held": "8",
+            "pending": []
+          }
+        },
+        "levels": {
+          "tokens": "10000000"
+        },
+        "charges": [
+          {
+            "origin": "plan",
+            "product": "platform",
+            "name": "Platform",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "49"
+                }
+              }
+            ]
+          },
+          {
+            "origin": "plan",
+            "product": "seats",
+            "name": "Seats",
+            "preset": "seats",
+            "quantity": {
+              "type": "managed",
+              "quantity": "seats",
+              "min": 1
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "per_unit",
+                  "unit_price": "15"
+                }
+              }
+            ]
+          },
+          {
+            "origin": "plan",
+            "product": "tokens",
+            "name": "Tokens",
+            "preset": "usage_levels",
+            "quantity": {
+              "type": "metered",
+              "metric": "tokens"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "levels",
+                  "levels": [
+                    {
+                      "included": 10000000,
+                      "price": "99",
+                      "overage_unit_price": "0.00001"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "add_ons": [],
+        "coupons": [],
+        "schedule": [],
+        "mrr": {
+          "amount": 26800,
+          "currency": "EUR"
+        },
+        "tax_inclusive": false,
+        "invoicing": {
+          "net_terms": 14,
+          "purchase_order": "PO-2026-114",
+          "auto_finalize": true,
+          "charge_automatically": false
+        },
+        "custom_properties": {},
+        "created_at": "2026-11-25T23:51:25.750Z",
+        "updated_at": "2026-11-25T23:51:25.907Z"
+      }
+    }
+  },
+  "change_quantity": {
+    "request": {
+      "delta": "+3"
+    },
+    "response": {
+      "status": "applied",
+      "effective_date": "2026-11-25",
+      "invoices": [
+        {
+          "id": "inv_FoiIqVGqzOTaZFxOKyJpM",
+          "number": "INV-0002"
+        }
+      ],
+      "credit_notes": [],
+      "subscription": {
+        "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+        "external_id": "northwind-growth",
+        "customer": {
+          "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+          "alias": "northwind",
+          "name": "Northwind Labs GmbH"
+        },
+        "plan": {
+          "id": "plan_712rjYySSV0DRvyVf6ZS04",
+          "code": "growth",
+          "version": 1,
+          "option": "monthly"
+        },
+        "status": "active",
+        "currency": "EUR",
+        "period": "monthly",
+        "activation": "on_start",
+        "billing_day_anchor": 25,
+        "dates": {
+          "start": "2026-11-25",
+          "billing_start": "2026-11-25",
+          "activated_at": "2026-11-25T00:00:00.000Z"
+        },
+        "current_period": {
+          "start": "2026-11-25",
+          "end": "2026-12-25"
+        },
+        "quantities": {
+          "seats": {
+            "held": "8",
+            "pending": []
+          }
+        },
+        "levels": {
+          "tokens": "10000000"
+        },
+        "charges": [
+          {
+            "origin": "plan",
+            "product": "platform",
+            "name": "Platform",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "49"
+                }
+              }
+            ]
+          },
+          {
+            "origin": "plan",
+            "product": "seats",
+            "name": "Seats",
+            "preset": "seats",
+            "quantity": {
+              "type": "managed",
+              "quantity": "seats",
+              "min": 1
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "per_unit",
+                  "unit_price": "15"
+                }
+              }
+            ]
+          },
+          {
+            "origin": "plan",
+            "product": "tokens",
+            "name": "Tokens",
+            "preset": "usage_levels",
+            "quantity": {
+              "type": "metered",
+              "metric": "tokens"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "levels",
+                  "levels": [
+                    {
+                      "included": 10000000,
+                      "price": "99",
+                      "overage_unit_price": "0.00001"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "add_ons": [],
+        "coupons": [],
+        "schedule": [],
+        "mrr": {
+          "amount": 26800,
+          "currency": "EUR"
+        },
+        "tax_inclusive": false,
+        "invoicing": {
+          "net_terms": 14,
+          "purchase_order": "PO-2026-114",
+          "auto_finalize": true,
+          "charge_automatically": false
+        },
+        "custom_properties": {},
+        "created_at": "2026-11-25T23:51:25.750Z",
+        "updated_at": "2026-11-25T23:51:26.090Z"
+      }
+    }
+  },
+  "preview_level_change": {
+    "request": {
+      "included": "50000000",
+      "when": {
+        "type": "immediate"
+      }
+    },
+    "response": {
+      "effective_date": "2026-11-25",
+      "direction": "upgrade",
+      "when": "immediate",
+      "documents": [
+        {
+          "type": "invoice",
+          "currency": "EUR",
+          "subtotal": 30000,
+          "discount": 0,
+          "tax": 0,
+          "total": 30000,
+          "amount_due": 30000,
+          "lines": [
+            {
+              "id": "01a2151f-0cde-73a2-965d-2f0aa2c49459",
+              "name": "Tokens",
+              "product": {
+                "id": "prd_4NmFOB0DfPJ2IPM1npnj2L",
+                "code": "tokens"
+              },
+              "kind": "charge",
+              "billing": "usage",
+              "quantity": "1",
+              "unit_price": "300",
+              "amount": 30000,
+              "taxable_amount": 30000,
+              "tax_rate": "0",
+              "tax": 0,
+              "total": 30000,
+              "start_date": "2026-11-25",
+              "end_date": "2026-12-25",
+              "prorated": false
+            }
+          ]
+        },
+        {
+          "type": "next_invoice",
+          "currency": "EUR",
+          "subtotal": 56800,
+          "discount": 0,
+          "tax": 0,
+          "total": 56800,
+          "amount_due": 56800,
+          "lines": [
+            {
+              "id": "J6gD2bDxDvtaD",
+              "name": "Platform",
+              "product": {
+                "id": "prd_6FN43isgTC2zWDd4nMSHRU",
+                "code": "platform"
+              },
+              "kind": "charge",
+              "billing": "recurring",
+              "quantity": "1",
+              "unit_price": "49",
+              "amount": 4900,
+              "taxable_amount": 4900,
+              "tax_rate": "0",
+              "tax": 0,
+              "total": 4900,
+              "start_date": "2026-12-25",
+              "end_date": "2027-01-25",
+              "prorated": false
+            },
+            {
+              "id": "ikAejSciff4XJ",
+              "name": "Seats",
+              "product": {
+                "id": "prd_2quh7Q0B26cO",
+                "code": "seats"
+              },
+              "kind": "charge",
+              "billing": "recurring",
+              "quantity": "8",
+              "unit_price": "15",
+              "amount": 12000,
+              "taxable_amount": 12000,
+              "tax_rate": "0",
+              "tax": 0,
+              "total": 12000,
+              "start_date": "2026-12-25",
+              "end_date": "2027-01-25",
+              "prorated": false
+            },
+            {
+              "id": "ANZkd4RtsYiVR",
+              "name": "Tokens",
+              "product": {
+                "id": "prd_4NmFOB0DfPJ2IPM1npnj2L",
+                "code": "tokens"
+              },
+              "kind": "charge",
+              "billing": "usage",
+              "quantity": "1",
+              "unit_price": "399",
+              "amount": 39900,
+              "taxable_amount": 39900,
+              "tax_rate": "0",
+              "tax": 0,
+              "total": 39900,
+              "start_date": "2026-12-25",
+              "end_date": "2027-01-25",
+              "prorated": false
+            }
+          ]
+        }
+      ],
+      "incomplete": false,
+      "subscription_after": {
+        "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+        "external_id": "northwind-growth",
+        "customer": {
+          "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+          "alias": "northwind",
+          "name": "Northwind Labs GmbH"
+        },
+        "plan": {
+          "id": "plan_712rjYySSV0DRvyVf6ZS04",
+          "code": "growth",
+          "version": 1,
+          "option": "monthly"
+        },
+        "status": "active",
+        "currency": "EUR",
+        "period": "monthly",
+        "activation": "on_start",
+        "billing_day_anchor": 25,
+        "dates": {
+          "start": "2026-11-25",
+          "billing_start": "2026-11-25",
+          "activated_at": "2026-11-25T00:00:00.000Z"
+        },
+        "current_period": {
+          "start": "2026-11-25",
+          "end": "2026-12-25"
+        },
+        "quantities": {
+          "seats": {
+            "held": "8",
+            "pending": []
+          }
+        },
+        "levels": {
+          "tokens": "50000000"
+        },
+        "charges": [
+          {
+            "origin": "plan",
+            "product": "platform",
+            "name": "Platform",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "49"
+                }
+              }
+            ]
+          },
+          {
+            "origin": "plan",
+            "product": "seats",
+            "name": "Seats",
+            "preset": "seats",
+            "quantity": {
+              "type": "managed",
+              "quantity": "seats",
+              "min": 1
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "per_unit",
+                  "unit_price": "15"
+                }
+              }
+            ]
+          },
+          {
+            "origin": "amendment",
+            "product": "tokens",
+            "name": "Tokens",
+            "preset": "usage_levels",
+            "quantity": {
+              "type": "metered",
+              "metric": "tokens"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "levels",
+                  "levels": [
+                    {
+                      "included": 50000000,
+                      "price": "399",
+                      "overage_unit_price": "0.000008"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "add_ons": [],
+        "coupons": [],
+        "schedule": [],
+        "mrr": {
+          "amount": 56800,
+          "currency": "EUR"
+        },
+        "tax_inclusive": false,
+        "invoicing": {
+          "net_terms": 14,
+          "purchase_order": "PO-2026-114",
+          "auto_finalize": true,
+          "charge_automatically": false
+        },
+        "custom_properties": {},
+        "created_at": "2026-11-25T23:51:25.750Z",
+        "updated_at": "2026-11-25T23:51:26.090Z"
+      }
+    }
+  },
+  "change_level": {
+    "request": {
+      "included": "50000000",
+      "when": {
+        "type": "immediate"
+      }
+    },
+    "response": {
+      "status": "applied",
+      "effective_date": "2026-11-25",
+      "invoices": [
+        {
+          "id": "inv_7KOsfx0Y9gpXh8nxoKeqzk",
+          "number": "INV-0003"
+        }
+      ],
+      "credit_notes": [],
+      "subscription": {
+        "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+        "external_id": "northwind-growth",
+        "customer": {
+          "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+          "alias": "northwind",
+          "name": "Northwind Labs GmbH"
+        },
+        "plan": {
+          "id": "plan_712rjYySSV0DRvyVf6ZS04",
+          "code": "growth",
+          "version": 1,
+          "option": "monthly"
+        },
+        "status": "active",
+        "currency": "EUR",
+        "period": "monthly",
+        "activation": "on_start",
+        "billing_day_anchor": 25,
+        "dates": {
+          "start": "2026-11-25",
+          "billing_start": "2026-11-25",
+          "activated_at": "2026-11-25T00:00:00.000Z"
+        },
+        "current_period": {
+          "start": "2026-11-25",
+          "end": "2026-12-25"
+        },
+        "quantities": {
+          "seats": {
+            "held": "8",
+            "pending": []
+          }
+        },
+        "levels": {
+          "tokens": "50000000"
+        },
+        "charges": [
+          {
+            "origin": "plan",
+            "product": "platform",
+            "name": "Platform",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "49"
+                }
+              }
+            ]
+          },
+          {
+            "origin": "plan",
+            "product": "seats",
+            "name": "Seats",
+            "preset": "seats",
+            "quantity": {
+              "type": "managed",
+              "quantity": "seats",
+              "min": 1
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "per_unit",
+                  "unit_price": "15"
+                }
+              }
+            ]
+          },
+          {
+            "origin": "amendment",
+            "product": "tokens",
+            "name": "Tokens",
+            "preset": "usage_levels",
+            "quantity": {
+              "type": "metered",
+              "metric": "tokens"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "levels",
+                  "levels": [
+                    {
+                      "included": 50000000,
+                      "price": "399",
+                      "overage_unit_price": "0.000008"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "add_ons": [],
+        "coupons": [],
+        "schedule": [],
+        "mrr": {
+          "amount": 56800,
+          "currency": "EUR"
+        },
+        "tax_inclusive": false,
+        "invoicing": {
+          "net_terms": 14,
+          "purchase_order": "PO-2026-114",
+          "auto_finalize": true,
+          "charge_automatically": false
+        },
+        "custom_properties": {},
+        "created_at": "2026-11-25T23:51:25.750Z",
+        "updated_at": "2026-11-25T23:51:26.308Z"
+      }
+    }
+  },
+  "preview_amendment": {
+    "request": {
+      "add_ons": {
+        "add": [
+          {
+            "add_on": "support"
+          }
+        ]
+      },
+      "when": {
+        "type": "immediate"
+      }
+    },
+    "response": {
+      "effective_date": "2026-11-25",
+      "direction": "upgrade",
+      "when": "immediate",
+      "documents": [
+        {
+          "type": "invoice",
+          "currency": "EUR",
+          "subtotal": 9900,
+          "discount": 0,
+          "tax": 0,
+          "total": 9900,
+          "amount_due": 9900,
+          "lines": [
+            {
+              "id": "01a2151f-0daf-7143-a4d1-d8e2039794ef",
+              "name": "Priority support",
+              "product": {
+                "id": "prd_6yBv1j6pFkzGQma9EB5xXI",
+                "code": "support"
+              },
+              "kind": "charge",
+              "billing": "recurring",
+              "quantity": "1",
+              "unit_price": "99",
+              "amount": 9900,
+              "taxable_amount": 9900,
+              "tax_rate": "0",
+              "tax": 0,
+              "total": 9900,
+              "start_date": "2026-11-25",
+              "end_date": "2026-12-25",
+              "prorated": false
+            }
+          ]
+        },
+        {
+          "type": "next_invoice",
+          "currency": "EUR",
+          "subtotal": 66700,
+          "discount": 0,
+          "tax": 0,
+          "total": 66700,
+          "amount_due": 66700,
+          "lines": [
+            {
+              "id": "J6gD2bDxDvtaD",
+              "name": "Platform",
+              "product": {
+                "id": "prd_6FN43isgTC2zWDd4nMSHRU",
+                "code": "platform"
+              },
+              "kind": "charge",
+              "billing": "recurring",
+              "quantity": "1",
+              "unit_price": "49",
+              "amount": 4900,
+              "taxable_amount": 4900,
+              "tax_rate": "0",
+              "tax": 0,
+              "total": 4900,
+              "start_date": "2026-12-25",
+              "end_date": "2027-01-25",
+              "prorated": false
+            },
+            {
+              "id": "ikAejSciff4XJ",
+              "name": "Seats",
+              "product": {
+                "id": "prd_2quh7Q0B26cO",
+                "code": "seats"
+              },
+              "kind": "charge",
+              "billing": "recurring",
+              "quantity": "8",
+              "unit_price": "15",
+              "amount": 12000,
+              "taxable_amount": 12000,
+              "tax_rate": "0",
+              "tax": 0,
+              "total": 12000,
+              "start_date": "2026-12-25",
+              "end_date": "2027-01-25",
+              "prorated": false
+            },
+            {
+              "id": "ANZkd4RtsYiVR",
+              "name": "Tokens",
+              "product": {
+                "id": "prd_4NmFOB0DfPJ2IPM1npnj2L",
+                "code": "tokens"
+              },
+              "kind": "charge",
+              "billing": "usage",
+              "quantity": "1",
+              "unit_price": "399",
+              "amount": 39900,
+              "taxable_amount": 39900,
+              "tax_rate": "0",
+              "tax": 0,
+              "total": 39900,
+              "start_date": "2026-12-25",
+              "end_date": "2027-01-25",
+              "prorated": false
+            },
+            {
+              "id": "OUVXCUaXLJ0TX",
+              "name": "Priority support",
+              "product": {
+                "id": "prd_6yBv1j6pFkzGQma9EB5xXI",
+                "code": "support"
+              },
+              "kind": "charge",
+              "billing": "recurring",
+              "quantity": "1",
+              "unit_price": "99",
+              "amount": 9900,
+              "taxable_amount": 9900,
+              "tax_rate": "0",
+              "tax": 0,
+              "total": 9900,
+              "start_date": "2026-12-25",
+              "end_date": "2027-01-25",
+              "prorated": false
+            }
+          ]
+        }
+      ],
+      "incomplete": false,
+      "subscription_after": {
+        "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+        "external_id": "northwind-growth",
+        "customer": {
+          "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+          "alias": "northwind",
+          "name": "Northwind Labs GmbH"
+        },
+        "plan": {
+          "id": "plan_712rjYySSV0DRvyVf6ZS04",
+          "code": "growth",
+          "version": 1,
+          "option": "monthly"
+        },
+        "status": "active",
+        "currency": "EUR",
+        "period": "monthly",
+        "activation": "on_start",
+        "billing_day_anchor": 25,
+        "dates": {
+          "start": "2026-11-25",
+          "billing_start": "2026-11-25",
+          "activated_at": "2026-11-25T00:00:00.000Z"
+        },
+        "current_period": {
+          "start": "2026-11-25",
+          "end": "2026-12-25"
+        },
+        "quantities": {
+          "seats": {
+            "held": "8",
+            "pending": []
+          }
+        },
+        "levels": {
+          "tokens": "50000000"
+        },
+        "charges": [
+          {
+            "origin": "plan",
+            "product": "platform",
+            "name": "Platform",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "49"
+                }
+              }
+            ]
+          },
+          {
+            "origin": "plan",
+            "product": "seats",
+            "name": "Seats",
+            "preset": "seats",
+            "quantity": {
+              "type": "managed",
+              "quantity": "seats",
+              "min": 1
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "per_unit",
+                  "unit_price": "15"
+                }
+              }
+            ]
+          },
+          {
+            "origin": "amendment",
+            "product": "tokens",
+            "name": "Tokens",
+            "preset": "usage_levels",
+            "quantity": {
+              "type": "metered",
+              "metric": "tokens"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "levels",
+                  "levels": [
+                    {
+                      "included": 50000000,
+                      "price": "399",
+                      "overage_unit_price": "0.000008"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "origin": "add_on",
+            "add_on": {
+              "id": "add_6JXVRswVm3wFtgHo6NXPiu",
+              "code": "support"
+            },
+            "product": "support",
+            "name": "Priority support",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "99"
+                }
+              }
+            ]
+          }
+        ],
+        "add_ons": [
+          {
+            "add_on": {
+              "id": "add_6JXVRswVm3wFtgHo6NXPiu",
+              "code": "support"
+            },
+            "name": "Priority support",
+            "quantity": 1
+          }
+        ],
+        "coupons": [],
+        "schedule": [],
+        "mrr": {
+          "amount": 66700,
+          "currency": "EUR"
+        },
+        "tax_inclusive": false,
+        "invoicing": {
+          "net_terms": 14,
+          "purchase_order": "PO-2026-114",
+          "auto_finalize": true,
+          "charge_automatically": false
+        },
+        "custom_properties": {},
+        "created_at": "2026-11-25T23:51:25.750Z",
+        "updated_at": "2026-11-25T23:51:26.308Z"
+      }
+    }
+  },
+  "amend_subscription": {
+    "request": {
+      "add_ons": {
+        "add": [
+          {
+            "add_on": "support"
+          }
+        ]
+      },
+      "when": {
+        "type": "immediate"
+      }
+    },
+    "response": {
+      "status": "applied",
+      "effective_date": "2026-11-25",
+      "invoices": [
+        {
+          "id": "inv_20rUiilYVK6QC6ZZPYiPmn",
+          "number": "INV-0004"
+        }
+      ],
+      "credit_notes": [],
+      "subscription": {
+        "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+        "external_id": "northwind-growth",
+        "customer": {
+          "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+          "alias": "northwind",
+          "name": "Northwind Labs GmbH"
+        },
+        "plan": {
+          "id": "plan_712rjYySSV0DRvyVf6ZS04",
+          "code": "growth",
+          "version": 1,
+          "option": "monthly"
+        },
+        "status": "active",
+        "currency": "EUR",
+        "period": "monthly",
+        "activation": "on_start",
+        "billing_day_anchor": 25,
+        "dates": {
+          "start": "2026-11-25",
+          "billing_start": "2026-11-25",
+          "activated_at": "2026-11-25T00:00:00.000Z"
+        },
+        "current_period": {
+          "start": "2026-11-25",
+          "end": "2026-12-25"
+        },
+        "quantities": {
+          "seats": {
+            "held": "8",
+            "pending": []
+          }
+        },
+        "levels": {
+          "tokens": "50000000"
+        },
+        "charges": [
+          {
+            "origin": "plan",
+            "product": "platform",
+            "name": "Platform",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "49"
+                }
+              }
+            ]
+          },
+          {
+            "origin": "plan",
+            "product": "seats",
+            "name": "Seats",
+            "preset": "seats",
+            "quantity": {
+              "type": "managed",
+              "quantity": "seats",
+              "min": 1
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "per_unit",
+                  "unit_price": "15"
+                }
+              }
+            ]
+          },
+          {
+            "origin": "amendment",
+            "product": "tokens",
+            "name": "Tokens",
+            "preset": "usage_levels",
+            "quantity": {
+              "type": "metered",
+              "metric": "tokens"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "levels",
+                  "levels": [
+                    {
+                      "included": 50000000,
+                      "price": "399",
+                      "overage_unit_price": "0.000008"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "origin": "add_on",
+            "add_on": {
+              "id": "add_6JXVRswVm3wFtgHo6NXPiu",
+              "code": "support"
+            },
+            "product": "support",
+            "name": "Priority support",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "99"
+                }
+              }
+            ]
+          }
+        ],
+        "add_ons": [
+          {
+            "add_on": {
+              "id": "add_6JXVRswVm3wFtgHo6NXPiu",
+              "code": "support"
+            },
+            "name": "Priority support",
+            "quantity": 1
+          }
+        ],
+        "coupons": [],
+        "schedule": [],
+        "mrr": {
+          "amount": 66700,
+          "currency": "EUR"
+        },
+        "tax_inclusive": false,
+        "invoicing": {
+          "net_terms": 14,
+          "purchase_order": "PO-2026-114",
+          "auto_finalize": true,
+          "charge_automatically": false
+        },
+        "custom_properties": {},
+        "created_at": "2026-11-25T23:51:25.750Z",
+        "updated_at": "2026-11-25T23:51:26.515Z"
+      }
+    }
+  },
+  "preview_plan_change": {
+    "request": {
+      "plan": "scale",
+      "option": "monthly",
+      "levels": {
+        "tokens": "20000000"
+      },
+      "when": {
+        "type": "period_end"
+      }
+    },
+    "response": {
+      "effective_date": "2026-12-25",
+      "direction": "downgrade",
+      "when": "period_end",
+      "documents": [
+        {
+          "type": "next_invoice",
+          "currency": "EUR",
+          "subtotal": 51700,
+          "discount": 0,
+          "tax": 0,
+          "total": 51700,
+          "amount_due": 51700,
+          "lines": [
+            {
+              "id": "gTdcI0Vx4tfoX",
+              "name": "Platform",
+              "product": {
+                "id": "prd_6FN43isgTC2zWDd4nMSHRU",
+                "code": "platform"
+              },
+              "kind": "charge",
+              "billing": "recurring",
+              "quantity": "1",
+              "unit_price": "199",
+              "amount": 19900,
+              "taxable_amount": 19900,
+              "tax_rate": "0",
+              "tax": 0,
+              "total": 19900,
+              "start_date": "2026-12-25",
+              "end_date": "2027-01-25",
+              "prorated": false
+            },
+            {
+              "id": "ikAejSciff4XJ",
+              "name": "Seats",
+              "product": {
+                "id": "prd_2quh7Q0B26cO",
+                "code": "seats"
+              },
+              "kind": "charge",
+              "billing": "recurring",
+              "quantity": "8",
+              "unit_price": "15",
+              "amount": 12000,
+              "taxable_amount": 12000,
+              "tax_rate": "0",
+              "tax": 0,
+              "total": 12000,
+              "start_date": "2026-12-25",
+              "end_date": "2027-01-25",
+              "prorated": false
+            },
+            {
+              "id": "kGjaqXze9VLjG",
+              "name": "Tokens",
+              "product": {
+                "id": "prd_4NmFOB0DfPJ2IPM1npnj2L",
+                "code": "tokens"
+              },
+              "kind": "charge",
+              "billing": "usage",
+              "quantity": "1",
+              "unit_price": "99",
+              "amount": 9900,
+              "taxable_amount": 9900,
+              "tax_rate": "0",
+              "tax": 0,
+              "total": 9900,
+              "start_date": "2026-12-25",
+              "end_date": "2027-01-25",
+              "prorated": false
+            },
+            {
+              "id": "ArvbSEQsfHnax",
+              "name": "Priority support",
+              "product": {
+                "id": "prd_6yBv1j6pFkzGQma9EB5xXI",
+                "code": "support"
+              },
+              "kind": "charge",
+              "billing": "recurring",
+              "quantity": "1",
+              "unit_price": "99",
+              "amount": 9900,
+              "taxable_amount": 9900,
+              "tax_rate": "0",
+              "tax": 0,
+              "total": 9900,
+              "start_date": "2026-12-25",
+              "end_date": "2027-01-25",
+              "prorated": false
+            }
+          ]
+        }
+      ],
+      "incomplete": false,
+      "subscription_after": {
+        "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+        "external_id": "northwind-growth",
+        "customer": {
+          "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+          "alias": "northwind",
+          "name": "Northwind Labs GmbH"
+        },
+        "plan": {
+          "id": "plan_5qln5TMgqcT7O4XrA0xMiC",
+          "code": "scale",
+          "version": 1,
+          "option": "monthly"
+        },
+        "status": "active",
+        "currency": "EUR",
+        "period": "monthly",
+        "activation": "on_start",
+        "billing_day_anchor": 25,
+        "dates": {
+          "start": "2026-11-25",
+          "billing_start": "2026-11-25",
+          "activated_at": "2026-11-25T00:00:00.000Z"
+        },
+        "current_period": {
+          "start": "2026-11-25",
+          "end": "2026-12-25"
+        },
+        "quantities": {
+          "seats": {
+            "held": "8",
+            "pending": []
+          }
+        },
+        "levels": {
+          "tokens": "20000000"
+        },
+        "charges": [
+          {
+            "origin": "plan",
+            "product": "platform",
+            "name": "Platform",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "199"
+                }
+              }
+            ]
+          },
+          {
+            "origin": "plan",
+            "product": "seats",
+            "name": "Seats",
+            "preset": "seats",
+            "quantity": {
+              "type": "managed",
+              "quantity": "seats",
+              "min": 1
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "per_unit",
+                  "unit_price": "15"
+                }
+              }
+            ]
+          },
+          {
+            "origin": "plan",
+            "product": "tokens",
+            "name": "Tokens",
+            "preset": "usage_levels",
+            "quantity": {
+              "type": "metered",
+              "metric": "tokens"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "levels",
+                  "levels": [
+                    {
+                      "included": 20000000,
+                      "price": "99",
+                      "overage_unit_price": "0.00001"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "origin": "add_on",
+            "add_on": {
+              "id": "add_6JXVRswVm3wFtgHo6NXPiu",
+              "code": "support"
+            },
+            "product": "support",
+            "name": "Priority support",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "99"
+                }
+              }
+            ]
+          }
+        ],
+        "add_ons": [
+          {
+            "add_on": {
+              "id": "add_6JXVRswVm3wFtgHo6NXPiu",
+              "code": "support"
+            },
+            "name": "Priority support",
+            "quantity": 1
+          }
+        ],
+        "coupons": [],
+        "schedule": [],
+        "mrr": {
+          "amount": 51700,
+          "currency": "EUR"
+        },
+        "tax_inclusive": false,
+        "invoicing": {
+          "net_terms": 14,
+          "purchase_order": "PO-2026-114",
+          "auto_finalize": true,
+          "charge_automatically": false
+        },
+        "custom_properties": {},
+        "created_at": "2026-11-25T23:51:25.750Z",
+        "updated_at": "2026-11-25T23:51:26.515Z"
+      }
+    }
+  },
+  "change_plan": {
+    "request": {
+      "plan": "scale",
+      "option": "monthly",
+      "levels": {
+        "tokens": "20000000"
+      },
+      "when": {
+        "type": "period_end"
+      }
+    },
+    "response": {
+      "status": "scheduled",
+      "effective_date": "2026-12-25",
+      "scheduled_change": "sev_2KzK0GAhCUDZYhvO5srZ4n",
+      "invoices": [],
+      "credit_notes": [],
+      "subscription": {
+        "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+        "external_id": "northwind-growth",
+        "customer": {
+          "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+          "alias": "northwind",
+          "name": "Northwind Labs GmbH"
+        },
+        "plan": {
+          "id": "plan_712rjYySSV0DRvyVf6ZS04",
+          "code": "growth",
+          "version": 1,
+          "option": "monthly"
+        },
+        "status": "active",
+        "currency": "EUR",
+        "period": "monthly",
+        "activation": "on_start",
+        "billing_day_anchor": 25,
+        "dates": {
+          "start": "2026-11-25",
+          "billing_start": "2026-11-25",
+          "activated_at": "2026-11-25T00:00:00.000Z"
+        },
+        "current_period": {
+          "start": "2026-11-25",
+          "end": "2026-12-25"
+        },
+        "quantities": {
+          "seats": {
+            "held": "8",
+            "pending": []
+          }
+        },
+        "levels": {
+          "tokens": "50000000"
+        },
+        "charges": [
+          {
+            "origin": "plan",
+            "product": "platform",
+            "name": "Platform",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "49"
+                }
+              }
+            ]
+          },
+          {
+            "origin": "plan",
+            "product": "seats",
+            "name": "Seats",
+            "preset": "seats",
+            "quantity": {
+              "type": "managed",
+              "quantity": "seats",
+              "min": 1
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "per_unit",
+                  "unit_price": "15"
+                }
+              }
+            ]
+          },
+          {
+            "origin": "amendment",
+            "product": "tokens",
+            "name": "Tokens",
+            "preset": "usage_levels",
+            "quantity": {
+              "type": "metered",
+              "metric": "tokens"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "levels",
+                  "levels": [
+                    {
+                      "included": 50000000,
+                      "price": "399",
+                      "overage_unit_price": "0.000008"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "origin": "add_on",
+            "add_on": {
+              "id": "add_6JXVRswVm3wFtgHo6NXPiu",
+              "code": "support"
+            },
+            "product": "support",
+            "name": "Priority support",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "99"
+                }
+              }
+            ]
+          }
+        ],
+        "add_ons": [
+          {
+            "add_on": {
+              "id": "add_6JXVRswVm3wFtgHo6NXPiu",
+              "code": "support"
+            },
+            "name": "Priority support",
+            "quantity": 1
+          }
+        ],
+        "coupons": [],
+        "schedule": [
+          {
+            "id": "sev_2KzK0GAhCUDZYhvO5srZ4n",
+            "type": "plan_change",
+            "effective_date": "2026-12-25",
+            "plan": {
+              "id": "plan_5qln5TMgqcT7O4XrA0xMiC",
+              "code": "scale",
+              "version": 1
+            },
+            "initiated_by_customer": false
+          }
+        ],
+        "mrr": {
+          "amount": 66700,
+          "currency": "EUR"
+        },
+        "tax_inclusive": false,
+        "invoicing": {
+          "net_terms": 14,
+          "purchase_order": "PO-2026-114",
+          "auto_finalize": true,
+          "charge_automatically": false
+        },
+        "custom_properties": {},
+        "created_at": "2026-11-25T23:51:25.750Z",
+        "updated_at": "2026-11-25T23:51:26.698Z"
+      }
+    }
+  },
+  "get_subscription_schedule": {
+    "response": {
+      "changes": [
+        {
+          "id": "sev_2KzK0GAhCUDZYhvO5srZ4n",
+          "type": "plan_change",
+          "effective_date": "2026-12-25",
+          "plan": {
+            "id": "plan_5qln5TMgqcT7O4XrA0xMiC",
+            "code": "scale",
+            "version": 1
+          },
+          "initiated_by_customer": false
+        }
+      ]
+    }
+  },
+  "preview_cancellation": {
+    "request": {
+      "when": {
+        "type": "period_end"
+      },
+      "reason": "Moving to an annual contract"
+    },
+    "response": {
+      "effective_date": "2026-12-25",
+      "direction": "downgrade",
+      "when": "period_end",
+      "documents": [],
+      "incomplete": false,
+      "subscription_after": {
+        "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+        "external_id": "northwind-growth",
+        "customer": {
+          "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+          "alias": "northwind",
+          "name": "Northwind Labs GmbH"
+        },
+        "plan": {
+          "id": "plan_712rjYySSV0DRvyVf6ZS04",
+          "code": "growth",
+          "version": 1,
+          "option": "monthly"
+        },
+        "status": "cancelled",
+        "currency": "EUR",
+        "period": "monthly",
+        "activation": "on_start",
+        "billing_day_anchor": 25,
+        "dates": {
+          "start": "2026-11-25",
+          "billing_start": "2026-11-25",
+          "activated_at": "2026-11-25T00:00:00.000Z"
+        },
+        "current_period": {
+          "start": "2026-11-25",
+          "end": "2026-12-25"
+        },
+        "quantities": {
+          "seats": {
+            "held": "8",
+            "pending": []
+          }
+        },
+        "levels": {
+          "tokens": "50000000"
+        },
+        "charges": [
+          {
+            "origin": "plan",
+            "product": "platform",
+            "name": "Platform",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "49"
+                }
+              }
+            ]
+          },
+          {
+            "origin": "plan",
+            "product": "seats",
+            "name": "Seats",
+            "preset": "seats",
+            "quantity": {
+              "type": "managed",
+              "quantity": "seats",
+              "min": 1
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "per_unit",
+                  "unit_price": "15"
+                }
+              }
+            ]
+          },
+          {
+            "origin": "amendment",
+            "product": "tokens",
+            "name": "Tokens",
+            "preset": "usage_levels",
+            "quantity": {
+              "type": "metered",
+              "metric": "tokens"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "levels",
+                  "levels": [
+                    {
+                      "included": 50000000,
+                      "price": "399",
+                      "overage_unit_price": "0.000008"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "origin": "add_on",
+            "add_on": {
+              "id": "add_6JXVRswVm3wFtgHo6NXPiu",
+              "code": "support"
+            },
+            "product": "support",
+            "name": "Priority support",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "99"
+                }
+              }
+            ]
+          }
+        ],
+        "add_ons": [
+          {
+            "add_on": {
+              "id": "add_6JXVRswVm3wFtgHo6NXPiu",
+              "code": "support"
+            },
+            "name": "Priority support",
+            "quantity": 1
+          }
+        ],
+        "coupons": [],
+        "schedule": [
+          {
+            "id": "sev_2KzK0GAhCUDZYhvO5srZ4n",
+            "type": "plan_change",
+            "effective_date": "2026-12-25",
+            "plan": {
+              "id": "plan_5qln5TMgqcT7O4XrA0xMiC",
+              "code": "scale",
+              "version": 1
+            },
+            "initiated_by_customer": false
+          }
+        ],
+        "cancellation": {
+          "effective_date": "2026-12-25",
+          "reason": "Moving to an annual contract",
+          "initiated_by_customer": false
+        },
+        "mrr": {
+          "amount": 0,
+          "currency": "EUR"
+        },
+        "tax_inclusive": false,
+        "invoicing": {
+          "net_terms": 14,
+          "purchase_order": "PO-2026-114",
+          "auto_finalize": true,
+          "charge_automatically": false
+        },
+        "custom_properties": {},
+        "created_at": "2026-11-25T23:51:25.750Z",
+        "updated_at": "2026-11-25T23:51:26.698Z"
+      }
+    }
+  },
+  "cancel_subscription": {
+    "request": {
+      "when": {
+        "type": "period_end"
+      },
+      "reason": "Moving to an annual contract"
+    },
+    "response": {
+      "status": "scheduled",
+      "effective_date": "2026-12-25",
+      "scheduled_change": "sev_7lwUZyfIfI5o3NNA2YsdhM",
+      "invoices": [],
+      "credit_notes": [],
+      "subscription": {
+        "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+        "external_id": "northwind-growth",
+        "customer": {
+          "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+          "alias": "northwind",
+          "name": "Northwind Labs GmbH"
+        },
+        "plan": {
+          "id": "plan_712rjYySSV0DRvyVf6ZS04",
+          "code": "growth",
+          "version": 1,
+          "option": "monthly"
+        },
+        "status": "active",
+        "currency": "EUR",
+        "period": "monthly",
+        "activation": "on_start",
+        "billing_day_anchor": 25,
+        "dates": {
+          "start": "2026-11-25",
+          "billing_start": "2026-11-25",
+          "activated_at": "2026-11-25T00:00:00.000Z"
+        },
+        "current_period": {
+          "start": "2026-11-25",
+          "end": "2026-12-25"
+        },
+        "quantities": {
+          "seats": {
+            "held": "8",
+            "pending": []
+          }
+        },
+        "levels": {
+          "tokens": "50000000"
+        },
+        "charges": [
+          {
+            "origin": "plan",
+            "product": "platform",
+            "name": "Platform",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "49"
+                }
+              }
+            ]
+          },
+          {
+            "origin": "plan",
+            "product": "seats",
+            "name": "Seats",
+            "preset": "seats",
+            "quantity": {
+              "type": "managed",
+              "quantity": "seats",
+              "min": 1
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "per_unit",
+                  "unit_price": "15"
+                }
+              }
+            ]
+          },
+          {
+            "origin": "amendment",
+            "product": "tokens",
+            "name": "Tokens",
+            "preset": "usage_levels",
+            "quantity": {
+              "type": "metered",
+              "metric": "tokens"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "levels",
+                  "levels": [
+                    {
+                      "included": 50000000,
+                      "price": "399",
+                      "overage_unit_price": "0.000008"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "origin": "add_on",
+            "add_on": {
+              "id": "add_6JXVRswVm3wFtgHo6NXPiu",
+              "code": "support"
+            },
+            "product": "support",
+            "name": "Priority support",
+            "preset": "flat_fee",
+            "quantity": {
+              "type": "fixed",
+              "value": "1"
+            },
+            "timing": {
+              "recurrence": "recurring",
+              "billing": "advance"
+            },
+            "prices": [
+              {
+                "option": "*",
+                "currency": "EUR",
+                "cadence": "monthly",
+                "model": {
+                  "type": "flat",
+                  "amount": "99"
+                }
+              }
+            ]
+          }
+        ],
+        "add_ons": [
+          {
+            "add_on": {
+              "id": "add_6JXVRswVm3wFtgHo6NXPiu",
+              "code": "support"
+            },
+            "name": "Priority support",
+            "quantity": 1
+          }
+        ],
+        "coupons": [],
+        "schedule": [
+          {
+            "id": "sev_7lwUZyfIfI5o3NNA2YsdhM",
+            "type": "cancellation",
+            "effective_date": "2026-12-25",
+            "reason": "Moving to an annual contract",
+            "initiated_by_customer": false
+          }
+        ],
+        "cancellation": {
+          "effective_date": "2026-12-25",
+          "reason": "Moving to an annual contract",
+          "initiated_by_customer": false
+        },
+        "mrr": {
+          "amount": 66700,
+          "currency": "EUR"
+        },
+        "tax_inclusive": false,
+        "invoicing": {
+          "net_terms": 14,
+          "purchase_order": "PO-2026-114",
+          "auto_finalize": true,
+          "charge_automatically": false
+        },
+        "custom_properties": {},
+        "created_at": "2026-11-25T23:51:25.750Z",
+        "updated_at": "2026-11-25T23:51:26.844Z"
+      }
+    }
+  },
+  "revoke_cancellation": {
+    "response": {
+      "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+      "external_id": "northwind-growth",
+      "customer": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH"
+      },
+      "plan": {
+        "id": "plan_712rjYySSV0DRvyVf6ZS04",
+        "code": "growth",
+        "version": 1,
+        "option": "monthly"
+      },
+      "status": "active",
+      "currency": "EUR",
+      "period": "monthly",
+      "activation": "on_start",
+      "billing_day_anchor": 25,
+      "dates": {
+        "start": "2026-11-25",
+        "billing_start": "2026-11-25",
+        "activated_at": "2026-11-25T00:00:00.000Z"
+      },
+      "current_period": {
+        "start": "2026-11-25",
+        "end": "2026-12-25"
+      },
+      "quantities": {
+        "seats": {
+          "held": "8",
+          "pending": []
+        }
+      },
+      "levels": {
+        "tokens": "50000000"
+      },
+      "charges": [
+        {
+          "origin": "plan",
+          "product": "platform",
+          "name": "Platform",
+          "preset": "flat_fee",
+          "quantity": {
+            "type": "fixed",
+            "value": "1"
+          },
+          "timing": {
+            "recurrence": "recurring",
+            "billing": "advance"
+          },
+          "prices": [
+            {
+              "option": "*",
+              "currency": "EUR",
+              "cadence": "monthly",
+              "model": {
+                "type": "flat",
+                "amount": "49"
+              }
+            }
+          ]
+        },
+        {
+          "origin": "plan",
+          "product": "seats",
+          "name": "Seats",
+          "preset": "seats",
+          "quantity": {
+            "type": "managed",
+            "quantity": "seats",
+            "min": 1
+          },
+          "timing": {
+            "recurrence": "recurring",
+            "billing": "advance"
+          },
+          "prices": [
+            {
+              "option": "*",
+              "currency": "EUR",
+              "cadence": "monthly",
+              "model": {
+                "type": "per_unit",
+                "unit_price": "15"
+              }
+            }
+          ]
+        },
+        {
+          "origin": "amendment",
+          "product": "tokens",
+          "name": "Tokens",
+          "preset": "usage_levels",
+          "quantity": {
+            "type": "metered",
+            "metric": "tokens"
+          },
+          "timing": {
+            "recurrence": "recurring",
+            "billing": "advance"
+          },
+          "prices": [
+            {
+              "option": "*",
+              "currency": "EUR",
+              "cadence": "monthly",
+              "model": {
+                "type": "levels",
+                "levels": [
+                  {
+                    "included": 50000000,
+                    "price": "399",
+                    "overage_unit_price": "0.000008"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "origin": "add_on",
+          "add_on": {
+            "id": "add_6JXVRswVm3wFtgHo6NXPiu",
+            "code": "support"
+          },
+          "product": "support",
+          "name": "Priority support",
+          "preset": "flat_fee",
+          "quantity": {
+            "type": "fixed",
+            "value": "1"
+          },
+          "timing": {
+            "recurrence": "recurring",
+            "billing": "advance"
+          },
+          "prices": [
+            {
+              "option": "*",
+              "currency": "EUR",
+              "cadence": "monthly",
+              "model": {
+                "type": "flat",
+                "amount": "99"
+              }
+            }
+          ]
+        }
+      ],
+      "add_ons": [
+        {
+          "add_on": {
+            "id": "add_6JXVRswVm3wFtgHo6NXPiu",
+            "code": "support"
+          },
+          "name": "Priority support",
+          "quantity": 1
+        }
+      ],
+      "coupons": [],
+      "schedule": [],
+      "mrr": {
+        "amount": 66700,
+        "currency": "EUR"
+      },
+      "tax_inclusive": false,
+      "invoicing": {
+        "net_terms": 14,
+        "purchase_order": "PO-2026-114",
+        "auto_finalize": true,
+        "charge_automatically": false
+      },
+      "custom_properties": {},
+      "created_at": "2026-11-25T23:51:25.750Z",
+      "updated_at": "2026-11-25T23:51:26.936Z"
+    }
+  },
+  "list_invoices": {
+    "response": {
+      "data": [
+        {
+          "id": "inv_3sPWEvyMpZDnFU0LPAYm4r",
+          "number": "INV-0001",
+          "status": "finalized",
+          "type": "recurring",
+          "customer": {
+            "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+            "alias": "northwind",
+            "name": "Northwind Labs GmbH"
+          },
+          "customer_details": {
+            "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+            "alias": "northwind",
+            "name": "Northwind Labs GmbH",
+            "email": "billing@northwind.example",
+            "billing_address": {
+              "line1": "Friedrichstraße 68",
+              "city": "Berlin",
+              "postal_code": "10117",
+              "country": "DE"
+            }
+          },
+          "subscription": {
+            "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+            "external_id": "northwind-growth"
+          },
+          "currency": "EUR",
+          "invoice_date": "2026-11-25",
+          "period_start": "2026-11-25",
+          "due_date": "2026-12-09",
+          "net_terms": 14,
+          "tax_inclusive": false,
+          "subtotal": 22300,
+          "discount": 0,
+          "promotional_credits": 0,
+          "tax": 0,
+          "total": 22300,
+          "applied_credits": 0,
+          "carried_balance": 0,
+          "amount_due": 22300,
+          "amount_paid": 0,
+          "payment_status": "unpaid",
+          "taxes": [],
+          "coupons": [],
+          "files": {
+            "pdf": false,
+            "xml": false
+          },
+          "reference": "INV0001",
+          "custom_properties": {},
+          "created_at": "2026-11-25T23:51:25.789Z",
+          "updated_at": "2026-11-25T23:51:25.813Z",
+          "finalized_at": "2026-11-25T23:51:25.802Z"
+        },
+        {
+          "id": "inv_FoiIqVGqzOTaZFxOKyJpM",
+          "number": "INV-0002",
+          "status": "finalized",
+          "type": "adjustment",
+          "customer": {
+            "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+            "alias": "northwind",
+            "name": "Northwind Labs GmbH"
+          },
+          "customer_details": {
+            "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+            "alias": "northwind",
+            "name": "Northwind Labs GmbH",
+            "email": "billing@northwind.example",
+            "billing_address": {
+              "line1": "Friedrichstraße 68",
+              "city": "Berlin",
+              "postal_code": "10117",
+              "country": "DE"
+            }
+          },
+          "subscription": {
+            "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+            "external_id": "northwind-growth"
+          },
+          "currency": "EUR",
+          "invoice_date": "2026-11-25",
+          "period_start": "2026-11-25",
+          "due_date": "2026-12-09",
+          "net_terms": 14,
+          "tax_inclusive": false,
+          "subtotal": 4500,
+          "discount": 0,
+          "promotional_credits": 0,
+          "tax": 0,
+          "total": 4500,
+          "applied_credits": 0,
+          "carried_balance": 0,
+          "amount_due": 4500,
+          "amount_paid": 0,
+          "payment_status": "unpaid",
+          "taxes": [],
+          "coupons": [],
+          "files": {
+            "pdf": false,
+            "xml": false
+          },
+          "reference": "INV0002",
+          "purchase_order": "PO-2026-114",
+          "custom_properties": {},
+          "created_at": "2026-11-25T23:51:26.071Z",
+          "updated_at": "2026-11-25T23:51:26.084Z",
+          "finalized_at": "2026-11-25T23:51:26.079Z"
+        }
+      ],
+      "next_cursor": null,
+      "has_more": false
+    }
+  },
+  "get_invoice": {
+    "response": {
+      "id": "inv_3sPWEvyMpZDnFU0LPAYm4r",
+      "number": "INV-0001",
+      "status": "finalized",
+      "type": "recurring",
+      "customer": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH"
+      },
+      "customer_details": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH",
+        "email": "billing@northwind.example",
+        "billing_address": {
+          "line1": "Friedrichstraße 68",
+          "city": "Berlin",
+          "postal_code": "10117",
+          "country": "DE"
+        }
+      },
+      "subscription": {
+        "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+        "external_id": "northwind-growth"
+      },
+      "currency": "EUR",
+      "invoice_date": "2026-11-25",
+      "period_start": "2026-11-25",
+      "due_date": "2026-12-09",
+      "net_terms": 14,
+      "tax_inclusive": false,
+      "subtotal": 22300,
+      "discount": 0,
+      "promotional_credits": 0,
+      "tax": 0,
+      "total": 22300,
+      "applied_credits": 0,
+      "carried_balance": 0,
+      "amount_due": 22300,
+      "amount_paid": 0,
+      "payment_status": "unpaid",
+      "lines": [
+        {
+          "id": "wnyfOcKWrx6Pd",
+          "name": "Platform",
+          "product": {
+            "id": "prd_6FN43isgTC2zWDd4nMSHRU",
+            "code": "platform"
+          },
+          "kind": "charge",
+          "billing": "recurring",
+          "quantity": "1",
+          "unit_price": "49",
+          "amount": 4900,
+          "taxable_amount": 4900,
+          "tax_rate": "0",
+          "tax": 0,
+          "total": 4900,
+          "start_date": "2026-11-25",
+          "end_date": "2026-12-25",
+          "prorated": false
+        },
+        {
+          "id": "s5UPZ8Rwoc28i",
+          "name": "Seats",
+          "product": {
+            "id": "prd_2quh7Q0B26cO",
+            "code": "seats"
+          },
+          "kind": "charge",
+          "billing": "recurring",
+          "quantity": "5",
+          "unit_price": "15",
+          "amount": 7500,
+          "taxable_amount": 7500,
+          "tax_rate": "0",
+          "tax": 0,
+          "total": 7500,
+          "start_date": "2026-11-25",
+          "end_date": "2026-12-25",
+          "prorated": false
+        },
+        {
+          "id": "gt3hIMZWZoWU8",
+          "name": "Tokens",
+          "product": {
+            "id": "prd_4NmFOB0DfPJ2IPM1npnj2L",
+            "code": "tokens"
+          },
+          "kind": "charge",
+          "billing": "usage",
+          "quantity": "1",
+          "unit_price": "99",
+          "amount": 9900,
+          "taxable_amount": 9900,
+          "tax_rate": "0",
+          "tax": 0,
+          "total": 9900,
+          "start_date": "2026-11-25",
+          "end_date": "2026-12-25",
+          "prorated": false
+        }
+      ],
+      "taxes": [],
+      "coupons": [],
+      "payments": [],
+      "credit_notes": [],
+      "files": {
+        "pdf": false,
+        "xml": false
+      },
+      "reference": "INV0001",
+      "custom_properties": {},
+      "created_at": "2026-11-25T23:51:25.789Z",
+      "updated_at": "2026-11-25T23:51:25.813Z",
+      "finalized_at": "2026-11-25T23:51:25.802Z"
+    }
+  },
+  "record_invoice_payment": {
+    "request": {
+      "amount": 10000,
+      "reference": "SEPA-2026-11-0042"
+    },
+    "response": {
+      "id": "inv_3sPWEvyMpZDnFU0LPAYm4r",
+      "number": "INV-0001",
+      "status": "finalized",
+      "type": "recurring",
+      "customer": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH"
+      },
+      "customer_details": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH",
+        "email": "billing@northwind.example",
+        "billing_address": {
+          "line1": "Friedrichstraße 68",
+          "city": "Berlin",
+          "postal_code": "10117",
+          "country": "DE"
+        }
+      },
+      "subscription": {
+        "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+        "external_id": "northwind-growth"
+      },
+      "currency": "EUR",
+      "invoice_date": "2026-11-25",
+      "period_start": "2026-11-25",
+      "due_date": "2026-12-09",
+      "net_terms": 14,
+      "tax_inclusive": false,
+      "subtotal": 22300,
+      "discount": 0,
+      "promotional_credits": 0,
+      "tax": 0,
+      "total": 22300,
+      "applied_credits": 0,
+      "carried_balance": 0,
+      "amount_due": 12300,
+      "amount_paid": 10000,
+      "payment_status": "partially_paid",
+      "lines": [
+        {
+          "id": "wnyfOcKWrx6Pd",
+          "name": "Platform",
+          "product": {
+            "id": "prd_6FN43isgTC2zWDd4nMSHRU",
+            "code": "platform"
+          },
+          "kind": "charge",
+          "billing": "recurring",
+          "quantity": "1",
+          "unit_price": "49",
+          "amount": 4900,
+          "taxable_amount": 4900,
+          "tax_rate": "0",
+          "tax": 0,
+          "total": 4900,
+          "start_date": "2026-11-25",
+          "end_date": "2026-12-25",
+          "prorated": false
+        },
+        {
+          "id": "s5UPZ8Rwoc28i",
+          "name": "Seats",
+          "product": {
+            "id": "prd_2quh7Q0B26cO",
+            "code": "seats"
+          },
+          "kind": "charge",
+          "billing": "recurring",
+          "quantity": "5",
+          "unit_price": "15",
+          "amount": 7500,
+          "taxable_amount": 7500,
+          "tax_rate": "0",
+          "tax": 0,
+          "total": 7500,
+          "start_date": "2026-11-25",
+          "end_date": "2026-12-25",
+          "prorated": false
+        },
+        {
+          "id": "gt3hIMZWZoWU8",
+          "name": "Tokens",
+          "product": {
+            "id": "prd_4NmFOB0DfPJ2IPM1npnj2L",
+            "code": "tokens"
+          },
+          "kind": "charge",
+          "billing": "usage",
+          "quantity": "1",
+          "unit_price": "99",
+          "amount": 9900,
+          "taxable_amount": 9900,
+          "tax_rate": "0",
+          "tax": 0,
+          "total": 9900,
+          "start_date": "2026-11-25",
+          "end_date": "2026-12-25",
+          "prorated": false
+        }
+      ],
+      "taxes": [],
+      "coupons": [],
+      "payments": [
+        {
+          "id": "pay_1cY11ToPBd0010qXXA7XV6",
+          "type": "payment",
+          "status": "settled",
+          "amount": 10000,
+          "currency": "EUR",
+          "processed_at": "2026-11-25T23:51:26.993Z",
+          "reference": "SEPA-2026-11-0042",
+          "amount_refunded": 0,
+          "amount_reversed": 0,
+          "amount_disputed": 0
+        }
+      ],
+      "credit_notes": [],
+      "files": {
+        "pdf": false,
+        "xml": false
+      },
+      "reference": "INV0001",
+      "custom_properties": {},
+      "created_at": "2026-11-25T23:51:25.789Z",
+      "updated_at": "2026-11-25T23:51:27.008Z",
+      "finalized_at": "2026-11-25T23:51:25.802Z"
+    }
+  },
+  "reverse_invoice_payment": {
+    "request": {
+      "kind": "returned",
+      "reason": "Returned by the bank"
+    },
+    "response": {
+      "id": "inv_3sPWEvyMpZDnFU0LPAYm4r",
+      "number": "INV-0001",
+      "status": "finalized",
+      "type": "recurring",
+      "customer": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH"
+      },
+      "customer_details": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH",
+        "email": "billing@northwind.example",
+        "billing_address": {
+          "line1": "Friedrichstraße 68",
+          "city": "Berlin",
+          "postal_code": "10117",
+          "country": "DE"
+        }
+      },
+      "subscription": {
+        "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+        "external_id": "northwind-growth"
+      },
+      "currency": "EUR",
+      "invoice_date": "2026-11-25",
+      "period_start": "2026-11-25",
+      "due_date": "2026-12-09",
+      "net_terms": 14,
+      "tax_inclusive": false,
+      "subtotal": 22300,
+      "discount": 0,
+      "promotional_credits": 0,
+      "tax": 0,
+      "total": 22300,
+      "applied_credits": 0,
+      "carried_balance": 0,
+      "amount_due": 22300,
+      "amount_paid": 0,
+      "payment_status": "unpaid",
+      "lines": [
+        {
+          "id": "wnyfOcKWrx6Pd",
+          "name": "Platform",
+          "product": {
+            "id": "prd_6FN43isgTC2zWDd4nMSHRU",
+            "code": "platform"
+          },
+          "kind": "charge",
+          "billing": "recurring",
+          "quantity": "1",
+          "unit_price": "49",
+          "amount": 4900,
+          "taxable_amount": 4900,
+          "tax_rate": "0",
+          "tax": 0,
+          "total": 4900,
+          "start_date": "2026-11-25",
+          "end_date": "2026-12-25",
+          "prorated": false
+        },
+        {
+          "id": "s5UPZ8Rwoc28i",
+          "name": "Seats",
+          "product": {
+            "id": "prd_2quh7Q0B26cO",
+            "code": "seats"
+          },
+          "kind": "charge",
+          "billing": "recurring",
+          "quantity": "5",
+          "unit_price": "15",
+          "amount": 7500,
+          "taxable_amount": 7500,
+          "tax_rate": "0",
+          "tax": 0,
+          "total": 7500,
+          "start_date": "2026-11-25",
+          "end_date": "2026-12-25",
+          "prorated": false
+        },
+        {
+          "id": "gt3hIMZWZoWU8",
+          "name": "Tokens",
+          "product": {
+            "id": "prd_4NmFOB0DfPJ2IPM1npnj2L",
+            "code": "tokens"
+          },
+          "kind": "charge",
+          "billing": "usage",
+          "quantity": "1",
+          "unit_price": "99",
+          "amount": 9900,
+          "taxable_amount": 9900,
+          "tax_rate": "0",
+          "tax": 0,
+          "total": 9900,
+          "start_date": "2026-11-25",
+          "end_date": "2026-12-25",
+          "prorated": false
+        }
+      ],
+      "taxes": [],
+      "coupons": [],
+      "payments": [
+        {
+          "id": "pay_1cY11ToPBd0010qXXA7XV6",
+          "type": "payment",
+          "status": "refunded",
+          "amount": 10000,
+          "currency": "EUR",
+          "processed_at": "2026-11-25T23:51:26.993Z",
+          "reference": "SEPA-2026-11-0042",
+          "amount_refunded": 0,
+          "amount_reversed": 10000,
+          "amount_disputed": 0,
+          "reversal_kind": "returned",
+          "reversal_reason": "Returned by the bank"
+        }
+      ],
+      "credit_notes": [],
+      "files": {
+        "pdf": false,
+        "xml": false
+      },
+      "reference": "INV0001",
+      "custom_properties": {},
+      "created_at": "2026-11-25T23:51:25.789Z",
+      "updated_at": "2026-11-25T23:51:27.065Z",
+      "finalized_at": "2026-11-25T23:51:25.802Z"
+    }
+  },
+  "mark_invoice_paid": {
+    "request": {
+      "reference": "SEPA-2026-11-0057"
+    },
+    "response": {
+      "id": "inv_3sPWEvyMpZDnFU0LPAYm4r",
+      "number": "INV-0001",
+      "status": "finalized",
+      "type": "recurring",
+      "customer": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH"
+      },
+      "customer_details": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH",
+        "email": "billing@northwind.example",
+        "billing_address": {
+          "line1": "Friedrichstraße 68",
+          "city": "Berlin",
+          "postal_code": "10117",
+          "country": "DE"
+        }
+      },
+      "subscription": {
+        "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+        "external_id": "northwind-growth"
+      },
+      "currency": "EUR",
+      "invoice_date": "2026-11-25",
+      "period_start": "2026-11-25",
+      "due_date": "2026-12-09",
+      "net_terms": 14,
+      "tax_inclusive": false,
+      "subtotal": 22300,
+      "discount": 0,
+      "promotional_credits": 0,
+      "tax": 0,
+      "total": 22300,
+      "applied_credits": 0,
+      "carried_balance": 0,
+      "amount_due": 0,
+      "amount_paid": 22300,
+      "payment_status": "paid",
+      "paid_at": "2026-11-25T23:51:27.105Z",
+      "lines": [
+        {
+          "id": "wnyfOcKWrx6Pd",
+          "name": "Platform",
+          "product": {
+            "id": "prd_6FN43isgTC2zWDd4nMSHRU",
+            "code": "platform"
+          },
+          "kind": "charge",
+          "billing": "recurring",
+          "quantity": "1",
+          "unit_price": "49",
+          "amount": 4900,
+          "taxable_amount": 4900,
+          "tax_rate": "0",
+          "tax": 0,
+          "total": 4900,
+          "start_date": "2026-11-25",
+          "end_date": "2026-12-25",
+          "prorated": false
+        },
+        {
+          "id": "s5UPZ8Rwoc28i",
+          "name": "Seats",
+          "product": {
+            "id": "prd_2quh7Q0B26cO",
+            "code": "seats"
+          },
+          "kind": "charge",
+          "billing": "recurring",
+          "quantity": "5",
+          "unit_price": "15",
+          "amount": 7500,
+          "taxable_amount": 7500,
+          "tax_rate": "0",
+          "tax": 0,
+          "total": 7500,
+          "start_date": "2026-11-25",
+          "end_date": "2026-12-25",
+          "prorated": false
+        },
+        {
+          "id": "gt3hIMZWZoWU8",
+          "name": "Tokens",
+          "product": {
+            "id": "prd_4NmFOB0DfPJ2IPM1npnj2L",
+            "code": "tokens"
+          },
+          "kind": "charge",
+          "billing": "usage",
+          "quantity": "1",
+          "unit_price": "99",
+          "amount": 9900,
+          "taxable_amount": 9900,
+          "tax_rate": "0",
+          "tax": 0,
+          "total": 9900,
+          "start_date": "2026-11-25",
+          "end_date": "2026-12-25",
+          "prorated": false
+        }
+      ],
+      "taxes": [],
+      "coupons": [],
+      "payments": [
+        {
+          "id": "pay_1cY11ToPBd0010qXXA7XV6",
+          "type": "payment",
+          "status": "refunded",
+          "amount": 10000,
+          "currency": "EUR",
+          "processed_at": "2026-11-25T23:51:26.993Z",
+          "reference": "SEPA-2026-11-0042",
+          "amount_refunded": 0,
+          "amount_reversed": 10000,
+          "amount_disputed": 0,
+          "reversal_kind": "returned",
+          "reversal_reason": "Returned by the bank"
+        },
+        {
+          "id": "pay_3D1RAxh2cLdaGK0zA66qo8",
+          "type": "payment",
+          "status": "settled",
+          "amount": 22300,
+          "currency": "EUR",
+          "processed_at": "2026-11-25T23:51:27.105Z",
+          "reference": "SEPA-2026-11-0057",
+          "amount_refunded": 0,
+          "amount_reversed": 0,
+          "amount_disputed": 0
+        }
+      ],
+      "credit_notes": [],
+      "files": {
+        "pdf": false,
+        "xml": false
+      },
+      "reference": "INV0001",
+      "custom_properties": {},
+      "created_at": "2026-11-25T23:51:25.789Z",
+      "updated_at": "2026-11-25T23:51:27.116Z",
+      "finalized_at": "2026-11-25T23:51:25.802Z"
+    }
+  },
+  "create_invoice": {
+    "request": {
+      "customer": "ext:northwind",
+      "currency": "EUR",
+      "memo": "Onboarding workshop",
+      "purchase_order": "PO-2026-114",
+      "status": "draft",
+      "lines": [
+        {
+          "name": "Onboarding workshop",
+          "quantity": "2",
+          "unit_price": "650",
+          "description": "Two half-day sessions"
+        }
+      ]
+    },
+    "response": {
+      "id": "inv_4iCk81THc8Tny54nqZktu9",
+      "number": "draft",
+      "status": "draft",
+      "type": "one_off",
+      "customer": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH"
+      },
+      "customer_details": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH",
+        "email": "billing@northwind.example",
+        "billing_address": {
+          "line1": "Friedrichstraße 68",
+          "city": "Berlin",
+          "postal_code": "10117",
+          "country": "DE"
+        }
+      },
+      "currency": "EUR",
+      "invoice_date": "2026-11-25",
+      "period_start": "2026-11-25",
+      "net_terms": 30,
+      "tax_inclusive": false,
+      "subtotal": 130000,
+      "discount": 0,
+      "promotional_credits": 0,
+      "tax": 0,
+      "total": 130000,
+      "applied_credits": 0,
+      "carried_balance": 0,
+      "amount_due": 130000,
+      "amount_paid": 0,
+      "payment_status": "unpaid",
+      "lines": [
+        {
+          "id": "ELXletwhYM0CJ",
+          "name": "Onboarding workshop",
+          "description": "Two half-day sessions",
+          "kind": "charge",
+          "billing": "one_time",
+          "quantity": "2",
+          "unit_price": "650",
+          "amount": 130000,
+          "taxable_amount": 130000,
+          "tax_rate": "0",
+          "tax": 0,
+          "total": 130000,
+          "start_date": "2026-11-25",
+          "end_date": "2026-11-25",
+          "prorated": false
+        }
+      ],
+      "taxes": [
+        {
+          "name": "Tax",
+          "rate": "0",
+          "taxable_amount": 130000,
+          "amount": 0
+        }
+      ],
+      "coupons": [],
+      "payments": [],
+      "credit_notes": [],
+      "files": {
+        "pdf": false,
+        "xml": false
+      },
+      "memo": "Onboarding workshop",
+      "purchase_order": "PO-2026-114",
+      "custom_properties": {},
+      "created_at": "2026-11-25T23:51:27.161Z",
+      "updated_at": "2026-11-25T23:51:27.161Z"
+    }
+  },
+  "update_invoice": {
+    "request": {
+      "lines": [
+        {
+          "id": "ELXletwhYM0CJ",
+          "quantity": "3"
+        }
+      ],
+      "memo": "Onboarding workshop, three sessions"
+    },
+    "response": {
+      "id": "inv_4iCk81THc8Tny54nqZktu9",
+      "number": "draft",
+      "status": "draft",
+      "type": "one_off",
+      "customer": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH"
+      },
+      "customer_details": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH",
+        "email": "billing@northwind.example",
+        "billing_address": {
+          "line1": "Friedrichstraße 68",
+          "city": "Berlin",
+          "postal_code": "10117",
+          "country": "DE"
+        }
+      },
+      "currency": "EUR",
+      "invoice_date": "2026-11-25",
+      "period_start": "2026-11-25",
+      "net_terms": 30,
+      "tax_inclusive": false,
+      "subtotal": 195000,
+      "discount": 0,
+      "promotional_credits": 0,
+      "tax": 0,
+      "total": 195000,
+      "applied_credits": 0,
+      "carried_balance": 0,
+      "amount_due": 195000,
+      "amount_paid": 0,
+      "payment_status": "unpaid",
+      "lines": [
+        {
+          "id": "ELXletwhYM0CJ",
+          "name": "Onboarding workshop",
+          "description": "Two half-day sessions",
+          "kind": "charge",
+          "billing": "one_time",
+          "quantity": "3",
+          "unit_price": "650",
+          "amount": 195000,
+          "taxable_amount": 195000,
+          "tax_rate": "0",
+          "tax": 0,
+          "total": 195000,
+          "start_date": "2026-11-25",
+          "end_date": "2026-11-25",
+          "prorated": false
+        }
+      ],
+      "taxes": [
+        {
+          "name": "Tax",
+          "rate": "0",
+          "taxable_amount": 195000,
+          "amount": 0
+        }
+      ],
+      "coupons": [],
+      "payments": [],
+      "credit_notes": [],
+      "files": {
+        "pdf": false,
+        "xml": false
+      },
+      "memo": "Onboarding workshop, three sessions",
+      "purchase_order": "PO-2026-114",
+      "custom_properties": {},
+      "created_at": "2026-11-25T23:51:27.161Z",
+      "updated_at": "2026-11-25T23:51:27.197Z"
+    }
+  },
+  "finalize_invoice": {
+    "response": {
+      "id": "inv_4iCk81THc8Tny54nqZktu9",
+      "number": "INV-0005",
+      "status": "finalized",
+      "type": "one_off",
+      "customer": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH"
+      },
+      "customer_details": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH",
+        "email": "billing@northwind.example",
+        "billing_address": {
+          "line1": "Friedrichstraße 68",
+          "city": "Berlin",
+          "postal_code": "10117",
+          "country": "DE"
+        }
+      },
+      "currency": "EUR",
+      "invoice_date": "2026-11-25",
+      "period_start": "2026-11-25",
+      "net_terms": 30,
+      "tax_inclusive": false,
+      "subtotal": 195000,
+      "discount": 0,
+      "promotional_credits": 0,
+      "tax": 0,
+      "total": 195000,
+      "applied_credits": 0,
+      "carried_balance": 0,
+      "amount_due": 195000,
+      "amount_paid": 0,
+      "payment_status": "unpaid",
+      "lines": [
+        {
+          "id": "ELXletwhYM0CJ",
+          "name": "Onboarding workshop",
+          "description": "Two half-day sessions",
+          "kind": "charge",
+          "billing": "one_time",
+          "quantity": "3",
+          "unit_price": "650",
+          "amount": 195000,
+          "taxable_amount": 195000,
+          "tax_rate": "0",
+          "tax": 0,
+          "total": 195000,
+          "start_date": "2026-11-25",
+          "end_date": "2026-11-25",
+          "prorated": false
+        }
+      ],
+      "taxes": [
+        {
+          "name": "Tax",
+          "rate": "0",
+          "taxable_amount": 195000,
+          "amount": 0
+        }
+      ],
+      "coupons": [],
+      "payments": [],
+      "credit_notes": [],
+      "files": {
+        "pdf": false,
+        "xml": false
+      },
+      "memo": "Onboarding workshop, three sessions",
+      "reference": "INV0005",
+      "purchase_order": "PO-2026-114",
+      "custom_properties": {},
+      "created_at": "2026-11-25T23:51:27.161Z",
+      "updated_at": "2026-11-25T23:51:27.219Z",
+      "finalized_at": "2026-11-25T23:51:27.213Z"
+    }
+  },
+  "mark_invoice_uncollectible": {
+    "response": {
+      "id": "inv_4iCk81THc8Tny54nqZktu9",
+      "number": "INV-0005",
+      "status": "uncollectible",
+      "type": "one_off",
+      "customer": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH"
+      },
+      "customer_details": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH",
+        "email": "billing@northwind.example",
+        "billing_address": {
+          "line1": "Friedrichstraße 68",
+          "city": "Berlin",
+          "postal_code": "10117",
+          "country": "DE"
+        }
+      },
+      "currency": "EUR",
+      "invoice_date": "2026-11-25",
+      "period_start": "2026-11-25",
+      "net_terms": 30,
+      "tax_inclusive": false,
+      "subtotal": 195000,
+      "discount": 0,
+      "promotional_credits": 0,
+      "tax": 0,
+      "total": 195000,
+      "applied_credits": 0,
+      "carried_balance": 0,
+      "amount_due": 195000,
+      "amount_paid": 0,
+      "payment_status": "unpaid",
+      "lines": [
+        {
+          "id": "ELXletwhYM0CJ",
+          "name": "Onboarding workshop",
+          "description": "Two half-day sessions",
+          "kind": "charge",
+          "billing": "one_time",
+          "quantity": "3",
+          "unit_price": "650",
+          "amount": 195000,
+          "taxable_amount": 195000,
+          "tax_rate": "0",
+          "tax": 0,
+          "total": 195000,
+          "start_date": "2026-11-25",
+          "end_date": "2026-11-25",
+          "prorated": false
+        }
+      ],
+      "taxes": [
+        {
+          "name": "Tax",
+          "rate": "0",
+          "taxable_amount": 195000,
+          "amount": 0
+        }
+      ],
+      "coupons": [],
+      "payments": [],
+      "credit_notes": [],
+      "files": {
+        "pdf": false,
+        "xml": false
+      },
+      "memo": "Onboarding workshop, three sessions",
+      "reference": "INV0005",
+      "purchase_order": "PO-2026-114",
+      "custom_properties": {},
+      "created_at": "2026-11-25T23:51:27.161Z",
+      "updated_at": "2026-11-25T23:51:27.241Z",
+      "finalized_at": "2026-11-25T23:51:27.213Z",
+      "marked_uncollectible_at": "2026-11-25T23:51:27.241Z"
+    }
+  },
+  "void_invoice": {
+    "response": {
+      "id": "inv_7BoH8TbtahSgJSJnVuhfQr",
+      "number": "INV-0006",
+      "status": "void",
+      "type": "one_off",
+      "customer": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH"
+      },
+      "customer_details": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH",
+        "email": "billing@northwind.example",
+        "billing_address": {
+          "line1": "Friedrichstraße 68",
+          "city": "Berlin",
+          "postal_code": "10117",
+          "country": "DE"
+        }
+      },
+      "currency": "EUR",
+      "invoice_date": "2026-11-25",
+      "period_start": "2026-11-25",
+      "net_terms": 30,
+      "tax_inclusive": false,
+      "subtotal": 65000,
+      "discount": 0,
+      "promotional_credits": 0,
+      "tax": 0,
+      "total": 65000,
+      "applied_credits": 0,
+      "carried_balance": 0,
+      "amount_due": 65000,
+      "amount_paid": 0,
+      "payment_status": "unpaid",
+      "lines": [
+        {
+          "id": "XfdQpPTvDYyUL",
+          "name": "Onboarding workshop",
+          "kind": "charge",
+          "billing": "one_time",
+          "quantity": "1",
+          "unit_price": "650",
+          "amount": 65000,
+          "taxable_amount": 65000,
+          "tax_rate": "0",
+          "tax": 0,
+          "total": 65000,
+          "start_date": "2026-11-25",
+          "end_date": "2026-11-25",
+          "prorated": false
+        }
+      ],
+      "taxes": [
+        {
+          "name": "Tax",
+          "rate": "0",
+          "taxable_amount": 65000,
+          "amount": 0
+        }
+      ],
+      "coupons": [],
+      "payments": [],
+      "credit_notes": [
+        {
+          "id": "crn_4rWrJCQSm3WR8v3z3WDQ9E",
+          "number": "CN-000001"
+        }
+      ],
+      "files": {
+        "pdf": false,
+        "xml": false
+      },
+      "reference": "INV0006",
+      "custom_properties": {},
+      "created_at": "2026-11-25T23:51:27.267Z",
+      "updated_at": "2026-11-25T23:51:27.339Z",
+      "finalized_at": "2026-11-25T23:51:27.280Z",
+      "voided_at": "2026-11-25T23:51:27.315Z"
+    }
+  },
+  "ingest_events": {
+    "request": {
+      "events": [
+        {
+          "event_id": "01JDQ6K3W8Z4N2V7R5T9X1M3B6",
+          "code": "completion",
+          "customer": "ext:northwind",
+          "timestamp": "2026-11-26T09:12:44Z",
+          "properties": {
+            "model": "large",
+            "tokens": 1832
+          }
+        },
+        {
+          "event_id": "01JDQ6K4A1C3E5G7J9L2N4Q6S8",
+          "code": "completion",
+          "customer": "ext:northwind",
+          "properties": {
+            "model": "small",
+            "tokens": 412
+          }
+        }
+      ]
+    },
+    "response": {
+      "accepted": 2,
+      "rejected": []
+    }
+  },
+  "create_webhook_endpoint": {
+    "request": {
+      "url": "https://billing.acme.example/webhooks/meteroid",
+      "description": "Billing events",
+      "event_types": [
+        "subscription.created",
+        "invoice.finalized",
+        "invoice.paid"
+      ],
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer 4f3c…",
+          "sensitive": true
+        }
+      ],
+      "rate_limit_per_sec": 20
+    },
+    "response": {
+      "id": "whe_6k10a5KlVnnwe6HPvGUX8v",
+      "url": "https://billing.acme.example/webhooks/meteroid",
+      "description": "Billing events",
+      "event_types": [
+        "subscription.created",
+        "invoice.finalized",
+        "invoice.paid"
+      ],
+      "disabled": false,
+      "consecutive_failures": 0,
+      "max_in_flight": 1,
+      "headers": [
+        {
+          "name": "Authorization",
+          "sensitive": true,
+          "set": true
+        }
+      ],
+      "needs_setup": false,
+      "rate_limit_per_sec": 20,
+      "api_version": "2026-12-15",
+      "created_at": "2026-11-25T23:51:27.404Z",
+      "secret": "whsec_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    }
+  },
+  "list_webhook_endpoints": {
+    "response": {
+      "data": [
+        {
+          "id": "whe_6k10a5KlVnnwe6HPvGUX8v",
+          "url": "https://billing.acme.example/webhooks/meteroid",
+          "description": "Billing events",
+          "event_types": [
+            "subscription.created",
+            "invoice.finalized",
+            "invoice.paid"
+          ],
+          "disabled": false,
+          "consecutive_failures": 0,
+          "max_in_flight": 1,
+          "headers": [
+            {
+              "name": "Authorization",
+              "sensitive": true,
+              "set": true
+            }
+          ],
+          "needs_setup": false,
+          "rate_limit_per_sec": 20,
+          "api_version": "2026-12-15",
+          "created_at": "2026-11-25T23:51:27.404Z"
+        }
+      ],
+      "next_cursor": null,
+      "has_more": false
+    }
+  },
+  "get_webhook_endpoint": {
+    "response": {
+      "id": "whe_6k10a5KlVnnwe6HPvGUX8v",
+      "url": "https://billing.acme.example/webhooks/meteroid",
+      "description": "Billing events",
+      "event_types": [
+        "subscription.created",
+        "invoice.finalized",
+        "invoice.paid"
+      ],
+      "disabled": false,
+      "consecutive_failures": 0,
+      "max_in_flight": 1,
+      "headers": [
+        {
+          "name": "Authorization",
+          "sensitive": true,
+          "set": true
+        }
+      ],
+      "needs_setup": false,
+      "rate_limit_per_sec": 20,
+      "api_version": "2026-12-15",
+      "created_at": "2026-11-25T23:51:27.404Z"
+    }
+  },
+  "update_webhook_endpoint": {
+    "request": {
+      "event_types": [
+        "subscription.created",
+        "subscription.cancelled",
+        "invoice.finalized",
+        "invoice.paid"
+      ]
+    },
+    "response": {
+      "id": "whe_6k10a5KlVnnwe6HPvGUX8v",
+      "url": "https://billing.acme.example/webhooks/meteroid",
+      "description": "Billing events",
+      "event_types": [
+        "subscription.created",
+        "subscription.cancelled",
+        "invoice.finalized",
+        "invoice.paid"
+      ],
+      "disabled": false,
+      "consecutive_failures": 0,
+      "max_in_flight": 1,
+      "headers": [
+        {
+          "name": "Authorization",
+          "sensitive": true,
+          "set": true
+        }
+      ],
+      "needs_setup": false,
+      "rate_limit_per_sec": 20,
+      "api_version": "2026-12-15",
+      "created_at": "2026-11-25T23:51:27.404Z",
+      "updated_at": "2026-11-25T23:51:27.429Z"
+    }
+  },
+  "get_webhook_endpoint_secret": {
+    "response": {
+      "secret": "whsec_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    }
+  },
+  "rotate_webhook_endpoint_secret": {
+    "response": {
+      "secret": "whsec_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+    }
+  },
+  "list_webhook_deliveries": {
+    "response": {
+      "data": [
+        {
+          "id": "whd_1z7G4H7ZL4voXOJr0ZrZun",
+          "event": "evt_6yIGhHrp3Qad2qSx4CnUUn",
+          "endpoint": "whe_6k10a5KlVnnwe6HPvGUX8v",
+          "event_type": "invoice.finalized",
+          "status": "succeeded",
+          "attempts": 1,
+          "last_response_status": 200,
+          "manual": false,
+          "created_at": "2026-11-25T23:51:27.811Z",
+          "completed_at": "2026-11-25T23:51:28.042Z"
+        }
+      ],
+      "next_cursor": null,
+      "has_more": false
+    }
+  },
+  "archive_webhook_endpoint": {
+    "response": {
+      "id": "whe_6k10a5KlVnnwe6HPvGUX8v",
+      "url": "https://billing.acme.example/webhooks/meteroid",
+      "description": "Billing events",
+      "event_types": [
+        "subscription.created",
+        "subscription.cancelled",
+        "invoice.finalized",
+        "invoice.paid"
+      ],
+      "disabled": false,
+      "consecutive_failures": 0,
+      "max_in_flight": 1,
+      "headers": [
+        {
+          "name": "Authorization",
+          "sensitive": true,
+          "set": true
+        }
+      ],
+      "needs_setup": false,
+      "rate_limit_per_sec": 20,
+      "api_version": "2026-12-15",
+      "created_at": "2026-11-25T23:51:27.404Z",
+      "updated_at": "2026-11-25T23:51:27.489Z",
+      "archived_at": "2026-11-25T23:51:27.489Z"
+    }
+  },
+  "archive_customer": {
+    "response": {
+      "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+      "alias": "northwind",
+      "type": "company",
+      "name": "Northwind Labs GmbH",
+      "email": "billing@northwind.example",
+      "phone": "+49 30 1234567",
+      "currency": "EUR",
+      "billing_address": {
+        "line1": "Friedrichstraße 68",
+        "city": "Berlin",
+        "postal_code": "10117",
+        "country": "DE"
+      },
+      "tax": {
+        "status": "taxable",
+        "custom_rates": []
+      },
+      "invoicing": {
+        "entity": "ive_33J0JGPQ1hlPEUrNbGRUJA",
+        "emails": [
+          "finance@northwind.example"
+        ],
+        "preferred_locales": [
+          "en"
+        ],
+        "buyer_reference": "NW-OPS"
+      },
+      "custom_properties": {},
+      "archived": true,
+      "created_at": "2026-11-25T23:51:25.281Z",
+      "updated_at": "2026-11-25T23:51:25.314Z",
+      "archived_at": "2026-11-25T23:51:27.590Z"
+    }
+  },
+  "unarchive_customer": {
+    "response": {
+      "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+      "alias": "northwind",
+      "type": "company",
+      "name": "Northwind Labs GmbH",
+      "email": "billing@northwind.example",
+      "phone": "+49 30 1234567",
+      "currency": "EUR",
+      "billing_address": {
+        "line1": "Friedrichstraße 68",
+        "city": "Berlin",
+        "postal_code": "10117",
+        "country": "DE"
+      },
+      "tax": {
+        "status": "taxable",
+        "custom_rates": []
+      },
+      "invoicing": {
+        "entity": "ive_33J0JGPQ1hlPEUrNbGRUJA",
+        "emails": [
+          "finance@northwind.example"
+        ],
+        "preferred_locales": [
+          "en"
+        ],
+        "buyer_reference": "NW-OPS"
+      },
+      "custom_properties": {},
+      "archived": false,
+      "created_at": "2026-11-25T23:51:25.281Z",
+      "updated_at": "2026-11-25T23:51:27.612Z"
+    }
+  },
+  "refresh_invoice": {
+    "response": {
+      "id": "inv_4iCk81THc8Tny54nqZktu9",
+      "number": "draft",
+      "status": "draft",
+      "type": "one_off",
+      "customer": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH"
+      },
+      "customer_details": {
+        "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+        "alias": "northwind",
+        "name": "Northwind Labs GmbH",
+        "email": "billing@northwind.example",
+        "billing_address": {
+          "line1": "Friedrichstraße 68",
+          "city": "Berlin",
+          "postal_code": "10117",
+          "country": "DE"
+        }
+      },
+      "currency": "EUR",
+      "invoice_date": "2026-11-25",
+      "period_start": "2026-11-25",
+      "net_terms": 30,
+      "tax_inclusive": false,
+      "subtotal": 130000,
+      "discount": 0,
+      "promotional_credits": 0,
+      "tax": 0,
+      "total": 130000,
+      "applied_credits": 0,
+      "carried_balance": 0,
+      "amount_due": 130000,
+      "amount_paid": 0,
+      "payment_status": "unpaid",
+      "lines": [
+        {
+          "id": "ELXletwhYM0CJ",
+          "name": "Onboarding workshop",
+          "description": "Two half-day sessions",
+          "kind": "charge",
+          "billing": "one_time",
+          "quantity": "2",
+          "unit_price": "650",
+          "amount": 130000,
+          "taxable_amount": 130000,
+          "tax_rate": "0",
+          "tax": 0,
+          "total": 130000,
+          "start_date": "2026-11-25",
+          "end_date": "2026-11-25",
+          "prorated": false
+        }
+      ],
+      "taxes": [
+        {
+          "name": "Tax",
+          "rate": "0",
+          "taxable_amount": 130000,
+          "amount": 0
+        }
+      ],
+      "coupons": [],
+      "payments": [],
+      "credit_notes": [],
+      "files": {
+        "pdf": false,
+        "xml": false
+      },
+      "memo": "Onboarding workshop",
+      "purchase_order": "PO-2026-114",
+      "custom_properties": {},
+      "created_at": "2026-11-25T23:51:27.161Z",
+      "updated_at": "2026-11-25T23:51:27.188Z"
+    }
+  }
+}

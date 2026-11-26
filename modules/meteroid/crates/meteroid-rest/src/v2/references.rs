@@ -1,6 +1,7 @@
 //! What a charge names, resolved before it is written ([`resolve_refs`]) and named back by code
 //! when it is read ([`CatalogNames`]).
 use crate::AppState;
+use crate::v2::Reader;
 use crate::v2::charges::{Charge, ChargeRefs, Names, PriceModel, Quantity, StoredCharge};
 use crate::v2::ids;
 use crate::v2::problem::Problem;
@@ -119,7 +120,7 @@ pub struct CatalogNames {
 
 impl CatalogNames {
     pub async fn load<'a>(
-        state: &AppState,
+        state: &impl Reader,
         tenant_id: TenantId,
         charges: impl IntoIterator<Item = &'a StoredCharge>,
     ) -> Result<Self, Problem> {
@@ -150,7 +151,7 @@ impl CatalogNames {
         let mut names = CatalogNames::default();
         if !product_ids.is_empty() {
             names.products = state
-                .store
+                .store()
                 .find_products_by_ids(&product_ids, tenant_id)
                 .await?
                 .into_iter()
@@ -159,7 +160,7 @@ impl CatalogNames {
         }
         if !metric_ids.is_empty() {
             names.metrics = state
-                .store
+                .store()
                 .find_billable_metrics_by_ids(&metric_ids, tenant_id)
                 .await?
                 .into_iter()
@@ -168,7 +169,7 @@ impl CatalogNames {
         }
         if needs_quantities {
             names.quantities = state
-                .store
+                .store()
                 .list_managed_quantities(tenant_id)
                 .await?
                 .into_iter()
@@ -178,7 +179,7 @@ impl CatalogNames {
         if needs_rate_cards {
             // Archived cards too: the prices they rate are read back by their code.
             names.rate_cards = state
-                .store
+                .store()
                 .list_rate_cards_after(tenant_id, None, true, None, usize::MAX)
                 .await?
                 .into_iter()

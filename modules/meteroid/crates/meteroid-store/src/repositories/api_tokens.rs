@@ -32,6 +32,10 @@ pub trait ApiTokensInterface {
         id: &ApiTokenId,
     ) -> StoreResult<ApiTokenValidation>;
 
+    /// The key of this id, whatever its tenant: the key a request authenticated with, which may
+    /// act for another tenant (a connected account).
+    async fn find_authenticated_api_token(&self, id: ApiTokenId) -> StoreResult<Option<ApiToken>>;
+
     async fn insert_api_token(
         &self,
         actor: Actor,
@@ -85,6 +89,14 @@ impl ApiTokensInterface for Store {
             .map_err(|err| StoreError::DatabaseError(err.error))?;
 
         Ok(api_tokens.into_iter().map(Into::into).collect())
+    }
+
+    async fn find_authenticated_api_token(&self, id: ApiTokenId) -> StoreResult<Option<ApiToken>> {
+        let mut conn = self.get_conn().await?;
+        Ok(ApiTokenRow::find_by_id(&mut conn, id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .map(Into::into))
     }
 
     async fn get_api_token_by_id_for_validation(

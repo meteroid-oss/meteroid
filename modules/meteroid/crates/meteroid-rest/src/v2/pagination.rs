@@ -200,10 +200,16 @@ pub fn keyset<T>(mut rows: Vec<T>, limit: usize, key: impl Fn(&T) -> Uuid) -> Pa
 macro_rules! v2_list {
     ($name:ident, $item:ty) => {
         #[derive(serde::Serialize, utoipa::ToSchema, Debug, Clone)]
+        #[schema(description = concat!(
+            "A page of `", stringify!($item), "` items, by cursor: pass `next_cursor` as `after` \
+             for the next."
+        ))]
         pub struct $name {
+            /// The items of the page, in the list's order.
             pub data: Vec<$item>,
             /// Pass it as `after` for the next page; none on the last.
             pub next_cursor: Option<String>,
+            /// Whether another page follows: `next_cursor` is set when it does.
             pub has_more: bool,
         }
 

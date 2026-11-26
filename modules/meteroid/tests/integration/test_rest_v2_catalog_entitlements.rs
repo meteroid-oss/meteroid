@@ -1,4 +1,4 @@
-//! API v2's catalog entitlements (ADR-0013 §23): features of each type and their patches, a
+//! API v2's catalog entitlements (ADR-0013 §25): features of each type and their patches, a
 //! row's lineage and history, feature statuses and codes, and the rows plans, add-ons and
 //! products hold; what a plan is sold for and whom a metric's usage is attributed to.
 use crate::test_rest_v2::{
@@ -76,7 +76,7 @@ async fn feature_codes(f: &Fixture, query: &str) -> Vec<String> {
         .collect()
 }
 
-/// Rules: ADR-0013 §23 (a feature)
+/// Rules: ADR-0013 §25 (a feature)
 #[tokio::test]
 async fn test_rest_v2_features_of_each_type() {
     let f = fixture().await;
@@ -436,7 +436,7 @@ async fn test_rest_v2_features_of_each_type() {
     );
 }
 
-/// Rules: ADR-0013 §23 (`PATCH /features/{…}`)
+/// Rules: ADR-0013 §25 (`PATCH /features/{…}`)
 #[tokio::test]
 async fn test_rest_v2_feature_patch() {
     let f = fixture().await;
@@ -668,7 +668,7 @@ async fn test_rest_v2_feature_patch() {
     }
 }
 
-/// Rules: ADR-0013 §23 (an entitlement: lineage, `/entitlements/{id}`, its history)
+/// Rules: ADR-0013 §25 (an entitlement: lineage, `/entitlements/{id}`, its history)
 #[tokio::test]
 async fn test_rest_v2_feature_defaults_lineage_and_history() {
     let f = fixture().await;
@@ -818,7 +818,7 @@ async fn test_rest_v2_feature_defaults_lineage_and_history() {
     }
 }
 
-/// Rules: ADR-0013 §23 (`GET /features`, statuses, codes)
+/// Rules: ADR-0013 §25 (`GET /features`, statuses, codes)
 #[tokio::test]
 async fn test_rest_v2_feature_statuses_codes_and_lists() {
     let f = fixture().await;
@@ -1024,7 +1024,7 @@ fn draft(rows: Option<Value>) -> Value {
     draft
 }
 
-/// Rules: ADR-0013 §23 (a plan version's rows, `sold_for`)
+/// Rules: ADR-0013 §25 (a plan version's rows, `sold_for`)
 #[tokio::test]
 async fn test_rest_v2_plan_rows_and_sold_for() {
     let f = fixture().await;
@@ -1258,7 +1258,7 @@ async fn test_rest_v2_plan_rows_and_sold_for() {
     );
 }
 
-/// Rules: ADR-0013 §23 (an add-on's and a product's rows)
+/// Rules: ADR-0013 §25 (an add-on's and a product's rows)
 #[tokio::test]
 async fn test_rest_v2_add_on_and_product_rows() {
     let f = fixture().await;
@@ -1461,7 +1461,7 @@ async fn test_rest_v2_add_on_and_product_rows() {
     );
 }
 
-/// Rules: ADR-0013 §23 (a metric's `attributed_to` and its preview)
+/// Rules: ADR-0013 §25 (a metric's `attributed_to` and its preview)
 #[tokio::test]
 async fn test_rest_v2_metric_attribution() {
     let f = fixture().await;

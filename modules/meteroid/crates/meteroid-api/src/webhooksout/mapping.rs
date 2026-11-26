@@ -1,6 +1,7 @@
 pub mod webhooks {
     use meteroid_app::conversions::{AsProtoOpt, ProtoConv};
     use meteroid_grpc::meteroid::api::webhooks::out::v1 as server;
+    use meteroid_rest_common::api_versions::receives_v2_payloads;
     use meteroid_store::domain::enums as domain_enum;
     use meteroid_store::domain::webhooks_out as domain;
 
@@ -82,6 +83,8 @@ pub mod webhooks {
             paused_until: value.paused_until.as_proto(),
             failing_since: value.failing_since.as_proto(),
             rate_limit_per_sec: value.rate_limit_per_sec,
+            api_version: value.api_version.clone(),
+            v1_payloads: !receives_v2_payloads(value.api_version.as_deref()),
         }
     }
 

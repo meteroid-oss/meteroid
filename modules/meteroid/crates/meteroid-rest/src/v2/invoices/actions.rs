@@ -79,7 +79,7 @@ fn invoice_id(raw: &str) -> Result<InvoiceId, Problem> {
     path = "/api/v2/invoices/{id}/refresh",
     params(("id" = String, Path, description = "Invoice id")),
     responses(
-        (status = 200, description = "Refreshed", body = Invoice),
+        (status = 200, description = "Refreshed", body = Invoice, example = json!(crate::v2::examples::response("refresh_invoice"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "Not a draft that can be refreshed", body = Problem, content_type = "application/problem+json"),
     ),
@@ -108,7 +108,7 @@ pub async fn refresh_invoice(
     path = "/api/v2/invoices/{id}/finalize",
     params(("id" = String, Path, description = "Invoice id")),
     responses(
-        (status = 200, description = "Issued", body = Invoice),
+        (status = 200, description = "Issued", body = Invoice, example = json!(crate::v2::examples::response("finalize_invoice"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "Not a draft that can be issued", body = Problem, content_type = "application/problem+json"),
     ),
@@ -137,7 +137,7 @@ pub async fn finalize_invoice(
     path = "/api/v2/invoices/{id}/void",
     params(("id" = String, Path, description = "Invoice id")),
     responses(
-        (status = 200, description = "Voided", body = Invoice),
+        (status = 200, description = "Voided", body = Invoice, example = json!(crate::v2::examples::response("void_invoice"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The invoice's state refuses it", body = Problem, content_type = "application/problem+json"),
     ),
@@ -165,7 +165,7 @@ pub async fn void_invoice(
     path = "/api/v2/invoices/{id}/mark-uncollectible",
     params(("id" = String, Path, description = "Invoice id")),
     responses(
-        (status = 200, description = "Written off", body = Invoice),
+        (status = 200, description = "Written off", body = Invoice, example = json!(crate::v2::examples::response("mark_invoice_uncollectible"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "Not an issued invoice", body = Problem, content_type = "application/problem+json"),
     ),
@@ -195,9 +195,9 @@ pub async fn mark_invoice_uncollectible(
     tag = "Invoices",
     path = "/api/v2/invoices/{id}/mark-paid",
     params(("id" = String, Path, description = "Invoice id")),
-    request_body = MarkPaid,
+    request_body(content = MarkPaid, example = json!(crate::v2::examples::request("mark_invoice_paid"))),
     responses(
-        (status = 200, description = "Paid", body = Invoice),
+        (status = 200, description = "Paid", body = Invoice, example = json!(crate::v2::examples::response("mark_invoice_paid"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The key was used for another payment", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "Not an issued invoice with an amount due, or a date more than a day ahead", body = Problem, content_type = "application/problem+json"),
@@ -248,9 +248,9 @@ pub async fn mark_invoice_paid(
     tag = "Invoices",
     path = "/api/v2/invoices/{id}/payments",
     params(("id" = String, Path, description = "Invoice id")),
-    request_body = RecordPayment,
+    request_body(content = RecordPayment, example = json!(crate::v2::examples::request("record_invoice_payment"))),
     responses(
-        (status = 200, description = "Recorded: the invoice with its payments", body = Invoice),
+        (status = 200, description = "Recorded: the invoice with its payments", body = Invoice, example = json!(crate::v2::examples::response("record_invoice_payment"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The key was used for another payment", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "An amount or a date refused, an invoice not issued, or no Idempotency-Key", body = Problem, content_type = "application/problem+json"),
@@ -306,9 +306,9 @@ pub async fn record_invoice_payment(
         ("id" = String, Path, description = "Invoice id"),
         ("payment_id" = String, Path, description = "Payment id"),
     ),
-    request_body = ReversePayment,
+    request_body(content = ReversePayment, example = json!(crate::v2::examples::request("reverse_invoice_payment"))),
     responses(
-        (status = 200, description = "Reversed: the invoice with its payments", body = Invoice),
+        (status = 200, description = "Reversed: the invoice with its payments", body = Invoice, example = json!(crate::v2::examples::response("reverse_invoice_payment"))),
         (status = 404, description = "Not found, or not a payment of the invoice", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The key was used for another reversal", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "The payment cannot be reversed, or no Idempotency-Key", body = Problem, content_type = "application/problem+json"),

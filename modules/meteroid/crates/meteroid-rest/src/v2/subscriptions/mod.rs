@@ -26,5 +26,6 @@ pub fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(read::get_subscription, patch::update_subscription))
         .routes(routes!(read::get_subscription_summary))
         .routes(routes!(entitlements::list_subscription_entitlements))
+        .routes(routes!(entitlements::get_subscription_entitlement))
         .merge(changes::routes())
 }

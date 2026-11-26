@@ -63,6 +63,12 @@ message WebhookEndpoint {
   optional string failing_since = 17;
   // Deliveries started per second, at most.
   optional int32 rate_limit_per_sec = 18;
+  // The API version its payloads are rendered at: from 2026-12-15, API v2's envelopes. Absent
+  // on an endpoint created through API v1, or from the dashboard before versions were pinned.
+  optional string api_version = 19;
+  // It receives API v1's payloads (no version, or one before v2's payloads):
+  // UpgradeWebhookEndpointApiVersion moves it to the latest version.
+  bool v1_payloads = 20;
 }
 
 message WebhookDelivery {

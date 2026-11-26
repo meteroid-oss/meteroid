@@ -70,6 +70,7 @@ pub struct IngestEvent {
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct IngestEvents {
+    /// The events, 1 to 500.
     pub events: Vec<IngestEvent>,
     /// Accept timestamps up to 13 months in the past, not 24 hours. `false` by default.
     #[serde(default)]
@@ -88,7 +89,9 @@ pub struct IngestRejection {
     /// A JSON pointer to what is refused: the event (`/events/3`) or one of its fields
     /// (`/events/3/customer`).
     pub path: String,
+    /// The `event_id` it was sent with.
     pub event_id: String,
+    /// Why it is rejected.
     pub message: String,
 }
 
@@ -213,9 +216,9 @@ fn metering_event(event: IngestEvent, index: usize) -> Result<grpc::Event, Inges
     post,
     tag = "Events",
     path = "/api/v2/events/ingest",
-    request_body = IngestEvents,
+    request_body(content = IngestEvents, example = json!(crate::v2::examples::request("ingest_events"))),
     responses(
-        (status = 200, description = "The events accepted, and those rejected with `allow_partial_failures`", body = IngestEventsResult),
+        (status = 200, description = "The events accepted, and those rejected with `allow_partial_failures`", body = IngestEventsResult, example = json!(crate::v2::examples::response("ingest_events"))),
         (status = 422, description = "An event is rejected (without `allow_partial_failures`, the batch is), or the batch is empty or too large", body = Problem, content_type = "application/problem+json"),
         (status = 429, description = "Too many requests or events, retry later", body = Problem, content_type = "application/problem+json"),
         (status = 503, description = "Metering is unavailable, retry later", body = Problem, content_type = "application/problem+json"),

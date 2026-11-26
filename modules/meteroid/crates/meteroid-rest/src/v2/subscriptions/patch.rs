@@ -34,7 +34,7 @@ pub struct InvoicingPatch {
     /// Days an invoice is due after it is issued.
     #[serde(default)]
     pub net_terms: Option<u32>,
-    /// `null` clears it.
+    /// The customer's purchase order number, printed on every invoice; `null` clears it.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub purchase_order: Option<Option<String>>,
@@ -42,9 +42,11 @@ pub struct InvoicingPatch {
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub memo: Option<Option<String>>,
+    /// Invoices are finalized and sent without a review.
     #[serde(default)]
     pub auto_finalize: Option<bool>,
-    /// True needs a payment provider on the invoicing entity.
+    /// Invoices are charged to the customer's payment method; true needs a payment provider on
+    /// the invoicing entity.
     #[serde(default)]
     pub charge_automatically: Option<bool>,
 }
@@ -57,6 +59,7 @@ pub struct UpdateSubscription {
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub external_id: Option<Option<String>>,
+    /// Its invoicing terms from now on, merged field by field.
     #[serde(default)]
     pub invoicing: Option<InvoicingPatch>,
     /// The day it stops renewing and completes; `null`: it renews until cancelled. Only what is
@@ -177,9 +180,9 @@ fn cleared_if_empty(value: Option<Option<String>>) -> Option<Option<String>> {
     tag = "Subscriptions",
     path = "/api/v2/subscriptions/{id_or_external_id}",
     params(("id_or_external_id" = String, Path, description = "Subscription id or external id")),
-    request_body(content = UpdateSubscription, content_type = "application/merge-patch+json"),
+    request_body(content = UpdateSubscription, content_type = "application/merge-patch+json", example = json!(crate::v2::examples::request("update_subscription"))),
     responses(
-        (status = 200, description = "Updated", body = Subscription),
+        (status = 200, description = "Updated", body = Subscription, example = json!(crate::v2::examples::response("update_subscription"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The external id is another subscription's, or the subscription's state refuses its end date: ended, a cancellation scheduled, a change scheduled on or after the date", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A field is refused: a custom property not defined, automatic charging without a payment provider, a subscription ended, a resource changed once it is active, an end date not after today or cutting a period already billed…", body = Problem, content_type = "application/problem+json"),
@@ -222,6 +225,9 @@ pub async fn update_subscription(
     };
 
     let invoicing = body.invoicing.unwrap_or_default();
+    if let Some(days) = invoicing.net_terms {
+        crate::v2::bounds::net_terms(days, "/invoicing/net_terms")?;
+    }
     let patch = SubscriptionPatch {
         id,
         charge_automatically: invoicing.charge_automatically,

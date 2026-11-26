@@ -1,6 +1,7 @@
 //! `/api/v2/plans` (ADR-0013 §5, §6): a plan's live fields and its versions, each a price sheet
 //! of charges in options. A draft is written whole (`PUT …/draft`) and published.
 use crate::AppState;
+use crate::v2::Reader;
 use crate::v2::bounds;
 use crate::v2::charges::{
     Cadence, Charge, EVERY_OPTION, StoredCharge, StoredPrice, option_set, render, to_domain,
@@ -55,6 +56,9 @@ use utoipa_axum::routes;
 
 // ── Model ───────────────────────────────────────────────────────────
 
+/// Where a plan is in its life: `draft`, never published; `active`, published and sold;
+/// `inactive`, published but off pricing pages and checkout links (no v2 write sets it);
+/// `archived`, no longer sold, its subscriptions keeping it.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanStatus {
@@ -76,6 +80,8 @@ impl From<PlanStatusEnum> for PlanStatus {
     }
 }
 
+/// What kind of plan it is: `standard`, sold to anyone; `free`, subscribed without a payment
+/// method; `custom`, negotiated for one customer.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanType {
@@ -106,6 +112,9 @@ impl From<PlanType> for PlanTypeEnum {
     }
 }
 
+/// Where a version is in its life: `draft`, being written and not sold yet; `active`, the one
+/// new subscriptions get; `superseded`, published then replaced by a later version, its
+/// subscriptions keeping it.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum VersionStatus {
@@ -122,6 +131,7 @@ pub enum VersionStatus {
 pub struct PlanOption {
     /// The handle prices and subscriptions name it by, kept across versions.
     pub alias: String,
+    /// What a buyer reads, on the pricing page, the portal and invoices.
     pub name: String,
     /// Sold when no option is named; always the first, never hidden.
     pub default: bool,
@@ -129,25 +139,33 @@ pub struct PlanOption {
     pub hidden: bool,
 }
 
+/// An option of a draft: one way of buying the version ("Monthly", "Annual"), its prices named
+/// by its `alias`. 20 a version at most.
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct OptionInput {
-    /// Lowercase letters, digits, `-` and `_`; the name's slug when left out.
+    /// Lowercase letters, digits, `-` and `_`; the name's slug when left out. Keep an option's
+    /// alias from one version to the next: subscriptions name their option by it.
     #[serde(default)]
     pub alias: Option<String>,
+    /// What a buyer reads, 1 to 255 characters.
     pub name: String,
     /// One option at most; the first is the default when none says so.
     #[serde(default)]
     pub default: bool,
+    /// Sold when named, never advertised (off the pricing page and the portal); the default
+    /// option is never hidden.
     #[serde(default)]
     pub hidden: bool,
 }
 
+/// A trial a subscription to the version starts with.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Trial {
+    /// Its length in days, 0 to 3650.
     pub days: u32,
-    /// Nothing is billed during the trial.
+    /// Nothing is billed during the trial; `true` when left out.
     #[serde(default = "yes")]
     pub free: bool,
     /// The plan the trial gives access to, by code (id or code on input); none: this plan.
@@ -177,30 +195,39 @@ pub struct Minimum {
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct VersionAddOn {
-    /// By code (id or code on input).
+    /// The add-on, by code (id or code on input).
     pub add_on: String,
-    /// Overrides the add-on's own.
+    /// Customers may add it themselves (portal, checkout); overrides the add-on's own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub self_serviceable: Option<bool>,
+    /// How many of it a subscription may hold; overrides the add-on's own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_instances: Option<i32>,
 }
 
+/// A version of a plan: its options, charges, terms and rows. A published version never
+/// changes; a change is written in the draft and published as the next version.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct PlanVersion {
+    /// 1 for the first version, counting up.
     pub number: i32,
+    /// Draft, active or superseded.
     pub status: VersionStatus,
     /// The version's default currency: its minimum's, and what it is shown in first.
     pub currency: String,
     /// By position; the first is the default.
     pub options: Vec<PlanOption>,
+    /// What the version bills, in the order written, each charge in its canonical composition.
     pub charges: Vec<Charge>,
+    /// The trial a subscription starts with; none: no trial.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trial: Option<Trial>,
     /// Days an invoice is due after it is issued.
     pub net_terms: i32,
+    /// A floor on what a subscription is billed each period; none: no floor.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub minimum: Option<Minimum>,
+    /// The add-ons a subscription to the version may hold.
     pub add_ons: Vec<VersionAddOn>,
     /// Its prices include tax.
     pub tax_inclusive: bool,
@@ -227,19 +254,26 @@ pub struct VersionInput {
     /// The default currency; the first price's when left out.
     #[serde(default)]
     pub currency: Option<String>,
-    /// One "Standard" option when left out.
+    /// One "Standard" option when left out; 20 at most.
     #[serde(default)]
     pub options: Vec<OptionInput>,
+    /// What the version bills, 100 charges at most. Each price names an option by alias, or
+    /// `*` for every one.
     #[serde(default)]
     pub charges: Vec<Charge>,
+    /// None: no trial.
     #[serde(default)]
     pub trial: Option<Trial>,
+    /// Days an invoice is due after it is issued, 0 to 365; 0 when left out.
     #[serde(default)]
     pub net_terms: i32,
+    /// A floor on what a subscription is billed each period, in the version's currency.
     #[serde(default)]
     pub minimum: Option<Minimum>,
+    /// The add-ons a subscription to the version may hold, 100 at most.
     #[serde(default)]
     pub add_ons: Vec<VersionAddOn>,
+    /// Its prices include tax; `false` when left out.
     #[serde(default)]
     pub tax_inclusive: bool,
     /// 1 or more; none: until cancelled.
@@ -273,55 +307,76 @@ pub struct Listing {
     /// Its rung on the self-serve ladder (1 first); none: not offered self-serve.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub self_serve_rank: Option<i32>,
+    /// A line under the plan's name on the pricing page.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tagline: Option<String>,
+    /// Highlighted on the pricing page.
     pub popular: bool,
+    /// The label of the plan's button on the pricing page; none: the page's default.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cta_label: Option<String>,
     /// Sold by contacting sales: on the page, never self-serve.
     pub sales_led: bool,
     /// A sales-led plan's price stays off the page.
     pub hide_price: bool,
+    /// Where a sales-led plan's button leads.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contact_url: Option<String>,
 }
 
-/// A merge patch of the listing.
+/// A merge patch of the listing: a field left out is unchanged, `null` clears it.
 #[derive(Deserialize, ToSchema, Debug, Clone, Default)]
 #[serde(deny_unknown_fields)]
 pub struct ListingPatch {
+    /// Its rung on the self-serve ladder, 1 or more; `null` takes it off the ladder.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<i32>)]
     pub self_serve_rank: Option<Option<i32>>,
+    /// A line under the plan's name on the pricing page.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub tagline: Option<Option<String>>,
+    /// Highlighted on the pricing page.
     #[serde(default)]
     pub popular: Option<bool>,
+    /// The label of the plan's button on the pricing page.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub cta_label: Option<Option<String>>,
+    /// Sold by contacting sales: on the page, never self-serve.
     #[serde(default)]
     pub sales_led: Option<bool>,
+    /// A sales-led plan's price stays off the page.
     #[serde(default)]
     pub hide_price: Option<bool>,
+    /// Where a sales-led plan's button leads.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub contact_url: Option<Option<String>>,
 }
 
+/// A plan: a price sheet sold in versions. Its live fields (name, description, listing) change
+/// in place; what it bills is in its versions, written through a draft and published.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct Plan {
+    /// The plan's id, `plan_…`.
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub id: PlanId,
+    /// Unique per tenant, immutable; paths take it in place of the id.
     pub code: String,
+    /// What a buyer reads, on the pricing page, the portal and invoices.
     pub name: String,
+    /// What the plan is, in the tenant's words.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Standard, free or custom.
     #[serde(rename = "type")]
     pub plan_type: PlanType,
+    /// Draft, active, inactive or archived.
     pub status: PlanStatus,
+    /// The product family it is sold in.
     pub family: ProductFamilyRef,
+    /// How it reads on its family's pricing page and self-serve ladder.
     pub listing: Listing,
     /// The resource type its subscriptions are for; none: the customer.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -329,7 +384,9 @@ pub struct Plan {
     /// The number of the version new subscriptions get.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_version: Option<i32>,
+    /// A draft is being written: read it with `?version=draft`.
     pub has_draft: bool,
+    /// When the plan was created.
     pub created_at: ApiDateTime,
     /// The version asked (`?version=`); left out of lists.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -338,28 +395,38 @@ pub struct Plan {
 
 crate::v2_list!(PlanList, Plan);
 
+/// A version of a plan as listed, without its charges: read it whole with
+/// `GET /plans/{id_or_code}?version=<number>`.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct PlanVersionSummary {
+    /// 1 for the first version, counting up.
     pub number: i32,
+    /// Draft, active or superseded.
     pub status: VersionStatus,
+    /// The version's default currency (ISO 4217).
     pub currency: String,
+    /// When the version was first written, as a draft.
     pub created_at: ApiDateTime,
 }
 
 crate::v2_list!(PlanVersionList, PlanVersionSummary);
 
+/// A plan to create, with its first version as a draft.
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct CreatePlan {
     /// Unique per tenant, immutable; the name's slug when left out.
     #[serde(default)]
     pub code: Option<String>,
+    /// 1 to 255 characters.
     pub name: String,
+    /// 4,096 characters at most.
     #[serde(default)]
     pub description: Option<String>,
     /// The product family, by code or id; the default family when left out.
     #[serde(default)]
     pub family: Option<String>,
+    /// `standard` when left out.
     #[serde(default, rename = "type")]
     pub plan_type: PlanType,
     /// The resource type its subscriptions are for, by code or id; none: the customer.
@@ -374,11 +441,14 @@ pub struct CreatePlan {
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct UpdatePlan {
+    /// 1 to 255 characters; it cannot be cleared.
     #[serde(default)]
     pub name: Option<String>,
+    /// 4,096 characters at most; `null` clears it.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub description: Option<Option<String>>,
+    /// Merged field by field into the plan's listing.
     #[serde(default)]
     pub listing: Option<ListingPatch>,
     /// The resource type its subscriptions are for, by code or id; `null`: the customer. A plan
@@ -393,9 +463,13 @@ pub struct UpdatePlan {
 pub struct PlanListQuery {
     /// Only the plans of this family, by code or id.
     pub family: Option<String>,
-    /// Only the plans of this status; left out, every plan but the archived ones.
-    pub status: Option<PlanStatus>,
+    /// Only the plans in one of these statuses (repeat the parameter for several); left out,
+    /// every plan but the archived ones.
+    #[param(style = Form, explode)]
+    pub status: Option<Vec<PlanStatus>>,
+    /// How many items, 1 to 100; 20 by default.
     pub limit: Option<u32>,
+    /// The `next_cursor` of the previous page.
     pub after: Option<String>,
 }
 
@@ -498,7 +572,7 @@ fn stored_charges(fp: &FullPlan) -> Result<Vec<StoredCharge>, Problem> {
 }
 
 async fn render_version(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     fp: &FullPlan,
 ) -> Result<PlanVersion, Problem> {
@@ -519,14 +593,14 @@ async fn render_version(
         .collect::<Result<Vec<_>, Problem>>()?;
 
     let attached = state
-        .store
+        .store()
         .list_plan_version_add_ons(fp.version.id, tenant_id)
         .await?;
     let add_on_codes: HashMap<AddOnId, String> = if attached.is_empty() {
         HashMap::new()
     } else {
         state
-            .store
+            .store()
             .list_add_ons_by_ids(tenant_id, attached.iter().map(|a| a.add_on_id).collect())
             .await?
             .into_iter()
@@ -553,7 +627,7 @@ async fn render_version(
                 None => None,
                 Some(id) => Some(
                     state
-                        .store
+                        .store()
                         .plan_codes(tenant_id, &[id])
                         .await?
                         .remove(&id)
@@ -618,13 +692,13 @@ async fn render_version(
 }
 
 async fn listing(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     plan_id: PlanId,
     rank: Option<i32>,
 ) -> Result<Listing, Problem> {
     let page = state
-        .store
+        .store()
         .get_plan_pricing_page(tenant_id, plan_id)
         .await?;
     Ok(listing_of(page, rank))
@@ -642,8 +716,8 @@ fn listing_of(page: PlanPricingPage, rank: Option<i32>) -> Listing {
     }
 }
 
-async fn render_plan(
-    state: &AppState,
+pub(crate) async fn render_plan(
+    state: &impl Reader,
     tenant_id: TenantId,
     fp: &FullPlan,
     with_version: bool,
@@ -653,7 +727,10 @@ async fn render_plan(
     } else {
         None
     };
-    let overview = state.store.get_plan_overview(fp.plan.id, tenant_id).await?;
+    let overview = state
+        .store()
+        .get_plan_overview(fp.plan.id, tenant_id)
+        .await?;
     let families = family_codes(state, tenant_id).await?;
     let sold_for = sold_for_codes(state, tenant_id, [fp.plan.sold_for_resource_type_id]).await?;
     Ok(Plan {
@@ -678,7 +755,7 @@ async fn render_plan(
 
 /// The codes of the resource types plans are sold for, read when one is.
 async fn sold_for_codes(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     sold_for: impl IntoIterator<Item = Option<ResourceTypeId>>,
 ) -> Result<HashMap<ResourceTypeId, String>, Problem> {
@@ -686,7 +763,7 @@ async fn sold_for_codes(
         return Ok(HashMap::new());
     }
     Ok(state
-        .store
+        .store()
         .list_resource_types(tenant_id, true)
         .await?
         .into_iter()
@@ -740,8 +817,8 @@ fn known_id(plan_id: PlanId) -> serde_json::Value {
 
 /// The plan's version of `filter`; none: the active one, else the draft of a plan never
 /// published.
-async fn full_plan(
-    state: &AppState,
+pub(crate) async fn full_plan(
+    state: &impl Reader,
     tenant_id: TenantId,
     plan_id: PlanId,
     asked: Option<&str>,
@@ -762,18 +839,18 @@ async fn full_plan(
     };
     match filter {
         Some(filter) => Ok(state
-            .store
+            .store()
             .get_full_plan(plan_id, tenant_id, filter)
             .await?),
         None => match state
-            .store
+            .store()
             .get_full_plan(plan_id, tenant_id, PlanVersionFilter::Active)
             .await
         {
             Ok(fp) => Ok(fp),
             Err(error) if matches!(error.current_context(), StoreError::ValueNotFound(_)) => {
                 Ok(state
-                    .store
+                    .store()
                     .get_full_plan(plan_id, tenant_id, PlanVersionFilter::Draft)
                     .await?)
             }
@@ -1221,13 +1298,16 @@ async fn draft_of(
 // ── Handlers ────────────────────────────────────────────────────────
 
 /// List plans
+///
+/// The tenant's plans in creation order, paged by cursor, each without its versions (read one
+/// with `GET /plans/{id_or_code}`). Archived plans are left out unless `status=archived`.
 #[utoipa::path(
     get,
     tag = "Plans",
     path = "/api/v2/plans",
     params(PlanListQuery),
     responses(
-        (status = 200, description = "A page of the tenant's plans, without their versions", body = PlanList),
+        (status = 200, description = "A page of the tenant's plans, without their versions", body = PlanList, example = json!(crate::v2::examples::response("list_plans"))),
         (status = 401, description = "Unauthorized", body = Problem, content_type = "application/problem+json"),
     ),
     security(("bearer_auth" = []))
@@ -1241,11 +1321,16 @@ pub async fn list_plans(
         Some(family) => Some(ids::product_family_id(&state, auth.tenant_id, family).await?),
         None => None,
     };
-    let status = query.status.map(|status| match status {
-        PlanStatus::Draft => PlanStatusEnum::Draft,
-        PlanStatus::Active => PlanStatusEnum::Active,
-        PlanStatus::Inactive => PlanStatusEnum::Inactive,
-        PlanStatus::Archived => PlanStatusEnum::Archived,
+    let status = query.status.map(|statuses| {
+        statuses
+            .into_iter()
+            .map(|status| match status {
+                PlanStatus::Draft => PlanStatusEnum::Draft,
+                PlanStatus::Active => PlanStatusEnum::Active,
+                PlanStatus::Inactive => PlanStatusEnum::Inactive,
+                PlanStatus::Archived => PlanStatusEnum::Archived,
+            })
+            .collect()
     });
     let page_query = PageQuery {
         limit: query.limit,
@@ -1324,7 +1409,7 @@ pub async fn list_plans(
         PlanGetQuery,
     ),
     responses(
-        (status = 200, description = "The plan and the version asked", body = Plan),
+        (status = 200, description = "The plan and the version asked", body = Plan, example = json!(crate::v2::examples::response("get_plan"))),
         (status = 404, description = "No such plan, or no such version", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "The version uses what v2 cannot express: read it with v1", body = Problem, content_type = "application/problem+json"),
     ),
@@ -1349,9 +1434,9 @@ pub async fn get_plan(
     post,
     tag = "Plans",
     path = "/api/v2/plans",
-    request_body = CreatePlan,
+    request_body(content = CreatePlan, example = json!(crate::v2::examples::request("create_plan"))),
     responses(
-        (status = 201, description = "Created, with its draft", body = Plan),
+        (status = 201, description = "Created, with its draft", body = Plan, example = json!(crate::v2::examples::response("create_plan"))),
         (status = 409, description = "The code is taken", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A field is refused, or the model cannot express a charge", body = Problem, content_type = "application/problem+json"),
     ),
@@ -1416,9 +1501,9 @@ pub async fn create_plan(
     tag = "Plans",
     path = "/api/v2/plans/{id_or_code}",
     params(("id_or_code" = String, Path, description = "Plan id or code")),
-    request_body(content = UpdatePlan, content_type = "application/merge-patch+json"),
+    request_body(content = UpdatePlan, content_type = "application/merge-patch+json", example = json!(crate::v2::examples::request("update_plan"))),
     responses(
-        (status = 200, description = "Updated, with its active version (else its draft)", body = Plan),
+        (status = 200, description = "Updated, with its active version (else its draft)", body = Plan, example = json!(crate::v2::examples::response("update_plan"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The plan's state refuses the change", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A field is refused", body = Problem, content_type = "application/problem+json"),
@@ -1547,9 +1632,9 @@ pub async fn update_plan(
     path = "/api/v2/plans/{id_or_code}/draft",
     operation_id = "put_plan_draft",
     params(("id_or_code" = String, Path, description = "Plan id or code")),
-    request_body = VersionInput,
+    request_body(content = VersionInput, example = json!(crate::v2::examples::request("put_plan_draft"))),
     responses(
-        (status = 200, description = "The plan with its draft", body = Plan),
+        (status = 200, description = "The plan with its draft", body = Plan, example = json!(crate::v2::examples::response("put_plan_draft"))),
         (status = 403, description = "Minimum commitments are not in your plan", body = Problem, content_type = "application/problem+json"),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The plan is archived", body = Problem, content_type = "application/problem+json"),
@@ -1605,7 +1690,7 @@ pub async fn put_draft(
     operation_id = "publish_plan_draft",
     params(("id_or_code" = String, Path, description = "Plan id or code")),
     responses(
-        (status = 200, description = "The plan with its active version", body = Plan),
+        (status = 200, description = "The plan with its active version", body = Plan, example = json!(crate::v2::examples::response("publish_plan_draft"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The plan has no draft", body = Problem, content_type = "application/problem+json"),
     ),
@@ -1709,6 +1794,9 @@ pub async fn delete_draft(
 }
 
 /// List a plan's versions
+///
+/// Every version of the plan, oldest first, paged by cursor: the published ones and the draft,
+/// each without its charges.
 #[utoipa::path(
     get,
     tag = "Plans",
@@ -1719,7 +1807,7 @@ pub async fn delete_draft(
         PageQuery,
     ),
     responses(
-        (status = 200, description = "A page of the plan's versions, oldest first", body = PlanVersionList),
+        (status = 200, description = "A page of the plan's versions, oldest first", body = PlanVersionList, example = json!(crate::v2::examples::response("list_plan_versions"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
     ),
     security(("bearer_auth" = []))
@@ -1782,7 +1870,7 @@ async fn plan_now(state: &AppState, tenant_id: TenantId, plan_id: PlanId) -> Res
     path = "/api/v2/plans/{id_or_code}/archive",
     params(("id_or_code" = String, Path, description = "Plan id or code")),
     responses(
-        (status = 200, description = "Archived", body = Plan),
+        (status = 200, description = "Archived", body = Plan, example = json!(crate::v2::examples::response("archive_plan"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The plan's state refuses it", body = Problem, content_type = "application/problem+json"),
     ),
@@ -1821,7 +1909,7 @@ pub async fn archive_plan(
     path = "/api/v2/plans/{id_or_code}/unarchive",
     params(("id_or_code" = String, Path, description = "Plan id or code")),
     responses(
-        (status = 200, description = "Unarchived", body = Plan),
+        (status = 200, description = "Unarchived", body = Plan, example = json!(crate::v2::examples::response("unarchive_plan"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
     ),
     security(("bearer_auth" = []))

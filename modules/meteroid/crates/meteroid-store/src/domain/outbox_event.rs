@@ -42,7 +42,7 @@ use serde_with::skip_serializing_none;
 use strum::Display;
 use uuid::Uuid;
 
-#[derive(Display, Debug, Serialize, Deserialize)]
+#[derive(Display, Debug, Clone, Serialize, Deserialize)]
 pub enum OutboxEvent {
     CustomerCreated(Box<CustomerEvent>),
     CustomerUpdated(Box<CustomerEvent>),

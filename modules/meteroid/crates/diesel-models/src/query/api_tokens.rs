@@ -44,6 +44,24 @@ impl ApiTokenRow {
             .into_db_result()
     }
 
+    /// The key of this id, whatever its tenant.
+    pub async fn find_by_id(
+        conn: &mut PgConn,
+        param_id: ApiTokenId,
+    ) -> DbResult<Option<ApiTokenRow>> {
+        use crate::schema::api_token::dsl::{api_token, id};
+        use diesel::OptionalExtension;
+        use diesel_async::RunQueryDsl;
+
+        api_token
+            .filter(id.eq(param_id))
+            .first(conn)
+            .await
+            .optional()
+            .attach("Error while fetching an api token by id")
+            .into_db_result()
+    }
+
     pub async fn find_by_tenant_id(
         conn: &mut PgConn,
         param_tenant_id: TenantId,

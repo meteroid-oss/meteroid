@@ -500,7 +500,7 @@ impl CheckoutSessionRow {
         conn: &mut PgConn,
         tenant_id: TenantId,
         customer_id: Option<CustomerId>,
-        status: Option<CheckoutSessionStatusEnum>,
+        status: Option<Vec<CheckoutSessionStatusEnum>>,
         after: Option<CheckoutSessionId>,
         limit: i64,
     ) -> DbResult<Vec<CheckoutSessionRow>> {
@@ -516,8 +516,8 @@ impl CheckoutSessionRow {
             query = query.filter(cs_dsl::customer_id.eq(cid));
         }
 
-        if let Some(s) = status {
-            query = query.filter(cs_dsl::status.eq(s));
+        if let Some(statuses) = status {
+            query = query.filter(cs_dsl::status.eq_any(statuses));
         }
 
         if let Some(after) = after {

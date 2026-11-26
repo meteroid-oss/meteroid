@@ -531,6 +531,8 @@ impl SubscriptionForDisplayRow {
         plan_id: Option<PlanId>,
         status: Option<Vec<crate::enums::SubscriptionStatusEnum>>,
         updated_after: Option<chrono::DateTime<chrono::Utc>>,
+        created_after: Option<chrono::NaiveDateTime>,
+        created_before: Option<chrono::NaiveDateTime>,
         after: Option<SubscriptionId>,
         limit: i64,
     ) -> DbResult<Vec<SubscriptionForDisplayRow>> {
@@ -570,6 +572,12 @@ impl SubscriptionForDisplayRow {
                 .bind::<Timestamptz, _>(updated_after)
                 .sql("))"),
             );
+        }
+        if let Some(created_after) = created_after {
+            query = query.filter(s_dsl::created_at.gt(created_after));
+        }
+        if let Some(created_before) = created_before {
+            query = query.filter(s_dsl::created_at.lt(created_before));
         }
         if let Some(after) = after {
             query = query.filter(s_dsl::id.gt(after));

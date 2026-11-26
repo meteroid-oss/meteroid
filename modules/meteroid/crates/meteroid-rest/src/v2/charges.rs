@@ -31,7 +31,8 @@ fn every_option() -> String {
 
 // ── Model ───────────────────────────────────────────────────────────
 
-/// How often a price bills. Usage and one-time prices read their usage or fee whatever it is.
+/// How often a price bills: `monthly`, `quarterly`, `semiannual` (every 6 months) or `annual`.
+/// Usage and one-time prices read their usage or fee whatever it is.
 #[derive(
     Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default,
 )]
@@ -78,6 +79,7 @@ impl From<BillingPeriodEnum> for Cadence {
     }
 }
 
+/// Whether a charge bills each period (`recurring`) or once, on the first invoice (`one_time`).
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Recurrence {
@@ -87,6 +89,8 @@ pub enum Recurrence {
     OneTime,
 }
 
+/// When in its period a charge bills: `advance`, at the start of the period it pays for;
+/// `arrears`, at the end, for what it used.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Billing {
@@ -96,11 +100,15 @@ pub enum Billing {
     Arrears,
 }
 
-/// When a charge bills.
+/// When a charge bills. Left out of a request, a metered charge bills recurring in arrears
+/// (in advance when priced in levels), any other recurring in advance.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Timing {
+    /// Each period, or once.
     pub recurrence: Recurrence,
+    /// At the start of the period, or at its end. A one-time charge, seats and usage levels
+    /// bill in advance; other usage in arrears.
     pub billing: Billing,
 }
 
@@ -119,8 +127,12 @@ impl Timing {
     };
 }
 
-/// Sugar for a common composition: it fills `quantity` and `timing`. Responses name the preset a
-/// charge reads as, a hint only.
+/// Sugar for a common composition: it fills `quantity` and `timing`, and refuses an explicit one
+/// contradicting it (`preset_conflict`). Responses name the preset a charge reads as, a hint
+/// only. `flat_fee`: a fixed recurring fee, one unit billed in advance; `seats`: per seat of a
+/// managed quantity, in advance; `usage`: metered usage, in arrears; `usage_levels`: usage sold
+/// in levels a buyer picks, in advance; `one_time`: a fee billed once; `credit_pack`: a pack of
+/// credit, its price buying `grants`.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Preset {
@@ -139,7 +151,7 @@ pub enum Preset {
     CreditPack,
 }
 
-/// A count set on the plan.
+/// A count set on the plan: the same for every subscription.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct FixedQuantity {
@@ -173,7 +185,8 @@ pub struct MeteredQuantity {
     pub metric: String,
 }
 
-/// How many units a charge bills.
+/// How many units a charge bills, by `type`: `fixed`, a count set on the plan; `managed`, a
+/// count each subscription holds and changes (seats); `metered`, the usage a metric measures.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Quantity {
@@ -182,25 +195,31 @@ pub enum Quantity {
     Metered(MeteredQuantity),
 }
 
+/// A tier of a graduated or volume price: it runs from `first_unit` up to the next tier's.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Tier {
-    /// The first unit the tier prices; the first tier starts at 0.
+    /// The first unit the tier prices; the first tier starts at 0, the next ones strictly above.
     pub first_unit: u64,
+    /// Per unit in the tier, a decimal string in the currency's major unit.
     #[schema(value_type = String, format = "decimal")]
     pub unit_price: Decimal,
-    /// A fee for reaching the tier.
+    /// A fee for reaching the tier, added to its units' amount.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>, format = "decimal")]
     pub flat_fee: Option<Decimal>,
+    /// The most the tier bills: its units' amount and `flat_fee` together, capped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>, format = "decimal")]
     pub flat_cap: Option<Decimal>,
 }
 
+/// Every unit at one price.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct PerUnitModel {
+    /// Per unit, a decimal string in the currency's major unit. Negative only on metered usage
+    /// priced in money: a reversal, billed as a negative line.
     #[schema(value_type = String, format = "decimal", example = "0.002")]
     pub unit_price: Decimal,
 }
@@ -209,6 +228,7 @@ pub struct PerUnitModel {
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct GraduatedModel {
+    /// 1 to 100 tiers, the first starting at unit 0, ascending.
     pub tiers: Vec<Tier>,
 }
 
@@ -216,6 +236,7 @@ pub struct GraduatedModel {
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct VolumeModel {
+    /// 1 to 100 tiers, the first starting at unit 0, ascending.
     pub tiers: Vec<Tier>,
 }
 
@@ -223,7 +244,9 @@ pub struct VolumeModel {
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct PackageModel {
+    /// Units a package holds, 1 or more.
     pub package_size: u64,
+    /// Per package, a decimal string in the currency's major unit.
     #[schema(value_type = String, format = "decimal")]
     pub package_price: Decimal,
 }
@@ -232,10 +255,13 @@ pub struct PackageModel {
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct FlatModel {
+    /// A decimal string in the currency's major unit.
     #[schema(value_type = String, format = "decimal", example = "49")]
     pub amount: Decimal,
 }
 
+/// What happens to usage no rate matches: `hold` (the default), the invoice waits until the
+/// usage is rated; `ignore`, the usage is left unbilled.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Unmatched {
@@ -246,13 +272,17 @@ pub enum Unmatched {
     Ignore,
 }
 
+/// A rate of a dimension rates price: the usage whose dimensions match `key`, at `unit_price`.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct DimensionRate {
-    /// A pattern per dimension: a value, a prefix ending in `*`, or `*`.
+    /// A pattern per dimension, in the order of the price's `dimensions`: a value, a prefix
+    /// ending in `*`, or `*`. Two rates never share a key.
     pub key: Vec<String>,
+    /// Per `unit_size` units, a decimal string in the currency's major unit.
     #[schema(value_type = String, format = "decimal")]
     pub unit_price: Decimal,
+    /// A name for the rate, kept with it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
 }
@@ -261,13 +291,16 @@ pub struct DimensionRate {
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct DimensionRatesModel {
+    /// The usage event properties the rates are keyed by, in key order: 1 to 4.
     pub dimensions: Vec<String>,
     /// Rates are per this many units (1000000: per 1M tokens).
     #[serde(default = "one")]
     #[schema(value_type = String, format = "decimal")]
     pub unit_size: Decimal,
+    /// What happens to usage no rate matches; `hold` when left out.
     #[serde(default)]
     pub on_unmatched: Unmatched,
+    /// 1,000 rates at most.
     pub rates: Vec<DimensionRate>,
 }
 
@@ -287,15 +320,19 @@ pub struct RateCardModel {
     pub multiplier: Option<Decimal>,
 }
 
+/// A level of a price sold in levels: a fee each period including some usage, with an overage
+/// rate beyond it.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Level {
     /// The usage the level includes each period.
     pub included: u64,
-    /// The level's fee each period.
+    /// The level's fee each period, billed in advance; a decimal string in the currency's major
+    /// unit.
     #[schema(value_type = String, format = "decimal")]
     pub price: Decimal,
-    /// Per unit used beyond `included`.
+    /// Per unit used beyond `included`, billed in arrears; a decimal string in the currency's
+    /// major unit.
     #[schema(value_type = String, format = "decimal")]
     pub overage_unit_price: Decimal,
 }
@@ -304,10 +341,16 @@ pub struct Level {
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct LevelsModel {
+    /// 1 to 100 levels, `included` strictly ascending.
     pub levels: Vec<Level>,
 }
 
-/// How a price turns the quantity into an amount.
+/// How a price turns the quantity into an amount, by `type`: `per_unit`, every unit at one
+/// price; `graduated`, each unit at the tier it falls in; `volume`, every unit at the tier the
+/// total reaches; `package`, by packages, a started one billed whole; `flat`, one amount;
+/// `dimension_rates`, usage at rates by its dimensions; `rate_card`, usage at a rate card's
+/// dated rates; `levels`, levels a buyer picks. `flat` prices a quantity of 1 only;
+/// `dimension_rates`, `rate_card` and `levels` metered usage only.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PriceModel {
@@ -341,12 +384,17 @@ impl PriceModel {
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct PriceCreditUnit {
+    /// The credit unit the price's amounts are in.
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub unit: CreditUnitId,
+    /// What one credit is worth when billed, a decimal string in the price currency's major
+    /// unit; not negative.
     #[schema(value_type = String, format = "decimal")]
     pub rate: Decimal,
 }
 
+/// What an expiry counts in: `days`, `months`, or `billing_period` (at the end of the period
+/// invoiced, without a `value`).
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ExpiryUnit {
@@ -356,10 +404,14 @@ pub enum ExpiryUnit {
     BillingPeriod,
 }
 
+/// When granted credit expires: so many days or months after it is granted, or at the end of
+/// the period invoiced.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Expiry {
+    /// Days, months, or the billing period.
     pub unit: ExpiryUnit,
+    /// How many days or months; required with them, refused with `billing_period`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<u32>,
 }
@@ -368,10 +420,12 @@ pub struct Expiry {
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Rollover {
-    /// Cap per rolled grant; none carries all that is left.
+    /// Cap per rolled grant, positive, in the grant's currency or credit unit; none carries all
+    /// that is left.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>, format = "decimal")]
     pub max_amount: Option<Decimal>,
+    /// When the rolled-over credit expires.
     pub expires_after: Expiry,
 }
 
@@ -379,14 +433,18 @@ pub struct Rollover {
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct CreditGrant {
-    /// In the price's currency, or in `credit_unit` when set.
+    /// Positive, a decimal string in the price's currency (major unit), or in `credit_unit`
+    /// when set.
     #[schema(value_type = String, format = "decimal")]
     pub amount: Decimal,
+    /// The credit unit granted; none: credit in the price's currency.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(serialize_with = "common_domain::ids::string_serde_opt::serialize")]
     pub credit_unit: Option<CreditUnitId>,
+    /// When the granted credit expires; none: never.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_after: Option<Expiry>,
+    /// What is left at expiry carried into a new grant; none: nothing carries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rollover: Option<Rollover>,
 }
@@ -398,12 +456,15 @@ pub struct ChargePrice {
     /// The option's alias, or `*` for every option of the version. An add-on's are `*`.
     #[serde(default = "every_option")]
     pub option: String,
-    /// ISO 4217.
+    /// ISO 4217, read upper-case. One price per option, currency and cadence; one cadence per
+    /// option and currency.
     pub currency: String,
     /// Monthly when left out.
     #[serde(default)]
     pub cadence: Cadence,
+    /// How the price turns the charge's quantity into an amount.
     pub model: PriceModel,
+    /// The credit unit the price's amounts are in; none: money.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credit_unit: Option<PriceCreditUnit>,
     /// A credit pack's grant.
@@ -424,16 +485,22 @@ pub struct Charge {
     /// Unique within the version; the product's name when left out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// The common composition the charge reads as; on a request, it fills `quantity` and
+    /// `timing`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<Preset>,
+    /// How many units it bills; none on a charge that includes its product for free.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quantity: Option<Quantity>,
     /// Usage free each period before a per-unit price applies (metered quantities only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>, format = "decimal")]
     pub included: Option<Decimal>,
+    /// When it bills; left out of a request, as the quantity implies.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timing: Option<Timing>,
+    /// One per option, currency and cadence, 100 at most; ordered by option position, currency,
+    /// cadence. Empty: the product is included for free.
     #[serde(default)]
     pub prices: Vec<ChargePrice>,
 }

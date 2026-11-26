@@ -1,4 +1,4 @@
-//! `/api/v2/resource-types` (ADR-0013 §23, ADR-0011 §3.4): what a customer has several of (sites,
+//! `/api/v2/resource-types` (ADR-0013 §25, ADR-0011 §3.4): what a customer has several of (sites,
 //! workspaces), one level below the customer: identifying keys, unique across the tenant's types,
 //! and attributes with closed lists of values. An archived type still resolves in checks; it
 //! takes no new resource nor row.

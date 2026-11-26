@@ -11,6 +11,7 @@ interface Props {
   onRotateSecret: () => void
   onEditHeaders: () => void
   onToggleDisabled: () => void
+  onUpgradeApiVersion: () => void
   onRemove: () => void
 }
 
@@ -39,6 +40,7 @@ export const EndpointAdvanced = ({
   onRotateSecret,
   onEditHeaders,
   onToggleDisabled,
+  onUpgradeApiVersion,
   onRemove,
 }: Props) => {
   const { update } = useWebhooks()
@@ -155,6 +157,26 @@ export const EndpointAdvanced = ({
       {editingLimit && !limitValid && (
         <p className="pb-2 text-xs text-destructive">Enter a whole number from 1 to 1000.</p>
       )}
+
+      <Row
+        title="Payload version"
+        description={
+          endpoint.v1Payloads
+            ? "Events are sent in API v1's shapes. Upgrade to receive API v2's: each event wraps the resource as API v2 reads it."
+            : "Events are sent in API v2's shapes: each event wraps the resource as API v2 reads it."
+        }
+      >
+        <span className="font-mono text-xs text-muted-foreground">
+          {endpoint.v1Payloads
+            ? `API v1${endpoint.apiVersion ? ` (${endpoint.apiVersion})` : ''}`
+            : endpoint.apiVersion}
+        </span>
+        {endpoint.v1Payloads && (
+          <Button variant="outline" size="sm" onClick={onUpgradeApiVersion}>
+            Upgrade…
+          </Button>
+        )}
+      </Row>
 
       <Row
         title={endpoint.disabled ? 'Enable endpoint' : 'Disable endpoint'}

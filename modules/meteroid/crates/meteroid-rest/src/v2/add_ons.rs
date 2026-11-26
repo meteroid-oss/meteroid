@@ -1,6 +1,7 @@
 //! `/api/v2/add-ons`: a charge sold beside a plan, like a plan's, priced per currency and
 //! cadence, without options.
 use crate::AppState;
+use crate::v2::Reader;
 use crate::v2::charges::{
     Charge, ChargePrice, EVERY_OPTION, OptionSet, StoredCharge, StoredPrice, render, to_domain,
 };
@@ -29,24 +30,33 @@ use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+/// A charge sold beside a plan: one product, priced per currency and cadence, the
+/// subscription's cadence picking its price. A plan version offers it (`add_ons`), a
+/// subscription holds it.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct AddOn {
+    /// The add-on's id.
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub id: AddOnId,
+    /// Unique per tenant, immutable; paths and plan versions take it in place of the id.
     pub code: String,
+    /// What a buyer reads, on the portal, checkout and invoices.
     pub name: String,
+    /// What the add-on is, in the tenant's words.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// Its prices are each in every option (`*`).
     pub charge: Charge,
     /// Customers may add it themselves (portal, checkout).
     pub self_serviceable: bool,
-    /// How many a subscription may hold; none: no limit.
+    /// How many a subscription may hold; none: no limit. One charging per seat is held once.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_instances: Option<i32>,
     /// Its rows, canonical; each counts per instance held (seats held for one sold per seat).
     pub entitlements: Vec<Entitlement>,
+    /// No longer sold; the subscriptions holding it keep it.
     pub archived: bool,
+    /// When the add-on was created.
     pub created_at: ApiDateTime,
 }
 
@@ -58,23 +68,32 @@ pub struct AddOnListQuery {
     /// Archived add-ons too.
     #[serde(default)]
     pub include_archived: bool,
+    /// How many items, 1 to 100; 20 by default.
     pub limit: Option<u32>,
+    /// The `next_cursor` of the previous page.
     pub after: Option<String>,
 }
 
+/// An add-on to create: a priced charge, with what it grants.
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct CreateAddOn {
     /// Unique per tenant, immutable; the name's slug when left out.
     #[serde(default)]
     pub code: Option<String>,
+    /// 1 to 255 characters.
     pub name: String,
+    /// 4,096 characters at most.
     #[serde(default)]
     pub description: Option<String>,
-    /// One price per currency and cadence, each `*`.
+    /// A priced charge (a quantity or a preset, and a price at least): one price per currency
+    /// and cadence, each `*`. How it bills never changes once created.
     pub charge: Charge,
+    /// Customers may add it themselves (portal, checkout); `false` when left out.
     #[serde(default)]
     pub self_serviceable: bool,
+    /// How many a subscription may hold, 1 or more; none: no limit. One charging per seat is
+    /// held once.
     #[serde(default)]
     pub max_instances: Option<i32>,
     /// Its rows; `add` by default when it is bought several times or per seat, else `raise_to`.
@@ -86,16 +105,22 @@ pub struct CreateAddOn {
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateAddOn {
+    /// 1 to 255 characters; it cannot be cleared.
     #[serde(default)]
     pub name: Option<String>,
+    /// 4,096 characters at most; `null` clears it.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub description: Option<Option<String>>,
+    /// Customers may add it themselves (portal, checkout).
     #[serde(default)]
     pub self_serviceable: Option<bool>,
+    /// How many a subscription may hold, 1 or more; `null`: no limit.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<i32>)]
     pub max_instances: Option<Option<i32>>,
+    /// Replaces every price of the charge: one per currency and cadence, each `*`. Prices
+    /// billing the add-on another way than it bills are refused (`not_expressible`).
     #[serde(default)]
     pub prices: Option<Vec<ChargePrice>>,
     /// Replaces its rows: one sent the same keeps its id and history, one changed is succeeded,
@@ -124,7 +149,7 @@ fn stored(add_on: &DomainAddOn) -> StoredCharge {
 }
 
 async fn to_api(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     mut add_ons: Vec<DomainAddOn>,
 ) -> Result<Vec<AddOn>, Problem> {
@@ -159,7 +184,11 @@ async fn to_api(
         .collect()
 }
 
-async fn one(state: &AppState, tenant_id: TenantId, add_on: DomainAddOn) -> Result<AddOn, Problem> {
+pub(crate) async fn one(
+    state: &impl Reader,
+    tenant_id: TenantId,
+    add_on: DomainAddOn,
+) -> Result<AddOn, Problem> {
     to_api(state, tenant_id, vec![add_on])
         .await?
         .pop()
@@ -226,6 +255,9 @@ fn add_on_prices(
 }
 
 /// List add-ons
+///
+/// The tenant's add-ons in creation order, paged by cursor, each with its charge and what it
+/// grants. Archived ones are left out unless `include_archived`.
 #[utoipa::path(
     get,
     tag = "Add-ons",
@@ -268,6 +300,8 @@ pub async fn list_add_ons(
 }
 
 /// Get an add-on
+///
+/// By id or code, archived or not, with its charge and what it grants.
 #[utoipa::path(
     get,
     tag = "Add-ons",
@@ -290,6 +324,10 @@ pub async fn get_add_on(
 }
 
 /// Create an add-on
+///
+/// A priced charge of an existing product, sold beside plans whose versions offer it. Its
+/// prices are per currency and cadence, each `*` (an add-on has no options); a charge without a
+/// quantity, a preset or a price is refused.
 #[utoipa::path(
     post,
     tag = "Add-ons",
@@ -523,6 +561,8 @@ pub async fn archive_add_on(
 }
 
 /// Unarchive an add-on
+///
+/// Sold again. Unarchiving a live add-on changes nothing.
 #[utoipa::path(
     post,
     tag = "Add-ons",

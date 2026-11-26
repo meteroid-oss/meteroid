@@ -2,6 +2,7 @@
 //! §3), `GET /api/v2/invoices/{id}` with its lines, payments and credit notes, and its files.
 use super::model::{Invoice, InvoiceList, InvoiceListQuery, InvoicePayment};
 use crate::AppState;
+use crate::v2::Reader;
 use crate::v2::documents::{self, ProductCodes, document_not_found, filter_not_found, moment};
 use crate::v2::extract::{Path, Query};
 use crate::v2::ids;
@@ -97,7 +98,7 @@ pub fn summary(invoice: &DomainInvoice, corrected_by: Option<InvoiceId>, refs: &
     }
 }
 
-fn payment(tx: PaymentTransaction, refs: &Refs) -> InvoicePayment {
+pub(crate) fn payment(tx: PaymentTransaction, refs: &Refs) -> InvoicePayment {
     InvoicePayment {
         id: tx.id,
         kind: tx.payment_type.into(),
@@ -119,31 +120,31 @@ fn payment(tx: PaymentTransaction, refs: &Refs) -> InvoicePayment {
 
 /// The invoice, read whole: a draft with the dates finalizing it today would stamp.
 pub async fn invoice(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     id: InvoiceId,
 ) -> Result<Invoice, Problem> {
     let mut invoice = state
-        .store
+        .store()
         .get_detailed_invoice_by_id(tenant_id, id)
         .await
         .map_err(|error| document_not_found("invoice", id)(Problem::from(error)))?
         .invoice;
     state
-        .store
+        .store()
         .project_draft_emission_dates(&mut invoice)
         .await?;
     let mut payments: Vec<PaymentTransaction> = state
-        .store
+        .store()
         .list_payment_tx_by_invoice_id(tenant_id, id)
         .await?
         .into_iter()
         .map(|tx| tx.transaction)
         .collect();
     payments.sort_by_key(|tx| (tx.processed_at, tx.id.as_uuid()));
-    let corrected_by = state.store.find_child_invoice_id(tenant_id, id).await?;
+    let corrected_by = state.store().find_child_invoice_id(tenant_id, id).await?;
     let mut credit_notes: Vec<CreditNoteRef> = state
-        .store
+        .store()
         .list_credit_notes_by_invoice_id(tenant_id, id)
         .await?
         .into_iter()
@@ -157,7 +158,7 @@ pub async fn invoice(
     let mut ids = reference_ids([&invoice], corrected_by);
     ids.credit_notes
         .extend(payments.iter().filter_map(|tx| tx.credit_note_id));
-    let refs = Refs::load(&state.store, tenant_id, &ids).await?;
+    let refs = Refs::load(state.store(), tenant_id, &ids).await?;
 
     let mut out = summary(&invoice, corrected_by, &refs);
     out.lines = Some(documents::lines(&invoice.line_items, &products));
@@ -193,7 +194,7 @@ pub async fn invoice_of(
     path = "/api/v2/invoices",
     params(InvoiceListQuery),
     responses(
-        (status = 200, description = "A page of invoices", body = InvoiceList),
+        (status = 200, description = "A page of invoices", body = InvoiceList, example = json!(crate::v2::examples::response("list_invoices"))),
         (status = 401, description = "Unauthorized", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A filter is refused", body = Problem, content_type = "application/problem+json"),
     ),
@@ -238,6 +239,16 @@ pub async fn list_invoices(
         .as_deref()
         .map(|raw| moment(raw, "updated_after"))
         .transpose()?;
+    let created_after = query
+        .created_after
+        .as_deref()
+        .map(|raw| moment(raw, "created_after"))
+        .transpose()?;
+    let created_before = query
+        .created_before
+        .as_deref()
+        .map(|raw| moment(raw, "created_before"))
+        .transpose()?;
     let mut items = state
         .store
         .list_invoices_after(
@@ -245,14 +256,20 @@ pub async fn list_invoices(
             InvoicePageFilter {
                 customer_id,
                 subscription_id,
-                statuses: query.status.map(|status| vec![status.into()]),
-                payment_statuses: query.payment_status.map(|status| vec![status.into()]),
+                statuses: query
+                    .status
+                    .map(|statuses| statuses.into_iter().map(Into::into).collect()),
+                payment_statuses: query
+                    .payment_status
+                    .map(|statuses| statuses.into_iter().map(Into::into).collect()),
                 currency: query
                     .currency
                     .as_deref()
                     .map(|currency| currency.trim().to_uppercase()),
                 issued_after: issued_after.map(|at| at.naive_utc()),
                 updated_after: updated_after.map(|at| at.naive_utc()),
+                created_after,
+                created_before,
             },
             cursor.map(|Cursor(after)| InvoiceId::from(after)),
             limit + 1,
@@ -306,7 +323,7 @@ pub async fn list_invoices(
     path = "/api/v2/invoices/{id}",
     params(("id" = String, Path, description = "Invoice id")),
     responses(
-        (status = 200, description = "The invoice", body = Invoice),
+        (status = 200, description = "The invoice", body = Invoice, example = json!(crate::v2::examples::response("get_invoice"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
     ),
     security(("bearer_auth" = []))

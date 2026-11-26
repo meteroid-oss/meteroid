@@ -3,7 +3,7 @@
 //! whatever the retries, its files asked for; the invoices a change issues are readable here; a
 //! credit note against it is read, listed and linked back.
 use crate::data::ids::TENANT_ID;
-use crate::test_rest_v2::{Answer, Fixture, fixture};
+use crate::test_rest_v2::{Answer, Fixture, fixture, moment_from};
 use crate::test_rest_v2_subscriptions::seed;
 use common_domain::actor::Actor;
 use common_domain::ids::{BaseId, InvoiceId};
@@ -193,6 +193,70 @@ async fn test_rest_v2_invoice_read_listed_and_paid() {
     let not_a_moment = f.get("/api/v2/invoices?updated_after=yesterday").await;
     assert_eq!(not_a_moment.status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(not_a_moment.body["errors"][0]["path"], "updated_after");
+
+    // Several statuses, the parameter repeated; created before or after a moment, exclusive.
+    let either = f
+        .get("/api/v2/invoices?customer=ext:spotify&status=void&status=finalized&limit=100")
+        .await;
+    assert_eq!(either.status, StatusCode::OK, "{:#}", either.body);
+    assert!(ids_of(&either).contains(&id));
+    let neither = f
+        .get("/api/v2/invoices?customer=ext:spotify&status=void&status=draft&limit=100")
+        .await;
+    assert!(!ids_of(&neither).contains(&id));
+    let unpaid_or_paid = f
+        .get("/api/v2/invoices?customer=ext:spotify&payment_status=paid&payment_status=unpaid&limit=100")
+        .await;
+    assert_eq!(
+        unpaid_or_paid.status,
+        StatusCode::OK,
+        "{:#}",
+        unpaid_or_paid.body
+    );
+    assert!(ids_of(&unpaid_or_paid).contains(&id));
+    let created_at = &invoice["created_at"];
+    let since = moment_from(created_at, -1);
+    let until = moment_from(created_at, 1);
+    let created_after = f
+        .get(&format!(
+            "/api/v2/invoices?customer=ext:spotify&created_after={since}&limit=100"
+        ))
+        .await;
+    assert_eq!(
+        created_after.status,
+        StatusCode::OK,
+        "{:#}",
+        created_after.body
+    );
+    assert!(ids_of(&created_after).contains(&id));
+    let created_before = f
+        .get(&format!(
+            "/api/v2/invoices?customer=ext:spotify&created_before={since}&limit=100"
+        ))
+        .await;
+    assert!(!ids_of(&created_before).contains(&id));
+    let within = f
+        .get(&format!(
+            "/api/v2/invoices?customer=ext:spotify&created_after={since}&created_before={until}&limit=100"
+        ))
+        .await;
+    assert!(ids_of(&within).contains(&id));
+    let after_it = f
+        .get(&format!(
+            "/api/v2/invoices?customer=ext:spotify&created_after={until}&limit=100"
+        ))
+        .await;
+    assert!(!ids_of(&after_it).contains(&id));
+    for refused in [
+        "/api/v2/invoices?status=finalized&status=paid",
+        "/api/v2/invoices?created_after=yesterday",
+        "/api/v2/invoices?created_before=2026-13-01T00:00:00Z",
+    ] {
+        let answer = f.get(refused).await;
+        assert_eq!(answer.status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
+        let parameter = refused.split(['?', '=']).nth(1).unwrap();
+        assert_eq!(answer.body["errors"][0]["path"], parameter, "{refused}");
+    }
 
     // Page by page, each once.
     let mut seen: Vec<String> = Vec::new();
@@ -410,6 +474,35 @@ async fn test_rest_v2_change_documents_and_credit_notes() {
     assert!(ids_of(&of_subscription).contains(&note_id));
     let drafts = f.get("/api/v2/credit-notes?status=draft").await;
     assert!(!ids_of(&drafts).contains(&note_id));
+    let drafts_or_issued = f
+        .get("/api/v2/credit-notes?status=draft&status=finalized&limit=100")
+        .await;
+    assert_eq!(
+        drafts_or_issued.status,
+        StatusCode::OK,
+        "{:#}",
+        drafts_or_issued.body
+    );
+    assert!(ids_of(&drafts_or_issued).contains(&note_id));
+    let since = moment_from(&read.body["created_at"], -1);
+    let created_after = f
+        .get(&format!(
+            "/api/v2/credit-notes?created_after={since}&limit=100"
+        ))
+        .await;
+    assert_eq!(
+        created_after.status,
+        StatusCode::OK,
+        "{:#}",
+        created_after.body
+    );
+    assert!(ids_of(&created_after).contains(&note_id));
+    let created_before = f
+        .get(&format!(
+            "/api/v2/credit-notes?created_before={since}&limit=100"
+        ))
+        .await;
+    assert!(!ids_of(&created_before).contains(&note_id));
     let elsewhere = f.get("/api/v2/credit-notes?customer=ext:spotify").await;
     assert!(!ids_of(&elsewhere).contains(&note_id));
     let first = f.get("/api/v2/credit-notes?limit=1").await;

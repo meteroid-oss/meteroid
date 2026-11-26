@@ -642,6 +642,8 @@ impl CreditNoteRow {
         param_invoice_id: Option<InvoiceId>,
         param_subscription_id: Option<common_domain::ids::SubscriptionId>,
         param_statuses: Option<Vec<CreditNoteStatus>>,
+        param_created_after: Option<chrono::DateTime<chrono::Utc>>,
+        param_created_before: Option<chrono::DateTime<chrono::Utc>>,
         after: Option<CreditNoteId>,
         limit: i64,
     ) -> DbResult<Vec<CreditNoteRow>> {
@@ -663,6 +665,12 @@ impl CreditNoteRow {
         }
         if let Some(statuses) = param_statuses {
             query = query.filter(cn_dsl::status.eq_any(statuses));
+        }
+        if let Some(at) = param_created_after {
+            query = query.filter(cn_dsl::created_at.gt(at));
+        }
+        if let Some(at) = param_created_before {
+            query = query.filter(cn_dsl::created_at.lt(at));
         }
         if let Some(after) = after {
             query = query.filter(cn_dsl::id.gt(after));

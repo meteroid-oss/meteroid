@@ -1,7 +1,7 @@
 //! `/api/v2/customers` (ADR-0013 §11): customers listed by keyset in SQL, read and written as
 //! v2 models them (a merge patch for an update), archived (`POST …/archive`, no `DELETE`) and
 //! restored, with their portal token, their credit (wallets, grants, ledger, top-ups), and what
-//! they may use (§23: the snapshot, the check, usage counted by the app, overrides, resources),
+//! they may use (§25: the snapshot, the check, usage counted by the app, overrides, resources),
 //! each on the store call v1 uses. A customer is named by its id, or by its alias as
 //! `ext:<alias>`; its subscriptions are `GET /subscriptions?customer=`.
 use crate::AppState;
@@ -9,11 +9,11 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 pub(crate) mod checks;
-mod credits;
+pub(crate) mod credits;
 mod entitlement_overrides;
 pub(crate) mod entitlements;
 pub mod model;
-mod read;
+pub(crate) mod read;
 pub(crate) mod resources;
 mod write;
 
@@ -47,11 +47,12 @@ pub fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(resources::archive_resource))
         .routes(routes!(resources::unarchive_resource))
         .routes(routes!(credits::list_wallets))
-        .routes(routes!(credits::update_wallet))
+        .routes(routes!(credits::get_wallet, credits::update_wallet))
         .routes(routes!(
             credits::list_credit_grants,
             credits::create_credit_grant
         ))
+        .routes(routes!(credits::get_credit_grant))
         .routes(routes!(credits::list_ledger))
         .routes(routes!(credits::create_top_up))
 }

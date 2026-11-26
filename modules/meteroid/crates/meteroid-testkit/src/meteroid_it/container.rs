@@ -199,6 +199,9 @@ async fn get_shared_postgres() -> &'static SharedPostgres {
                 .expect("Failed to create pool");
 
             let mut conn = pool.get().await.unwrap();
+            if container.is_none() {
+                warn_if_durable(&mut conn).await;
+            }
 
             // Under nextest every test is its own process. The template is stamped with the
             // migration set once migrated, so only a process seeing a stale stamp takes the
@@ -307,6 +310,28 @@ async fn database_fingerprint(
     .await
     .ok()
     .flatten()
+}
+
+/// Warns when the `METEROID_TEST_PG_URL` server runs with fsync on, which the test container and CI
+/// never do. Every test's DROP DATABASE forces a checkpoint and keeps its transaction open through
+/// it; with fsync on, that checkpoint flushes the pages of every test running in parallel, tens of
+/// seconds under load, and whatever reads below the oldest open transaction of the server (the
+/// revenue projection) waits for it. The server is the developer's: it is never reconfigured here.
+async fn warn_if_durable(conn: &mut meteroid_store::store::PgConn) {
+    let fsync: Option<String> = diesel_async::RunQueryDsl::get_result(
+        diesel::dsl::sql::<diesel::sql_types::Text>("SELECT current_setting('fsync')"),
+        conn,
+    )
+    .await
+    .ok();
+    if fsync.as_deref() == Some("on") {
+        log::warn!(
+            "The test Postgres (METEROID_TEST_PG_URL) runs with fsync on: suites run in parallel \
+             will be slow and the revenue projection tests may time out. On a throwaway test \
+             server, run: ALTER SYSTEM SET fsync = off; ALTER SYSTEM SET full_page_writes = off; \
+             ALTER SYSTEM SET synchronous_commit = off; SELECT pg_reload_conf();"
+        );
+    }
 }
 
 /// Drops test databases left behind by killed processes (a normal exit drops its own). One

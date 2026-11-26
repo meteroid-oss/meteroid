@@ -3812,6 +3812,7 @@ diesel::table! {
         updated_at -> Nullable<Timestamp>,
         completed_at -> Nullable<Timestamp>,
         claimed_at -> Nullable<Timestamp>,
+        api_version -> Nullable<Text>,
     }
 }
 
@@ -3856,6 +3857,14 @@ diesel::table! {
         event_type -> Text,
         payload -> Jsonb,
         created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    webhook_out_message_version (message_id, api_version) {
+        message_id -> Uuid,
+        api_version -> Text,
+        payload -> Jsonb,
     }
 }
 
@@ -4258,5 +4267,6 @@ diesel::joinable!(webhook_out_delivery -> webhook_out_endpoint (endpoint_id));
 diesel::joinable!(webhook_out_delivery -> webhook_out_message (message_id));
 diesel::joinable!(webhook_out_endpoint -> tenant (tenant_id));
 diesel::joinable!(webhook_out_message -> tenant (tenant_id));
+diesel::joinable!(webhook_out_message_version -> webhook_out_message (message_id));
 diesel::joinable!(webhook_out_retired_secret -> tenant (tenant_id));
 diesel::joinable!(webhook_out_retired_secret -> webhook_out_endpoint (endpoint_id));

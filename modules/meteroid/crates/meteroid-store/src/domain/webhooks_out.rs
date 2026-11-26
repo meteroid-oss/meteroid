@@ -199,7 +199,24 @@ pub struct WebhookOutMessageNew {
     pub id: EventId,
     pub tenant_id: TenantId,
     pub event_type: String,
+    /// v1's payload, which a delivery without an API version sends.
     pub payload: serde_json::Value,
+}
+
+/// The payload of a message rendered at an API version with payloads of its own (ADR-0013 §15),
+/// sent by the deliveries at that version.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WebhookOutMessageVersion {
+    pub api_version: String,
+    pub payload: serde_json::Value,
+}
+
+/// An endpoint a message is delivered to, and the version of the payload it is sent: None for
+/// v1's, else one of the message's [`WebhookOutMessageVersion`]s.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WebhookOutTarget {
+    pub endpoint_id: WebhookEndpointId,
+    pub api_version: Option<String>,
 }
 
 #[derive(Clone, Debug, o2o)]
@@ -224,6 +241,8 @@ pub struct WebhookDelivery {
     pub updated_at: Option<NaiveDateTime>,
     pub completed_at: Option<NaiveDateTime>,
     pub claimed_at: Option<NaiveDateTime>,
+    /// The API version its payload was rendered at, fixed when it was created: None for v1's.
+    pub api_version: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -262,6 +281,7 @@ pub struct WebhookAttempt {
 #[derive(Clone, Debug)]
 pub struct WebhookDeliveryDetails {
     pub delivery: WebhookDelivery,
+    /// The message with the payload the delivery sends (at its `api_version`).
     pub message: WebhookOutMessage,
     pub attempts: Vec<WebhookAttempt>,
 }

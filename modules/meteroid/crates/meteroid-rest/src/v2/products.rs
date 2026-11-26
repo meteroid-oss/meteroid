@@ -1,6 +1,7 @@
 //! `/api/v2/products`: what is sold. How a product is billed is each charge's, never the
 //! product's: a product has no fee type.
 use crate::AppState;
+use crate::v2::Reader;
 use crate::v2::entitlements::{Entitlement, EntitlementInput};
 use crate::v2::extract::{Body, Path, Query};
 use crate::v2::idempotency::committed_write;
@@ -25,22 +26,32 @@ use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+/// What is sold. A product has no price of its own: each charge naming it says how it bills.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct Product {
+    /// The product's id, `prd_…`.
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub id: ProductId,
+    /// Unique per tenant, immutable; paths and charges take it in place of the id.
     pub code: String,
+    /// What it is called: a charge billing it takes this name unless it has its own.
     pub name: String,
+    /// What the product is, in the tenant's words.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// The product family it is in.
     pub family: ProductFamilyRef,
+    /// A lucide icon name the dashboard shows it with.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    /// A color token the dashboard shows it in.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
     /// The default rows of its features, canonical.
     pub entitlements: Vec<Entitlement>,
+    /// Off the catalog for new charges; the charges billing it keep billing it.
     pub archived: bool,
+    /// When the product was created.
     pub created_at: ApiDateTime,
 }
 
@@ -54,20 +65,25 @@ pub struct ProductListQuery {
     /// Archived products too.
     #[serde(default)]
     pub include_archived: bool,
+    /// How many items, 1 to 100; 20 by default.
     pub limit: Option<u32>,
+    /// The `next_cursor` of the previous page.
     pub after: Option<String>,
 }
 
+/// A product to create; it grants nothing until its features are made (`POST /features`).
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct CreateProduct {
     /// Unique per tenant, immutable; the name's slug when left out.
     #[serde(default)]
     pub code: Option<String>,
+    /// 1 to 255 characters.
     pub name: String,
+    /// 4,096 characters at most.
     #[serde(default)]
     pub description: Option<String>,
-    /// The product family, by code or id; the default family when left out.
+    /// The product family, by code or id, live; the default family when left out.
     #[serde(default)]
     pub family: Option<String>,
     /// A lucide icon name the dashboard ships (`box`, `cpu`, `users`…).
@@ -82,14 +98,18 @@ pub struct CreateProduct {
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateProduct {
+    /// 1 to 255 characters; it cannot be cleared.
     #[serde(default)]
     pub name: Option<String>,
+    /// 4,096 characters at most.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub description: Option<Option<String>>,
+    /// A lucide icon name the dashboard ships (`box`, `cpu`, `users`…).
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub icon: Option<Option<String>>,
+    /// A color token (`slate`, `blue`, `green`, `amber`, `red`, `violet`, `pink`, `teal`).
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub color: Option<Option<String>>,
@@ -102,7 +122,7 @@ pub struct UpdateProduct {
 
 /// The default rows of each product's live features, all read once.
 pub async fn product_entitlements(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     products: &[ProductId],
 ) -> Result<HashMap<ProductId, Vec<Entitlement>>, Problem> {
@@ -156,6 +176,9 @@ async fn written(
 }
 
 /// List products
+///
+/// The tenant's products in creation order, paged by cursor, narrowed to one `family`. Archived
+/// ones are left out unless `include_archived`.
 #[utoipa::path(
     get,
     tag = "Products",
@@ -205,6 +228,8 @@ pub async fn list_products(
 }
 
 /// Get a product
+///
+/// By id or code, archived or not, with what it grants.
 #[utoipa::path(
     get,
     tag = "Products",
@@ -229,6 +254,9 @@ pub async fn get_product(
 }
 
 /// Create a product
+///
+/// In the family named (live), else the tenant's default family. It grants nothing yet: its
+/// features are made with `POST /features`.
 #[utoipa::path(
     post,
     tag = "Products",
@@ -403,6 +431,8 @@ pub async fn archive_product(
 }
 
 /// Unarchive a product
+///
+/// Back on the catalog for new charges. Unarchiving a live product changes nothing.
 #[utoipa::path(
     post,
     tag = "Products",

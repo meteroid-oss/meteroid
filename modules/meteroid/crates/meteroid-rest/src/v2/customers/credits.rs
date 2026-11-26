@@ -1,5 +1,5 @@
-//! A customer's credit through API v2: wallets (read, configured by merge patch), credit grants
-//! (listed, granted), the credit ledger and top-ups. Amounts are integers in minor units of the
+//! A customer's credit through API v2: wallets (listed, read, configured by merge patch), credit
+//! grants (listed, read, granted), the credit ledger and top-ups. Amounts are integers in minor units of the
 //! wallet's currency or credit unit; a price per credit is a decimal string. Every computation is
 //! v1's (`crate::credits`): the wallet view, the grant and ledger views, the gates, the store's
 //! idempotent writes. Granting and selling credit take an `Idempotency-Key`, required.
@@ -7,6 +7,7 @@ use crate::AppState;
 use crate::credits::model as v1;
 use crate::credits::router::{apply_wallet, empty_wallet, wallet_denomination};
 use crate::currencies::model::Currency;
+use crate::v2::Reader;
 use crate::v2::extract::{Body, Path, Query};
 use crate::v2::idempotency::{IDEMPOTENCY_KEY_HEADER, committed_write};
 use crate::v2::ids;
@@ -20,8 +21,8 @@ use axum::Json;
 use axum::extract::State;
 use axum::response::Response;
 use common_domain::ids::{
-    BaseId, CreditGrantId, CustomerPaymentMethodId, InvoiceId, LedgerEntryId, PaymentTransactionId,
-    TenantId,
+    BaseId, CreditGrantId, CustomerId, CustomerPaymentMethodId, InvoiceId, LedgerEntryId,
+    PaymentTransactionId, TenantId,
 };
 use common_grpc::middleware::server::auth::{AuthorizedAsTenant, TenantActor};
 use http::{HeaderMap, StatusCode};
@@ -52,7 +53,8 @@ use utoipa::{IntoParams, ToSchema};
 // ── Wallets ─────────────────────────────────────────────────────────
 
 /// What a customer's usage does once the credit it can use runs out: what each subscription's
-/// plan says, or always or never stop, for this customer.
+/// plan says, or always or never stop, for this customer. `follow_plan`: as each plan says;
+/// `always_pause`: usage stops; `never_pause`: usage goes on, billed.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum UsageAtZero {
@@ -81,6 +83,10 @@ impl From<UsageAtZero> for v1::UsageAtZero {
     }
 }
 
+/// Whether automatic top-up charges: `active` charges at the threshold; `disabled` is turned
+/// off, its terms kept; `suspended` stopped after failed or reversed payments, a price increase
+/// or a change of the customer's currency, or until the customer confirms terms an operator
+/// changed.
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AutoTopUpStatus {
@@ -125,11 +131,16 @@ impl From<AutoTopUpMethod> for v1::AutoTopUpMethod {
 /// units of the customer's currency.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct AutoTopUp {
+    /// Whether it charges.
     pub status: AutoTopUpStatus,
+    /// How much each top-up buys.
     pub method: AutoTopUpMethod,
+    /// The balance a top-up is bought at, once it falls to it.
     pub threshold: i64,
+    /// With `fixed`: the credit each top-up buys.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub amount: Option<i64>,
+    /// With `to_target`: the balance each top-up buys back up to.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<i64>,
     /// Smallest single charge.
@@ -150,8 +161,10 @@ pub struct AutoTopUp {
         skip_serializing_if = "Option::is_none"
     )]
     pub payment_method: Option<CustomerPaymentMethodId>,
+    /// When the last top-up was paid.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_succeeded_at: Option<ApiDateTime>,
+    /// When it was suspended; absent unless `status` is `suspended`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suspended_at: Option<ApiDateTime>,
     /// Why the last charge failed.
@@ -191,16 +204,20 @@ impl From<v1::AutoTopUp> for AutoTopUp {
 /// The price this customer agreed for one credit of a unit, in major units of `currency`.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct UnitPrice {
+    /// The price of one credit, a decimal string.
     #[serde(with = "rust_decimal::serde::str")]
     #[schema(value_type = String, format = "decimal")]
     pub price: Decimal,
+    /// The customer's currency (ISO 4217).
     pub currency: String,
 }
 
 /// Credit that only one subscription can use.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct SubscriptionCredit {
+    /// The subscription it pays the charges of.
     pub subscription: SubscriptionRef,
+    /// Its credit on account, in minor units of the wallet.
     pub credit_on_account: i64,
 }
 
@@ -238,9 +255,11 @@ pub struct Wallet {
     pub as_of: Option<ApiDateTime>,
     /// Balances sending `wallet.balance_low` once crossed downward; ascending, at most 5.
     pub low_balance_thresholds: Vec<i64>,
+    /// What the customer's usage does once the credit runs out, as set for this customer.
     pub usage_at_zero: UsageAtZero,
     /// Usage stops once the credit is used up, for one active subscription at least.
     pub pauses_at_zero: bool,
+    /// Its automatic top-up; absent when none is set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_top_up: Option<AutoTopUp>,
     /// A credit unit wallet: the customer's agreed price per credit; the list price when absent.
@@ -303,6 +322,7 @@ impl Wallet {
 /// Every wallet of the customer, one per currency or credit unit: a list never paged.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct WalletList {
+    /// The wallets, the customer's own currency first.
     pub data: Vec<Wallet>,
 }
 
@@ -311,18 +331,26 @@ pub struct WalletList {
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct AutoTopUpInput {
+    /// How much each top-up buys.
     pub method: AutoTopUpMethod,
+    /// The balance a top-up is bought at, in minor units of the wallet.
     pub threshold: i64,
+    /// With `fixed`: the credit each top-up buys, in minor units of the wallet.
     #[serde(default)]
     pub amount: Option<i64>,
+    /// With `to_target`: the balance each top-up buys back up to, above `threshold`.
     #[serde(default)]
     pub target: Option<i64>,
+    /// Smallest single charge.
     #[serde(default)]
     pub minimum: Option<i64>,
+    /// Largest single charge.
     #[serde(default)]
     pub maximum: Option<i64>,
+    /// Most charged in a rolling day, tax included.
     #[serde(default)]
     pub daily_cap: Option<i64>,
+    /// Most charged in a calendar month (UTC), tax included.
     #[serde(default)]
     pub monthly_cap: Option<i64>,
     /// A payment method id; the customer's default at each top-up when left out.
@@ -345,12 +373,14 @@ pub struct AutoTopUpInput {
 #[derive(Deserialize, ToSchema, Debug, Clone, Default)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateWallet {
+    /// What the customer's usage does once the credit runs out.
     #[serde(default)]
     pub usage_at_zero: Option<UsageAtZero>,
     /// Ascending, distinct, non-negative, at most 5.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<Vec<i64>>)]
     pub low_balance_thresholds: Option<Option<Vec<i64>>>,
+    /// The terms of its automatic top-up, replaced whole; `null` turns it off and removes them.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<AutoTopUpInput>)]
     pub auto_top_up: Option<Option<AutoTopUpInput>>,
@@ -363,12 +393,12 @@ pub struct UpdateWallet {
 /// The customer's wallets as v1 computes them: per currency or credit unit, the customer's own
 /// currency first, with their live balance.
 async fn wallets(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     customer: &Customer,
 ) -> Result<Vec<v1::Wallet>, Problem> {
     let wallets = state
-        .services
+        .services()
         .customer_credit_wallets_with_auto_top_up(tenant_id, customer.id)
         .await?;
     let customer_currency = customer.currency.trim().to_ascii_uppercase();
@@ -389,10 +419,10 @@ async fn wallets(
         apply_wallet(entry, wallet, auto_top_up.as_ref(), None)?;
     }
     let live = state
-        .store
+        .store()
         .hooks
         .credit
-        .live_credit_balances(&state.services, tenant_id, customer.id)
+        .live_credit_balances(state.services(), tenant_id, customer.id)
         .await?;
     for balance in live.iter().filter(|balance| balance.projected) {
         if let Some(entry) = by_currency.get_mut(&balance.currency) {
@@ -435,6 +465,67 @@ pub async fn list_wallets(
         .map(|wallet| Wallet::new(wallet, &refs))
         .collect();
     Ok(Json(WalletList { data }))
+}
+
+/// The wallet of a currency or credit unit.
+fn in_denomination(wallet: &v1::Wallet, denomination: &Denomination) -> bool {
+    let same_currency = wallet.currency.as_ref().map(ToString::to_string)
+        == denomination.currency.as_ref().map(ToString::to_string);
+    same_currency && wallet.credit_unit == denomination.credit_unit
+}
+
+/// Get a customer's wallet
+///
+/// The customer's credit in one currency or credit unit, as its wallets list it. The customer's
+/// own currency always has one, even empty; another currency or credit unit has one once credit
+/// was granted, bought or configured in it.
+#[utoipa::path(
+    get,
+    tag = "Customers",
+    path = "/api/v2/customers/{id_or_alias}/wallets/{wallet}",
+    params(
+        ("id_or_alias" = String, Path, description = "Customer id, or its alias as `ext:<alias>`"),
+        ("wallet" = String, Path, description = "An ISO 4217 currency, or a credit unit code"),
+    ),
+    responses(
+        (status = 200, description = "The wallet", body = Wallet),
+        (status = 404, description = "The customer, or a wallet in that currency or credit unit, is not found", body = Problem, content_type = "application/problem+json"),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub async fn get_wallet(
+    Extension(auth): Extension<AuthorizedAsTenant>,
+    State(state): State<AppState>,
+    Path((id_or_alias, wallet)): Path<(String, String)>,
+) -> Result<Json<Wallet>, Problem> {
+    let tenant_id = auth.tenant_id;
+    let customer = ids::customer(&state, tenant_id, &id_or_alias).await?;
+    // A path naming no currency nor credit unit names no wallet.
+    let code = wallet_code(&wallet, &customer)
+        .map_err(|_| Problem::not_found(format!("No wallet in '{}'", wallet.trim())))?;
+    Ok(Json(wallet_in(&state, tenant_id, &customer, &code).await?))
+}
+
+/// The customer's wallet in `code` (a currency or a credit unit code), as `GET
+/// /customers/{id}/wallets/{code}` reads it.
+pub(crate) async fn wallet_in(
+    state: &impl Reader,
+    tenant_id: TenantId,
+    customer: &Customer,
+    code: &str,
+) -> Result<Wallet, Problem> {
+    let no_wallet = || Problem::not_found(format!("The customer has no wallet in {code}"));
+    let denomination = Denominations::load(state.store(), tenant_id, [code])
+        .await?
+        .of(code)
+        .map_err(|_| no_wallet())?;
+    let found = wallets(state, tenant_id, customer)
+        .await?
+        .into_iter()
+        .find(|wallet| in_denomination(wallet, &denomination))
+        .ok_or_else(no_wallet)?;
+    let refs = Refs::load(state.store(), tenant_id, &wallet_ids([&found])).await?;
+    Ok(Wallet::new(found, &refs))
 }
 
 /// The wallet code a path names: an ISO currency (three letters) or a credit unit code.
@@ -618,11 +709,7 @@ pub async fn update_wallet(
         let configured = wallets(&state, tenant_id, &customer)
             .await?
             .into_iter()
-            .find(|wallet| {
-                let same_currency = wallet.currency.as_ref().map(ToString::to_string)
-                    == denomination.currency.as_ref().map(ToString::to_string);
-                same_currency && wallet.credit_unit == denomination.credit_unit
-            })
+            .find(|wallet| in_denomination(wallet, &denomination))
             .unwrap_or_else(|| empty_wallet(denomination));
         let refs = Refs::load(&state.store, tenant_id, &wallet_ids([&configured])).await?;
         Ok::<_, Problem>(Wallet::new(configured, &refs))
@@ -660,6 +747,8 @@ impl From<GrantType> for v1::CreditGrantType {
     }
 }
 
+/// Where a grant is: `pending` until its `effective_at`, then `active`, `depleted` once spent,
+/// or `expired` once lapsed.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum GrantStatus {
@@ -692,7 +781,13 @@ impl From<GrantStatus> for CreditGrantState {
     }
 }
 
-/// Where the credit came from.
+/// Where the credit came from: `manual` (granted by hand or through the API), `purchase` (a
+/// top-up, an automatic top-up, a credit purchase or a plan's paid credit pack), `plan`
+/// (included with a subscription's plan), `credit_note` (given back by a credit note),
+/// `adjustment` (returned by a negative or voided invoice), `migrated` (the balance that
+/// preceded credit grants), `rollover` (unspent included credit carried over when it expired),
+/// `coupon` (redeemed with a promotional credit coupon) or `overpayment` (money collected above
+/// what an invoice asked).
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum GrantSource {
@@ -710,6 +805,7 @@ pub enum GrantSource {
     Migrated,
     /// Unspent included credit carried over when it expired.
     Rollover,
+    /// Redeemed with a promotional credit coupon.
     Coupon,
     /// Money collected above what an invoice asked.
     Overpayment,
@@ -731,7 +827,7 @@ impl From<v1::CreditGrantSource> for GrantSource {
     }
 }
 
-/// What the credit pays: any charge, or usage charges only.
+/// What the credit pays: `all`, any charge (the default), or `usage` charges only.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum AppliesTo {
@@ -758,7 +854,9 @@ impl From<AppliesTo> for CreditApplication {
     }
 }
 
-/// The group a grant is shown in.
+/// The group a grant is shown in: `included` (credit a plan includes, renewed with it),
+/// `prepaid` (credit bought), `bonus` (credit given) or `account_balance` (the customer's money
+/// that pays any invoice: credit notes, returned invoices, the balance from before grants).
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum GrantKind {
@@ -783,52 +881,72 @@ impl From<v1::CreditGrantKind> for GrantKind {
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct CreditMoney {
+    /// In minor units of `currency`.
     pub amount: i64,
+    /// ISO 4217.
     pub currency: String,
 }
 
 /// A lot of credit given to or bought by the customer.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct CustomerCreditGrant {
+    /// The grant's id.
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub id: CreditGrantId,
+    /// Whether it applies after tax (`paid`) or before (`promotional`).
     #[serde(rename = "type")]
     pub grant_type: GrantType,
+    /// Where the grant is.
     pub status: GrantStatus,
+    /// Where the credit came from.
     pub source: GrantSource,
+    /// The currency of its amounts (ISO 4217); absent for a credit unit grant.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub currency: Option<String>,
+    /// The credit unit its amounts are in; absent for a currency.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credit_unit: Option<CreditUnitRef>,
+    /// Decimal places of `credit_unit`: amounts are integers of 10^-precision credit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credit_unit_precision: Option<u8>,
+    /// What the credit pays, combined with `products`.
     pub applies_to: AppliesTo,
     /// The products whose charges it pays; empty for every product.
     pub products: Vec<ProductRef>,
     /// The subscription it belongs to: it pays that subscription's charges only.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subscription: Option<SubscriptionRef>,
+    /// The group the grant is shown in.
     pub kind: GrantKind,
     /// The group's name as shown: "Included with Pro", "Purchased credit"…
     pub kind_label: String,
+    /// Credit granted, in minor units of `currency` or `credit_unit`.
     pub amount: i64,
+    /// Not spent yet, in the same minor units.
     pub remaining: i64,
-    /// Lost to expiry.
+    /// Lost to expiry; present only on an expired grant.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expired_amount: Option<i64>,
     /// Lower is drawn first among grants paying the same charges.
     pub priority: i32,
+    /// When the credit became, or becomes, spendable.
     pub effective_at: ApiDateTime,
+    /// When unspent credit lapses; absent when it never does.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<ApiDateTime>,
-    /// When the subscription it belongs to ended.
+    /// When the subscription it belongs to ended: unspent credit lapses then, even before
+    /// `expires_at`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ended_at: Option<ApiDateTime>,
+    /// The invoice that sold the credit, or whose void or negative total gave it back.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub invoice: Option<InvoiceRef>,
+    /// The credit note that gave the credit back.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credit_note: Option<CreditNoteRef>,
+    /// Shown on the credit ledger.
     pub reason: String,
+    /// Your own reference, e.g. a contract or support ticket.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reference: Option<String>,
     /// What the whole grant was paid, net of tax.
@@ -845,6 +963,7 @@ pub struct CustomerCreditGrant {
         skip_serializing_if = "Option::is_none"
     )]
     pub bonus_grant: Option<CreditGrantId>,
+    /// When the grant was recorded.
     pub created_at: ApiDateTime,
 }
 
@@ -894,7 +1013,7 @@ impl CustomerCreditGrant {
 
 /// What the grants name, read in one round.
 async fn grant_refs(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     grants: &[v1::CreditGrant],
 ) -> Result<Refs, Problem> {
@@ -906,7 +1025,7 @@ async fn grant_refs(
         ids.invoices.extend(grant.invoice_id);
         ids.credit_notes.extend(grant.credit_note_id);
     }
-    Refs::load(&state.store, tenant_id, &ids).await
+    Refs::load(state.store(), tenant_id, &ids).await
 }
 
 crate::v2_list!(CustomerCreditGrantList, CustomerCreditGrant);
@@ -918,7 +1037,10 @@ pub struct CustomerCreditGrantListQuery {
     pub currency: Option<String>,
     /// Only the grants in this credit unit (its code); excludes `currency`.
     pub credit_unit: Option<String>,
-    pub status: Option<GrantStatus>,
+    /// Only the grants in one of these statuses: repeat the parameter for several
+    /// (`?status=pending&status=active`).
+    #[param(style = Form, explode)]
+    pub status: Option<Vec<GrantStatus>>,
     /// Only the grants that belong to this subscription, by id or external id.
     pub subscription: Option<String>,
     /// How many items, 1 to 100; 20 by default.
@@ -1071,7 +1193,13 @@ pub async fn list_credit_grants(
             customer.id,
             code.as_deref(),
             subscription,
-            query.status.map(Into::into),
+            &query
+                .status
+                .iter()
+                .flatten()
+                .copied()
+                .map(Into::into)
+                .collect::<Vec<_>>(),
             after,
             i64::try_from(limit + 1).unwrap_or(i64::MAX),
         )
@@ -1109,12 +1237,67 @@ pub async fn list_credit_grants(
     }))
 }
 
+/// Get a customer's credit grant
+///
+/// As the customer's credit grants list it: what is left of it, its state now, what it pays.
+#[utoipa::path(
+    get,
+    tag = "Customers",
+    path = "/api/v2/customers/{id_or_alias}/credit-grants/{grant_id}",
+    params(
+        ("id_or_alias" = String, Path, description = "Customer id, or its alias as `ext:<alias>`"),
+        ("grant_id" = String, Path, description = "Credit grant id"),
+    ),
+    responses(
+        (status = 200, description = "The credit grant", body = CustomerCreditGrant),
+        (status = 404, description = "The customer or the grant is not found", body = Problem, content_type = "application/problem+json"),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub async fn get_credit_grant(
+    Extension(auth): Extension<AuthorizedAsTenant>,
+    State(state): State<AppState>,
+    Path((id_or_alias, grant_id)): Path<(String, String)>,
+) -> Result<Json<CustomerCreditGrant>, Problem> {
+    let tenant_id = auth.tenant_id;
+    let grant_id: CreditGrantId = ids::plain_id(&grant_id, "credit grant")?;
+    let customer = ids::customer(&state, tenant_id, &id_or_alias).await?;
+    Ok(Json(
+        credit_grant(&state, tenant_id, customer.id, grant_id).await?,
+    ))
+}
+
+/// The customer's grant, as `GET /customers/{id}/credit-grants/{grant_id}` reads it.
+pub(crate) async fn credit_grant(
+    state: &impl Reader,
+    tenant_id: TenantId,
+    customer_id: CustomerId,
+    grant_id: CreditGrantId,
+) -> Result<CustomerCreditGrant, Problem> {
+    let listed = state
+        .store()
+        .customer_credit_grant(tenant_id, customer_id, grant_id)
+        .await?
+        .ok_or_else(|| Problem::not_found(format!("credit grant {grant_id}")))?;
+    let denomination = Denominations::load(state.store(), tenant_id, [listed.currency.as_str()])
+        .await?
+        .of(&listed.currency)?;
+    let plans = state
+        .store()
+        .credit_grant_plans(tenant_id, [&listed.grant])
+        .await?;
+    let shown = v1::CreditGrant::new(&listed.grant, &denomination, &plans)?;
+    let refs = grant_refs(state, tenant_id, std::slice::from_ref(&shown)).await?;
+    Ok(CustomerCreditGrant::new(shown, &refs))
+}
+
 /// What a credit grant costs the customer, net of tax.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct CostInput {
     /// In minor units of `currency`; zero or more.
     pub amount: i64,
+    /// The currency it was paid in (ISO 4217).
     pub currency: String,
 }
 
@@ -1138,6 +1321,7 @@ pub struct CreateCreditGrant {
     /// amount is granted as paid for the cost and promotional for the rest (`bonus_grant`).
     #[serde(default)]
     pub cost: Option<CostInput>,
+    /// What the credit pays; `all` by default.
     #[serde(default)]
     pub applies_to: AppliesTo,
     /// The subscription it belongs to, by id or external id: it pays only that subscription's
@@ -1353,7 +1537,12 @@ pub async fn create_credit_grant(
 
 // ── Credit ledger ───────────────────────────────────────────────────
 
-/// What moved the credit.
+/// What moved the credit: `credit` (granted), `invoice_application` (applied to a finalized
+/// invoice), `invoice_return` (given back by a voided invoice or a credit note),
+/// `credit_reversal` (removed by a credit note, by hand or by a reversed payment),
+/// `credit_reinstatement` (restored once a reversed payment's money was recovered),
+/// `credit_expiry` (lapsed unspent) or `credit_rollover` (carried out of an expiring grant into
+/// the grant it rolled over to).
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum LedgerEntryType {
@@ -1390,6 +1579,7 @@ impl From<v1::LedgerEntryType> for LedgerEntryType {
 /// One movement of the customer's credit.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct LedgerEntry {
+    /// The movement's id.
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub id: LedgerEntryId,
     /// The grant the credit moved in or out of.
@@ -1397,32 +1587,44 @@ pub struct LedgerEntry {
     pub grant: CreditGrantId,
     /// Position in the wallet's ledger, from 1, in the order movements took effect.
     pub sequence: i64,
+    /// What moved the credit.
     #[serde(rename = "type")]
     pub entry_type: LedgerEntryType,
+    /// The currency of its amounts (ISO 4217); absent for a credit unit ledger.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub currency: Option<String>,
+    /// The credit unit its amounts are in; absent for a currency.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credit_unit: Option<CreditUnitRef>,
+    /// Decimal places of `credit_unit`: amounts are integers of 10^-precision credit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credit_unit_precision: Option<u8>,
+    /// What the grant's credit pays.
     pub applies_to: AppliesTo,
+    /// The subscription the grant belongs to, when it belongs to one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subscription: Option<SubscriptionRef>,
     /// Signed change of the credit on account.
     pub amount: i64,
     /// The credit on account after it.
     pub balance_after: i64,
+    /// The invoice the credit was applied to or given back by.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub invoice: Option<InvoiceRef>,
+    /// The credit note that gave the credit back or removed it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credit_note: Option<CreditNoteRef>,
+    /// Why the credit moved, as the ledger shows it.
     pub reason: String,
+    /// Your own reference, e.g. a contract or support ticket.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reference: Option<String>,
     /// The share of its grant's cost it moved, signed like `amount`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cost: Option<CreditMoney>,
+    /// When the movement took effect: the ledger's order.
     pub effective_at: ApiDateTime,
+    /// When it was recorded.
     pub recorded_at: ApiDateTime,
 }
 
@@ -1533,14 +1735,7 @@ pub async fn list_ledger(
         .iter()
         .map(|(entry, _)| v1::LedgerEntry::new(entry, &denomination, entry.application))
         .collect::<Result<Vec<_>, _>>()?;
-    let mut ids = ReferenceIds::default();
-    for entry in &shown {
-        ids.credit_unit_codes.extend(entry.credit_unit.clone());
-        ids.subscriptions.extend(entry.subscription_id);
-        ids.invoices.extend(entry.invoice_id);
-        ids.credit_notes.extend(entry.credit_note_id);
-    }
-    let refs = Refs::load(&state.store, tenant_id, &ids).await?;
+    let refs = ledger_refs(&state, tenant_id, &shown).await?;
     Ok(Json(LedgerEntryList {
         data: shown
             .into_iter()
@@ -1549,6 +1744,44 @@ pub async fn list_ledger(
         next_cursor,
         has_more,
     }))
+}
+
+/// What ledger lines name, read in one round.
+async fn ledger_refs(
+    state: &impl Reader,
+    tenant_id: TenantId,
+    entries: &[v1::LedgerEntry],
+) -> Result<Refs, Problem> {
+    let mut ids = ReferenceIds::default();
+    for entry in entries {
+        ids.credit_unit_codes.extend(entry.credit_unit.clone());
+        ids.subscriptions.extend(entry.subscription_id);
+        ids.invoices.extend(entry.invoice_id);
+        ids.credit_notes.extend(entry.credit_note_id);
+    }
+    Refs::load(state.store(), tenant_id, &ids).await
+}
+
+/// A movement of the customer's wallet in `code` (a currency or a credit unit code), as `GET
+/// /customers/{id}/credit-ledger` lists it.
+pub(crate) async fn ledger_entry(
+    state: &impl Reader,
+    tenant_id: TenantId,
+    customer_id: CustomerId,
+    code: &str,
+    entry_id: LedgerEntryId,
+) -> Result<LedgerEntry, Problem> {
+    let denomination = Denominations::load(state.store(), tenant_id, [code])
+        .await?
+        .of(code)?;
+    let entry = state
+        .store()
+        .customer_credit_ledger_entry(tenant_id, customer_id, code, entry_id)
+        .await?
+        .ok_or_else(|| Problem::not_found(format!("ledger entry {entry_id}")))?;
+    let shown = v1::LedgerEntry::new(&entry, &denomination, entry.application)?;
+    let refs = ledger_refs(state, tenant_id, std::slice::from_ref(&shown)).await?;
+    Ok(LedgerEntry::new(shown, &refs))
 }
 
 // ── Top-ups ─────────────────────────────────────────────────────────
@@ -1574,8 +1807,10 @@ pub struct CreateTopUp {
     /// The customer's currency when left out; `send_invoice` sells only in it.
     #[serde(default)]
     pub currency: Option<String>,
+    /// A credit unit (its code) to buy credit of, instead of a currency.
     #[serde(default)]
     pub credit_unit: Option<String>,
+    /// How it is paid; `charge` by default.
     #[serde(default)]
     pub collection: TopUpCollection,
     /// `charge` only, a payment method id; the customer's default when left out. Without one,
@@ -1592,6 +1827,9 @@ pub struct CreateTopUp {
     pub unit_price: Option<String>,
 }
 
+/// Where a top-up stands: `succeeded` (paid, the credit granted), `pending` (the charge is
+/// settling), `requires_customer_action` (the customer authenticates or pays at `checkout_url`)
+/// or `awaiting_payment` (the invoice is issued; the credit is granted once it is paid).
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TopUpStatus {
@@ -1608,6 +1846,7 @@ pub enum TopUpStatus {
 /// Where a top-up stands; `wallet.funded` reports its credit granted.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct TopUp {
+    /// Where it stands.
     pub status: TopUpStatus,
     /// Credit bought, in minor units of `currency`, or of `credit_unit` when set.
     pub amount: i64,
@@ -1616,11 +1855,13 @@ pub struct TopUp {
     pub charged_amount: Option<i64>,
     /// The money it is paid in.
     pub currency: String,
+    /// The credit unit bought; absent for currency credit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credit_unit: Option<CreditUnitRef>,
     /// The invoice documenting the purchase.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub invoice: Option<InvoiceRef>,
+    /// The payment charged; absent until a charge is made.
     #[serde(
         serialize_with = "common_domain::ids::string_serde_opt::serialize",
         skip_serializing_if = "Option::is_none"

@@ -11,7 +11,8 @@ use crate::webhooks_out::{
     WebhookOutAttemptRow, WebhookOutAttemptRowNew, WebhookOutDeliveryListRow,
     WebhookOutDeliveryRow, WebhookOutDeliveryRowNew, WebhookOutEndpointRow,
     WebhookOutEndpointRowNew, WebhookOutEndpointRowPatch, WebhookOutMessageRow,
-    WebhookOutMessageRowNew, WebhookOutRetiredSecretRow, WebhookOutRetiredSecretRowNew,
+    WebhookOutMessageRowNew, WebhookOutMessageVersionRow, WebhookOutRetiredSecretRow,
+    WebhookOutRetiredSecretRowNew,
 };
 use crate::{DbResult, PgConn};
 
@@ -478,6 +479,36 @@ impl WebhookOutMessageRow {
             .into_db_result()
     }
 
+    /// The message as a delivery at `api_version` sends it: its payload rendered at that version,
+    /// v1's (the message's own) without one.
+    pub async fn get_at_version(
+        conn: &mut PgConn,
+        message_id: EventId,
+        api_version: Option<&str>,
+    ) -> DbResult<WebhookOutMessageRow> {
+        use crate::schema::webhook_out_message_version::dsl as v_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let mut message = Self::get_by_id(conn, message_id).await?;
+        let Some(api_version) = api_version else {
+            return Ok(message);
+        };
+
+        let query = v_dsl::webhook_out_message_version
+            .filter(v_dsl::message_id.eq(message_id))
+            .filter(v_dsl::api_version.eq(api_version))
+            .select(v_dsl::payload);
+
+        crate::debug_sql(&query);
+
+        message.payload = query
+            .first(conn)
+            .await
+            .attach("Error while finding webhook message version")
+            .into_db_result()?;
+        Ok(message)
+    }
+
     pub async fn purge_older_than(conn: &mut PgConn, cutoff: NaiveDateTime) -> DbResult<usize> {
         use crate::schema::webhook_out_message::dsl as m_dsl;
         use diesel_async::RunQueryDsl;
@@ -490,6 +521,34 @@ impl WebhookOutMessageRow {
             .execute(conn)
             .await
             .attach("Error while purging webhook messages")
+            .into_db_result()
+    }
+}
+
+impl WebhookOutMessageVersionRow {
+    /// Idempotent on `(message_id, api_version)`, as the message is on its id.
+    pub async fn insert_batch_ignore_conflict(
+        conn: &mut PgConn,
+        rows: &[WebhookOutMessageVersionRow],
+    ) -> DbResult<usize> {
+        use crate::schema::webhook_out_message_version::dsl as v_dsl;
+        use diesel_async::RunQueryDsl;
+
+        if rows.is_empty() {
+            return Ok(0);
+        }
+
+        let query = diesel::insert_into(v_dsl::webhook_out_message_version)
+            .values(rows)
+            .on_conflict((v_dsl::message_id, v_dsl::api_version))
+            .do_nothing();
+
+        crate::debug_sql(&query);
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while inserting webhook message versions")
             .into_db_result()
     }
 }
@@ -599,7 +658,7 @@ impl WebhookOutDeliveryRow {
         conn: &mut PgConn,
         tenant_uid: TenantId,
         endpoint_id: WebhookEndpointId,
-        status: Option<WebhookDeliveryStatusEnum>,
+        status: Option<Vec<WebhookDeliveryStatusEnum>>,
         before: Option<WebhookDeliveryId>,
         limit: i64,
     ) -> DbResult<Option<Vec<WebhookOutDeliveryListRow>>> {
@@ -628,8 +687,8 @@ impl WebhookOutDeliveryRow {
             .filter(d_dsl::endpoint_id.eq(endpoint_id))
             .into_boxed();
 
-        if let Some(status) = status {
-            query = query.filter(d_dsl::status.eq(status));
+        if let Some(statuses) = status {
+            query = query.filter(d_dsl::status.eq_any(statuses));
         }
 
         match (before, anchor) {
@@ -872,7 +931,7 @@ impl WebhookOutDeliveryRow {
             WHERE id IN (SELECT id FROM locked)
             RETURNING id, tenant_id, message_id, endpoint_id, status, attempt_count,
                       next_attempt_at, lease_expires_at, last_response_status, last_error,
-                      manual, created_at, updated_at, completed_at, claimed_at
+                      manual, created_at, updated_at, completed_at, claimed_at, api_version
         "#;
 
         let query = diesel::sql_query(raw_sql)

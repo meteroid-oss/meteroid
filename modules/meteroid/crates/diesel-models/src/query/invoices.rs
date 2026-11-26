@@ -2147,6 +2147,8 @@ impl InvoiceRow {
         param_currency: Option<String>,
         param_issued_after: Option<NaiveDateTime>,
         param_updated_after: Option<NaiveDateTime>,
+        param_created_after: Option<chrono::DateTime<chrono::Utc>>,
+        param_created_before: Option<chrono::DateTime<chrono::Utc>>,
         after: Option<InvoiceId>,
         limit: i64,
     ) -> DbResult<Vec<InvoiceWithCustomerRow>> {
@@ -2191,6 +2193,12 @@ impl InvoiceRow {
         // no line; the creation reads a row never written since.
         if let Some(at) = param_updated_after {
             query = query.filter(i_dsl::updated_at.gt(at).or(i_dsl::created_at.gt(at)));
+        }
+        if let Some(at) = param_created_after {
+            query = query.filter(i_dsl::created_at.gt(at));
+        }
+        if let Some(at) = param_created_before {
+            query = query.filter(i_dsl::created_at.lt(at));
         }
         if let Some(after) = after {
             query = query.filter(i_dsl::id.gt(after));

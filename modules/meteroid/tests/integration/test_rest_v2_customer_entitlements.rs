@@ -1,4 +1,4 @@
-//! What a customer may use through API v2 (ADR-0013 §23): resource types and a customer's
+//! What a customer may use through API v2 (ADR-0013 §25): resource types and a customer's
 //! resources, the snapshot with its ETag, the check (POST and GET, a resource by id or by type and
 //! key, explain, `current_count`, the v1 inputs it refuses), usage reported by the app, the
 //! customer's overrides with their history, portal-token claims; then the check's limits counted
@@ -109,7 +109,7 @@ fn refused_at(answer: &Answer, status: StatusCode, path: &str) {
     assert_eq!(answer.body["errors"][0]["path"], path, "{:#}", answer.body);
 }
 
-/// Rules: ADR-0013 §23
+/// Rules: ADR-0013 §25
 #[tokio::test]
 async fn test_rest_v2_resource_types_and_customer_resources() {
     let f = fixture().await;
@@ -420,7 +420,7 @@ async fn test_rest_v2_resource_types_and_customer_resources() {
     assert!(paths["/api/v2/customers/{id_or_alias}/resources/{type}/{key}"]["put"].is_object());
 }
 
-/// Rules: ADR-0013 §23
+/// Rules: ADR-0013 §25
 #[tokio::test]
 async fn test_rest_v2_customer_snapshot_and_check() {
     let f = fixture().await;
@@ -960,7 +960,7 @@ async fn test_rest_v2_customer_snapshot_and_check() {
     assert!(paths["/api/v2/customers/{id_or_alias}/entitlements/{feature}"]["get"].is_object());
 }
 
-/// Rules: ADR-0013 §23
+/// Rules: ADR-0013 §25
 #[tokio::test]
 async fn test_rest_v2_usage_reported_by_the_app() {
     let f = fixture().await;
@@ -1154,7 +1154,7 @@ async fn test_rest_v2_usage_reported_by_the_app() {
     assert_eq!(counts[0]["last_set"]["key"], "seats-1");
 }
 
-/// Rules: ADR-0013 §23
+/// Rules: ADR-0013 §25
 #[tokio::test]
 async fn test_rest_v2_customer_entitlement_overrides() {
     let f = fixture().await;
@@ -1446,7 +1446,7 @@ async fn test_rest_v2_customer_entitlement_overrides() {
     );
 }
 
-/// Rules: ADR-0013 §11, §23
+/// Rules: ADR-0013 §11, §25
 #[tokio::test]
 async fn test_rest_v2_portal_token_claims() {
     let f = fixture().await;
@@ -1627,7 +1627,7 @@ impl Metered {
     }
 }
 
-/// Rules: ADR-0013 §23, ADR-0011 §3.14
+/// Rules: ADR-0013 §25, ADR-0011 §3.14
 #[tokio::test]
 async fn test_rest_v2_check_limits_counted_from_events() {
     let env = Metered::new().await;

@@ -1,4 +1,4 @@
-//! What the token's customer may use, read as API v2 reads it (ADR-0013 §23): the snapshot with
+//! What the token's customer may use, read as API v2 reads it (ADR-0013 §25): the snapshot with
 //! its `ETag`, and the check. A token names only the resources and attributes its claims allow;
 //! `explain` and `current_count` take a secret key.
 use crate::AppState;

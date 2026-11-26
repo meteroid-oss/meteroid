@@ -1,6 +1,7 @@
 //! `/api/v2/product-families`: the product lines a catalog is sorted in, each with its pricing
 //! page. An archived family takes no new product, plan or metric; what is in it keeps selling.
 use crate::AppState;
+use crate::v2::Reader;
 use crate::v2::extract::{Body, Path, Query};
 use crate::v2::ids;
 use crate::v2::pagination::{Cursor, PageQuery, keyset};
@@ -26,13 +27,20 @@ pub const WHOLE: PaginationRequest = PaginationRequest {
     page: 0,
 };
 
+/// A product line the catalog is sorted in, with its pricing page. Products, plans and metrics
+/// are each in one family.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct ProductFamily {
+    /// The family's id.
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub id: ProductFamilyId,
+    /// Unique per tenant, immutable; paths take it in place of the id.
     pub code: String,
+    /// 1 to 255 characters.
     pub name: String,
+    /// Takes no new product, plan or metric; what is in it keeps selling.
     pub archived: bool,
+    /// When the family was created.
     pub created_at: ApiDateTime,
 }
 
@@ -44,16 +52,20 @@ pub struct ProductFamilyListQuery {
     /// Archived families too.
     #[serde(default)]
     pub include_archived: bool,
+    /// How many items, 1 to 100; 20 by default.
     pub limit: Option<u32>,
+    /// The `next_cursor` of the previous page.
     pub after: Option<String>,
 }
 
+/// A product family to create.
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct CreateProductFamily {
     /// Unique per tenant, immutable; the name's slug when left out.
     #[serde(default)]
     pub code: Option<String>,
+    /// 1 to 255 characters.
     pub name: String,
 }
 
@@ -61,6 +73,7 @@ pub struct CreateProductFamily {
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateProductFamily {
+    /// 1 to 255 characters; left out, unchanged.
     #[serde(default)]
     pub name: Option<String>,
 }
@@ -106,7 +119,6 @@ pub async fn family_for_new_use(
     Ok(id)
 }
 
-/// The tenant's families by id, with their codes.
 /// The family of `id`, by the code `families` holds of it.
 pub fn family_ref(
     families: &HashMap<ProductFamilyId, String>,
@@ -118,12 +130,13 @@ pub fn family_ref(
     }
 }
 
+/// The tenant's families by id, with their codes.
 pub async fn family_codes(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
 ) -> Result<HashMap<ProductFamilyId, String>, Problem> {
     Ok(state
-        .store
+        .store()
         .list_product_families(tenant_id, WHOLE, None, None)
         .await?
         .items
@@ -133,6 +146,9 @@ pub async fn family_codes(
 }
 
 /// List product families
+///
+/// The tenant's product families in creation order, paged by cursor. Archived ones are left
+/// out unless `include_archived`.
 #[utoipa::path(
     get,
     tag = "Product families",
@@ -173,6 +189,8 @@ pub async fn list_product_families(
 }
 
 /// Get a product family
+///
+/// By id or code, archived or not.
 #[utoipa::path(
     get,
     tag = "Product families",
@@ -198,6 +216,8 @@ pub async fn get_product_family(
 }
 
 /// Create a product family
+///
+/// A new product line, live, taking products, plans and metrics.
 #[utoipa::path(
     post,
     tag = "Product families",
@@ -318,6 +338,8 @@ pub async fn archive_product_family(
 }
 
 /// Unarchive a product family
+///
+/// It takes new products, plans and metrics again. Unarchiving a live family changes nothing.
 #[utoipa::path(
     post,
     tag = "Product families",

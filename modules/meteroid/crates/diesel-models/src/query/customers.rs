@@ -1293,6 +1293,8 @@ impl CustomerRow {
         search: Option<String>,
         archived: bool,
         updated_after: Option<chrono::DateTime<chrono::Utc>>,
+        created_after: Option<chrono::NaiveDateTime>,
+        created_before: Option<chrono::NaiveDateTime>,
         after: Option<CustomerId>,
         limit: i64,
     ) -> DbResult<Vec<CustomerRow>> {
@@ -1319,6 +1321,12 @@ impl CustomerRow {
         }
         if let Some(updated_after) = updated_after {
             query = query.filter(c_dsl::store_committed_at.gt(updated_after));
+        }
+        if let Some(created_after) = created_after {
+            query = query.filter(c_dsl::created_at.gt(created_after));
+        }
+        if let Some(created_before) = created_before {
+            query = query.filter(c_dsl::created_at.lt(created_before));
         }
         if let Some(after) = after {
             query = query.filter(c_dsl::id.gt(after));

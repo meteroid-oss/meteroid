@@ -88,7 +88,7 @@ pub trait CouponInterface {
     async fn list_coupons_after(
         &self,
         tenant_id: TenantId,
-        filter: Option<CouponFilter>,
+        filter: Option<Vec<CouponFilter>>,
         after: Option<CouponId>,
         limit: usize,
     ) -> StoreResult<Vec<Coupon>>;
@@ -836,7 +836,7 @@ impl CouponInterface for Store {
     async fn list_coupons_after(
         &self,
         tenant_id: TenantId,
-        filter: Option<CouponFilter>,
+        filter: Option<Vec<CouponFilter>>,
         after: Option<CouponId>,
         limit: usize,
     ) -> StoreResult<Vec<Coupon>> {
@@ -844,7 +844,7 @@ impl CouponInterface for Store {
         let rows = CouponRow::list_page(
             &mut conn,
             tenant_id,
-            filter.map(Into::into),
+            filter.map(|filters| filters.into_iter().map(Into::into).collect()),
             after,
             i64::try_from(limit).unwrap_or(i64::MAX),
         )

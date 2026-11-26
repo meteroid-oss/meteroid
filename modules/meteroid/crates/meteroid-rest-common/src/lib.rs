@@ -1,6 +1,7 @@
 //! The REST pieces the core REST API and the modules share: errors, timestamps, query
 //! extraction, the shared models and the delegated-credentials trait.
 
+pub mod api_versions;
 pub mod client;
 pub mod currency;
 pub mod customproperties;

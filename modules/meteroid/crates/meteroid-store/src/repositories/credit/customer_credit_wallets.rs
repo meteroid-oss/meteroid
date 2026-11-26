@@ -19,7 +19,7 @@ use crate::store::PgConn;
 use crate::{Store, StoreResult};
 use chrono::{DateTime, NaiveDate, Utc};
 use common_domain::ids::{
-    BaseId, CreditGrantId, CreditUnitId, CustomerId, InvoiceId, TenantId, WalletId,
+    BaseId, CreditGrantId, CreditUnitId, CustomerId, InvoiceId, LedgerEntryId, TenantId, WalletId,
 };
 use diesel_models::credit_units::CreditUnitRow;
 use diesel_models::customer_credit::{
@@ -184,7 +184,7 @@ pub trait CustomerCreditWalletsInterface {
     ) -> StoreResult<(Vec<CustomerCreditGrant>, u64)>;
 
     /// `customer_credit_grants` paged by keyset: at most `limit` grants after `after` (the last
-    /// of the previous page), newest first.
+    /// of the previous page), newest first, in any of `states` (any state when empty).
     #[allow(clippy::too_many_arguments)]
     async fn customer_credit_grants_after(
         &self,
@@ -192,10 +192,19 @@ pub trait CustomerCreditWalletsInterface {
         customer_id: CustomerId,
         currency: Option<&str>,
         subscription: Option<GrantSubscriptionFilter>,
-        state: Option<CreditGrantState>,
+        states: &[CreditGrantState],
         after: Option<GrantPosition>,
         limit: i64,
     ) -> StoreResult<Vec<CustomerCreditGrant>>;
+
+    /// The customer's grant of this id, as `customer_credit_grants_after` lists it; None when it
+    /// is not one of the customer's.
+    async fn customer_credit_grant(
+        &self,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        grant_id: CreditGrantId,
+    ) -> StoreResult<Option<CustomerCreditGrant>>;
 
     /// A page of the wallet's grants (only the depleted or expired ones when `used_up`), newest
     /// first, and the number matching. None when the wallet is not one of the customer's.
@@ -248,6 +257,16 @@ pub trait CustomerCreditWalletsInterface {
         after: Option<LedgerPosition>,
         limit: i64,
     ) -> StoreResult<Vec<(CreditLedgerEntry, LedgerPosition)>>;
+
+    /// The recorded line `entry_id` of the statement of the customer's wallet in `currency`, as
+    /// `customer_credit_currency_ledger_after` lists it; None when it is none of its lines.
+    async fn customer_credit_ledger_entry(
+        &self,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        currency: &str,
+        entry_id: LedgerEntryId,
+    ) -> StoreResult<Option<CreditLedgerEntry>>;
 
     /// Opens (or returns) the customer's wallet for a currency or credit unit.
     async fn create_customer_credit_wallet(
@@ -454,7 +473,7 @@ impl CustomerCreditWalletsInterface for Store {
         customer_id: CustomerId,
         currency: Option<&str>,
         subscription: Option<GrantSubscriptionFilter>,
-        state: Option<CreditGrantState>,
+        states: &[CreditGrantState],
         after: Option<GrantPosition>,
         limit: i64,
     ) -> StoreResult<Vec<CustomerCreditGrant>> {
@@ -468,13 +487,38 @@ impl CustomerCreditWalletsInterface for Store {
             customer_id,
             currency.as_deref(),
             subscription.map(db_subscription_filter),
-            state.map(db_state_filter),
+            &states
+                .iter()
+                .copied()
+                .map(db_state_filter)
+                .collect::<Vec<_>>(),
             now,
             after.map(|position| (position.created_at, position.id)),
             limit.clamp(1, 1001),
         )
         .await?;
         grant_views(&mut conn, tenant_id, customer_id, rows, now).await
+    }
+
+    async fn customer_credit_grant(
+        &self,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        grant_id: CreditGrantId,
+    ) -> StoreResult<Option<CustomerCreditGrant>> {
+        let mut conn = self.get_conn().await?;
+        let Some(row) =
+            CustomerCreditGrantRow::find_for_customer(&mut conn, tenant_id, customer_id, grant_id)
+                .await?
+        else {
+            return Ok(None);
+        };
+        let now = common_clock::now();
+        Ok(
+            grant_views(&mut conn, tenant_id, customer_id, vec![row], now)
+                .await?
+                .pop(),
+        )
     }
 
     async fn customer_wallet_grants(
@@ -630,6 +674,37 @@ impl CustomerCreditWalletsInterface for Store {
                 Ok((statement_entry(row.statement)?, position))
             })
             .collect()
+    }
+
+    async fn customer_credit_ledger_entry(
+        &self,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        currency: &str,
+        entry_id: LedgerEntryId,
+    ) -> StoreResult<Option<CreditLedgerEntry>> {
+        let mut conn = self.get_conn().await?;
+        CustomerRow::find_by_id(&mut conn, &customer_id, &tenant_id).await?;
+        let currency = currency.trim().to_ascii_uppercase();
+        let Some(account) = CustomerCreditAccountRow::find_by_currency(
+            &mut conn,
+            tenant_id,
+            customer_id,
+            &currency,
+        )
+        .await?
+        else {
+            return Ok(None);
+        };
+        let ids = vec![account.id];
+        let now = common_clock::now();
+        let rolling = rolling_tx(&mut conn, &ids, now).await?;
+        CustomerCreditStatementRow::find_for_accounts(
+            &mut conn, tenant_id, &ids, &rolling, now, entry_id,
+        )
+        .await?
+        .map(statement_entry)
+        .transpose()
     }
 
     async fn create_customer_credit_wallet(

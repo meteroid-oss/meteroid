@@ -11,6 +11,7 @@ import {
   rotateWebhookEndpointSecret,
   sendTestWebhook,
   updateWebhookEndpoint,
+  upgradeWebhookEndpointApiVersion,
 } from '@/rpc/api/webhooksout/v1/webhooksout-WebhooksService_connectquery'
 import { WebhooksService } from '@/rpc/api/webhooksout/v1/webhooksout_pb'
 
@@ -37,5 +38,6 @@ export const useWebhooks = () => {
     rotateSecret: useMutation(rotateWebhookEndpointSecret, { onSuccess: invalidate }),
     sendTest: useMutation(sendTestWebhook, { onSuccess: invalidate }),
     resend: useMutation(resendWebhookDelivery, { onSuccess: invalidate }),
+    upgradeApiVersion: useMutation(upgradeWebhookEndpointApiVersion, { onSuccess: invalidate }),
   }
 }

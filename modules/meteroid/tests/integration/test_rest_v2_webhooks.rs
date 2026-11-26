@@ -4,9 +4,10 @@
 //! resent; snake_case enums, prefixed ids, event types as a payload's `type` names them, and the
 //! problems a refused request answers.
 use crate::data::ids::TENANT_ID;
-use crate::test_rest_v2::{Answer, Fixture, fixture};
-use common_domain::ids::{BaseId, EventId, WebhookEndpointId};
+use crate::test_rest_v2::{Answer, Fixture, fixture, second_tenant_key};
+use common_domain::ids::{BaseId, EventId, WebhookDeliveryId, WebhookEndpointId};
 use meteroid_store::domain::webhooks_out::WebhookOutMessageNew;
+use meteroid_store::domain::webhooks_out::WebhookOutTarget;
 use meteroid_store::repositories::WebhookOutInterface;
 use reqwest::StatusCode;
 use serde_json::{Value, json};
@@ -60,9 +61,33 @@ async fn test_rest_v2_webhook_endpoints() {
     assert_eq!(endpoint["needs_setup"], false);
     assert_eq!(endpoint["rate_limit_per_sec"], 10);
     assert_eq!(
-        endpoint["api_version"], "2026-12-01",
-        "the request's version, the default one when it names none"
+        endpoint["api_version"],
+        meteroid_rest::v2::version::latest_version().as_header(),
+        "the latest version when the request names none"
     );
+    // A version asked is the one pinned.
+    let pinned = f
+        .send(
+            f.client
+                .post(f.url("/api/v2/webhooks/endpoints"))
+                .bearer_auth(&f.api_key)
+                .header("Idempotency-Key", "create-pinned-hook")
+                .header("Meteroid-Version", "2026-12-01")
+                .json(&json!({"url": "https://hooks.example/pinned"})),
+        )
+        .await;
+    assert_eq!(pinned.status, StatusCode::CREATED, "{:#}", pinned.body);
+    assert_eq!(pinned.body["api_version"], "2026-12-01");
+    let archived = f
+        .post(
+            &format!(
+                "/api/v2/webhooks/endpoints/{}/archive",
+                pinned.body["id"].as_str().unwrap()
+            ),
+            json!({}),
+        )
+        .await;
+    assert_eq!(archived.status, StatusCode::OK, "{:#}", archived.body);
     let authorization = endpoint["headers"]
         .as_array()
         .unwrap()
@@ -166,15 +191,15 @@ async fn test_rest_v2_webhook_endpoints() {
     assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(refused.body["errors"][0]["path"], "/event_types/0");
 
-    // Its API version changes to a published one, and is never removed.
+    // Its API version changes to a published one (v2's payloads), and is never removed.
     let pinned = f
         .patch(
             &format!("/api/v2/webhooks/endpoints/{id}"),
-            json!({"api_version": "2026-12-01"}),
+            json!({"api_version": "2026-12-15"}),
         )
         .await;
     assert_eq!(pinned.status, StatusCode::OK, "{:#}", pinned.body);
-    assert_eq!(pinned.body["api_version"], "2026-12-01");
+    assert_eq!(pinned.body["api_version"], "2026-12-15");
     for asked in [json!("2025-01-01"), json!("2027-01-01"), Value::Null] {
         let refused = f
             .patch(
@@ -301,7 +326,11 @@ async fn test_rest_v2_webhook_deliveries() {
                     event_type: "customer.created".to_owned(),
                     payload: json!({"index": index}),
                 },
-                &[endpoint_id],
+                vec![],
+                &[WebhookOutTarget {
+                    endpoint_id,
+                    api_version: None,
+                }],
             )
             .await
             .unwrap();
@@ -342,6 +371,50 @@ async fn test_rest_v2_webhook_deliveries() {
     all.sort();
     all.dedup();
     assert_eq!(all.len(), 3);
+
+    // One delivery, as the list reads it; another tenant's key reads none.
+    let delivery_id = delivery["id"].as_str().unwrap().to_owned();
+    let one = f
+        .get(&format!("/api/v2/webhooks/deliveries/{delivery_id}"))
+        .await;
+    assert_eq!(one.status, StatusCode::OK, "{:#}", one.body);
+    for field in [
+        "id",
+        "event",
+        "endpoint",
+        "event_type",
+        "manual",
+        "created_at",
+    ] {
+        assert_eq!(one.body[field], delivery[field], "{field}");
+    }
+    for missing in [
+        "/api/v2/webhooks/deliveries/whd_nonexistent".to_owned(),
+        format!("/api/v2/webhooks/deliveries/{}", WebhookDeliveryId::new()),
+    ] {
+        let answer = f.get(&missing).await;
+        assert_eq!(answer.status, StatusCode::NOT_FOUND, "{missing}");
+        assert_eq!(answer.body["code"], "not_found");
+    }
+    let other_key = second_tenant_key(&f).await;
+    let theirs = f
+        .send(
+            f.client
+                .get(f.url(&format!("/api/v2/webhooks/deliveries/{delivery_id}")))
+                .bearer_auth(&other_key),
+        )
+        .await;
+    assert_eq!(theirs.status, StatusCode::NOT_FOUND, "{:#}", theirs.body);
+
+    // Several states, the parameter repeated: every state names all three.
+    let every_state = f
+        .get(&format!(
+            "/api/v2/webhooks/endpoints/{id}/deliveries?status=pending&status=in_flight\
+             &status=succeeded&status=failed&status=cancelled&limit=100"
+        ))
+        .await;
+    assert_eq!(every_state.status, StatusCode::OK, "{:#}", every_state.body);
+    assert_eq!(ids(&every_state.body).len(), 3);
     // A cursor that is none of the endpoint's deliveries (purged since, or forged) is refused:
     // without its `created_at` no page from it would be exact.
     let unknown = meteroid_rest::v2::pagination::Cursor(uuid::Uuid::now_v7()).encode();

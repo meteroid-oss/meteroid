@@ -1,4 +1,4 @@
-//! The entitlement check (ADR-0013 §23), core in every edition (ADR-0011 §3.14): whether the
+//! The entitlement check (ADR-0013 §25), core in every edition (ADR-0011 §3.14): whether the
 //! customer may use `requested` more of a feature now, at every level. Core answers from the
 //! usage read at check time; the Enterprise edition answers from the usage it keeps live and adds
 //! budget and credit denials, through the store's `live_check` hook.

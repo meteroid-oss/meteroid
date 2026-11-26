@@ -3,8 +3,8 @@
 //! `spec/api/v2/openapi.json`.
 //!
 //! The conventions every v2 route shares live here: the dated `Meteroid-Version` and the problem
-//! responses (`envelope`, outside authentication), `Idempotency-Key` on every POST
-//! (`idempotency`, inside it), cursor pagination (`pagination`) and `{id_or_code}` paths (`ids`).
+//! responses (`envelope`, outside authentication), `Idempotency-Key` on every POST and the
+//! PATCHes listing changes (`idempotency`, inside it), cursor pagination (`pagination`) and `{id_or_code}` paths (`ids`).
 //! A new resource adds its router to [`resource_routes`]; an edition's module adds its own
 //! (`RestRoutes::v2`), mounted by [`module_routes`] under the same middlewares and published in
 //! the edition's v2 document, finished as JSON by [`spec_json`] (`document`).
@@ -29,12 +29,14 @@ pub mod documents;
 pub mod entitlements;
 pub mod envelope;
 pub mod events;
+pub mod examples;
 pub mod extract;
 pub mod features;
 pub mod idempotency;
 pub mod ids;
 pub mod invoices;
 pub mod managed_quantities;
+pub mod me;
 pub mod metrics;
 pub mod pagination;
 pub mod plans;
@@ -49,7 +51,26 @@ pub mod resource_types;
 pub mod subscriptions;
 pub mod usage;
 pub mod version;
+pub mod webhook_payloads;
 pub mod webhooks;
+
+/// What the v2 renderers read: the store and its services. A request's `AppState` holds them,
+/// and so does the webhook worker, which renders payloads in v2's shapes with the GETs' own
+/// renderers (`webhook_payloads::Renderer`).
+pub trait Reader: Sync {
+    fn store(&self) -> &meteroid_store::Store;
+    fn services(&self) -> &meteroid_store::Services;
+}
+
+impl Reader for AppState {
+    fn store(&self) -> &meteroid_store::Store {
+        &self.store
+    }
+
+    fn services(&self) -> &meteroid_store::Services {
+        &self.services
+    }
+}
 
 /// Core's v2 routers, one per resource, named.
 fn resource_routes() -> Vec<(&'static str, OpenApiRouter<AppState>)> {
@@ -76,6 +97,7 @@ fn resource_routes() -> Vec<(&'static str, OpenApiRouter<AppState>)> {
         ("usage", usage::routes()),
         ("checkout_sessions", checkout_sessions::routes()),
         ("webhooks", webhooks::routes()),
+        ("me", me::routes()),
     ]
 }
 
@@ -91,12 +113,13 @@ pub fn api_v2_routes() -> OpenApiRouter<AppState> {
 #[openapi(
     info(
         title = "Meteroid API v2",
-        version = "2026-12-01",
+        version = "2026-12-15",
         description = "The public REST API v2. A request may send `Meteroid-Version: YYYY-MM-DD` \
             to pin a version (the first, 2026-12-01, by default) and `X-Request-Id`; every \
             response echoes the version it was served at and its `Request-Id`. These headers are \
             documented once (`components.parameters`, `components.headers`), on no operation: \
-            an SDK sends them itself. A POST other than a preview takes an `Idempotency-Key`: a \
+            an SDK sends them itself. A POST other than a preview takes an `Idempotency-Key`, and \
+            so does `PATCH /rate-cards/{id_or_code}/rates`, whose body lists changes: a \
             retry with the same key and request replays the first response \
             (`Idempotent-Replayed: true`), or an `IdempotentReplayMarker` naming the \
             resource's `id` when the first response was not kept (larger than 512 KB, or \
@@ -117,11 +140,23 @@ pub fn api_v2_routes() -> OpenApiRouter<AppState> {
             without a new `Meteroid-Version`, and a client must accept a value it does not \
             know (a problem by its HTTP status, a field error as `invalid`); their values are \
             `x-extensible-enum`. Lists are paged \
-            by cursor, `?limit=&after=`, as their `x-pagination` describes. Prices and rates \
+            by cursor, `?limit=&after=`, as their `x-pagination` describes; a filter taking \
+            several values (`status`) is the parameter repeated, \
+            `?status=active&status=trial_active` (`style: form`, `explode: true`), and \
+            `created_after`, `created_before` and `updated_after` are RFC 3339 moments, \
+            exclusive. Prices and rates \
             are decimal strings in the currency's major unit; amounts billed are integers in \
-            minor units."
+            minor units. Requests are rate limited per tenant environment, every API key of the \
+            tenant sharing the limits: the `429` response (`components.responses.TooManyRequests`) \
+            states them.",
+        contact(name = "Meteroid", url = "https://meteroid.com", email = "hey@meteroid.com"),
+        terms_of_service = "https://meteroid.com/terms"
     ),
-    modifiers(&SecurityAddon),
+    external_docs(
+        url = "https://docs.meteroid.com/api/v2",
+        description = "The API v2 reference and guides"
+    ),
+    modifiers(&SecurityAddon, &WebhookSignature),
     components(schemas(
         problem::Problem,
         problem::FieldError,
@@ -157,7 +192,8 @@ pub fn api_v2_routes() -> OpenApiRouter<AppState> {
         (name = "Events", description = "Usage events, ingested for metering and billing: 1 to 500 a request, each naming its `customer` by id or `ext:<alias>`, its properties strings, numbers or booleans."),
         (name = "Usage", description = "The tenant's usage by metric. A customer's and a subscription's are under their own paths."),
         (name = "Checkout sessions", description = "A hosted checkout of a plan: the customer pays on its page, which creates the subscription."),
-        (name = "Webhooks", description = "Endpoints Meteroid POSTs signed event payloads to, their signing secret, and their deliveries. The payloads (this document's `webhooks`) are rendered in API v1's shapes, their schemas as v1 names them (`V1<Name>` where v2 has a schema of that name): v1's field names and enum spellings, not v2's. An endpoint's `api_version` will pin its payloads' shape when v2 payloads ship.")
+        (name = "Credentials", description = "The calling credentials: their tenant and organization, the key, and what delegated credentials may reach."),
+        (name = "Webhooks", description = "Endpoints Meteroid POSTs signed event payloads to, their signing secret, and their deliveries.")
     )
 )]
 pub struct ApiV2Doc;
@@ -173,6 +209,24 @@ impl Modify for SecurityAddon {
                 "bearer_auth",
                 SecurityScheme::Http(HttpBuilder::new().scheme(HttpAuthScheme::Bearer).build()),
             );
+    }
+}
+
+/// The Webhooks tag's paragraph on verifying a delivery ([`webhooks::SIGNATURE_VERIFICATION`]),
+/// after the tag's own text.
+struct WebhookSignature;
+
+impl Modify for WebhookSignature {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        for tag in openapi.tags.iter_mut().flatten() {
+            if tag.name == "Webhooks" {
+                let described = match tag.description.take() {
+                    Some(text) => format!("{text}\n\n{}", webhooks::SIGNATURE_VERIFICATION),
+                    None => webhooks::SIGNATURE_VERIFICATION.to_owned(),
+                };
+                tag.description = Some(described);
+            }
+        }
     }
 }
 
@@ -234,15 +288,16 @@ pub fn spec_json(openapi: &utoipa::openapi::OpenApi) -> serde_json::Value {
     value
 }
 
-/// The v2 document of an edition as published and served: [`spec_json`], with v1's webhook
-/// payloads (`document::attach_v1_webhooks`), the entitlement alerts v1 keeps beta included.
+/// The v2 document of an edition as published and served: [`spec_json`], with the edition's
+/// webhooks in v2's payloads (`document::attach_webhooks`), the entitlement alerts v1 keeps beta
+/// included.
 pub fn published_spec_json(
     openapi: &utoipa::openapi::OpenApi,
     edition: &EditionSpec,
 ) -> serde_json::Value {
     let mut value = spec_json(openapi);
     if let Some(root) = value.as_object_mut() {
-        document::attach_v1_webhooks(root, &crate::openapi::v2_webhooks_root(edition));
+        document::attach_webhooks(root, &crate::openapi::v2_webhooks_root(edition));
     }
     value
 }
@@ -281,6 +336,10 @@ pub fn resource_documents() -> Vec<(&'static str, utoipa::openapi::OpenApi)> {
         .map(|(name, routes)| (name, routes.split_for_parts().1))
         .collect();
     documents.push(("ApiV2Doc", ApiV2Doc::openapi()));
+    documents.push((
+        "webhook_payloads",
+        webhook_payloads::WebhookPayloadsDoc::openapi(),
+    ));
     documents
 }
 

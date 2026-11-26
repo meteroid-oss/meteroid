@@ -168,14 +168,15 @@ async fn authenticate(
         if is_restricted_money_route(&req.method, path) {
             return Err(money_route_forbidden());
         }
-        let authorized = delegated
+        let granted = delegated
             .authenticate_token(store, &token, req)
             .await
             .map_err(|err| {
                 log::debug!("Failed to validate a delegated token: {err:?}");
                 delegated_error(err)
             })?;
-        req.extensions.insert(authorized);
+        req.extensions.insert(granted.authorized);
+        req.extensions.insert(granted.reach);
         req.extensions.insert(DelegatedCredentials);
         return Ok(());
     }
@@ -209,7 +210,7 @@ async fn authenticate(
                     message: "Acting for a connected account is not available".to_string(),
                 }));
             };
-            let authorized = delegated
+            let granted = delegated
                 .act_for_account(store, organization_id, id, req)
                 .await
                 .map_err(|err| {
@@ -217,7 +218,8 @@ async fn authenticate(
                     delegated_error(err)
                 })?;
 
-            req.extensions.insert(authorized);
+            req.extensions.insert(granted.authorized);
+            req.extensions.insert(granted.reach);
             req.extensions.insert(DelegatedCredentials);
             return Ok(());
         }

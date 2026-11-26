@@ -97,7 +97,7 @@ pub trait PlansInterface {
         &self,
         tenant_id: TenantId,
         product_family_id: Option<ProductFamilyId>,
-        status: Option<PlanStatusEnum>,
+        status: Option<Vec<PlanStatusEnum>>,
         after: Option<PlanId>,
         limit: usize,
     ) -> StoreResult<Vec<PlanOverview>>;
@@ -813,7 +813,7 @@ impl PlansInterface for Store {
         &self,
         tenant_id: TenantId,
         product_family_id: Option<ProductFamilyId>,
-        status: Option<PlanStatusEnum>,
+        status: Option<Vec<PlanStatusEnum>>,
         after: Option<PlanId>,
         limit: usize,
     ) -> StoreResult<Vec<PlanOverview>> {
@@ -822,7 +822,7 @@ impl PlansInterface for Store {
             &mut conn,
             tenant_id,
             product_family_id,
-            status.map(Into::into),
+            status.map(|statuses| statuses.into_iter().map(Into::into).collect()),
             after,
             i64::try_from(limit).unwrap_or(i64::MAX),
         )
@@ -1367,6 +1367,17 @@ impl PlansInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
+                // The add-ons it offers do not cascade (price components do); a published
+                // version's are never touched.
+                if original.is_draft_version {
+                    diesel_models::plan_version_add_ons::PlanVersionAddOnRow::delete_all_of_version(
+                        conn,
+                        plan_version_id,
+                        auth_tenant_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                }
                 // Rows name their owner without a key: a draft's go with it.
                 if original.is_draft_version {
                     EntitlementRow::delete_all_of_owner(
@@ -1377,6 +1388,7 @@ impl PlansInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
                 }
+
                 PlanVersionRow::delete_draft(conn, plan_version_id, auth_tenant_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;

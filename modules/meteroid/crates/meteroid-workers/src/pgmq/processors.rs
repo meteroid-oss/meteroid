@@ -84,8 +84,8 @@ pub async fn run_once_credit_note_pdf_render(
 }
 
 /// Turns outbox events into stored webhook messages and pending deliveries.
-pub async fn run_webhook_out(store: Arc<Store>) {
-    let processor = Arc::new(WebhookOut::new(store.clone()));
+pub async fn run_webhook_out(store: Arc<Store>, services: Arc<Services>) {
+    let processor = Arc::new(WebhookOut::new(store.clone(), services));
 
     run(ProcessorConfig {
         name: processor_name("WebhookOut"),
@@ -102,8 +102,8 @@ pub async fn run_webhook_out(store: Arc<Store>) {
 }
 
 // Used in tests
-pub async fn run_once_webhook_out(store: Arc<Store>) {
-    let processor = Arc::new(WebhookOut::new(store.clone()));
+pub async fn run_once_webhook_out(store: Arc<Store>, services: Arc<Services>) {
+    let processor = Arc::new(WebhookOut::new(store.clone(), services));
     let _ = crate::pgmq::processor::run_once(
         PgmqQueue::WebhookOut,
         processor,

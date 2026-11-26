@@ -5,6 +5,7 @@
 //! and dimension rates pricing it, not declared on it (v1's segmentation matrix is left as
 //! stored).
 use crate::AppState;
+use crate::v2::Reader;
 use crate::v2::extract::{Body, Path, Query};
 use crate::v2::idempotency::committed_write;
 use crate::v2::ids;
@@ -38,6 +39,9 @@ use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+/// How a period's events are aggregated into its usage: `count` counts them; `sum`, `mean`,
+/// `min` and `max` read the numeric `aggregation_key` property; `latest` takes the value of the
+/// last event; `count_distinct` counts the distinct values of `aggregation_key`.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Aggregation {
@@ -78,7 +82,9 @@ impl From<Aggregation> for BillingMetricAggregateEnum {
     }
 }
 
-/// How a period's usage is rounded once divided by `factor`.
+/// How a period's usage is rounded once divided by `factor`: `up`, `down`, `nearest` (halves
+/// away from zero), `nearest_half` (to the nearest 0.5), `nearest_decile` (to the nearest 0.1),
+/// or `none` (kept as divided).
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Rounding {
@@ -123,10 +129,14 @@ impl From<Rounding> for UnitConversionRoundingEnum {
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct UnitConversion {
+    /// What usage is divided by, 1 or more.
     pub factor: i32,
+    /// How each period's divided total is rounded.
     pub rounding: Rounding,
 }
 
+/// How a filter compares an event's property with its `values`: `equal` and `in` keep an event
+/// whose property is one of them, `not_equal` and `not_in` one whose property is none of them.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum FilterOp {
@@ -141,8 +151,10 @@ pub enum FilterOp {
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Filter {
+    /// The event property compared, not blank.
     pub property: String,
     pub op: FilterOp,
+    /// The values compared with, one at least.
     pub values: Vec<String>,
 }
 
@@ -170,6 +182,8 @@ pub struct ResourceTypeAttribution {
     pub property: Option<String>,
 }
 
+/// What usage is measured by: the usage events carrying `event_code`, filtered, then aggregated
+/// per period.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct Metric {
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
@@ -185,12 +199,16 @@ pub struct Metric {
     /// The event property aggregated, for all but a count.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aggregation_key: Option<String>,
+    /// What one unit is called (`token`); absent without a unit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unit_singular: Option<String>,
+    /// What several units are called (`tokens`); absent without a unit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unit_plural: Option<String>,
+    /// How usage is scaled before it is priced; absent when it is priced as aggregated.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unit_conversion: Option<UnitConversion>,
+    /// Only the events matching every one count; empty counts them all.
     pub filters: Vec<Filter>,
     /// The event property whose values are billed as lines of their own, each priced alone.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -202,7 +220,9 @@ pub struct Metric {
     /// The product it measures.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub product: Option<ProductRef>,
+    /// Whose subscriptions bill its events.
     pub attributed_to: AttributedTo,
+    /// Archived: off the catalog for new uses; what already names it keeps billing.
     pub archived: bool,
     pub created_at: ApiDateTime,
 }
@@ -221,6 +241,7 @@ pub struct MetricListQuery {
     pub after: Option<String>,
 }
 
+/// A metric to create.
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct CreateMetric {
@@ -242,15 +263,21 @@ pub struct CreateMetric {
     /// What one unit is called (`token`); sent with `unit_plural`.
     #[serde(default)]
     pub unit_singular: Option<String>,
+    /// What several units are called (`tokens`); sent with `unit_singular`.
     #[serde(default)]
     pub unit_plural: Option<String>,
+    /// Usage divided by a factor and rounded before it is priced; none by default.
     #[serde(default)]
     pub unit_conversion: Option<UnitConversion>,
+    /// Only the events matching every one count; all of them when empty.
     #[serde(default)]
     pub filters: Vec<Filter>,
+    /// The event property whose values are billed as lines of their own, each priced alone.
     /// Immutable.
     #[serde(default)]
     pub group_by: Option<String>,
+    /// The event property each invoice line is broken down by, still priced on its total; refused
+    /// (`403`) when usage breakdowns are not in the organization's plan.
     #[serde(default)]
     pub breakdown_by: Option<String>,
     /// The product family, by code or id; the default family when left out.
@@ -277,15 +304,19 @@ pub struct UpdateMetric {
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub unit_singular: Option<Option<String>>,
+    /// Sent with `unit_singular`.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub unit_plural: Option<Option<String>>,
+    /// `null` removes it: usage is then priced as aggregated.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<UnitConversion>)]
     pub unit_conversion: Option<Option<UnitConversion>>,
     /// Replaces every filter; `[]` removes them.
     #[serde(default)]
     pub filters: Option<Vec<Filter>>,
+    /// The event property each invoice line is broken down by; `null` removes it. Refused
+    /// (`403`) when usage breakdowns are not in the organization's plan.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub breakdown_by: Option<Option<String>>,
@@ -381,7 +412,7 @@ async fn attribution_of(
 
 /// The codes of the resource types `metrics` are attributed to.
 async fn type_codes(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     metrics: &[BillableMetric],
 ) -> Result<HashMap<ResourceTypeId, String>, Problem> {
@@ -389,7 +420,7 @@ async fn type_codes(
         return Ok(HashMap::new());
     }
     Ok(state
-        .store
+        .store()
         .list_resource_types(tenant_id, true)
         .await?
         .into_iter()
@@ -503,10 +534,9 @@ fn check_conversion(conversion: &UnitConversion) -> Result<(), Problem> {
     Ok(())
 }
 
-/// The codes of the products `metrics` measure.
 /// The families and products the metrics name, read in one round.
 async fn refs(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     metrics: &[BillableMetric],
 ) -> Result<Refs, Problem> {
@@ -515,11 +545,11 @@ async fn refs(
         products: metrics.iter().filter_map(|m| m.product_id).collect(),
         ..ReferenceIds::default()
     };
-    Refs::load(&state.store, tenant_id, &ids).await
+    Refs::load(state.store(), tenant_id, &ids).await
 }
 
-async fn one(
-    state: &AppState,
+pub(crate) async fn one(
+    state: &impl Reader,
     tenant_id: TenantId,
     metric: BillableMetric,
 ) -> Result<Metric, Problem> {
@@ -568,6 +598,9 @@ where
 }
 
 /// List metrics
+///
+/// The tenant's metrics in creation order, paged by cursor; archived ones only with
+/// `include_archived`.
 #[utoipa::path(
     get,
     tag = "Metrics",
@@ -635,6 +668,10 @@ pub async fn get_metric(
 }
 
 /// Create a metric
+///
+/// Answers the metric created. Its `code`, `event_code`, `aggregation`, `group_by`, family and
+/// product never change after. A taken `code` is refused (`409 code_taken`), as is a
+/// `breakdown_by` the organization's plan does not include (`403`).
 #[utoipa::path(
     post,
     tag = "Metrics",
@@ -922,6 +959,8 @@ pub async fn archive_metric(
 }
 
 /// Unarchive a metric
+///
+/// Puts it back on the catalog for new uses. Unarchiving a live metric changes nothing.
 #[utoipa::path(
     post,
     tag = "Metrics",

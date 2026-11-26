@@ -102,6 +102,15 @@ impl Fixture {
     }
 }
 
+/// The moment `seconds` after the RFC 3339 moment a response reads (before, when negative), as a
+/// query parameter takes it.
+pub(crate) fn moment_from(at: &Value, seconds: i64) -> String {
+    let at = chrono::DateTime::parse_from_rfc3339(at.as_str().expect("a moment"))
+        .expect("an RFC 3339 moment")
+        .with_timezone(&chrono::Utc);
+    (at + chrono::Duration::seconds(seconds)).to_rfc3339_opts(chrono::SecondsFormat::Micros, true)
+}
+
 pub(crate) async fn fixture() -> Fixture {
     crate::helpers::init::logging();
     let database = meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
@@ -383,6 +392,20 @@ async fn test_rest_v2_plan_authored_through_its_draft() {
         .find(|plan| plan["code"] == "studio")
         .expect("pro is listed");
     assert!(pro.get("version").is_none());
+    // Several statuses, the parameter repeated.
+    let either = f
+        .get("/api/v2/plans?status=draft&status=active&limit=100")
+        .await;
+    assert_eq!(either.status, StatusCode::OK, "{:#}", either.body);
+    assert!(listed(&either).iter().any(|plan| plan["code"] == "studio"));
+    let neither = f
+        .get("/api/v2/plans?status=draft&status=archived&limit=100")
+        .await;
+    assert_eq!(neither.status, StatusCode::OK, "{:#}", neither.body);
+    assert!(!listed(&neither).iter().any(|plan| plan["code"] == "studio"));
+    let unknown = f.get("/api/v2/plans?status=active&status=live").await;
+    assert_eq!(unknown.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(unknown.body["errors"][0]["path"], "status");
 }
 
 /// Rules: ADR-0013
@@ -391,8 +414,8 @@ async fn test_rest_v2_conventions() {
     let f = fixture().await;
     seed_catalog(&f).await;
 
-    // The version header: the first version by default, a later date resolves to it, an earlier
-    // one is refused, as a problem, the version still echoed.
+    // The version header: the first version by default, a later date resolves to the latest
+    // version on or before it, an earlier one is refused, as a problem, the version still echoed.
     let plain = f.get("/api/v2/products").await;
     assert_eq!(plain.status, StatusCode::OK);
     assert_eq!(plain.header("Meteroid-Version"), Some("2026-12-01"));
@@ -406,7 +429,7 @@ async fn test_rest_v2_conventions() {
         )
         .await;
     assert_eq!(later.status, StatusCode::OK);
-    assert_eq!(later.header("Meteroid-Version"), Some("2026-12-01"));
+    assert_eq!(later.header("Meteroid-Version"), Some("2026-12-15"));
     let earlier = f
         .send(
             f.client
@@ -579,6 +602,17 @@ async fn test_rest_v2_conventions() {
         .await;
     assert_eq!(spec.status, StatusCode::OK);
     assert!(spec.body["paths"]["/api/v2/plans/{id_or_code}/draft"].is_object());
+}
+
+/// The rates a card reads for a key's first dimension value.
+fn listed_rates(card: &Value, key: &str) -> Vec<String> {
+    card["rates"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no rates: {card:#}"))
+        .iter()
+        .filter(|rate| rate["key"][0] == key)
+        .map(|rate| rate["rate"].as_str().unwrap().to_owned())
+        .collect()
 }
 
 /// The data of a page, as a list.
@@ -823,6 +857,48 @@ async fn test_rest_v2_metrics_and_rate_cards() {
         ))
         .await;
     assert_eq!(listed(&next)[0]["kind"], "rates_set");
+
+    // The rates' PATCH takes an Idempotency-Key as a POST does: a retry replays the first answer
+    // and sets nothing again; the key with another batch is refused.
+    let keyed = |key: &'static str, body: Value| {
+        f.send(
+            f.client
+                .patch(f.url("/api/v2/rate-cards/llm-rates/rates"))
+                .bearer_auth(&f.api_key)
+                .header("Idempotency-Key", key)
+                .json(&body),
+        )
+    };
+    let smart = json!({"rates": [{"key": ["smart"], "currency": "EUR", "rate": "5"}]});
+    let set = keyed("rates-smart", smart.clone()).await;
+    assert_eq!(set.status, StatusCode::OK, "{:#}", set.body);
+    assert_eq!(set.body["inserted"], 1);
+    assert_eq!(set.header("Idempotent-Replayed"), None);
+    let retried = keyed("rates-smart", smart).await;
+    assert_eq!(retried.status, StatusCode::OK, "{:#}", retried.body);
+    assert_eq!(retried.header("Idempotent-Replayed"), Some("true"));
+    assert_eq!(retried.body, set.body);
+    let reused = keyed(
+        "rates-smart",
+        json!({"rates": [{"key": ["smart"], "currency": "EUR", "rate": "6"}]}),
+    )
+    .await;
+    assert_eq!(
+        reused.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{:#}",
+        reused.body
+    );
+    assert_eq!(reused.body["code"], "idempotency_key_reused");
+    let changes = f.get("/api/v2/rate-cards/llm-rates/changes").await;
+    let kinds: Vec<&str> = listed(&changes)
+        .iter()
+        .map(|change| change["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(kinds, vec!["rates_set", "updated", "rates_set", "created"]);
+    let card = f.get("/api/v2/rate-cards/llm-rates").await;
+    let smart_rate = listed_rates(&card.body, "smart");
+    assert_eq!(smart_rate, vec!["5"]);
 
     // Archived, the metric keeps its code: still read by it, taken for a new metric; unarchived
     // as it was.
@@ -1097,7 +1173,7 @@ async fn test_rest_v2_entitlements_and_archives() {
 }
 
 /// A key of a second tenant of the same organization.
-async fn second_tenant_key(f: &Fixture) -> String {
+pub(crate) async fn second_tenant_key(f: &Fixture) -> String {
     let auth = meteroid_it::svc_auth::login(f.setup.channel.clone()).await;
     let clients = AllClients::from_channel(
         f.setup.channel.clone(),
@@ -1382,8 +1458,25 @@ async fn test_rest_v2_features() {
         !listed(&all).iter().any(|x| x["code"] == "api-calls"),
         "archived features are left out"
     );
-    let asked = f.get("/api/v2/features?status=archived").await;
-    assert!(listed(&asked).iter().any(|x| x["id"] == id.as_str()));
+    let archived_or_disabled = f
+        .get("/api/v2/features?status=archived&status=disabled&limit=100")
+        .await;
+    assert_eq!(
+        archived_or_disabled.status,
+        StatusCode::OK,
+        "{:#}",
+        archived_or_disabled.body
+    );
+    assert!(
+        listed(&archived_or_disabled)
+            .iter()
+            .any(|x| x["id"] == id.as_str())
+    );
+    assert!(
+        listed(&archived_or_disabled)
+            .iter()
+            .all(|x| x["status"] == "archived" || x["status"] == "disabled")
+    );
 
     let restored = f
         .post("/api/v2/features/api-calls/unarchive", json!({}))
@@ -1502,6 +1595,25 @@ async fn test_rest_v2_coupons_and_credit_units() {
     let archived_list = f.get("/api/v2/coupons?status=archived").await;
     assert!(
         listed(&archived_list)
+            .iter()
+            .any(|c| c["id"] == coupon_id.as_str())
+    );
+    // Several statuses, the parameter repeated: those of any.
+    let any_of = f
+        .get("/api/v2/coupons?status=active&status=archived&limit=100")
+        .await;
+    assert_eq!(any_of.status, StatusCode::OK, "{:#}", any_of.body);
+    assert!(
+        listed(&any_of)
+            .iter()
+            .any(|c| c["id"] == coupon_id.as_str())
+    );
+    let live_only = f
+        .get("/api/v2/coupons?status=active&status=inactive&limit=100")
+        .await;
+    assert_eq!(live_only.status, StatusCode::OK, "{:#}", live_only.body);
+    assert!(
+        !listed(&live_only)
             .iter()
             .any(|c| c["id"] == coupon_id.as_str())
     );
@@ -1847,4 +1959,52 @@ async fn left_unanswered(f: &Fixture, key: &str, minutes: i32) -> usize {
     .execute(&mut f.setup.store.get_conn().await.unwrap())
     .await
     .unwrap()
+}
+
+/// Rules: ADR-0013 §24
+#[tokio::test]
+async fn test_rest_v2_me() {
+    let f = fixture().await;
+
+    // Who the key is: its tenant and organization, the key itself, never its secret.
+    let me = f.get("/api/v2/me").await;
+    assert_eq!(me.status, StatusCode::OK, "{:#}", me.body);
+    let tenant = &me.body["tenant"];
+    assert_eq!(
+        tenant["id"],
+        crate::data::ids::TENANT_ID.to_string().as_str()
+    );
+    assert!(tenant["name"].is_string());
+    assert!(tenant["environment"].is_string());
+    assert_eq!(tenant["currency"].as_str().map(str::len), Some(3));
+    assert_eq!(
+        me.body["organization"]["id"],
+        crate::data::ids::ORGANIZATION_ID.to_string().as_str()
+    );
+    assert!(me.body["organization"]["name"].is_string());
+    let key = &me.body["key"];
+    assert_eq!(key["kind"], "secret_key");
+    assert!(key["id"].as_str().unwrap().starts_with("tkn_"), "{key:#}");
+    assert_eq!(key["name"], "api-v2");
+    assert!(key["created_at"].is_string());
+    assert!(me.body.get("delegation").is_none());
+    let text = me.body.to_string();
+    assert!(!text.contains(&f.api_key), "never the secret");
+
+    // Another tenant's key reads its own tenant; no key is refused.
+    let other_key = second_tenant_key(&f).await;
+    let theirs = f
+        .send(f.client.get(f.url("/api/v2/me")).bearer_auth(&other_key))
+        .await;
+    assert_eq!(theirs.status, StatusCode::OK, "{:#}", theirs.body);
+    assert_ne!(theirs.body["tenant"]["id"], tenant["id"]);
+    assert_eq!(theirs.body["tenant"]["environment"], "development");
+    assert_eq!(
+        theirs.body["organization"]["id"],
+        me.body["organization"]["id"]
+    );
+    assert_eq!(theirs.body["key"]["name"], "other");
+    assert_ne!(theirs.body["key"]["id"], key["id"]);
+    let anonymous = f.send(f.client.get(f.url("/api/v2/me"))).await;
+    assert_eq!(anonymous.status, StatusCode::UNAUTHORIZED);
 }

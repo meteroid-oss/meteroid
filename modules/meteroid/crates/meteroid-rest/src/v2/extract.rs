@@ -173,9 +173,39 @@ fn refused(error: &serde_json::Error, pointer: String) -> Problem {
 #[from_request(via(axum::extract::Path), rejection(Problem))]
 pub struct Path<T>(pub T);
 
-#[derive(Debug, Clone, Copy, Default, FromRequestParts)]
-#[from_request(via(axum::extract::Query), rejection(Problem))]
+/// A query string read as a `T`. A parameter repeated (`?status=active&status=paused`) reads as
+/// a list, as OpenAPI's `style: form, explode: true` writes one; sent once, as a list of one. A
+/// parameter that does not read is `422 validation_failed` naming it (`Problem::query_refused`).
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Query<T>(pub T);
+
+impl<T, S> FromRequestParts<S> for Query<T>
+where
+    T: DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = Problem;
+
+    async fn from_request_parts(
+        parts: &mut http::request::Parts,
+        _state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        read_query(parts.uri.query().unwrap_or_default()).map(Query)
+    }
+}
+
+/// `query` read as a `T`, refused at the parameter it fails at.
+pub fn read_query<T: DeserializeOwned>(query: &str) -> Result<T, Problem> {
+    let form = serde_html_form::Deserializer::from_bytes(query.as_bytes());
+    serde_path_to_error::deserialize(form).map_err(|error| {
+        // At the root, a missing parameter names itself (`missing field `from``).
+        let refusal = match error.path().iter().next() {
+            None => error.inner().to_string(),
+            Some(_) => format!("{}: {}", error.path(), error.inner()),
+        };
+        Problem::query_refused(&refusal)
+    })
+}
 
 /// A merge patch's field `null` cannot clear (a name, a list a resource needs): refused at
 /// `path`; left out, it is unchanged.
@@ -250,6 +280,53 @@ mod tests {
         );
         let escaped = refusal(r#"{"name": "a", "a/b": 1}"#);
         assert_eq!(escaped.path, "/a~1b");
+    }
+
+    #[derive(Deserialize, Debug, PartialEq)]
+    #[serde(rename_all = "snake_case")]
+    enum Status {
+        Active,
+        Paused,
+    }
+
+    #[derive(Deserialize, Debug)]
+    struct Filters {
+        status: Option<Vec<Status>>,
+        limit: Option<u32>,
+    }
+
+    #[test]
+    fn a_parameter_repeated_reads_as_a_list() {
+        let once: Filters = read_query("status=active&limit=5").unwrap();
+        assert_eq!(once.status, Some(vec![Status::Active]));
+        assert_eq!(once.limit, Some(5));
+        let repeated: Filters = read_query("status=active&status=paused").unwrap();
+        assert_eq!(repeated.status, Some(vec![Status::Active, Status::Paused]));
+        let none: Filters = read_query("").unwrap();
+        assert_eq!(none.status, None);
+    }
+
+    #[test]
+    fn a_parameter_that_does_not_read_is_refused_by_its_name() {
+        for query in ["status=active&status=closed", "status=closed", "limit=many"] {
+            let problem = read_query::<Filters>(query).unwrap_err();
+            assert_eq!(problem.status, 422, "{query}");
+            let parameter = if query.starts_with("limit") {
+                "limit"
+            } else {
+                "status"
+            };
+            assert_eq!(problem.errors[0].path, parameter, "{query}");
+        }
+        let repeated = read_query::<Filters>("limit=1&limit=2").unwrap_err();
+        assert_eq!(repeated.errors[0].path, "limit");
+        #[derive(Deserialize, Debug)]
+        #[allow(dead_code)]
+        struct Range {
+            from: String,
+        }
+        let missing = read_query::<Range>("to=2026-12-01").unwrap_err();
+        assert_eq!(missing.errors[0].path, "from");
     }
 
     #[test]

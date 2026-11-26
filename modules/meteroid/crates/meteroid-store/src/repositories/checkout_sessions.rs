@@ -127,7 +127,7 @@ pub trait CheckoutSessionsInterface {
         &self,
         tenant_id: TenantId,
         customer_id: Option<CustomerId>,
-        status: Option<CheckoutSessionStatus>,
+        status: Option<Vec<CheckoutSessionStatus>>,
         after: Option<CheckoutSessionId>,
         limit: usize,
     ) -> StoreResult<Vec<CheckoutSession>>;
@@ -318,7 +318,7 @@ impl CheckoutSessionsInterface for Store {
         &self,
         tenant_id: TenantId,
         customer_id: Option<CustomerId>,
-        status: Option<CheckoutSessionStatus>,
+        status: Option<Vec<CheckoutSessionStatus>>,
         after: Option<CheckoutSessionId>,
         limit: usize,
     ) -> StoreResult<Vec<CheckoutSession>> {
@@ -328,7 +328,7 @@ impl CheckoutSessionsInterface for Store {
             &mut conn,
             tenant_id,
             customer_id,
-            status.map(status_domain_to_db),
+            status.map(|statuses| statuses.into_iter().map(status_domain_to_db).collect()),
             after,
             i64::try_from(limit).unwrap_or(i64::MAX),
         )

@@ -67,7 +67,9 @@ impl From<DomainEntity> for CustomPropertyEntity {
     }
 }
 
-/// What a property's value is.
+/// What a property's value is: `text`, `number`, `boolean`, `date` (`YYYY-MM-DD`), `datetime`
+/// (RFC 3339), `single_select` (one of `config.options`), `multi_select` (some of them), `json`
+/// (any JSON value), `url` or `email`.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CustomPropertyType {
@@ -121,9 +123,11 @@ impl From<DomainType> for CustomPropertyType {
     }
 }
 
+/// A choice of a `single_select` or `multi_select` property.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct CustomPropertyOption {
+    /// The value a resource holds when it is chosen.
     pub value: String,
     /// Shown in place of the value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -140,6 +144,7 @@ pub struct CustomPropertyConfig {
     /// The bounds of a `number`, inclusive.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min: Option<f64>,
+    /// The upper bound of a `number`, inclusive.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max: Option<f64>,
     /// The longest a `text` may be.
@@ -189,17 +194,22 @@ impl From<domain::PropertyConfig> for CustomPropertyConfig {
 /// that value may be.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct CustomPropertyDefinition {
+    /// The definition's id.
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub id: CustomPropertyDefinitionId,
+    /// The resource it applies to; immutable.
     pub entity_type: CustomPropertyEntity,
     /// Unique among the live definitions of its entity type, immutable.
     pub key: String,
+    /// The property's name, as the dashboard shows it.
     pub name: String,
+    /// What the property is for.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// Immutable.
     #[serde(rename = "type")]
     pub property_type: CustomPropertyType,
+    /// What a value is checked against, beside its type.
     pub config: CustomPropertyConfig,
     /// A resource of its type is refused without a value.
     pub required: bool,
@@ -210,9 +220,12 @@ pub struct CustomPropertyDefinition {
     pub display_order: i32,
     /// Archived: no longer checked on writes; the values held are kept.
     pub archived: bool,
+    /// When it was archived; absent on a live definition.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<ApiDateTime>,
+    /// When it was created.
     pub created_at: ApiDateTime,
+    /// When it last changed; absent when it never did.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<ApiDateTime>,
 }
@@ -252,23 +265,32 @@ pub struct CustomPropertyDefinitionListQuery {
     pub after: Option<String>,
 }
 
+/// A custom property to define.
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct CreateCustomPropertyDefinition {
+    /// The resource it applies to; immutable.
     pub entity_type: CustomPropertyEntity,
     /// Letters, digits and `_`, at most 128; immutable.
     pub key: String,
+    /// The property's name, as the dashboard shows it.
     pub name: String,
+    /// What the property is for.
     #[serde(default)]
     pub description: Option<String>,
+    /// What its value is; immutable.
     #[serde(rename = "type")]
     pub property_type: CustomPropertyType,
+    /// What a value is checked against, beside its type; only the fields of the type are read.
     #[serde(default)]
     pub config: CustomPropertyConfig,
+    /// A resource of its type is refused without a value; `false` by default.
     #[serde(default)]
     pub required: bool,
+    /// The value a resource created without one gets, of the property's type.
     #[serde(default)]
     pub default_value: Option<serde_json::Value>,
+    /// Where the dashboard shows it, lowest first; 0 by default.
     #[serde(default)]
     pub display_order: i32,
 }
@@ -278,19 +300,24 @@ pub struct CreateCustomPropertyDefinition {
 #[derive(Deserialize, ToSchema, Debug, Clone, Default)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateCustomPropertyDefinition {
+    /// The property's name.
     #[serde(default)]
     pub name: Option<String>,
+    /// What the property is for; `null` removes it.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub description: Option<Option<String>>,
     /// Replaces the config whole.
     #[serde(default)]
     pub config: Option<CustomPropertyConfig>,
+    /// A resource of its type is refused without a value.
     #[serde(default)]
     pub required: Option<bool>,
+    /// The value a resource created without one gets; `null` removes it.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<Value>)]
     pub default_value: Option<Option<serde_json::Value>>,
+    /// Where the dashboard shows it, lowest first.
     #[serde(default)]
     pub display_order: Option<i32>,
 }

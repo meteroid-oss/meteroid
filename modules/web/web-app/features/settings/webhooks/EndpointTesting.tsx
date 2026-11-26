@@ -44,6 +44,19 @@ const GENERIC_EXAMPLE = JSON.stringify(
   2
 )
 
+/** The test event as an endpoint on API v2's payloads receives it. */
+const GENERIC_EXAMPLE_V2 = JSON.stringify(
+  {
+    id: 'evt_…',
+    type: GENERIC,
+    created_at: '…',
+    api_version: '…',
+    data: { endpoint: '…' },
+  },
+  null,
+  2
+)
+
 const DONE = new Set([
   WebhookDeliveryStatusEnum.SUCCEEDED,
   WebhookDeliveryStatusEnum.FAILED,
@@ -59,7 +72,8 @@ interface Props {
 export const EndpointTesting = ({ endpoint, onOpenDelivery }: Props) => {
   const { isDarkMode } = useTheme()
   const { sendTest } = useWebhooks()
-  const eventTypesQuery = useQuery(listWebhookEventTypes)
+  // The catalog of the payloads this endpoint receives: v1's, or v2's envelopes.
+  const eventTypesQuery = useQuery(listWebhookEventTypes, { v2Payloads: !endpoint.v1Payloads })
   const [eventType, setEventType] = useState(GENERIC)
   const [deliveryId, setDeliveryId] = useState<string | null>(null)
 
@@ -75,7 +89,9 @@ export const EndpointTesting = ({ endpoint, onOpenDelivery }: Props) => {
 
   const example =
     eventType === GENERIC
-      ? GENERIC_EXAMPLE
+      ? endpoint.v1Payloads
+        ? GENERIC_EXAMPLE
+        : GENERIC_EXAMPLE_V2
       : (eventTypesQuery.data?.eventTypes.find(t => t.name === eventType)?.exampleJson ?? '')
 
   const resultQuery = useQuery(

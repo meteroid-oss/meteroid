@@ -4,7 +4,7 @@
 //! then made — with the problems a refused request answers.
 use crate::meteroid_it;
 use crate::meteroid_it::clients::AllClients;
-use crate::test_rest_v2::{Fixture, fixture, seed_catalog};
+use crate::test_rest_v2::{Answer, Fixture, fixture, moment_from, second_tenant_key, seed_catalog};
 use meteroid_grpc::meteroid::api;
 use reqwest::StatusCode;
 use serde_json::{Value, json};
@@ -306,6 +306,55 @@ async fn test_rest_v2_subscription_created_read_and_listed() {
     assert_eq!(sso_grant["origin"]["owner"]["type"], "add_on");
     assert!(sso_grant.get("policy").is_none(), "{sso_grant:#}");
     assert!(sso_grant.get("own_grant").is_none(), "{sso_grant:#}");
+    // One feature, as the list reads it (an entry per level); a feature it does not grant is not
+    // found, and another tenant reads none of the subscription's.
+    let one = f
+        .get("/api/v2/subscriptions/crm-spotify-1/entitlements/sso")
+        .await;
+    assert_eq!(one.status, StatusCode::OK, "{:#}", one.body);
+    assert_eq!(one.body["data"], json!([sso_grant]));
+    let by_feature_id = f
+        .get(&format!(
+            "/api/v2/subscriptions/{id}/entitlements/{}",
+            sso_grant["feature"]["id"].as_str().unwrap()
+        ))
+        .await;
+    assert_eq!(by_feature_id.body, one.body);
+    let ungranted = f
+        .post(
+            "/api/v2/features",
+            json!({"code": "audit-log", "name": "Audit log", "type": {"type": "boolean"}}),
+        )
+        .await;
+    assert_eq!(
+        ungranted.status,
+        StatusCode::CREATED,
+        "{:#}",
+        ungranted.body
+    );
+    for missing in ["audit-log", "no-such-feature"] {
+        let answer = f
+            .get(&format!(
+                "/api/v2/subscriptions/crm-spotify-1/entitlements/{missing}"
+            ))
+            .await;
+        assert_eq!(
+            answer.status,
+            StatusCode::NOT_FOUND,
+            "{missing}: {:#}",
+            answer.body
+        );
+        assert_eq!(answer.body["code"], "not_found");
+    }
+    let other_key = second_tenant_key(&f).await;
+    let theirs = f
+        .send(
+            f.client
+                .get(f.url(&format!("/api/v2/subscriptions/{id}/entitlements/sso")))
+                .bearer_auth(&other_key),
+        )
+        .await;
+    assert_eq!(theirs.status, StatusCode::NOT_FOUND, "{:#}", theirs.body);
     let by_id_entitlements = f
         .get(&format!("/api/v2/subscriptions/{id}/entitlements"))
         .await;
@@ -477,6 +526,82 @@ async fn test_rest_v2_subscription_created_read_and_listed() {
         .await;
     assert_eq!(changed_later.status, StatusCode::OK);
     assert_eq!(changed_later.body["data"].as_array().unwrap().len(), 0);
+
+    // Several statuses, the parameter repeated; an unknown one refuses the list at `status`.
+    let listed_ids = |answer: &Answer| -> Vec<String> {
+        answer.body["data"]
+            .as_array()
+            .unwrap_or_else(|| panic!("not a page: {:#}", answer.body))
+            .iter()
+            .map(|item| item["id"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    let spotify_status = spotify_only.body["data"][0]["status"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let others: Vec<&str> = ["active", "trial_active", "pending_activation", "completed"]
+        .into_iter()
+        .filter(|status| *status != spotify_status)
+        .collect();
+    let either = f
+        .get(&format!(
+            "/api/v2/subscriptions?customer=ext:spotify&status={}&status={spotify_status}",
+            others[0]
+        ))
+        .await;
+    assert_eq!(either.status, StatusCode::OK, "{:#}", either.body);
+    assert_eq!(listed_ids(&either), vec![id.clone()]);
+    let neither = f
+        .get(&format!(
+            "/api/v2/subscriptions?customer=ext:spotify&status={}&status={}",
+            others[0], others[1]
+        ))
+        .await;
+    assert_eq!(neither.status, StatusCode::OK, "{:#}", neither.body);
+    assert!(listed_ids(&neither).is_empty());
+    let unknown = f
+        .get("/api/v2/subscriptions?status=active&status=paused")
+        .await;
+    assert_eq!(unknown.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(unknown.body["errors"][0]["path"], "status");
+
+    // Created after or before a moment, exclusive.
+    let created_at = &spotify_only.body["data"][0]["created_at"];
+    let (since, until) = (moment_from(created_at, -1), moment_from(created_at, 1));
+    let created_since = f
+        .get(&format!(
+            "/api/v2/subscriptions?created_after={since}&limit=100"
+        ))
+        .await;
+    assert_eq!(
+        created_since.status,
+        StatusCode::OK,
+        "{:#}",
+        created_since.body
+    );
+    assert!(listed_ids(&created_since).contains(&id));
+    let created_earlier = f
+        .get(&format!(
+            "/api/v2/subscriptions?created_before={since}&limit=100"
+        ))
+        .await;
+    assert_eq!(
+        created_earlier.status,
+        StatusCode::OK,
+        "{:#}",
+        created_earlier.body
+    );
+    assert!(!listed_ids(&created_earlier).contains(&id));
+    let within = f
+        .get(&format!(
+            "/api/v2/subscriptions?customer=ext:spotify&created_after={since}&created_before={until}"
+        ))
+        .await;
+    assert_eq!(listed_ids(&within), vec![id.clone()]);
+    let not_a_moment = f.get("/api/v2/subscriptions?created_after=today").await;
+    assert_eq!(not_a_moment.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(not_a_moment.body["errors"][0]["path"], "created_after");
 }
 
 /// Rules: ADR-0013 §10
@@ -1794,6 +1919,16 @@ async fn test_rest_v2_subscription_patch_is_one_write() {
     );
     assert!(unchanged.body["invoicing"].get("memo").is_none());
 
+    // Net terms past their bound are refused at their field, as on create.
+    let refused = patch(&f, base, json!({"invoicing": {"net_terms": 366}})).await;
+    assert_eq!(
+        refused.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{:#}",
+        refused.body
+    );
+    assert_eq!(refused.body["errors"][0]["path"], "/invoicing/net_terms");
+
     // An external id taken by another subscription after v2 checked it (a write racing this
     // one): the store refuses it under its transaction, the memo beside it is not written.
     use meteroid_store::repositories::CatalogCodesInterface;
@@ -1856,6 +1991,58 @@ async fn test_rest_v2_subscription_patch_is_one_write() {
     assert_eq!(taken.body["invoicing"]["memo"], "Kept");
 }
 
+/// A draft offering add-ons is discarded with its offers; a published version's stay.
+/// Rules: ADR-0013 §5 (a draft discarded)
+#[tokio::test]
+async fn test_rest_v2_a_draft_offering_add_ons_is_discarded() {
+    let f = fixture().await;
+    seed(&f).await;
+    let created = f
+        .post(
+            "/api/v2/plans",
+            json!({"code": "offering", "name": "Offering", "draft": version("49", "12")}),
+        )
+        .await;
+    assert_eq!(created.status, StatusCode::CREATED, "{:#}", created.body);
+    let draft = f.get("/api/v2/plans/offering?version=draft").await;
+    assert_eq!(
+        draft.body["version"]["add_ons"][0]["add_on"], "support",
+        "{:#}",
+        draft.body
+    );
+    let discarded = f.delete("/api/v2/plans/offering/draft").await;
+    assert_eq!(
+        discarded.status,
+        StatusCode::NO_CONTENT,
+        "{:#}",
+        discarded.body
+    );
+    assert_eq!(
+        f.get("/api/v2/plans/offering").await.status,
+        StatusCode::NOT_FOUND
+    );
+
+    // `studio` is published with the add-on: a new draft discarded leaves its offer.
+    let drafted = f
+        .put("/api/v2/plans/studio/draft", version("59", "12"))
+        .await;
+    assert_eq!(drafted.status, StatusCode::OK, "{:#}", drafted.body);
+    let discarded = f.delete("/api/v2/plans/studio/draft").await;
+    assert_eq!(
+        discarded.status,
+        StatusCode::NO_CONTENT,
+        "{:#}",
+        discarded.body
+    );
+    let studio = f.get("/api/v2/plans/studio?version=active").await;
+    assert_eq!(studio.status, StatusCode::OK, "{:#}", studio.body);
+    assert_eq!(
+        studio.body["version"]["add_ons"][0]["add_on"], "support",
+        "{:#}",
+        studio.body
+    );
+}
+
 /// The `site` resource type, keyed by `site_id`.
 pub(crate) async fn seed_sites(f: &Fixture) {
     let created = f
@@ -1904,7 +2091,7 @@ fn refused_at(answer: &crate::test_rest_v2::Answer, path: &str) {
     assert_eq!(answer.body["errors"][0]["path"], path, "{:#}", answer.body);
 }
 
-/// Rules: ADR-0013 §23 (a subscription for a resource, named by id or by type and key)
+/// Rules: ADR-0013 §25 (a subscription for a resource, named by id or by type and key)
 #[tokio::test]
 async fn test_rest_v2_subscription_for_a_resource() {
     let f = fixture().await;
@@ -2101,7 +2288,7 @@ fn projects_of(readout: &crate::test_rest_v2::Answer) -> Value {
         .unwrap_or_else(|| panic!("projects is granted: {:#}", readout.body))
 }
 
-/// Rules: ADR-0013 §23 (a subscription's own rows, written whole; its readout)
+/// Rules: ADR-0013 §25 (a subscription's own rows, written whole; its readout)
 #[tokio::test]
 async fn test_rest_v2_subscription_entitlement_overrides() {
     let f = fixture().await;

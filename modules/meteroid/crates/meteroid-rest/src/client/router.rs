@@ -84,7 +84,7 @@ pub async fn list_subscriptions(
                 customer_id: Some(auth.customer_id),
                 plan_id: None,
                 status: Some(CURRENT_SUBSCRIPTION_STATUSES.to_vec()),
-                updated_after: None,
+                ..SubscriptionPageFilter::default()
             },
             cursor.map(|Cursor(after)| SubscriptionId::from(after)),
             limit + 1,

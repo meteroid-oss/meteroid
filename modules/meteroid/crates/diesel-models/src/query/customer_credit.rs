@@ -13,8 +13,8 @@ use crate::lock::CustomerLock;
 use crate::{DbResult, PgConn};
 use chrono::{DateTime, Utc};
 use common_domain::ids::{
-    BaseId, CreditGrantId, CreditNoteId, CustomerId, InvoiceId, ProductId, SubscriptionId,
-    TenantId, UsageSettlementId, WalletId,
+    BaseId, CreditGrantId, CreditNoteId, CustomerId, InvoiceId, LedgerEntryId, ProductId,
+    SubscriptionId, TenantId, UsageSettlementId, WalletId,
 };
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, JoinOnDsl, OptionalExtension, QueryDsl,
@@ -903,15 +903,57 @@ impl CustomerCreditGrantRow {
         customer_id: CustomerId,
         currency: Option<&str>,
         subscription: Option<GrantSubscriptionFilter>,
-        state: Option<CustomerCreditGrantStateFilter>,
+        states: &[CustomerCreditGrantStateFilter],
         now: DateTime<Utc>,
         before: Option<(DateTime<Utc>, CreditGrantId)>,
         limit: i64,
     ) -> DbResult<Vec<(Self, String)>> {
         use crate::schema::customer_credit_account::dsl as a;
         use crate::schema::customer_credit_grant::dsl as g;
-        let mut query =
-            grant_page_query!(tenant_id, customer_id, currency, subscription, state, now);
+        use diesel::IntoSql;
+        use diesel::sql_types::Bool;
+        let mut query = grant_page_query!(
+            tenant_id,
+            customer_id,
+            currency,
+            subscription,
+            None::<CustomerCreditGrantStateFilter>,
+            now
+        );
+        // In any of the states asked, each as `grant_page_query!` reads it; none asked, any state.
+        if !states.is_empty() {
+            let wants = |state: CustomerCreditGrantStateFilter| {
+                states.iter().any(|asked| {
+                    *asked == state
+                        || (*asked == CustomerCreditGrantStateFilter::UsedUp
+                            && matches!(
+                                state,
+                                CustomerCreditGrantStateFilter::Depleted
+                                    | CustomerCreditGrantStateFilter::Expired
+                            ))
+                })
+            };
+            let live = g::lapses_at.is_null().or(g::lapses_at.gt(now));
+            query = query.filter(
+                wants(CustomerCreditGrantStateFilter::Expired)
+                    .into_sql::<Bool>()
+                    .and(g::lapses_at.le(now))
+                    .or(wants(CustomerCreditGrantStateFilter::Pending)
+                        .into_sql::<Bool>()
+                        .and(live)
+                        .and(g::effective_at.gt(now)))
+                    .or(wants(CustomerCreditGrantStateFilter::Depleted)
+                        .into_sql::<Bool>()
+                        .and(live)
+                        .and(g::effective_at.le(now))
+                        .and(g::remaining.eq(0)))
+                    .or(wants(CustomerCreditGrantStateFilter::Active)
+                        .into_sql::<Bool>()
+                        .and(live)
+                        .and(g::effective_at.le(now))
+                        .and(g::remaining.gt(0))),
+            );
+        }
         if let Some((created_at, id)) = before {
             query = query.filter(
                 g::created_at
@@ -926,6 +968,28 @@ impl CustomerCreditGrantRow {
             .load(conn)
             .await
             .attach("Error while listing customer credit grants")
+            .into_db_result()
+    }
+
+    /// The customer's grant of this id, with its account's currency.
+    pub async fn find_for_customer(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        id: CreditGrantId,
+    ) -> DbResult<Option<(Self, String)>> {
+        use crate::schema::customer_credit_account::dsl as a;
+        use crate::schema::customer_credit_grant::dsl as g;
+        g::customer_credit_grant
+            .inner_join(a::customer_credit_account.on(a::id.eq(g::account_id)))
+            .filter(g::tenant_id.eq(tenant_id))
+            .filter(g::customer_id.eq(customer_id))
+            .filter(g::id.eq(id))
+            .select((Self::as_select(), a::currency))
+            .first(conn)
+            .await
+            .optional()
+            .attach("Error while reading a customer credit grant")
             .into_db_result()
     }
 
@@ -1628,6 +1692,42 @@ impl CustomerCreditStatementRow {
         .load(conn)
         .await
         .attach("Error while reading a customer credit statement")
+        .into_db_result()
+    }
+
+    /// The recorded line `entry_id` of the statement, as `page_for_accounts_before` reads it:
+    /// its `sequence` and `balance_after` computed over the whole statement. None when it is no
+    /// recorded line of these accounts.
+    pub async fn find_for_accounts(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        account_ids: &[WalletId],
+        rolling: &[(CreditGrantId, i64)],
+        now: DateTime<Utc>,
+        entry_id: LedgerEntryId,
+    ) -> DbResult<Option<Self>> {
+        use diesel::sql_types::{Array, BigInt, Timestamptz, Uuid as SqlUuid};
+        let (rolling_ids, carried) = rolling_arrays(rolling);
+        diesel::sql_query(format!(
+            "SELECT s.*
+             FROM (SELECT m.*,
+                          row_number() OVER w AS sequence,
+                          (sum(m.amount) OVER w)::bigint AS balance_after
+                   FROM ({STATEMENT_MOVEMENTS}) m
+                   WINDOW w AS (ORDER BY m.occurred_at, m.unrecorded, m.recorded_at, m.id
+                                ROWS UNBOUNDED PRECEDING)) s
+             WHERE s.id = $6 AND s.unrecorded = 0"
+        ))
+        .bind::<SqlUuid, _>(tenant_id.as_uuid())
+        .bind::<Array<SqlUuid>, _>(account_uuids(account_ids))
+        .bind::<Array<SqlUuid>, _>(rolling_ids)
+        .bind::<Array<BigInt>, _>(carried)
+        .bind::<Timestamptz, _>(now)
+        .bind::<SqlUuid, _>(entry_id.as_uuid())
+        .get_result(conn)
+        .await
+        .optional()
+        .attach("Error while reading a customer credit statement line")
         .into_db_result()
     }
 

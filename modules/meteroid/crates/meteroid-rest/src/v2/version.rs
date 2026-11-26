@@ -5,14 +5,15 @@
 //! Handlers always speak the latest shape. A breaking change adds its date to [`VERSIONS`] and a
 //! transformer that rewrites requests up from, and responses down to, the version a caller is
 //! pinned on, keyed on the [`ApiVersion`] the middleware put in the request extensions.
+//! `2026-12-15` changes webhook payloads only (`V2_WEBHOOK_PAYLOADS`, §15): no request or response
+//! of the API differs between the two.
 use crate::v2::problem::{Problem, ProblemCode};
 use chrono::NaiveDate;
 use http::StatusCode;
 
-pub const VERSION_HEADER: &str = "Meteroid-Version";
+pub use meteroid_rest_common::api_versions::{V2_WEBHOOK_PAYLOADS, VERSIONS};
 
-/// Every published version, oldest first. The first is the default.
-pub const VERSIONS: &[&str] = &["2026-12-01"];
+pub const VERSION_HEADER: &str = "Meteroid-Version";
 
 /// The version a request is served at.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -32,6 +33,12 @@ fn published() -> impl Iterator<Item = NaiveDate> {
 
 pub fn default_version() -> ApiVersion {
     ApiVersion(published().next().expect("v2 has a version"))
+}
+
+/// The latest published version: what a webhook endpoint created without a `Meteroid-Version`
+/// pins, so a new integration gets the current payloads.
+pub fn latest_version() -> ApiVersion {
+    ApiVersion(published().last().expect("v2 has a version"))
 }
 
 /// The version `asked` resolves to: the latest published on or before it.
@@ -75,8 +82,12 @@ mod tests {
             "2026-12-01"
         );
         assert_eq!(
-            resolve(Some("2027-03-15")).unwrap().as_header(),
+            resolve(Some("2026-12-14")).unwrap().as_header(),
             "2026-12-01"
+        );
+        assert_eq!(
+            resolve(Some("2027-03-15")).unwrap().as_header(),
+            "2026-12-15"
         );
         assert!(resolve(Some("2026-11-30")).is_err());
         assert!(resolve(Some("latest")).is_err());

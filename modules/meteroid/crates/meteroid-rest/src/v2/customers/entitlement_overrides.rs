@@ -1,4 +1,4 @@
-//! `/api/v2/customers/{id_or_alias}/entitlement-overrides` (ADR-0013 §23): the rows on the
+//! `/api/v2/customers/{id_or_alias}/entitlement-overrides` (ADR-0013 §25): the rows on the
 //! customer and on its stored resources, applied after every subscription's. Each is created,
 //! edited (a new version under the same id, its history kept) and revoked one at a time.
 use super::resources::{ResourceName, stored_resource_id};

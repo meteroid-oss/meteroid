@@ -29,6 +29,8 @@ use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+/// A denomination usage is priced and credit granted in instead of money, with its selling price
+/// per currency.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct CreditUnit {
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
@@ -39,6 +41,7 @@ pub struct CreditUnit {
     pub name: String,
     /// "Credits".
     pub plural_name: String,
+    /// Printed beside amounts in the unit, at most 8 characters.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub symbol: Option<String>,
     /// Decimal places of an amount in the unit, 0 to 6; immutable.
@@ -68,16 +71,20 @@ pub struct CreditUnitListQuery {
     pub after: Option<String>,
 }
 
+/// A credit unit to create, with its product and prices.
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct CreateCreditUnit {
     /// 4 to 16 characters A-Z, 0-9 or `_`, starting with a letter (upper-cased); immutable.
     pub code: String,
+    /// What one unit is called ("Credit"), at most 64 characters.
     pub name: String,
+    /// What several units are called ("Credits"), at most 64 characters.
     pub plural_name: String,
+    /// Printed beside amounts in the unit, at most 8 characters; blank reads as none.
     #[serde(default)]
     pub symbol: Option<String>,
-    /// 0 to 6; immutable.
+    /// Decimal places of an amount in the unit, 0 to 6; immutable.
     pub precision: u8,
     /// The product its sales are booked under, by code or id.
     #[serde(default)]
@@ -101,6 +108,7 @@ pub struct UpdateCreditUnit {
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub symbol: Option<Option<String>>,
+    /// The product its sales are booked under, by code or id; `null`: the unit is no longer sold.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub product: Option<Option<String>>,
@@ -300,6 +308,9 @@ async fn set_archived(
 }
 
 /// List credit units
+///
+/// The tenant's credit units in creation order with their prices, paged by cursor; archived ones
+/// only with `include_archived`.
 #[utoipa::path(
     get,
     tag = "Credit units",
@@ -341,6 +352,8 @@ pub async fn list_credit_units(
 }
 
 /// Get a credit unit
+///
+/// By id, or by code (matched upper-cased), with its price in each currency it is sold in.
 #[utoipa::path(
     get,
     tag = "Credit units",
@@ -518,6 +531,9 @@ pub async fn archive_credit_unit(
 }
 
 /// Unarchive a credit unit
+///
+/// New prices, packs and grants may use it again. Refused (`403`) when credit pricing is not in
+/// the organization's plan.
 #[utoipa::path(
     post,
     tag = "Credit units",

@@ -68,6 +68,7 @@ impl utoipa::PartialSchema for CountryCode {
             .format(Some(utoipa::openapi::schema::SchemaFormat::Custom(
                 "CountryCode".to_string(),
             )))
+            .description(Some("A country, as its ISO 3166-1 alpha-2 code."))
             .examples(["US", "GB", "FR"])
             .into()
     }

@@ -5270,6 +5270,7 @@ dependencies = [
  "secrecy",
  "serde",
  "serde-enum-str",
+ "serde_html_form",
  "serde_ignored",
  "serde_json",
  "serde_path_to_error",

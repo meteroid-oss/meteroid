@@ -36,7 +36,7 @@ const useView = (): View => {
 export const NativeWebhooks = () => {
   const view = useView()
   const navigate = useNavigate()
-  const { endpoints, isLoading, update, archive, rotateSecret } = useWebhooks()
+  const { endpoints, isLoading, update, archive, rotateSecret, upgradeApiVersion } = useWebhooks()
   const confirm = useConfirmationModal()
 
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -89,6 +89,23 @@ export const NativeWebhooks = () => {
       { buttonLabel: 'Rotate secret' }
     )
 
+  const confirmUpgrade = (endpoint: WebhookEndpoint) =>
+    confirm(
+      () =>
+        upgradeApiVersion.mutate(
+          { id: endpoint.id },
+          {
+            onSuccess: () => toast.success('Payloads upgraded to API v2'),
+            onError: e => toast.error(e.message),
+          }
+        ),
+      {
+        header: 'Upgrade payloads to API v2',
+        message: `The payloads ${endpoint.url} receives change shape from its next event: each event becomes an envelope (id, type, created_at, api_version, data) whose data is the resource as API v2 reads it. Update your handler first. Events already queued keep their current shape.`,
+      },
+      { buttonLabel: 'Upgrade payloads' }
+    )
+
   const confirmRemove = (endpoint: WebhookEndpoint) =>
     confirm(
       () =>
@@ -119,7 +136,12 @@ export const NativeWebhooks = () => {
 
   let content: ReactNode
   if (view.kind === 'catalog') {
-    content = <EventCatalogPage onBack={toList} />
+    content = (
+      <EventCatalogPage
+        onBack={toList}
+        hasV1Endpoints={endpoints.some(endpoint => endpoint.v1Payloads)}
+      />
+    )
   } else if (view.kind === 'endpoint') {
     const endpoint = endpoints.find(e => e.id === view.id)
     content = endpoint ? (
@@ -133,6 +155,7 @@ export const NativeWebhooks = () => {
         onRevealSecret={() => revealSecret(endpoint)}
         onRotateSecret={() => confirmRotate(endpoint)}
         onToggleDisabled={() => toggleDisabled(endpoint)}
+        onUpgradeApiVersion={() => confirmUpgrade(endpoint)}
         onRemove={() => confirmRemove(endpoint)}
       />
     ) : isLoading ? null : (

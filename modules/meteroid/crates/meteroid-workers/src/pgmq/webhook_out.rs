@@ -2,9 +2,11 @@ use crate::pgmq::PgmqResult;
 use crate::pgmq::error::PgmqError;
 use crate::pgmq::outbox::to_outbox_events;
 use crate::pgmq::processor::{HandleResult, PgmqHandler};
-use common_domain::ids::{EventId, TenantId, WebhookEndpointId};
+use chrono::NaiveDateTime;
+use common_domain::ids::{EventId, TenantId};
 use common_domain::pgmq::MessageId;
 use error_stack::{Report, ResultExt};
+use meteroid_rest::v2::webhook_payloads::{self, Renderer};
 use meteroid_rest::webhooks::out_model::{
     WebhookOutAddOnEvent, WebhookOutAddOnEventData, WebhookOutCouponEvent,
     WebhookOutCouponEventData, WebhookOutCreditNoteEvent, WebhookOutCreditNoteEventData,
@@ -25,15 +27,18 @@ use meteroid_rest::webhooks::out_model::{
     WebhookOutWalletDebitedEvent, WebhookOutWalletDepletedEvent, WebhookOutWalletFundedEvent,
     WebhookOutWalletRecoveredEvent,
 };
+use meteroid_rest_common::api_versions::receives_v2_payloads;
 use meteroid_rest_common::datetime::ApiDateTime;
-use meteroid_store::Store;
 use meteroid_store::domain::PaymentStatusEnum;
 use meteroid_store::domain::outbox_event::{OutboxEvent, PaymentTransactionEvent};
 use meteroid_store::domain::pgmq::PgmqMessage;
-use meteroid_store::domain::webhooks_out::{WebhookEndpoint, WebhookOutMessageNew};
+use meteroid_store::domain::webhooks_out::{
+    WebhookEndpoint, WebhookOutMessageNew, WebhookOutMessageVersion, WebhookOutTarget,
+};
 use meteroid_store::repositories::WebhookOutInterface;
+use meteroid_store::{Services, Store};
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -429,14 +434,22 @@ fn payment_message(
 }
 
 /// Turns each outbox event into a stored `webhook_out_message` plus one
-/// PENDING delivery per matching endpoint, which the delivery worker then picks up.
+/// PENDING delivery per matching endpoint, which the delivery worker then picks up. An endpoint
+/// holding an API version with payloads of its own (ADR-0013 §15) is sent the event rendered at
+/// it: the event's v2 `data` is read once, its envelope written once per version the targets
+/// hold, and both stored with the message.
 pub(crate) struct WebhookOut {
     store: Arc<Store>,
+    renderer: Renderer,
 }
 
 impl WebhookOut {
-    pub fn new(store: Arc<Store>) -> Self {
-        Self { store }
+    pub fn new(store: Arc<Store>, services: Arc<Services>) -> Self {
+        let renderer = Renderer {
+            store: (*store).clone(),
+            services: (*services).clone(),
+        };
+        Self { store, renderer }
     }
 
     #[tracing::instrument(skip_all, fields(
@@ -450,9 +463,15 @@ impl WebhookOut {
         &self,
         msg_id: MessageId,
         event: OutboxEvent,
+        recorded_at: NaiveDateTime,
         endpoints: &[WebhookEndpoint],
     ) -> Result<(), (MessageId, String)> {
         let event_type = event.event_type();
+        // Kept for v2's payloads only when an endpoint of the tenant may need them.
+        let for_v2 = endpoints
+            .iter()
+            .any(|endpoint| receives_v2_payloads(endpoint.api_version.as_deref()))
+            .then(|| event.clone());
         let Some(message) = to_webhook_message(event) else {
             return Ok(());
         };
@@ -463,33 +482,94 @@ impl WebhookOut {
             );
             HandleResult::fail(msg_id, &e)
         })?;
-        self.fan_out(message, endpoints).await.map_err(|e| {
-            tracing::warn!(
-                "Failed to fan out webhook_out {event_type} event with msg_id={}: {e:?}",
-                msg_id.0
-            );
-            HandleResult::fail(msg_id, &e)
-        })
+
+        let beta = is_beta_event_type(&message.event_type);
+        let targets: Vec<&WebhookEndpoint> = endpoints
+            .iter()
+            .filter(|e| receives(e, &message.event_type, beta))
+            .collect();
+        let versions: BTreeSet<&str> = targets
+            .iter()
+            .filter_map(|e| e.api_version.as_deref())
+            .filter(|version| receives_v2_payloads(Some(version)))
+            .collect();
+
+        let mut rendered = Vec::new();
+        let mut refused = None;
+        if let (false, Some(event)) = (versions.is_empty(), for_v2) {
+            match webhook_payloads::data(&self.renderer, &event).await {
+                Ok(data) => {
+                    rendered = versions
+                        .iter()
+                        .map(|version| WebhookOutMessageVersion {
+                            api_version: (*version).to_owned(),
+                            payload: webhook_payloads::envelope(
+                                message.id,
+                                &message.event_type,
+                                ApiDateTime::from(recorded_at),
+                                version,
+                                &data,
+                            ),
+                        })
+                        .collect();
+                }
+                Err(problem) => refused = Some(problem),
+            }
+        }
+
+        // An endpoint on v2's payloads gets no delivery until they are rendered: the message is
+        // retried for them, its v1 deliveries kept (a fan-out again adds what is missing).
+        let targets: Vec<WebhookOutTarget> = targets
+            .iter()
+            .filter_map(|endpoint| {
+                let version = endpoint
+                    .api_version
+                    .as_deref()
+                    .filter(|version| receives_v2_payloads(Some(version)));
+                match version {
+                    Some(_) if refused.is_some() => None,
+                    version => Some(WebhookOutTarget {
+                        endpoint_id: endpoint.id,
+                        api_version: version.map(str::to_owned),
+                    }),
+                }
+            })
+            .collect();
+
+        self.fan_out(message, rendered, &targets)
+            .await
+            .map_err(|e| {
+                tracing::warn!(
+                    "Failed to fan out webhook_out {event_type} event with msg_id={}: {e:?}",
+                    msg_id.0
+                );
+                HandleResult::fail(msg_id, &e)
+            })?;
+
+        match refused {
+            None => Ok(()),
+            Some(problem) => {
+                log::error!(
+                    "Failed to render the v2 payload of webhook_out {event_type} with msg_id={}: {problem:?}",
+                    msg_id.0
+                );
+                Err(HandleResult::fail(msg_id, &problem))
+            }
+        }
     }
 
     async fn fan_out(
         &self,
         message: WebhookOutMessageNew,
-        endpoints: &[WebhookEndpoint],
+        versions: Vec<WebhookOutMessageVersion>,
+        targets: &[WebhookOutTarget],
     ) -> Result<(), Report<PgmqError>> {
-        let beta = is_beta_event_type(&message.event_type);
-        let targets: Vec<WebhookEndpointId> = endpoints
-            .iter()
-            .filter(|e| receives(e, &message.event_type, beta))
-            .map(|e| e.id)
-            .collect();
-
         if targets.is_empty() {
             return Ok(());
         }
 
         self.store
-            .insert_webhook_message_with_deliveries(message, &targets)
+            .insert_webhook_message_with_deliveries(message, versions, targets)
             .await
             .change_context(PgmqError::HandleMessages)
     }
@@ -514,6 +594,10 @@ impl PgmqHandler for WebhookOut {
     async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<HandleResult> {
         let decoded = to_outbox_events(msgs);
         let msg_id_to_out_evt = decoded.events;
+        let recorded_at: HashMap<i64, NaiveDateTime> = msgs
+            .iter()
+            .map(|msg| (msg.msg_id.0, msg.enqueued_at))
+            .collect();
 
         let tenant_ids: Vec<TenantId> = msg_id_to_out_evt
             .iter()
@@ -543,7 +627,14 @@ impl PgmqHandler for WebhookOut {
                 .get(&event.tenant_id())
                 .map(Vec::as_slice)
                 .unwrap_or(&[]);
-            match self.publish_webhook_event(msg_id, event, endpoints).await {
+            let recorded_at = recorded_at
+                .get(&msg_id.0)
+                .copied()
+                .unwrap_or_else(|| common_clock::wall().naive_utc());
+            match self
+                .publish_webhook_event(msg_id, event, recorded_at, endpoints)
+                .await
+            {
                 Ok(()) => succeeded.push(msg_id),
                 Err(failure) => failed.push(failure),
             }
@@ -895,7 +986,7 @@ mod tests {
 #[cfg(test)]
 mod fan_out_tests {
     use super::*;
-    use common_domain::ids::BaseId;
+    use common_domain::ids::{BaseId, WebhookEndpointId};
     use strum::IntoEnumIterator;
 
     fn endpoint(event_types: &[&str]) -> WebhookEndpoint {

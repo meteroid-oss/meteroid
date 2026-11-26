@@ -264,7 +264,7 @@ impl CouponRow {
     pub async fn list_page(
         conn: &mut PgConn,
         tenant_id: TenantId,
-        filter: Option<CouponFilter>,
+        filter: Option<Vec<CouponFilter>>,
         after: Option<CouponId>,
         limit: i64,
     ) -> DbResult<Vec<CouponRow>> {
@@ -286,23 +286,36 @@ impl CouponRow {
         let is_archived = c_dsl::archived_at.is_not_null();
         let is_disabled = c_dsl::disabled.eq(true);
 
-        query = match filter {
-            None => query.filter(not(is_archived)),
-            Some(CouponFilter::ALL) => query,
-            Some(CouponFilter::ACTIVE) => query.filter(
-                not(is_expired)
-                    .and(not(is_exhausted))
-                    .and(not(is_archived))
-                    .and(not(is_disabled)),
-            ),
-            Some(CouponFilter::INACTIVE) => query.filter(
-                is_disabled
-                    .or(is_expired)
-                    .or(is_exhausted)
-                    .and(not(is_archived)),
-            ),
-            Some(CouponFilter::ARCHIVED) => query.filter(is_archived),
-        };
+        // The coupons of any filter asked; none asked, every coupon not archived.
+        let filters = filter.unwrap_or_default();
+        let wants = |wanted: fn(&CouponFilter) -> bool| filters.iter().any(wanted);
+        let all = wants(|f| matches!(f, CouponFilter::ALL));
+        let active = wants(|f| matches!(f, CouponFilter::ACTIVE));
+        let inactive = wants(|f| matches!(f, CouponFilter::INACTIVE));
+        let archived = wants(|f| matches!(f, CouponFilter::ARCHIVED));
+        if filters.is_empty() {
+            query = query.filter(not(is_archived));
+        } else if !all {
+            use diesel::IntoSql;
+            use diesel::sql_types::Bool;
+            query = query.filter(
+                active
+                    .into_sql::<Bool>()
+                    .and(
+                        not(is_expired)
+                            .and(not(is_exhausted))
+                            .and(not(is_archived))
+                            .and(not(is_disabled)),
+                    )
+                    .or(inactive.into_sql::<Bool>().and(
+                        is_disabled
+                            .or(is_expired)
+                            .or(is_exhausted)
+                            .and(not(is_archived)),
+                    ))
+                    .or(archived.into_sql::<Bool>().and(is_archived)),
+            );
+        }
 
         let query = query.order(c_dsl::id.asc()).limit(limit);
 

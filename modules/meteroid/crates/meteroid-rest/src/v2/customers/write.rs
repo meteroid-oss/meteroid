@@ -181,13 +181,18 @@ fn alias_taken(alias: Option<String>) -> impl FnOnce(Report<StoreError>) -> Prob
 }
 
 /// Create a customer
+///
+/// Answers the customer created. A company needs a `name`; an individual a `first_name`, a
+/// `last_name` and a billing country, its `name` made of them. `currency` is one of the
+/// tenant's; the invoicing entity is the tenant's default unless `invoicing.entity` names
+/// another. An `alias` another customer has is refused (`409 already_exists` at `/alias`).
 #[utoipa::path(
     post,
     tag = "Customers",
     path = "/api/v2/customers",
-    request_body = CustomerInput,
+    request_body(content = CustomerInput, example = json!(crate::v2::examples::request("create_customer"))),
     responses(
-        (status = 201, description = "Created", body = Customer),
+        (status = 201, description = "Created", body = Customer, example = json!(crate::v2::examples::response("create_customer"))),
         (status = 409, description = "The alias names another customer", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A field is refused", body = Problem, content_type = "application/problem+json"),
     ),
@@ -267,9 +272,9 @@ fn merge_patch(target: &mut serde_json::Value, patch: &serde_json::Value) {
     tag = "Customers",
     path = "/api/v2/customers/{id_or_alias}",
     params(("id_or_alias" = String, Path, description = "Customer id, or its alias as `ext:<alias>`")),
-    request_body(content = UpdateCustomer, content_type = "application/merge-patch+json"),
+    request_body(content = UpdateCustomer, content_type = "application/merge-patch+json", example = json!(crate::v2::examples::request("update_customer"))),
     responses(
-        (status = 200, description = "Updated", body = Customer),
+        (status = 200, description = "Updated", body = Customer, example = json!(crate::v2::examples::response("update_customer"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The alias names another customer", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A field is refused", body = Problem, content_type = "application/problem+json"),
@@ -360,7 +365,7 @@ fn state_refusal(error: Report<StoreError>) -> Problem {
     path = "/api/v2/customers/{id_or_alias}/archive",
     params(("id_or_alias" = String, Path, description = "Customer id, or its alias as `ext:<alias>`")),
     responses(
-        (status = 200, description = "Archived", body = Customer),
+        (status = 200, description = "Archived", body = Customer, example = json!(crate::v2::examples::response("archive_customer"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The customer has live subscriptions", body = Problem, content_type = "application/problem+json"),
     ),
@@ -384,13 +389,16 @@ pub async fn archive_customer(
 }
 
 /// Restore an archived customer
+///
+/// Brings the customer back into lists and new uses, and answers it. Restoring a live customer
+/// changes nothing.
 #[utoipa::path(
     post,
     tag = "Customers",
     path = "/api/v2/customers/{id_or_alias}/unarchive",
     params(("id_or_alias" = String, Path, description = "Customer id, or its alias as `ext:<alias>`")),
     responses(
-        (status = 200, description = "Restored", body = Customer),
+        (status = 200, description = "Restored", body = Customer, example = json!(crate::v2::examples::response("unarchive_customer"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
     ),
     security(("bearer_auth" = []))

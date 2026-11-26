@@ -31,6 +31,8 @@ use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+/// What a card's rates are in: `money`, a rate per currency on each key; `credit_unit`, rates in
+/// the card's one credit unit.
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Denomination {
@@ -40,6 +42,7 @@ pub enum Denomination {
     CreditUnit,
 }
 
+/// A key's rate in a currency from a day on.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct Rate {
     /// A pattern per dimension: a value, a prefix ending in `*`, or `*`.
@@ -51,11 +54,15 @@ pub struct Rate {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>, format = "decimal")]
     pub rate: Option<Decimal>,
+    /// The day it is in force from.
     pub effective_from: NaiveDate,
+    /// A free-text name of the key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
 }
 
+/// Dated rates of a metric's usage by its dimensions: each usage event is rated by the key its
+/// dimensions' values match. What it rates is fixed once created.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct RateCard {
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
@@ -64,14 +71,19 @@ pub struct RateCard {
     pub name: String,
     /// The metric rated.
     pub metric: MetricRef,
+    /// The event properties a rate's `key` matches, in its order.
     pub dimensions: Vec<String>,
     pub denomination: Denomination,
+    /// The credit unit the rates are in, on a `credit_unit` card.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credit_unit: Option<CreditUnitRef>,
     /// Rates are per this many units (1000000: per 1M tokens).
     #[schema(value_type = String, format = "decimal")]
     pub unit_size: Decimal,
+    /// What usage no key matches does: `hold` keeps the invoice waiting until it is rated,
+    /// `ignore` leaves it unbilled.
     pub on_unmatched: crate::v2::charges::Unmatched,
+    /// Archived: it prices no new charge; the prices it rates keep rating.
     pub archived: bool,
     pub created_at: ApiDateTime,
     /// The day `rates` are in force on (a single card only).
@@ -106,23 +118,32 @@ pub struct RateCardGetQuery {
     pub at: Option<NaiveDate>,
 }
 
+/// A key's rate to set from the batch's day.
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct RateInput {
+    /// A pattern per dimension, in the card's order: a value, a prefix ending in `*`, or `*`.
     pub key: Vec<String>,
     /// Required on a money card, left out on a credit unit card.
     #[serde(default)]
     pub currency: Option<String>,
+    /// Per `unit_size` units, a decimal string: in the currency's major unit on a money card, in
+    /// credit units on a credit unit card.
     #[schema(value_type = String, format = "decimal")]
     pub rate: Decimal,
+    /// A free-text name of the key.
     #[serde(default)]
     pub label: Option<String>,
 }
 
+/// A key to remove from the batch's day: its usage is then rated by the other keys it matches,
+/// or is unmatched. Its rates scheduled after that day are withdrawn.
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct RateRemoval {
+    /// The key as its rates were set.
     pub key: Vec<String>,
+    /// The currency it is removed in, on a money card; left out on a credit unit card.
     #[serde(default)]
     pub currency: Option<String>,
 }
@@ -132,19 +153,28 @@ pub struct RateRemoval {
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct SetRates {
+    /// The day the whole batch takes effect; today when left out. Only a key's first rate in a
+    /// currency may start on a past day.
     #[serde(default)]
     pub effective_from: Option<NaiveDate>,
+    /// Rates to set, 5,000 at most.
     #[serde(default)]
     pub rates: Vec<RateInput>,
+    /// Keys to remove, 5,000 at most.
     #[serde(default)]
     pub remove: Vec<RateRemoval>,
 }
 
+/// What a batch of rates did, and the card as of its day.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct RatesSet {
+    /// Rates added.
     pub inserted: usize,
+    /// Keys removed.
     pub removed: usize,
+    /// Rates already in force, or already there: left as they were.
     pub unchanged: usize,
+    /// Scheduled rates the batch replaced or withdrew.
     pub replaced: usize,
     /// The card as of the batch's day.
     pub rate_card: RateCard,
@@ -262,6 +292,9 @@ async fn written(state: &AppState, tenant_id: TenantId, id: RateCardId) -> Respo
 }
 
 /// List rate cards
+///
+/// The tenant's cards in creation order, paged by cursor, without their rates (read a card for
+/// them); archived ones only with `include_archived`.
 #[utoipa::path(
     get,
     tag = "Rate cards",
@@ -429,6 +462,8 @@ pub async fn set_rates(
     }))
 }
 
+/// What a card's rates are in: `money` (the default), a rate per currency on each key;
+/// `credit_unit`, rates in the card's `credit_unit`.
 #[derive(Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum DenominationInput {
@@ -457,6 +492,8 @@ pub struct CreateRateCard {
     #[serde(default)]
     #[schema(value_type = Option<String>, format = "decimal")]
     pub unit_size: Option<Decimal>,
+    /// What usage no key matches does: `hold` (the default) keeps the invoice waiting until it
+    /// is rated, `ignore` leaves it unbilled.
     #[serde(default)]
     pub on_unmatched: crate::v2::charges::Unmatched,
 }
@@ -467,6 +504,7 @@ pub struct CreateRateCard {
 pub struct UpdateRateCard {
     #[serde(default)]
     pub name: Option<String>,
+    /// What usage no key matches does from then on.
     #[serde(default)]
     pub on_unmatched: Option<crate::v2::charges::Unmatched>,
 }
@@ -479,6 +517,10 @@ fn unmatched(on: crate::v2::charges::Unmatched) -> domain::RateCardUnmatched {
 }
 
 /// Create a rate card
+///
+/// Answers the card created, without rates: set them with `PATCH …/rates`. What it rates (its
+/// metric, dimensions, denomination, credit unit and unit size) never changes. A taken `code` is
+/// refused (`409 code_taken`), as is a metric that does not add up.
 #[utoipa::path(
     post,
     tag = "Rate cards",
@@ -665,6 +707,8 @@ pub async fn update_rate_card(
     Ok(written(&state, auth.tenant_id, id).await)
 }
 
+/// What a change of a rate card was: `created`, `rates_set` (a batch of rates and removals),
+/// `updated` (renamed, or what unmatched usage does changed), `archived` or `unarchived`.
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RateCardChangeKind {
@@ -677,6 +721,9 @@ pub enum RateCardChangeKind {
     Unarchived,
 }
 
+/// Who made a change: `system` (Meteroid itself), a dashboard `user`, an `api_token`, a
+/// `customer` in its portal, a `quote_recipient`, or an `oauth_app` acting for a connected
+/// account.
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ActorKind {
@@ -701,7 +748,9 @@ pub struct ChangeActor {
 /// A key's rate in a currency as a batch changed it, from the batch's day.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct RateChange {
+    /// A pattern per dimension, in the card's order.
     pub key: Vec<String>,
+    /// None on a credit unit card.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub currency: Option<String>,
     /// The rate the day before; none when the key had none.
@@ -714,6 +763,7 @@ pub struct RateChange {
     pub to: Option<Decimal>,
 }
 
+/// One change of a rate card, from its activity.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct RateCardChange {
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
@@ -900,6 +950,9 @@ pub async fn archive_rate_card(
 }
 
 /// Unarchive a rate card
+///
+/// Back on the catalog for new prices. Recorded in its changes; unarchiving a live card changes
+/// nothing.
 #[utoipa::path(
     post,
     tag = "Rate cards",

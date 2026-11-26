@@ -18,6 +18,11 @@ use utoipa::{IntoParams, ToSchema};
 
 // ── Reading ─────────────────────────────────────────────────────────
 
+/// Where the subscription is in its life: `pending_activation` before its start, or waiting for
+/// its checkout or a manual activation; `trial_active` in its trial; `active` billing;
+/// `trial_expired` a free trial ended without the checkout that starts billing; `cancelled`
+/// ended by a cancellation; `aborted` cancelled before it was ever active; `completed` ended on
+/// its end date.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SubscriptionStatus {
@@ -62,7 +67,8 @@ impl From<SubscriptionStatus> for SubscriptionStatusEnum {
     }
 }
 
-/// What starts the subscription.
+/// What starts the subscription: `on_start` its start date; `on_checkout` the customer's
+/// checkout; `manual` an operator, from the dashboard.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Activation {
@@ -95,6 +101,7 @@ impl From<SubscriptionActivationCondition> for Activation {
     }
 }
 
+/// The subscription's dates. Days are ISO 8601 dates, moments RFC 3339.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct Dates {
     /// When its benefits start, a trial included.
@@ -105,6 +112,8 @@ pub struct Dates {
     /// When it is billed from: its start, after a free trial.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub billing_start: Option<NaiveDate>,
+    /// When it was first activated (its start, its checkout or a manual activation); absent
+    /// before.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub activated_at: Option<ApiDateTime>,
     /// When it ended (cancelled, completed).
@@ -112,16 +121,20 @@ pub struct Dates {
     pub ended_at: Option<ApiDateTime>,
 }
 
+/// The billing period the subscription is in.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct CurrentPeriod {
+    /// Its first day.
     pub start: NaiveDate,
     /// Exclusive; none for a subscription not billed by period yet.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end: Option<NaiveDate>,
 }
 
+/// The subscription's trial; absent when it has none.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct TrialState {
+    /// Its length in days, from the start date.
     pub days: u32,
     /// Nothing is billed during it; read on a single subscription.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -138,18 +151,23 @@ pub struct PendingQuantity {
     /// The count once it applies.
     #[schema(value_type = String, format = "decimal", example = "10")]
     pub value: Decimal,
+    /// When it applies; possibly past for an increase waiting for its payment.
     pub effective_at: ApiDateTime,
 }
 
 /// A managed quantity the subscription holds (seats).
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct QuantityState {
+    /// The count in force now, as a decimal string.
     #[schema(value_type = String, format = "decimal", example = "12")]
     pub held: Decimal,
+    /// The counts to come, soonest first, each the count once it applies.
     pub pending: Vec<PendingQuantity>,
 }
 
-/// Where a charge of the subscription comes from.
+/// Where a charge of the subscription comes from: `plan` a charge of its plan, its price the
+/// plan's or overridden for this subscription; `add_on` one of its add-ons; `amendment` added to
+/// this subscription beside its plan, at its creation or by an amendment.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ChargeOrigin {
@@ -165,6 +183,7 @@ pub enum ChargeOrigin {
 /// subscription is billed (`*`, in its currency and cadence).
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct SubscriptionCharge {
+    /// Where the charge comes from.
     pub origin: ChargeOrigin,
     /// The add-on of a charge from an add-on.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -173,23 +192,31 @@ pub struct SubscriptionCharge {
     pub charge: Charge,
 }
 
+/// An add-on the subscription holds.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct SubscribedAddOn {
+    /// The add-on held.
     pub add_on: AddOnRef,
+    /// Its name on invoices.
     pub name: String,
+    /// Instances held.
     pub quantity: i32,
 }
 
+/// A coupon redeemed on the subscription.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct AppliedCoupon {
+    /// The coupon redeemed.
     pub coupon: CouponRef,
     /// Still discounting.
     pub active: bool,
-    /// Invoices it discounted.
+    /// Invoices it discounted; absent before the first.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub applied_count: Option<i32>,
 }
 
+/// What a scheduled change does: `plan_change` moves the subscription to another plan, option
+/// or version; `cancellation` ends it; `amendment` adds or removes charges and add-ons.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ScheduledChangeType {
@@ -201,19 +228,26 @@ pub enum ScheduledChangeType {
 /// The names of what a scheduled amendment adds and removes.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq, Default)]
 pub struct AmendmentSummary {
+    /// The names of the charges it adds.
     pub added_charges: Vec<String>,
+    /// The names of the charges it removes.
     pub removed_charges: Vec<String>,
+    /// The names of the add-ons it adds.
     pub added_add_ons: Vec<String>,
+    /// The names of the add-ons it removes.
     pub removed_add_ons: Vec<String>,
 }
 
 /// A change waiting for its date.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct ScheduledChange {
+    /// The scheduled change's id, as a change made answers it in `scheduled_change`.
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub id: ScheduledEventId,
+    /// What it does.
     #[serde(rename = "type")]
     pub kind: ScheduledChangeType,
+    /// The day it takes effect.
     pub effective_date: NaiveDate,
     /// The plan a plan change moves to.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -221,11 +255,14 @@ pub struct ScheduledChange {
     /// A cancellation's reason.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// Asked by the customer, from the portal, rather than by the tenant.
     pub initiated_by_customer: bool,
+    /// What an amendment adds and removes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub amendment: Option<AmendmentSummary>,
 }
 
+/// The changes of a subscription waiting for their date.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct Schedule {
     /// Soonest first.
@@ -235,23 +272,30 @@ pub struct Schedule {
 /// A cancellation waiting for its date: revoke it with `POST …/cancel/revoke`.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct Cancellation {
+    /// The day the subscription ends.
     pub effective_date: NaiveDate,
+    /// The reason sent with it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// Asked by the customer, from the portal, rather than by the tenant.
     pub initiated_by_customer: bool,
 }
 
 /// An amount in minor units of its currency.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq, Eq)]
 pub struct Money {
+    /// In minor units: `4900` is 49.00.
     pub amount: i64,
+    /// ISO 4217.
     pub currency: String,
 }
 
+/// How the subscription is invoiced.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct Invoicing {
     /// Days an invoice is due after it is issued.
     pub net_terms: u32,
+    /// The customer's purchase order number, printed on every invoice.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub purchase_order: Option<String>,
     /// Printed on every invoice.
@@ -270,22 +314,32 @@ pub use crate::v2::customers::resources::{ResourceName, ResourceRef};
 /// one.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct Subscription {
+    /// The subscription's id, `sub_…`.
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub id: SubscriptionId,
     /// The integrator's own id, unique per tenant; paths take it in place of the id.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_id: Option<String>,
+    /// The customer billed.
     pub customer: CustomerRef,
+    /// The plan, with the version and option it is on.
     pub plan: PlanRef,
+    /// Where it is in its life.
     pub status: SubscriptionStatus,
+    /// What it is billed in (ISO 4217).
     pub currency: String,
     /// How often it renews.
     pub period: Cadence,
+    /// What starts it.
     pub activation: Activation,
-    /// The day of the month its periods start on.
+    /// The day of the month its periods start on, 1 to 31 (a shorter month starts its period on
+    /// its last day).
     pub billing_day_anchor: u16,
+    /// Its start, end, billing start, activation and ending.
     pub dates: Dates,
+    /// The billing period it is in.
     pub current_period: CurrentPeriod,
+    /// Its trial; absent when it has none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trial: Option<TrialState>,
     /// The managed quantities it holds (seats), by code.
@@ -295,17 +349,22 @@ pub struct Subscription {
     /// `{"api": "10000"}`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub levels: Option<BTreeMap<String, String>>,
+    /// The charges it bills: its plan's, its add-ons' and those added to it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub charges: Option<Vec<SubscriptionCharge>>,
+    /// The add-ons it holds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub add_ons: Option<Vec<SubscribedAddOn>>,
+    /// The coupons redeemed on it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coupons: Option<Vec<AppliedCoupon>>,
     /// The changes waiting for their date, soonest first.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schedule: Option<Vec<ScheduledChange>>,
+    /// The cancellation waiting for its date; absent when none is scheduled.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cancellation: Option<Cancellation>,
+    /// The floor on what it is billed each period; absent when it has none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub minimum: Option<Minimum>,
     /// Monthly recurring revenue, tax excluded.
@@ -329,9 +388,12 @@ pub struct Subscription {
     /// to its resource's type, so it bills none of their usage.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub metrics_not_attributed: Vec<String>,
+    /// How it is invoiced.
     pub invoicing: Invoicing,
+    /// Values of the tenant's subscription properties, by key.
     #[schema(value_type = HashMap<String, Value>)]
     pub custom_properties: serde_json::Value,
+    /// When it was created.
     pub created_at: ApiDateTime,
     /// When it, or anything read of it, last changed.
     pub updated_at: ApiDateTime,
@@ -346,10 +408,19 @@ pub struct SubscriptionListQuery {
     pub customer: Option<String>,
     /// Only those on this plan, by code or id.
     pub plan: Option<String>,
-    pub status: Option<SubscriptionStatus>,
+    /// Only those in one of these statuses: repeat the parameter for several
+    /// (`?status=active&status=trial_active`).
+    #[param(style = Form, explode)]
+    pub status: Option<Vec<SubscriptionStatus>>,
     /// Only those changed after this moment (RFC 3339).
     #[param(format = DateTime)]
     pub updated_after: Option<String>,
+    /// Only those created after this moment (RFC 3339).
+    #[param(format = DateTime)]
+    pub created_after: Option<String>,
+    /// Only those created before this moment (RFC 3339).
+    #[param(format = DateTime)]
+    pub created_before: Option<String>,
     /// How many items, 1 to 100; 20 by default.
     pub limit: Option<u32>,
     /// The `next_cursor` of the previous page.
@@ -362,17 +433,21 @@ pub struct SubscriptionListQuery {
 #[derive(Deserialize, ToSchema, Debug, Clone, Default)]
 #[serde(deny_unknown_fields)]
 pub struct InvoicingInput {
-    /// The plan's when left out (due on receipt when it sells credit).
+    /// Days an invoice is due after it is issued, 0 to 365; the plan's when left out (due on
+    /// receipt when it sells credit).
     #[serde(default)]
     pub net_terms: Option<u32>,
+    /// The customer's purchase order number, printed on every invoice.
     #[serde(default)]
     pub purchase_order: Option<String>,
+    /// Printed on every invoice.
     #[serde(default)]
     pub memo: Option<String>,
-    /// True when left out.
+    /// Invoices are finalized and sent without a review; true when left out.
     #[serde(default)]
     pub auto_finalize: Option<bool>,
-    /// True when left out: the invoicing entity then needs a payment provider.
+    /// Invoices are charged to the customer's payment method; true when left out: the invoicing
+    /// entity then needs a payment provider.
     #[serde(default)]
     pub charge_automatically: Option<bool>,
 }
@@ -386,6 +461,7 @@ pub struct ChargeOverride {
     /// Its name on invoices; unchanged when left out.
     #[serde(default)]
     pub name: Option<String>,
+    /// Its price for this subscription, in the subscription's currency and major units.
     pub price: PriceModel,
     /// The charge's cadence when left out.
     #[serde(default)]
@@ -396,10 +472,11 @@ pub struct ChargeOverride {
 #[derive(Deserialize, ToSchema, Debug, Clone, Default)]
 #[serde(deny_unknown_fields)]
 pub struct CreateCharges {
-    /// Plan charges at another price.
+    /// Plan charges at another price, 100 at most.
     #[serde(default, rename = "override")]
     pub overrides: Vec<ChargeOverride>,
-    /// Charges beside the plan's, each with one price in the subscription's currency.
+    /// Charges beside the plan's, each with one price in the subscription's currency, 100 at
+    /// most.
     #[serde(default)]
     pub add: Vec<Charge>,
     /// Plan charges left out, by product code.
@@ -411,22 +488,25 @@ fn one() -> u32 {
     1
 }
 
+/// An add-on bought with the subscription, or added by an amendment.
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct AddOnPurchase {
-    /// By code or id.
+    /// The add-on, by code or id.
     pub add_on: String,
-    /// Instances held; 1 when left out.
+    /// Instances held, 1 to 2147483647; 1 when left out.
     #[serde(default = "one")]
     pub quantity: u32,
 }
 
+/// A subscription to create: a customer on a published version of a plan, in one of its
+/// options, with its seats, levels, price overrides, own charges, add-ons and coupons.
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct CreateSubscription {
     /// The customer's id, or its alias as `ext:<alias>`.
     pub customer: String,
-    /// By code or id.
+    /// The plan, by code or id.
     pub plan: String,
     /// The option's alias; the first the currency sells when left out.
     #[serde(default)]
@@ -438,7 +518,8 @@ pub struct CreateSubscription {
     /// it, else in the plan's.
     #[serde(default)]
     pub currency: Option<String>,
-    /// The integrator's own id, unique per tenant.
+    /// The integrator's own id, unique per tenant, 1 to 255 bytes; paths take it in place of the
+    /// id. One taken answers `409 code_taken`.
     #[serde(default)]
     pub external_id: Option<String>,
     /// A stored resource of the customer to subscribe for, `{"id": …}` or
@@ -448,17 +529,19 @@ pub struct CreateSubscription {
     /// The subscription's own entitlement rows, above its plan's (`set` only).
     #[serde(default)]
     pub entitlement_overrides: Vec<EntitlementInput>,
-    /// Today when left out; a past date bills the periods since.
+    /// The day it starts; today when left out. A past date bills the periods since.
     #[serde(default)]
     pub start_date: Option<NaiveDate>,
+    /// The day it stops renewing and completes; it renews until cancelled when left out.
     #[serde(default)]
     pub end_date: Option<NaiveDate>,
-    /// The plan's trial when left out.
+    /// The trial's length in days, 0 to 3650; the plan's trial when left out.
     #[serde(default)]
     pub trial_days: Option<u32>,
-    /// The day of the month periods start on; the start date's when left out.
+    /// The day of the month periods start on, 1 to 31; the start date's when left out.
     #[serde(default)]
     pub billing_day_anchor: Option<u16>,
+    /// What starts it; `on_start` when left out.
     #[serde(default)]
     pub activation: Activation,
     /// The starting count of each managed quantity its seat charges count, by code: `{"users": "12"}`.
@@ -468,13 +551,16 @@ pub struct CreateSubscription {
     /// `{"api": "10000"}`. The lowest when left out.
     #[serde(default)]
     pub levels: BTreeMap<String, String>,
+    /// How its charges differ from its plan's: prices overridden, charges added or left out.
     #[serde(default)]
     pub charges: CreateCharges,
+    /// Add-ons bought with it, 100 at most.
     #[serde(default)]
     pub add_ons: Vec<AddOnPurchase>,
-    /// Coupon codes.
+    /// Coupon codes, 20 at most.
     #[serde(default)]
     pub coupons: Vec<String>,
+    /// How it is invoiced.
     #[serde(default)]
     pub invoicing: InvoicingInput,
     /// Validated against the tenant's custom property definitions.
@@ -485,6 +571,8 @@ pub struct CreateSubscription {
 
 // ── Changing ────────────────────────────────────────────────────────
 
+/// When a change takes effect: `immediate` now, prorated; `period_end` at the end of the current
+/// period; `date` on `date` (cancellations only).
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum WhenType {
@@ -502,18 +590,20 @@ pub enum WhenType {
 #[derive(Deserialize, ToSchema, Debug, Clone, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct When {
+    /// When it takes effect.
     #[serde(rename = "type")]
     pub kind: WhenType,
-    /// With `type: date` only.
+    /// The day it takes effect, with `type: date` only (required then).
     #[serde(default)]
     pub date: Option<NaiveDate>,
 }
 
+/// A move to another plan, option or version.
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[schema(as = ChangePlan)]
 #[serde(deny_unknown_fields)]
 pub struct PlanChangeInput {
-    /// By code or id.
+    /// The plan moved to, by code or id.
     pub plan: String,
     /// The option's alias; the one of the same alias when the plan has it, else the first sold.
     #[serde(default)]
@@ -532,7 +622,10 @@ pub struct PlanChangeInput {
     pub when: Option<When>,
 }
 
-/// When the seats an increase adds are in force.
+/// When the seats an increase adds are in force: `immediate` at once, their prorated invoice
+/// issued beside them as the subscription's invoicing says; `on_payment` once the invoice billing
+/// them is paid, the change `pending_payment` until then (an increase billing nothing applies at
+/// once).
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SeatActivation {
@@ -563,6 +656,7 @@ pub struct QuantityChangeInput {
     pub activation: SeatActivation,
 }
 
+/// A move of a usage-levels charge to another of its levels.
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[schema(as = ChangeLevel)]
 #[serde(deny_unknown_fields)]
@@ -570,11 +664,13 @@ pub struct LevelChangeInput {
     /// The usage the level includes, one of the charge's levels.
     #[schema(format = "decimal", example = "10000")]
     pub included: String,
-    /// A higher level applies `immediate`, a lower one at `period_end`; checked when sent.
+    /// A higher level applies `immediate`, a lower one at `period_end`; checked when sent, and
+    /// as the direction says when left out.
     #[serde(default)]
     pub when: Option<When>,
 }
 
+/// How an amendment changes the subscription's charges.
 #[derive(Deserialize, ToSchema, Debug, Clone, Default)]
 #[serde(deny_unknown_fields)]
 pub struct ChargeChanges {
@@ -589,25 +685,30 @@ pub struct ChargeChanges {
     pub remove: Vec<String>,
 }
 
+/// How an amendment changes the subscription's add-ons.
 #[derive(Deserialize, ToSchema, Debug, Clone, Default)]
 #[serde(deny_unknown_fields)]
 pub struct AddOnChanges {
+    /// Add-ons bought.
     #[serde(default)]
     pub add: Vec<AddOnPurchase>,
     /// Add-ons held at another quantity.
     #[serde(default)]
     pub edit: Vec<AddOnPurchase>,
-    /// By add-on code.
+    /// Add-ons removed, by code.
     #[serde(default)]
     pub remove: Vec<String>,
 }
 
+/// Changes to a subscription's charges and add-ons, its plan kept.
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[schema(as = AmendSubscription)]
 #[serde(deny_unknown_fields)]
 pub struct AmendmentInput {
+    /// Charges added, repriced or removed.
     #[serde(default)]
     pub charges: ChargeChanges,
+    /// Add-ons added, held at another quantity or removed.
     #[serde(default)]
     pub add_ons: AddOnChanges,
     /// Required: `immediate` or `period_end`.
@@ -615,17 +716,23 @@ pub struct AmendmentInput {
     pub when: Option<When>,
 }
 
+/// A cancellation of the subscription.
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[schema(as = CancelSubscription)]
 #[serde(deny_unknown_fields)]
 pub struct CancelInput {
-    /// Required: `immediate`, `period_end` or `date`.
+    /// Required: `immediate`, `period_end` or `date` (today or later, not after the
+    /// subscription's own end).
     #[serde(default)]
     pub when: Option<When>,
+    /// Why it is cancelled, kept with the cancellation; blank reads as none.
     #[serde(default)]
     pub reason: Option<String>,
 }
 
+/// Which way a change goes: `downgrade` when any part of it gets less (a cheaper fee, less
+/// credit, a shorter cadence, fewer seats, a lower level; a cancellation is one); `upgrade` when
+/// a part gets more and none less; `lateral` when none changes either way.
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Direction {
@@ -644,6 +751,9 @@ impl From<ChangeDirection> for Direction {
     }
 }
 
+/// What a document a change issues is: `invoice` the prorated charges, issued when the change
+/// applies; `credit_note` the unused time given back, issued when it applies, its amounts
+/// negative; `next_invoice` the next renewal, under the change.
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DocumentType {
@@ -658,26 +768,39 @@ pub enum DocumentType {
 /// A document a change issues, its amounts in minor units, its lines as an invoice's read.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct Document {
+    /// What the document is.
     #[serde(rename = "type")]
     pub kind: DocumentType,
+    /// ISO 4217.
     pub currency: String,
+    /// The lines' total before discounts, credit and tax, in minor units.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subtotal: Option<i64>,
+    /// What discounts and coupons take off, in minor units.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub discount: Option<i64>,
+    /// The tax, in minor units.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tax: Option<i64>,
+    /// The total, tax included, in minor units.
     pub total: i64,
+    /// What is left to pay once the customer's credit applies, in minor units.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub amount_due: Option<i64>,
+    /// Its lines, as an invoice's read.
     pub lines: Vec<DocumentLine>,
+    /// Its tax by rate; absent when it has none.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub taxes: Vec<DocumentTax>,
+    /// The coupons it applies; absent when none.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub coupons: Vec<DocumentCoupon>,
 }
 
-/// A part of a preview that could not be priced, left out of it.
+/// A part of a preview that could not be priced, left out of it: `invoice` the invoice the change
+/// issues; `credit_note` the credit note it issues; `next_invoice` the renewal under it;
+/// `subscription_after` the subscription it leaves, which then reads the new charges on the
+/// subscription as it stands, its MRR possibly left out.
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PreviewPart {
@@ -695,10 +818,14 @@ pub enum PreviewPart {
 /// What a change would do, nothing written.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct ChangePreview {
+    /// The day it would take effect.
     pub effective_date: NaiveDate,
+    /// Which way it goes.
     pub direction: Direction,
     /// When it takes effect, as asked or as its rules decide.
     pub when: WhenType,
+    /// The documents it would issue: the invoice and credit note when it applies, the renewal
+    /// under it.
     pub documents: Vec<Document>,
     /// True when a part of the preview could not be priced and is left out (`missing` names
     /// it): `documents` then never reads as the change billing nothing.
@@ -711,6 +838,9 @@ pub struct ChangePreview {
     pub subscription_after: Subscription,
 }
 
+/// Where a change made stands: `applied` in force; `scheduled` waiting for `effective_date` (see
+/// the subscription's `schedule`); `pending_payment` waiting for the payment of
+/// `awaiting_payment`, the invoice billing it, and applied once that invoice is paid.
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ChangeStatus {
@@ -726,7 +856,9 @@ pub enum ChangeStatus {
 /// A change made.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct ChangeResult {
+    /// Where the change stands.
     pub status: ChangeStatus,
+    /// The day it took or takes effect.
     pub effective_date: NaiveDate,
     /// The scheduled change, revocable until its date.
     #[serde(skip_serializing_if = "Option::is_none")]

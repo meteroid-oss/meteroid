@@ -1,4 +1,4 @@
-//! What a customer may use (ADR-0013 §23): the snapshot of every feature at each level (the
+//! What a customer may use (ADR-0013 §25): the snapshot of every feature at each level (the
 //! customer, and the resource the request names), with its `ETag`, one feature of it, and the
 //! usage of a limit the customer's app counts and reports.
 use crate::AppState;

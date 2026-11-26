@@ -5,7 +5,7 @@ use crate::domain::enums::{CreditNoteStatus, InvoicePaymentStatus, InvoiceStatus
 use crate::domain::{CreditNote, InvoiceWithCustomer};
 use crate::errors::StoreError;
 use crate::store::Store;
-use chrono::NaiveDateTime;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use common_domain::ids::{CreditNoteId, CustomerId, InvoiceId, SubscriptionId, TenantId};
 use diesel_models::credit_notes::CreditNoteRow;
 use diesel_models::invoices::InvoiceRow;
@@ -24,6 +24,10 @@ pub struct InvoicePageFilter {
     pub issued_after: Option<NaiveDateTime>,
     /// Only those created or changed after it: `updated_at`, which every edit of the row sets.
     pub updated_after: Option<NaiveDateTime>,
+    /// Only those created after it.
+    pub created_after: Option<DateTime<Utc>>,
+    /// Only those created before it.
+    pub created_before: Option<DateTime<Utc>>,
 }
 
 /// What a page of credit notes is narrowed to.
@@ -33,6 +37,10 @@ pub struct CreditNotePageFilter {
     pub invoice_id: Option<InvoiceId>,
     pub subscription_id: Option<SubscriptionId>,
     pub statuses: Option<Vec<CreditNoteStatus>>,
+    /// Only those created after it.
+    pub created_after: Option<DateTime<Utc>>,
+    /// Only those created before it.
+    pub created_before: Option<DateTime<Utc>>,
 }
 
 #[async_trait::async_trait]
@@ -81,6 +89,8 @@ impl DocumentPagesInterface for Store {
             filter.currency,
             filter.issued_after,
             filter.updated_after,
+            filter.created_after,
+            filter.created_before,
             after,
             i64::try_from(limit).unwrap_or(i64::MAX),
         )
@@ -108,6 +118,8 @@ impl DocumentPagesInterface for Store {
             filter
                 .statuses
                 .map(|statuses| statuses.into_iter().map(Into::into).collect()),
+            filter.created_after,
+            filter.created_before,
             after,
             i64::try_from(limit).unwrap_or(i64::MAX),
         )

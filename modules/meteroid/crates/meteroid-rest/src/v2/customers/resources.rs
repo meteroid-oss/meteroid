@@ -1,4 +1,4 @@
-//! `/api/v2/customers/{id_or_alias}/resources/{type}/{key}` (ADR-0013 §23, ADR-0011 §3.4): a
+//! `/api/v2/customers/{id_or_alias}/resources/{type}/{key}` (ADR-0013 §25, ADR-0011 §3.4): a
 //! customer's stored resources, by their type and key value, listed by keyset in SQL. A resource
 //! is stored for an override of it alone, a subscription for it, attributes the caller must not
 //! assert, and listing; one named only in a check needs none. It stays with its customer.
@@ -6,6 +6,7 @@
 //! A request names a resource one way everywhere in v2 ([`ResourceName`]): `{id}`, or its type's
 //! code and key value `{type, key}`; a response reads it as [`ResourceRef`].
 use crate::AppState;
+use crate::v2::Reader;
 use crate::v2::extract::{Body, Path, Query};
 use crate::v2::ids;
 use crate::v2::pagination::{Cursor, PageQuery, keyset};
@@ -117,7 +118,7 @@ pub(crate) fn resource_ref(resource: &DomainResource, types: &[ResourceType]) ->
 
 /// The resources of `ids` as responses read them; one deleted since is left out.
 pub(crate) async fn resource_refs(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     ids: impl IntoIterator<Item = ResourceId>,
 ) -> Result<HashMap<ResourceId, ResourceRef>, Problem> {
@@ -129,8 +130,8 @@ pub(crate) async fn resource_refs(
     if ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let resources = state.store.get_resources_by_ids(tenant_id, &ids).await?;
-    let types = state.store.list_resource_types(tenant_id, true).await?;
+    let resources = state.store().get_resources_by_ids(tenant_id, &ids).await?;
+    let types = state.store().list_resource_types(tenant_id, true).await?;
     Ok(resources
         .iter()
         .map(|resource| (resource.id, resource_ref(resource, &types)))

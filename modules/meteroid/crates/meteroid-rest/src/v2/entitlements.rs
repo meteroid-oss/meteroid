@@ -1,8 +1,9 @@
-//! Entitlements in API v2 (ADR-0013 §23): the rows a feature's defaults, a plan version, an
+//! Entitlements in API v2 (ADR-0013 §25): the rows a feature's defaults, a plan version, an
 //! add-on, a product (its features' defaults) and a subscription hold, each list written whole
 //! with its owner as `EntitlementInput`s and read back canonical: by feature code, level,
 //! resource type, resource and condition, then validity. A row reads at its resolved level.
 use crate::AppState;
+use crate::v2::Reader;
 use crate::v2::bounds;
 use crate::v2::problem::Problem;
 use chrono::{DateTime, Utc};
@@ -66,7 +67,7 @@ pub fn canonical(codes: &Codes, rows: Vec<DomainEntitlement>) -> Vec<Entitlement
 /// The codes owner lists are read with: their live features' and the tenant's resource types'.
 /// Owner lists name no stored resource (only a customer's overrides do).
 async fn owner_codes(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     rows: &[&DomainEntitlement],
 ) -> Result<Codes, Problem> {
@@ -79,7 +80,7 @@ async fn owner_codes(
         .collect();
     if !ids.is_empty() {
         codes.features = state
-            .store
+            .store()
             .list_features_by_ids(&ids, tenant_id)
             .await?
             .into_iter()
@@ -92,7 +93,7 @@ async fn owner_codes(
 
 /// One owner's rows, canonical.
 pub async fn render(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     rows: Vec<DomainEntitlement>,
 ) -> Result<Vec<Entitlement>, Problem> {
@@ -102,7 +103,7 @@ pub async fn render(
 
 /// Several owners' rows (a page of add-ons), their features read once.
 pub async fn render_each(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     owners: Vec<Vec<DomainEntitlement>>,
 ) -> Result<Vec<Vec<Entitlement>>, Problem> {
@@ -278,7 +279,7 @@ pub async fn product_specs(
 
 /// What each of `products` holds: the defaults of its live features, canonical, all read once.
 pub async fn of_products(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     products: &[ProductId],
 ) -> Result<HashMap<ProductId, Vec<Entitlement>>, Problem> {
@@ -293,13 +294,13 @@ pub async fn of_products(
     let features = match products {
         [one] => {
             state
-                .store
+                .store()
                 .list_features_after(tenant_id, filter(Some(*one)), None, usize::MAX)
                 .await?
         }
         _ => {
             state
-                .store
+                .store()
                 .list_features_after(tenant_id, filter(None), None, usize::MAX)
                 .await?
         }

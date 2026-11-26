@@ -1,6 +1,7 @@
-//! The shapes v2's entitlement reads and writes share (ADR-0013 §23, on ADR-0011's model):
+//! The shapes v2's entitlement reads and writes share (ADR-0013 §25, on ADR-0011's model):
 //! values, policies, levels, rows and their owners, and the codes rows are read with.
 use crate::AppState;
+use crate::v2::Reader;
 use crate::v2::bounds;
 use crate::v2::customers::resources::resource_refs;
 use crate::v2::ids;
@@ -694,8 +695,8 @@ pub struct Codes {
 }
 
 impl Codes {
-    pub async fn types(state: &AppState, tenant_id: TenantId) -> Result<Self, Problem> {
-        let types = state.store.list_resource_types(tenant_id, true).await?;
+    pub async fn types(state: &impl Reader, tenant_id: TenantId) -> Result<Self, Problem> {
+        let types = state.store().list_resource_types(tenant_id, true).await?;
         Ok(Codes {
             types: types.into_iter().map(|t| (t.id, t.code)).collect(),
             ..Codes::default()
@@ -705,7 +706,7 @@ impl Codes {
     /// The products of `features` and the `subscriptions` a read names, with the tenant's
     /// resource type codes.
     pub async fn of_features<'a>(
-        state: &AppState,
+        state: &impl Reader,
         tenant_id: TenantId,
         features: impl IntoIterator<Item = &'a Feature>,
         subscriptions: impl IntoIterator<Item = SubscriptionId>,
@@ -719,13 +720,13 @@ impl Codes {
             subscriptions: subscriptions.into_iter().collect(),
             ..ReferenceIds::default()
         };
-        codes.refs = Refs::load(&state.store, tenant_id, &ids).await?;
+        codes.refs = Refs::load(state.store(), tenant_id, &ids).await?;
         Ok(codes)
     }
 
     /// The feature codes, resource type codes and resources of `rows`.
     pub async fn of_rows(
-        state: &AppState,
+        state: &impl Reader,
         tenant_id: TenantId,
         rows: &[DomainEntitlement],
     ) -> Result<Self, Problem> {
@@ -737,7 +738,7 @@ impl Codes {
             .into_iter()
             .collect();
         codes.features = state
-            .store
+            .store()
             .list_features_by_ids(&feature_ids, tenant_id)
             .await?
             .iter()
@@ -747,7 +748,7 @@ impl Codes {
         for id in feature_ids {
             if let std::collections::hash_map::Entry::Vacant(slot) = codes.features.entry(id) {
                 slot.insert(FeatureKey::from(
-                    &state.store.get_feature(id, tenant_id).await?,
+                    &state.store().get_feature(id, tenant_id).await?,
                 ));
             }
         }

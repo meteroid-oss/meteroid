@@ -1734,6 +1734,8 @@ pub struct WebhookOutAddOnEvent {
     Serialize,
     utoipa::ToSchema,
 )]
+/// An event type, as a payload's `type` names it: the resource and what happened to it
+/// (`invoice.paid`).
 #[schema(as = EventType)]
 pub enum WebhookOutEventTypeEnum {
     #[strum(serialize = "metric.created")]

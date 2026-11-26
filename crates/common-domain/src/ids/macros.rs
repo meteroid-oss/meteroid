@@ -15,6 +15,11 @@ macro_rules! id_type {
                     .format(Some(utoipa::openapi::schema::SchemaFormat::Custom(
                         "MeteroidId".to_string(),
                     )))
+                    .description(Some(concat!(
+                        "An id in its prefixed form, `",
+                        $id_prefix,
+                        "` and base62; a request also reads its UUID form."
+                    )))
                     .examples([$id_name::default().as_base62()])
                     .into()
             }

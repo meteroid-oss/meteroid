@@ -2,6 +2,7 @@
 //! its id or its code: the live coupon of that code, else the newest archived one (a code is free
 //! again once its coupon is archived).
 use crate::AppState;
+use crate::v2::Reader;
 use crate::v2::extract::{Body, Path, Query};
 use crate::v2::idempotency::committed_write;
 use crate::v2::ids;
@@ -47,6 +48,7 @@ pub enum CreditScope {
     Subscription,
 }
 
+/// A percentage off each invoice it discounts.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct PercentageDiscount {
@@ -94,6 +96,8 @@ pub struct CreditDiscount {
     pub scope: CreditScope,
 }
 
+/// What a coupon takes off: a `percentage` or a `fixed` amount off each invoice it discounts, or
+/// promotional `credit` added to the customer's balance.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[schema(as = CouponDiscount)]
@@ -103,6 +107,7 @@ pub enum Discount {
     Credit(CreditDiscount),
 }
 
+/// Every billing period of the subscription.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ForeverDuration {}
@@ -120,6 +125,7 @@ pub struct MonthsDuration {
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct InvoicesDuration {
+    /// How many invoices it discounts.
     pub invoices: i32,
 }
 
@@ -153,8 +159,10 @@ pub struct AppliesTo {
 #[schema(as = CouponAppliesToPatch)]
 #[serde(deny_unknown_fields)]
 pub struct AppliesToPatch {
+    /// The plans, by id or code; replaces the list.
     #[serde(default)]
     pub plans: Option<Vec<String>>,
+    /// The add-ons, by id or code; replaces the list.
     #[serde(default)]
     pub add_ons: Option<Vec<String>>,
 }
@@ -164,7 +172,9 @@ pub struct AppliesToPatch {
 #[schema(as = CouponPropertyMatch)]
 #[serde(deny_unknown_fields)]
 pub struct PropertyMatch {
+    /// The key of a customer custom property.
     pub key: String,
+    /// The values it may hold, one at least.
     pub values: Vec<String>,
 }
 
@@ -176,10 +186,12 @@ pub struct Eligibility {
     /// ISO 3166-1 alpha-2 of the customer's billing address; empty: any country.
     #[serde(default)]
     pub countries: Vec<String>,
+    /// Custom property values the customer holds, each condition holding; empty: any.
     #[serde(default)]
     pub properties: Vec<PropertyMatch>,
 }
 
+/// A discount or promotional credit redeemed by code on a subscription.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct Coupon {
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
@@ -189,14 +201,19 @@ pub struct Coupon {
     pub code: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// What it takes off.
     pub discount: Discount,
+    /// How long it discounts a subscription it is redeemed on.
     pub duration: DiscountDuration,
+    /// The plans and add-ons it may be redeemed with.
     pub applies_to: AppliesTo,
     /// None: anyone with the code.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub eligibility: Option<Eligibility>,
+    /// Not redeemable before; none: from its creation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub valid_from: Option<ApiDateTime>,
+    /// Not redeemable from then on; its redemptions keep discounting. None: it never expires.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<ApiDateTime>,
     /// How many subscriptions may redeem it; none: no limit.
@@ -204,11 +221,14 @@ pub struct Coupon {
     pub redemption_limit: Option<i32>,
     /// One customer may redeem it more than once.
     pub reusable: bool,
+    /// How many times it was redeemed.
     pub redemption_count: i32,
+    /// None: never redeemed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_redemption_at: Option<ApiDateTime>,
     /// Not redeemable until enabled again; its redemptions keep discounting.
     pub disabled: bool,
+    /// Archived: no longer redeemable, its code free for a new coupon.
     pub archived: bool,
     pub created_at: ApiDateTime,
     pub updated_at: ApiDateTime,
@@ -216,6 +236,8 @@ pub struct Coupon {
 
 crate::v2_list!(CouponList, Coupon);
 
+/// A coupon's state as a list filters it: `active`, redeemable (not disabled, expired, used up
+/// or archived); `inactive`, disabled, expired or used up but not archived; `archived`.
 #[derive(Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CouponStatus {
@@ -229,12 +251,15 @@ pub enum CouponStatus {
 #[derive(Deserialize, IntoParams, Debug, Clone, Default)]
 #[into_params(parameter_in = Query)]
 pub struct CouponListQuery {
-    /// Only the coupons of this status; every coupon not archived when left out.
-    pub status: Option<CouponStatus>,
+    /// Only the coupons in one of these statuses (repeat the parameter for several); every
+    /// coupon not archived when left out.
+    #[param(style = Form, explode)]
+    pub status: Option<Vec<CouponStatus>>,
     pub limit: Option<u32>,
     pub after: Option<String>,
 }
 
+/// A coupon to create. Its code, redemption limit and `reusable` never change after.
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct CreateCoupon {
@@ -246,14 +271,19 @@ pub struct CreateCoupon {
     /// Forever when left out; `months` otherwise (`invoices` is refused).
     #[serde(default)]
     pub duration: Option<DiscountDuration>,
+    /// The plans and add-ons it may be redeemed with; anything when left out.
     #[serde(default)]
     pub applies_to: AppliesTo,
+    /// Who may redeem it; anyone with the code when left out.
     #[serde(default)]
     pub eligibility: Option<Eligibility>,
+    /// Not redeemable before; before `expires_at` when both are sent.
     #[serde(default)]
     pub valid_from: Option<ApiDateTime>,
+    /// Not redeemable from then on.
     #[serde(default)]
     pub expires_at: Option<ApiDateTime>,
+    /// How many subscriptions may redeem it, 1 at least; no limit when left out.
     #[serde(default)]
     pub redemption_limit: Option<i32>,
     /// Never on promotional credit.
@@ -336,7 +366,7 @@ fn duration_to_api(coupon: &DomainCoupon) -> DiscountDuration {
 
 /// The codes of the plans and add-ons `coupons` are scoped to.
 async fn scope_codes(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     coupons: &[DomainCoupon],
 ) -> Result<(HashMap<PlanId, String>, HashMap<AddOnId, String>), Problem> {
@@ -349,13 +379,13 @@ async fn scope_codes(
     let plans = if plan_ids.is_empty() {
         HashMap::new()
     } else {
-        state.store.plan_codes(tenant_id, &plan_ids).await?
+        state.store().plan_codes(tenant_id, &plan_ids).await?
     };
     let add_ons = if add_on_ids.is_empty() {
         HashMap::new()
     } else {
         state
-            .store
+            .store()
             .list_add_ons_by_ids(tenant_id, add_on_ids)
             .await?
             .into_iter()
@@ -414,8 +444,8 @@ fn to_api(
     }
 }
 
-async fn one(
-    state: &AppState,
+pub(crate) async fn one(
+    state: &impl Reader,
     tenant_id: TenantId,
     coupon: DomainCoupon,
 ) -> Result<Coupon, Problem> {
@@ -729,6 +759,9 @@ async fn set_status(
 // ── Handlers ────────────────────────────────────────────────────────
 
 /// List coupons
+///
+/// The tenant's coupons in creation order, paged by cursor: every coupon not archived, or those
+/// of `status`.
 #[utoipa::path(
     get,
     tag = "Coupons",
@@ -751,10 +784,15 @@ pub async fn list_coupons(
     };
     let limit = page.limit()?;
     let cursor = page.cursor()?;
-    let filter = query.status.map(|status| match status {
-        CouponStatus::Active => CouponFilter::ACTIVE,
-        CouponStatus::Inactive => CouponFilter::INACTIVE,
-        CouponStatus::Archived => CouponFilter::ARCHIVED,
+    let filter = query.status.map(|statuses| {
+        statuses
+            .into_iter()
+            .map(|status| match status {
+                CouponStatus::Active => CouponFilter::ACTIVE,
+                CouponStatus::Inactive => CouponFilter::INACTIVE,
+                CouponStatus::Archived => CouponFilter::ARCHIVED,
+            })
+            .collect()
     });
     let rows = state
         .store
@@ -796,6 +834,10 @@ pub async fn get_coupon(
 }
 
 /// Create a coupon
+///
+/// Answers the coupon created, enabled. A code a live coupon holds, ignoring case, is refused
+/// (`409 code_taken`). Promotional credit takes no duration and is never `reusable`; a
+/// `valid_from` after `expires_at` is refused.
 #[utoipa::path(
     post,
     tag = "Coupons",
@@ -1046,6 +1088,9 @@ pub async fn disable_coupon(
 }
 
 /// Enable a coupon
+///
+/// Redeemable again, unless it is expired, used up or archived. Enabling an enabled coupon
+/// changes nothing.
 #[utoipa::path(
     post,
     tag = "Coupons",

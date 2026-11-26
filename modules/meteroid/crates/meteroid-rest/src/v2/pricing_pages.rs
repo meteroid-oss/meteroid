@@ -33,12 +33,18 @@ pub struct PricingPageQuery {
     pub option: Option<String>,
 }
 
+/// An option of the page's switch ("Monthly", "Annual").
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct PageOption {
+    /// The option's alias, as `?option=` takes it.
     pub alias: String,
+    /// What a visitor reads.
     pub name: String,
 }
 
+/// What an item of a card prices: `base`, the fixed fees billed on the card's period, summed;
+/// `per_seat`, per seat of a managed quantity; `usage`, metered usage; `one_time`, a fee billed
+/// once; `credit_pack`, a pack of credit; `recurring`, a fixed fee billed on its own period.
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ExtraKind {
@@ -55,35 +61,47 @@ pub enum ExtraKind {
 /// An item of a card, in the order it reads.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct CardExtra {
+    /// What it prices.
     pub kind: ExtraKind,
     /// The charge's name; empty for the base price.
     pub name: String,
+    /// A decimal string in the page's currency: the base price; per seat or unit; once; a
+    /// pack's. None for usage at a rate card's or by-dimension rates, and levels whose overage
+    /// varies.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>, format = "decimal")]
     pub amount: Option<Decimal>,
-    /// `amount` is the lowest rate of its tiers.
+    /// `amount` is the lowest rate of its tiers: "from".
     pub from_lowest: bool,
+    /// Units free before `amount` applies ("3 seats included").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub included: Option<u64>,
     /// `amount` is per this many units.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub block_size: Option<u64>,
+    /// What a unit is called ("seat", "request").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unit: Option<String>,
+    /// How often a recurring item bills.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub period: Option<Cadence>,
     /// The card's price: the others read beside it.
     pub lead: bool,
 }
 
+/// A usage level a visitor may pick on a card.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct CardLevel {
+    /// The usage included each period, in the metric's unit.
     pub included: u64,
+    /// The card's amount with this level, a decimal string in the page's currency.
     #[schema(value_type = String, format = "decimal")]
     pub amount: Decimal,
+    /// `amount` per month, for a card billed on a longer period.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>, format = "decimal")]
     pub monthly_equivalent: Option<Decimal>,
+    /// Per unit used above `included`; none when priced in a credit unit or left off the card.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>, format = "decimal")]
     pub overage_rate: Option<Decimal>,
@@ -92,8 +110,10 @@ pub struct CardLevel {
 /// Where the levels lead past their largest: sales.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct LevelsMore {
+    /// Where to contact sales.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contact_url: Option<String>,
+    /// The sales-led plan of the ladder it leads to; none when it is the card's own.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan_name: Option<String>,
 }
@@ -101,48 +121,69 @@ pub struct LevelsMore {
 /// The usage levels a visitor picks between.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct CardLevels {
+    /// The charge's name.
     pub name: String,
+    /// By the usage they include, smallest first.
     pub levels: Vec<CardLevel>,
+    /// What the charge counts, as its metric names it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metric_name: Option<String>,
+    /// The metric's unit, for one ("token").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unit_singular: Option<String>,
+    /// The metric's unit, for several ("tokens").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unit_plural: Option<String>,
+    /// A last stop past the largest level, sold by contacting sales; none when the ladder sells
+    /// nothing so.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub more: Option<LevelsMore>,
 }
 
+/// What a card reads as its price.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct CardPrice {
+    /// A decimal string in the page's currency: the card's lead price.
     #[schema(value_type = String, format = "decimal")]
     pub amount: Decimal,
     /// None for a plan billing only usage or one-time charges.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub period: Option<Cadence>,
+    /// `amount` per month, for a price billed on a longer period.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>, format = "decimal")]
     pub monthly_equivalent: Option<Decimal>,
+    /// Whole percent saved paying `amount` each `period` rather than the monthly price each
+    /// month, rounded down; none unless something is saved.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub saving_percent: Option<u32>,
     /// The amount is the lowest of several levels: "from".
     pub from_lowest: bool,
     /// A charge could not be shown: never read as free.
     pub partial: bool,
+    /// The card's items in the order they read, one of them its `lead`.
     pub extras: Vec<CardExtra>,
+    /// The usage levels a visitor picks between, the card's amount reading the lowest.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub levels: Option<CardLevels>,
 }
 
+/// A plan of the ladder as its card reads.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct PricingCard {
+    /// The plan, without version or option.
     pub plan: PlanRef,
+    /// The plan's name.
     pub name: String,
+    /// The plan's listing tagline.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tagline: Option<String>,
+    /// Highlighted.
     pub popular: bool,
+    /// The label of the card's button.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cta_label: Option<String>,
+    /// Its price is 0 with no other item: nothing to pay.
     pub free: bool,
     /// None when the plan is not sold in the currency, or its price is hidden.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -152,11 +193,16 @@ pub struct PricingCard {
     /// "Everything in <plan>, plus".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub includes_plan_name: Option<String>,
+    /// The lines listed on the card.
     pub highlights: Vec<String>,
+    /// The trial's length in days, when the plan has one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trial_days: Option<u32>,
+    /// Sold by contacting sales.
     pub sales_led: bool,
+    /// The price is not shown: `price` is none and the card reads "Custom pricing".
     pub hide_price: bool,
+    /// Where a sales-led card's button leads.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contact_url: Option<String>,
     /// Under the price when the plan does not sell the option shown ("Billed monthly").
@@ -164,18 +210,24 @@ pub struct PricingCard {
     pub option_note: Option<String>,
 }
 
+/// A product family's pricing page: its self-serve ladder, one card per plan, priced in one
+/// currency and one option.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct PricingPage {
+    /// The product family.
     pub family: ProductFamilyRef,
+    /// The product family's name.
     pub name: String,
+    /// The currency the page is priced in (ISO 4217).
     pub currency: String,
     /// The alias of the option shown; none when no plan is sold in the currency.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub option: Option<String>,
     /// The options a visitor switches between.
     pub options: Vec<PageOption>,
-    /// The currencies a visitor switches between.
+    /// The currencies a visitor switches between: those the ladder is sold in.
     pub currencies: Vec<String>,
+    /// One per plan of the ladder sold in the currency or by contacting sales, in ladder order.
     pub cards: Vec<PricingCard>,
 }
 

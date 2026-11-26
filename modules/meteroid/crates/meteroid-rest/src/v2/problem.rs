@@ -235,20 +235,28 @@ pub struct FieldError {
     // code answered is a `FieldErrorCode` (asserted in debug builds by `into_response`).
     #[schema(value_type = FieldErrorCode)]
     pub code: String,
+    /// What is wrong with it, in English, for a person to read; it may change at any time.
     pub message: String,
 }
 
 /// An RFC 9457 problem: every v2 error answers one, as `application/problem+json`.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone)]
 pub struct Problem {
-    /// A URI naming the kind of problem, documented per `code`.
+    /// A URI naming the kind of problem, documented per `code`:
+    /// `https://docs.meteroid.com/api/v2/errors/<code>`.
     #[serde(rename = "type")]
     pub kind: String,
+    /// A short summary of the kind of problem, the same for every problem of its `code`.
     pub title: String,
+    /// The HTTP status of the response.
     pub status: u16,
+    /// What went wrong; branch on it, not on `title` or `detail`.
     pub code: ProblemCode,
+    /// What went wrong with this request, in English, for a person to read; it may change at any
+    /// time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// The fields refused, each at its path; absent when the problem is not a field's.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<FieldError>,
     /// The id of the request, as in the `Request-Id` header: quote it to support.
@@ -654,9 +662,17 @@ from_rejection!(JsonRejection, PathRejection, BytesRejection);
 impl From<QueryRejection> for Problem {
     fn from(rejection: QueryRejection) -> Self {
         let text = rejection.body_text();
-        let refusal = text
-            .strip_prefix("Failed to deserialize query string: ")
-            .unwrap_or(text.as_str());
+        Problem::query_refused(
+            text.strip_prefix("Failed to deserialize query string: ")
+                .unwrap_or(text.as_str()),
+        )
+    }
+}
+
+impl Problem {
+    /// A query string that does not read: `422 validation_failed`, the parameter it names in
+    /// `errors`.
+    pub fn query_refused(refusal: &str) -> Self {
         let mut problem = Problem::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             ProblemCode::ValidationFailed,
@@ -674,7 +690,8 @@ impl From<QueryRejection> for Problem {
 }
 
 /// The parameter a query refusal names and what is wrong with it: `status: unknown variant …`
-/// (its path, as `serde_path_to_error` writes it), or `missing field `from``.
+/// (its path, as `serde_path_to_error` writes it, an index into a repeated parameter left out),
+/// or `missing field `from``.
 fn query_refusal(refusal: &str) -> Option<(String, String)> {
     if let Some((parameter, message)) = refusal.split_once(": ")
         && !parameter.is_empty()
@@ -682,6 +699,7 @@ fn query_refusal(refusal: &str) -> Option<(String, String)> {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '[' | ']'))
     {
+        let parameter = parameter.split(['[', '.']).next().unwrap_or(parameter);
         return Some((parameter.to_owned(), message.to_owned()));
     }
     let missing = refusal.strip_prefix("missing field `")?.strip_suffix('`')?;

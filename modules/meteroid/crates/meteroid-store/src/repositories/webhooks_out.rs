@@ -6,8 +6,8 @@ use diesel_models::enums::WebhookDeliveryStatusEnum;
 use diesel_models::webhooks_out::{
     WebhookOutAttemptRow, WebhookOutAttemptRowNew, WebhookOutDeliveryRow, WebhookOutDeliveryRowNew,
     WebhookOutEndpointRow, WebhookOutEndpointRowNew, WebhookOutEndpointRowPatch,
-    WebhookOutMessageRow, WebhookOutMessageRowNew, WebhookOutRetiredSecretRow,
-    WebhookOutRetiredSecretRowNew,
+    WebhookOutMessageRow, WebhookOutMessageRowNew, WebhookOutMessageVersionRow,
+    WebhookOutRetiredSecretRow, WebhookOutRetiredSecretRowNew,
 };
 use error_stack::{Report, ResultExt};
 use scoped_futures::ScopedFutureExt;
@@ -21,7 +21,7 @@ use crate::domain::webhooks_out::{
     ImportedSvixWebhookEndpoint, SvixWebhookEndpointImport, WebhookAttemptOutcome, WebhookDelivery,
     WebhookDeliveryDetails, WebhookDeliveryListItem, WebhookEndpoint, WebhookEndpointHeader,
     WebhookEndpointNew, WebhookEndpointPatch, WebhookEndpointWithSecrets, WebhookHeaderInput,
-    WebhookOutMessage, WebhookOutMessageNew,
+    WebhookOutMessage, WebhookOutMessageNew, WebhookOutMessageVersion, WebhookOutTarget,
 };
 use crate::domain::webhooks_out::{WebhookDailyStats, WebhookEndpointStats};
 use crate::errors::StoreError;
@@ -105,10 +105,14 @@ pub trait WebhookOutInterface {
         tenant_ids: &[TenantId],
     ) -> StoreResult<Vec<WebhookEndpoint>>;
 
+    /// Stores the message, its payload at each version in `versions`, and one PENDING delivery
+    /// per target, sending the payload of the target's version. Idempotent on the message id: a
+    /// message fanned out again adds what is missing only.
     async fn insert_webhook_message_with_deliveries(
         &self,
         message: WebhookOutMessageNew,
-        endpoint_ids: &[WebhookEndpointId],
+        versions: Vec<WebhookOutMessageVersion>,
+        targets: &[WebhookOutTarget],
     ) -> StoreResult<()>;
 
     async fn reclaim_expired_webhook_deliveries(&self) -> StoreResult<usize>;
@@ -124,7 +128,12 @@ pub trait WebhookOutInterface {
         endpoint_id: WebhookEndpointId,
     ) -> StoreResult<Option<WebhookEndpointWithSecrets>>;
 
-    async fn get_webhook_message(&self, message_id: EventId) -> StoreResult<WebhookOutMessage>;
+    /// The message as a delivery at `api_version` sends it (v1's payload without one).
+    async fn get_webhook_message(
+        &self,
+        message_id: EventId,
+        api_version: Option<&str>,
+    ) -> StoreResult<WebhookOutMessage>;
 
     async fn record_webhook_attempt(&self, outcome: WebhookAttemptOutcome) -> StoreResult<()>;
 
@@ -161,7 +170,7 @@ pub trait WebhookOutInterface {
         &self,
         tenant_id: TenantId,
         endpoint_id: WebhookEndpointId,
-        status: Option<WebhookDeliveryStatus>,
+        status: Option<Vec<WebhookDeliveryStatus>>,
         before: Option<WebhookDeliveryId>,
         limit: usize,
     ) -> StoreResult<Option<Vec<WebhookDeliveryListItem>>>;
@@ -178,11 +187,14 @@ pub trait WebhookOutInterface {
         id: WebhookDeliveryId,
     ) -> StoreResult<WebhookDelivery>;
 
+    /// A delivery made by hand (a test event): `version` is the payload it sends when the
+    /// endpoint's version has payloads of its own, v1's (`message.payload`) without.
     async fn create_manual_webhook_delivery(
         &self,
         tenant_id: TenantId,
         endpoint_id: WebhookEndpointId,
         message: WebhookOutMessageNew,
+        version: Option<WebhookOutMessageVersion>,
     ) -> StoreResult<WebhookDelivery>;
 
     /// Ends a pause now, so the oldest due delivery is sent as the next probe. The
@@ -629,9 +641,10 @@ impl WebhookOutInterface for Store {
     async fn insert_webhook_message_with_deliveries(
         &self,
         message: WebhookOutMessageNew,
-        endpoint_ids: &[WebhookEndpointId],
+        versions: Vec<WebhookOutMessageVersion>,
+        targets: &[WebhookOutTarget],
     ) -> StoreResult<()> {
-        if endpoint_ids.is_empty() {
+        if targets.is_empty() {
             return Ok(());
         }
 
@@ -646,16 +659,26 @@ impl WebhookOutInterface for Store {
             payload: message.payload,
         };
 
-        let delivery_rows: Vec<WebhookOutDeliveryRowNew> = endpoint_ids
+        let version_rows: Vec<WebhookOutMessageVersionRow> = versions
+            .into_iter()
+            .map(|version| WebhookOutMessageVersionRow {
+                message_id,
+                api_version: version.api_version,
+                payload: version.payload,
+            })
+            .collect();
+
+        let delivery_rows: Vec<WebhookOutDeliveryRowNew> = targets
             .iter()
-            .map(|endpoint_id| WebhookOutDeliveryRowNew {
+            .map(|target| WebhookOutDeliveryRowNew {
                 id: WebhookDeliveryId::new(),
                 tenant_id,
                 message_id,
-                endpoint_id: *endpoint_id,
+                endpoint_id: target.endpoint_id,
                 status: WebhookDeliveryStatusEnum::Pending,
                 next_attempt_at: Some(now),
                 manual: false,
+                api_version: target.api_version.clone(),
             })
             .collect();
 
@@ -663,6 +686,10 @@ impl WebhookOutInterface for Store {
             async move {
                 message_row
                     .insert_ignore_conflict(conn)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                WebhookOutMessageVersionRow::insert_batch_ignore_conflict(conn, &version_rows)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -770,10 +797,14 @@ impl WebhookOutInterface for Store {
         }))
     }
 
-    async fn get_webhook_message(&self, message_id: EventId) -> StoreResult<WebhookOutMessage> {
+    async fn get_webhook_message(
+        &self,
+        message_id: EventId,
+        api_version: Option<&str>,
+    ) -> StoreResult<WebhookOutMessage> {
         let mut conn = self.get_conn().await?;
 
-        WebhookOutMessageRow::get_by_id(&mut conn, message_id)
+        WebhookOutMessageRow::get_at_version(&mut conn, message_id, api_version)
             .await
             .map(Into::into)
             .map_err(Into::into)
@@ -950,7 +981,7 @@ impl WebhookOutInterface for Store {
         &self,
         tenant_id: TenantId,
         endpoint_id: WebhookEndpointId,
-        status: Option<WebhookDeliveryStatus>,
+        status: Option<Vec<WebhookDeliveryStatus>>,
         before: Option<WebhookDeliveryId>,
         limit: usize,
     ) -> StoreResult<Option<Vec<WebhookDeliveryListItem>>> {
@@ -960,7 +991,7 @@ impl WebhookOutInterface for Store {
             &mut conn,
             tenant_id,
             endpoint_id,
-            status.map(Into::into),
+            status.map(|statuses| statuses.into_iter().map(Into::into).collect()),
             before,
             i64::try_from(limit).unwrap_or(i64::MAX),
         )
@@ -985,9 +1016,13 @@ impl WebhookOutInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        let message = WebhookOutMessageRow::get_by_id(&mut conn, delivery.message_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let message = WebhookOutMessageRow::get_at_version(
+            &mut conn,
+            delivery.message_id,
+            delivery.api_version.as_deref(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
         let attempts = WebhookOutAttemptRow::list_by_delivery(&mut conn, id)
             .await
@@ -1059,9 +1094,19 @@ impl WebhookOutInterface for Store {
         tenant_id: TenantId,
         endpoint_id: WebhookEndpointId,
         message: WebhookOutMessageNew,
+        version: Option<WebhookOutMessageVersion>,
     ) -> StoreResult<WebhookDelivery> {
         let now = common_clock::wall().naive_utc();
         let message_id = message.id;
+        let api_version = version.as_ref().map(|version| version.api_version.clone());
+        let version_rows: Vec<WebhookOutMessageVersionRow> = version
+            .into_iter()
+            .map(|version| WebhookOutMessageVersionRow {
+                message_id,
+                api_version: version.api_version,
+                payload: version.payload,
+            })
+            .collect();
 
         let message_row = WebhookOutMessageRowNew {
             id: message.id,
@@ -1087,6 +1132,10 @@ impl WebhookOutInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
+                WebhookOutMessageVersionRow::insert_batch_ignore_conflict(conn, &version_rows)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
                 let row = WebhookOutDeliveryRowNew {
                     id: WebhookDeliveryId::new(),
                     tenant_id,
@@ -1095,6 +1144,7 @@ impl WebhookOutInterface for Store {
                     status: WebhookDeliveryStatusEnum::Pending,
                     next_attempt_at: Some(now),
                     manual: true,
+                    api_version,
                 }
                 .insert(conn)
                 .await

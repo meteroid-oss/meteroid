@@ -1,5 +1,5 @@
 //! Metering down or late during a check, a snapshot or a readout (ADR 0011 §3.11, §3.14,
-//! ADR-0013 §23): a limit that refuses answers `usage_unavailable`, one that bills allows, and the
+//! ADR-0013 §25): a limit that refuses answers `usage_unavailable`, one that bills allows, and the
 //! other entries answer; the store's own answer is never an error for it. A limit whose usage
 //! cannot be counted as set up is `misconfigured`, never retried.
 use crate::data::ids::{CUST_UBER_ID, METRIC_BANDWIDTH, TENANT_ID};

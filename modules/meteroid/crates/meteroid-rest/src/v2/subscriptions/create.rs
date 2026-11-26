@@ -153,9 +153,9 @@ fn taken(external_id: &str) -> Problem {
     post,
     tag = "Subscriptions",
     path = "/api/v2/subscriptions",
-    request_body = CreateSubscription,
+    request_body(content = CreateSubscription, example = json!(crate::v2::examples::request("create_subscription"))),
     responses(
-        (status = 201, description = "Created", body = Subscription),
+        (status = 201, description = "Created", body = Subscription, example = json!(crate::v2::examples::response("create_subscription"))),
         (status = 404, description = "The customer is not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The external id is taken (`code_taken`)", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A field is refused: an unknown option, a quantity no seat charge counts, a level the charge does not sell, a resource not the customer's or sold to another subscription over the term…; or no Idempotency-Key was sent", body = Problem, content_type = "application/problem+json"),

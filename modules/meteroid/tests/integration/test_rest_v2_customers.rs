@@ -3,7 +3,7 @@
 //! their portal token, entitlements and credit.
 use crate::data::ids::TENANT_ID;
 use crate::data::payment::run_mock_payment_provider_seed;
-use crate::test_rest_v2::{Answer, Fixture, fixture};
+use crate::test_rest_v2::{Answer, Fixture, fixture, moment_from, second_tenant_key};
 use common_domain::ids::CustomerId;
 use meteroid_store::domain::credit::GrantClassification;
 use meteroid_store::repositories::credit::CustomerCreditWalletsInterface;
@@ -170,6 +170,49 @@ async fn test_rest_v2_customers() {
         .get("/api/v2/customers?search=-v2&updated_after=2999-01-01T00:00:00Z")
         .await;
     assert_eq!(from_the_future.body["data"].as_array().unwrap().len(), 0);
+    // Created after or before a moment, exclusive.
+    let before_acme = moment_from(&customer["created_at"], -1);
+    let created_since = f
+        .get(&format!(
+            "/api/v2/customers?search=-v2&created_after={before_acme}"
+        ))
+        .await;
+    assert_eq!(
+        created_since.status,
+        StatusCode::OK,
+        "{:#}",
+        created_since.body
+    );
+    assert_eq!(ids(&created_since.body).len(), 3);
+    let created_earlier = f
+        .get(&format!(
+            "/api/v2/customers?search=-v2&created_before={before_acme}"
+        ))
+        .await;
+    assert_eq!(
+        created_earlier.status,
+        StatusCode::OK,
+        "{:#}",
+        created_earlier.body
+    );
+    assert!(ids(&created_earlier.body).is_empty());
+    let seeded = f
+        .get(&format!(
+            "/api/v2/customers?created_before={before_acme}&limit=100"
+        ))
+        .await;
+    assert!(
+        !ids(&seeded.body).is_empty(),
+        "the seeded customers came before"
+    );
+    assert!(!ids(&seeded.body).contains(&id));
+    let created_never = f
+        .get("/api/v2/customers?search=-v2&created_after=2999-01-01T00:00:00Z")
+        .await;
+    assert!(ids(&created_never.body).is_empty());
+    let not_a_moment = f.get("/api/v2/customers?created_before=soon").await;
+    assert_eq!(not_a_moment.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(not_a_moment.body["errors"][0]["path"], "created_before");
     let bad_limit = f.get("/api/v2/customers?limit=0").await;
     assert_eq!(bad_limit.status, StatusCode::UNPROCESSABLE_ENTITY);
 
@@ -403,6 +446,53 @@ async fn test_rest_v2_customer_credit() {
     assert_eq!(listed.status, StatusCode::OK, "{:#}", listed.body);
     assert_eq!(listed.body["data"].as_array().unwrap().len(), 1);
     assert_eq!(listed.body["data"][0]["id"], body["id"]);
+
+    // One grant and one wallet, as their lists read them; another tenant reads neither.
+    let grant_id = body["id"].as_str().unwrap().to_owned();
+    let one_grant = f.get(&format!("{grants}/{grant_id}")).await;
+    assert_eq!(one_grant.status, StatusCode::OK, "{:#}", one_grant.body);
+    assert_eq!(one_grant.body, listed.body["data"][0]);
+    let one_wallet = f.get("/api/v2/customers/ext:credit-v2/wallets/EUR").await;
+    assert_eq!(one_wallet.status, StatusCode::OK, "{:#}", one_wallet.body);
+    assert_eq!(one_wallet.body["currency"], "EUR");
+    assert_eq!(
+        one_wallet.body["credit_on_account"],
+        eur["credit_on_account"]
+    );
+    let lowercase = f.get("/api/v2/customers/ext:credit-v2/wallets/eur").await;
+    assert_eq!(lowercase.status, StatusCode::OK, "{:#}", lowercase.body);
+    for missing in [
+        format!("{grants}/cgr_nothing"),
+        format!("{grants}/{}", uuid::Uuid::now_v7()),
+        "/api/v2/customers/ext:credit-v2/wallets/USD".to_owned(),
+        "/api/v2/customers/ext:credit-v2/wallets/NO_SUCH_UNIT".to_owned(),
+        format!("/api/v2/customers/ext:uber/credit-grants/{grant_id}"),
+    ] {
+        let answer = f.get(&missing).await;
+        assert_eq!(
+            answer.status,
+            StatusCode::NOT_FOUND,
+            "{missing}: {:#}",
+            answer.body
+        );
+        assert_eq!(answer.body["code"], "not_found", "{missing}");
+    }
+    let other_key = second_tenant_key(&f).await;
+    let customer_id = created.body["id"].as_str().unwrap().to_owned();
+    for path in [
+        format!("/api/v2/customers/{customer_id}/credit-grants/{grant_id}"),
+        format!("/api/v2/customers/{customer_id}/wallets/EUR"),
+    ] {
+        let theirs = f
+            .send(f.client.get(f.url(&path)).bearer_auth(&other_key))
+            .await;
+        assert_eq!(
+            theirs.status,
+            StatusCode::NOT_FOUND,
+            "{path}: {:#}",
+            theirs.body
+        );
+    }
     let second = f
         .post_once(
             grants,
@@ -481,6 +571,21 @@ async fn test_rest_v2_customer_credit() {
     assert_eq!(checkout.status, StatusCode::CREATED, "{:#}", checkout.body);
     assert_eq!(checkout.body["status"], "requires_customer_action");
     assert!(checkout.body["checkout_url"].is_string());
+
+    // Several statuses, the parameter repeated.
+    let live = f
+        .get(&format!("{grants}?status=pending&status=active"))
+        .await;
+    assert_eq!(live.status, StatusCode::OK, "{:#}", live.body);
+    assert_eq!(live.body["data"].as_array().unwrap().len(), 2);
+    let spent = f
+        .get(&format!("{grants}?status=depleted&status=expired"))
+        .await;
+    assert_eq!(spent.status, StatusCode::OK, "{:#}", spent.body);
+    assert!(spent.body["data"].as_array().unwrap().is_empty());
+    let unknown = f.get(&format!("{grants}?status=active&status=spent")).await;
+    assert_eq!(unknown.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(unknown.body["errors"][0]["path"], "status");
 
     // Grants page by cursor, newest first; a cursor of another list, or none at all, is refused.
     let newest = f.get(&format!("{grants}?limit=1")).await;

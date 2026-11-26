@@ -21,7 +21,7 @@ interface Props {
  * Grouped checkboxes, like the role editor's permission picker.
  */
 export const EventTypeSelect = ({ allEvents, onAllEventsChange, value, onChange }: Props) => {
-  const eventTypesQuery = useQuery(listWebhookEventTypes)
+  const eventTypesQuery = useQuery(listWebhookEventTypes, {})
 
   const groups = useMemo(() => {
     const byGroup = new Map<string, WebhookEventType[]>()
@@ -70,8 +70,8 @@ export const EventTypeSelect = ({ allEvents, onAllEventsChange, value, onChange 
         <div className="min-w-0">
           <div className="text-[13px] font-medium">All event types</div>
           <div className="text-xs leading-snug text-muted-foreground">
-            Every event type except Beta ones, including types added later. To receive a Beta
-            event type, turn this off and pick it.
+            Every event type except Beta ones, including types added later. To receive a Beta event
+            type, turn this off and pick it.
           </div>
         </div>
         <Switch checked={allEvents} onCheckedChange={onAllEventsChange} />

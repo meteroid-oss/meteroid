@@ -72,6 +72,15 @@ message ResumeWebhookEndpointResponse {
   WebhookEndpoint endpoint = 1;
 }
 
+// Pins the endpoint's payloads to the latest API version, from its next event on: their
+// shape changes (API v2's envelopes). Deliveries already queued keep the shape they have.
+message UpgradeWebhookEndpointApiVersionRequest {
+  string id = 1;
+}
+message UpgradeWebhookEndpointApiVersionResponse {
+  WebhookEndpoint endpoint = 1;
+}
+
 message ArchiveWebhookEndpointRequest {
   string id = 1;
 }
@@ -91,7 +100,13 @@ message RotateWebhookEndpointSecretResponse {
   string secret = 1;
 }
 
-message ListWebhookEventTypesRequest {}
+message ListWebhookEventTypesRequest {
+  // The catalog of API v2's payloads, as an endpoint not on `v1_payloads` receives them: v2's
+  // event types, their fields (the envelope `{id, type, created_at, api_version, data}`, `data`
+  // the resource as v2 reads it or the notification) and each example at the latest version.
+  // False: API v1's payloads.
+  bool v2_payloads = 1;
+}
 message ListWebhookEventTypesResponse {
   repeated WebhookEventType event_types = 1;
 }
@@ -125,8 +140,8 @@ message ResendWebhookDeliveryResponse {
 
 message SendTestWebhookRequest {
   string endpoint_id = 1;
-  // Send this event type's example payload (from the event catalog) instead of the
-  // generic `webhook.test` event.
+  // Send this event type's example payload (from the event catalog of the payloads the endpoint
+  // receives, v1's or v2's) instead of the generic `webhook.test` event.
   optional string event_type = 2;
 }
 message SendTestWebhookResponse {
@@ -172,6 +187,7 @@ service WebhooksService {
   rpc CreateWebhookEndpoint(CreateWebhookEndpointRequest) returns (CreateWebhookEndpointResponse) {};
   rpc UpdateWebhookEndpoint(UpdateWebhookEndpointRequest) returns (UpdateWebhookEndpointResponse) {};
   rpc ResumeWebhookEndpoint(ResumeWebhookEndpointRequest) returns (ResumeWebhookEndpointResponse) {};
+  rpc UpgradeWebhookEndpointApiVersion(UpgradeWebhookEndpointApiVersionRequest) returns (UpgradeWebhookEndpointApiVersionResponse) {};
   rpc ArchiveWebhookEndpoint(ArchiveWebhookEndpointRequest) returns (ArchiveWebhookEndpointResponse) {};
   rpc GetWebhookEndpointSecret(GetWebhookEndpointSecretRequest) returns (GetWebhookEndpointSecretResponse) {};
   rpc RotateWebhookEndpointSecret(RotateWebhookEndpointSecretRequest) returns (RotateWebhookEndpointSecretResponse) {};

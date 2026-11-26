@@ -4,6 +4,7 @@
 //! are integers in minor units, unit prices and quantities decimal strings. One rendering serves
 //! issued documents and previewed ones.
 use crate::AppState;
+use crate::v2::Reader;
 use crate::v2::customers::model::Address;
 use crate::v2::problem::Problem;
 use crate::v2::refs::{CouponRef, CreditUnitRef, ProductRef};
@@ -25,6 +26,9 @@ use utoipa::ToSchema;
 
 // ── Lines ───────────────────────────────────────────────────────────
 
+/// What a line bills: `charge`, what a charge billed; `minimum_shortfall`, what brings the
+/// period up to the subscription's minimum; `credit`, credit sold, which paying the document
+/// funds.
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum LineKind {
@@ -36,7 +40,8 @@ pub enum LineKind {
     Credit,
 }
 
-/// How the charge a line bills recurs.
+/// How the charge a line bills recurs: `recurring`, a fee every period (a rate, seats);
+/// `usage`, what the period's usage billed; `one_time`, billed once.
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum LineBilling {
@@ -45,6 +50,8 @@ pub enum LineBilling {
     OneTime,
 }
 
+/// How a tiered price reads its tiers: `graduated`, each unit at the price of the tier it falls
+/// in; `volume`, every unit at the price of the tier the whole quantity falls in.
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TierMode {
@@ -57,15 +64,18 @@ pub enum TierMode {
 /// The tier a subline prices.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct SubLineTier {
+    /// How the price reads its tiers.
     pub mode: TierMode,
+    /// The unit the tier starts at.
     pub first_unit: u64,
     /// Absent for the last tier, which has no upper end.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_unit: Option<u64>,
-    /// In the currency's major unit.
+    /// The tier's flat fee, billed once the quantity reaches it, in the currency's major unit.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>, format = "decimal")]
     pub flat_fee: Option<Decimal>,
+    /// The most the tier bills, its flat fee included, in the currency's major unit.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>, format = "decimal")]
     pub flat_cap: Option<Decimal>,
@@ -76,7 +86,9 @@ pub struct SubLineTier {
 pub struct SubLine {
     /// Its id within its line: a credit note credits it by it (`lines[].sub_lines[].id`).
     pub id: String,
+    /// As printed (`First 1000`, `Next 4000`, `Packs of 100`…).
     pub name: String,
+    /// The units it prices, as a decimal string.
     #[schema(value_type = String, format = "decimal")]
     pub quantity: Decimal,
     /// In the currency's major unit.
@@ -84,6 +96,7 @@ pub struct SubLine {
     pub unit_price: Decimal,
     /// In minor units, before discounts and tax.
     pub amount: i64,
+    /// The tier it prices, on a tiered or volume price.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tier: Option<SubLineTier>,
     /// A package price's usage before it was rounded up to whole packages.
@@ -99,6 +112,7 @@ pub struct SubLine {
 /// credits did not cover, billed at `rate`.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct LineCredits {
+    /// The credit unit the usage is priced in.
     pub credit_unit: CreditUnitRef,
     /// Credit amounts are integers in 10^-precision credit.
     pub precision: u8,
@@ -109,6 +123,7 @@ pub struct LineCredits {
     /// The currency's major units per credit.
     #[schema(value_type = String, format = "decimal")]
     pub rate: Decimal,
+    /// The credit the line's usage consumed, in 10^-`precision` credit.
     pub consumed: i64,
     /// Of `consumed`, what the customer's credits paid.
     pub covered: i64,
@@ -120,19 +135,24 @@ pub struct DocumentLine {
     /// Its id within its document: a credit note names the invoice lines it credits by it, and a
     /// draft's edit the lines it keeps. A preview's lines have ids of their own, never issued.
     pub id: String,
+    /// As printed: the charge's name, or the name a line written by hand was given.
     pub name: String,
+    /// Printed under its name; absent when blank.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// The product billed.
+    /// The product billed; absent on a line written by hand.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub product: Option<ProductRef>,
+    /// What the line bills.
     pub kind: LineKind,
+    /// How the charge it bills recurs; absent on a line written by hand.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub billing: Option<LineBilling>,
+    /// Absent on a line its `sub_lines` add up (tiers, packages, dimension rates).
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>, format = "decimal")]
     pub quantity: Option<Decimal>,
-    /// In the currency's major unit.
+    /// In the currency's major unit; absent as `quantity` is.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>, format = "decimal")]
     pub unit_price: Option<Decimal>,
@@ -140,13 +160,18 @@ pub struct DocumentLine {
     pub amount: i64,
     /// What is taxed of `amount`, discounts and promotional credit taken off.
     pub taxable_amount: i64,
+    /// A fraction as a decimal string: `"0.2"` is 20%.
     #[schema(value_type = String, format = "decimal")]
     pub tax_rate: Decimal,
+    /// The tax on `taxable_amount`, in minor units.
     pub tax: i64,
     /// `taxable_amount + tax`.
     pub total: i64,
+    /// The first day the line bills.
     pub start_date: chrono::NaiveDate,
+    /// The day after the last it bills: the period is `[start_date, end_date)`.
     pub end_date: chrono::NaiveDate,
+    /// Billed for part of its period only (a change mid-period, a first period started late).
     pub prorated: bool,
     /// The values of the dimensions a usage line is grouped by.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -154,6 +179,7 @@ pub struct DocumentLine {
     /// Tiers, packages or dimension rates the line adds up.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub sub_lines: Vec<SubLine>,
+    /// The credit unit its usage is priced in, and what the customer's credits covered.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credits: Option<LineCredits>,
 }
@@ -164,7 +190,7 @@ pub struct ProductCodes(HashMap<ProductId, String>);
 
 impl ProductCodes {
     pub async fn load<'a>(
-        state: &AppState,
+        state: &impl Reader,
         tenant_id: TenantId,
         lines: impl IntoIterator<Item = &'a LineItem>,
     ) -> Result<Self, Problem> {
@@ -176,7 +202,7 @@ impl ProductCodes {
         }
         Ok(Self(
             state
-                .store
+                .store()
                 .find_products_by_ids(&ids, tenant_id)
                 .await?
                 .into_iter()
@@ -319,7 +345,10 @@ pub fn lines(lines: &[LineItem], products: &ProductCodes) -> Vec<DocumentLine> {
 
 // ── Taxes and coupons ───────────────────────────────────────────────
 
-/// Why a tax applies at no rate.
+/// Why a tax applies at no rate: `reverse_charge`, the tax is due by the customer;
+/// `tax_exempt`, the customer is exempt; `not_registered`, no tax applied and no reason is known
+/// (no country, tax resolved outside Meteroid…); `export`, sold outside the seller's territory;
+/// `no_vat_territory`, taxable where VAT does not apply in the seller's own territory.
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TaxExemption {
@@ -335,11 +364,17 @@ pub enum TaxExemption {
 /// One rate of the document's tax.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct DocumentTax {
+    /// As printed (`VAT 20%`).
     pub name: String,
+    /// A fraction as a decimal string: `"0.2"` is 20%.
     #[schema(value_type = String, format = "decimal")]
     pub rate: Decimal,
+    /// What the rate applies to, in minor units: negative where credit or proration lines net
+    /// below zero.
     pub taxable_amount: i64,
+    /// The tax at this rate, in minor units.
     pub amount: i64,
+    /// Why the rate is 0; absent on a tax applied.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exemption: Option<TaxExemption>,
     /// The legal mention of the exemption.
@@ -377,6 +412,7 @@ pub fn taxes(breakdown: &[TaxBreakdownItem]) -> Vec<DocumentTax> {
 /// A coupon the document applied.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct DocumentCoupon {
+    /// The coupon applied.
     pub coupon: CouponRef,
     /// Its name, as printed.
     pub name: String,
@@ -404,14 +440,18 @@ pub fn coupons(coupons: &[CouponLineItem]) -> Vec<DocumentCoupon> {
 /// draft. The customer itself is the document's `customer`.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct DocumentCustomer {
+    /// The customer's id.
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub id: common_domain::ids::CustomerId,
     /// The integrator's own id of the customer; name it as `ext:<alias>` in requests.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alias: Option<String>,
+    /// A company's name, or a person's full name.
     pub name: String,
+    /// The billing email.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
+    /// The VAT number printed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vat_number: Option<String>,
     /// As the customer's own reads.
@@ -443,7 +483,8 @@ pub struct DocumentFiles {
     pub xml: bool,
 }
 
-/// Whether the structured e-invoice was produced with the PDF.
+/// Whether the structured e-invoice was produced with the PDF: `generated`, or `failed` when
+/// the document did not satisfy the standard (the PDF was issued all the same).
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum EInvoicingStatus {

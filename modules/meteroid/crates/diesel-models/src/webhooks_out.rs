@@ -124,6 +124,16 @@ pub struct WebhookOutMessageRowNew {
     pub payload: serde_json::Value,
 }
 
+/// An event's payload rendered at an API version with payloads of its own (ADR-0013 §15).
+#[derive(Queryable, Selectable, Insertable, Debug, Clone)]
+#[diesel(table_name = crate::schema::webhook_out_message_version)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct WebhookOutMessageVersionRow {
+    pub message_id: EventId,
+    pub api_version: String,
+    pub payload: serde_json::Value,
+}
+
 #[derive(Queryable, QueryableByName, Selectable, Identifiable, Debug, Clone)]
 #[diesel(table_name = crate::schema::webhook_out_delivery)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
@@ -143,6 +153,7 @@ pub struct WebhookOutDeliveryRow {
     pub updated_at: Option<NaiveDateTime>,
     pub completed_at: Option<NaiveDateTime>,
     pub claimed_at: Option<NaiveDateTime>,
+    pub api_version: Option<String>,
 }
 
 #[derive(Insertable, Debug)]
@@ -155,6 +166,7 @@ pub struct WebhookOutDeliveryRowNew {
     pub status: WebhookDeliveryStatusEnum,
     pub next_attempt_at: Option<NaiveDateTime>,
     pub manual: bool,
+    pub api_version: Option<String>,
 }
 
 #[derive(Queryable, Selectable, Identifiable, Debug, Clone)]

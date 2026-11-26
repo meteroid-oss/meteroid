@@ -136,4 +136,25 @@ impl PlanVersionAddOnRow {
 
         Ok(())
     }
+
+    /// Removes every add-on a version offers: a draft discarded takes its offers with it.
+    pub async fn delete_all_of_version(
+        conn: &mut PgConn,
+        plan_version_id: PlanVersionId,
+        tenant_id: TenantId,
+    ) -> DbResult<usize> {
+        use crate::schema::plan_version_add_on::dsl as pva_dsl;
+
+        let query = diesel::delete(pva_dsl::plan_version_add_on)
+            .filter(pva_dsl::plan_version_id.eq(plan_version_id))
+            .filter(pva_dsl::tenant_id.eq(tenant_id));
+
+        crate::debug_sql(&query);
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while deleting a version's plan_version_add_ons")
+            .into_db_result()
+    }
 }

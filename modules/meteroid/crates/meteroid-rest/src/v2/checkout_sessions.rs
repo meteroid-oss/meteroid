@@ -6,6 +6,7 @@
 //! subscription.
 use crate::AppState;
 use crate::checkoutsessions::router::{generate_checkout_url, validate_redirect_url};
+use crate::v2::Reader;
 use crate::v2::bounds;
 use crate::v2::customers::resources::{ResourceName, resource_refs, stored_resource_id};
 use crate::v2::documents::{document_not_found, filter_not_found};
@@ -44,6 +45,9 @@ use utoipa_axum::routes;
 
 // ── Model ───────────────────────────────────────────────────────────
 
+/// Where a checkout stands: `created` waiting for the customer; `awaiting_payment` paid and being
+/// confirmed, or failed and open to a retry; `completed` paid, its subscription created;
+/// `expired` past its `expires_at` unpaid; `cancelled` cancelled before it was paid.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CheckoutStatus {
@@ -81,7 +85,10 @@ impl From<CheckoutStatus> for CheckoutSessionStatus {
     }
 }
 
-/// What the checkout buys.
+/// What the checkout buys: `self_serve` a new subscription, created when it is paid
+/// (`POST /checkout-sessions`); `subscription_activation` the activation of a subscription
+/// waiting for its checkout; `plan_change` a plan change of a subscription, from the customer
+/// portal; `add_on_purchase` an add-on bought for a subscription, from the customer portal.
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CheckoutKind {
@@ -110,7 +117,9 @@ fn kind(checkout_type: CheckoutType) -> Option<CheckoutKind> {
 /// An add-on the checkout buys.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq, Eq)]
 pub struct CheckoutAddOn {
+    /// The add-on bought.
     pub add_on: AddOnRef,
+    /// Instances bought.
     pub quantity: i32,
 }
 
@@ -120,11 +129,15 @@ pub struct CheckoutInvoicing {
     /// The plan's when absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub net_terms: Option<i32>,
+    /// The customer's purchase order number, printed on every invoice.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub purchase_order: Option<String>,
+    /// Printed on every invoice.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memo: Option<String>,
+    /// Invoices are finalized and sent without a review.
     pub auto_finalize: bool,
+    /// Invoices are charged to the customer's payment method.
     pub charge_automatically: bool,
 }
 
@@ -133,12 +146,17 @@ pub struct CheckoutInvoicing {
 /// here; a list item carries no `url` (read it on the session).
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct CheckoutSession {
+    /// The session's id.
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub id: CheckoutSessionId,
+    /// What it buys.
     #[serde(rename = "type")]
     pub kind: CheckoutKind,
+    /// Where it stands.
     pub status: CheckoutStatus,
+    /// The customer checking out.
     pub customer: CustomerRef,
+    /// The plan bought, with its version and option.
     pub plan: PlanRef,
     /// The resource the subscription is for; none: the whole customer.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -152,49 +170,60 @@ pub struct CheckoutSession {
     /// to its resource's type, so its subscription would bill none of their usage.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub metrics_not_attributed: Vec<String>,
+    /// The add-ons bought with it.
     pub add_ons: Vec<CheckoutAddOn>,
     /// A coupon deleted since the session was created is left out.
     pub coupons: Vec<CouponRef>,
+    /// When billing starts; the day it is paid when absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_date: Option<NaiveDate>,
+    /// The day the subscription stops renewing; it renews until cancelled when absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_date: Option<NaiveDate>,
     /// The plan's trial when absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trial_days: Option<i32>,
+    /// The day of the month periods start on; the start date's when absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub billing_day_anchor: Option<i16>,
+    /// The invoicing terms of the subscription it creates.
     pub invoicing: CheckoutInvoicing,
     /// The hosted page, while the customer can pay.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// Where the customer is sent once paid, `checkout_session_id` appended.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub success_url: Option<String>,
+    /// Where the customer may leave to without paying.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cancel_url: Option<String>,
     /// The subscription created (or changed) by the checkout.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subscription: Option<SubscriptionRef>,
+    /// The integrator's own key-value data, as sent.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<HashMap<String, Value>>)]
     pub metadata: Option<serde_json::Value>,
     /// None: it never expires.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<ApiDateTime>,
+    /// When it was paid.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<ApiDateTime>,
+    /// When it was created.
     pub created_at: ApiDateTime,
 }
 
 crate::v2_list!(CheckoutSessionList, CheckoutSession);
 
+/// A hosted checkout of a plan to create, its purchase named as `POST /subscriptions` names it.
 #[derive(Deserialize, ToSchema, Debug, Clone)]
 #[schema(as = CreateCheckoutSession)]
 #[serde(deny_unknown_fields)]
 pub struct CreateCheckoutSessionBody {
     /// The customer's id, or its alias as `ext:<alias>`.
     pub customer: String,
-    /// By code or id.
+    /// The plan, by code or id.
     pub plan: String,
     /// The option's alias; the first the currency sells when left out.
     #[serde(default)]
@@ -216,23 +245,28 @@ pub struct CreateCheckoutSessionBody {
     /// The level of each usage-levels charge, by product code, as the usage it includes.
     #[serde(default)]
     pub levels: BTreeMap<String, String>,
+    /// How its charges differ from its plan's: prices overridden, charges added or left out.
     #[serde(default)]
     pub charges: CreateCharges,
+    /// Add-ons bought with it, 100 at most.
     #[serde(default)]
     pub add_ons: Vec<AddOnPurchase>,
-    /// Coupon codes.
+    /// Coupon codes, 20 at most, redeemed when it is paid.
     #[serde(default)]
     pub coupons: Vec<String>,
     /// When billing starts; the day it is paid when left out.
     #[serde(default)]
     pub start_date: Option<NaiveDate>,
+    /// The day the subscription stops renewing; it renews until cancelled when left out.
     #[serde(default)]
     pub end_date: Option<NaiveDate>,
-    /// The plan's trial when left out.
+    /// The trial's length in days, 0 to 3650; the plan's trial when left out.
     #[serde(default)]
     pub trial_days: Option<u32>,
+    /// The day of the month periods start on, 1 to 31; the start date's when left out.
     #[serde(default)]
     pub billing_day_anchor: Option<u16>,
+    /// How the subscription it creates is invoiced.
     #[serde(default)]
     pub invoicing: InvoicingInput,
     /// Hours before it expires, 1 to 8760: 1 by default, 0 for never.
@@ -244,6 +278,7 @@ pub struct CreateCheckoutSessionBody {
     /// Absolute http(s) URL offered to the customer to leave without paying.
     #[serde(default)]
     pub cancel_url: Option<String>,
+    /// The integrator's own key-value data, kept with the session and read back as sent.
     #[serde(default)]
     #[schema(value_type = Option<HashMap<String, Value>>)]
     pub metadata: Option<serde_json::Value>,
@@ -258,15 +293,18 @@ pub struct CheckoutSessionListQuery {
     pub after: Option<String>,
     /// The customer's id, or its alias as `ext:<alias>`.
     pub customer: Option<String>,
-    pub status: Option<CheckoutStatus>,
+    /// Only the sessions in one of these statuses: repeat the parameter for several
+    /// (`?status=created&status=awaiting_payment`).
+    #[param(style = Form, explode)]
+    pub status: Option<Vec<CheckoutStatus>>,
 }
 
 // ── Rendering ───────────────────────────────────────────────────────
 
 /// What the sessions of a response name, read once for all of them: a plan version each
 /// distinct one, the rest in one round.
-struct Names<'a> {
-    state: &'a AppState,
+struct Names<'a, R: Reader> {
+    state: &'a R,
     tenant_id: TenantId,
     plans: HashMap<PlanVersionId, (PlanId, i32)>,
     refs: Refs,
@@ -284,9 +322,9 @@ fn redeemed_code(session: &DomainSession) -> Option<&str> {
         .filter(|code| !code.is_empty())
 }
 
-impl<'a> Names<'a> {
+impl<'a, R: Reader> Names<'a, R> {
     async fn load(
-        state: &'a AppState,
+        state: &'a R,
         tenant_id: TenantId,
         sessions: &[DomainSession],
     ) -> Result<Self, Problem> {
@@ -309,7 +347,7 @@ impl<'a> Names<'a> {
                 codes.push(code.to_owned());
             }
         }
-        let refs = Refs::load(&state.store, tenant_id, &ids).await?;
+        let refs = Refs::load(state.store(), tenant_id, &ids).await?;
         let resources = resource_refs(
             state,
             tenant_id,
@@ -319,7 +357,10 @@ impl<'a> Names<'a> {
         let redeemed = if codes.is_empty() {
             HashMap::new()
         } else {
-            let coupons = state.store.list_coupons_by_codes(tenant_id, &codes).await?;
+            let coupons = state
+                .store()
+                .list_coupons_by_codes(tenant_id, &codes)
+                .await?;
             codes
                 .into_iter()
                 .filter_map(|code| {
@@ -366,7 +407,7 @@ impl<'a> Names<'a> {
             None => {
                 let plan = self
                     .state
-                    .store
+                    .store()
                     .get_plan_by_version_id(version_id, self.tenant_id)
                     .await?;
                 let number = plan.version.map(|version| version.version).unwrap_or(0);
@@ -450,13 +491,13 @@ impl<'a> Names<'a> {
 
 /// The plan checkout a path names, checked to be the tenant's.
 async fn find_session(
-    state: &AppState,
+    state: &impl Reader,
     tenant_id: TenantId,
     raw: &str,
 ) -> Result<DomainSession, Problem> {
     let id: CheckoutSessionId = ids::plain_id(raw, "checkout session")?;
     let session = state
-        .store
+        .store()
         .get_checkout_session(tenant_id, id)
         .await
         .map_err(|error| document_not_found("checkout session", id)(Problem::from(error)))?;
@@ -478,11 +519,32 @@ async fn render(
     } else {
         None
     };
+    render_with(state, tenant_id, session, url).await
+}
+
+async fn render_with(
+    state: &impl Reader,
+    tenant_id: TenantId,
+    session: DomainSession,
+    url: Option<String>,
+) -> Result<CheckoutSession, Problem> {
+    let id = session.id;
     Names::load(state, tenant_id, std::slice::from_ref(&session))
         .await?
         .session(session, url)
         .await?
         .ok_or_else(|| Problem::not_found(format!("checkout session {id}")))
+}
+
+/// The session as `GET /checkout-sessions/{id}` reads it, without its page (`url`): what a
+/// session the customer can no longer pay (completed, expired, cancelled) reads exactly.
+pub(crate) async fn session_without_page(
+    state: &impl Reader,
+    tenant_id: TenantId,
+    id: CheckoutSessionId,
+) -> Result<CheckoutSession, Problem> {
+    let session = find_session(state, tenant_id, &id.to_string()).await?;
+    render_with(state, tenant_id, session, None).await
 }
 
 fn redirect(field: &'static str, url: Option<&str>) -> Result<(), Problem> {
@@ -700,7 +762,9 @@ pub async fn list_checkout_sessions(
         .list_checkout_sessions_after(
             tenant_id,
             customer_id,
-            query.status.map(Into::into),
+            query
+                .status
+                .map(|statuses| statuses.into_iter().map(Into::into).collect()),
             cursor.map(|Cursor(after)| CheckoutSessionId::from(after)),
             limit + 1,
         )

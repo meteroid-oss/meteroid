@@ -13,7 +13,8 @@ use utoipa::{IntoParams, ToSchema};
 // ── Shared ──────────────────────────────────────────────────────────
 
 /// A company, or a person (B2C): a person is named by `first_name` and `last_name`, and needs a
-/// billing country.
+/// billing country. `company`: a business, named by `name` (the default); `individual`: a person,
+/// whose `name` is made of `first_name` and `last_name`.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum CustomerKind {
@@ -41,7 +42,9 @@ impl From<CustomerKind> for CustomerType {
 }
 
 /// How the customer's invoices are taxed: normally, not at all (with an `exemption_reason`), or
-/// with the tax due by the customer (reverse charge).
+/// with the tax due by the customer (reverse charge). `taxable`: taxed at the rates that apply
+/// (the default); `exempt`: no tax, the `exemption_reason` printed; `reverse_charge`: no tax
+/// charged, the customer accounts for it.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TaxStatus {
@@ -71,7 +74,8 @@ impl From<TaxStatus> for CustomerTaxStatus {
     }
 }
 
-/// The VIES check of the VAT number: pending, valid, invalid, or VIES could not answer.
+/// The VIES check of the VAT number: `pending` (not checked yet), `valid`, `invalid`, or
+/// `unavailable` (VIES could not answer).
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum VatNumberStatus {
@@ -92,18 +96,23 @@ impl From<VatNumberValidationStatus> for VatNumberStatus {
     }
 }
 
+/// A postal address; every part may be left out.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq, Eq, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Address {
+    /// The street and number.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub line1: Option<String>,
+    /// The rest of the street address: a building, a suite, a floor.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub line2: Option<String>,
+    /// The city or locality.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub city: Option<String>,
     /// State, province or region.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
+    /// The postal or ZIP code.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub postal_code: Option<String>,
     /// ISO 3166-1 alpha-2.
@@ -141,8 +150,10 @@ impl From<Address> for domain::Address {
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq, Eq, Default)]
 #[serde(deny_unknown_fields)]
 pub struct ShippingAddress {
+    /// Goods are shipped to the billing address; `address` is then not read. `false` by default.
     #[serde(default)]
     pub same_as_billing: bool,
+    /// Where goods are shipped, when not to the billing address.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub address: Option<Address>,
 }
@@ -169,7 +180,9 @@ impl From<ShippingAddress> for domain::ShippingAddress {
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct CustomTaxRate {
+    /// The tax's accounting code, kept on the invoice's tax breakdown.
     pub tax_code: String,
+    /// The tax's name, printed on the invoice (`VAT`, `GST`).
     pub name: String,
     /// A fraction as a decimal string: `"0.2"` is 20%.
     #[serde(with = "rust_decimal::serde::str")]
@@ -202,10 +215,12 @@ impl From<CustomTaxRate> for CustomerTaxRate {
 /// How the customer is taxed, and the identifiers its invoices carry.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct CustomerTax {
+    /// How the customer's invoices are taxed.
     pub status: TaxStatus,
     /// The legal mention printed on an exempt customer's invoices.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exemption_reason: Option<String>,
+    /// The customer's VAT or tax identification number, printed on its invoices.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vat_number: Option<String>,
     /// The VIES check of `vat_number`; absent when there is none to check.
@@ -214,6 +229,8 @@ pub struct CustomerTax {
     /// The national register identifier (SIREN/SIRET, HRB…), BT-47 of an e-invoice.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub legal_number: Option<String>,
+    /// Tax rates applied to the customer's invoices in place of the computed ones; empty when
+    /// the computed ones apply.
     pub custom_rates: Vec<CustomTaxRate>,
 }
 
@@ -232,41 +249,53 @@ pub struct CustomerInvoicing {
     pub buyer_reference: Option<String>,
 }
 
-/// A customer.
+/// A customer: who is billed, in one currency, with its addresses, tax and invoicing settings.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct Customer {
+    /// The customer's id; paths take it, or the alias as `ext:<alias>`.
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub id: CustomerId,
     /// The integrator's own id, unique per tenant; paths take it as `ext:<alias>`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alias: Option<String>,
+    /// A company or a person.
     #[serde(rename = "type")]
     pub kind: CustomerKind,
     /// A company's name, or a person's full name.
     pub name: String,
+    /// The person's given name; with `last_name`, an individual's name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub first_name: Option<String>,
+    /// The person's family name; with `first_name`, an individual's name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_name: Option<String>,
     /// The billing email.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
+    /// The customer's phone number, as written.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub phone: Option<String>,
     /// What the customer is billed in (ISO 4217).
     pub currency: String,
+    /// The address printed on its invoices, which its tax is computed from.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub billing_address: Option<Address>,
+    /// Where goods are shipped.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shipping_address: Option<ShippingAddress>,
+    /// How the customer is taxed, and the identifiers its invoices carry.
     pub tax: CustomerTax,
+    /// How the customer's invoices are issued and sent.
     pub invoicing: CustomerInvoicing,
     /// Values of the tenant's customer properties, by key.
     #[schema(value_type = HashMap<String, Value>)]
     pub custom_properties: serde_json::Value,
+    /// Archived: kept, with what is linked to it, but left out of lists unless asked.
     pub archived: bool,
+    /// When it was archived; absent on a live customer.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<ApiDateTime>,
+    /// When it was created.
     pub created_at: ApiDateTime,
     /// When it last changed.
     pub updated_at: ApiDateTime,
@@ -329,11 +358,17 @@ crate::v2_list!(CustomerList, Customer);
 pub struct CustomerListQuery {
     /// Matched anywhere in the name, the alias or the email, ignoring case.
     pub search: Option<String>,
-    /// The archived customers instead of the live ones.
+    /// The archived customers instead of the live ones; `false` by default.
     pub archived: Option<bool>,
-    /// Only those changed after this moment (RFC 3339).
+    /// Only those changed after this moment (RFC 3339), to sync changes since a last read.
     #[param(format = DateTime)]
     pub updated_after: Option<String>,
+    /// Only those created after this moment (RFC 3339).
+    #[param(format = DateTime)]
+    pub created_after: Option<String>,
+    /// Only those created before this moment (RFC 3339).
+    #[param(format = DateTime)]
+    pub created_before: Option<String>,
     /// How many items, 1 to 100; 20 by default.
     pub limit: Option<u32>,
     /// The `next_cursor` of the previous page.
@@ -342,33 +377,43 @@ pub struct CustomerListQuery {
 
 // ── Writing ─────────────────────────────────────────────────────────
 
+/// How the customer is taxed, as written; every field may be left out.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq, Default)]
 #[serde(deny_unknown_fields)]
 pub struct CustomerTaxInput {
+    /// How the customer's invoices are taxed; `taxable` by default.
     #[serde(default)]
     pub status: TaxStatus,
+    /// The legal mention printed on an exempt customer's invoices.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exemption_reason: Option<String>,
+    /// The customer's VAT or tax identification number; an EU one is checked with VIES.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vat_number: Option<String>,
+    /// The national register identifier (SIREN/SIRET, HRB…), BT-47 of an e-invoice.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub legal_number: Option<String>,
+    /// Tax rates applied to the customer's invoices in place of the computed ones; none by
+    /// default.
     #[serde(default)]
     pub custom_rates: Vec<CustomTaxRate>,
 }
 
+/// How the customer's invoices are issued and sent, as written; every field may be left out.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq, Default)]
 #[serde(deny_unknown_fields)]
 pub struct CustomerInvoicingInput {
     /// The invoicing entity, by id; the tenant's default when left out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entity: Option<String>,
+    /// Where invoices are sent, beside `email`; blank ones are dropped.
     #[serde(default)]
     pub emails: Vec<String>,
     /// BCP 47 tags, most preferred first; one at least must be a language invoices are rendered
     /// in.
     #[serde(default)]
     pub preferred_locales: Vec<String>,
+    /// The reference the customer routes invoices by (a Leitweg-ID), BT-10 of an e-invoice.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub buyer_reference: Option<String>,
 }
@@ -379,34 +424,46 @@ pub struct CustomerInvoicingInput {
 #[schema(as = CreateCustomer)]
 #[serde(deny_unknown_fields)]
 pub struct CustomerInput {
-    /// The integrator's own id, unique per tenant.
+    /// The integrator's own id, unique per tenant (`409` when another customer has it); paths
+    /// then take `ext:<alias>`. Not blank.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alias: Option<String>,
+    /// A company or a person; `company` by default.
     #[serde(default, rename = "type")]
     pub kind: CustomerKind,
-    /// Required for a company; a person's is made of `first_name` and `last_name`.
+    /// Required for a company, 1 to 255 characters; a person's is made of `first_name` and
+    /// `last_name`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// The person's given name; required, with `last_name`, for an individual.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_name: Option<String>,
+    /// The person's family name; required, with `first_name`, for an individual.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_name: Option<String>,
     /// The billing email.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
+    /// The customer's phone number, kept as written.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub phone: Option<String>,
-    /// One of the tenant's currencies (ISO 4217).
+    /// One of the tenant's currencies (ISO 4217), read in upper case.
     pub currency: String,
+    /// The address printed on its invoices; an individual needs one with a `country`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub billing_address: Option<Address>,
+    /// Where goods are shipped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shipping_address: Option<ShippingAddress>,
+    /// How the customer is taxed; taxable, with no identifier, when left out.
     #[serde(default)]
     pub tax: CustomerTaxInput,
+    /// How its invoices are issued and sent; the tenant's default invoicing entity when left
+    /// out.
     #[serde(default)]
     pub invoicing: CustomerInvoicingInput,
-    /// Values of the tenant's customer properties, by key.
+    /// Values of the tenant's customer properties, by key, checked against their definitions
+    /// (`GET /custom-property-definitions`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<HashMap<String, Value>>)]
     pub custom_properties: Option<serde_json::Value>,
@@ -455,36 +512,48 @@ impl CustomerInput {
 #[derive(Deserialize, ToSchema, Debug, Clone, Default)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateCustomer {
+    /// The integrator's own id, unique per tenant; `null` removes it.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub alias: Option<Option<String>>,
+    /// A company or a person.
     #[serde(default, rename = "type")]
     pub kind: Option<CustomerKind>,
+    /// A company's name, 1 to 255 characters.
     #[serde(default)]
     pub name: Option<String>,
+    /// The person's given name.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub first_name: Option<Option<String>>,
+    /// The person's family name.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub last_name: Option<Option<String>>,
+    /// The billing email.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub email: Option<Option<String>>,
+    /// The customer's phone number.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<String>)]
     pub phone: Option<Option<String>>,
+    /// One of the tenant's currencies (ISO 4217).
     #[serde(default)]
     pub currency: Option<String>,
+    /// Merged part by part; `null` removes the address.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<Address>)]
     pub billing_address: Option<Option<serde_json::Value>>,
+    /// Merged field by field; `null` removes it.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[schema(value_type = Option<ShippingAddress>)]
     pub shipping_address: Option<Option<serde_json::Value>>,
+    /// Merged field by field; `custom_rates` is replaced.
     #[serde(default)]
     #[schema(value_type = Option<CustomerTaxInput>)]
     pub tax: Option<serde_json::Value>,
+    /// Merged field by field; `emails` and `preferred_locales` are replaced.
     #[serde(default)]
     #[schema(value_type = Option<CustomerInvoicingInput>)]
     pub invoicing: Option<serde_json::Value>,
@@ -494,7 +563,7 @@ pub struct UpdateCustomer {
     pub custom_properties: Option<serde_json::Value>,
 }
 
-/// What a portal token may do.
+/// What a portal token may do: `read` the customer's billing state, or `manage` it too.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PortalScope {
@@ -513,6 +582,7 @@ impl From<PortalScope> for common_domain::auth::PortalScope {
     }
 }
 
+/// The token asked for; the body may be left out (a day, every scope).
 #[derive(Deserialize, ToSchema, Debug, Clone, Default)]
 #[schema(as = CreatePortalToken)]
 #[serde(deny_unknown_fields)]
@@ -537,7 +607,9 @@ pub struct PortalTokenInput {
 /// same scopes, with up to 10% less lifetime: rely on `expires_at`.
 #[derive(Serialize, ToSchema, Debug, Clone)]
 pub struct PortalToken {
+    /// The bearer token the portal and the client API (`api_url`) take.
     pub token: String,
+    /// When the token stops being accepted.
     pub expires_at: ApiDateTime,
     /// The hosted portal, the token included.
     pub url: String,

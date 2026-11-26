@@ -4,6 +4,7 @@ use super::model::{Subscription, SubscriptionList, SubscriptionListQuery};
 use super::render;
 use super::resolve::not_found_at;
 use crate::AppState;
+use crate::v2::documents::moment;
 use crate::v2::extract::{Path, Query};
 use crate::v2::ids;
 use crate::v2::pagination::{Cursor, PageQuery};
@@ -11,7 +12,6 @@ use crate::v2::problem::Problem;
 use axum::Extension;
 use axum::Json;
 use axum::extract::State;
-use chrono::{DateTime, Utc};
 use common_domain::ids::{BaseId, SubscriptionId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_store::repositories::SubscriptionPagesInterface;
@@ -27,7 +27,7 @@ use meteroid_store::repositories::subscription_pages::SubscriptionPageFilter;
     path = "/api/v2/subscriptions",
     params(SubscriptionListQuery),
     responses(
-        (status = 200, description = "A page of subscriptions", body = SubscriptionList),
+        (status = 200, description = "A page of subscriptions", body = SubscriptionList, example = json!(crate::v2::examples::response("list_subscriptions"))),
         (status = 401, description = "Unauthorized", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A filter is refused", body = Problem, content_type = "application/problem+json"),
     ),
@@ -62,21 +62,12 @@ pub async fn list_subscriptions(
         ),
         None => None,
     };
-    let updated_after = query
-        .updated_after
-        .as_deref()
-        .map(|raw| {
-            DateTime::parse_from_rfc3339(raw.trim())
-                .map(|at| at.with_timezone(&Utc))
-                .map_err(|_| {
-                    Problem::field(
-                        "updated_after",
-                        "invalid",
-                        "An RFC 3339 date-time, like 2026-12-01T00:00:00Z",
-                    )
-                })
-        })
-        .transpose()?;
+    let at = |raw: &Option<String>, parameter: &str| {
+        raw.as_deref().map(|raw| moment(raw, parameter)).transpose()
+    };
+    let updated_after = at(&query.updated_after, "updated_after")?;
+    let created_after = at(&query.created_after, "created_after")?;
+    let created_before = at(&query.created_before, "created_before")?;
     let mut items = state
         .store
         .list_subscriptions_after(
@@ -84,8 +75,12 @@ pub async fn list_subscriptions(
             SubscriptionPageFilter {
                 customer_id,
                 plan_id,
-                status: query.status.map(|status| vec![status.into()]),
+                status: query
+                    .status
+                    .map(|statuses| statuses.into_iter().map(Into::into).collect()),
                 updated_after,
+                created_after,
+                created_before,
             },
             cursor.map(|Cursor(after)| SubscriptionId::from(after)),
             limit + 1,
@@ -117,7 +112,7 @@ pub async fn list_subscriptions(
     path = "/api/v2/subscriptions/{id_or_external_id}",
     params(("id_or_external_id" = String, Path, description = "Subscription id or external id")),
     responses(
-        (status = 200, description = "The subscription", body = Subscription),
+        (status = 200, description = "The subscription", body = Subscription, example = json!(crate::v2::examples::response("get_subscription"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A charge uses what v2 cannot express: read it with v1", body = Problem, content_type = "application/problem+json"),
     ),
@@ -146,7 +141,7 @@ pub async fn get_subscription(
     path = "/api/v2/subscriptions/{id_or_external_id}/summary",
     params(("id_or_external_id" = String, Path, description = "Subscription id or external id")),
     responses(
-        (status = 200, description = "The subscription, as lists read it", body = Subscription),
+        (status = 200, description = "The subscription, as lists read it", body = Subscription, example = json!(crate::v2::examples::response("get_subscription_summary"))),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
     ),
     security(("bearer_auth" = []))

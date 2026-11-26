@@ -16,11 +16,15 @@ use meteroid_grpc::meteroid::api::webhooks::out::v1::{
     ResendWebhookDeliveryRequest, ResendWebhookDeliveryResponse, ResumeWebhookEndpointRequest,
     ResumeWebhookEndpointResponse, RotateWebhookEndpointSecretRequest,
     RotateWebhookEndpointSecretResponse, SendTestWebhookRequest, SendTestWebhookResponse,
-    UpdateWebhookEndpointRequest, UpdateWebhookEndpointResponse, WebhookDailyStats,
-    WebhookDeliveryStatusEnum, WebhookEndpointStats, WebhookEventField, WebhookEventType,
+    UpdateWebhookEndpointRequest, UpdateWebhookEndpointResponse,
+    UpgradeWebhookEndpointApiVersionRequest, UpgradeWebhookEndpointApiVersionResponse,
+    WebhookDailyStats, WebhookDeliveryStatusEnum, WebhookEndpointStats, WebhookEventField,
+    WebhookEventType,
 };
+use meteroid_rest_common::api_versions::{self, receives_v2_payloads, webhook_envelope};
+use meteroid_rest_common::datetime::ApiDateTime;
 use meteroid_store::domain::webhooks_out::{
-    WebhookEndpointNew, WebhookEndpointPatch, WebhookOutMessageNew,
+    WebhookEndpointNew, WebhookEndpointPatch, WebhookOutMessageNew, WebhookOutMessageVersion,
 };
 use meteroid_store::repositories::WebhookOutInterface;
 use secrecy::ExposeSecret;
@@ -155,7 +159,8 @@ impl WebhooksService for WebhooksServiceComponents {
                     max_in_flight,
                     headers,
                     rate_limit_per_sec: req.rate_limit_per_sec,
-                    api_version: None,
+                    // A new integration gets the current shapes (ADR-0013 §15).
+                    api_version: Some(api_versions::latest().to_owned()),
                 },
             )
             .await
@@ -248,6 +253,37 @@ impl WebhooksService for WebhooksServiceComponents {
     }
 
     #[tracing::instrument(skip_all)]
+    async fn upgrade_webhook_endpoint_api_version(
+        &self,
+        request: Request<UpgradeWebhookEndpointApiVersionRequest>,
+    ) -> Result<Response<UpgradeWebhookEndpointApiVersionResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let id = WebhookEndpointId::from_proto(&request.into_inner().id)?;
+
+        let endpoint = self
+            .store
+            .update_webhook_endpoint(
+                tenant_id,
+                WebhookEndpointPatch {
+                    id,
+                    url: None,
+                    description: None,
+                    event_types: None,
+                    disabled: None,
+                    headers: None,
+                    rate_limit_per_sec: None,
+                    api_version: Some(api_versions::latest().to_owned()),
+                },
+            )
+            .await
+            .map_err(Into::<WebhookApiError>::into)?;
+
+        Ok(Response::new(UpgradeWebhookEndpointApiVersionResponse {
+            endpoint: Some(mapping::endpoint_to_server(&endpoint)),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
     async fn archive_webhook_endpoint(
         &self,
         request: Request<ArchiveWebhookEndpointRequest>,
@@ -310,11 +346,14 @@ impl WebhooksService for WebhooksServiceComponents {
     #[tracing::instrument(skip_all)]
     async fn list_webhook_event_types(
         &self,
-        _request: Request<ListWebhookEventTypesRequest>,
+        request: Request<ListWebhookEventTypesRequest>,
     ) -> Result<Response<ListWebhookEventTypesResponse>, Status> {
-        let event_types = self
-            .catalog
-            .events()
+        let catalog = if request.into_inner().v2_payloads {
+            self.catalog.events_v2()
+        } else {
+            self.catalog.events()
+        };
+        let event_types = catalog
             .iter()
             .filter(|event| {
                 !event.needs_module || self.module_events.contains(&event.name.as_str())
@@ -456,25 +495,56 @@ impl WebhooksService for WebhooksServiceComponents {
         let req = request.into_inner();
 
         let endpoint_id = WebhookEndpointId::from_proto(&req.endpoint_id)?;
+        let api_version = self
+            .store
+            .get_webhook_endpoint(tenant_id, endpoint_id)
+            .await
+            .map_err(Into::<WebhookApiError>::into)?
+            .api_version
+            .filter(|version| receives_v2_payloads(Some(version)));
 
         let message_id = EventId::new();
+        let unknown = |event_type: &str| {
+            WebhookApiError::InvalidArgument(format!("unknown event type `{event_type}`"))
+        };
         let (event_type, payload) = match req.event_type {
             Some(event_type) => {
                 let timestamp = common_clock::wall().to_rfc3339_opts(SecondsFormat::Millis, true);
                 let payload = self
                     .catalog
                     .example_payload(&event_type, &message_id.as_proto(), &timestamp)
-                    .ok_or_else(|| {
-                        WebhookApiError::InvalidArgument(format!(
-                            "unknown event type `{event_type}`"
-                        ))
-                    })?;
+                    .ok_or_else(|| unknown(&event_type))?;
                 (event_type, payload)
             }
             None => (
                 TEST_EVENT_TYPE.to_string(),
                 test_payload(message_id, endpoint_id),
             ),
+        };
+        // An endpoint on v2's payloads is sent the envelope at its version: the test event's, or
+        // the event type's example from v2's catalog. The message keeps v1's beside it.
+        let version = match api_version {
+            Some(api_version) => {
+                let created_at = ApiDateTime::now();
+                let payload = if event_type == TEST_EVENT_TYPE {
+                    webhook_envelope(
+                        message_id,
+                        &event_type,
+                        created_at,
+                        &api_version,
+                        &serde_json::json!({ "endpoint": endpoint_id.as_proto() }),
+                    )
+                } else {
+                    self.catalog
+                        .example_payload_v2(&event_type, message_id, created_at, &api_version)
+                        .ok_or_else(|| unknown(&event_type))?
+                };
+                Some(WebhookOutMessageVersion {
+                    payload,
+                    api_version,
+                })
+            }
+            None => None,
         };
         let message = WebhookOutMessageNew {
             id: message_id,
@@ -485,7 +555,7 @@ impl WebhooksService for WebhooksServiceComponents {
 
         let delivery = self
             .store
-            .create_manual_webhook_delivery(tenant_id, endpoint_id, message)
+            .create_manual_webhook_delivery(tenant_id, endpoint_id, message, version)
             .await
             .map_err(Into::<WebhookApiError>::into)?;
 

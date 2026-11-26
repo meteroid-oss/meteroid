@@ -797,7 +797,7 @@ impl PlanRowOverview {
         conn: &mut PgConn,
         tenant_id: TenantId,
         product_family_id: Option<ProductFamilyId>,
-        status: Option<PlanStatusEnum>,
+        status: Option<Vec<PlanStatusEnum>>,
         after: Option<PlanId>,
         limit: i64,
     ) -> DbResult<Vec<PlanRowOverview>> {
@@ -869,7 +869,7 @@ impl PlanRowOverview {
         }
         // Archived plans are left out unless asked for, as every v2 list leaves archived out.
         query = match status {
-            Some(status) => query.filter(p_dsl::status.eq(status)),
+            Some(statuses) => query.filter(p_dsl::status.eq_any(statuses)),
             None => query.filter(p_dsl::status.ne(PlanStatusEnum::Archived)),
         };
         if let Some(after) = after {

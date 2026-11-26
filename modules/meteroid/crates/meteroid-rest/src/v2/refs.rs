@@ -19,17 +19,20 @@ use utoipa::ToSchema;
 /// A customer named by another resource.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct CustomerRef {
+    /// The customer's id.
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub id: CustomerId,
     /// The integrator's own id of the customer; name it as `ext:<alias>` in requests.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alias: Option<String>,
+    /// The customer's name.
     pub name: String,
 }
 
 /// A subscription named by another resource.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct SubscriptionRef {
+    /// The subscription's id.
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub id: SubscriptionId,
     /// The integrator's own id of the subscription; paths take it in place of the id.
@@ -41,8 +44,10 @@ pub struct SubscriptionRef {
 /// option bought, a pricing card's as the plan alone.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct PlanRef {
+    /// The plan's id.
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub id: PlanId,
+    /// The plan's code; its id when the code cannot be read.
     pub code: String,
     /// The version number; none where the plan is named alone (a pricing card).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -55,11 +60,13 @@ pub struct PlanRef {
 
 macro_rules! coded_ref {
     ($name:ident, $id:ty, $what:literal) => {
-        #[doc = concat!("A ", $what, " named by another resource.")]
         #[derive(Serialize, ToSchema, Debug, Clone, PartialEq, Eq)]
+        #[schema(description = concat!("A ", $what, " named by another resource."))]
         pub struct $name {
+            /// Its id.
             #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
             pub id: $id,
+            /// Its code; its id when the code cannot be read.
             pub code: String,
         }
     };
@@ -104,6 +111,7 @@ impl ResourceRef {
 /// An invoice named by another resource.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq, Eq)]
 pub struct InvoiceRef {
+    /// The invoice's id.
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub id: InvoiceId,
     /// Its invoice number.
@@ -113,6 +121,7 @@ pub struct InvoiceRef {
 /// A credit note named by another resource.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq, Eq)]
 pub struct CreditNoteRef {
+    /// The credit note's id.
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub id: CreditNoteId,
     /// Its credit note number.

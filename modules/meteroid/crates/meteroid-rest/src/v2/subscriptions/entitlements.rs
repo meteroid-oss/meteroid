@@ -1,5 +1,5 @@
-//! `GET /api/v2/subscriptions/{id_or_external_id}/entitlements` (ADR-0013 §23): what one
-//! subscription grants, each feature it includes with its level's deciding value, policy and
+//! `GET /api/v2/subscriptions/{id_or_external_id}/entitlements[/{feature}]` (ADR-0013 §25): what
+//! one subscription grants, each feature it includes with its level's deciding value, policy and
 //! usage (counts your app reports included), and its own grant when another subscription decides
 //! (ADR-0011 §3.7).
 use crate::AppState;
@@ -14,7 +14,7 @@ use crate::v2::refs::{FeatureRef, ProductRef, ResourceTypeRef, SubscriptionRef};
 use axum::Extension;
 use axum::Json;
 use axum::extract::State;
-use common_domain::ids::SubscriptionId;
+use common_domain::ids::{FeatureId, SubscriptionId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_store::domain::entitlement_checks::LevelValue;
 use meteroid_store::domain::entitlements::{FeatureKind, LimitCountedBy, SubscriptionGrant};
@@ -164,10 +164,61 @@ pub async fn list_subscription_entitlements(
     Path(id_or_external_id): Path<String>,
 ) -> Result<Json<SubscriptionEntitlementList>, Problem> {
     let id = ids::subscription_id(&state, auth.tenant_id, &id_or_external_id).await?;
-    let levels = state
+    let data = entitlements(&state, auth.tenant_id, id, None).await?;
+    Ok(Json(SubscriptionEntitlementList { data }))
+}
+
+/// Get what a subscription grants of a feature
+///
+/// The feature (code or id) as the subscription's list reads it: one entry per level it is
+/// included at, sorted by resource. A feature the list does not hold is not found.
+#[utoipa::path(
+    get,
+    tag = "Subscriptions",
+    path = "/api/v2/subscriptions/{id_or_external_id}/entitlements/{feature}",
+    operation_id = "get_subscription_entitlement",
+    params(
+        ("id_or_external_id" = String, Path, description = "Subscription id or external id"),
+        ("feature" = String, Path, description = "Feature code or id"),
+    ),
+    responses(
+        (status = 200, description = "The feature at each level the subscription includes it", body = SubscriptionEntitlementList),
+        (status = 404, description = "The subscription or the feature is not found, or the subscription does not grant it", body = Problem, content_type = "application/problem+json"),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub async fn get_subscription_entitlement(
+    Extension(auth): Extension<AuthorizedAsTenant>,
+    State(state): State<AppState>,
+    Path((id_or_external_id, feature)): Path<(String, String)>,
+) -> Result<Json<SubscriptionEntitlementList>, Problem> {
+    let id = ids::subscription_id(&state, auth.tenant_id, &id_or_external_id).await?;
+    let feature = ids::feature(&state, auth.tenant_id, feature.trim()).await?;
+    let data = entitlements(&state, auth.tenant_id, id, Some(feature.id)).await?;
+    if data.is_empty() {
+        return Err(Problem::not_found(format!(
+            "The subscription does not grant the feature '{}'",
+            feature.code
+        )));
+    }
+    Ok(Json(SubscriptionEntitlementList { data }))
+}
+
+/// The subscription's levels, of one feature when `only` names it, sorted by feature code then
+/// resource.
+async fn entitlements(
+    state: &AppState,
+    tenant_id: TenantId,
+    id: SubscriptionId,
+    only: Option<FeatureId>,
+) -> Result<Vec<SubscriptionEntitlement>, Problem> {
+    let mut levels = state
         .store
-        .subscription_entitlement_levels(auth.tenant_id, id)
+        .subscription_entitlement_levels(tenant_id, id)
         .await?;
+    if let Some(only) = only {
+        levels.retain(|level| level.feature.id == only);
+    }
     let deciding: Vec<SubscriptionId> = levels
         .iter()
         .flat_map(|l| {
@@ -178,8 +229,8 @@ pub async fn list_subscription_entitlements(
         })
         .collect();
     let codes = Codes::of_features(
-        &state,
-        auth.tenant_id,
+        state,
+        tenant_id,
         levels.iter().map(|l| &l.feature),
         deciding,
     )
@@ -189,5 +240,5 @@ pub async fn list_subscription_entitlements(
         .map(|level| entitlement(level, &codes))
         .collect();
     data.sort_by(|a, b| (&a.feature.code, &a.resource).cmp(&(&b.feature.code, &b.resource)));
-    Ok(Json(SubscriptionEntitlementList { data }))
+    Ok(data)
 }

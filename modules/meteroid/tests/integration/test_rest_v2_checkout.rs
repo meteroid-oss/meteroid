@@ -191,6 +191,19 @@ async fn test_rest_v2_checkout_sessions() {
     assert_eq!(shouting.status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(shouting.body["code"], "validation_failed");
     assert_eq!(shouting.body["errors"][0]["path"], "status");
+    // Several statuses, the parameter repeated.
+    let open = f
+        .get(
+            "/api/v2/checkout-sessions?customer=ext:spotify&status=created&status=awaiting_payment",
+        )
+        .await;
+    assert_eq!(open.status, StatusCode::OK, "{:#}", open.body);
+    assert_eq!(ids(&open.body), vec![id.clone(), other_id.clone()]);
+    let closed = f
+        .get("/api/v2/checkout-sessions?customer=ext:spotify&status=completed&status=expired")
+        .await;
+    assert_eq!(closed.status, StatusCode::OK, "{:#}", closed.body);
+    assert!(ids(&closed.body).is_empty());
 
     // Cancelled once; a second time is a conflict.
     let cancelled = f
@@ -230,7 +243,7 @@ fn refused_at(answer: &crate::test_rest_v2::Answer, path: &str) {
     assert_eq!(answer.body["errors"][0]["path"], path, "{:#}", answer.body);
 }
 
-/// Rules: ADR-0013 §17, §23 (a session for a resource; the resource's refusals at `/resource`, the
+/// Rules: ADR-0013 §17, §25 (a session for a resource; the resource's refusals at `/resource`, the
 /// offer's at `/plan`)
 #[tokio::test]
 async fn test_rest_v2_checkout_session_for_a_resource() {
