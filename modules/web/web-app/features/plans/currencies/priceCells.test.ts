@@ -67,6 +67,19 @@ describe('optionCell', () => {
   it('an option without a link there has an empty cell, whatever the other options price', () => {
     expect(optionCell(platform, annual.id, 'EUR')).toEqual([])
   })
+
+  it('a v1 charge, linked to no option, is priced in every option of its currency', () => {
+    const legacy = create(PriceComponentSchema, {
+      id: 'legacy',
+      name: 'legacy',
+      prices: [{ ...rate('EUR', MONTHLY, '299'), id: '' }],
+      optionPrices: [],
+    } as never)
+    expect(optionCell(legacy, monthly.id, 'EUR')).toHaveLength(1)
+    expect(optionCell(legacy, annual.id, 'EUR')).toHaveLength(1)
+    expect(optionCell(legacy, annual.id, 'USD')).toEqual([])
+    expect(unpricedIn([legacy], monthly.id, 'EUR')).toEqual([])
+  })
 })
 
 describe('same in every option', () => {

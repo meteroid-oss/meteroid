@@ -13,12 +13,18 @@ type Charge = Pick<PriceComponent, 'id' | 'name' | 'prices' | 'optionPrices'>
 /** `hidden`: sold when named (quotes, links, the API), off the pricing page and portal. */
 export type OptionLike = { id: string; name: string; alias: string; hidden?: boolean }
 
-/** The prices of one cell: those `option` links in `currency` (capacity levels are several). */
+/**
+ * The prices of one cell: those `option` links in `currency` (capacity levels are several). A
+ * charge linked to no option (a v1 version, made before options) has its prices in every one.
+ */
 export const optionCell = <C extends Linked>(
   component: C,
   optionId: string,
   currency: string
 ): C['prices'] => {
+  if (component.optionPrices.length === 0) {
+    return component.prices.filter(p => p.currency === currency)
+  }
   const linked = new Set(
     component.optionPrices.filter(link => link.optionId === optionId).map(link => link.priceId)
   )
