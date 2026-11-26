@@ -112,7 +112,9 @@ pub fn method_auth(sm: &GrpcServiceMethod) -> Option<RouteAuth> {
         }
 
         // ---- billing operations, split per sub-area ----
-        "SubscriptionsService" => rw(method, SubscriptionsRead, SubscriptionsManage),
+        "SubscriptionsService" | "RetentionService" => {
+            rw(method, SubscriptionsRead, SubscriptionsManage)
+        }
         // Credit notes are invoice corrections and share the invoices area.
         "InvoicesService" | "CreditNotesService" => rw(method, InvoicesRead, InvoicesManage),
         // Customer credit is drawn by invoices and corrected by credit notes.

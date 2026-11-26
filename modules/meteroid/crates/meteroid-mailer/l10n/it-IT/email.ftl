@@ -155,3 +155,12 @@ period-start = Inizio del periodo
 period-end = Fine del periodo
 status-budget-alert = Avviso budget
 status-budget-reached = Budget raggiunto
+
+## Disdetta (tipo subscription_cancelled). $plan è il nome del piano.
+subscription-cancelled-subject = La disdetta del Suo abbonamento { $company } è confermata
+subscription-cancelled-heading = Disdetta confermata
+subscription-cancelled-intro = Il Suo abbonamento { $plan } resta attivo fino all'ultimo giorno di servizio indicato qui sotto.
+cancellation-received = Disdetta ricevuta il
+# $date = una data estesa localizzata, $time = HH:MM in UTC.
+cancellation-received-at = { $date } alle { $time } UTC
+last-day-of-service = Ultimo giorno di servizio

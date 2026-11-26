@@ -121,6 +121,26 @@ clamped to `1..20`) — e.g. `<BillingEmbed view="invoices" count={10} … />`.
 The `subscription` widget needs a `subscriptionId` (maps to `?subscription=`) —
 e.g. `<BillingEmbed view="subscription" subscriptionId="sub_123" … />`.
 
+## Cancel flow
+
+`openCancelFlow` opens a subscription's cancellation over your page, as the
+portal runs it: the reasons and offers you configured when Retention is on, the
+plain confirmation otherwise. It resolves once the customer is done.
+
+```js
+import { openCancelFlow } from '@md/portal-embed'
+
+const { outcome, effectiveDate } = await openCancelFlow({ token, subscriptionId: 'sub_123' })
+// outcome: 'cancelled' | 'saved' | 'contact_requested' | 'closed'
+if (outcome !== 'closed') refreshBilling()
+```
+
+The overlay closes when the customer is done; show your own confirmation, using `effectiveDate`.
+
+From the script tag, call `Meteroid.openCancelFlow(...)`. The token needs the
+`manage` scope. For a flow in your own UI, use the server or client API's
+cancellation endpoints instead.
+
 All widgets render on a **transparent** background so they blend into the host
 page; only the cards carry a surface.
 
@@ -167,6 +187,7 @@ The embedded portal posts these messages to the host window; the SDK validates
 | ---------------------------------------------- | --------------------------------------- |
 | `{ type: 'meteroid:resize', height }`          | SDK sets the iframe height              |
 | `{ type: 'meteroid:navigate', target }`        | SDK calls `onNavigate(target)`          |
+| `{ type: 'meteroid:cancel-flow', outcome, effectiveDate }` | `openCancelFlow` resolves with them |
 
 `meteroid:navigate` is only posted when you pass `onNavigate` (the SDK then adds
 `nav=host` to the iframe URL). Without it, the widget opens the full portal in a
@@ -176,6 +197,8 @@ new tab itself and posts nothing.
 
 - `mountBillingPortal(target, options) → { destroy() }` — `target` is a CSS
   selector or an `HTMLElement`.
+- `openCancelFlow({ token, subscriptionId, ...theme }) → Promise<{ outcome, effectiveDate }>` — the
+  cancel flow as an overlay; see above.
 - `buildEmbedUrl(options) → string` — the iframe `src`, if you want to render the
   iframe yourself.
 - `<BillingPortal {...options} />` and `<BillingEmbed view {...options} />` from

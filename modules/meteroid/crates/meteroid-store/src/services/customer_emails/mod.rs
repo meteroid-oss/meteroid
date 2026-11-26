@@ -21,7 +21,7 @@ use crate::services::customer_locale::{customer_default_locale, customer_locale_
 use crate::services::payment_reminders::sweep::reminder_send_guard;
 use crate::services::{Services, ServicesEdge};
 use crate::{Store, StoreResult};
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{
     BaseId, BudgetId, CustomerId, InvoiceId, PaymentReminderSequenceId, StoredDocumentId,
     SubscriptionId, TenantId,
@@ -492,7 +492,10 @@ impl Services {
             }
             EmailContext::WalletBalanceLow { customer_id, .. }
             | EmailContext::AutoTopUpFailed { customer_id, .. }
-            | EmailContext::BudgetAlert { customer_id, .. } => Ok(customer_target(*customer_id)),
+            | EmailContext::BudgetAlert { customer_id, .. }
+            | EmailContext::SubscriptionCancelled { customer_id, .. } => {
+                Ok(customer_target(*customer_id))
+            }
             other => {
                 let invoice_id = other.invoice_id().ok_or_else(|| {
                     Report::new(StoreError::InvalidArgument(
@@ -1017,7 +1020,8 @@ impl Services {
         })
     }
 
-    /// A wallet or budget notice: the figures travel in the context, as the event reported them.
+    /// A wallet, budget or cancellation notice: the figures travel in the context, as the event
+    /// reported them.
     #[allow(clippy::too_many_arguments)]
     async fn build_wallet_email(
         &self,
@@ -1084,6 +1088,19 @@ impl Services {
                 window_start: window_start.date(),
                 window_end: window_end.map(|end| end.date()),
                 stops_usage: self.budget_stops_usage(tenant_id, *budget_id).await?,
+            },
+            (
+                EmailKind::SubscriptionCancelled,
+                EmailContext::SubscriptionCancelled {
+                    plan_name,
+                    received_at,
+                    ends_at,
+                    ..
+                },
+            ) => Body::SubscriptionCancelled {
+                plan_name: plan_name.clone(),
+                received_at: *received_at,
+                last_day: last_day_of_service(*ends_at),
             },
             (kind, context) => {
                 return Err(Report::new(StoreError::InvalidArgument(format!(
@@ -1344,6 +1361,17 @@ impl Services {
                 },
                 vec![],
             ),
+            EmailKind::SubscriptionCancelled => (
+                Subject::Fixed,
+                Body::SubscriptionCancelled {
+                    plan_name: "Starter".to_string(),
+                    received_at: common_clock::now().naive_utc(),
+                    last_day: last_day_of_service(
+                        (today + chrono::Months::new(1)).and_time(chrono::NaiveTime::MIN),
+                    ),
+                },
+                vec![],
+            ),
             EmailKind::PaymentReminder => {
                 let offset = offset_days.unwrap_or(7);
                 let default;
@@ -1466,6 +1494,16 @@ fn context_name(context: &EmailContext) -> &'static str {
         EmailContext::WalletBalanceLow { .. } => "wallet_balance_low",
         EmailContext::AutoTopUpFailed { .. } => "auto_top_up_failed",
         EmailContext::BudgetAlert { .. } => "budget_alert",
+        EmailContext::SubscriptionCancelled { .. } => "subscription_cancelled",
+    }
+}
+
+/// An ending at midnight leaves the day before as the last one served; an instant, its own day.
+fn last_day_of_service(ends_at: NaiveDateTime) -> NaiveDate {
+    if ends_at.time() == chrono::NaiveTime::MIN {
+        ends_at.date().pred_opt().unwrap_or(ends_at.date())
+    } else {
+        ends_at.date()
     }
 }
 
@@ -1594,6 +1632,19 @@ impl ServicesEdge {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn an_ending_at_midnight_was_served_the_day_before() {
+        let day = NaiveDate::from_ymd_opt(2026, 2, 1).unwrap();
+        assert_eq!(
+            last_day_of_service(day.and_time(chrono::NaiveTime::MIN)),
+            NaiveDate::from_ymd_opt(2026, 1, 31).unwrap()
+        );
+        assert_eq!(
+            last_day_of_service(day.and_hms_opt(14, 30, 0).unwrap()),
+            day
+        );
+    }
 
     #[test]
     fn billing_emails_fall_back_to_the_customer_email() {

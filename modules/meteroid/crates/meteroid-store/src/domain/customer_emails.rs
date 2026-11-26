@@ -4,7 +4,7 @@ use crate::errors::{StoreError, StoreErrorReport};
 use chrono::NaiveDateTime;
 use common_domain::ids::{
     BudgetId, CreditNoteId, CreditOperationId, CustomerId, InvoiceId, InvoicingEntityId,
-    PaymentReminderSequenceId, PaymentTransactionId, WalletId,
+    PaymentReminderSequenceId, PaymentTransactionId, SubscriptionId, WalletId,
 };
 use diesel_models::email_kind_audience::EmailKindAudienceRow;
 use diesel_models::enums::EmailKindAudienceModeEnum;
@@ -49,6 +49,8 @@ pub enum EmailKind {
     AutoTopUpFailed,
     BudgetThreshold,
     BudgetExceeded,
+    /// A cancellation was recorded: the customer's confirmation in text form (§ 312k BGB).
+    SubscriptionCancelled,
 }
 
 impl EmailKind {
@@ -79,7 +81,8 @@ impl EmailKind {
         !matches!(self, Self::PaymentReminder)
     }
 
-    /// A quote or a wallet has no invoice: its rule may only use customer-level predicates.
+    /// A quote, a wallet or a subscription has no invoice: its rule may only use customer-level
+    /// predicates.
     pub fn customer_level_audience(&self) -> bool {
         matches!(
             self,
@@ -89,6 +92,7 @@ impl EmailKind {
                 | Self::AutoTopUpFailed
                 | Self::BudgetThreshold
                 | Self::BudgetExceeded
+                | Self::SubscriptionCancelled
         )
     }
 
@@ -354,6 +358,15 @@ pub enum EmailContext {
         window_start: NaiveDateTime,
         window_end: Option<NaiveDateTime>,
     },
+    /// The cancellation as recorded: requested at `received_at`, ending the subscription at
+    /// `ends_at` (an instant, or the midnight starting its end date).
+    SubscriptionCancelled {
+        customer_id: CustomerId,
+        subscription_id: SubscriptionId,
+        plan_name: String,
+        received_at: NaiveDateTime,
+        ends_at: NaiveDateTime,
+    },
 }
 
 impl EmailContext {
@@ -379,16 +392,18 @@ impl EmailContext {
             Self::CreditNote { .. }
             | Self::WalletBalanceLow { .. }
             | Self::AutoTopUpFailed { .. }
-            | Self::BudgetAlert { .. } => None,
+            | Self::BudgetAlert { .. }
+            | Self::SubscriptionCancelled { .. } => None,
         }
     }
 
-    /// The customer of a wallet or budget notice, which has no document behind it.
+    /// The customer of a wallet, budget or subscription notice, which has no document behind it.
     pub fn notice_customer_id(&self) -> Option<CustomerId> {
         match self {
             Self::WalletBalanceLow { customer_id, .. }
             | Self::AutoTopUpFailed { customer_id, .. }
-            | Self::BudgetAlert { customer_id, .. } => Some(*customer_id),
+            | Self::BudgetAlert { customer_id, .. }
+            | Self::SubscriptionCancelled { customer_id, .. } => Some(*customer_id),
             _ => None,
         }
     }

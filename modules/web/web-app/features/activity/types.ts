@@ -62,6 +62,7 @@ export const KNOWN_ACTIVITY_TYPES = [
   'subscription.cancellation_scheduled',
   'subscription.cancelled',
   'subscription.cancellation_undone',
+  'subscription.coupon_applied',
   'subscription.plan_change_scheduled',
   'subscription.plan_change_cancelled',
   'subscription.plan_changed',

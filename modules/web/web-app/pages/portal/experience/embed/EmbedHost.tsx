@@ -1,5 +1,5 @@
 import { useMutation } from '@connectrpc/connect-query'
-import { type CSSProperties, type JSX, useMemo, useState } from 'react'
+import { type CSSProperties, type JSX, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
 import { useQuery } from '@/lib/connectrpc'
@@ -15,12 +15,14 @@ import { date, feeLabel, invoiceBadge, money, pmLabel, pmSubLabel, subStatusBadg
 import { useInvoices, usePortalOverview } from '../hooks'
 import { planPriceShort } from '../planPrice'
 import { Card, CenterState, Eyebrow, Mono, PanelCard, PButton, Pill, Spinner } from '../primitives'
+import { CancelSubscription } from '../screens/CancelSubscription'
 import { PlanPriceHeadline } from '../screens/PlanPriceHeadline'
 import { UsageList } from '../screens/UsageScreen'
 
 import { useAutoHeight } from './useAutoHeight'
 
 import type { StatusBadge } from '../format'
+import type { CancelFlowOutcome } from '@/edition/types'
 import type {
   CustomerPortalOverview,
   SubscriptionSummary,
@@ -46,6 +48,7 @@ export type EmbedView =
   | 'usage'
   | 'invoices'
   | 'payment-methods'
+  | 'cancel'
 
 const EMBED_VIEWS: readonly EmbedView[] = [
   'portal',
@@ -55,6 +58,7 @@ const EMBED_VIEWS: readonly EmbedView[] = [
   'usage',
   'invoices',
   'payment-methods',
+  'cancel',
 ]
 
 /** Parse the `subscription` id from the URL (for the single-subscription view). */
@@ -376,6 +380,68 @@ const SubscriptionEmbed = () => {
   )
 }
 
+/* ------------------------------------------------------------- cancel overlay */
+
+/** Tells the host page (`openCancelFlow`) how the flow ended. */
+const reportCancelFlow = (outcome: CancelFlowOutcome | 'closed', effectiveDate?: string) => {
+  if (typeof window !== 'undefined' && window.parent !== window) {
+    window.parent.postMessage({ type: 'meteroid:cancel-flow', outcome, effectiveDate }, '*')
+  }
+}
+
+const Backdrop = ({ children }: { children?: React.ReactNode }) => (
+  <div
+    style={{
+      position: 'fixed',
+      inset: 0,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'rgba(15, 17, 21, 0.45)',
+    }}
+  >
+    {children}
+  </div>
+)
+
+/** The cancel flow alone, over a transparent page: the host shows it as an overlay. */
+const CancelEmbed = () => {
+  const subscriptionId = useMemo(getSubscriptionId, [])
+  const [open, setOpen] = useState(true)
+  const query = useQuery(
+    getSubscriptionDetails,
+    { subscriptionId: subscriptionId ?? '' },
+    { enabled: !!subscriptionId }
+  )
+  const end = (outcome: CancelFlowOutcome | 'closed', effectiveDate?: string) => {
+    setOpen(false)
+    reportCancelFlow(outcome, effectiveDate)
+  }
+  const sub = query.data?.subscription
+  const unavailable = !subscriptionId || !!query.error || (!query.isLoading && !sub)
+  useEffect(() => {
+    if (unavailable) reportCancelFlow('closed')
+  }, [unavailable])
+  if (unavailable) return null
+  if (!sub) {
+    return (
+      <Backdrop>
+        <Spinner size={22} />
+      </Backdrop>
+    )
+  }
+  return (
+    <CancelSubscription
+      open={open}
+      onClose={() => end('closed')}
+      onDone={end}
+      subscriptionId={subscriptionId}
+      planName={sub.planName}
+      periodEnd={sub.currentPeriodEnd}
+    />
+  )
+}
+
 /* -------------------------------------------------------------- usage widget */
 
 const UsageEmbed = ({ overview }: { overview: CustomerPortalOverview }) => (
@@ -659,6 +725,8 @@ const WIDGET_WRAP: CSSProperties = { padding: 12 }
 export const EmbedHost = ({ view }: { view: EmbedView }) => {
   const ref = useAutoHeight<HTMLDivElement>()
   const { branding } = usePortalConfig()
+
+  if (view === 'cancel') return <CancelEmbed />
 
   // The full portal renders its own footer; only the compact widgets need one.
   if (view === 'portal') {

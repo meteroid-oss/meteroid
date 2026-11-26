@@ -155,3 +155,12 @@ period-start = Inicio del periodo
 period-end = Fin del periodo
 status-budget-alert = Aviso de presupuesto
 status-budget-reached = Presupuesto alcanzado
+
+## Cancelación (tipo subscription_cancelled). $plan es el nombre del plan.
+subscription-cancelled-subject = La cancelación de su suscripción de { $company } está confirmada
+subscription-cancelled-heading = Cancelación confirmada
+subscription-cancelled-intro = Su suscripción { $plan } sigue activa hasta el último día de servicio indicado abajo.
+cancellation-received = Cancelación recibida el
+# $date = una fecha larga localizada, $time = HH:MM en UTC.
+cancellation-received-at = { $date } a las { $time } UTC
+last-day-of-service = Último día de servicio

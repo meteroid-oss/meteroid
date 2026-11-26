@@ -64,6 +64,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
         "quotetemplates",
         "rbac",
         "resources",
+        "retention",
         "savedviews",
         "schedules",
         "security",
@@ -113,6 +114,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
     proto_files.push(root.join("proto/portal/wallets/v1/wallets.proto"));
     proto_files.push(root.join("proto/portal/walletcontrols/v1/walletcontrols.proto"));
     proto_files.push(root.join("proto/portal/budgets/v1/budgets.proto"));
+    proto_files.push(root.join("proto/portal/retention/v1/retention.proto"));
 
     for proto_file in &proto_files {
         println!("cargo:rerun-if-changed={}", proto_file.display());

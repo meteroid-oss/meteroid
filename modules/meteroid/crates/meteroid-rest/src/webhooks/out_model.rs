@@ -21,7 +21,8 @@ use common_domain::ids::{
 use common_domain::ids::{
     BillableMetricId, BudgetId, CreditGrantId, CreditNoteId, CustomerId, EventId, FeatureId,
     InvoiceId, LedgerEntryId, PaymentTransactionId, PlanId, ProductFamilyId, ProductId, QuoteId,
-    ResourceId, SubscriptionId, string_serde, string_serde_opt, string_serde_vec,
+    ResourceId, RetentionSessionId, SubscriptionId, string_serde, string_serde_opt,
+    string_serde_vec,
 };
 use meteroid_rest_common::datetime::ApiDateTime;
 use meteroid_rest_common::model::BillingPeriodEnum;
@@ -33,6 +34,9 @@ use meteroid_store::domain::outbox_event::{
     WalletAutoTopUpCapReachedEvent, WalletAutoTopUpConsentChangedEvent, WalletAutoTopUpEvent,
     WalletBalanceLowEvent, WalletCreditRecoveredEvent, WalletCreditUnrecoveredEvent,
     WalletDebitedEvent, WalletDepletedEvent, WalletFundedEvent, WalletRecoveredEvent,
+};
+use meteroid_store::domain::retention_events::{
+    RenewalMode, RenewalUpcomingEvent, RetentionOfferKind, RetentionOutcome, RetentionSessionEvent,
 };
 use meteroid_store::domain::usage_alert_events::{AlertLevel, AlertResource};
 use meteroid_store::domain::wallet_events::GrantLapseReason;
@@ -1304,6 +1308,121 @@ impl From<TooManyGroupsEvent> for WebhookOutTooManyGroupsEventData {
     }
 }
 
+#[derive(Clone, Copy, Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[schema(as = RetentionOutcome)]
+pub enum WebhookOutRetentionOutcome {
+    /// An offer kept the subscription.
+    Saved,
+    /// The customer asked to be contacted; the subscription is kept.
+    ContactRequested,
+    /// The customer cancelled, at the end of the period.
+    Cancelled,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[schema(as = RetentionOfferKind)]
+pub enum WebhookOutRetentionOfferKind {
+    Coupon,
+    PlanChange,
+    Contact,
+}
+
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = RetentionSessionEventData)]
+pub struct WebhookOutRetentionSessionEventData {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub session_id: RetentionSessionId,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub customer_id: CustomerId,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub subscription_id: SubscriptionId,
+    pub outcome: WebhookOutRetentionOutcome,
+    /// The reason the customer picked.
+    pub reason: Option<String>,
+    pub comment: Option<String>,
+    /// The offer accepted, or the one declined before cancelling.
+    pub offer_kind: Option<WebhookOutRetentionOfferKind>,
+    pub offer_title: Option<String>,
+    /// When the accepted offer or the cancellation takes effect.
+    pub effective_date: Option<NaiveDate>,
+    pub completed_at: ApiDateTime,
+}
+
+impl From<RetentionSessionEvent> for WebhookOutRetentionSessionEventData {
+    fn from(event: RetentionSessionEvent) -> Self {
+        Self {
+            session_id: event.session_id,
+            customer_id: event.customer_id,
+            subscription_id: event.subscription_id,
+            outcome: match event.outcome {
+                RetentionOutcome::Saved => WebhookOutRetentionOutcome::Saved,
+                RetentionOutcome::ContactRequested => WebhookOutRetentionOutcome::ContactRequested,
+                RetentionOutcome::Cancelled => WebhookOutRetentionOutcome::Cancelled,
+            },
+            reason: event.reason,
+            comment: event.comment,
+            offer_kind: event.offer_kind.map(|kind| match kind {
+                RetentionOfferKind::Coupon => WebhookOutRetentionOfferKind::Coupon,
+                RetentionOfferKind::PlanChange => WebhookOutRetentionOfferKind::PlanChange,
+                RetentionOfferKind::Contact => WebhookOutRetentionOfferKind::Contact,
+            }),
+            offer_title: event.offer_title,
+            effective_date: event.effective_date,
+            completed_at: event.completed_at.into(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[schema(as = RenewalMode)]
+pub enum WebhookOutRenewalMode {
+    /// An annual or semiannual subscription renews on the date.
+    Renewing,
+    /// A fixed term ends on the date.
+    Ending,
+    /// The subscription is set to cancel on the date.
+    Cancelling,
+}
+
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = RenewalUpcomingEventData)]
+pub struct WebhookOutRenewalUpcomingEventData {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub customer_id: CustomerId,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub subscription_id: SubscriptionId,
+    pub renewal_date: NaiveDate,
+    pub mode: WebhookOutRenewalMode,
+    /// The checkpoint reached: how many days before the date this notice is.
+    pub days_before: u32,
+    pub plan_name: String,
+    pub currency: String,
+    pub mrr_cents: i64,
+}
+
+impl From<RenewalUpcomingEvent> for WebhookOutRenewalUpcomingEventData {
+    fn from(event: RenewalUpcomingEvent) -> Self {
+        Self {
+            customer_id: event.customer_id,
+            subscription_id: event.subscription_id,
+            renewal_date: event.renewal_date,
+            mode: match event.mode {
+                RenewalMode::Renewing => WebhookOutRenewalMode::Renewing,
+                RenewalMode::Ending => WebhookOutRenewalMode::Ending,
+                RenewalMode::Cancelling => WebhookOutRenewalMode::Cancelling,
+            },
+            days_before: event.days_before,
+            plan_name: event.plan_name,
+            currency: event.currency,
+            mrr_cents: event.mrr_cents,
+        }
+    }
+}
+
 /// A self-serve checkout was paid but its subscription could not be created (its resource was
 /// sold meanwhile, or is no longer the customer's): the payment is kept as the customer's credit
 /// and the checkout is cancelled.
@@ -1386,6 +1505,10 @@ wallet_webhook_event!(
     WebhookOutTooManyGroupsEvent(WebhookOutTooManyGroupsEventData) as TooManyGroupsWebhookEvent,
     WebhookOutCheckoutPaymentKeptAsCreditEvent(WebhookOutCheckoutPaymentKeptAsCreditEventData)
         as CheckoutPaymentKeptAsCreditEvent,
+    WebhookOutRetentionSessionEvent(WebhookOutRetentionSessionEventData)
+        as RetentionSessionWebhookEvent,
+    WebhookOutRenewalUpcomingEvent(WebhookOutRenewalUpcomingEventData)
+        as RenewalUpcomingWebhookEvent,
 );
 
 /// Event-specific webhook schemas for type-safe webhook payloads
@@ -1784,6 +1907,12 @@ pub enum WebhookOutEventTypeEnum {
     #[strum(serialize = "checkout.payment_kept_as_credit")]
     #[serde(rename = "checkout.payment_kept_as_credit")]
     CheckoutPaymentKeptAsCredit,
+    #[strum(serialize = "retention.session_completed")]
+    #[serde(rename = "retention.session_completed")]
+    RetentionSessionCompleted,
+    #[strum(serialize = "retention.renewal_upcoming")]
+    #[serde(rename = "retention.renewal_upcoming")]
+    RetentionRenewalUpcoming,
 }
 
 #[derive(Debug, Display, EnumIter, EnumString, Copy, Clone)]
@@ -1828,6 +1957,9 @@ pub enum WebhookOutEventGroupEnum {
     /// A self-serve checkout's outcome beside its subscription.
     #[strum(serialize = "checkout")]
     Checkout,
+    /// A customer finishing the portal cancel flow: saved by an offer, or cancelled.
+    #[strum(serialize = "retention")]
+    Retention,
 }
 
 impl WebhookOutEventGroupEnum {
@@ -1859,6 +1991,7 @@ impl WebhookOutEventGroupEnum {
             WebhookOutEventGroupEnum::Entitlement => "EntitlementAlertWebhookEvent",
             WebhookOutEventGroupEnum::Budget => "BudgetAlertWebhookEvent",
             WebhookOutEventGroupEnum::Checkout => "CheckoutPaymentKeptAsCreditEvent",
+            WebhookOutEventGroupEnum::Retention => "RetentionSessionWebhookEvent",
         }
     }
 }
@@ -1881,6 +2014,8 @@ impl WebhookOutEventTypeEnum {
                 | WebhookOutEventTypeEnum::EntitlementTooManyGroups
                 | WebhookOutEventTypeEnum::BudgetThresholdReached
                 | WebhookOutEventTypeEnum::BudgetExceeded
+                | WebhookOutEventTypeEnum::RetentionSessionCompleted
+                | WebhookOutEventTypeEnum::RetentionRenewalUpcoming
         )
     }
 
@@ -1954,6 +2089,10 @@ impl WebhookOutEventTypeEnum {
             }
             WebhookOutEventTypeEnum::BudgetThresholdReached
             | WebhookOutEventTypeEnum::BudgetExceeded => WebhookOutEventGroupEnum::Budget,
+            WebhookOutEventTypeEnum::RetentionSessionCompleted
+            | WebhookOutEventTypeEnum::RetentionRenewalUpcoming => {
+                WebhookOutEventGroupEnum::Retention
+            }
             WebhookOutEventTypeEnum::CheckoutPaymentKeptAsCredit => {
                 WebhookOutEventGroupEnum::Checkout
             }
@@ -1975,6 +2114,7 @@ impl WebhookOutEventTypeEnum {
             WebhookOutEventTypeEnum::AutoTopUpConsentChanged => "AutoTopUpConsentChangedEvent",
             WebhookOutEventTypeEnum::AutoTopUpCapReached => "AutoTopUpCapReachedEvent",
             WebhookOutEventTypeEnum::EntitlementTooManyGroups => "TooManyGroupsWebhookEvent",
+            WebhookOutEventTypeEnum::RetentionRenewalUpcoming => "RenewalUpcomingWebhookEvent",
             other => other.group().schema_name(),
         }
     }
@@ -2141,6 +2281,14 @@ impl WebhookOutEventTypeEnum {
             }
             WebhookOutEventTypeEnum::CheckoutPaymentKeptAsCredit => {
                 "A self-serve checkout was paid but its subscription could not be created; the payment was kept as the customer's credit and the checkout cancelled"
+                    .to_string()
+            }
+            WebhookOutEventTypeEnum::RetentionSessionCompleted => {
+                "A customer finished the portal cancel flow: kept by an offer, asking to be contacted, or cancelled"
+                    .to_string()
+            }
+            WebhookOutEventTypeEnum::RetentionRenewalUpcoming => {
+                "A subscription reached a checkpoint before its renewal, the end of its term or its scheduled cancellation"
                     .to_string()
             }
         }

@@ -54,6 +54,7 @@ modules/meteroid/crates/meteroid-store/src/services/credit/coupon_grant.rs::rede
 modules/meteroid/crates/meteroid-store/src/services/credit/coupon_grant.rs::mint_started_subscription_coupon_credit_tx | writer | copies the applied coupons to fund their credit; inserts none
 modules/meteroid/crates/meteroid-store/src/services/edge.rs::ServicesEdge::complete_subscription_checkout_charging_tx | writer | a coupon code entered at checkout, from the checkout's date
 modules/meteroid/crates/meteroid-store/src/services/orchestration/payment_transaction_settled.rs::apply_priced_coupons_tx | writer | coupons a checkout priced but had not applied, applied when its payment settles
+modules/meteroid/crates/meteroid-store/src/services/subscriptions/coupon_apply.rs::Services::apply_coupon_to_subscription | writer | a coupon added to a running subscription, from its next period
 
 # Test fixtures.
 modules/meteroid/crates/meteroid-testkit/src/helpers/credit.rs::pack_subscription | writer | a pack subscription a test inserts by hand records the facts an insert records, so billing reads it

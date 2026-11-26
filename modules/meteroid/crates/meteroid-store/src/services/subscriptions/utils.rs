@@ -805,6 +805,7 @@ pub fn process_create_subscription_coupons(
             applied_count: None,
             last_applied_at: None,
             effective_from,
+            discounts_from: None,
         })
         .collect();
 

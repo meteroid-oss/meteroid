@@ -34,8 +34,8 @@ use crate::utils::periods::calculate_advance_period_range;
 use chrono::Datelike;
 use chrono::NaiveDate;
 use common_domain::ids::{
-    AppliedCouponId, BaseId, CheckoutSessionId, CreditNoteId, CustomerConnectionId, CustomerId,
-    CustomerPaymentMethodId, InvoiceId, PlanVersionId, SubscriptionId, TenantId,
+    AppliedCouponId, BaseId, CheckoutSessionId, CouponId, CreditNoteId, CustomerConnectionId,
+    CustomerId, CustomerPaymentMethodId, InvoiceId, PlanVersionId, SubscriptionId, TenantId,
 };
 use diesel_models::applied_coupons::AppliedCouponRowNew;
 use diesel_models::checkout_sessions::CheckoutSessionRow;
@@ -809,6 +809,7 @@ impl ServicesEdge {
                         applied_count: None,
                         last_applied_at: None,
                         effective_from,
+                        discounts_from: None,
                     };
 
                     apply_coupons_without_validation(conn, &*self.store.hooks.credit, &[&applied_coupon], tenant_id).await?;
@@ -1586,6 +1587,29 @@ impl ServicesEdge {
                 requested_at,
             )
             .await
+    }
+
+    pub async fn apply_coupon_to_subscription(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        coupon_id: CouponId,
+    ) -> StoreResult<crate::domain::AppliedCouponDetailed> {
+        self.services
+            .apply_coupon_to_subscription(actor, tenant_id, subscription_id, coupon_id)
+            .await
+    }
+
+    /// The day a coupon added now to the subscription would start discounting.
+    pub async fn coupon_start(&self, details: &SubscriptionDetails) -> StoreResult<NaiveDate> {
+        let mut conn = self.get_conn().await?;
+        crate::services::subscriptions::coupon_apply::coupon_start(
+            &mut conn,
+            details,
+            common_clock::now(),
+        )
+        .await
     }
 
     pub async fn schedule_plan_change(

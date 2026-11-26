@@ -7,6 +7,7 @@ use crate::domain::enums::{CreditNoteStatus, DeclineKind};
 use crate::domain::invoice_lines::LineItem;
 use crate::domain::invoices::TaxBreakdownItem;
 use crate::domain::pgmq::{PgmqMessage, PgmqMessageNew};
+pub use crate::domain::retention_events::{RenewalUpcomingEvent, RetentionSessionEvent};
 use crate::domain::usage_alert_events::is_limit_pct;
 pub use crate::domain::usage_alert_events::{
     BudgetAlertEvent, EntitlementAlertEvent, TooManyGroupsEvent,
@@ -110,6 +111,8 @@ pub enum OutboxEvent {
     BudgetThresholdReached(Box<BudgetAlertEvent>),
     BudgetExceeded(Box<BudgetAlertEvent>),
     EntitlementTooManyGroups(Box<TooManyGroupsEvent>),
+    RetentionSessionCompleted(Box<RetentionSessionEvent>),
+    RetentionRenewalUpcoming(Box<RenewalUpcomingEvent>),
     /// A paid self-serve checkout whose subscription its resource refused for good: the payment
     /// was kept as customer credit and the session cancelled.
     CheckoutPaymentKeptAsCredit(Box<CheckoutPaymentKeptAsCreditEvent>),
@@ -174,6 +177,8 @@ pub enum EventType {
     BudgetThresholdReached,
     BudgetExceeded,
     EntitlementTooManyGroups,
+    RetentionSessionCompleted,
+    RetentionRenewalUpcoming,
     CheckoutPaymentKeptAsCredit,
 }
 
@@ -240,6 +245,8 @@ impl OutboxEvent {
                 event.id
             }
             OutboxEvent::EntitlementTooManyGroups(event) => event.id,
+            OutboxEvent::RetentionSessionCompleted(event) => event.id,
+            OutboxEvent::RetentionRenewalUpcoming(event) => event.id,
             OutboxEvent::CheckoutPaymentKeptAsCredit(event) => event.id,
         }
     }
@@ -304,6 +311,8 @@ impl OutboxEvent {
                 event.tenant_id
             }
             OutboxEvent::EntitlementTooManyGroups(event) => event.tenant_id,
+            OutboxEvent::RetentionSessionCompleted(event) => event.tenant_id,
+            OutboxEvent::RetentionRenewalUpcoming(event) => event.tenant_id,
             OutboxEvent::CheckoutPaymentKeptAsCredit(event) => event.tenant_id,
         }
     }
@@ -371,6 +380,9 @@ impl OutboxEvent {
             | OutboxEvent::BudgetThresholdReached(_)
             | OutboxEvent::BudgetExceeded(_)
             | OutboxEvent::EntitlementTooManyGroups(_)
+            // The subscription change an offer makes carries its own event.
+            | OutboxEvent::RetentionSessionCompleted(_)
+            | OutboxEvent::RetentionRenewalUpcoming(_) => None,
             // Its credit is funded by the ledger, which reports it.
             | OutboxEvent::CheckoutPaymentKeptAsCredit(_) => None,
         }
@@ -477,6 +489,8 @@ impl OutboxEvent {
             OutboxEvent::EntitlementTooManyGroups(event) => event
                 .feature_id
                 .map_or_else(|| event.customer_id.as_uuid(), |id| id.as_uuid()),
+            OutboxEvent::RetentionSessionCompleted(event) => event.session_id.as_uuid(),
+            OutboxEvent::RetentionRenewalUpcoming(event) => event.subscription_id.as_uuid(),
             OutboxEvent::CheckoutPaymentKeptAsCredit(event) => event.checkout_session_id.as_uuid(),
         }
     }
@@ -541,6 +555,8 @@ impl OutboxEvent {
                 "Budget".to_string()
             }
             OutboxEvent::EntitlementTooManyGroups(_) => "Feature".to_string(),
+            OutboxEvent::RetentionSessionCompleted(_) => "RetentionSession".to_string(),
+            OutboxEvent::RetentionRenewalUpcoming(_) => "Subscription".to_string(),
             OutboxEvent::CheckoutPaymentKeptAsCredit(_) => "CheckoutSession".to_string(),
         }
     }
@@ -610,6 +626,8 @@ impl OutboxEvent {
             OutboxEvent::BudgetThresholdReached(_) => EventType::BudgetThresholdReached,
             OutboxEvent::BudgetExceeded(_) => EventType::BudgetExceeded,
             OutboxEvent::EntitlementTooManyGroups(_) => EventType::EntitlementTooManyGroups,
+            OutboxEvent::RetentionSessionCompleted(_) => EventType::RetentionSessionCompleted,
+            OutboxEvent::RetentionRenewalUpcoming(_) => EventType::RetentionRenewalUpcoming,
             OutboxEvent::CheckoutPaymentKeptAsCredit(_) => EventType::CheckoutPaymentKeptAsCredit,
         }
     }
@@ -801,6 +819,14 @@ impl OutboxEvent {
         } else {
             OutboxEvent::BudgetThresholdReached(Box::new(event))
         }
+    }
+
+    pub fn retention_session_completed(event: RetentionSessionEvent) -> OutboxEvent {
+        OutboxEvent::RetentionSessionCompleted(Box::new(event))
+    }
+
+    pub fn retention_renewal_upcoming(event: RenewalUpcomingEvent) -> OutboxEvent {
+        OutboxEvent::RetentionRenewalUpcoming(Box::new(event))
     }
 
     pub fn entitlement_too_many_groups(event: TooManyGroupsEvent) -> OutboxEvent {
@@ -1507,7 +1533,9 @@ impl EventType {
             | EventType::BudgetThresholdReached
             | EventType::BudgetExceeded
             | EventType::EntitlementTooManyGroups
-            | EventType::CheckoutPaymentKeptAsCredit => false,
+            | EventType::RetentionSessionCompleted
+            | EventType::RetentionRenewalUpcoming => false,
+            EventType::CheckoutPaymentKeptAsCredit => false,
         }
     }
 }
@@ -1579,6 +1607,8 @@ impl EventType {
             EventType::BudgetThresholdReached => BudgetAlertEvent::THRESHOLD_ROUTING_KEY,
             EventType::BudgetExceeded => BudgetAlertEvent::EXCEEDED_ROUTING_KEY,
             EventType::EntitlementTooManyGroups => TooManyGroupsEvent::ENTITLEMENT_ROUTING_KEY,
+            EventType::RetentionSessionCompleted => RetentionSessionEvent::ROUTING_KEY,
+            EventType::RetentionRenewalUpcoming => RenewalUpcomingEvent::ROUTING_KEY,
             EventType::CheckoutPaymentKeptAsCredit => CheckoutPaymentKeptAsCreditEvent::ROUTING_KEY,
         }
     }
@@ -1809,6 +1839,16 @@ mod credit_inputs_tests {
             EventType::EntitlementTooManyGroups,
             false,
             "evaluator reaction",
+        ),
+        (
+            EventType::RetentionSessionCompleted,
+            false,
+            "the offer's own subscription event carries any change",
+        ),
+        (
+            EventType::RetentionRenewalUpcoming,
+            false,
+            "a notice, changing nothing",
         ),
         (
             EventType::CheckoutPaymentKeptAsCredit,

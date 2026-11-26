@@ -1,11 +1,14 @@
 use crate::StoreResult;
 use crate::domain::customer_emails::{EmailContext, EmailKind};
+use crate::domain::dunning_policy::{DunningPolicy, ExhaustedAction};
+use crate::domain::entity_activity::Actor;
 use crate::domain::enums::DeclineKind;
 use crate::domain::outbox_event::PaymentTransactionEvent;
 use crate::errors::StoreError;
 use crate::repositories::customer_emails::CustomerEmailsInterface;
 use crate::repositories::invoice_account::{self, is_issued};
 use crate::repositories::payment_transactions::PaymentTransactionInterface;
+use crate::repositories::subscriptions::CancellationEffectiveAt;
 use crate::services::Services;
 use crate::services::payment_reminders::sweep::ReopenedReminders;
 use crate::store::{PgConn, Store};
@@ -15,13 +18,15 @@ use common_domain::ids::{
 };
 use diesel_models::checkout_sessions::CheckoutSessionRow;
 use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
+use diesel_models::dunning_policy::DunningPolicyRow;
 use diesel_models::enums::InvoiceStatusEnum;
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::payments::PaymentTransactionRow;
 use error_stack::Report;
 use scoped_futures::ScopedFutureExt;
 
-/// Days to wait before each successive retry of a failed invoice payment.
+/// Days to wait before each successive retry of a failed invoice payment, unless the tenant's
+/// dunning policy says otherwise.
 ///
 /// Length is the retry budget: after the last one the invoice stops being chased
 /// automatically and is left for a human (or the customer, via the portal).
@@ -31,8 +36,18 @@ pub const DUNNING_RETRY_SCHEDULE_DAYS: [i64; 3] = [3, 5, 7];
 
 /// What the failure transaction did to the invoice; only a real transition tells the customer.
 enum FailureOutcome {
-    MarkedErrored,
+    /// `cancel`: the retries ran out and the policy cancels this subscription.
+    MarkedErrored {
+        cancel: Option<SubscriptionId>,
+    },
     Skipped,
+}
+
+/// Where the failure left the invoice's automatic retries.
+enum Retries {
+    Scheduled,
+    Exhausted(DunningPolicy),
+    NotApplicable,
 }
 
 impl Services {
@@ -165,35 +180,89 @@ impl Services {
                         None => None,
                     };
                     let stopped = is_hard_decline(&payment)
-                        && method.is_none_or(|m| !card_refreshed_since(&payment, &m));
+                        && method
+                            .as_ref()
+                            .is_none_or(|m| !card_refreshed_since(&payment, m));
                     if payment.initiated_by_customer_id.is_none() && stopped {
                         log::info!(
                             "Invoice {} was hard-declined ({:?}); no retry until the payment method changes",
                             invoice_id,
                             event.decline_kind
                         );
-                    } else {
-                        self.schedule_next_dunning_attempt(
+                        if invoice.invoice.subscription_id.is_some() {
+                            let policy: DunningPolicy = DunningPolicyRow::find(conn, event.tenant_id)
+                                .await
+                                .map_err(Into::<Report<StoreError>>::into)?
+                                .map(Into::into)
+                                .unwrap_or_default();
+                            if let Some(days) = policy.hard_decline_grace_days() {
+                                let at = common_clock::now().naive_utc()
+                                    + chrono::Duration::days(i64::from(days));
+                                InvoiceRow::set_dunning_cancel_at(
+                                    conn,
+                                    event.tenant_id,
+                                    invoice_id,
+                                    Some(at),
+                                )
+                                .await
+                                .map_err(Into::<Report<StoreError>>::into)?;
+                                diesel_models::billing_controller::BillingControllerRow::wake_by(
+                                    conn,
+                                    event.tenant_id,
+                                    invoice.invoice.customer_id,
+                                    at.and_utc(),
+                                )
+                                .await
+                                .map_err(Into::<Report<StoreError>>::into)?;
+                            }
+                        }
+                        return Ok(FailureOutcome::MarkedErrored { cancel: None });
+                    }
+                    let retries = self
+                        .schedule_next_dunning_attempt(
                             conn,
                             event.tenant_id,
                             invoice_id,
                             invoice.invoice.subscription_id,
+                            &payment,
+                            method.as_ref(),
                         )
                         .await?;
-                    }
 
-                    // The subscription stays active on a failed collection: access is not
-                    // revoked by an unpaid invoice in this iteration. Suspension is a
-                    // dunning-policy decision that needs tenant-level configuration.
-                    Ok(FailureOutcome::MarkedErrored)
+                    // Access stays on while retries run; once they are spent, the tenant's policy
+                    // decides whether the subscription goes.
+                    let cancel = match retries {
+                        Retries::Exhausted(policy)
+                            if payment.initiated_by_customer_id.is_none()
+                                && policy.exhausted_action
+                                    == ExhaustedAction::CancelSubscription =>
+                        {
+                            invoice.invoice.subscription_id
+                        }
+                        _ => None,
+                    };
+                    Ok(FailureOutcome::MarkedErrored { cancel })
                 }
                 .scope_boxed()
             })
             .await?;
 
+        if let FailureOutcome::MarkedErrored {
+            cancel: Some(subscription_id),
+        } = outcome
+        {
+            // Boxed so this handler holds a pointer, not the cancellation's state machine.
+            Box::pin(self.cancel_after_exhausted_retries(
+                event.tenant_id,
+                subscription_id,
+                invoice_id,
+            ))
+            .await?;
+        }
+
         // `payment_failed` only for a system charge that actually errored the invoice; a
         // customer's own portal attempt already showed them the decline.
-        if matches!(outcome, FailureOutcome::MarkedErrored) {
+        if matches!(outcome, FailureOutcome::MarkedErrored { .. }) {
             let payment = self
                 .store
                 .get_payment_tx_row(event.tenant_id, event.payment_transaction_id)
@@ -290,37 +359,88 @@ impl Services {
             .await
     }
 
+    /// The retries ran out and the tenant's policy cancels the subscription: at once, the
+    /// invoice staying due. Checked again under the customer lock, a payment landing meanwhile or
+    /// the subscription ending already leaves it alone.
+    pub(in crate::services) async fn cancel_after_exhausted_retries(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        invoice_id: InvoiceId,
+    ) -> StoreResult<()> {
+        let cancelled = Box::pin(self.cancel_subscription_unless(
+            Actor::System,
+            subscription_id,
+            tenant_id,
+            Some(format!(
+                "Payment failed after every retry (invoice {invoice_id})"
+            )),
+            CancellationEffectiveAt::Immediate,
+            common_clock::now(),
+            Some(invoice_id),
+        ))
+        .await?;
+        if cancelled.is_some() {
+            log::info!(
+                "Invoice {invoice_id} exhausted its payment retries; cancelled subscription {subscription_id}"
+            );
+        }
+        Ok(())
+    }
+
     /// Sets the invoice's next automatic payment attempt, if it still has budget left.
     ///
-    /// The attempt number is derived from the invoice's own failed attempts, so a redelivered
-    /// webhook re-derives the same position in the ladder instead of advancing it.
+    /// The attempt number is derived from the invoice's own failed automatic attempts on the
+    /// instrument charged, so a redelivered webhook re-derives the same position in the ladder
+    /// instead of advancing it, and a new or refreshed card starts it again.
+    #[allow(clippy::too_many_arguments)]
     async fn schedule_next_dunning_attempt(
         &self,
         conn: &mut PgConn,
         tenant_id: TenantId,
         invoice_id: InvoiceId,
         subscription_id: Option<SubscriptionId>,
-    ) -> StoreResult<()> {
+        failed: &PaymentTransactionRow,
+        method: Option<&CustomerPaymentMethodRow>,
+    ) -> StoreResult<Retries> {
         // A retry charges the subscription's method: a one-off invoice stays Errored and is
         // collected manually.
         if subscription_id.is_none() {
-            return Ok(());
+            return Ok(Retries::NotApplicable);
         }
 
-        let failed_attempts =
-            PaymentTransactionRow::count_failed_for_invoice(conn, invoice_id, tenant_id).await?;
+        let failed_attempts = match failed.payment_method_id {
+            Some(method_id) => {
+                PaymentTransactionRow::count_dunning_failures(
+                    conn,
+                    invoice_id,
+                    tenant_id,
+                    method_id,
+                    method
+                        .and_then(|m| m.card_refreshed_at)
+                        .map(|at| at.naive_utc()),
+                )
+                .await?
+            }
+            None => {
+                PaymentTransactionRow::count_failed_for_invoice(conn, invoice_id, tenant_id).await?
+            }
+        };
+        let policy: DunningPolicy = DunningPolicyRow::find(conn, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .map(Into::into)
+            .unwrap_or_default();
 
         // `failed_attempts` counts the failure we are reacting to, so attempt 1 picks the
         // first delay in the ladder.
-        let Some(delay_days) =
-            DUNNING_RETRY_SCHEDULE_DAYS.get(failed_attempts.saturating_sub(1) as usize)
-        else {
+        let Some(delay_days) = policy.delay_before(failed_attempts as u32) else {
             log::info!(
-                "Invoice {} exhausted its dunning retries after {} attempts; leaving it in collection",
+                "Invoice {} exhausted its dunning retries after {} attempts",
                 invoice_id,
                 failed_attempts
             );
-            return Ok(());
+            return Ok(Retries::Exhausted(policy));
         };
 
         // Idempotency: a redelivered failure re-derives the same attempt number, and an attempt
@@ -329,10 +449,10 @@ impl Services {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
         if invoice.next_payment_attempt_at.is_some() {
-            return Ok(());
+            return Ok(Retries::Scheduled);
         }
 
-        let attempt_at = common_clock::now() + chrono::Duration::days(*delay_days);
+        let attempt_at = common_clock::now() + chrono::Duration::days(i64::from(delay_days));
         set_payment_attempt(conn, tenant_id, invoice.customer_id, invoice_id, attempt_at).await?;
 
         log::info!(
@@ -342,7 +462,7 @@ impl Services {
             delay_days
         );
 
-        Ok(())
+        Ok(Retries::Scheduled)
     }
 
     /// Releases a checkout session whose charge failed before any invoice existed, so the
@@ -493,6 +613,36 @@ async fn rearm_retries_where(
             common_clock::now(),
         )
         .await?;
+        InvoiceRow::set_dunning_cancel_at(conn, tenant_id, invoice_id, None)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
     }
     Ok(())
+}
+
+/// Whether `invoice_id` is still due with nothing in flight and no attempt left, and the
+/// subscription still running with no cancellation ahead, the invoice locked under `lock`. A
+/// voided or written-off invoice ends nothing.
+pub(in crate::services) async fn retries_exhausted_tx(
+    conn: &mut PgConn,
+    lock: &diesel_models::lock::CustomerLock,
+    details: &crate::domain::SubscriptionDetails,
+    invoice_id: InvoiceId,
+) -> StoreResult<bool> {
+    if details.subscription.status.is_terminal()
+        || details.pending_events.iter().any(|e| {
+            e.event_type == crate::domain::enums::ScheduledEventTypeEnum::CancelSubscription
+        })
+    {
+        return Ok(false);
+    }
+    let invoice = InvoiceRow::lock_by_id(conn, lock, invoice_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    Ok(invoice.status == InvoiceStatusEnum::Finalized
+        && invoice.next_payment_attempt_at.is_none()
+        && matches!(
+            invoice_account::charge_tx(conn, &invoice).await?,
+            Charge::Due(_)
+        ))
 }

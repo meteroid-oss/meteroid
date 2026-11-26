@@ -155,3 +155,12 @@ period-start = Beginn des Zeitraums
 period-end = Ende des Zeitraums
 status-budget-alert = Budgetwarnung
 status-budget-reached = Budget erreicht
+
+## Kündigung (Art subscription_cancelled). $plan ist der Name des Tarifs.
+subscription-cancelled-subject = Bestätigung Ihrer Kündigung bei { $company }
+subscription-cancelled-heading = Kündigung bestätigt
+subscription-cancelled-intro = Ihr Abonnement { $plan } bleibt bis zum unten genannten letzten Leistungstag aktiv.
+cancellation-received = Kündigung eingegangen am
+# $date = ein langes lokalisiertes Datum, $time = HH:MM in UTC.
+cancellation-received-at = { $date } um { $time } Uhr (UTC)
+last-day-of-service = Letzter Leistungstag

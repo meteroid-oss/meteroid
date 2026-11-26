@@ -92,6 +92,17 @@ export const EmbedsTab: FunctionComponent = () => {
       </Section>
 
       <Section
+        title="2d. Cancel button"
+        description="Opens the subscription's cancellation over your page and resolves with how it ended."
+      >
+        <Code>{`const { outcome, effectiveDate } = await Meteroid.openCancelFlow({
+  token: 'CUSTOMER_PORTAL_TOKEN',
+  subscriptionId: 'sub_123',
+})
+// outcome: 'cancelled' | 'saved' | 'contact_requested' | 'closed'`}</Code>
+      </Section>
+
+      <Section
         title="Override parameters"
         description="Any of these can be passed to override the tenant's configured portal defaults."
       >

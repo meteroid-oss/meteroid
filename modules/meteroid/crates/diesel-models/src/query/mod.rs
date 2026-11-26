@@ -32,6 +32,7 @@ pub mod customer_credit_operation;
 pub mod customer_payment_methods;
 pub mod customers;
 pub mod dead_letter;
+pub mod dunning_policy;
 pub mod eligibility;
 pub mod email_kind_audience;
 pub mod email_send_claim;

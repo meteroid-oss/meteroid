@@ -25,6 +25,8 @@ pub struct AppliedCouponRow {
     pub add_on_ids: Option<Vec<Option<AddOnId>>>,
     /// The months it lasts, as the coupon read when redeemed; NULL: not a number of months.
     pub duration_months: Option<i32>,
+    /// The first service period it discounts when added to a running subscription; NULL: all.
+    pub discounts_from: Option<chrono::NaiveDate>,
 }
 
 #[derive(Debug, Queryable, Identifiable, Selectable)]
@@ -67,6 +69,7 @@ pub struct AppliedCouponRowNew {
     pub applied_count: Option<i32>,
     pub last_applied_at: Option<chrono::NaiveDateTime>,
     pub effective_from: chrono::NaiveDate,
+    pub discounts_from: Option<chrono::NaiveDate>,
 }
 
 #[derive(Debug, Queryable, Selectable)]

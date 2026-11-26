@@ -991,6 +991,14 @@ impl Services {
                             }
                             crate::services::facts::withdraw_cancellation_tx(conn, subscription_id)
                                 .await?;
+                            // Undone before its day, its churn was never booked: none is.
+                            diesel_models::subscription_events::SubscriptionEventRow::withdraw_unbooked_cancellation(
+                                conn,
+                                &lock,
+                                subscription_id,
+                            )
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
                             self.derive_state_tx(
                                 conn,
                                 actor,

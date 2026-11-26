@@ -8,8 +8,8 @@ use crate::{DbResult, PgConn};
 
 use crate::enums::{InvoicePaymentStatus, InvoiceStatusEnum, PaymentStatusEnum, PaymentTypeEnum};
 use common_domain::ids::{
-    CheckoutSessionId, CreditNoteId, CustomerId, InvoiceId, PaymentTransactionId, StoredDocumentId,
-    SubscriptionId, TenantId,
+    CheckoutSessionId, CreditNoteId, CustomerId, CustomerPaymentMethodId, InvoiceId,
+    PaymentTransactionId, StoredDocumentId, SubscriptionId, TenantId,
 };
 use diesel::prelude::{
     ExpressionMethods, NullableExpressionMethods, OptionalExtension, QueryDsl, SelectableHelper,
@@ -240,6 +240,38 @@ impl PaymentTransactionRow {
             .get_result(conn)
             .await
             .attach("Error while counting failed payment transactions")
+            .into_db_result()
+    }
+
+    /// Declined automatic attempts against this invoice on `method` since its card was last
+    /// refreshed: the retry budget of that instrument. A customer's own attempts spend none, and a
+    /// new or refreshed card starts a fresh ladder.
+    pub async fn count_dunning_failures(
+        conn: &mut PgConn,
+        inv_uid: InvoiceId,
+        tenant_uid: TenantId,
+        method: CustomerPaymentMethodId,
+        since: Option<chrono::NaiveDateTime>,
+    ) -> DbResult<i64> {
+        use crate::schema::payment_transaction::dsl as pt_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let mut query = pt_dsl::payment_transaction
+            .filter(pt_dsl::invoice_id.eq(inv_uid))
+            .filter(pt_dsl::tenant_id.eq(tenant_uid))
+            .filter(pt_dsl::status.eq(PaymentStatusEnum::Failed))
+            .filter(pt_dsl::refunded_at.is_null())
+            .filter(pt_dsl::initiated_by_customer_id.is_null())
+            .filter(pt_dsl::payment_method_id.eq(method))
+            .into_boxed();
+        if let Some(since) = since {
+            query = query.filter(pt_dsl::created_at.gt(since));
+        }
+        query
+            .count()
+            .get_result(conn)
+            .await
+            .attach("Error while counting dunning failures")
             .into_db_result()
     }
 

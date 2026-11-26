@@ -349,7 +349,8 @@ impl Services {
     ) -> StoreResult<bool> {
         let customer = (tenant_id, customer_id);
         let mut failed: Option<Report<StoreError>> = None;
-        let mut more = false;
+        // Before the steps: a subscription a dunning deadline ends is not renewed first.
+        let mut more = Box::pin(self.dunning_cancels_of(customer, now, &mut failed)).await?;
         if steps != Steps::Deadlines {
             more |= self
                 .subscription_steps_of(customer, now, catch_up, &mut failed)
@@ -650,6 +651,74 @@ impl Services {
             }
         }
         Ok(took)
+    }
+
+    /// The customer's hard-declined invoices whose wait for a new card ran out, each ending its
+    /// subscription under the cancel policy. True when it took any.
+    async fn dunning_cancels_of(
+        &self,
+        (tenant_id, customer_id): (TenantId, CustomerId),
+        now: DateTime<Utc>,
+        failed: &mut Option<Report<StoreError>>,
+    ) -> StoreResult<bool> {
+        let cancels = {
+            let mut conn = self.store.get_conn().await?;
+            InvoiceRow::list_due_dunning_cancels_of(
+                &mut conn,
+                tenant_id,
+                customer_id,
+                now.naive_utc(),
+                STEP_BUDGET as i64,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+        };
+        let mut took = false;
+        for (invoice_id, subscription_id) in cancels {
+            match self
+                .dunning_cancel(tenant_id, invoice_id, subscription_id, now)
+                .await
+            {
+                Ok(()) => took = true,
+                Err(error) => {
+                    log::error!("dunning cancellation of invoice {invoice_id} failed: {error:?}");
+                    failed.get_or_insert(error);
+                }
+            }
+        }
+        Ok(took)
+    }
+
+    /// A hard-declined invoice's wait for a new card ran out: the policy's cancellation, unless
+    /// it was paid or its retries revived meanwhile, which the cancellation checks again.
+    async fn dunning_cancel(
+        &self,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+        subscription_id: Option<SubscriptionId>,
+        now: DateTime<Utc>,
+    ) -> StoreResult<()> {
+        let policy: crate::domain::dunning_policy::DunningPolicy = {
+            let mut conn = self.store.get_conn().await?;
+            diesel_models::dunning_policy::DunningPolicyRow::find(&mut conn, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .map(Into::into)
+                .unwrap_or_default()
+        };
+        // The tenant may have switched to keeping the subscription during the wait. Taken once
+        // the cancellation is through, a failed one is tried again; it checks the invoice again.
+        if let Some(subscription_id) =
+            subscription_id.filter(|_| policy.hard_decline_grace_days().is_some())
+        {
+            Box::pin(self.cancel_after_exhausted_retries(tenant_id, subscription_id, invoice_id))
+                .await?;
+        }
+        let mut conn = self.store.get_conn().await?;
+        InvoiceRow::take_due_dunning_cancel(&mut conn, tenant_id, invoice_id, now.naive_utc())
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        Ok(())
     }
 
     /// A draft whose grace ended: finalized, or merged into its customer's consolidated invoice.

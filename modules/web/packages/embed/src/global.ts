@@ -1,4 +1,5 @@
 import { buildEmbedUrl, DEFAULT_BASE_URL } from './url'
+import { openCancelFlow } from './cancel'
 import { mountBillingPortal } from './iframe'
 
 import type { BillingPortalOptions, EmbedView } from './types'
@@ -12,7 +13,7 @@ import type { BillingPortalOptions, EmbedView } from './types'
  * DOM at import time — the ESM/CJS builds stay side-effect-free.
  */
 
-const api = { mountBillingPortal, buildEmbedUrl, DEFAULT_BASE_URL }
+const api = { mountBillingPortal, openCancelFlow, buildEmbedUrl, DEFAULT_BASE_URL }
 
 type MeteroidGlobal = typeof api
 
@@ -113,4 +114,4 @@ if (typeof window !== 'undefined') {
   }
 }
 
-export { mountBillingPortal, buildEmbedUrl, DEFAULT_BASE_URL }
+export { mountBillingPortal, openCancelFlow, buildEmbedUrl, DEFAULT_BASE_URL }

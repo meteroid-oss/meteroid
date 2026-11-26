@@ -1135,7 +1135,8 @@ impl InvoiceRow {
             .await
             .map(|_| ())
             .attach("Error while voiding invoice")
-            .into_db_result()
+            .into_db_result()?;
+        Self::set_dunning_cancel_at(conn, tenant_id, id, None).await
     }
 
     /// Close a draft that settled with nothing to bill (no line items). A closed invoice is
@@ -2443,7 +2444,9 @@ impl InvoiceRow {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
 
-        i_dsl::invoice
+        use crate::schema::invoice_dunning_cancel::dsl as d_dsl;
+
+        let mut deadlines: Vec<(Option<NaiveDateTime>, Option<NaiveDateTime>)> = i_dsl::invoice
             .filter(i_dsl::tenant_id.eq(tenant_id))
             .filter(i_dsl::subscription_id.eq(subscription_id))
             .filter(
@@ -2455,6 +2458,104 @@ impl InvoiceRow {
             .load(conn)
             .await
             .attach("Error while reading a subscription's invoice deadlines")
+            .into_db_result()?;
+        // A dunning cancellation wakes the controller as a payment attempt does.
+        let cancels: Vec<NaiveDateTime> = d_dsl::invoice_dunning_cancel
+            .filter(d_dsl::tenant_id.eq(tenant_id))
+            .filter(d_dsl::subscription_id.eq(subscription_id))
+            .select(d_dsl::cancel_at)
+            .load(conn)
+            .await
+            .attach("Error while reading a subscription's dunning cancellations")
+            .into_db_result()?;
+        deadlines.extend(cancels.into_iter().map(|at| (None, Some(at))));
+        Ok(deadlines)
+    }
+
+    /// The customer's invoices whose dunning cancellation is due by `now`, earliest first.
+    pub async fn list_due_dunning_cancels_of(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        now: NaiveDateTime,
+        limit: i64,
+    ) -> DbResult<Vec<(InvoiceId, Option<SubscriptionId>)>> {
+        use crate::schema::invoice_dunning_cancel::dsl as d_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let due: Vec<(InvoiceId, SubscriptionId)> = d_dsl::invoice_dunning_cancel
+            .filter(d_dsl::tenant_id.eq(tenant_id))
+            .filter(d_dsl::customer_id.eq(customer_id))
+            .filter(d_dsl::cancel_at.le(now))
+            .order_by(d_dsl::cancel_at.asc())
+            .limit(limit)
+            .select((d_dsl::invoice_id, d_dsl::subscription_id))
+            .load(conn)
+            .await
+            .attach("Error while listing the invoices due for a dunning cancellation")
+            .into_db_result()?;
+        Ok(due.into_iter().map(|(i, s)| (i, Some(s))).collect())
+    }
+
+    /// Sets, or clears with `None`, when the subscription of this unpaid invoice ends. A set
+    /// deadline is kept: the first hard decline starts the clock.
+    pub async fn set_dunning_cancel_at(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        id: InvoiceId,
+        at: Option<NaiveDateTime>,
+    ) -> DbResult<()> {
+        use crate::schema::invoice_dunning_cancel::dsl as d_dsl;
+        use diesel::sql_types::{Timestamp, Uuid};
+        use diesel_async::RunQueryDsl;
+
+        match at {
+            Some(at) => {
+                diesel::sql_query(
+                    "INSERT INTO invoice_dunning_cancel
+                         (invoice_id, tenant_id, customer_id, subscription_id, cancel_at)
+                     SELECT i.id, i.tenant_id, i.customer_id, i.subscription_id, $3
+                     FROM invoice i
+                     WHERE i.id = $1 AND i.tenant_id = $2 AND i.subscription_id IS NOT NULL
+                     ON CONFLICT (invoice_id) DO NOTHING",
+                )
+                .bind::<Uuid, _>(id)
+                .bind::<Uuid, _>(tenant_id)
+                .bind::<Timestamp, _>(at)
+                .execute(conn)
+                .await
+            }
+            None => {
+                diesel::delete(d_dsl::invoice_dunning_cancel)
+                    .filter(d_dsl::invoice_id.eq(id))
+                    .filter(d_dsl::tenant_id.eq(tenant_id))
+                    .execute(conn)
+                    .await
+            }
+        }
+        .attach("Error while setting an invoice's dunning cancellation")
+        .into_db_result()
+        .map(|_| ())
+    }
+
+    /// The dunning cancellation due by `now`, taken: false when another run took it.
+    pub async fn take_due_dunning_cancel(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        id: InvoiceId,
+        now: NaiveDateTime,
+    ) -> DbResult<bool> {
+        use crate::schema::invoice_dunning_cancel::dsl as d_dsl;
+        use diesel_async::RunQueryDsl;
+
+        diesel::delete(d_dsl::invoice_dunning_cancel)
+            .filter(d_dsl::invoice_id.eq(id))
+            .filter(d_dsl::tenant_id.eq(tenant_id))
+            .filter(d_dsl::cancel_at.le(now))
+            .execute(conn)
+            .await
+            .map(|taken| taken > 0)
+            .attach("Error while taking an invoice's dunning cancellation")
             .into_db_result()
     }
 

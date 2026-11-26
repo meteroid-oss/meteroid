@@ -1,0 +1,129 @@
+syntax = "proto3";
+
+package meteroid.api.retention.v1;
+
+import "google/protobuf/timestamp.proto";
+
+enum RetentionOfferKind {
+  RETENTION_OFFER_KIND_UNSPECIFIED = 0;
+  // Adds a coupon to the subscription, from its next billing period.
+  RETENTION_OFFER_KIND_COUPON = 1;
+  // Moves the subscription to another plan at the end of its period. Upgrades are not offered.
+  RETENTION_OFFER_KIND_PLAN_CHANGE = 2;
+  // Keeps the subscription and asks the merchant to reach out.
+  RETENTION_OFFER_KIND_CONTACT = 3;
+}
+
+enum RetentionOutcome {
+  RETENTION_OUTCOME_UNSPECIFIED = 0;
+  // Started and not finished. Older than a day, it counts as abandoned.
+  RETENTION_OUTCOME_PENDING = 1;
+  RETENTION_OUTCOME_SAVED = 2;
+  RETENTION_OUTCOME_CONTACT_REQUESTED = 3;
+  RETENTION_OUTCOME_CANCELLED = 4;
+}
+
+message RetentionSettings {
+  // Whether the portal runs the cancel flow; off, it keeps the plain confirmation.
+  bool enabled = 1;
+  // A subscription saved by an offer gets no other offer for this many days.
+  uint32 offer_cooldown_days = 2;
+  // Days before an annual or semiannual renewal, a term end or a cancellation when the
+  // retention.renewal_upcoming webhook is sent; empty sends none.
+  repeated uint32 renewal_checkpoints = 3;
+}
+
+enum RenewalMode {
+  RENEWAL_MODE_UNSPECIFIED = 0;
+  RENEWAL_MODE_RENEWING = 1;
+  RENEWAL_MODE_ENDING = 2;
+  RENEWAL_MODE_CANCELLING = 3;
+}
+
+message UpcomingRenewal {
+  string subscription_id = 1;
+  string customer_id = 2;
+  string customer_name = 3;
+  string plan_name = 4;
+  string currency = 5;
+  int64 mrr_cents = 6;
+  // As YYYY-MM-DD.
+  string date = 7;
+  RenewalMode mode = 8;
+  uint32 days_left = 9;
+}
+
+message RetentionOffer {
+  string id = 1;
+  RetentionOfferKind kind = 2;
+  string title = 3;
+  string description = 4;
+  optional string coupon_id = 5;
+  optional string coupon_code = 6;
+  optional string plan_id = 7;
+  optional string plan_name = 8;
+  bool archived = 9;
+  google.protobuf.Timestamp created_at = 10;
+}
+
+message RetentionReason {
+  string id = 1;
+  string label = 2;
+  int32 position = 3;
+  // Unset when the reason leads straight to the cancellation.
+  optional string offer_id = 4;
+  bool archived = 5;
+}
+
+message RetentionSession {
+  string id = 1;
+  string customer_id = 2;
+  string customer_name = 3;
+  string subscription_id = 4;
+  optional string reason_label = 5;
+  optional string comment = 6;
+  optional RetentionOfferKind offer_kind = 7;
+  optional string offer_title = 8;
+  RetentionOutcome outcome = 9;
+  google.protobuf.Timestamp created_at = 10;
+  optional google.protobuf.Timestamp resolved_at = 11;
+  // Whether the subscription is still running and not set to cancel.
+  bool subscription_active = 12;
+  // The subscription's MRR, in minor units of `currency`.
+  int64 mrr_cents = 13;
+  string currency = 14;
+  // When a contact request was marked as answered.
+  optional google.protobuf.Timestamp contact_handled_at = 15;
+}
+
+message RetentionBreakdown {
+  // The reason or offer; unset for sessions without one.
+  optional string id = 1;
+  string label = 2;
+  uint32 sessions = 3;
+  uint32 saved = 4;
+  uint32 contact_requested = 5;
+  uint32 cancelled = 6;
+  // Kept and still running, not set to cancel.
+  uint32 retained = 7;
+}
+
+message MoneyAmount {
+  string currency = 1;
+  // Minor units.
+  int64 amount = 2;
+}
+
+message RetentionStats {
+  uint32 sessions = 1;
+  uint32 saved = 2;
+  uint32 contact_requested = 3;
+  uint32 cancelled = 4;
+  uint32 abandoned = 5;
+  // Saved and contact-requested sessions whose subscription is still running and not set to cancel.
+  uint32 retained = 6;
+  repeated RetentionBreakdown by_reason = 7;
+  repeated RetentionBreakdown by_offer = 8;
+  // MRR of the kept subscriptions still running, one entry per currency.
+  repeated MoneyAmount mrr_kept = 9;
+}

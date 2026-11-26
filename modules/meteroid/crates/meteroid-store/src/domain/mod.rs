@@ -104,6 +104,7 @@ pub mod pricing_pages;
 pub mod product_family_journeys;
 pub mod rate_cards;
 
+pub mod dunning_policy;
 pub mod historical_rates;
 pub mod invoice_lines;
 pub mod invoicing_entities;
@@ -132,6 +133,7 @@ pub mod quote_minimums;
 pub mod quote_signing;
 pub mod quotes;
 pub mod resources;
+pub mod retention_events;
 pub mod roles;
 pub mod sandbox_seeds;
 pub mod scheduled_events;

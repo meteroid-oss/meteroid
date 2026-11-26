@@ -19,6 +19,7 @@ enum EmailKind {
   BUDGET_THRESHOLD = 10;
   BUDGET_EXCEEDED = 11;
   QUOTE_ACCEPTED = 12;
+  SUBSCRIPTION_CANCELLED = 13;
 }
 
 enum EmailAudienceMode {

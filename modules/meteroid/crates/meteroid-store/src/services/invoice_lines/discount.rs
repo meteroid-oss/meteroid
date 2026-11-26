@@ -40,6 +40,7 @@ fn to_core(coupon: &AppliedCouponDetailed, currency: &str, plan: Option<PlanId>)
             .discounted_add_ons(plan)
             .map(<[AddOnId]>::to_vec),
         until: coupon.lasts_until(),
+        from: coupon.applied_coupon.discounts_from,
         value: match &coupon.coupon.discount_in(currency) {
             CouponDiscount::Percentage(percentage) => core::CouponValue::Percentage(*percentage),
             CouponDiscount::Fixed { amount, currency } => core::CouponValue::Fixed {
@@ -475,6 +476,7 @@ mod tests {
                 last_applied_at: None,
                 created_at: now,
                 effective_from: day(1),
+                discounts_from: None,
             },
         }
     }

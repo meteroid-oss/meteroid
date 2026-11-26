@@ -10,12 +10,15 @@ use crate::webhooks::out_model::{
     WebhookOutCheckoutPaymentKeptAsCreditEvent, WebhookOutCheckoutPaymentKeptAsCreditEventData,
     WebhookOutCreditGrantExpiredEvent, WebhookOutCreditGrantExpiredEventData,
     WebhookOutEntitlementAlertEvent, WebhookOutEntitlementAlertEventData,
-    WebhookOutEntitlementAlertLevel, WebhookOutEntitlementAlertResource,
-    WebhookOutTooManyGroupsEvent, WebhookOutTooManyGroupsEventData,
-    WebhookOutWalletBalanceLowEvent, WebhookOutWalletBalanceLowEventData,
-    WebhookOutWalletCreditRecoveredEvent, WebhookOutWalletCreditRecoveredEventData,
-    WebhookOutWalletCreditUnrecoveredEvent, WebhookOutWalletCreditUnrecoveredEventData,
-    WebhookOutWalletDebitedEvent, WebhookOutWalletDebitedEventData, WebhookOutWalletDepletedEvent,
+    WebhookOutEntitlementAlertLevel, WebhookOutEntitlementAlertResource, WebhookOutRenewalMode,
+    WebhookOutRenewalUpcomingEvent, WebhookOutRenewalUpcomingEventData,
+    WebhookOutRetentionOfferKind, WebhookOutRetentionOutcome, WebhookOutRetentionSessionEvent,
+    WebhookOutRetentionSessionEventData, WebhookOutTooManyGroupsEvent,
+    WebhookOutTooManyGroupsEventData, WebhookOutWalletBalanceLowEvent,
+    WebhookOutWalletBalanceLowEventData, WebhookOutWalletCreditRecoveredEvent,
+    WebhookOutWalletCreditRecoveredEventData, WebhookOutWalletCreditUnrecoveredEvent,
+    WebhookOutWalletCreditUnrecoveredEventData, WebhookOutWalletDebitedEvent,
+    WebhookOutWalletDebitedEventData, WebhookOutWalletDepletedEvent,
     WebhookOutWalletDepletedEventData, WebhookOutWalletFundedEvent,
     WebhookOutWalletFundedEventData, WebhookOutWalletRecoveredEvent,
     WebhookOutWalletRecoveredEventData,
@@ -250,6 +253,8 @@ pub fn generate_spec(edition: EditionSpec, dir: &str) {
         WebhookOutBudgetAlertEvent,
         WebhookOutTooManyGroupsEvent,
         WebhookOutCheckoutPaymentKeptAsCreditEvent,
+        WebhookOutRetentionSessionEvent,
+        WebhookOutRenewalUpcomingEvent,
       )
     ),
     tags(
@@ -1060,6 +1065,46 @@ impl Modify for WebhooksAddon {
                 }
                 WebhookOutEventGroupEnum::Entitlement | WebhookOutEventGroupEnum::Budget => {
                     alert_example(event)
+                }
+                WebhookOutEventGroupEnum::Retention
+                    if event == WebhookOutEventTypeEnum::RetentionRenewalUpcoming =>
+                {
+                    serde_json::to_value(WebhookOutRenewalUpcomingEvent {
+                        id: EventId::default(),
+                        event_type: event,
+                        data: WebhookOutRenewalUpcomingEventData {
+                            customer_id: CustomerId::default(),
+                            subscription_id: SubscriptionId::default(),
+                            renewal_date: Default::default(),
+                            mode: WebhookOutRenewalMode::Renewing,
+                            days_before: 60,
+                            plan_name: "Enterprise".to_string(),
+                            currency: "EUR".to_string(),
+                            mrr_cents: 250_000,
+                        },
+                        timestamp: Default::default(),
+                    })
+                    .expect("Failed to serialize webhook example")
+                }
+                WebhookOutEventGroupEnum::Retention => {
+                    serde_json::to_value(WebhookOutRetentionSessionEvent {
+                        id: EventId::default(),
+                        event_type: event,
+                        data: WebhookOutRetentionSessionEventData {
+                            session_id: Default::default(),
+                            customer_id: CustomerId::default(),
+                            subscription_id: SubscriptionId::default(),
+                            outcome: WebhookOutRetentionOutcome::Saved,
+                            reason: Some("Too expensive".to_string()),
+                            comment: Some("Budget cuts this quarter".to_string()),
+                            offer_kind: Some(WebhookOutRetentionOfferKind::Coupon),
+                            offer_title: Some("Stay for 30% off your next 3 months".to_string()),
+                            effective_date: Some(Default::default()),
+                            completed_at: Default::default(),
+                        },
+                        timestamp: Default::default(),
+                    })
+                    .expect("Failed to serialize webhook example")
                 }
                 WebhookOutEventGroupEnum::Checkout => {
                     let event = WebhookOutCheckoutPaymentKeptAsCreditEvent {

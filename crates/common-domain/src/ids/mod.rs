@@ -110,6 +110,9 @@ id_type!(CreditOperationId, "cop_");
 // Customer usage limits and customer-set budgets.
 id_type!(UsageLimitId, "ulim_");
 id_type!(BudgetId, "bdgt_");
+id_type!(RetentionOfferId, "rofr_");
+id_type!(RetentionReasonId, "rrsn_");
+id_type!(RetentionSessionId, "rses_");
 // A tenant-defined credit denomination that prices usage instead of money.
 id_type!(CreditUnitId, "cun_");
 // A credit unit's selling price in one currency.

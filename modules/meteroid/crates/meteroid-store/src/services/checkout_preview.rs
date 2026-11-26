@@ -1123,6 +1123,7 @@ impl Services {
             last_applied_at: None,
             created_at: now,
             effective_from,
+            discounts_from: None,
         };
 
         AppliedCouponDetailed {

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Meteroid API v2",
-    "description": "The public REST API v2. A request may send `Meteroid-Version: YYYY-MM-DD` to pin a version (the first, 2026-12-01, by default) and `X-Request-Id`; every response echoes the version it was served at and its `Request-Id`. These headers are documented once (`components.parameters`, `components.headers`), on no operation: an SDK sends them itself. A POST other than a preview takes an `Idempotency-Key`: a retry with the same key and request replays the first response (`Idempotent-Replayed: true`), or an `IdempotentReplayMarker` naming the resource's `id` when the first response was not kept (larger than 512 KB, or holding a secret). Its `x-idempotency` says whether the key is `required` (the writes that can invoice, credit or record money refuse a request without one, `400 idempotency_key_required`) or `optional`. A PATCH takes `application/json` and `application/merge-patch+json` alike: one whose body is a JSON merge patch (RFC 7396: a field left out is unchanged, `null` clears it) declares `application/merge-patch+json`, the one whose body lists changes (`PATCH /rate-cards/{id_or_code}/rates`) `application/json`. Errors are RFC 9457 problems (`application/problem+json`) with a specific `code`; `403 forbidden` refuses the credentials, `403 feature_not_available` a feature the organization's plan or edition does not include. A `401` carries `WWW-Authenticate: Bearer`. A response the request rate limit counted carries `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` (Unix seconds), and the IETF draft's `RateLimit-Policy` and `RateLimit`; its `429` adds `Retry-After` (seconds). Enums in responses are open: new values (problem and field error codes, event types, statuses) may appear without a new `Meteroid-Version`, and a client must accept a value it does not know (a problem by its HTTP status, a field error as `invalid`). Lists are paged by cursor, `?limit=&after=`, as their `x-pagination` describes. Prices and rates are decimal strings in the currency's major unit; amounts billed are integers in minor units.",
+    "description": "The public REST API v2. A request may send `Meteroid-Version: YYYY-MM-DD` to pin a version (the first, 2026-12-01, by default) and `X-Request-Id`; every response echoes the version it was served at and its `Request-Id`. These headers are documented once (`components.parameters`, `components.headers`), on no operation: an SDK sends them itself. A POST other than a preview takes an `Idempotency-Key`: a retry with the same key and request replays the first response (`Idempotent-Replayed: true`), or an `IdempotentReplayMarker` naming the resource's `id` when the first response was not kept (larger than 512 KB, or holding a secret). Its `x-idempotency` says whether the key is `required` (the writes that can invoice, credit or record money refuse a request without one, `400 idempotency_key_required`) or `optional`. A PATCH takes `application/json` and `application/merge-patch+json` alike: one whose body is a JSON merge patch (RFC 7396: a field left out is unchanged, `null` clears it) declares `application/merge-patch+json`, the one whose body lists changes (`PATCH /rate-cards/{id_or_code}/rates`) `application/json`. Errors are RFC 9457 problems (`application/problem+json`) with a specific `code`; `403 forbidden` refuses the credentials, `403 feature_not_available` a feature the organization's plan or edition does not include. A `401` carries `WWW-Authenticate: Bearer`. A response the request rate limit counted carries `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` (Unix seconds), and the IETF draft's `RateLimit-Policy` and `RateLimit`; its `429` adds `Retry-After` (seconds). Enums in responses are open: new values (problem and field error codes, event types, statuses) may appear without a new `Meteroid-Version`, and a client must accept a value it does not know (a problem by its HTTP status, a field error as `invalid`); their values are `x-extensible-enum`. Lists are paged by cursor, `?limit=&after=`, as their `x-pagination` describes. Prices and rates are decimal strings in the currency's major unit; amounts billed are integers in minor units.",
     "license": {
       "name": "AGPL-3.0-only",
       "identifier": "AGPL-3.0-only"
@@ -18370,7 +18370,7 @@
       "Activation": {
         "type": "string",
         "description": "What starts the subscription.",
-        "enum": [
+        "x-extensible-enum": [
           "on_start",
           "on_checkout",
           "manual"
@@ -18378,7 +18378,7 @@
       },
       "ActorKind": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "system",
           "user",
           "api_token",
@@ -18589,7 +18589,7 @@
       },
       "Aggregation": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "count",
           "latest",
           "max",
@@ -18774,7 +18774,7 @@
       "AppliesTo": {
         "type": "string",
         "description": "What the credit pays: any charge, or usage charges only.",
-        "enum": [
+        "x-extensible-enum": [
           "all",
           "usage"
         ]
@@ -18782,7 +18782,7 @@
       "AtLimit": {
         "type": "string",
         "description": "What reaching a limit does.",
-        "enum": [
+        "x-extensible-enum": [
           "deny",
           "allow_and_bill",
           "deny_new"
@@ -19049,14 +19049,14 @@
       "AutoTopUpMethod": {
         "type": "string",
         "description": "`fixed` buys `amount` each time the balance falls to the threshold; `to_target` buys back up\nto `target`.",
-        "enum": [
+        "x-extensible-enum": [
           "fixed",
           "to_target"
         ]
       },
       "AutoTopUpStatus": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "active",
           "disabled",
           "suspended"
@@ -19071,7 +19071,7 @@
       },
       "Billing": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "advance",
           "arrears"
         ]
@@ -19111,7 +19111,7 @@
       "Cadence": {
         "type": "string",
         "description": "How often a price bills. Usage and one-time prices read their usage or fee whatever it is.",
-        "enum": [
+        "x-extensible-enum": [
           "monthly",
           "quarterly",
           "semiannual",
@@ -19648,7 +19648,7 @@
       },
       "ChangeStatus": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "applied",
           "scheduled",
           "pending_payment"
@@ -19748,7 +19748,7 @@
       "ChargeOrigin": {
         "type": "string",
         "description": "Where a charge of the subscription comes from.",
-        "enum": [
+        "x-extensible-enum": [
           "plan",
           "add_on",
           "amendment"
@@ -20015,7 +20015,7 @@
       "CheckReason": {
         "type": "string",
         "description": "Why the check, or a level, refuses. When several apply, the first in this list is given.\nNew reasons may be added: treat an unknown one as a refusal.",
-        "enum": [
+        "x-extensible-enum": [
           "resource_required",
           "metric_not_found",
           "not_subscribed",
@@ -20029,7 +20029,7 @@
       "CheckReasonType": {
         "type": "string",
         "description": "What kind of refusal it is, to decide what to do about it.",
-        "enum": [
+        "x-extensible-enum": [
           "denied",
           "misconfigured",
           "unavailable"
@@ -20091,7 +20091,7 @@
       "CheckoutKind": {
         "type": "string",
         "description": "What the checkout buys.",
-        "enum": [
+        "x-extensible-enum": [
           "self_serve",
           "subscription_activation",
           "plan_change",
@@ -20293,7 +20293,7 @@
       },
       "CheckoutStatus": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "created",
           "awaiting_payment",
           "completed",
@@ -20607,7 +20607,7 @@
       "CouponCreditScope": {
         "type": "string",
         "description": "Which subscriptions a promotional credit pays.",
-        "enum": [
+        "x-extensible-enum": [
           "customer",
           "subscription"
         ]
@@ -22477,7 +22477,7 @@
       "CreditNoteOrigin": {
         "type": "string",
         "description": "Who issued it: an operator, or Meteroid for a subscription change it settled.",
-        "enum": [
+        "x-extensible-enum": [
           "manual",
           "amendment",
           "plan_change",
@@ -22507,7 +22507,7 @@
       },
       "CreditNoteStatus": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "draft",
           "finalized",
           "voided"
@@ -22516,7 +22516,7 @@
       "CreditNoteType": {
         "type": "string",
         "description": "How the credited amount goes back to the customer.",
-        "enum": [
+        "x-extensible-enum": [
           "credit_to_balance",
           "refund",
           "debt_cancellation"
@@ -22875,7 +22875,7 @@
       "CustomPropertyEntity": {
         "type": "string",
         "description": "The resource a definition applies to.",
-        "enum": [
+        "x-extensible-enum": [
           "customer",
           "subscription",
           "invoice",
@@ -22905,7 +22905,7 @@
       "CustomPropertyType": {
         "type": "string",
         "description": "What a property's value is.",
-        "enum": [
+        "x-extensible-enum": [
           "text",
           "number",
           "boolean",
@@ -23461,7 +23461,7 @@
       "CustomerKind": {
         "type": "string",
         "description": "A company, or a person (B2C): a person is named by `first_name` and `last_name`, and needs a\nbilling country.",
-        "enum": [
+        "x-extensible-enum": [
           "company",
           "individual"
         ]
@@ -23684,7 +23684,7 @@
       "DeliveryStatus": {
         "type": "string",
         "description": "Where a delivery is in its retry cycle.",
-        "enum": [
+        "x-extensible-enum": [
           "pending",
           "in_flight",
           "succeeded",
@@ -23694,7 +23694,7 @@
       },
       "Denomination": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "money",
           "credit_unit"
         ]
@@ -23773,7 +23773,7 @@
       },
       "Direction": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "upgrade",
           "downgrade",
           "lateral"
@@ -23782,7 +23782,7 @@
       "DisabledReason": {
         "type": "string",
         "description": "Why an endpoint receives nothing.",
-        "enum": [
+        "x-extensible-enum": [
           "manual",
           "auto_failures",
           "gone"
@@ -23791,7 +23791,7 @@
       "DiscardReason": {
         "type": "string",
         "description": "Why a row changed nothing.",
-        "enum": [
+        "x-extensible-enum": [
           "replaced_by_higher_tier",
           "lost_within_tier",
           "no_effect",
@@ -24144,7 +24144,7 @@
       },
       "DocumentType": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "invoice",
           "credit_note",
           "next_invoice"
@@ -24153,7 +24153,7 @@
       "EInvoicingStatus": {
         "type": "string",
         "description": "Whether the structured e-invoice was produced with the PDF.",
-        "enum": [
+        "x-extensible-enum": [
           "generated",
           "failed"
         ]
@@ -24429,7 +24429,7 @@
       "EntitlementEffect": {
         "type": "string",
         "description": "How a row combines with the value of the owners before it: the feature's defaults, then the\nplan and its version, the subscription, its add-ons and the customer's overrides, in that\norder.",
-        "enum": [
+        "x-extensible-enum": [
           "set",
           "add",
           "raise_to",
@@ -24840,7 +24840,7 @@
       "EntitlementTier": {
         "type": "string",
         "description": "Where a row sits in the order rows apply in, first to last: the feature's defaults, the\nplan, the plan version, the subscription, its add-ons, the customer's override, and an\noverride for one resource.",
-        "enum": [
+        "x-extensible-enum": [
           "default",
           "plan",
           "plan_version",
@@ -24948,7 +24948,7 @@
       },
       "EventType": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "metric.created",
           "customer.created",
           "subscription.created",
@@ -25004,7 +25004,9 @@
           "entitlement.limit_reached",
           "budget.threshold_reached",
           "budget.exceeded",
-          "checkout.payment_kept_as_credit"
+          "checkout.payment_kept_as_credit",
+          "retention.session_completed",
+          "retention.renewal_upcoming"
         ]
       },
       "Expiry": {
@@ -25029,7 +25031,7 @@
       },
       "ExpiryUnit": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "days",
           "months",
           "billing_period"
@@ -25037,7 +25039,7 @@
       },
       "ExtraKind": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "base",
           "per_seat",
           "usage",
@@ -25136,7 +25138,7 @@
       },
       "FeatureKind": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "boolean",
           "value",
           "limit"
@@ -25184,7 +25186,7 @@
       },
       "FeatureStatus": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "active",
           "disabled",
           "archived"
@@ -25214,7 +25216,7 @@
       },
       "FeatureValueType": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "number",
           "text",
           "select",
@@ -25246,7 +25248,7 @@
       "FieldErrorCode": {
         "type": "string",
         "description": "Why a field is refused. New codes may be added without a new `Meteroid-Version`: a client\nreads one it does not know as `invalid`.",
-        "enum": [
+        "x-extensible-enum": [
           "required",
           "invalid",
           "unknown",
@@ -25285,7 +25287,7 @@
       },
       "FilterOp": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "equal",
           "not_equal",
           "in",
@@ -25440,7 +25442,7 @@
       "GrantKind": {
         "type": "string",
         "description": "The group a grant is shown in.",
-        "enum": [
+        "x-extensible-enum": [
           "included",
           "prepaid",
           "bonus",
@@ -25450,7 +25452,7 @@
       "GrantSource": {
         "type": "string",
         "description": "Where the credit came from.",
-        "enum": [
+        "x-extensible-enum": [
           "manual",
           "purchase",
           "plan",
@@ -25464,7 +25466,7 @@
       },
       "GrantStatus": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "pending",
           "active",
           "depleted",
@@ -25474,7 +25476,7 @@
       "GrantType": {
         "type": "string",
         "description": "`paid` credit was bought and applies after tax, like a payment; `promotional` credit was given\nand applies before tax, like a discount.",
-        "enum": [
+        "x-extensible-enum": [
           "paid",
           "promotional"
         ]
@@ -25482,7 +25484,7 @@
       "Granularity": {
         "type": "string",
         "description": "How long a cost bucket is.",
-        "enum": [
+        "x-extensible-enum": [
           "hour",
           "day",
           "month"
@@ -25528,7 +25530,7 @@
       "IncludedBy": {
         "type": "string",
         "description": "Which subscriptions include a feature: the customer's (its value holds for the whole\ncustomer), or only its resources' (it is answered per resource: name one).",
-        "enum": [
+        "x-extensible-enum": [
           "customer",
           "resources"
         ]
@@ -26170,7 +26172,7 @@
       },
       "InvoiceStatus": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "draft",
           "finalized",
           "uncollectible",
@@ -26180,7 +26182,7 @@
       },
       "InvoiceType": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "recurring",
           "one_off",
           "adjustment",
@@ -26606,7 +26608,7 @@
       "LedgerEntryType": {
         "type": "string",
         "description": "What moved the credit.",
-        "enum": [
+        "x-extensible-enum": [
           "credit",
           "invoice_application",
           "invoice_return",
@@ -26675,7 +26677,7 @@
       "LevelKind": {
         "type": "string",
         "description": "Where a value applies: for the customer as a whole (across all its resources), or for each\nresource of `resource_type` (per site).",
-        "enum": [
+        "x-extensible-enum": [
           "customer",
           "resource_type"
         ]
@@ -26740,7 +26742,7 @@
       },
       "LimitCountedBy": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "events",
           "app"
         ]
@@ -26815,7 +26817,7 @@
       "LineBilling": {
         "type": "string",
         "description": "How the charge a line bills recurs.",
-        "enum": [
+        "x-extensible-enum": [
           "recurring",
           "usage",
           "one_time"
@@ -26867,7 +26869,7 @@
       },
       "LineKind": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "charge",
           "minimum_shortfall",
           "credit"
@@ -27454,7 +27456,7 @@
       "OnDecrease": {
         "type": "string",
         "description": "When a decrease takes effect.",
-        "enum": [
+        "x-extensible-enum": [
           "at_period_end",
           "immediately"
         ]
@@ -27462,7 +27464,7 @@
       "OnIncrease": {
         "type": "string",
         "description": "When an increase takes effect.",
-        "enum": [
+        "x-extensible-enum": [
           "immediately",
           "next_period"
         ]
@@ -27572,7 +27574,7 @@
       },
       "OwnerType": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "feature",
           "plan",
           "plan_version",
@@ -27626,7 +27628,7 @@
       },
       "PaymentState": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "ready",
           "pending",
           "settled",
@@ -27637,7 +27639,7 @@
       },
       "PaymentStatus": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "unpaid",
           "partially_paid",
           "paid",
@@ -27655,7 +27657,7 @@
       },
       "PaymentType": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "payment",
           "refund"
         ]
@@ -27995,7 +27997,7 @@
       },
       "PlanStatus": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "draft",
           "active",
           "inactive",
@@ -28004,7 +28006,7 @@
       },
       "PlanType": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "standard",
           "free",
           "custom"
@@ -28221,7 +28223,7 @@
       "Preset": {
         "type": "string",
         "description": "Sugar for a common composition: it fills `quantity` and `timing`. Responses name the preset a\ncharge reads as, a hint only.",
-        "enum": [
+        "x-extensible-enum": [
           "flat_fee",
           "seats",
           "usage",
@@ -28245,7 +28247,7 @@
       "PreviewPart": {
         "type": "string",
         "description": "A part of a preview that could not be priced, left out of it.",
-        "enum": [
+        "x-extensible-enum": [
           "invoice",
           "credit_note",
           "next_invoice",
@@ -28507,7 +28509,7 @@
       "ProblemCode": {
         "type": "string",
         "description": "What went wrong, specific enough to act on. New codes may be added without a new\n`Meteroid-Version`: a client reads one it does not know by its HTTP status.",
-        "enum": [
+        "x-extensible-enum": [
           "invalid_request",
           "validation_failed",
           "not_expressible",
@@ -28965,7 +28967,7 @@
       },
       "RateCardChangeKind": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "created",
           "rates_set",
           "updated",
@@ -29216,7 +29218,7 @@
       },
       "Recurrence": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "recurring",
           "one_time"
         ]
@@ -29552,7 +29554,7 @@
       "ReversalKind": {
         "type": "string",
         "description": "Why a payment was clawed back. `chargeback`, `debtor_recall` and `dispute` leave the invoice\npaid and mark the payment disputed; any other makes the amount due again.",
-        "enum": [
+        "x-extensible-enum": [
           "refund",
           "chargeback",
           "debtor_recall",
@@ -29614,7 +29616,7 @@
       "Rounding": {
         "type": "string",
         "description": "How a period's usage is rounded once divided by `factor`.",
-        "enum": [
+        "x-extensible-enum": [
           "up",
           "down",
           "nearest",
@@ -29693,7 +29695,7 @@
       },
       "ScheduledChangeType": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "plan_change",
           "cancellation",
           "amendment"
@@ -30422,7 +30424,7 @@
       },
       "SubscriptionStatus": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "pending_activation",
           "trial_active",
           "active",
@@ -30435,7 +30437,7 @@
       "TaxExemption": {
         "type": "string",
         "description": "Why a tax applies at no rate.",
-        "enum": [
+        "x-extensible-enum": [
           "reverse_charge",
           "tax_exempt",
           "not_registered",
@@ -30446,7 +30448,7 @@
       "TaxStatus": {
         "type": "string",
         "description": "How the customer's invoices are taxed: normally, not at all (with an `exemption_reason`), or\nwith the tax due by the customer (reverse charge).",
-        "enum": [
+        "x-extensible-enum": [
           "taxable",
           "exempt",
           "reverse_charge"
@@ -30509,7 +30511,7 @@
       },
       "TierMode": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "graduated",
           "volume"
         ]
@@ -30610,7 +30612,7 @@
       },
       "TopUpStatus": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "succeeded",
           "pending",
           "requires_customer_action",
@@ -30736,7 +30738,7 @@
       },
       "Unit": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "hour",
           "day",
           "week",
@@ -30796,7 +30798,7 @@
       },
       "Unmatched": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "hold",
           "ignore"
         ]
@@ -31820,7 +31822,7 @@
       "UsageAtZero": {
         "type": "string",
         "description": "What a customer's usage does once the credit it can use runs out: what each subscription's\nplan says, or always or never stop, for this customer.",
-        "enum": [
+        "x-extensible-enum": [
           "follow_plan",
           "always_pause",
           "never_pause"
@@ -31999,7 +32001,7 @@
       "UsageSource": {
         "type": "string",
         "description": "Where the usage came from: `read` when checking, or `live`: kept up to date as usage events\narrive (Enterprise edition).",
-        "enum": [
+        "x-extensible-enum": [
           "read",
           "live"
         ]
@@ -32072,7 +32074,7 @@
       "VatNumberStatus": {
         "type": "string",
         "description": "The VIES check of the VAT number: pending, valid, invalid, or VIES could not answer.",
-        "enum": [
+        "x-extensible-enum": [
           "pending",
           "valid",
           "invalid",
@@ -32109,7 +32111,7 @@
       },
       "VersionStatus": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "draft",
           "active",
           "superseded"
@@ -32623,7 +32625,7 @@
       },
       "WhenType": {
         "type": "string",
-        "enum": [
+        "x-extensible-enum": [
           "immediate",
           "period_end",
           "date"

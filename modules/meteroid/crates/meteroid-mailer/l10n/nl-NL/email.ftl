@@ -155,3 +155,12 @@ period-start = Begin van de periode
 period-end = Einde van de periode
 status-budget-alert = Budgetwaarschuwing
 status-budget-reached = Budget bereikt
+
+## Opzegging (soort subscription_cancelled). $plan is de naam van het abonnement.
+subscription-cancelled-subject = Uw opzegging bij { $company } is bevestigd
+subscription-cancelled-heading = Opzegging bevestigd
+subscription-cancelled-intro = Uw abonnement { $plan } blijft actief tot de laatste dag van de dienst hieronder.
+cancellation-received = Opzegging ontvangen op
+# $date = een lange gelokaliseerde datum, $time = HH:MM in UTC.
+cancellation-received-at = { $date } om { $time } UTC
+last-day-of-service = Laatste dag van de dienstverlening

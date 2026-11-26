@@ -102,6 +102,13 @@ export const EMAIL_KIND_META: EmailKindMeta[] = [
     attachesDocument: false,
   },
   {
+    kind: EmailKind.SUBSCRIPTION_CANCELLED,
+    label: 'Cancellation confirmed',
+    description: 'Sent when a subscription cancellation is recorded, with its end date.',
+    editableCopy: false,
+    attachesDocument: false,
+  },
+  {
     kind: EmailKind.WALLET_BALANCE_LOW,
     label: 'Low balance',
     description: "Sent when a customer's prepaid balance falls below its alert threshold.",
@@ -157,6 +164,7 @@ const GROUPS: KindGroup[] = [
     title: 'Quotes',
     kinds: [EmailKind.QUOTE_READY, EmailKind.QUOTE_ACCEPTED].map(k => byKind(k)!),
   },
+  { title: 'Subscriptions', kinds: [byKind(EmailKind.SUBSCRIPTION_CANCELLED)!] },
   {
     title: 'Prepaid balance',
     kinds: [EmailKind.WALLET_BALANCE_LOW, EmailKind.AUTO_TOP_UP_FAILED].map(k => byKind(k)!),

@@ -115,7 +115,8 @@ pub fn api_v2_routes() -> OpenApiRouter<AppState> {
             `RateLimit`; its `429` adds `Retry-After` (seconds). Enums in responses are open: \
             new values (problem and field error codes, event types, statuses) may appear \
             without a new `Meteroid-Version`, and a client must accept a value it does not \
-            know (a problem by its HTTP status, a field error as `invalid`). Lists are paged \
+            know (a problem by its HTTP status, a field error as `invalid`); their values are \
+            `x-extensible-enum`. Lists are paged \
             by cursor, `?limit=&after=`, as their `x-pagination` describes. Prices and rates \
             are decimal strings in the currency's major unit; amounts billed are integers in \
             minor units."

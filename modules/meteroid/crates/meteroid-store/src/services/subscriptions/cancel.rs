@@ -1,4 +1,5 @@
 use crate::StoreResult;
+use crate::domain::customer_emails::{EmailContext, EmailKind};
 use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::domain::enums::SubscriptionEventType;
 use crate::domain::outbox_event::SubscriptionUpdateType;
@@ -13,6 +14,7 @@ use scoped_futures::ScopedFutureExt;
 use uuid::Uuid;
 
 use crate::repositories::SubscriptionInterface;
+use crate::repositories::customer_emails::CustomerEmailsInterface;
 use crate::repositories::entity_activity::EntityActivityInterface;
 use crate::repositories::subscriptions::CancellationEffectiveAt;
 use diesel_models::checkout_sessions::CheckoutSessionRow;
@@ -113,12 +115,38 @@ impl Services {
         effective_at: CancellationEffectiveAt,
         requested_at: chrono::DateTime<chrono::Utc>,
     ) -> StoreResult<CancellationOutcome> {
+        Box::pin(self.cancel_subscription_unless(
+            actor,
+            subscription_id,
+            tenant_id,
+            reason,
+            effective_at,
+            requested_at,
+            None,
+        ))
+        .await?
+        .ok_or_else(|| Report::new(StoreError::CancellationError))
+    }
+
+    /// The cancellation, unless `still_unpaid` is no longer an unpaid invoice whose retries ran
+    /// out once the customer is locked: `None` then, nothing changed.
+    #[allow(clippy::too_many_arguments)]
+    pub(in crate::services) async fn cancel_subscription_unless(
+        &self,
+        actor: Actor,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        reason: Option<String>,
+        effective_at: CancellationEffectiveAt,
+        requested_at: chrono::DateTime<chrono::Utc>,
+        still_unpaid: Option<InvoiceId>,
+    ) -> StoreResult<Option<CancellationOutcome>> {
         if requested_at > common_clock::now() {
             return Err(Report::new(StoreError::InvalidArgument(
                 "a cancellation cannot be requested at a future moment".to_string(),
             )));
         }
-        let (subscription, reached) = self
+        let cancelled = self
             .store
             .transaction(|conn| {
                 let actor = &actor;
@@ -136,6 +164,15 @@ impl Services {
                         .await?;
                     let customer_id = subscription.subscription.customer_id;
                     let reason_for_audit = reason.clone();
+                    if let Some(invoice_id) = still_unpaid
+                        && !crate::services::orchestration::payment_transaction_failed::retries_exhausted_tx(
+                            conn, &lock, &subscription, invoice_id,
+                        )
+                        .await?
+                    {
+                        return Ok(None);
+                    }
+
                     // An ended subscription's claim on usage is settled: an ending would move it.
                     refuse_ended(&subscription)?;
                     // A cancellation still to apply is replaced, but a customer never moves one
@@ -258,7 +295,7 @@ impl Services {
                         }
 
                         let aborted: Subscription = res.try_into()?;
-                        return Ok((aborted, None));
+                        return Ok(Some((aborted, None)));
                     }
 
                     // `usage_cutoff` is set only for an immediate cancel: it pins the terminal
@@ -308,6 +345,12 @@ impl Services {
                         actor,
                     )
                     .await?;
+
+                    // Dunning ends the subscription for the merchant: no cancellation was received.
+                    if still_unpaid.is_none() {
+                        confirm_cancellation_tx(&self.store, conn, &subscription, now, ends_at)
+                            .await?;
+                    }
 
                     let res =
                         SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
@@ -374,19 +417,22 @@ impl Services {
                         None
                     };
                     let cancelled: Subscription = res.try_into()?;
-                    Ok((cancelled, reached))
+                    Ok(Some((cancelled, reached)))
                 }
                 .scope_boxed()
             })
             .await?;
+        let Some((subscription, reached)) = cancelled else {
+            return Ok(None);
+        };
 
         let Some((invoices_before, notes_before)) = reached else {
-            return Ok(CancellationOutcome {
+            return Ok(Some(CancellationOutcome {
                 subscription,
                 invoice_ids: Vec::new(),
                 credit_note_ids: Vec::new(),
                 applies_later: false,
-            });
+            }));
         };
 
         // Committed: nothing from here fails the call. The ending applies now, as the controller
@@ -431,7 +477,7 @@ impl Services {
             Ok::<_, Report<StoreError>>((after, documents))
         }
         .await;
-        Ok(match read {
+        Ok(Some(match read {
             Ok((after, (invoices, notes))) => CancellationOutcome {
                 subscription: after,
                 invoice_ids: invoices
@@ -455,7 +501,7 @@ impl Services {
                     applies_later,
                 }
             }
-        })
+        }))
     }
 }
 
@@ -614,10 +660,43 @@ impl Services {
     }
 }
 
+/// Queues the customer's confirmation of the cancellation (§ 312k BGB), once per request: a moved
+/// ending, or one requested again after an undo, confirms again.
+async fn confirm_cancellation_tx(
+    store: &crate::Store,
+    conn: &mut crate::store::PgConn,
+    details: &SubscriptionDetails,
+    received_at: NaiveDateTime,
+    ends_at: NaiveDateTime,
+) -> StoreResult<()> {
+    let subscription = &details.subscription;
+    let kind = EmailKind::SubscriptionCancelled;
+    store
+        .enqueue_customer_email_tx(
+            conn,
+            subscription.tenant_id,
+            kind,
+            EmailContext::SubscriptionCancelled {
+                customer_id: subscription.customer_id,
+                subscription_id: subscription.id,
+                plan_name: subscription.plan_name.clone(),
+                received_at,
+                ends_at,
+            },
+            format!(
+                "{kind}:{}:{}:{}",
+                subscription.id,
+                ends_at.and_utc().timestamp(),
+                received_at.and_utc().timestamp()
+            ),
+        )
+        .await
+}
+
 /// The end of the period the subscription is in at `at`, on its grid (R-084): the stored one,
 /// unless the controller has not renewed past it yet (it is behind, or retrying), then the one its
 /// facts hold at `at`. None without a period.
-async fn period_end_in_force(
+pub(in crate::services) async fn period_end_in_force(
     conn: &mut crate::store::PgConn,
     details: &SubscriptionDetails,
     at: chrono::DateTime<chrono::Utc>,

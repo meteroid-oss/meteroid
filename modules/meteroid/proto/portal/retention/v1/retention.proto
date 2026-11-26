@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package meteroid.portal.retention.v1;
+
+import "portal/retention/v1/models.proto";
+
+// The cancel flow of the customer of the portal token: a reason, maybe an offer, then the choice.
+service PortalRetentionService {
+  // Disabled when the merchant runs no cancel flow: the portal then cancels without it.
+  rpc StartCancellation(StartCancellationRequest) returns (StartCancellationResponse);
+  rpc SubmitCancellationReason(SubmitCancellationReasonRequest) returns (SubmitCancellationReasonResponse);
+  rpc AcceptRetentionOffer(AcceptRetentionOfferRequest) returns (AcceptRetentionOfferResponse);
+  // Cancels at the end of the current period, with the reason given.
+  rpc ConfirmCancellation(ConfirmCancellationRequest) returns (ConfirmCancellationResponse);
+}
+
+message StartCancellationRequest { string subscription_id = 1; }
+message StartCancellationResponse {
+  bool enabled = 1;
+  optional string session_id = 2;
+  repeated CancellationReason reasons = 3;
+}
+
+message SubmitCancellationReasonRequest {
+  string session_id = 1;
+  string reason_id = 2;
+  optional string comment = 3;
+}
+message SubmitCancellationReasonResponse {
+  // Unset when no offer applies: the next step is the confirmation.
+  optional RetentionOffer offer = 1;
+}
+
+message AcceptRetentionOfferRequest { string session_id = 1; }
+message AcceptRetentionOfferResponse {
+  // When the offer takes effect, as YYYY-MM-DD.
+  optional string effective_date = 1;
+}
+
+message ConfirmCancellationRequest { string session_id = 1; }
+message ConfirmCancellationResponse {
+  // As YYYY-MM-DD.
+  string effective_date = 1;
+  // Lets the customer undo the cancellation before it takes effect.
+  optional string scheduled_event_id = 2;
+}

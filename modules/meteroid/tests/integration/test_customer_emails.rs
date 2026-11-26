@@ -564,6 +564,7 @@ async fn only_payment_reminders_ship_disabled(#[future] test_env: TestEnv) {
         api::EmailKind::AutoTopUpFailed,
         api::EmailKind::BudgetThreshold,
         api::EmailKind::BudgetExceeded,
+        api::EmailKind::SubscriptionCancelled,
     ] {
         assert!(kind_enabled(&settings, kind), "{kind:?} must ship enabled");
     }
@@ -571,7 +572,7 @@ async fn only_payment_reminders_ship_disabled(#[future] test_env: TestEnv) {
         !kind_enabled(&settings, api::EmailKind::PaymentReminder),
         "reminders need a deliberate sequence: off until enabled"
     );
-    assert_eq!(settings.kinds.len(), 12, "{:?}", enabled_kinds(&settings));
+    assert_eq!(settings.kinds.len(), 13, "{:?}", enabled_kinds(&settings));
 
     // An entity created after the migration gets the disabled set written explicitly.
     let created = create_entity(&env, "Fresh").await;

@@ -159,6 +159,39 @@ message SetCustomerReminderPreferenceResponse {
   CustomerReminderPreference preference = 1;
 }
 
+enum DunningExhaustedAction {
+  DUNNING_EXHAUSTED_ACTION_UNSPECIFIED = 0;
+  // The invoice stays due, for a human or the customer to collect.
+  DUNNING_EXHAUSTED_ACTION_NONE = 1;
+  // The subscription is cancelled at once; the invoice stays due. A hard decline (expired or
+  // blocked card) is not charged again: without a new card after the retries' total days, the
+  // subscription is cancelled then.
+  DUNNING_EXHAUSTED_ACTION_CANCEL_SUBSCRIPTION = 2;
+}
+
+// The tenant's automatic payment retries for subscription invoices.
+message DunningPolicy {
+  // Days before each successive retry, at most 8, each 1 to 60; empty disables retries.
+  repeated uint32 retry_days = 1;
+  DunningExhaustedAction exhausted_action = 2;
+  // False when the tenant never set one: the defaults apply.
+  bool customized = 3;
+}
+
+message GetDunningPolicyRequest {}
+message GetDunningPolicyResponse {
+  DunningPolicy policy = 1;
+  // Whether the merchant's plan lets the policy be changed.
+  bool editable = 2;
+}
+
+// Resetting to the defaults never needs the gate.
+message UpdateDunningPolicyRequest {
+  repeated uint32 retry_days = 1;
+  DunningExhaustedAction exhausted_action = 2;
+}
+message UpdateDunningPolicyResponse { DunningPolicy policy = 1; }
+
 service PaymentRemindersService {
   rpc ListPaymentReminderSequences(ListPaymentReminderSequencesRequest) returns (ListPaymentReminderSequencesResponse) {}
   rpc GetPaymentReminderSequence(GetPaymentReminderSequenceRequest) returns (GetPaymentReminderSequenceResponse) {}
@@ -178,4 +211,7 @@ service PaymentRemindersService {
 
   rpc GetCustomerReminderPreference(GetCustomerReminderPreferenceRequest) returns (GetCustomerReminderPreferenceResponse) {}
   rpc SetCustomerReminderPreference(SetCustomerReminderPreferenceRequest) returns (SetCustomerReminderPreferenceResponse) {}
+
+  rpc GetDunningPolicy(GetDunningPolicyRequest) returns (GetDunningPolicyResponse) {}
+  rpc UpdateDunningPolicy(UpdateDunningPolicyRequest) returns (UpdateDunningPolicyResponse) {}
 }

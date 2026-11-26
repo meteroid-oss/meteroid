@@ -237,6 +237,7 @@ pub fn authorize_portal(
                 && !gm.service.starts_with("meteroid.portal.wallets.")
                 && !gm.service.starts_with("meteroid.portal.walletcontrols.")
                 && !gm.service.starts_with("meteroid.portal.budgets.")
+                && !gm.service.starts_with("meteroid.portal.retention.")
             {
                 return Err(Status::permission_denied("Unauthorized"));
             }

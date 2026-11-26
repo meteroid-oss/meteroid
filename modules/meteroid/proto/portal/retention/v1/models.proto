@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package meteroid.portal.retention.v1;
+
+enum OfferKind {
+  OFFER_KIND_UNSPECIFIED = 0;
+  OFFER_KIND_COUPON = 1;
+  OFFER_KIND_PLAN_CHANGE = 2;
+  OFFER_KIND_CONTACT = 3;
+}
+
+message CancellationReason {
+  string id = 1;
+  string label = 2;
+}
+
+message RetentionOffer {
+  OfferKind kind = 1;
+  string title = 2;
+  string description = 3;
+  // A coupon offer's discount, e.g. "20% off for 3 invoices".
+  optional string discount_label = 4;
+  // A plan change offer's plan.
+  optional string plan_name = 5;
+  // When the offer takes effect, as YYYY-MM-DD.
+  optional string effective_date = 6;
+  // The next invoice before and after the offer, before tax, in minor units of `currency`;
+  // unset when it cannot be estimated.
+  optional int64 next_invoice_before = 7;
+  optional int64 next_invoice_after = 8;
+  optional string currency = 9;
+  // What else the customer should know, e.g. when the regular price applies again.
+  optional string terms = 10;
+}

@@ -742,3 +742,74 @@ async fn a_checkout_paid_late_bills_from_the_start(#[future] test_env: TestEnv) 
         ]
     );
 }
+
+/// The same late checkout with a 20% coupon code: the coupon is priced into the checkout charge, so
+/// January and the catch-up months each carry it.
+#[rstest]
+#[tokio::test]
+async fn a_coupon_entered_at_a_late_checkout_discounts_from_the_start(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_payments().await;
+    let at = |m: u32, d: u32| {
+        NaiveDate::from_ymd_opt(2024, m, d)
+            .unwrap()
+            .and_hms_opt(9, 0, 0)
+            .unwrap()
+            .and_utc()
+    };
+    env.set_now(at(1, 1));
+    env.create_percentage_coupon("LATE20", 20).await;
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_1_LEETCODE_ID) // 35.00 a month
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_checkout()
+        .no_trial()
+        .auto_charge()
+        .create(env.services())
+        .await;
+    env.process_cycles().await;
+
+    env.set_now(at(3, 10));
+    let mut conn = env.conn().await;
+    let (_, outcome) = env
+        .services()
+        .complete_subscription_checkout_tx(
+            &mut conn,
+            TENANT_ID,
+            sub_id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            2800,
+            "EUR".to_string(),
+            Some("LATE20".to_string()),
+        )
+        .await
+        .expect("the checkout");
+    drop(conn);
+    assert_eq!(outcome, CheckoutPaymentOutcome::Settled);
+    for _ in 0..3 {
+        env.process_cycles().await;
+    }
+
+    let mut billed: Vec<(NaiveDate, i64, i64)> = env
+        .get_invoices(sub_id)
+        .await
+        .iter()
+        .map(|invoice| {
+            (
+                invoice.billing_period_start,
+                invoice.subtotal,
+                invoice.discount,
+            )
+        })
+        .collect();
+    billed.sort();
+    let day = |m: u32| NaiveDate::from_ymd_opt(2024, m, 1).unwrap();
+    assert_eq!(
+        billed,
+        vec![
+            (day(1), 3500, 700),
+            (day(2), 3500, 700),
+            (day(3), 3500, 700),
+        ]
+    );
+}

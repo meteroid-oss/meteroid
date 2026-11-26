@@ -95,4 +95,11 @@ export const BillingEmbed = ({ view, ...rest }: BillingPortalOptions & { view: E
   <BillingPortal view={view} {...rest} />
 )
 
-export type { BillingPortalOptions, EmbedView } from './types'
+export { openCancelFlow } from './cancel'
+export type {
+  BillingPortalOptions,
+  CancelFlowOptions,
+  CancelFlowOutcome,
+  CancelFlowResult,
+  EmbedView,
+} from './types'

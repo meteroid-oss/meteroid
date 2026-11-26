@@ -85,6 +85,7 @@ pub mod coupons;
 pub mod customer_credit;
 pub mod customer_payment_methods;
 pub mod dead_letter;
+pub mod dunning_policy;
 pub mod email_kind_audience;
 pub mod email_send_claim;
 pub mod entity_activity;

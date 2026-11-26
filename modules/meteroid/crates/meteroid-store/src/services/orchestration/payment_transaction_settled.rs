@@ -1627,6 +1627,7 @@ async fn apply_priced_coupons_tx(
             applied_count: None,
             last_applied_at: None,
             effective_from,
+            discounts_from: None,
         })
         .collect();
     if missing.is_empty() {

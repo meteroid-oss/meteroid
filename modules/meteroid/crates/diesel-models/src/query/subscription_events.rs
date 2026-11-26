@@ -753,3 +753,33 @@ impl SubscriptionEventRow {
             .into_db_result()
     }
 }
+
+impl SubscriptionEventRow {
+    /// Withdraws the churn a cancellation scheduled and not booked yet, when it is undone: true
+    /// when there was one. The subscription must be the locked customer's.
+    pub async fn withdraw_unbooked_cancellation(
+        conn: &mut PgConn,
+        lock: &CustomerLock,
+        subscription_uid: SubscriptionId,
+    ) -> DbResult<bool> {
+        use diesel::sql_types::Uuid;
+        use diesel_async::RunQueryDsl;
+
+        lock.on(conn);
+        diesel::sql_query(
+            "DELETE FROM subscription_event e \
+             WHERE e.subscription_id = $1 AND e.event_type = 'CANCELLED' \
+               AND e.bi_mrr_movement_log_id IS NULL \
+               AND EXISTS (SELECT 1 FROM subscription s \
+                           WHERE s.id = $1 AND s.tenant_id = $2 AND s.customer_id = $3)",
+        )
+        .bind::<Uuid, _>(subscription_uid)
+        .bind::<Uuid, _>(lock.tenant_id())
+        .bind::<Uuid, _>(lock.customer_id())
+        .execute(conn)
+        .await
+        .map(|withdrawn| withdrawn > 0)
+        .attach("Error while withdrawing an undone cancellation's churn")
+        .into_db_result()
+    }
+}

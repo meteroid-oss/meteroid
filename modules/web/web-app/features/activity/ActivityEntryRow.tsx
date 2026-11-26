@@ -978,6 +978,16 @@ function renderEntry(entry: ActivityEntry): RenderedEntry {
         icon: <CheckCircle2 className="h-4 w-4 text-success" />,
         title: <>{entityRef(entry, 'Subscription on', 'Subscription')} cancellation undone</>,
       }
+    case 'subscription.coupon_applied': {
+      const from = typeof md.effective_from === 'string' ? md.effective_from : undefined
+      return {
+        icon: <CheckCircle2 className="h-4 w-4 text-success" />,
+        title: (
+          <>{entityRef(entry, 'Coupon added to subscription on', 'Coupon added to subscription')}</>
+        ),
+        subtitle: from ? `effective ${from}` : undefined,
+      }
+    }
     case 'subscription.plan_change_scheduled': {
       const effectiveAt = typeof md.effective_at === 'string' ? md.effective_at : undefined
       return {

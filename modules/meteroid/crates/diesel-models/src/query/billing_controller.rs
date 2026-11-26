@@ -443,9 +443,13 @@ impl DueTimes {
                (SELECT MIN(i.finalize_after AT TIME ZONE 'UTC') FROM invoice i
                 WHERE i.tenant_id = $1 AND i.customer_id = $2
                   AND i.status = 'DRAFT' AND i.finalize_after IS NOT NULL) AS finalize,
-               (SELECT MIN(i.next_payment_attempt_at AT TIME ZONE 'UTC') FROM invoice i
-                WHERE i.tenant_id = $1 AND i.customer_id = $2
-                  AND i.next_payment_attempt_at IS NOT NULL) AS attempt,
+               (SELECT MIN(due AT TIME ZONE 'UTC') FROM (
+                    SELECT i.next_payment_attempt_at AS due FROM invoice i
+                    WHERE i.tenant_id = $1 AND i.customer_id = $2
+                      AND i.next_payment_attempt_at IS NOT NULL
+                    UNION ALL
+                    SELECT d.cancel_at FROM invoice_dunning_cancel d
+                    WHERE d.tenant_id = $1 AND d.customer_id = $2) due) AS attempt,
                (SELECT MIN(g.lapses_at) FROM customer_credit_grant g
                 WHERE g.tenant_id = $1 AND g.customer_id = $2 AND g.remaining > 0
                   AND g.lapses_at IS NOT NULL) AS lapse,

@@ -19,7 +19,8 @@ use meteroid_rest::webhooks::out_model::{
     WebhookOutAutoTopUpCapReachedEvent, WebhookOutAutoTopUpConsentChangedEvent,
     WebhookOutAutoTopUpEvent, WebhookOutBudgetAlertEvent,
     WebhookOutCheckoutPaymentKeptAsCreditEvent, WebhookOutCreditGrantExpiredEvent,
-    WebhookOutEntitlementAlertEvent, WebhookOutTooManyGroupsEvent, WebhookOutWalletBalanceLowEvent,
+    WebhookOutEntitlementAlertEvent, WebhookOutRenewalUpcomingEvent,
+    WebhookOutRetentionSessionEvent, WebhookOutTooManyGroupsEvent, WebhookOutWalletBalanceLowEvent,
     WebhookOutWalletCreditRecoveredEvent, WebhookOutWalletCreditUnrecoveredEvent,
     WebhookOutWalletDebitedEvent, WebhookOutWalletDepletedEvent, WebhookOutWalletFundedEvent,
     WebhookOutWalletRecoveredEvent,
@@ -354,6 +355,14 @@ pub(crate) fn to_webhook_message(
         OutboxEvent::BudgetExceeded(e) => typed!(BudgetExceeded, WebhookOutBudgetAlertEvent, e),
         OutboxEvent::EntitlementTooManyGroups(e) => {
             typed!(EntitlementTooManyGroups, WebhookOutTooManyGroupsEvent, e)
+        }
+        OutboxEvent::RetentionSessionCompleted(e) => typed!(
+            RetentionSessionCompleted,
+            WebhookOutRetentionSessionEvent,
+            e
+        ),
+        OutboxEvent::RetentionRenewalUpcoming(e) => {
+            typed!(RetentionRenewalUpcoming, WebhookOutRenewalUpcomingEvent, e)
         }
         OutboxEvent::WalletBalanceLow(e) => {
             typed!(WalletBalanceLow, WebhookOutWalletBalanceLowEvent, e)

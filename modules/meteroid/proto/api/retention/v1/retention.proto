@@ -1,0 +1,132 @@
+syntax = "proto3";
+
+package meteroid.api.retention.v1;
+
+import "api/retention/v1/models.proto";
+import "common/v1/pagination.proto";
+
+// The cancel flow of the customer portal. Turning it on and creating or changing reasons and offers
+// need the retention gate; reading, turning it off and archiving do not.
+service RetentionService {
+  rpc GetRetentionSettings(GetRetentionSettingsRequest) returns (GetRetentionSettingsResponse);
+  rpc UpdateRetentionSettings(UpdateRetentionSettingsRequest) returns (UpdateRetentionSettingsResponse);
+
+  rpc ListRetentionOffers(ListRetentionOffersRequest) returns (ListRetentionOffersResponse);
+  rpc CreateRetentionOffer(CreateRetentionOfferRequest) returns (CreateRetentionOfferResponse);
+  // The kind is fixed at creation.
+  rpc UpdateRetentionOffer(UpdateRetentionOfferRequest) returns (UpdateRetentionOfferResponse);
+  // Reasons leading to it lead straight to the cancellation.
+  rpc ArchiveRetentionOffer(ArchiveRetentionOfferRequest) returns (ArchiveRetentionOfferResponse);
+
+  rpc ListRetentionReasons(ListRetentionReasonsRequest) returns (ListRetentionReasonsResponse);
+  rpc CreateRetentionReason(CreateRetentionReasonRequest) returns (CreateRetentionReasonResponse);
+  rpc UpdateRetentionReason(UpdateRetentionReasonRequest) returns (UpdateRetentionReasonResponse);
+  rpc ArchiveRetentionReason(ArchiveRetentionReasonRequest) returns (ArchiveRetentionReasonResponse);
+  // The live reasons in their portal order; every live reason must be listed once.
+  rpc ReorderRetentionReasons(ReorderRetentionReasonsRequest) returns (ReorderRetentionReasonsResponse);
+
+  rpc ListRetentionSessions(ListRetentionSessionsRequest) returns (ListRetentionSessionsResponse);
+  // Takes a contact request off the ones to answer; marking it again keeps the first time.
+  rpc MarkContactRequestHandled(MarkContactRequestHandledRequest) returns (MarkContactRequestHandledResponse);
+  rpc GetRetentionStats(GetRetentionStatsRequest) returns (GetRetentionStatsResponse);
+  // Running subscriptions renewing, ending or cancelling soon, soonest first.
+  rpc ListUpcomingRenewals(ListUpcomingRenewalsRequest) returns (ListUpcomingRenewalsResponse);
+}
+
+message GetRetentionSettingsRequest {}
+message GetRetentionSettingsResponse {
+  RetentionSettings settings = 1;
+  // Whether the merchant's plan opens the retention gate.
+  bool editable = 2;
+}
+
+message RenewalCheckpoints { repeated uint32 days = 1; }
+
+message UpdateRetentionSettingsRequest {
+  optional bool enabled = 1;
+  optional uint32 offer_cooldown_days = 2;
+  // At most 6, each 1 to 365 days; unset leaves them unchanged.
+  optional RenewalCheckpoints renewal_checkpoints = 3;
+}
+message UpdateRetentionSettingsResponse { RetentionSettings settings = 1; }
+
+message ListRetentionOffersRequest { bool include_archived = 1; }
+message ListRetentionOffersResponse { repeated RetentionOffer offers = 1; }
+
+message CreateRetentionOfferRequest {
+  RetentionOfferKind kind = 1;
+  string title = 2;
+  string description = 3;
+  // Required for a coupon offer.
+  optional string coupon_id = 4;
+  // Required for a plan change offer.
+  optional string plan_id = 5;
+}
+message CreateRetentionOfferResponse { RetentionOffer offer = 1; }
+
+message UpdateRetentionOfferRequest {
+  string id = 1;
+  string title = 2;
+  string description = 3;
+  optional string coupon_id = 4;
+  optional string plan_id = 5;
+}
+message UpdateRetentionOfferResponse { RetentionOffer offer = 1; }
+
+message ArchiveRetentionOfferRequest { string id = 1; }
+message ArchiveRetentionOfferResponse {}
+
+message ListRetentionReasonsRequest { bool include_archived = 1; }
+message ListRetentionReasonsResponse { repeated RetentionReason reasons = 1; }
+
+message CreateRetentionReasonRequest {
+  string label = 1;
+  optional string offer_id = 2;
+}
+message CreateRetentionReasonResponse { RetentionReason reason = 1; }
+
+message UpdateRetentionReasonRequest {
+  string id = 1;
+  string label = 2;
+  // Unset removes the offer.
+  optional string offer_id = 3;
+}
+message UpdateRetentionReasonResponse { RetentionReason reason = 1; }
+
+message ArchiveRetentionReasonRequest { string id = 1; }
+message ArchiveRetentionReasonResponse {}
+
+message ReorderRetentionReasonsRequest { repeated string reason_ids = 1; }
+message ReorderRetentionReasonsResponse { repeated RetentionReason reasons = 1; }
+
+message ListRetentionSessionsRequest {
+  // Unspecified lists every outcome.
+  RetentionOutcome outcome = 1;
+  optional string customer_id = 2;
+  meteroid.common.v1.Pagination pagination = 3;
+  // Dates, as YYYY-MM-DD, of the sessions' start; unset for no bound.
+  optional string from = 4;
+  optional string to = 5;
+  // Only the contact requests not marked as answered.
+  bool contact_pending = 6;
+}
+message ListRetentionSessionsResponse {
+  repeated RetentionSession sessions = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+}
+
+message MarkContactRequestHandledRequest { string session_id = 1; }
+message MarkContactRequestHandledResponse {}
+
+message GetRetentionStatsRequest {
+  // Dates, as YYYY-MM-DD, of the sessions' start; unset for no bound.
+  optional string from = 1;
+  optional string to = 2;
+}
+message GetRetentionStatsResponse { RetentionStats stats = 1; }
+
+message ListUpcomingRenewalsRequest {
+  // Up to 365 days ahead; 0 for 90.
+  uint32 within_days = 1;
+}
+message ListUpcomingRenewalsResponse { repeated UpcomingRenewal renewals = 1; }

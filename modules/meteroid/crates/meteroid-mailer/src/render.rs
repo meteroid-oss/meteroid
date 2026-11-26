@@ -10,7 +10,7 @@ use crate::template::{
     PaymentFailedContent, QuoteReadyContent, QuoteSignatureCodeContent, StatusBadge,
     SummaryBoxTemplate, SummaryHero, WalletNoticeContent, render_layout,
 };
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::l10n::long_date;
 
 pub use crate::template::format_currency;
@@ -175,6 +175,12 @@ pub enum Body {
         /// Suspended because a top-up payment of `amount_minor` was refunded or disputed.
         payment_reversed: bool,
         actions: WalletActions,
+    },
+    /// A cancellation was recorded at `received_at` (UTC); `last_day` is the last day it runs.
+    SubscriptionCancelled {
+        plan_name: String,
+        received_at: NaiveDateTime,
+        last_day: NaiveDate,
     },
     /// `html_fragment` comes from `copy::to_html` only; it is inserted unescaped.
     Custom {
@@ -765,6 +771,32 @@ pub fn render(
                 render_layout(lang, subject, preheader, header, footer, &l10n, content)?,
             )
         }
+        Body::SubscriptionCancelled {
+            plan_name,
+            received_at,
+            last_day,
+        } => {
+            let received = l10n.cancellation_received_at(
+                long_date(lang, &received_at.date()),
+                received_at.format("%H:%M").to_string(),
+            );
+            let content = WalletNoticeContent {
+                heading: l10n.subscription_cancelled_heading().to_string(),
+                intro: l10n.subscription_cancelled_intro(&plan_name).to_string(),
+                summary: SummaryBoxTemplate {
+                    hero: None,
+                    rows: vec![
+                        row(l10n.cancellation_received(), received.to_string()),
+                        row(l10n.last_day_of_service(), long_date(lang, &last_day)),
+                    ],
+                },
+            };
+            let subject = l10n.subscription_cancelled_subject(company).to_string();
+            (
+                subject.clone(),
+                render_layout(lang, subject, None, header, footer, &l10n, content)?,
+            )
+        }
         Body::Custom {
             html_fragment,
             summary,
@@ -1078,7 +1110,19 @@ mod tests {
                     actions: wallet_actions(true),
                 },
             ),
+            ("subscription_cancelled", subscription_cancelled()),
         ]
+    }
+
+    fn subscription_cancelled() -> Body {
+        Body::SubscriptionCancelled {
+            plan_name: "Scale".into(),
+            received_at: NaiveDate::from_ymd_opt(2026, 3, 12)
+                .unwrap()
+                .and_hms_opt(14, 5, 0)
+                .unwrap(),
+            last_day: NaiveDate::from_ymd_opt(2026, 3, 31).unwrap(),
+        }
     }
 
     #[test]
@@ -1107,7 +1151,7 @@ mod tests {
                     html.contains("meteroid-logo-small.png"),
                     "{ctx}: powered-by logo"
                 );
-                if !kind.starts_with("quote_") {
+                if !kind.starts_with("quote_") && kind != "subscription_cancelled" {
                     assert!(html.contains("class=\"hero-amount\""), "{ctx}: hero");
                     assert!(html.contains("mso-hide:all"), "{ctx}: preheader");
                 }
@@ -1150,6 +1194,7 @@ mod tests {
                     "auto_top_up_suspended" | "auto_top_up_reversed" => {
                         (l10n.auto_top_up_suspended_heading(), None)
                     }
+                    "subscription_cancelled" => (l10n.subscription_cancelled_heading(), None),
                     _ => unreachable!(),
                 };
                 assert!(
@@ -1166,6 +1211,33 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_cancellation_confirmation_gives_the_plan_and_both_dates() {
+        let en = render(&layout("en-US"), Subject::Fixed, subscription_cancelled()).unwrap();
+        assert_eq!(en.subject, "Your Acme cancellation is confirmed");
+        assert!(
+            en.body_html
+                .contains("Your Scale subscription stays active"),
+            "{}",
+            en.body_html
+        );
+        assert!(en.body_html.contains(">Cancellation received</td>"));
+        assert!(en.body_html.contains(">March 12, 2026 at 14:05 UTC</td>"));
+        assert!(en.body_html.contains(">Last day of service</td>"));
+        assert!(en.body_html.contains(">March 31, 2026</td>"));
+        assert!(!en.body_html.contains("class=\"button\""));
+
+        let de = render(&layout("de-DE"), Subject::Fixed, subscription_cancelled()).unwrap();
+        assert_eq!(de.subject, "Bestätigung Ihrer Kündigung bei Acme");
+        assert!(
+            de.body_html
+                .contains(">12. März 2026 um 14:05 Uhr (UTC)</td>"),
+            "{}",
+            de.body_html
+        );
+        assert!(de.body_html.contains(">31. März 2026</td>"));
     }
 
     #[test]

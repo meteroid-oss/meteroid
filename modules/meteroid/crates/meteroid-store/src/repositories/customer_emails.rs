@@ -1316,7 +1316,8 @@ impl CustomerEmailsInterface for Store {
                     }
                     EmailContext::WalletBalanceLow { customer_id, .. }
                     | EmailContext::AutoTopUpFailed { customer_id, .. }
-                    | EmailContext::BudgetAlert { customer_id, .. } => {
+                    | EmailContext::BudgetAlert { customer_id, .. }
+                    | EmailContext::SubscriptionCancelled { customer_id, .. } => {
                         let customer = CustomerRow::find_by_id(conn, customer_id, &tenant_id)
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?;
@@ -1482,7 +1483,8 @@ impl CustomerEmailsInterface for Store {
                     }
                     EmailContext::WalletBalanceLow { customer_id, .. }
                     | EmailContext::AutoTopUpFailed { customer_id, .. }
-                    | EmailContext::BudgetAlert { customer_id, .. } => {
+                    | EmailContext::BudgetAlert { customer_id, .. }
+                    | EmailContext::SubscriptionCancelled { customer_id, .. } => {
                         CustomerRow::find_by_id(conn, customer_id, &tenant_id)
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?

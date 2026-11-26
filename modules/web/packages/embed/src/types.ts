@@ -7,6 +7,7 @@ export type EmbedView =
   | 'usage'
   | 'invoices'
   | 'payment-methods'
+  | 'cancel'
 
 export type EmbedTheme = 'light' | 'dark'
 export type EmbedRadius = 'Sharp' | 'Modern' | 'Rounded'
@@ -64,10 +65,30 @@ export interface BillingPortalOptions {
   onNavigate?: (target: string) => void
 }
 
+/** How a cancel flow ended: kept by an offer, a contact request, cancelled, or closed. */
+export type CancelFlowOutcome = 'saved' | 'contact_requested' | 'cancelled' | 'closed'
+
 /** Messages posted by the embedded portal to the host window. */
 export type PortalMessage =
   | { type: 'meteroid:resize'; height: number }
   | { type: 'meteroid:navigate'; target: string }
+  | { type: 'meteroid:cancel-flow'; outcome: CancelFlowOutcome; effectiveDate?: string }
+
+/** How the cancel flow ended, and when the cancellation or the accepted offer takes effect. */
+export interface CancelFlowResult {
+  outcome: CancelFlowOutcome
+  /** YYYY-MM-DD; unset when the customer closed the flow or asked to be contacted. */
+  effectiveDate?: string
+}
+
+/** Options for `openCancelFlow`: the portal's theme options, for one subscription. */
+export type CancelFlowOptions = Pick<
+  BillingPortalOptions,
+  'token' | 'baseUrl' | 'theme' | 'accent' | 'radius' | 'bg' | 'surface' | 'text' | 'border'
+> & {
+  /** The subscription the customer is cancelling. */
+  subscriptionId: string
+}
 
 /** Handle returned by `mountBillingPortal`. */
 export interface BillingPortalHandle {

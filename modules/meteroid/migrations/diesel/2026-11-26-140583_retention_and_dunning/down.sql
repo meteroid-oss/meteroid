@@ -1,0 +1,11 @@
+ALTER TABLE applied_coupon DROP COLUMN discounts_from;
+DROP TABLE invoice_dunning_cancel;
+DROP TABLE dunning_policy;
+DROP TYPE "DunningExhaustedActionEnum";
+DROP TABLE retention_renewal_notice;
+DROP TABLE retention_session;
+DROP TABLE retention_reason;
+DROP TABLE retention_offer;
+DROP TABLE retention_settings;
+DROP TYPE "RetentionOutcomeEnum";
+DROP TYPE "RetentionOfferKindEnum";

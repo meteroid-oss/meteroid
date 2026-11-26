@@ -158,6 +158,10 @@ pub mod sql_types {
     pub struct DeclineKindEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "DunningExhaustedActionEnum"))]
+    pub struct DunningExhaustedActionEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "EInvoicingFormatEnum"))]
     pub struct EInvoicingFormatEnum;
 
@@ -332,6 +336,14 @@ pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "ReminderStopReasonEnum"))]
     pub struct ReminderStopReasonEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "RetentionOfferKindEnum"))]
+    pub struct RetentionOfferKindEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "RetentionOutcomeEnum"))]
+    pub struct RetentionOutcomeEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "ReversalKindEnum"))]
@@ -596,6 +608,7 @@ diesel::table! {
         fixed_currency -> Nullable<Text>,
         add_on_ids -> Nullable<Array<Nullable<Uuid>>>,
         duration_months -> Nullable<Int4>,
+        discounts_from -> Nullable<Date>,
     }
 }
 
@@ -1562,6 +1575,18 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::DunningExhaustedActionEnum;
+
+    dunning_policy (tenant_id) {
+        tenant_id -> Uuid,
+        retry_days -> Array<Nullable<Int4>>,
+        exhausted_action -> DunningExhaustedActionEnum,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::EmailKindAudienceModeEnum;
 
     email_kind_audience (invoicing_entity_id, kind) {
@@ -1904,6 +1929,16 @@ diesel::table! {
         invoice_id -> Uuid,
         tenant_id -> Uuid,
         moved_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    invoice_dunning_cancel (invoice_id) {
+        invoice_id -> Uuid,
+        tenant_id -> Uuid,
+        customer_id -> Uuid,
+        subscription_id -> Uuid,
+        cancel_at -> Timestamp,
     }
 }
 
@@ -3150,6 +3185,82 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::RetentionOfferKindEnum;
+
+    retention_offer (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        kind -> RetentionOfferKindEnum,
+        title -> Text,
+        description -> Text,
+        coupon_id -> Nullable<Uuid>,
+        plan_id -> Nullable<Uuid>,
+        archived_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    retention_reason (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        label -> Text,
+        position -> Int4,
+        offer_id -> Nullable<Uuid>,
+        archived_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    retention_renewal_notice (subscription_id, renewal_date, days_before, mode) {
+        subscription_id -> Uuid,
+        tenant_id -> Uuid,
+        renewal_date -> Date,
+        days_before -> Int4,
+        mode -> Text,
+        notified_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::RetentionOfferKindEnum;
+    use super::sql_types::RetentionOutcomeEnum;
+
+    retention_session (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        customer_id -> Uuid,
+        subscription_id -> Uuid,
+        reason_id -> Nullable<Uuid>,
+        reason_label -> Nullable<Text>,
+        comment -> Nullable<Text>,
+        offer_id -> Nullable<Uuid>,
+        offer_kind -> Nullable<RetentionOfferKindEnum>,
+        offer_target -> Nullable<Uuid>,
+        outcome -> RetentionOutcomeEnum,
+        created_at -> Timestamptz,
+        resolved_at -> Nullable<Timestamptz>,
+        claimed_at -> Nullable<Timestamptz>,
+        contact_handled_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    retention_settings (tenant_id) {
+        tenant_id -> Uuid,
+        enabled -> Bool,
+        offer_cooldown_days -> Int4,
+        renewal_checkpoints -> Array<Nullable<Int4>>,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     role (id) {
         id -> Uuid,
         organization_id -> Uuid,
@@ -3893,6 +4004,7 @@ diesel::joinable!(customer_milestone -> tenant (tenant_id));
 diesel::joinable!(customer_payment_method -> customer_connection (connection_id));
 diesel::joinable!(customer_payment_method -> tenant (tenant_id));
 diesel::joinable!(dead_letter_message -> tenant (tenant_id));
+diesel::joinable!(dunning_policy -> tenant (tenant_id));
 diesel::joinable!(email_kind_audience -> invoicing_entity (invoicing_entity_id));
 diesel::joinable!(email_kind_audience -> tenant (tenant_id));
 diesel::joinable!(email_send_claim -> sent_email (sent_email_id));
@@ -3930,6 +4042,10 @@ diesel::joinable!(invoice_carry_forward -> invoicing_entity (invoicing_entity_id
 diesel::joinable!(invoice_carry_forward -> tenant (tenant_id));
 diesel::joinable!(invoice_claims_moved -> invoice (invoice_id));
 diesel::joinable!(invoice_claims_moved -> tenant (tenant_id));
+diesel::joinable!(invoice_dunning_cancel -> customer (customer_id));
+diesel::joinable!(invoice_dunning_cancel -> invoice (invoice_id));
+diesel::joinable!(invoice_dunning_cancel -> subscription (subscription_id));
+diesel::joinable!(invoice_dunning_cancel -> tenant (tenant_id));
 diesel::joinable!(invoice_payment_reminder -> invoice (invoice_id));
 diesel::joinable!(invoice_payment_reminder -> payment_reminder_sequence (sequence_id));
 diesel::joinable!(invoice_payment_reminder -> tenant (tenant_id));
@@ -4071,6 +4187,19 @@ diesel::joinable!(resource -> tenant (tenant_id));
 diesel::joinable!(resource_type -> tenant (tenant_id));
 diesel::joinable!(resource_type_key -> resource_type (resource_type_id));
 diesel::joinable!(resource_type_key -> tenant (tenant_id));
+diesel::joinable!(retention_offer -> coupon (coupon_id));
+diesel::joinable!(retention_offer -> plan (plan_id));
+diesel::joinable!(retention_offer -> tenant (tenant_id));
+diesel::joinable!(retention_reason -> retention_offer (offer_id));
+diesel::joinable!(retention_reason -> tenant (tenant_id));
+diesel::joinable!(retention_renewal_notice -> subscription (subscription_id));
+diesel::joinable!(retention_renewal_notice -> tenant (tenant_id));
+diesel::joinable!(retention_session -> customer (customer_id));
+diesel::joinable!(retention_session -> retention_offer (offer_id));
+diesel::joinable!(retention_session -> retention_reason (reason_id));
+diesel::joinable!(retention_session -> subscription (subscription_id));
+diesel::joinable!(retention_session -> tenant (tenant_id));
+diesel::joinable!(retention_settings -> tenant (tenant_id));
 diesel::joinable!(role -> organization (organization_id));
 diesel::joinable!(sandbox_pool_tenant -> tenant (tenant_id));
 diesel::joinable!(sandbox_seed -> tenant (tenant_id));

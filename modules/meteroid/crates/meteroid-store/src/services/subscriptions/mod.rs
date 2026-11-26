@@ -2,6 +2,7 @@ pub(in crate::services) mod activate;
 pub(in crate::services) mod amendment;
 pub(crate) mod cadence;
 pub(in crate::services) mod cancel;
+pub(in crate::services) mod coupon_apply;
 pub(crate) mod currency;
 pub(crate) mod effective_plan;
 pub(in crate::services) mod end_date;

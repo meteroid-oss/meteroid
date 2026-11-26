@@ -34,6 +34,8 @@ import {
 } from '../primitives'
 import { boundaryDay } from '../walletFormat'
 
+import { CancelSubscription } from './CancelSubscription'
+
 import type { LevelUnit } from '@/features/subscriptions/capacityLevels'
 import type { LineItem } from '@/rpc/api/invoices/v1/models_pb'
 import type {
@@ -176,13 +178,17 @@ export const SubscriptionDetailScreen = ({
               onClick={async () => {
                 try {
                   await sm.cancelScheduled(pending.id)
-                  toast.success('Scheduled change canceled')
+                  toast.success(isCancelScheduled ? 'Cancellation undone' : 'Scheduled change canceled')
                 } catch (e) {
                   toast.error(e instanceof Error ? e.message : 'Unable to cancel')
                 }
               }}
             >
-              {sm.cancelPending ? 'Canceling…' : 'Cancel this change'}
+              {sm.cancelPending
+                ? 'Canceling…'
+                : isCancelScheduled
+                  ? 'Undo cancellation'
+                  : 'Cancel this change'}
             </LinkButton>
           )}
         </Card>
@@ -222,21 +228,13 @@ export const SubscriptionDetailScreen = ({
         <PreviewTab sm={sm} currency={currency} subscriptionId={subscriptionId} />
       )}
 
-      <CancelModal
+      <CancelSubscription
         open={cancelOpen}
         onClose={() => setCancelOpen(false)}
+        onDone={() => setCancelOpen(false)}
+        subscriptionId={subscriptionId}
         planName={sub.planName}
         periodEnd={sub.currentPeriodEnd}
-        pending={sm.cancelSubPending}
-        onConfirm={async () => {
-          try {
-            await sm.cancelSub({ immediate: false })
-            toast.success('Cancellation scheduled')
-            setCancelOpen(false)
-          } catch (e) {
-            toast.error(e instanceof Error ? e.message : 'Unable to cancel')
-          }
-        }}
       />
     </div>
   )
@@ -1164,40 +1162,3 @@ const QuantityChangeModal = ({
   )
 }
 
-const CancelModal = ({
-  open,
-  onClose,
-  planName,
-  periodEnd,
-  pending,
-  onConfirm,
-}: {
-  open: boolean
-  onClose: () => void
-  planName: string
-  periodEnd?: string
-  pending: boolean
-  onConfirm: () => void
-}) => (
-  <Modal open={open} onClose={onClose} maxWidth={420}>
-    <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 16, fontWeight: 600 }}>Cancel {planName}?</span>
-        <ModalCloseButton onClose={onClose} />
-      </div>
-      <p style={{ fontSize: 13, color: 'var(--mtp-text-2)', lineHeight: 1.5, margin: 0 }}>
-        Your subscription will stay active until the end of the current billing period
-        {periodEnd ? ` (${date(periodEnd)})` : ''}
-        , then cancel automatically. You can undo this any time before then.
-      </p>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 9, marginTop: 4 }}>
-        <PButton variant="secondary" onClick={onClose}>
-          Keep subscription
-        </PButton>
-        <PButton variant="danger" onClick={onConfirm} loading={pending}>
-          Cancel subscription
-        </PButton>
-      </div>
-    </div>
-  </Modal>
-)

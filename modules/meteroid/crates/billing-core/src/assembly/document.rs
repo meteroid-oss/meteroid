@@ -154,6 +154,7 @@ mod tests {
                     value: CouponValue::Percentage(Decimal::from(50)),
                     add_ons: Some(vec![support]),
                     until: None,
+                    from: None,
                 }])
             },
         );
@@ -181,12 +182,14 @@ mod tests {
                 },
                 add_ons: None,
                 until: None,
+                from: None,
             },
             Coupon {
                 coupon_id: Uuid::from_u128(2).into(),
                 value: CouponValue::Percentage(Decimal::from(10)),
                 add_ons: None,
                 until: None,
+                from: None,
             },
         ];
         let assembled = assemble(vec![line(6_000), line(4_000)], &inputs(coupons));
@@ -230,6 +233,7 @@ mod tests {
                 value: CouponValue::Percentage(Decimal::from(25)),
                 add_ons: None,
                 until: None,
+                from: None,
             }]),
         );
         assert_eq!(discounted.lines[0].taxable, 3_750);

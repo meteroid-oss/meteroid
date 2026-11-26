@@ -90,6 +90,9 @@ pub struct Coupon {
     /// A coupon lasting months discounts only the lines whose service period starts before this
     /// day, whatever the invoice's date (R-089); `None`: every period.
     pub until: Option<NaiveDate>,
+    /// Discounts only the lines whose service period starts on or after this day: a coupon added
+    /// mid-life leaves the periods before it alone; `None`: from any period.
+    pub from: Option<NaiveDate>,
 }
 
 impl Coupon {
@@ -100,12 +103,12 @@ impl Coupon {
             && self.covers(part)
     }
 
-    /// Whether `part`'s service period starts within its months.
+    /// Whether `part`'s service period starts within its window.
     fn covers(&self, part: &Part) -> bool {
-        match (self.until, part.start) {
-            (Some(until), Some(start)) => start < until,
-            _ => true,
-        }
+        part.start.is_none_or(|start| {
+            self.from.is_none_or(|from| start >= from)
+                && self.until.is_none_or(|until| start < until)
+        })
     }
 }
 
@@ -344,6 +347,7 @@ mod tests {
             value,
             add_ons: None,
             until: None,
+            from: None,
         }
     }
 
@@ -543,6 +547,41 @@ mod tests {
         let mut uses = Uses::new(vec![None]);
         assert!(
             uses.take(std::slice::from_ref(&ten), &[fee], "USD")
+                .is_empty()
+        );
+    }
+
+    /// Added mid-life from March: nothing off February's usage billed in arrears, 10% off
+    /// March's fee; an invoice of February's usage alone spends none of its uses.
+    #[test]
+    fn a_coupon_added_mid_life_leaves_the_periods_before_it_alone() {
+        let first = |month| NaiveDate::from_ymd_opt(2026, month, 1);
+        let ten = Coupon {
+            from: first(3),
+            ..coupon(1, CouponValue::Percentage(Decimal::from(10)))
+        };
+        let usage = Part {
+            subtotal: 1_000,
+            add_on: None,
+            start: first(2),
+        };
+        let fee = Part {
+            subtotal: 5_000,
+            add_on: None,
+            start: first(3),
+        };
+        let (applied, taxable) = discount_parts(&[usage, fee], "USD", std::slice::from_ref(&ten));
+        assert_eq!(
+            applied,
+            vec![CouponDiscount {
+                coupon: 0,
+                value: 500
+            }]
+        );
+        assert_eq!(taxable, vec![None, Some(4_500)]);
+        let mut uses = Uses::new(vec![Some(1)]);
+        assert!(
+            uses.take(std::slice::from_ref(&ten), &[usage], "USD")
                 .is_empty()
         );
     }

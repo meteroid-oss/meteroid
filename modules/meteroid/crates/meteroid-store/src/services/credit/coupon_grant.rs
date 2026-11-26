@@ -67,6 +67,7 @@ pub(crate) async fn mint_started_subscription_coupon_credit_tx(
                 applied_count: row.applied_coupon.applied_count,
                 last_applied_at: row.applied_coupon.last_applied_at,
                 effective_from: row.applied_coupon.effective_from,
+                discounts_from: row.applied_coupon.discounts_from,
             })
             .collect();
     let refs: Vec<&AppliedCouponRowNew> = applied.iter().collect();
@@ -494,6 +495,7 @@ async fn redeem_coupon_credit_code_tx(
         applied_count: None,
         last_applied_at: None,
         effective_from: at.date_naive(),
+        discounts_from: None,
     };
     apply_coupons_without_validation_at(conn, controls, &[&applied_coupon], tenant_id, at)
         .await?

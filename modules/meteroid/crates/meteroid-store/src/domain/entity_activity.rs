@@ -357,6 +357,9 @@ pub enum ActivityType {
     #[strum(serialize = "subscription.cancellation_undone")]
     #[serde(rename = "subscription.cancellation_undone")]
     SubscriptionCancellationUndone,
+    #[strum(serialize = "subscription.coupon_applied")]
+    #[serde(rename = "subscription.coupon_applied")]
+    SubscriptionCouponApplied,
     #[strum(serialize = "subscription.plan_change_scheduled")]
     #[serde(rename = "subscription.plan_change_scheduled")]
     SubscriptionPlanChangeScheduled,
@@ -827,7 +830,9 @@ impl From<&OutboxEvent> for Option<Activity> {
             | OutboxEvent::EntitlementLimitReached(_)
             | OutboxEvent::BudgetThresholdReached(_)
             | OutboxEvent::BudgetExceeded(_)
-            | OutboxEvent::EntitlementTooManyGroups(_) => return None,
+            | OutboxEvent::EntitlementTooManyGroups(_)
+            | OutboxEvent::RetentionSessionCompleted(_)
+            | OutboxEvent::RetentionRenewalUpcoming(_) => return None,
         };
         Some(activity)
     }

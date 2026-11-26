@@ -1387,3 +1387,31 @@ pub enum QuoteApprovalStatusEnum {
     Approved,
     Rejected,
 }
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[ExistingTypePath = "crate::schema::sql_types::RetentionOfferKindEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum RetentionOfferKindEnum {
+    Coupon,
+    PlanChange,
+    Contact,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[ExistingTypePath = "crate::schema::sql_types::RetentionOutcomeEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum RetentionOutcomeEnum {
+    Pending,
+    Saved,
+    ContactRequested,
+    Cancelled,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[ExistingTypePath = "crate::schema::sql_types::DunningExhaustedActionEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum DunningExhaustedActionEnum {
+    #[default]
+    None,
+    CancelSubscription,
+}

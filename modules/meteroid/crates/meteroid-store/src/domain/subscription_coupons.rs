@@ -38,8 +38,13 @@ pub struct AppliedCoupon {
     pub applied_count: Option<i32>,
     pub last_applied_at: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
-    /// The first paid period's start when redeemed: a coupon lasting months counts them from it.
+    /// The first period start it discounts, from which a coupon lasting months counts them: the
+    /// first paid period's when redeemed with the subscription, the next period's when added to a
+    /// running one.
     pub effective_from: NaiveDate,
+    /// Added to a running subscription: the first service period it discounts, the lines of
+    /// earlier periods billed in arrears after it keeping their price. `None`: every line.
+    pub discounts_from: Option<NaiveDate>,
 }
 
 #[derive(Debug, Clone, o2o)]

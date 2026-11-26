@@ -171,6 +171,12 @@ pub mod meteroid {
             }
         }
 
+        pub mod retention {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.retention.v1");
+            }
+        }
+
         pub mod events {
             pub mod v1 {
                 tonic::include_proto!("meteroid.api.events.v1");
@@ -484,6 +490,11 @@ pub mod meteroid {
         pub mod budgets {
             pub mod v1 {
                 tonic::include_proto!("meteroid.portal.budgets.v1");
+            }
+        }
+        pub mod retention {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.portal.retention.v1");
             }
         }
         pub mod wallets {

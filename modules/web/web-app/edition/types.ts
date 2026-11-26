@@ -21,7 +21,7 @@ import type { Wallet as PortalWallet } from '@/rpc/portal/wallets/v1/models_pb'
 import type { GetCreditOverviewResponse } from '@/rpc/portal/wallets/v1/wallets_pb'
 import type { DescMethodUnary } from '@bufbuild/protobuf'
 import type { LucideIcon } from 'lucide-react'
-import type { ComponentType } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 import type { Control } from 'react-hook-form'
 import type { RouteObject } from 'react-router'
 
@@ -65,6 +65,20 @@ export interface InvoicingEntityCreateContext {
 
 export interface CustomerCreateFieldsContext {
   control: Control<CreateCustomerSchema>
+}
+
+/** The portal's cancel step for one subscription; `fallback` is the core confirmation. */
+export type CancelFlowOutcome = 'saved' | 'contact_requested' | 'cancelled'
+
+export interface PortalCancelFlowContext {
+  open: boolean
+  onClose: () => void
+  subscriptionId: string
+  planName: string
+  periodEnd?: string
+  /** Called once the subscription is set to cancel or kept by an offer. */
+  onDone: (outcome: CancelFlowOutcome, effectiveDate?: string) => void
+  fallback: ReactNode
 }
 
 export interface SubscriptionDetailContext {
@@ -539,6 +553,9 @@ export interface ComponentSlots {
   'portal.balance.wallet': PortalBalanceWalletContext
   /** Once on the portal Credit page, after the wallets: the dialogs a module opens. */
   'portal.balance.dialogs': PortalBalanceContext
+  /** The cancel dialog of a portal subscription; the first one replaces the core confirmation. */
+  'portal.subscription.cancelFlow': PortalCancelFlowContext  /** In the Cancellation stage of the Customer journey page, after how cancelling works. */
+  'journey.cancellation': Record<never, never>
 }
 
 /** Every slot, keyed to the item a module contributes; component slots take the component. */

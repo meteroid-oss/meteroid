@@ -17,6 +17,8 @@
 //! - Every object a JSON body holds is closed (`additionalProperties: false`): the body extractor
 //!   refuses a field it does not have (`v2::extract`). One a response flattens (`allOf`) is left
 //!   open, as closing it would refuse the response's own fields.
+//! - Every enum a response holds is open: its values are `x-extensible-enum`, not `enum`, so a
+//!   generated client accepts a value it does not know. A tag (a single value) stays an `enum`.
 use crate::v2::envelope::{CALLER_REQUEST_ID_HEADER, REQUEST_ID_HEADER};
 use crate::v2::idempotency::{IDEMPOTENCY_KEY_HEADER, REPLAYED_HEADER};
 use crate::v2::pagination::{DEFAULT_LIMIT, MAX_LIMIT};
@@ -28,6 +30,10 @@ use std::collections::{BTreeMap, BTreeSet};
 /// Whether an operation takes an `Idempotency-Key`: `required` or `optional`. A GET, a PATCH, a
 /// PUT, a DELETE, a preview and the entitlement check take none, and carry no such extension.
 pub const IDEMPOTENCY_EXTENSION: &str = "x-idempotency";
+
+/// The values of an open enum, which may grow without a new version (Zalando's convention, which
+/// the compatibility check reads: a value added to a response is not a break).
+pub const EXTENSIBLE_ENUM: &str = "x-extensible-enum";
 
 /// How a list is paged: the query parameter taking the cursor, the response fields giving the
 /// next one and telling whether more follow, the items and the page size.
@@ -111,6 +117,7 @@ pub fn finish(root: &mut Map<String, Value>) {
         components.insert("parameters".to_owned(), request_headers());
         components.insert("headers".to_owned(), response_headers());
     }
+    open_enums(root);
     let mut rest = std::mem::take(root);
     for key in KEY_ORDER {
         if let Some(value) = rest.remove(key) {
@@ -171,33 +178,50 @@ fn references<'a>(value: &'a Value, out: &mut Vec<&'a str>) {
 /// The schemas a JSON request body holds, by name, followed through their references.
 fn body_schemas(root: &Map<String, Value>) -> BTreeSet<String> {
     let mut found = Vec::new();
-    for item in root
-        .get("paths")
-        .and_then(Value::as_object)
-        .into_iter()
-        .flat_map(Map::values)
-    {
-        for method in METHODS {
-            let content = item
-                .get(method)
-                .and_then(|operation| operation.pointer("/requestBody/content"))
-                .and_then(Value::as_object);
-            for (content_type, media) in content.into_iter().flatten() {
-                if content_type.ends_with("json") {
-                    references(media, &mut found);
-                }
+    for operation in operations(root) {
+        let content = operation
+            .pointer("/requestBody/content")
+            .and_then(Value::as_object);
+        for (content_type, media) in content.into_iter().flatten() {
+            if content_type.ends_with("json") {
+                references(media, &mut found);
             }
         }
     }
+    held_through(root, found)
+}
+
+/// The schemas a response holds, an operation's or a shared one's, by name, followed through
+/// their references.
+fn response_schemas(root: &Map<String, Value>) -> BTreeSet<String> {
+    let mut found = Vec::new();
+    for operation in operations(root) {
+        if let Some(responses) = operation.get("responses") {
+            references(responses, &mut found);
+        }
+    }
+    if let Some(shared) = root.get("components").and_then(|c| c.get("responses")) {
+        references(shared, &mut found);
+    }
+    held_through(root, found)
+}
+
+fn operations(root: &Map<String, Value>) -> impl Iterator<Item = &Value> {
+    root.get("paths")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(Map::values)
+        .flat_map(|item| METHODS.into_iter().filter_map(|method| item.get(method)))
+}
+
+/// The schemas `found` references, and those they reference in turn, by name.
+fn held_through(root: &Map<String, Value>, found: Vec<&str>) -> BTreeSet<String> {
     let schemas = root
         .get("components")
         .and_then(|components| components.get("schemas"))
         .and_then(Value::as_object);
     let mut held = BTreeSet::new();
-    let mut next: Vec<String> = found
-        .iter()
-        .map(|reference| reference.to_string())
-        .collect();
+    let mut next: Vec<String> = found.into_iter().map(str::to_owned).collect();
     while let Some(reference) = next.pop() {
         let Some(name) = reference.strip_prefix("#/components/schemas/") else {
             continue;
@@ -212,6 +236,51 @@ fn body_schemas(root: &Map<String, Value>) -> BTreeSet<String> {
         }
     }
     held
+}
+
+/// Opens every enum a response holds (ADR-0013 §3), in the responses and the schemas they hold.
+fn open_enums(root: &mut Map<String, Value>) {
+    let held = response_schemas(root);
+    if let Some(paths) = root.get_mut("paths").and_then(Value::as_object_mut) {
+        for item in paths.values_mut() {
+            for method in METHODS {
+                if let Some(responses) = item.pointer_mut(&format!("/{method}/responses")) {
+                    open_enum(responses);
+                }
+            }
+        }
+    }
+    let Some(components) = root.get_mut("components").and_then(Value::as_object_mut) else {
+        return;
+    };
+    if let Some(shared) = components.get_mut("responses") {
+        open_enum(shared);
+    }
+    if let Some(schemas) = components.get_mut("schemas").and_then(Value::as_object_mut) {
+        for (name, schema) in schemas.iter_mut() {
+            if held.contains(name) {
+                open_enum(schema);
+            }
+        }
+    }
+}
+
+fn open_enum(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            if object
+                .get("enum")
+                .and_then(Value::as_array)
+                .is_some_and(|values| values.len() > 1)
+                && let Some(values) = object.remove("enum")
+            {
+                object.insert(EXTENSIBLE_ENUM.to_owned(), values);
+            }
+            object.values_mut().for_each(open_enum);
+        }
+        Value::Array(items) => items.iter_mut().for_each(open_enum),
+        _ => {}
+    }
 }
 
 /// Closes every object a JSON request body holds but those a response flattens (`allOf`).
@@ -1033,6 +1102,52 @@ mod tests {
                 continue;
             }
             assert_eq!(schema["additionalProperties"], false, "{name}");
+        }
+    }
+
+    #[test]
+    fn every_enum_a_response_holds_is_open() {
+        let spec = published();
+        let root = spec.as_object().expect("a document");
+        let event_types = &spec["components"]["schemas"]["EventType"];
+        assert!(event_types.get("enum").is_none(), "{event_types}");
+        assert!(
+            event_types[EXTENSIBLE_ENUM]
+                .as_array()
+                .is_some_and(|values| values.contains(&json!("invoice.paid")))
+        );
+        let mut tags = 0;
+        for name in response_schemas(root) {
+            let mut enums = Vec::new();
+            enums_of(&spec["components"]["schemas"][&name], &mut enums);
+            for values in enums {
+                assert_eq!(values.len(), 1, "{name}: {values:?}");
+                tags += 1;
+            }
+        }
+        assert!(tags > 0, "the tags of tagged unions stay closed");
+        let mut parameters = Vec::new();
+        for (_, _, operation) in operations(&spec) {
+            if let Some(listed) = operation.get("parameters") {
+                enums_of(listed, &mut parameters);
+            }
+        }
+        assert!(
+            parameters.iter().any(|values| values.len() > 1),
+            "what a request sends stays closed"
+        );
+    }
+
+    fn enums_of<'a>(value: &'a Value, out: &mut Vec<&'a Vec<Value>>) {
+        match value {
+            Value::Object(object) => {
+                if let Some(values) = object.get("enum").and_then(Value::as_array) {
+                    out.push(values);
+                }
+                object.values().for_each(|value| enums_of(value, out));
+            }
+            Value::Array(items) => items.iter().for_each(|value| enums_of(value, out)),
+            _ => {}
         }
     }
 
