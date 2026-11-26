@@ -1589,6 +1589,17 @@ impl ServicesEdge {
             .await
     }
 
+    /// The invoice's payments, the retries its dunning policy still plans and what follows them.
+    pub async fn invoice_collection(
+        &self,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+    ) -> StoreResult<crate::domain::invoice_collection::InvoiceCollection> {
+        self.services
+            .invoice_collection(tenant_id, invoice_id)
+            .await
+    }
+
     pub async fn apply_coupon_to_subscription(
         &self,
         actor: Actor,

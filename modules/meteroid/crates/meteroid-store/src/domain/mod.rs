@@ -47,6 +47,7 @@ pub mod accounting;
 pub mod customer_summary;
 pub mod customers;
 pub mod invoice_annex_templates;
+pub mod invoice_collection;
 pub mod invoices;
 pub mod plan_options;
 pub mod plans;

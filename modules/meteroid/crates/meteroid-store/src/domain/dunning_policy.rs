@@ -1,5 +1,6 @@
 //! A tenant's automatic payment retries. Written by the EE dunning module; without one, core
 //! retries after 3, 5 and 7 days and leaves the invoice in collection.
+use chrono::{DateTime, Utc};
 use diesel_models::dunning_policy::DunningPolicyRow;
 use diesel_models::enums::DunningExhaustedActionEnum;
 
@@ -65,5 +66,42 @@ impl DunningPolicy {
         self.retry_days
             .get(attempt.saturating_sub(1) as usize)
             .copied()
+    }
+}
+
+impl DunningPolicy {
+    /// The retries still to come once `failed` automatic attempts failed, the next one due at
+    /// `next_at`: each further one waits its delay after the one before fails.
+    pub fn retries_from(&self, failed: u32, next_at: DateTime<Utc>) -> Vec<DateTime<Utc>> {
+        let mut planned = vec![next_at];
+        let mut at = next_at;
+        let mut attempt = failed + 1;
+        while let Some(days) = self.delay_before(attempt) {
+            at += chrono::Duration::days(i64::from(days));
+            planned.push(at);
+            attempt += 1;
+        }
+        planned
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn day(d: u32) -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 3, d, 9, 0, 0).unwrap()
+    }
+
+    #[test]
+    fn the_retries_left_follow_the_ladder_from_the_next_one() {
+        let policy = DunningPolicy::default();
+        assert_eq!(
+            policy.retries_from(1, day(4)),
+            vec![day(4), day(9), day(16)]
+        );
+        assert_eq!(policy.retries_from(2, day(9)), vec![day(9), day(16)]);
+        assert_eq!(policy.retries_from(3, day(16)), vec![day(16)]);
     }
 }

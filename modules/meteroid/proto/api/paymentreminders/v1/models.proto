@@ -176,3 +176,60 @@ message CustomerReminderPreference {
   optional string sequence_id = 2;
   repeated SequenceRef available_sequences = 3;
 }
+
+
+enum CollectionAttemptOutcome {
+  COLLECTION_ATTEMPT_OUTCOME_UNSPECIFIED = 0;
+  COLLECTION_ATTEMPT_OUTCOME_SUCCEEDED = 1;
+  COLLECTION_ATTEMPT_OUTCOME_FAILED = 2;
+  COLLECTION_ATTEMPT_OUTCOME_PENDING = 3;
+  COLLECTION_ATTEMPT_OUTCOME_CANCELLED = 4;
+  COLLECTION_ATTEMPT_OUTCOME_REFUNDED = 5;
+}
+
+enum CollectionDecline {
+  COLLECTION_DECLINE_UNSPECIFIED = 0;
+  COLLECTION_DECLINE_INSUFFICIENT_FUNDS = 1;
+  COLLECTION_DECLINE_DO_NOT_HONOR = 2;
+  COLLECTION_DECLINE_CARD_EXPIRED = 3;
+  COLLECTION_DECLINE_AUTHENTICATION_REQUIRED = 4;
+  COLLECTION_DECLINE_MANDATE_INACTIVE = 5;
+  COLLECTION_DECLINE_FRAUD = 6;
+  COLLECTION_DECLINE_PROCESSING_ERROR = 7;
+  COLLECTION_DECLINE_OTHER = 8;
+  COLLECTION_DECLINE_DO_NOT_RETRY = 9;
+  COLLECTION_DECLINE_UNCONFIRMED = 10;
+}
+
+message CollectionAttempt {
+  string id = 1;
+  // RFC 3339.
+  string at = 2;
+  CollectionAttemptOutcome outcome = 3;
+  // The customer paid from the portal: it spends no retry.
+  bool by_customer = 4;
+  optional CollectionDecline decline = 5;
+  optional string method = 6;
+  int64 amount = 7;
+  string currency = 8;
+}
+
+enum CollectionEnd {
+  COLLECTION_END_UNSPECIFIED = 0;
+  // The invoice stays due, for the customer or a person to collect.
+  COLLECTION_END_STAYS_DUE = 1;
+  COLLECTION_END_CANCELS_SUBSCRIPTION = 2;
+}
+
+message InvoiceCollection {
+  // Oldest first.
+  repeated CollectionAttempt attempts = 1;
+  // RFC 3339; the first is the scheduled retry, each further one runs if the one before fails.
+  repeated string retries = 2;
+  // A hard decline stopped the retries on the card; a new card starts them again.
+  optional CollectionDecline stopped_by = 3;
+  // What follows once the retries are spent; unspecified outside dunning.
+  CollectionEnd end = 4;
+  // RFC 3339; when `end` happens, if known.
+  optional string end_at = 5;
+}

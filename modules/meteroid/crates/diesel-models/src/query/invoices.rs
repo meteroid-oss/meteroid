@@ -2546,6 +2546,26 @@ impl InvoiceRow {
         .map(|_| ())
     }
 
+    /// When the subscription of this unpaid invoice ends for a hard decline, if it does.
+    pub async fn dunning_cancel_at(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        id: InvoiceId,
+    ) -> DbResult<Option<NaiveDateTime>> {
+        use crate::schema::invoice_dunning_cancel::dsl as d_dsl;
+        use diesel_async::RunQueryDsl;
+
+        d_dsl::invoice_dunning_cancel
+            .filter(d_dsl::invoice_id.eq(id))
+            .filter(d_dsl::tenant_id.eq(tenant_id))
+            .select(d_dsl::cancel_at)
+            .first(conn)
+            .await
+            .optional()
+            .attach("Error while reading an invoice's dunning cancellation")
+            .into_db_result()
+    }
+
     /// The dunning cancellation due by `now`, taken: false when another run took it.
     pub async fn take_due_dunning_cancel(
         conn: &mut PgConn,

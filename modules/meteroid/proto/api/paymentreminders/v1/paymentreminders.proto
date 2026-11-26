@@ -88,6 +88,14 @@ message GetInvoiceRemindersResponse {
   InvoiceReminderState state = 1;
 }
 
+message GetInvoiceCollectionRequest {
+  string invoice_id = 1;
+}
+
+message GetInvoiceCollectionResponse {
+  InvoiceCollection collection = 1;
+}
+
 message PreviewInvoiceReminderResolutionRequest {
   string invoice_id = 1;
 }
@@ -202,6 +210,8 @@ service PaymentRemindersService {
   rpc PreviewPaymentReminderAudience(PreviewPaymentReminderAudienceRequest) returns (PreviewPaymentReminderAudienceResponse) {}
 
   rpc GetInvoiceReminders(GetInvoiceRemindersRequest) returns (GetInvoiceRemindersResponse) {}
+  // The invoice's payments, the retries the dunning policy still plans and what follows them.
+  rpc GetInvoiceCollection(GetInvoiceCollectionRequest) returns (GetInvoiceCollectionResponse) {}
   rpc PreviewInvoiceReminderResolution(PreviewInvoiceReminderResolutionRequest) returns (PreviewInvoiceReminderResolutionResponse) {}
   rpc PauseInvoiceReminders(PauseInvoiceRemindersRequest) returns (PauseInvoiceRemindersResponse) {}
   rpc ResumeInvoiceReminders(ResumeInvoiceRemindersRequest) returns (ResumeInvoiceRemindersResponse) {}
