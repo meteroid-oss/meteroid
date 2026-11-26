@@ -1115,6 +1115,19 @@ mod mapper {
                                 credit.covered,
                                 u32::from(credit.precision),
                             ),
+                            sub_lines: credit
+                                .sub_lines
+                                .iter()
+                                .map(|sub_line| invoicing_model::CreditSubLine {
+                                    name: sub_line.name.clone(),
+                                    quantity: sub_line.quantity,
+                                    unit_price: sub_line.unit_price,
+                                    total: rust_decimal::Decimal::new(
+                                        sub_line.total,
+                                        u32::from(credit.precision),
+                                    ),
+                                })
+                                .collect(),
                         })
                     })
                     .transpose()?;

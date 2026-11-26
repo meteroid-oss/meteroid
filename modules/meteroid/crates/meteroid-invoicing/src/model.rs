@@ -308,6 +308,17 @@ pub struct LineCredit {
     /// Scaled to the unit's precision, which is how they print.
     pub consumed: Decimal,
     pub covered: Decimal,
+    /// The tier or matrix breakdown of `consumed`, priced in the unit.
+    pub sub_lines: Vec<CreditSubLine>,
+}
+
+pub struct CreditSubLine {
+    pub name: String,
+    pub quantity: Decimal,
+    /// Credits per usage unit.
+    pub unit_price: Decimal,
+    /// Scaled to the unit's precision, like `LineCredit::consumed`.
+    pub total: Decimal,
 }
 
 impl LineCredit {

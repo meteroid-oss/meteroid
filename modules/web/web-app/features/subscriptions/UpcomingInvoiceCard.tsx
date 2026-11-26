@@ -1,7 +1,10 @@
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { useState } from 'react'
 
+import { formatWalletAmount } from '@/features/credit/format'
 import { NamedCreditUnitUsageNote } from '@/features/invoices/CreditUnitUsageNote'
+import { useCreditUnit } from '@/features/pricing/CreditUnitPriceFields'
+import { bareNumber } from '@/features/subscriptions/UsageLineTable'
 import { SubLineItem } from '@/rpc/api/invoices/v1/models_pb'
 import { UpcomingInvoice } from '@/rpc/api/subscriptions/v1/subscriptions_pb'
 import { parseAndFormatDate } from '@/utils/date'
@@ -218,9 +221,26 @@ const LineItemRow = ({
   // When usage details are hidden (preview without a subscription), treat metered lines like
   // any other line: no drill-down toggle, normal row borders.
   const hasMetric = Boolean(line.metricId) && !hideUsageDetails
-  const hasSubLines = line.subLineItems.length > 0
+  // A line priced in a credit unit carries its tier or matrix breakdown in credits.
+  const credit = line.creditUnit
+  const unit = useCreditUnit(credit?.creditUnitId)
+  const subLines = credit ? credit.subLineItems : line.subLineItems
+  const hasSubLines = subLines.length > 0
   // A line priced by tiers or packs still shows its quantity; its sublines show the rates.
   const showQuantity = !hasSubLines || Boolean(line.quantity)
+  const subTotal = (minor: bigint) =>
+    credit
+      ? formatWalletAmount(minor, {
+          currency: credit.code,
+          creditUnit: {
+            name: unit?.name ?? credit.code,
+            pluralName: unit?.pluralName ?? credit.code,
+            precision: credit.precision,
+          },
+        })
+      : formatCurrency(Number(minor), currency)
+  const subPrice = (value: string) =>
+    credit ? bareNumber(value) : formatCurrencyNoRounding(value, currency)
 
   return (
     <>
@@ -278,12 +298,12 @@ const LineItemRow = ({
                 />
                 {showSubLines
                   ? 'Hide breakdown'
-                  : `${line.subLineItems.length} line ${line.subLineItems.length === 1 ? 'item' : 'items'}`}
+                  : `${subLines.length} line ${subLines.length === 1 ? 'item' : 'items'}`}
               </button>
             </td>
           </tr>
           {showSubLines &&
-            line.subLineItems.map((sub, idx) => (
+            subLines.map((sub, idx) => (
               <tr key={idx}>
                 <td className="pl-8 pr-4 py-0.5 text-[12px] text-muted-foreground">
                   {formatSubLineName(sub)}
@@ -293,11 +313,11 @@ const LineItemRow = ({
                   className="px-4 py-0.5 text-[12px] text-right text-muted-foreground/70 tabular-nums"
                 >
                   {sub.quantity && sub.unitPrice && Number(sub.unitPrice) !== 0
-                    ? `${sub.quantity} × ${formatCurrencyNoRounding(sub.unitPrice, currency)}`
+                    ? `${sub.quantity} × ${subPrice(sub.unitPrice)}`
                     : ''}
                 </td>
                 <td className="px-4 py-0.5 text-[12px] text-right text-muted-foreground tabular-nums">
-                  {formatCurrency(Number(sub.total), currency)}
+                  {subTotal(sub.total)}
                 </td>
               </tr>
             ))}

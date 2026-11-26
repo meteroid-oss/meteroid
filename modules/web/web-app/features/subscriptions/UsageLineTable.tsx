@@ -51,7 +51,7 @@ const formatQuantity = (quantity: string | undefined, unit?: MetricUnit) => {
   return Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: 6 }) : quantity
 }
 
-const bareNumber = (value: string) => {
+export const bareNumber = (value: string) => {
   try {
     return new Intl.NumberFormat(undefined, { maximumFractionDigits: 12 }).format(
       new Decimal(value).toNumber()

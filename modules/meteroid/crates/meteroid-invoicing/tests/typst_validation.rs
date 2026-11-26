@@ -11,8 +11,8 @@ use meteroid_invoicing::pdf::{CreditNotePdfGenerator, PdfGenerator, TypstCreditN
 use meteroid_invoicing::typst_render::{TypstInvoiceContent, TypstInvoiceRenderer};
 use meteroid_invoicing::{
     model::{
-        Address, Customer, Invoice, InvoiceLine, InvoiceMetadata, InvoiceSubLine, LineCredit,
-        LineUsageBreakdown, LineUsageBreakdownItem, Organization, Transaction,
+        Address, CreditSubLine, Customer, Invoice, InvoiceLine, InvoiceMetadata, InvoiceSubLine,
+        LineCredit, LineUsageBreakdown, LineUsageBreakdownItem, Organization, Transaction,
     },
     pdf::TypstPdfGenerator,
     typst_render::document_text,
@@ -458,6 +458,7 @@ fn usage_priced_in_a_credit_unit_prints_the_units_name_at_its_precision() {
         plural_name: "Halyard credits".to_owned(),
         consumed: Decimal::new(48_000, 2),
         covered: Decimal::new(100, 2),
+        sub_lines: vec![],
     });
     let text = render_text(&invoice)
         .split_whitespace()
@@ -470,6 +471,38 @@ fn usage_priced_in_a_credit_unit_prints_the_units_name_at_its_precision() {
     invoice.lang = "fr-FR".to_string();
     let text = render_text(&invoice);
     assert!(text.contains("12\u{a0}345,50 Halyard credits"), "{text}");
+}
+
+/// A matrix priced in credits keeps its breakdown, though credits cover it and the line bills 0.
+#[test]
+fn usage_priced_in_a_credit_unit_lists_its_matrix_in_credits() {
+    let eur = iso::find("EUR").unwrap();
+    let sub_line = |name: &str, quantity: i64, unit_price: &str, total: i64| CreditSubLine {
+        name: name.to_owned(),
+        quantity: Decimal::from(quantity),
+        unit_price: Decimal::from_str(unit_price).unwrap(),
+        total: Decimal::new(total, 2),
+    };
+    let mut invoice = create_minimal_invoice();
+    invoice.lines[0].subtotal = Money::from_minor(0, eur);
+    invoice.lines[0].unit_price = None;
+    invoice.lines[0].sub_lines = vec![];
+    invoice.lines[0].credit = Some(LineCredit {
+        name: "credit".to_owned(),
+        plural_name: "credits".to_owned(),
+        consumed: Decimal::new(35_000, 2),
+        covered: Decimal::new(35_000, 2),
+        sub_lines: vec![
+            sub_line("TDF", 100, "1.5", 15_000),
+            sub_line("Boulanger", 400, "0.5", 20_000),
+        ],
+    });
+    let text = render_text(&invoice);
+    assert!(text.contains("TDF1001.5 credits150.00 credits"), "{text}");
+    assert!(
+        text.contains("Boulanger4000.5 credits200.00 credits"),
+        "{text}"
+    );
 }
 
 #[test]

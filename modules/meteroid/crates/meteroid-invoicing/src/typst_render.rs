@@ -200,6 +200,17 @@ typst_dict_struct! {
     pub struct TypstLineCredit {
         pub consumed: String,
         pub covered: String,
+        pub sub_lines: Vec<TypstCreditSubLine>,
+    }
+}
+
+typst_dict_struct! {
+    #[derive(Debug, Clone)]
+    pub struct TypstCreditSubLine {
+        pub name: String,
+        pub quantity: f64,
+        pub unit_price: String,
+        pub total: String,
     }
 }
 
@@ -240,6 +251,21 @@ impl TypstInvoiceLine {
                 TypstLineCredit {
                     consumed: quantity(credit.consumed),
                     covered: quantity(credit.covered),
+                    sub_lines: credit
+                        .sub_lines
+                        .iter()
+                        .map(|sub_line| TypstCreditSubLine {
+                            name: sub_line.name.clone(),
+                            quantity: sub_line.quantity.to_f64().unwrap_or(0.0),
+                            unit_price: quantity(
+                                sub_line
+                                    .unit_price
+                                    .round_dp(format::MAX_UNIT_PRICE_SCALE)
+                                    .normalize(),
+                            ),
+                            total: quantity(sub_line.total),
+                        })
+                        .collect(),
                 }
             }),
             usage_breakdown: line

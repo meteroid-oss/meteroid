@@ -317,6 +317,20 @@
     }
 
     let breakdown = item.at("usage_breakdown", default: none)
+    // Usage priced in a credit unit is broken down in credits: its money sub-lines are empty.
+    let credit = item.at("credit", default: none)
+    let sub_rows = if item.sub_lines != none and item.sub_lines.len() > 0 {
+      item.sub_lines.map(sub => (
+        name: sub.name,
+        quantity: sub.quantity,
+        unit_price: if sub.unit_price != none { format_amount(sub.unit_price) } else { "" },
+        total: format_amount(sub.total),
+      ))
+    } else if credit != none {
+      credit.at("sub_lines", default: ())
+    } else {
+      ()
+    }
     let breakdown_row(entry) = grid(
       columns: (3.6fr, 0.85fr, 1.5fr, 0.8fr, 1.25fr),
       column-gutter: 6pt,
@@ -362,13 +376,13 @@
       )
 
       // Add sublines if they exist
-      #if item.sub_lines != none and item.sub_lines.len() > 0 {
+      #if sub_rows.len() > 0 {
         block(
           width: 100%,
           radius: 3pt,
           inset: (x: 3pt, y: 2pt),
           [
-            #for (sub_index, sub_item) in item.sub_lines.enumerate() {
+            #for sub_item in sub_rows {
               grid(
                 columns: (3.6fr, 0.85fr, 1.5fr, 0.8fr, 1.25fr),
                 column-gutter: 6pt,
@@ -383,11 +397,11 @@
 
                 align(center, text(size: 8.5pt, fill: color.accent, if sub_item.quantity != none { format_number(sub_item.quantity) } else { "" })),
 
-                align(right, text(size: 8.5pt, fill: color.accent, if sub_item.unit_price != none { format_amount(sub_item.unit_price) } else { "" })),
+                align(right, text(size: 8.5pt, fill: color.accent, sub_item.unit_price)),
 
                 [],
 
-                align(right, text(size: 8.5pt, fill: color.accent, format_amount(sub_item.total))),
+                align(right, text(size: 8.5pt, fill: color.accent, sub_item.total)),
               )
             }
           ]
