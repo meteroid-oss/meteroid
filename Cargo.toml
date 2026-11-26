@@ -195,6 +195,7 @@ reqwest = { version = "0.13.2", default-features = false, features = ["rustls-no
 hickory-resolver = { version = "0.26.1", default-features = false, features = ["tokio", "system-config"] }
 reqwest-retry = { version = "0.9.1", default-features = false }
 reqwest-middleware = { version = "0.5.1", default-features = false }
+resvg = { version = "0.47.0", default-features = false, features = ["raster-images"] }
 rstest = "0.26.1"
 rust_decimal = "1.32.0"
 rust_decimal_macros = "1.32.0"

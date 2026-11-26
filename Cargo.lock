@@ -4888,6 +4888,7 @@ dependencies = [
  "prost",
  "prost-types",
  "rate-limiter",
+ "resvg",
  "rust_decimal",
  "rust_decimal_macros",
  "secrecy",

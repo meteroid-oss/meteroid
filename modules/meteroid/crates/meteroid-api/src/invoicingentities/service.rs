@@ -156,11 +156,16 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
             Some(file) => {
                 let logo_bytes = file.data;
                 if logo_bytes.len() > MAX_IMAGE_SIZE {
-                    return Err(Status::invalid_argument(
-                        "Image size exceeds maximum allowed",
-                    ));
+                    return Err(InvoicingEntitiesApiError::InvalidArgument(format!(
+                        "Logo is {:.1} MB, the maximum is {} MB.",
+                        logo_bytes.len() as f64 / (1024.0 * 1024.0),
+                        MAX_IMAGE_SIZE / (1024 * 1024)
+                    ))
+                    .into());
                 }
-                let logo_bytes = process_image(&logo_bytes)
+                let logo_bytes = tokio::task::spawn_blocking(move || process_image(&logo_bytes))
+                    .await
+                    .map_err(|e| Status::internal(format!("Logo processing failed: {e}")))?
                     .map_err(InvoicingEntitiesApiError::InvalidArgument)?;
 
                 let stored = storage::put(
@@ -262,33 +267,163 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
         }))
     }
 }
-const MAX_IMAGE_SIZE: usize = 1024 * 1024; // 1 MB
+const MAX_IMAGE_SIZE: usize = 2 * 1024 * 1024;
 const MAX_H: u32 = 160;
 const MAX_W: u32 = 2048;
+const MAX_SOURCE_DIMENSION: u32 = 10_000;
 
 fn process_image(bytes: &[u8]) -> Result<Vec<u8>, String> {
-    // Validate image format
-    let format = image::guess_format(bytes).map_err(|_| "Unable to determine image format")?;
-    if !matches!(
-        format,
-        ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::WebP
-    ) {
-        return Err("Unsupported image format. Only PNG, JPEG and WebP are allowed.".to_string());
-    }
+    let img = match image::guess_format(bytes) {
+        Ok(ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::WebP) => decode_raster(bytes)?,
+        Ok(_) => return Err(UNSUPPORTED_FORMAT.to_string()),
+        Err(_) if looks_like_svg(bytes) => rasterize_svg(bytes)?,
+        Err(_) => return Err(UNSUPPORTED_FORMAT.to_string()),
+    };
 
-    let img = image::load_from_memory(bytes).map_err(|e| format!("Failed to load image: {e}"))?;
-
-    // Resize if necessary
     let img = if img.width() > MAX_W || img.height() > MAX_H {
-        img.resize(MAX_W, MAX_H, image::imageops::FilterType::Nearest)
+        img.resize(MAX_W, MAX_H, image::imageops::FilterType::Lanczos3)
     } else {
         img
     };
 
-    // Convert to PNG
     let mut buffer = Cursor::new(Vec::new());
     img.write_to(&mut buffer, ImageFormat::Png)
         .map_err(|e| format!("Failed to encode image: {e}"))?;
 
     Ok(buffer.into_inner())
+}
+
+const UNSUPPORTED_FORMAT: &str = "Unsupported image format. Use PNG, JPEG, WebP or SVG.";
+
+fn decode_raster(bytes: &[u8]) -> Result<image::DynamicImage, String> {
+    let mut reader = image::ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|e| format!("Failed to read image: {e}"))?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_SOURCE_DIMENSION);
+    limits.max_image_height = Some(MAX_SOURCE_DIMENSION);
+    reader.limits(limits);
+    reader.decode().map_err(|e| match e {
+        image::ImageError::Limits(_) => format!(
+            "Image dimensions are too large (max {MAX_SOURCE_DIMENSION}×{MAX_SOURCE_DIMENSION} px)."
+        ),
+        e => format!("Failed to load image: {e}"),
+    })
+}
+
+// Plain-text SVG only: gzipped SVGZ is rejected to avoid decompression bombs.
+fn looks_like_svg(bytes: &[u8]) -> bool {
+    let head = &bytes[..bytes.len().min(1024)];
+    let head = head.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(head);
+    let trimmed = head.trim_ascii_start();
+    trimmed.starts_with(b"<") && head.windows(4).any(|w| w.eq_ignore_ascii_case(b"<svg"))
+}
+
+fn rasterize_svg(bytes: &[u8]) -> Result<image::DynamicImage, String> {
+    let options = resvg::usvg::Options {
+        // Never resolve hrefs to local files; embedded data: URIs still work.
+        image_href_resolver: resvg::usvg::ImageHrefResolver {
+            resolve_data: resvg::usvg::ImageHrefResolver::default_data_resolver(),
+            resolve_string: Box::new(|_, _| None),
+        },
+        ..Default::default()
+    };
+    let tree = resvg::usvg::Tree::from_data(bytes, &options)
+        .map_err(|e| format!("Failed to parse SVG: {e}"))?;
+
+    let size = tree.size();
+    let scale = (MAX_W as f32 / size.width()).min(MAX_H as f32 / size.height());
+    let width = (size.width() * scale).round().max(1.0) as u32;
+    let height = (size.height() * scale).round().max(1.0) as u32;
+
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height)
+        .ok_or_else(|| "SVG has invalid dimensions.".to_string())?;
+    resvg::render(
+        &tree,
+        resvg::tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+
+    let rgba = image::RgbaImage::from_raw(width, height, demultiply(pixmap))
+        .ok_or_else(|| "Failed to rasterize SVG.".to_string())?;
+    Ok(image::DynamicImage::ImageRgba8(rgba))
+}
+
+fn demultiply(pixmap: resvg::tiny_skia::Pixmap) -> Vec<u8> {
+    pixmap
+        .pixels()
+        .iter()
+        .flat_map(|p| {
+            let c = p.demultiply();
+            [c.red(), c.green(), c.blue(), c.alpha()]
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn png(width: u32, height: u32) -> Vec<u8> {
+        let mut buf = Cursor::new(Vec::new());
+        image::DynamicImage::new_rgba8(width, height)
+            .write_to(&mut buf, ImageFormat::Png)
+            .unwrap();
+        buf.into_inner()
+    }
+
+    fn decoded(bytes: &[u8]) -> image::DynamicImage {
+        image::load_from_memory_with_format(bytes, ImageFormat::Png).unwrap()
+    }
+
+    #[test]
+    fn large_png_is_downscaled_within_bounds() {
+        let out = decoded(&process_image(&png(1000, 500)).unwrap());
+        assert_eq!((out.width(), out.height()), (320, 160));
+    }
+
+    #[test]
+    fn svg_is_rasterized_to_fit_height() {
+        let svg = br##"<?xml version="1.0"?>
+            <svg xmlns="http://www.w3.org/2000/svg" width="40" height="20">
+              <rect width="40" height="20" fill="#ff0000"/>
+            </svg>"##;
+        let out = decoded(&process_image(svg).unwrap()).to_rgba8();
+        assert_eq!(out.dimensions(), (320, 160));
+        assert_eq!(out.get_pixel(10, 10).0, [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn svg_local_file_href_is_not_resolved() {
+        let path = std::env::temp_dir().join(format!("logo-href-{}.png", std::process::id()));
+        let opaque = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            10,
+            10,
+            image::Rgba([0, 0, 255, 255]),
+        ));
+        opaque.save(&path).unwrap();
+        let svg = format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="10" height="10">
+              <image width="10" height="10" xlink:href="{}"/>
+            </svg>"#,
+            path.display()
+        );
+        let result = process_image(svg.as_bytes());
+        std::fs::remove_file(&path).ok();
+        let out = decoded(&result.unwrap()).to_rgba8();
+        assert!(out.pixels().all(|p| p.0[3] == 0));
+    }
+
+    #[test]
+    fn unsupported_formats_are_rejected() {
+        assert_eq!(process_image(b"hello").unwrap_err(), UNSUPPORTED_FORMAT);
+        let mut gif = Cursor::new(Vec::new());
+        image::DynamicImage::new_rgba8(2, 2)
+            .write_to(&mut gif, ImageFormat::Gif)
+            .unwrap();
+        assert_eq!(
+            process_image(&gif.into_inner()).unwrap_err(),
+            UNSUPPORTED_FORMAT
+        );
+    }
 }

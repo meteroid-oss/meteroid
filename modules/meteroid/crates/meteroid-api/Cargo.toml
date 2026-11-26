@@ -55,6 +55,7 @@ common-utils = { workspace = true, features = ["error-stack-conv"] }
 bytes.workspace = true
 url.workspace = true
 image = { workspace = true }
+resvg = { workspace = true }
 meteroid-store.workspace = true
 meteroid-invoicing.workspace = true
 meteroid-mailer.workspace = true

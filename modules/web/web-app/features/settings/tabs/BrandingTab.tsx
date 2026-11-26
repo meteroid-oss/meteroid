@@ -34,6 +34,7 @@ import { localeLabel } from '@/features/settings/utils/localeRecord'
 import { entitlementCodes, useEntitlement } from '@/hooks/useEntitlement'
 import { useZodForm } from '@/hooks/useZodForm'
 import { env } from '@/lib/env'
+import { rpcErrorMessage } from '@/lib/rpcError'
 import {
   getEmailSettings,
   previewEmail,
@@ -46,6 +47,9 @@ import {
   uploadInvoicingEntityLogo,
 } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
 import { InvoicingEntity } from '@/rpc/api/invoicingentities/v1/models_pb'
+
+const MAX_LOGO_MB = 2
+const LOGO_ACCEPT = 'image/png,image/jpeg,image/webp,image/svg+xml'
 
 const HEX_COLOR = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i
 
@@ -206,7 +210,7 @@ export const BrandingTab = () => {
             <SettingsRowGroup>
               <SettingsRow
                 title="Logo"
-                description="Shown on invoices, emails and portals. PNG or JPEG, max 1 MB."
+                description={`Shown on invoices, emails and portals. PNG, JPEG, WebP or SVG, max ${MAX_LOGO_MB} MB.`}
               >
                 {currentInvoicingEntity && <FileUpload entity={currentInvoicingEntity} />}
               </SettingsRow>
@@ -420,7 +424,15 @@ const FileUpload = ({ entity }: { entity: InvoicingEntity }) => {
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
+    event.target.value = ''
     if (!file) return
+
+    if (file.size > MAX_LOGO_MB * 1024 * 1024) {
+      toast.error(
+        `Logo is ${(file.size / 1024 / 1024).toFixed(1)} MB, the maximum is ${MAX_LOGO_MB} MB.`
+      )
+      return
+    }
 
     setIsUploading(true)
 
@@ -435,8 +447,7 @@ const FileUpload = ({ entity }: { entity: InvoicingEntity }) => {
           file: { data: uint8Array },
         })
       } catch (error) {
-        console.error('Error uploading file:', error)
-        toast.error('Failed to upload file. Please try again.')
+        toast.error(rpcErrorMessage(error, 'Failed to upload logo. Please try again.'))
       } finally {
         setIsUploading(false)
       }
@@ -450,7 +461,7 @@ const FileUpload = ({ entity }: { entity: InvoicingEntity }) => {
     try {
       await updateInvoicingEntityMut.mutateAsync({ id: entity.id, file: undefined })
     } catch (error) {
-      toast.error('Failed to update logo.')
+      toast.error(rpcErrorMessage(error, 'Failed to update logo.'))
     } finally {
       setIsUploading(false)
     }
@@ -480,7 +491,7 @@ const FileUpload = ({ entity }: { entity: InvoicingEntity }) => {
         type="file"
         id="logo-upload"
         className="hidden"
-        accept="image/*"
+        accept={LOGO_ACCEPT}
         onChange={handleFileUpload}
       />
       <Button size="sm" variant="outline" type="button" asChild>
