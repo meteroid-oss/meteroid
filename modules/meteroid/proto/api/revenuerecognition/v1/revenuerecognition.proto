@@ -1,0 +1,215 @@
+syntax = "proto3";
+
+package meteroid.api.revenuerecognition.v1;
+
+import "api/revenuerecognition/v1/models.proto";
+
+// The chart of accounts and posting settings of each invoicing entity. Reading needs no gate;
+// every change needs the revenue_recognition gate.
+service RevenueRecognitionService {
+  rpc GetRevenueRecognitionSetup(GetRevenueRecognitionSetupRequest) returns (GetRevenueRecognitionSetupResponse);
+  rpc UpdateRevenueRecognitionSettings(UpdateRevenueRecognitionSettingsRequest) returns (UpdateRevenueRecognitionSettingsResponse);
+
+  rpc CreateLedgerAccount(CreateLedgerAccountRequest) returns (CreateLedgerAccountResponse);
+  rpc UpdateLedgerAccount(UpdateLedgerAccountRequest) returns (UpdateLedgerAccountResponse);
+  // Refused while a mapping uses the account.
+  rpc ArchiveLedgerAccount(ArchiveLedgerAccountRequest) returns (ArchiveLedgerAccountResponse);
+  // Without an account, removes the mapping.
+  rpc SetAccountMapping(SetAccountMappingRequest) returns (SetAccountMappingResponse);
+  // Creates a standard chart with its mappings; refused once the entity has accounts.
+  rpc ApplyChartTemplate(ApplyChartTemplateRequest) returns (ApplyChartTemplateResponse);
+
+  // What closing a month would post, from the revenue facts as known now; writes nothing.
+  rpc PreviewMonthClose(PreviewMonthCloseRequest) returns (PreviewMonthCloseResponse);
+  // Posts the month's entries (the opening one first, at the cut-over) and locks the month.
+  rpc CloseMonth(CloseMonthRequest) returns (CloseMonthResponse);
+  rpc ListJournalEntries(ListJournalEntriesRequest) returns (ListJournalEntriesResponse);
+  rpc GetJournalEntry(GetJournalEntryRequest) returns (GetJournalEntryResponse);
+
+  // A balanced adjustment with its reason, dated in an open month; it waits for approval.
+  rpc CreateManualEntry(CreateManualEntryRequest) returns (CreateManualEntryResponse);
+  // Posts a manual entry; its author cannot approve it.
+  rpc ApproveJournalEntry(ApproveJournalEntryRequest) returns (ApproveJournalEntryResponse);
+  // Only a manual entry waiting for approval can be deleted.
+  rpc DeleteJournalEntry(DeleteJournalEntryRequest) returns (DeleteJournalEntryResponse);
+
+  // The posted journal of a range of months as a CSV a general ledger imports.
+  rpc ExportJournal(ExportJournalRequest) returns (ExportJournalResponse);
+
+  // Each role's balance month by month from the posted journals, and where the close stands.
+  rpc GetRevenueRecognitionOverview(GetRevenueRecognitionOverviewRequest) returns (GetRevenueRecognitionOverviewResponse);
+}
+
+message GetRevenueRecognitionSetupRequest {
+  string invoicing_entity_id = 1;
+  bool include_archived = 2;
+}
+message GetRevenueRecognitionSetupResponse {
+  RevenueRecognitionSettings settings = 1;
+  repeated LedgerAccount accounts = 2;
+  repeated AccountMapping mappings = 3;
+  repeated RoleCoverage coverage = 4;
+  // Every required role resolves to an account.
+  bool ready = 5;
+  // Whether the merchant's plan opens the revenue_recognition gate.
+  bool editable = 6;
+  // The template that fits the entity's country.
+  ChartTemplate suggested_template = 7;
+  // What else keeps the chart from posting, e.g. a product's revenue code no account carries.
+  repeated string problems = 8;
+}
+
+message CutoverDate { optional string date = 1; }
+
+message UpdateRevenueRecognitionSettingsRequest {
+  string invoicing_entity_id = 1;
+  optional PostingScope posting_scope = 2;
+  optional bool accrue_unbilled_usage = 3;
+  // The first day of a month; an empty date takes the entity off the books. Unset leaves it.
+  optional CutoverDate cutover = 4;
+}
+message UpdateRevenueRecognitionSettingsResponse { RevenueRecognitionSettings settings = 1; }
+
+message CreateLedgerAccountRequest {
+  string invoicing_entity_id = 1;
+  string code = 2;
+  string name = 3;
+}
+message CreateLedgerAccountResponse { LedgerAccount account = 1; }
+
+message UpdateLedgerAccountRequest {
+  string id = 1;
+  string code = 2;
+  string name = 3;
+}
+message UpdateLedgerAccountResponse { LedgerAccount account = 1; }
+
+message ArchiveLedgerAccountRequest { string id = 1; }
+message ArchiveLedgerAccountResponse {}
+
+message SetAccountMappingRequest {
+  string invoicing_entity_id = 1;
+  LedgerAccountRole role = 2;
+  // Only for the revenue and deferred revenue roles.
+  optional string product_id = 3;
+  optional string ledger_account_id = 4;
+}
+message SetAccountMappingResponse {}
+
+message ApplyChartTemplateRequest {
+  string invoicing_entity_id = 1;
+  ChartTemplate template = 2;
+}
+message ApplyChartTemplateResponse {
+  repeated LedgerAccount accounts = 1;
+  repeated AccountMapping mappings = 2;
+}
+
+message PreviewMonthCloseRequest {
+  string invoicing_entity_id = 1;
+  // Any day of the month (YYYY-MM-DD).
+  string month = 2;
+}
+message PreviewMonthCloseResponse {
+  string functional_currency = 1;
+  repeated JournalPosting postings = 2;
+  // Revenue of months already closed, as restated since (late credit notes, corrections): it
+  // posts in this month. Credits positive.
+  int64 restated_revenue = 3;
+  // Revenue the month's books recognize beyond Revenue Intelligence, in functional minor units:
+  // committed contracts' fixed fees straight-lined over their term (ADR-0014 §4).
+  int64 contract_adjustment = 4;
+}
+
+message CloseMonthRequest {
+  string invoicing_entity_id = 1;
+  string month = 2;
+}
+message CloseMonthResponse { repeated JournalEntry entries = 1; }
+
+message ListJournalEntriesRequest { string invoicing_entity_id = 1; }
+message ListJournalEntriesResponse {
+  repeated JournalEntry entries = 1;
+  // The closed months (YYYY-MM-01), oldest first.
+  repeated string closed_months = 2;
+}
+
+message GetJournalEntryRequest { string id = 1; }
+message GetJournalEntryResponse {
+  JournalEntry entry = 1;
+  repeated JournalLine lines = 2;
+  // What the lines name, by id: customers, subscriptions (by plan) and invoices (by number).
+  map<string, string> customer_names = 3;
+  map<string, string> subscription_names = 4;
+  map<string, string> invoice_numbers = 5;
+}
+
+message CreateManualEntryRequest {
+  string invoicing_entity_id = 1;
+  // YYYY-MM-DD, in an open month of the books.
+  string posting_date = 2;
+  string memo = 3;
+  repeated ManualLine lines = 4;
+}
+message CreateManualEntryResponse { JournalEntry entry = 1; }
+
+message ApproveJournalEntryRequest { string id = 1; }
+message ApproveJournalEntryResponse { JournalEntry entry = 1; }
+
+message DeleteJournalEntryRequest { string id = 1; }
+message DeleteJournalEntryResponse {}
+
+message ExportJournalRequest {
+  string invoicing_entity_id = 1;
+  // Any day of the first and the last month (YYYY-MM-DD), both included.
+  string from = 2;
+  string to = 3;
+  // One row per line, with its customer and contract, in place of one per account and product.
+  bool detailed = 4;
+}
+message ExportJournalResponse {
+  string filename = 1;
+  string csv = 2;
+}
+
+message GetRevenueRecognitionOverviewRequest {
+  string invoicing_entity_id = 1;
+  // Any day of the first and the last month (YYYY-MM-DD), both included; at most 120 months.
+  string from = 2;
+  string to = 3;
+}
+
+// A role over a month, in the functional currency: debit positive, credit negative.
+message RoleRollForward {
+  // Unspecified for manual lines on an account no single role is mapped to.
+  LedgerAccountRole role = 1;
+  // The previous month's closing, plus the opening entry in the month the books start.
+  int64 opening = 2;
+  int64 debits = 3;
+  int64 credits = 4;
+  // Debits plus credits: closing = opening + movement.
+  int64 movement = 5;
+  int64 closing = 6;
+}
+
+message RevenueRecognitionMonth {
+  // YYYY-MM-01
+  string month = 1;
+  bool closed = 2;
+  // Every role the books posted to up to the range's end.
+  repeated RoleRollForward roles = 3;
+}
+
+message GetRevenueRecognitionOverviewResponse {
+  string functional_currency = 1;
+  repeated RevenueRecognitionMonth months = 2;
+  RevenueRecognitionSettings settings = 3;
+  // Every required role resolves to an account.
+  bool ready = 4;
+  // The closed months (YYYY-MM-01), oldest first.
+  repeated string closed_months = 5;
+  // Unset while the books have no start, or the entity sends documents only.
+  optional string next_month_to_close = 6;
+  // Manual entries of any month waiting for approval.
+  uint32 pending_manual_entries = 7;
+}

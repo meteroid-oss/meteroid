@@ -6,6 +6,7 @@ import { ReactNode } from 'react'
 // control right; FieldGrid = responsive two-column form grid.
 
 export const SettingsSection = ({
+  id,
   title,
   description,
   action,
@@ -13,6 +14,8 @@ export const SettingsSection = ({
   className,
   divided = true,
 }: {
+  /** An anchor an in-page nav scrolls to. */
+  id?: string
   /** Left out when the page's own title already says it (API keys, Webhooks…). */
   title?: ReactNode
   description?: ReactNode
@@ -24,7 +27,10 @@ export const SettingsSection = ({
   // consecutive sections live in separate <form> wrappers.
   divided?: boolean
 }) => (
-  <section className={cn(divided ? 'border-t border-border pt-6' : 'pt-0', className)}>
+  <section
+    id={id}
+    className={cn('scroll-mt-16', divided ? 'border-t border-border pt-6' : 'pt-0', className)}
+  >
     <div className="mb-4 flex items-start justify-between gap-3">
       <div className="space-y-0.5">
         {title && <h3 className="text-sm font-semibold tracking-tight">{title}</h3>}

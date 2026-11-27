@@ -66,6 +66,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
         "renewals",
         "resources",
         "retention",
+        "revenuerecognition",
         "savedviews",
         "security",
         "segments",

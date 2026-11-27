@@ -166,6 +166,9 @@ pub fn method_auth(sm: &GrpcServiceMethod) -> Option<RouteAuth> {
         // analytics:read, checked in the handler.
         "TargetsService" => rw(method, TargetsRead, TargetsManage),
 
+        // ---- the books ----
+        "RevenueRecognitionService" => rw(method, AccountingRead, AccountingManage),
+
         // ---- read-only analytics & reporting ----
         "StatsService"
         | "AnalyticsService"
@@ -370,6 +373,30 @@ mod tests {
             service: service.to_string(),
             method: method.to_string(),
         }
+    }
+
+    #[test]
+    fn the_books_need_the_accounting_permission() {
+        let service = "meteroid.api.revenuerecognition.v1.RevenueRecognitionService";
+        assert_eq!(
+            method_auth(&gm(service, "GetRevenueRecognitionSetup")),
+            Some(RouteAuth::Requires(AccountingRead))
+        );
+        for method in [
+            "CloseMonth",
+            "ApproveJournalEntry",
+            "UpdateRevenueRecognitionSettings",
+        ] {
+            assert_eq!(
+                method_auth(&gm(service, method)),
+                Some(RouteAuth::Requires(AccountingManage)),
+                "{method}"
+            );
+        }
+        assert_eq!(
+            method_auth(&gm(service, "ExportJournal")),
+            Some(RouteAuth::Requires(AccountingRead))
+        );
     }
 
     /// The fail-proof guarantee: every RPC under `meteroid.api.*` must be

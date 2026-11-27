@@ -80,6 +80,7 @@ types:
     - meteroid.api.rbac.v1.RbacService
     - meteroid.api.renewals.v1.RenewalsService
     - meteroid.api.retention.v1.RetentionService
+    - meteroid.api.revenuerecognition.v1.RevenueRecognitionService
     - meteroid.api.rbac.v1.CustomRolesService
     - meteroid.api.invoicingentities.v1.InvoicingEntitiesService
     - meteroid.api.invoicingentities.v1.MultiEntityService

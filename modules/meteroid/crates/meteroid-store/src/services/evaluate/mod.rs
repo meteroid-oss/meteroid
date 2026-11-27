@@ -7,5 +7,6 @@ pub mod issued;
 pub mod load;
 pub mod preview;
 pub mod pricer;
+pub mod unbilled;
 pub mod usage;
 pub(crate) mod windows;

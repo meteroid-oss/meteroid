@@ -1417,3 +1417,62 @@ pub enum DunningExhaustedActionEnum {
     None,
     CancelSubscription,
 }
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[ExistingTypePath = "crate::schema::sql_types::LedgerAccountRoleEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum LedgerAccountRoleEnum {
+    AccountsReceivable,
+    UnbilledReceivable,
+    DeferredRevenue,
+    Revenue,
+    CreditLiability,
+    BreakageRevenue,
+    ContraRevenue,
+    DisputeLoss,
+    TaxPayable,
+    CashClearing,
+    BillingClearing,
+    BadDebt,
+    FxGain,
+    FxLoss,
+    Rounding,
+    OpeningBalance,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[ExistingTypePath = "crate::schema::sql_types::RevrecPostingScopeEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum RevrecPostingScopeEnum {
+    Documents,
+    Revenue,
+    Full,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[ExistingTypePath = "crate::schema::sql_types::RevrecPoolEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum RevrecPoolEnum {
+    Contract,
+    Credit,
+    Receivable,
+    Manual,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[ExistingTypePath = "crate::schema::sql_types::JournalEntryKindEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum JournalEntryKindEnum {
+    Opening,
+    Close,
+    Manual,
+    Accrual,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[ExistingTypePath = "crate::schema::sql_types::JournalEntryStatusEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum JournalEntryStatusEnum {
+    Draft,
+    Posted,
+}

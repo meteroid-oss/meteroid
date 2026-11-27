@@ -242,6 +242,18 @@ pub mod sql_types {
     pub struct InvoiceType;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "JournalEntryKindEnum"))]
+    pub struct JournalEntryKindEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "JournalEntryStatusEnum"))]
+    pub struct JournalEntryStatusEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "LedgerAccountRoleEnum"))]
+    pub struct LedgerAccountRoleEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "MetricTargetChangeKindEnum"))]
     pub struct MetricTargetChangeKindEnum;
 
@@ -348,6 +360,14 @@ pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "ReversalKindEnum"))]
     pub struct ReversalKindEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "RevrecPoolEnum"))]
+    pub struct RevrecPoolEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "RevrecPostingScopeEnum"))]
+    pub struct RevrecPostingScopeEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "SandboxPoolStatusEnum"))]
@@ -2096,6 +2116,77 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::JournalEntryKindEnum;
+    use super::sql_types::JournalEntryStatusEnum;
+
+    journal_entry (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        invoicing_entity_id -> Uuid,
+        period -> Date,
+        kind -> JournalEntryKindEnum,
+        status -> JournalEntryStatusEnum,
+        posting_date -> Date,
+        functional_currency -> Text,
+        memo -> Text,
+        created_by -> Nullable<Uuid>,
+        approved_by -> Nullable<Uuid>,
+        created_at -> Timestamptz,
+        posted_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::LedgerAccountRoleEnum;
+    use super::sql_types::RevrecPoolEnum;
+
+    journal_line (id) {
+        id -> Uuid,
+        entry_id -> Uuid,
+        invoicing_entity_id -> Uuid,
+        ledger_account_id -> Uuid,
+        role -> Nullable<LedgerAccountRoleEnum>,
+        customer_id -> Nullable<Uuid>,
+        currency -> Text,
+        pool -> RevrecPoolEnum,
+        contract_id -> Nullable<Uuid>,
+        product_id -> Nullable<Uuid>,
+        amount -> Int8,
+        functional_amount -> Int8,
+    }
+}
+
+diesel::table! {
+    ledger_account (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        invoicing_entity_id -> Uuid,
+        code -> Text,
+        name -> Text,
+        archived_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::LedgerAccountRoleEnum;
+
+    ledger_account_mapping (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        invoicing_entity_id -> Uuid,
+        role -> LedgerAccountRoleEnum,
+        product_id -> Nullable<Uuid>,
+        ledger_account_id -> Uuid,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     license_signing_key (id) {
         id -> Uuid,
         tenant_id -> Uuid,
@@ -3624,6 +3715,48 @@ diesel::table! {
 }
 
 diesel::table! {
+    revrec_contract (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        invoicing_entity_id -> Uuid,
+        subscription_id -> Uuid,
+        product_id -> Nullable<Uuid>,
+        currency -> Text,
+        effective_from -> Date,
+        term_end -> Date,
+        scheduled -> Int8,
+        carried -> Int8,
+        period -> Date,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    revrec_period (invoicing_entity_id, month) {
+        invoicing_entity_id -> Uuid,
+        tenant_id -> Uuid,
+        month -> Date,
+        closed_at -> Timestamptz,
+        closed_by -> Nullable<Uuid>,
+        contract_adjustment -> Int8,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::RevrecPostingScopeEnum;
+
+    revrec_settings (invoicing_entity_id) {
+        invoicing_entity_id -> Uuid,
+        tenant_id -> Uuid,
+        posting_scope -> Nullable<RevrecPostingScopeEnum>,
+        accrue_unbilled_usage -> Bool,
+        cutover_date -> Nullable<Date>,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     role (id) {
         id -> Uuid,
         organization_id -> Uuid,
@@ -4525,6 +4658,13 @@ diesel::joinable!(issued_license -> customer (customer_id));
 diesel::joinable!(issued_license -> subscription (subscription_id));
 diesel::joinable!(issued_license -> tenant (tenant_id));
 diesel::joinable!(issued_license_ephemeral_activation -> issued_license (issued_license_id));
+diesel::joinable!(journal_entry -> tenant (tenant_id));
+diesel::joinable!(journal_line -> journal_entry (entry_id));
+diesel::joinable!(ledger_account -> invoicing_entity (invoicing_entity_id));
+diesel::joinable!(ledger_account -> tenant (tenant_id));
+diesel::joinable!(ledger_account_mapping -> invoicing_entity (invoicing_entity_id));
+diesel::joinable!(ledger_account_mapping -> product (product_id));
+diesel::joinable!(ledger_account_mapping -> tenant (tenant_id));
 diesel::joinable!(license_signing_key -> tenant (tenant_id));
 diesel::joinable!(licensing_endpoint -> tenant (tenant_id));
 diesel::joinable!(managed_quantity -> tenant (tenant_id));
@@ -4708,6 +4848,10 @@ diesel::joinable!(retention_session -> retention_reason (reason_id));
 diesel::joinable!(retention_session -> subscription (subscription_id));
 diesel::joinable!(retention_session -> tenant (tenant_id));
 diesel::joinable!(retention_settings -> tenant (tenant_id));
+diesel::joinable!(revrec_contract -> tenant (tenant_id));
+diesel::joinable!(revrec_period -> tenant (tenant_id));
+diesel::joinable!(revrec_settings -> invoicing_entity (invoicing_entity_id));
+diesel::joinable!(revrec_settings -> tenant (tenant_id));
 diesel::joinable!(role -> organization (organization_id));
 diesel::joinable!(sandbox_pool_tenant -> tenant (tenant_id));
 diesel::joinable!(sandbox_seed -> tenant (tenant_id));

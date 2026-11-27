@@ -1,0 +1,155 @@
+syntax = "proto3";
+
+package meteroid.api.revenuerecognition.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// What a journal line posts to (ADR-0014 §3).
+enum LedgerAccountRole {
+  LEDGER_ACCOUNT_ROLE_UNSPECIFIED = 0;
+  LEDGER_ACCOUNT_ROLE_ACCOUNTS_RECEIVABLE = 1;
+  // Revenue recognized ahead of its invoice: usage up to month end, contract terms.
+  LEDGER_ACCOUNT_ROLE_UNBILLED_RECEIVABLE = 2;
+  LEDGER_ACCOUNT_ROLE_DEFERRED_REVENUE = 3;
+  LEDGER_ACCOUNT_ROLE_REVENUE = 4;
+  // Paid customer credit not used yet.
+  LEDGER_ACCOUNT_ROLE_CREDIT_LIABILITY = 5;
+  LEDGER_ACCOUNT_ROLE_BREAKAGE_REVENUE = 6;
+  LEDGER_ACCOUNT_ROLE_CONTRA_REVENUE = 7;
+  LEDGER_ACCOUNT_ROLE_DISPUTE_LOSS = 8;
+  LEDGER_ACCOUNT_ROLE_TAX_PAYABLE = 9;
+  LEDGER_ACCOUNT_ROLE_CASH_CLEARING = 10;
+  // Takes the receivable, cash and tax side when the general ledger books those itself.
+  LEDGER_ACCOUNT_ROLE_BILLING_CLEARING = 11;
+  LEDGER_ACCOUNT_ROLE_BAD_DEBT = 12;
+  LEDGER_ACCOUNT_ROLE_FX_GAIN = 13;
+  LEDGER_ACCOUNT_ROLE_FX_LOSS = 14;
+  LEDGER_ACCOUNT_ROLE_ROUNDING = 15;
+  // What the books carry from before they start: history, not something still owed.
+  LEDGER_ACCOUNT_ROLE_OPENING_BALANCE = 16;
+}
+
+// What the entity sends to its general ledger.
+enum PostingScope {
+  POSTING_SCOPE_UNSPECIFIED = 0;
+  // Invoices and credit notes only, through a document sync such as Pennylane; no journals.
+  POSTING_SCOPE_DOCUMENTS = 1;
+  // Deferred revenue, revenue and unbilled; receivables, cash and tax go to billing clearing.
+  POSTING_SCOPE_REVENUE = 2;
+  // Every posting, receivables, cash, tax and exchange differences included.
+  POSTING_SCOPE_FULL = 3;
+}
+
+enum ChartTemplate {
+  CHART_TEMPLATE_UNSPECIFIED = 0;
+  CHART_TEMPLATE_US_GAAP = 1;
+  // Plan comptable général.
+  CHART_TEMPLATE_FR_PCG = 2;
+  // IFRS 15 / IFRS 9 vocabulary: contract assets and liabilities, trade receivables.
+  CHART_TEMPLATE_IFRS = 3;
+  // DATEV SKR 04.
+  CHART_TEMPLATE_DE_SKR04 = 4;
+}
+
+message LedgerAccount {
+  string id = 1;
+  string invoicing_entity_id = 2;
+  string code = 3;
+  string name = 4;
+  optional google.protobuf.Timestamp archived_at = 5;
+}
+
+message AccountMapping {
+  LedgerAccountRole role = 1;
+  // Set for a product's own revenue or deferred revenue account.
+  optional string product_id = 2;
+  optional string product_name = 3;
+  string ledger_account_id = 4;
+}
+
+// How a role of the entity is covered under its posting scope.
+message RoleCoverage {
+  LedgerAccountRole role = 1;
+  enum Need {
+    NEED_UNSPECIFIED = 0;
+    NEED_REQUIRED = 1;
+    // Unmapped, it posts to the account of `falls_back_to`.
+    NEED_OPTIONAL = 2;
+    NEED_UNUSED = 3;
+  }
+  Need need = 2;
+  optional LedgerAccountRole falls_back_to = 3;
+  // The account it posts to, through its own mapping or its fallback.
+  optional string resolved_account_id = 4;
+}
+
+message RevenueRecognitionSettings {
+  string invoicing_entity_id = 1;
+  PostingScope posting_scope = 2;
+  // Whether the scope was chosen, or follows the default (documents with a document sync, else full).
+  bool posting_scope_chosen = 3;
+  bool accrue_unbilled_usage = 4;
+  // First day of the first month booked (YYYY-MM-DD); unset while the entity is not live.
+  optional string cutover_date = 5;
+}
+
+enum JournalEntryKind {
+  JOURNAL_ENTRY_KIND_UNSPECIFIED = 0;
+  // The balances at the cut-over, posted once on the first day of the books.
+  JOURNAL_ENTRY_KIND_OPENING = 1;
+  JOURNAL_ENTRY_KIND_CLOSE = 2;
+  JOURNAL_ENTRY_KIND_MANUAL = 3;
+  // Usage delivered but not invoiced at month end, and its reversal on the next month's first day.
+  JOURNAL_ENTRY_KIND_ACCRUAL = 4;
+}
+
+message JournalLine {
+  string ledger_account_id = 1;
+  // Unset on a manual entry's lines.
+  LedgerAccountRole role = 2;
+  optional string customer_id = 3;
+  // The transaction currency, and the amount in it: debit positive, credit negative.
+  string currency = 4;
+  int64 amount = 5;
+  // In the entity's functional currency; every entry sums to zero here.
+  int64 functional_amount = 6;
+  // The subscription, else the invoice; unset for customer credit and receivables.
+  optional string contract_id = 7;
+  optional string product_id = 8;
+  // The invoice a receivable, its tax, cash and exchange difference belong to, or the invoice a
+  // contract position is when no subscription bills it.
+  optional string invoice_id = 9;
+  // The subscription a contract position is.
+  optional string subscription_id = 10;
+}
+
+message JournalEntry {
+  string id = 1;
+  string invoicing_entity_id = 2;
+  // The month it belongs to (YYYY-MM-01) and the day it posts on (YYYY-MM-DD).
+  string period = 3;
+  string posting_date = 4;
+  JournalEntryKind kind = 5;
+  bool posted = 6;
+  string functional_currency = 7;
+  // Sum of the debits, in the functional currency.
+  int64 functional_debits = 8;
+  uint32 line_count = 9;
+  // The reason of a manual entry.
+  string memo = 10;
+  optional string created_by = 11;
+  optional string approved_by = 12;
+}
+
+// One line of a manual entry, in the entity's functional currency: debit positive, credit negative.
+message ManualLine {
+  string ledger_account_id = 1;
+  int64 amount = 2;
+}
+
+// What a close would post, before it is posted.
+message JournalPosting {
+  JournalEntryKind kind = 1;
+  string posting_date = 2;
+  repeated JournalLine lines = 3;
+}

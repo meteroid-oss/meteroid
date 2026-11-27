@@ -130,6 +130,9 @@ id_type!(RetentionSessionId, "rses_");
 id_type!(CreditUnitId, "cun_");
 // A credit unit's selling price in one currency.
 id_type!(CreditUnitPriceId, "cup_");
+// Revenue recognition: the general ledger accounts of an invoicing entity and what each posts to.
+id_type!(LedgerAccountId, "gla_");
+id_type!(LedgerAccountMappingId, "glm_");
 id_type!(WebhookEndpointId, "whe_");
 id_type!(WebhookMessageId, "whm_");
 id_type!(WebhookDeliveryId, "whd_");

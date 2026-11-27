@@ -42,6 +42,10 @@ pub enum Permission {
     // runs monitors does not rewrite the plan the board reads.
     TargetsRead,
     TargetsManage,
+    // The books: chart of accounts, posting settings, journals; closing months and approving
+    // manual entries. Apart from settings, so a controller closes without touching integrations.
+    AccountingRead,
+    AccountingManage,
     // Invoicing entities, bank accounts, taxes, tenants, connectors, webhooks,
     // notification channels, api tokens, events, batch jobs.
     SettingsRead,
@@ -55,7 +59,7 @@ pub enum Permission {
 }
 
 impl Permission {
-    pub const ALL: [Permission; 21] = [
+    pub const ALL: [Permission; 23] = [
         Permission::CustomersRead,
         Permission::CustomersManage,
         Permission::SubscriptionsRead,
@@ -72,6 +76,8 @@ impl Permission {
         Permission::AlertsManage,
         Permission::TargetsRead,
         Permission::TargetsManage,
+        Permission::AccountingRead,
+        Permission::AccountingManage,
         Permission::SettingsRead,
         Permission::SettingsManage,
         Permission::MembersManage,
@@ -107,6 +113,8 @@ impl Permission {
             Permission::AlertsManage => "alerts:manage",
             Permission::TargetsRead => "targets:read",
             Permission::TargetsManage => "targets:manage",
+            Permission::AccountingRead => "accounting:read",
+            Permission::AccountingManage => "accounting:manage",
             Permission::SettingsRead => "settings:read",
             Permission::SettingsManage => "settings:manage",
             Permission::MembersManage => "members:manage",
@@ -153,6 +161,7 @@ impl Permission {
             Permission::CatalogRead => Some(Permission::CatalogManage),
             Permission::AlertsRead => Some(Permission::AlertsManage),
             Permission::TargetsRead => Some(Permission::TargetsManage),
+            Permission::AccountingRead => Some(Permission::AccountingManage),
             Permission::SettingsRead => Some(Permission::SettingsManage),
             _ => None,
         }
@@ -160,7 +169,7 @@ impl Permission {
 }
 
 // ALL must list every variant; bump this when adding a permission.
-const _: () = assert!(Permission::ALL.len() == 21);
+const _: () = assert!(Permission::ALL.len() == 23);
 
 /// A resolved set of capabilities for an actor in an organization.
 ///
