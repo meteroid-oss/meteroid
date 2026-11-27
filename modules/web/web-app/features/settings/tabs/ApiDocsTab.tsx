@@ -10,7 +10,6 @@ import { env } from '@/lib/env'
 export const ApiDocsTab: FunctionComponent = () => (
   <SettingsSection
     divided={false}
-    title="API Documentation"
     description="Explore and try the REST API used to build integrations and SDKs."
   >
     <div>

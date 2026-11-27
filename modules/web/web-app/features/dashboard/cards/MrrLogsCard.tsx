@@ -1,10 +1,19 @@
 import { ScrollArea, Tooltip, TooltipContent, TooltipTrigger } from '@ui/components'
 import { cn } from '@ui/lib'
 import { format } from 'date-fns'
-import { ArrowDownIcon, ArrowUpIcon, MinusIcon, PlusIcon, RefreshCwIcon } from 'lucide-react'
+import {
+  AlertCircleIcon,
+  ArrowDownIcon,
+  ArrowUpDownIcon,
+  ArrowUpIcon,
+  MinusIcon,
+  PlusIcon,
+  RefreshCwIcon,
+} from 'lucide-react'
 import { Link } from 'react-router'
 
-import { ChartNoData } from '@/features/dashboard/charts/ChartNoData'
+import { PanelEmptyState } from '@/components/empty-state/PanelEmptyState'
+import { DashboardCard, DashboardCardTitle } from '@/features/dashboard/cards/DashboardCard'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useCurrency } from '@/hooks/useCurrency'
 import { useQuery } from '@/lib/connectrpc'
@@ -19,32 +28,32 @@ const mrrTypeConfig: Record<
 > = {
   [MRRMovementType.NEW_BUSINESS]: {
     label: 'New',
-    color: 'text-green-600',
-    bgColor: 'bg-green-500/10',
+    color: 'text-tag-success',
+    bgColor: 'bg-tag-success-bg',
     icon: PlusIcon,
   },
   [MRRMovementType.EXPANSION]: {
     label: 'Expansion',
-    color: 'text-blue-600',
-    bgColor: 'bg-blue-500/10',
+    color: 'text-tag-info',
+    bgColor: 'bg-tag-info-bg/70',
     icon: ArrowUpIcon,
   },
   [MRRMovementType.CONTRACTION]: {
     label: 'Contraction',
-    color: 'text-orange-600',
-    bgColor: 'bg-orange-500/10',
+    color: 'text-tag-warning',
+    bgColor: 'bg-tag-warning-bg',
     icon: ArrowDownIcon,
   },
   [MRRMovementType.CHURN]: {
     label: 'Churn',
-    color: 'text-red-600',
-    bgColor: 'bg-red-500/10',
+    color: 'text-tag-destructive',
+    bgColor: 'bg-tag-destructive-bg',
     icon: MinusIcon,
   },
   [MRRMovementType.REACTIVATION]: {
     label: 'Reactivation',
-    color: 'text-emerald-600',
-    bgColor: 'bg-emerald-500/10',
+    color: 'text-tag-neutral',
+    bgColor: 'bg-tag-neutral-bg',
     icon: RefreshCwIcon,
   },
 }
@@ -73,7 +82,8 @@ const MovementBadge = ({ type }: { type: MRRMovementType }) => {
 }
 
 export const MrrLogsCard = () => {
-  const logs = useQuery(mrrLog, {}).data
+  const logsQuery = useQuery(mrrLog, {})
+  const logs = logsQuery.data
   const { currency: reportingCurrency } = useCurrency()
 
   const basePath = useBasePath()
@@ -88,11 +98,9 @@ export const MrrLogsCard = () => {
   }
 
   return (
-    <div className="max-w-[50%] relative h-[180px] w-[50%] pt-4 px-2">
-      <div className="text-sm font-semibold leading-none tracking-tight mb-3">
-        MRR Movement Logs
-      </div>
-      <ScrollArea className="h-[calc(100%-28px)] pr-2 -mr-4">
+    <DashboardCard className="flex h-[290px] flex-col gap-3">
+      <DashboardCardTitle>MRR Movement Logs</DashboardCardTitle>
+      <ScrollArea className="min-h-0 flex-1 pr-2 -mr-4">
         {logs?.entries?.length ? (
           <div className="space-y-1.5">
             {logs.entries.map((log, idx) => {
@@ -126,11 +134,27 @@ export const MrrLogsCard = () => {
             })}
           </div>
         ) : (
+          // A list, not a chart: the app's list empty state rather than the ghost chart.
           <div className="h-full flex items-center justify-center">
-            <ChartNoData />
+            {logsQuery.error ? (
+              <PanelEmptyState
+                icon={AlertCircleIcon}
+                tone="destructive"
+                title="Couldn't load MRR movements"
+                description="Something went wrong fetching the data."
+                className="py-8"
+              />
+            ) : (
+              <PanelEmptyState
+                icon={ArrowUpDownIcon}
+                title="No MRR movements yet"
+                description="New subscriptions, upgrades, downgrades and churn show up here."
+                className="py-8"
+              />
+            )}
           </div>
         )}
       </ScrollArea>
-    </div>
+    </DashboardCard>
   )
 }

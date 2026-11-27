@@ -55,7 +55,7 @@ export const DataTableViewOptions = <A,>({
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 text-muted-foreground hover:text-foreground"
+          className="h-[30px] w-[30px] text-muted-foreground hover:text-foreground"
           aria-label="View options"
         >
           <Settings2 size={15} />

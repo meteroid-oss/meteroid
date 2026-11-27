@@ -1,5 +1,14 @@
-import { Box, Briefcase, Home, LifeBuoy, ReceiptText, Settings, User, Zap } from 'lucide-react'
+import { Briefcase } from 'lucide-react'
 
+import {
+  BillingIcon,
+  CatalogIcon,
+  CustomersIcon,
+  EventsIcon,
+  HomeIcon,
+  SettingsIcon,
+  SupportIcon,
+} from '@/components/icons/AppIcons'
 import { editionId } from '@/edition'
 import { env } from '@/lib/env'
 
@@ -86,11 +95,16 @@ export const getFilteredSidebarItems = (
       {
         title: 'Home',
         url: '.',
-        icon: Home,
+        icon: HomeIcon,
+      },
+      {
+        title: 'Customers',
+        url: 'customers',
+        icon: CustomersIcon,
       },
       {
         title: 'Product catalog',
-        icon: Box,
+        icon: CatalogIcon,
         items: [
           {
             title: 'Plans',
@@ -104,7 +118,7 @@ export const getFilteredSidebarItems = (
       },
       {
         title: 'Billing',
-        icon: ReceiptText,
+        icon: BillingIcon,
         items: [
           {
             title: 'Subscriptions',
@@ -116,22 +130,17 @@ export const getFilteredSidebarItems = (
           },
         ],
       },
-      {
-        title: 'Customers',
-        url: 'customers',
-        icon: User,
-      },
     ],
     navSecondary: [
       {
-        title: 'Help & Feedback',
-        url: 'help',
-        icon: LifeBuoy,
-      },
-      {
         title: 'Settings',
         url: 'settings',
-        icon: Settings,
+        icon: SettingsIcon,
+      },
+      {
+        title: 'Help & Feedback',
+        url: 'help',
+        icon: SupportIcon,
       },
     ],
     navTrailing: enterpriseNav(),
@@ -143,11 +152,16 @@ export const sidebarItems = {
     {
       title: 'Home',
       url: '.',
-      icon: Home,
+      icon: HomeIcon,
+    },
+    {
+      title: 'Customers',
+      url: 'customers',
+      icon: CustomersIcon,
     },
     {
       title: 'Product catalog',
-      icon: Box,
+      icon: CatalogIcon,
       items: [
         {
           title: 'Plans',
@@ -179,7 +193,7 @@ export const sidebarItems = {
     },
     {
       title: 'Billing',
-      icon: ReceiptText,
+      icon: BillingIcon,
       items: [
         {
           title: 'Subscriptions',
@@ -204,28 +218,23 @@ export const sidebarItems = {
         },
       ],
     },
-    {
-      title: 'Customers',
-      url: 'customers',
-      icon: User,
-    },
 
     {
       title: 'Events',
       url: 'events',
-      icon: Zap,
+      icon: EventsIcon,
     },
   ],
   navSecondary: [
     {
-      title: 'Help & Feedback',
-      url: 'help',
-      icon: LifeBuoy,
-    },
-    {
       title: 'Settings',
       url: 'settings',
-      icon: Settings,
+      icon: SettingsIcon,
+    },
+    {
+      title: 'Help & Feedback',
+      url: 'help',
+      icon: SupportIcon,
     },
   ],
 }

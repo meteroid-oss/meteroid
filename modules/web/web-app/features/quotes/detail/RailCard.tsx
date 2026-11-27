@@ -20,7 +20,7 @@ export const RailCard = ({
       className={cn('flex flex-col gap-3 rounded-lg border border-border bg-card p-4', className)}
     >
       <div className="flex items-center justify-between gap-2">
-        <h2 id={headingId} className="text-[15px] font-semibold text-foreground">
+        <h2 id={headingId} className="text-[15px] font-medium text-foreground">
           {title}
         </h2>
         {aside}

@@ -1,9 +1,9 @@
 import { useCallback, useState } from 'react'
 
 import { ListPageLayout, ListToolbarSearch, RefreshButton } from '@/components/layouts'
-import { CreditNotesTable, FilterDropdown } from '@/features/creditNotes'
+import { CreditNotesTable } from '@/features/creditNotes'
 import { useCustomPropertyColumns } from '@/features/customproperties/useCustomPropertyColumns'
-import { FilterBar } from '@/features/filters/FilterBar'
+import { FilterBar, optionField } from '@/features/filters/FilterBar'
 import { useEntityFilters } from '@/features/filters/useEntityFilters'
 import { useRequestFilters } from '@/features/filters/useRequestFilters'
 import { ViewsBar } from '@/features/listviews/ViewsBar'
@@ -25,6 +25,17 @@ const statusSerde = enumSerde(CreditNoteStatus)
 const DEFAULT_SORTING: SortingState = [{ id: 'created_at', desc: true }]
 // URL params captured by saved views as quick filters.
 const QUICK_KEYS = ['status']
+
+const STATUS_FIELD = optionField(
+  'status',
+  'Status',
+  [
+    { label: 'Draft', value: String(CreditNoteStatus.DRAFT) },
+    { label: 'Finalized', value: String(CreditNoteStatus.FINALIZED) },
+    { label: 'Voided', value: String(CreditNoteStatus.VOIDED) },
+  ],
+  { multi: false }
+)
 
 export const CreditNotes = () => {
   const [text, setText] = useState('')
@@ -87,21 +98,23 @@ export const CreditNotes = () => {
   return (
     <ListPageLayout
       title="Credit notes"
-      count={count}
       footer={<ViewsBar views={savedViews} entityLabel="credit notes" />}
       toolbar={
         <>
-          <ListToolbarSearch
-            value={text}
-            onChange={setText}
-            placeholder="Search credit notes"
-            className="max-w-xs"
-          />
-          <FilterDropdown status={status} setStatus={setStatus} />
+          <ListToolbarSearch value={text} onChange={setText} placeholder="Search credit notes" />
           <FilterBar
             entityType={CustomPropertyEntityType.CREDIT_NOTE}
             filters={filters}
             onChange={setFilters}
+            local={[
+              {
+                field: STATUS_FIELD,
+                values: status !== undefined ? [String(status)] : [],
+                set: ([value]) =>
+                  setStatus(value ? (Number(value) as CreditNoteStatus) : undefined),
+              },
+            ]}
+            entityGroup="Properties"
           />
         </>
       }

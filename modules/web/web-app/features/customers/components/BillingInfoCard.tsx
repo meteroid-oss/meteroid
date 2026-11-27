@@ -109,7 +109,7 @@ export const VatValidationBadge = ({
             </Badge>
           </span>
         </TooltipTrigger>
-        <TooltipContent className="max-w-xs space-y-1">
+        <TooltipContent multiline className="max-w-xs space-y-1">
           <p>{badge.description}</p>
           {customer.vatNumberRegisteredName && (
             <p>

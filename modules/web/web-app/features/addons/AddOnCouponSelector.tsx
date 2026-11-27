@@ -126,7 +126,7 @@ export const AddOnCouponSelector = ({
                           onCheckedChange={checked =>
                             checked ? onAddOnAdd(addOn.id) : onAddOnRemove(addOn.id)
                           }
-                          className="shrink-0 data-[state=checked]:bg-success data-[state=checked]:border-success data-[state=checked]:text-success-foreground"
+                          className="shrink-0"
                         />
                         {showQtyControls && (
                           <div className="flex items-center gap-1 shrink-0">
@@ -243,7 +243,7 @@ export const AddOnCouponSelector = ({
                       onCheckedChange={checked =>
                         checked ? onCouponAdd(coupon.id) : onCouponRemove(coupon.id)
                       }
-                      className="shrink-0 border-border data-[state=checked]:border-brand"
+                      className="shrink-0"
                     />
                     <div className="flex-1 min-w-0 flex items-center gap-2">
                       <Gift className="h-3 w-3 text-muted-foreground shrink-0" />

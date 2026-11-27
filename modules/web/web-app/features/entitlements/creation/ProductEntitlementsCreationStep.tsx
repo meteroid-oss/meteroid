@@ -1,4 +1,13 @@
-import { Button, Skeleton, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@md/ui'
+import {
+  Button,
+  Skeleton,
+  Tooltip,
+  TooltipContent,
+  TooltipGroup,
+  TooltipGroupItem,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@md/ui'
 import { Pencil, Pin, PinOff } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -127,7 +136,7 @@ export function ProductEntitlementsCreationStep({
                   Pin all
                 </Button>
               </TooltipTrigger>
-              <TooltipContent className="max-w-56">
+              <TooltipContent multiline className="max-w-56">
                 {entitlementTooltip('add-on', 'pinAll')}
               </TooltipContent>
             </Tooltip>
@@ -157,48 +166,42 @@ export function ProductEntitlementsCreationStep({
                       terms={isPinned ? termsOfSpec(pinnedSpec) : termsOfValue(r.value)}
                     />
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0 ml-3">
+                  <TooltipGroup className="flex items-center gap-2 text-xs text-muted-foreground shrink-0 ml-3">
                     <span>{isPinned ? specValueLabel(pinnedSpec) : formatResolvedValue(r.value)}</span>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
+                    <TooltipGroupItem label={entitlementTooltip('add-on', 'override')}>
+                      <button
+                        aria-label={entitlementTooltip('add-on', 'override')}
+                        type="button"
+                        className="p-1 hover:bg-muted rounded"
+                        onClick={() => openOverride(r)}
+                      >
+                        <Pencil size={12} />
+                      </button>
+                    </TooltipGroupItem>
+                    {isPinned ? (
+                      <TooltipGroupItem label={entitlementTooltip('add-on', 'unpin')}>
                         <button
+                          aria-label={entitlementTooltip('add-on', 'unpin')}
+                          type="button"
+                          className="p-1 hover:bg-muted rounded text-destructive"
+                          onClick={() => handleUnpin(featureId)}
+                        >
+                          <PinOff size={12} />
+                        </button>
+                      </TooltipGroupItem>
+                    ) : (
+                      <TooltipGroupItem label={entitlementTooltip('add-on', 'pin')}>
+                        <button
+                          aria-label={entitlementTooltip('add-on', 'pin')}
                           type="button"
                           className="p-1 hover:bg-muted rounded"
-                          onClick={() => openOverride(r)}
+                          onClick={() => handlePin(r)}
                         >
-                          <Pencil size={12} />
+                          <Pin size={12} />
                         </button>
-                      </TooltipTrigger>
-                      <TooltipContent>{entitlementTooltip('add-on', 'override')}</TooltipContent>
-                    </Tooltip>
-                    {isPinned ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            className="p-1 hover:bg-muted rounded text-destructive"
-                            onClick={() => handleUnpin(featureId)}
-                          >
-                            <PinOff size={12} />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>{entitlementTooltip('add-on', 'unpin')}</TooltipContent>
-                      </Tooltip>
-                    ) : (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            className="p-1 hover:bg-muted rounded"
-                            onClick={() => handlePin(r)}
-                          >
-                            <Pin size={12} />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>{entitlementTooltip('add-on', 'pin')}</TooltipContent>
-                      </Tooltip>
+                      </TooltipGroupItem>
                     )}
-                  </div>
+                  </TooltipGroup>
                 </div>
               )
             })}

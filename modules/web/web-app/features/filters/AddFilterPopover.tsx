@@ -10,8 +10,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@md/ui'
-import { ListFilterIcon } from 'lucide-react'
 import { useState } from 'react'
+
+import { FilterIcon } from '@/components/icons/AppIcons'
 
 import { FilterEditor } from './FilterEditor'
 import { AppFilter, FilterOp, VALUELESS_OPS, carryValues } from './filterTypes'
@@ -62,8 +63,12 @@ export const AddFilterPopover = ({ fields, onAdd }: Props) => {
       }}
     >
       <PopoverTrigger asChild>
-        <Button variant="outline" className="text-xs font-medium" hasIcon>
-          <ListFilterIcon size="14" />
+        <Button
+          variant="ghost"
+          size="content"
+          className="h-[30px] gap-2 rounded-[4px] px-2 text-[13px] font-normal text-foreground [&_svg]:text-faint-foreground"
+        >
+          <FilterIcon />
           <span>Filter</span>
         </Button>
       </PopoverTrigger>

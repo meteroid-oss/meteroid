@@ -33,7 +33,7 @@ export const InternalSection = ({ hubspotDealId, setV2, allowHubspot }: Internal
       }
     >
       {allowHubspot && (
-        <div className="flex flex-col md:max-w-[50%]">
+        <div className="flex flex-col @lg:max-w-[50%]">
           <Label htmlFor="quoteHubspotDeal" className="my-2 text-xs font-normal">
             HubSpot deal ID or link
           </Label>

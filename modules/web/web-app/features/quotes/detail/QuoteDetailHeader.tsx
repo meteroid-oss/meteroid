@@ -27,6 +27,7 @@ import {
 import { ReactNode } from 'react'
 import { Link } from 'react-router'
 
+import { ListPageHeader } from '@/components/layouts/ListPageLayout'
 import { slotItems } from '@/edition'
 import {
   ChangesRequestedBadge,
@@ -43,6 +44,8 @@ import { DetailedQuote, QuoteApprovalStatus, QuoteStatus } from '@/rpc/api/quote
 import { GetQuoteApprovalResponse } from '@/rpc/api/quotes/v1/quotes_pb'
 
 interface Props {
+  /** The top bar (section, number, actions) or the title block under it. */
+  part: 'bar' | 'title'
   quote: DetailedQuote
   planName?: string
   approval?: GetQuoteApprovalResponse
@@ -59,7 +62,9 @@ const Explained = ({ reason, children }: { reason: string; children: ReactNode }
     <TooltipTrigger asChild>
       <span tabIndex={0}>{children}</span>
     </TooltipTrigger>
-    <TooltipContent className="max-w-xs">{reason}</TooltipContent>
+    <TooltipContent multiline className="max-w-xs">
+      {reason}
+    </TooltipContent>
   </Tooltip>
 )
 
@@ -69,6 +74,7 @@ const expiryLabel = (expiresAt: string) => {
 }
 
 export const QuoteDetailHeader = ({
+  part,
   quote,
   planName,
   approval,
@@ -190,25 +196,15 @@ export const QuoteDetailHeader = ({
     return null
   })()
 
-  return (
-    <header className="flex flex-col gap-3 border-b border-border bg-card px-6 py-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-1 basis-[360px] flex-col gap-1">
-          <nav aria-label="Breadcrumb">
-            <ol className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <li>
-                <Link to={`${basePath}/quotes`} className="hover:text-foreground">
-                  Quotes
-                </Link>
-              </li>
-              <li aria-hidden="true">›</li>
-              <li aria-current="page" className="text-foreground">
-                {q.quoteNumber}
-              </li>
-            </ol>
-          </nav>
-          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-            <h1 className="text-xl font-semibold text-foreground">{title}</h1>
+  // The block under the bar: the customer and plan, the quote's state and its progress.
+  if (part === 'title') {
+    return (
+      <header className="flex flex-col gap-4 border-b-[0.5px] border-border px-6 pb-5 pt-6">
+        <div className="flex min-w-0 flex-col gap-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+            <h1 className="truncate font-display text-2xl font-medium leading-[1.25]" title={title}>
+              {title}
+            </h1>
             <QuoteStatusBadge status={status} />
             {q.revision > 1 && (
               <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
@@ -219,100 +215,119 @@ export const QuoteDetailHeader = ({
               <QuoteApprovalBadge status={q.approvalStatus} />
             )}
             {q.changesRequestedAt && <ChangesRequestedBadge />}
-            {facts && <span className="text-[13px] text-muted-foreground">{facts}</span>}
           </div>
+          {facts && (
+            <span className="truncate text-[13px] leading-[18px] tracking-[-0.13px] text-foreground/60">
+              {facts}
+            </span>
+          )}
         </div>
+        <QuoteProgress quote={quote} approval={approval} nameOf={nameOf} />
+      </header>
+    )
+  }
 
-        <div className="flex flex-wrap items-center gap-2">
-          {canSend && (
-            <Button variant="outline" size="sm" hasIcon onClick={copyLink}>
-              <CopyIcon className="h-4 w-4" />
-              Copy link
-            </Button>
-          )}
-          {canEdit && (
-            <Button variant="outline" size="sm" hasIcon asChild>
-              <Link to={`${basePath}/quotes/${q.id}/edit`}>
-                <Pencil className="h-4 w-4" />
-                Edit
-              </Link>
-            </Button>
-          )}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" aria-label="More actions">
-                <MoreHorizontal className="h-4 w-4" />
+  return (
+    <>
+      {/* The list pages' top bar: the section and the quote's number, and its actions. */}
+      <ListPageHeader
+        breadcrumbs={[{ label: 'Quotes', to: `${basePath}/quotes` }]}
+        title={q.quoteNumber}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {canSend && (
+              <Button variant="secondary" size="sm" hasIcon onClick={copyLink}>
+                <CopyIcon className="h-4 w-4" />
+                Copy link
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {isDraft && (
-                <DropdownMenuItem
-                  disabled={needsApproval || actions.pending.publish}
-                  onClick={() => void actions.publish()}
-                >
-                  <FileText size="16" className="mr-2" />
-                  Publish without sending
-                </DropdownMenuItem>
-              )}
-              {isDraft && !emailEnabled && (
-                <DropdownMenuItem disabled>
-                  <Send size="16" className="mr-2" />
-                  Send to customer (email off)
-                </DropdownMenuItem>
-              )}
-              {isPending && canCountersign && (
-                <DropdownMenuItem disabled={!emailEnabled} onClick={() => actions.openSend()}>
-                  <Send size="16" className="mr-2" />
-                  {emailEnabled ? 'Send a reminder' : 'Send a reminder (email off)'}
-                </DropdownMenuItem>
-              )}
-              {canSend && (
-                <DropdownMenuItem onClick={() => actions.setDialog('link')}>
-                  <ExternalLink size="16" className="mr-2" />
-                  Personal signing link
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem onClick={() => actions.setDialog('preview')}>
-                <Eye size="16" className="mr-2" />
-                Preview as customer
-              </DropdownMenuItem>
-              {quote.pdfUrl && (
-                <DropdownMenuItem asChild>
-                  <a href={quote.pdfUrl} target="_blank" rel="noopener noreferrer">
-                    <Download size="16" className="mr-2" />
-                    {status === QuoteStatus.ACCEPTED ? 'Download signed PDF' : 'Download PDF'}
-                  </a>
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem asChild>
-                <Link to={`${basePath}/quotes/create?from=${q.id}`}>
-                  <CopyPlus size="16" className="mr-2" />
-                  Use as template
+            )}
+            {canEdit && (
+              <Button variant="secondary" size="sm" hasIcon asChild>
+                <Link to={`${basePath}/quotes/${q.id}/edit`}>
+                  <Pencil className="h-4 w-4" />
+                  Edit
                 </Link>
-              </DropdownMenuItem>
-              {canCancel && <DropdownMenuSeparator />}
-              {isPending && (
-                <DropdownMenuItem onClick={() => actions.setDialog('decline')}>
-                  <ThumbsDown size="16" className="mr-2" />
-                  Mark as declined
-                </DropdownMenuItem>
-              )}
-              {canCancel && (
-                <DropdownMenuItem
-                  onClick={() => actions.setDialog('cancel')}
-                  className="text-destructive focus:text-destructive"
+              </Button>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  aria-label="More actions"
+                  className="w-7 px-0"
                 >
-                  <XCircle size="16" className="mr-2" />
-                  Cancel quote
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {isDraft && (
+                  <DropdownMenuItem
+                    disabled={needsApproval || actions.pending.publish}
+                    onClick={() => void actions.publish()}
+                  >
+                    <FileText size="16" className="mr-2" />
+                    Publish without sending
+                  </DropdownMenuItem>
+                )}
+                {isDraft && !emailEnabled && (
+                  <DropdownMenuItem disabled>
+                    <Send size="16" className="mr-2" />
+                    Send to customer (email off)
+                  </DropdownMenuItem>
+                )}
+                {isPending && canCountersign && (
+                  <DropdownMenuItem disabled={!emailEnabled} onClick={() => actions.openSend()}>
+                    <Send size="16" className="mr-2" />
+                    {emailEnabled ? 'Send a reminder' : 'Send a reminder (email off)'}
+                  </DropdownMenuItem>
+                )}
+                {canSend && (
+                  <DropdownMenuItem onClick={() => actions.setDialog('link')}>
+                    <ExternalLink size="16" className="mr-2" />
+                    Personal signing link
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={() => actions.setDialog('preview')}>
+                  <Eye size="16" className="mr-2" />
+                  Preview as customer
                 </DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          {primary}
-        </div>
-      </div>
-
-      <QuoteProgress quote={quote} approval={approval} nameOf={nameOf} />
-    </header>
+                {quote.pdfUrl && (
+                  <DropdownMenuItem asChild>
+                    <a href={quote.pdfUrl} target="_blank" rel="noopener noreferrer">
+                      <Download size="16" className="mr-2" />
+                      {status === QuoteStatus.ACCEPTED ? 'Download signed PDF' : 'Download PDF'}
+                    </a>
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem asChild>
+                  <Link to={`${basePath}/quotes/create?from=${q.id}`}>
+                    <CopyPlus size="16" className="mr-2" />
+                    Use as template
+                  </Link>
+                </DropdownMenuItem>
+                {canCancel && <DropdownMenuSeparator />}
+                {isPending && (
+                  <DropdownMenuItem onClick={() => actions.setDialog('decline')}>
+                    <ThumbsDown size="16" className="mr-2" />
+                    Mark as declined
+                  </DropdownMenuItem>
+                )}
+                {canCancel && (
+                  <DropdownMenuItem
+                    onClick={() => actions.setDialog('cancel')}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <XCircle size="16" className="mr-2" />
+                    Cancel quote
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {primary}
+          </div>
+        }
+      />
+    </>
   )
 }

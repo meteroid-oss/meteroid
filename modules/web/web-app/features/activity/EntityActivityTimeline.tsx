@@ -1,4 +1,4 @@
-import { Button, Skeleton } from '@md/ui'
+import { Button, Skeleton, cn } from '@md/ui'
 import { useState } from 'react'
 
 import { useQuery } from '@/lib/connectrpc'
@@ -14,6 +14,8 @@ type Props = {
   limit?: number
   /** Optional empty-state copy override. */
   emptyLabel?: string
+  /** Entries as the steps of a timeline, joined by a vertical line, rather than divided rows. */
+  timeline?: boolean
 }
 
 type LoadedPage = {
@@ -26,6 +28,7 @@ export const EntityActivityTimeline = ({
   entityId,
   limit = 5,
   emptyLabel = 'No activity yet',
+  timeline = false,
 }: Props) => {
   // Append-only stack: every "Load more" pushes the cursor of the next
   // page; we re-render the concatenated entries from all pages fetched
@@ -65,13 +68,13 @@ export const EntityActivityTimeline = ({
       {/* Cap the visible height so the timeline doesn't push the rest of the
           page down when there's a lot of activity. Once loaded, additional
           pages stay reachable via scroll. */}
-      <ul className="divide-y max-h-[420px] overflow-y-auto pr-1">
+      <ul className={cn('max-h-[420px] overflow-y-auto pr-1', timeline ? 'pt-1' : 'divide-y')}>
         {allEntries.map(entry => (
-          <ActivityEntryRow key={entry.id} entry={entry} compact />
+          <ActivityEntryRow key={entry.id} entry={entry} compact timeline={timeline} />
         ))}
       </ul>
       {liveCursor && (
-        <div className="pt-2">
+        <div className={timeline ? 'pt-4' : 'pt-2'}>
           <Button
             variant="outline"
             size="sm"

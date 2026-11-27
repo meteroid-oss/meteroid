@@ -6,9 +6,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  FieldLabel,
   Form,
   InputFormField,
-  Label,
   Modal,
   Select,
   SelectContent,
@@ -436,7 +436,7 @@ export const UsersTab = () => {
                 type="email"
               />
               <div className="space-y-1">
-                <Label>Role</Label>
+                <FieldLabel>Role</FieldLabel>
                 <Select value={inviteRoleValue} onValueChange={setInviteRoleValue}>
                   <SelectTrigger><SelectValue/></SelectTrigger>
                   <SelectContent>
@@ -508,7 +508,7 @@ export const UsersTab = () => {
             Set the role for <strong className="text-foreground">{memberToAssign?.email}</strong>.
           </p>
           <div className="space-y-1">
-            <Label>Role</Label>
+            <FieldLabel>Role</FieldLabel>
             <Select value={assignValue} onValueChange={setAssignValue}>
               <SelectTrigger><SelectValue/></SelectTrigger>
               <SelectContent>

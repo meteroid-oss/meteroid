@@ -2,7 +2,6 @@ import { ChevronLeftIcon, ChevronRightIcon } from '@radix-ui/react-icons'
 import * as React from 'react'
 import { DayPicker, type ChevronProps, type DropdownProps } from 'react-day-picker'
 
-import { buttonVariants } from '@ui/components/ui/button'
 import {
   Select,
   SelectContent,
@@ -25,16 +24,12 @@ function CalendarDropdown({ value, onChange, options = [] }: DropdownProps) {
 
   return (
     <Select value={value?.toString()} onValueChange={handleChange}>
-      <SelectTrigger className="h-7 w-fit gap-1 border-none px-2 py-0 font-medium shadow-none focus:ring-0 focus:ring-offset-0 hover:bg-accent">
+      <SelectTrigger className="h-7 w-fit gap-1 border-none bg-transparent px-2 py-0 text-[13px] font-medium text-menu-foreground shadow-none focus:ring-0 focus:ring-offset-0 hover:bg-menu-accent">
         <SelectValue>{selected?.label}</SelectValue>
       </SelectTrigger>
       <SelectContent position="popper" className="max-h-64">
         {options.map(option => (
-          <SelectItem
-            key={option.value}
-            value={String(option.value)}
-            disabled={option.disabled}
-          >
+          <SelectItem key={option.value} value={String(option.value)} disabled={option.disabled}>
             {option.label}
           </SelectItem>
         ))}
@@ -57,10 +52,9 @@ function Calendar({ className, classNames, showOutsideDays = true, ...props }: C
   // An endpoint shown in a neighbouring month stays muted, as in the month it belongs to.
   const rangeEndButton =
     '[&:not(.day-outside)>button]:bg-brand [&:not(.day-outside)>button]:text-brand-foreground [&:not(.day-outside)>button]:hover:bg-brand [&:not(.day-outside)>button]:hover:text-brand-foreground [&:not(.day-outside)>button]:focus:bg-brand [&:not(.day-outside)>button]:focus:text-brand-foreground'
-  const navButton = cn(
-    buttonVariants({ variant: 'outline' }),
-    'absolute top-0 z-10 h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100'
-  )
+  // The calendar sits on a menu surface: hover and today a step lighter than it, never darker.
+  const navButton =
+    'absolute top-0 z-10 inline-flex h-7 w-7 items-center justify-center rounded-md text-menu-foreground/60 transition-colors hover:bg-menu-accent hover:text-menu-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
 
   return (
     <DayPicker
@@ -73,33 +67,33 @@ function Calendar({ className, classNames, showOutsideDays = true, ...props }: C
         months: 'relative flex flex-col sm:flex-row gap-4',
         month: 'space-y-4',
         month_caption: 'flex justify-center h-7 relative items-center',
-        caption_label: 'text-sm font-medium',
+        caption_label: 'text-[13px] font-medium text-menu-foreground',
         dropdowns: 'flex justify-center gap-1',
         nav: 'absolute inset-x-0 top-0',
         button_previous: cn(navButton, 'left-1'),
         button_next: cn(navButton, 'right-1'),
         month_grid: 'w-full border-collapse space-y-1',
         weekdays: 'flex',
-        weekday: 'text-muted-foreground rounded-md w-8 font-normal text-[0.8rem]',
+        weekday: 'w-8 rounded-md text-[11px] font-medium text-menu-foreground/50',
         week: 'flex w-full mt-2',
         day: cn(
-          'relative p-0 text-center text-sm focus-within:relative focus-within:z-20 [&[aria-selected]]:bg-accent [&[aria-selected].day-outside]:bg-accent/50',
+          'relative p-0 text-center text-[13px] text-menu-foreground focus-within:relative focus-within:z-20 [&[aria-selected]]:bg-menu-accent/70 [&[aria-selected].day-outside]:bg-menu-accent/40',
           props.mode === 'range'
             ? '[&.day-range-end]:rounded-r-md [&.day-range-start]:rounded-l-md first:[&[aria-selected]]:rounded-l-md last:[&[aria-selected]]:rounded-r-md'
             : '[&[aria-selected]]:rounded-md'
         ),
-        day_button: cn(
-          buttonVariants({ variant: 'ghost' }),
-          'h-8 w-8 p-0 font-normal aria-selected:opacity-100'
-        ),
+        day_button:
+          'inline-flex h-8 w-8 items-center justify-center rounded-md p-0 font-normal transition-colors hover:bg-menu-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring aria-selected:opacity-100',
         range_start: cn('day-range-start', rangeEndButton),
         range_end: cn('day-range-end', rangeEndButton),
         selected: props.mode === 'range' ? undefined : brandButton,
-        today: '[&>button]:bg-accent [&>button]:text-accent-foreground',
+        // Today: a ring and weight, so it stays clear beside a selected (filled) day.
+        today:
+          '[&>button]:font-semibold [&>button]:shadow-[inset_0_0_0_1px_hsl(var(--menu-foreground)/0.35)]',
         outside:
-          'day-outside text-muted-foreground opacity-50 aria-selected:bg-accent/50 aria-selected:text-muted-foreground aria-selected:opacity-30',
-        disabled: 'text-muted-foreground opacity-50',
-        range_middle: '[&>button]:text-accent-foreground',
+          'day-outside text-menu-foreground/35 aria-selected:bg-menu-accent/40 aria-selected:text-menu-foreground/50',
+        disabled: 'text-menu-foreground/30 [&>button]:pointer-events-none',
+        range_middle: '[&>button]:text-menu-foreground',
         hidden: 'invisible',
         ...classNames,
       }}

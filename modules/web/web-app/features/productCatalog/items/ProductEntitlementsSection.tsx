@@ -3,10 +3,9 @@ import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   Button,
   Skeleton,
-  Tooltip,
-  TooltipContent,
+  TooltipGroup,
+  TooltipGroupItem,
   TooltipProvider,
-  TooltipTrigger,
 } from '@md/ui'
 import { keepPreviousData, useQueryClient } from '@tanstack/react-query'
 import { CirclePower, Pencil, Plus } from 'lucide-react'
@@ -79,42 +78,38 @@ const ProductFeatureRow = ({ feature }: ProductFeatureRowProps) => {
       <>
         <div className="flex items-center justify-between px-3 py-2 text-sm">
           <span className="font-medium">{feature.name}</span>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <TooltipGroup className="flex items-center gap-2 text-xs text-muted-foreground">
             {entitlementQuery.isLoading ? (
               <span>...</span>
             ) : (
               <span>{existing ? entitlementValueLabel(existing.value?.value) : 'No default'}</span>
             )}
-            <Tooltip>
-              <TooltipTrigger asChild>
+            <TooltipGroupItem label={entitlementTooltip('product', 'override')}>
+              <button
+                aria-label={entitlementTooltip('product', 'override')}
+                type="button"
+                className="p-1 hover:bg-muted rounded"
+                onClick={() => setEditOpen(true)}
+              >
+                <Pencil size={12} />
+              </button>
+            </TooltipGroupItem>
+            {existing && (isBoolean || isMetered) && (
+              <TooltipGroupItem label={entitlementTooltip('product', isDisabled ? 'enable' : 'disable')}>
                 <button
+                  aria-label={entitlementTooltip('product', isDisabled ? 'enable' : 'disable')}
                   type="button"
                   className="p-1 hover:bg-muted rounded"
-                  onClick={() => setEditOpen(true)}
+                  onClick={handleToggleDisable}
+                  disabled={updateMutation.isPending}
                 >
-                  <Pencil size={12} />
+                  {isDisabled
+                    ? <CirclePower size={12} className="text-destructive" />
+                    : <CirclePower size={12} className="text-primary" />}
                 </button>
-              </TooltipTrigger>
-              <TooltipContent>{entitlementTooltip('product', 'override')}</TooltipContent>
-            </Tooltip>
-            {existing && (isBoolean || isMetered) && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    className="p-1 hover:bg-muted rounded"
-                    onClick={handleToggleDisable}
-                    disabled={updateMutation.isPending}
-                  >
-                    {isDisabled
-                      ? <CirclePower size={12} className="text-destructive" />
-                      : <CirclePower size={12} className="text-primary" />}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{entitlementTooltip('product', isDisabled ? 'enable' : 'disable')}</TooltipContent>
-              </Tooltip>
+              </TooltipGroupItem>
             )}
-          </div>
+          </TooltipGroup>
         </div>
 
         {editOpen && (

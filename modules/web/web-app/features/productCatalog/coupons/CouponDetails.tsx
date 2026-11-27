@@ -1,35 +1,38 @@
 import { createConnectQueryKey, skipToken, useMutation, useQuery as useConnectQuery } from '@connectrpc/connect-query';
 import { useQueryClient } from '@tanstack/react-query'
 import {
+  Badge,
   Button,
-  Card,
   CheckboxFormField,
-  CardContent,
-  CardHeader,
-  CardTitle,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
   Form,
   InputFormField,
+  Modal,
   MultiSelectFormField,
   MultiSelectItem,
   SelectFormField,
   SelectItem,
-  Separator,
+  Sheet,
+  SheetContent,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
   TextareaFormField,
 } from '@ui/components'
 import { ChevronDown } from 'lucide-react'
-import { FunctionComponent, useEffect, useMemo } from 'react'
+import { FunctionComponent, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import ConfirmationModal from '@/components/ConfirmationModal'
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
 import { CurrencySelect } from '@/components/CurrencySelect'
 import { Gate } from '@/components/Gate'
 import { LocalId } from '@/components/LocalId'
-import { Property } from '@/components/Property'
 import { EntityActivityTimeline } from '@/features/activity/EntityActivityTimeline'
 import {
   CREDIT_COUPON_HINT,
@@ -53,8 +56,14 @@ import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { parseAndFormatDate, parseAndFormatDateOptional } from '@/utils/date'
 import { useTypedParams } from '@/utils/params'
 
+/**
+ * A coupon, in the same side panel as creating one: its code and handle with the actions, its
+ * properties, the editable fields, and its activity. Closing returns to the list.
+ */
 export const CouponDetails: FunctionComponent = () => {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  const [confirmingClose, setConfirmingClose] = useState(false)
 
   const { couponLocalId } = useTypedParams<{ couponLocalId: string }>()
 
@@ -83,7 +92,11 @@ export const CouponDetails: FunctionComponent = () => {
   })
 
   const removeCouponMut = useMutation(removeCoupon, {
-    onSuccess: invalidate,
+    // The coupon is gone: back to the list.
+    onSuccess: async () => {
+      await invalidate()
+      navigate('..')
+    },
     onError: error => toast.error(rpcErrorMessage(error, 'The coupon could not be removed')),
   })
 
@@ -207,315 +220,342 @@ export const CouponDetails: FunctionComponent = () => {
     return 'Active'
   }, [coupon])
 
-  if (!coupon) {
-    return null
+  // Unsaved edits ask first, as the create panel does.
+  const close = () => {
+    if (methods.formState.isDirty) setConfirmingClose(true)
+    else navigate('..')
   }
+  const isDirty = methods.formState.isDirty
 
   return (
-    <div className="w-4/5">
-      <Card className="min-h-[60%] flex flex-col">
-        <CardHeader className="flex flex-row justify-between">
-          <CardTitle className="content-center xl:space-x-2">
-            <CopyToClipboardButton
-              text={coupon.code}
-              buttonVariant="ghost"
-              buttonClassName="text-base font-semibold px-2"
-            />
-            <LocalId
-              localId={coupon.localId}
-              className="max-w-24 text-[10px]"
-              buttonClassName="p-1 border-10"
-            />
-          </CardTitle>
-          <div className="flex gap-0.5">
-            <Gate perm="catalog:manage">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  // onClick={primaryAction.onClick}
-                  hasIcon
-                  className={' '}
-                >
-                  Actions <ChevronDown className="w-4 h-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {coupon.archivedAt !== undefined ? (
-                  <>
-                    <DropdownMenuItem
-                      key="enable"
-                      onClick={() =>
-                        updateCouponStatusMut
-                          .mutateAsync({
-                            action: CouponAction.ENABLE,
-                            couponId: coupon.id,
-                          })
-                          .then(() => setTab('active'))
-                      }
+    <>
+      <Sheet open onOpenChange={open => !open && close()}>
+        <SheetContent size="small" className="flex flex-col gap-0 p-0">
+          {coupon && (
+            <Form {...methods}>
+              <form className="flex min-h-full flex-col" onSubmit={methods.handleSubmit(onSubmit)}>
+                {/* Who it is: the code (copyable) and its state, what it gives, its handle. */}
+                <SheetHeader className="gap-2 border-b-[0.5px] border-foreground/[0.102] px-6 pb-4 pt-6 pr-14">
+                  <div className="flex items-center justify-between gap-3">
+                    <SheetTitle className="flex min-w-0 items-center gap-2">
+                      <CopyToClipboardButton
+                        text={coupon.code}
+                        buttonVariant="ghost"
+                        buttonClassName="-ml-2 h-8 px-2 font-mono text-base font-semibold"
+                      />
+                      <Badge variant={STATUS_VARIANTS[status] ?? 'secondary'} size="sm">
+                        {status}
+                      </Badge>
+                    </SheetTitle>
+                    <Gate perm="catalog:manage">
+                      <CouponActions
+                        archived={coupon.archivedAt !== undefined}
+                        disabled={coupon.disabled}
+                        deletable={!coupon.lastRedemptionAt}
+                        onAction={(action, then) =>
+                          updateCouponStatusMut
+                            .mutateAsync({ action, couponId: coupon.id })
+                            .then(() => setTab(then))
+                        }
+                        onDelete={() => removeCouponMut.mutateAsync({ couponId: coupon.id })}
+                      />
+                    </Gate>
+                  </div>
+                  <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
+                    <span className="truncate">{couponDiscountLabel(coupon.discount)}</span>
+                    <span aria-hidden>·</span>
+                    <LocalId localId={coupon.localId} className="max-w-28 text-[10px]" />
+                  </div>
+                </SheetHeader>
+
+                <div className="flex flex-1 flex-col gap-6 px-6 py-5">
+                  {/* The create panel's sections, in its order: the same place for the same thing. */}
+                  <PanelSection title="General">
+                    <TextareaFormField
+                      name="description"
+                      label="Description"
+                      layout="horizontal"
+                      control={methods.control}
+                      placeholder="YC deal: 30% off for the first 6 months"
+                    />
+                  </PanelSection>
+
+                  <PanelSection title="Discount">
+                    {isCreditCoupon ? (
+                      <ReadRow label="Type" hint={CREDIT_COUPON_HINT}>
+                        Promotional credit
+                      </ReadRow>
+                    ) : (
+                      <SelectFormField
+                        name="discountType"
+                        label="Type"
+                        layout="horizontal"
+                        placeholder="Select…"
+                        control={methods.control}
+                      >
+                        <SelectItem value="percentage">Percentage</SelectItem>
+                        <SelectItem value="fixed">Fixed amount</SelectItem>
+                      </SelectFormField>
+                    )}
+
+                    {discountType === 'percentage' && (
+                      <InputFormField
+                        name="percentage"
+                        label="Percentage"
+                        required
+                        layout="horizontal"
+                        control={methods.control}
+                        type="number"
+                        placeholder="0"
+                        rightText="%"
+                      />
+                    )}
+
+                    {(discountType === 'fixed' || discountType === 'credit') && (
+                      <>
+                        <InputFormField
+                          key={discountType}
+                          name={discountType === 'credit' ? 'creditAmount' : 'amount'}
+                          required
+                          label="Amount"
+                          layout="horizontal"
+                          control={methods.control}
+                          type={discountType === 'credit' ? 'text' : 'number'}
+                          inputMode="decimal"
+                          placeholder="0.00"
+                        />
+                        <CurrencySelect
+                          name="currency"
+                          label="Currency"
+                          required
+                          layout="horizontal"
+                          control={methods.control}
+                          placeholder="Currency"
+                        />
+                      </>
+                    )}
+
+                    {discountType === 'credit' && (
+                      <>
+                        <InputFormField
+                          name="creditExpiresInDays"
+                          label="Credit expires after"
+                          layout="horizontal"
+                          control={methods.control}
+                          type="number"
+                          min={1}
+                          max={3660}
+                          placeholder="Never"
+                          inputMode="numeric"
+                          rightText="days"
+                        />
+                        <CheckboxFormField
+                          name="creditSubscriptionOnly"
+                          label="Only the subscription it is redeemed on"
+                          control={methods.control}
+                          layout="horizontal"
+                          description="The credit ends with that subscription."
+                        />
+                      </>
+                    )}
+                  </PanelSection>
+
+                  <PanelSection title="Limits">
+                    <ReadRow label="Expiration">
+                      {coupon.expiresAt ? parseAndFormatDate(coupon.expiresAt) : 'Never'}
+                    </ReadRow>
+                    <ReadRow label="Redemptions">
+                      <Redemptions
+                        count={coupon.redemptionCount}
+                        limit={coupon.redemptionLimit}
+                      />
+                    </ReadRow>
+                    <ReadRow label="Last used">
+                      {parseAndFormatDateOptional(coupon.lastRedemptionAt) || 'Never'}
+                    </ReadRow>
+                    {!isCreditCoupon && (
+                      <ReadRow label="Billing cycles">
+                        {coupon.recurringValue ? `${coupon.recurringValue}` : 'Forever'}
+                      </ReadRow>
+                    )}
+                  </PanelSection>
+
+                  <PanelSection title="Restrictions">
+                    <ReadRow label="Per customer">
+                      {isCreditCoupon
+                        ? 'Once per customer'
+                        : coupon.reusable
+                          ? 'Reusable on several subscriptions'
+                          : 'Once per customer'}
+                    </ReadRow>
+                    <MultiSelectFormField
+                      name="planIds"
+                      label="Plans"
+                      layout="horizontal"
+                      control={methods.control}
+                      placeholder="All plans"
+                      hasSearch
                     >
-                      Restore & enable
-                    </DropdownMenuItem>
-                  </>
-                ) : coupon.disabled ? (
-                  <DropdownMenuItem
-                    key="enable"
-                    onClick={() =>
-                      updateCouponStatusMut
-                        .mutateAsync({
-                          action: CouponAction.ENABLE,
-                          couponId: coupon.id,
-                        })
-                        .then(() => setTab('active'))
-                    }
-                  >
-                    Enable
-                  </DropdownMenuItem>
-                ) : (
-                  <DropdownMenuItem
-                    key="disable"
-                    onClick={() =>
-                      updateCouponStatusMut
-                        .mutateAsync({
-                          action: CouponAction.DISABLE,
-                          couponId: coupon.id,
-                        })
-                        .then(() => setTab('inactive'))
-                    }
-                  >
-                    Disable
-                  </DropdownMenuItem>
-                )}
+                      {plansQuery.data?.plans?.map(plan => (
+                        <MultiSelectItem key={plan.id} value={plan.id}>
+                          {plan.name}
+                        </MultiSelectItem>
+                      ))}
+                    </MultiSelectFormField>
+                  </PanelSection>
 
-                {coupon.archivedAt ? null : (
-                  <DropdownMenuItem
-                    key="archive"
-                    onClick={() =>
-                      updateCouponStatusMut
-                        .mutateAsync({
-                          action: CouponAction.ARCHIVE,
-                          couponId: coupon.id,
-                        })
-                        .then(() => setTab('archived'))
-                    }
-                  >
-                    Archive
-                  </DropdownMenuItem>
-                )}
-
-                {coupon.lastRedemptionAt ? null : (
-                  <DropdownMenuItem
-                    key="delete"
-                    onClick={() => removeCouponMut.mutateAsync({ couponId: coupon.id })}
-                    className="bg-destructive text-destructive-foreground"
-                  >
-                    Delete
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            </Gate>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4 flex flex-col flex-1">
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-y-2 gap-x-2">
-            <Property label="Status" value={status} />
-            <Property
-              label="Expires"
-              value={coupon.expiresAt ? parseAndFormatDate(coupon.expiresAt) : 'Never'}
-            />
-            <Property
-              label="Redeemed"
-              value={`${coupon.redemptionCount} / ${coupon.redemptionLimit ?? '∞'}`}
-            />
-            <Property
-              label="Last usage"
-              value={parseAndFormatDateOptional(coupon.lastRedemptionAt)}
-            />
-            {isCreditCoupon ? (
-              <Property label="Discount" value={couponDiscountLabel(coupon.discount)} />
-            ) : (
-              <Property
-                label="Recurring limit"
-                value={
-                  coupon.recurringValue
-                    ? `${coupon.recurringValue} billing cycle(s)`
-                    : 'Unlimited'
-                }
-              />
-            )}
-            {isCreditCoupon ? (
-              <Property label="Per customer" value="Once per customer" />
-            ) : (
-              <Property label="Reusable" value={coupon.reusable ? 'Yes' : 'No'} />
-            )}
-            <Property
-              label="Plan restrictions"
-              value={
-                coupon.planIds && coupon.planIds.length > 0
-                  ? `${coupon.planIds.length} plan(s)`
-                  : 'All plans'
-              }
-            />
-          </div>
-          <Separator />
-          <Form {...methods}>
-            <form
-              className="h-full flex flex-col flex-1 justify-between"
-              onSubmit={methods.handleSubmit(onSubmit)}
-            >
-              <div className="space-y-4">
-                <TextareaFormField
-                  name="description"
-                  label="Description"
-                  layout="horizontal"
-                  control={methods.control}
-                  placeholder="YC deal: 30% off for the first 6 months"
-                />
-
-                {isCreditCoupon ? (
-                  <>
-                    <div className="grid gap-2 md:grid-cols-12 items-center">
-                      <span className="col-span-4 text-sm text-muted-foreground">Discount type</span>
-                      <span className="col-span-8 text-sm">Promotional credit</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">{CREDIT_COUPON_HINT}</p>
-                  </>
-                ) : (
-                  <SelectFormField
-                    name="discountType"
-                    label="Discount type"
-                    layout="horizontal"
-                    placeholder="Select..."
-                    className="max-w-[320px]  "
-                    control={methods.control}
-                  >
-                    <SelectItem value="fixed" key="fixed">
-                      Fixed amount
-                    </SelectItem>
-                    <SelectItem value="percentage" key="percentage">
-                      Percentage
-                    </SelectItem>
-                  </SelectFormField>
-                )}
-
-                {discountType === 'percentage' && (
-                  <InputFormField
-                    name="percentage"
-                    label="Percentage"
-                    required
-                    layout="horizontal"
-                    control={methods.control}
-                    type="number"
-                    placeholder="0"
-                    rightText="%"
-                  />
-                )}
-
-                {discountType === 'fixed' && (
-                  <>
-                    <InputFormField
-                      name="amount"
-                      required
-                      label="Amount"
-                      layout="horizontal"
-                      control={methods.control}
-                      type="number"
-                      placeholder="Amount"
+                  <PanelSection title="Activity">
+                    <EntityActivityTimeline
+                      entityType="coupon"
+                      entityId={coupon.id}
+                      emptyLabel="No activity yet for this coupon"
                     />
-                    <CurrencySelect
-                      name="currency"
-                      label="Currency"
-                      required
-                      layout="horizontal"
-                      control={methods.control}
-                      placeholder="Currency"
-                    />
-                  </>
-                )}
+                  </PanelSection>
+                </div>
 
-                {discountType === 'credit' && (
-                  <>
-                    <InputFormField
-                      name="creditAmount"
-                      required
-                      label="Amount"
-                      layout="horizontal"
-                      control={methods.control}
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="0.00"
-                    />
-                    <CurrencySelect
-                      name="currency"
-                      label="Currency"
-                      required
-                      layout="horizontal"
-                      control={methods.control}
-                      placeholder="Currency"
-                    />
-                    <InputFormField
-                      name="creditExpiresInDays"
-                      label="Credit expires after (days)"
-                      layout="horizontal"
-                      control={methods.control}
-                      type="number"
-                      min={1}
-                      max={3660}
-                      placeholder="Never"
-                      inputMode="numeric"
-                    />
-                    <CheckboxFormField
-                      name="creditSubscriptionOnly"
-                      label="Only the subscription it is redeemed on"
-                      control={methods.control}
-                      layout="horizontal"
-                      description="The credit ends with that subscription."
-                    />
-                  </>
-                )}
-
-                <MultiSelectFormField
-                  name="planIds"
-                  label="Restrict to plans"
-                  layout="horizontal"
-                  control={methods.control}
-                  placeholder="All plans (no restriction)"
-                  hasSearch
-                >
-                  {plansQuery.data?.plans?.map(plan => (
-                    <MultiSelectItem key={plan.id} value={plan.id}>
-                      {plan.name}
-                    </MultiSelectItem>
-                  ))}
-                </MultiSelectFormField>
-              </div>
-              <div className="flex justify-end">
-                <Button
-                  type="submit"
-                  variant="primary"
-                >
-                  Save
-                </Button>
-              </div>
-            </form>
-          </Form>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Activity</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <EntityActivityTimeline
-            entityType="coupon"
-            entityId={coupon.id}
-            emptyLabel="No activity yet for this coupon"
-          />
-        </CardContent>
-      </Card>
-    </div>
+                {/* Saving stays in reach while the panel scrolls; it wakes up once something changed. */}
+                <Gate perm="catalog:manage">
+                  <SheetFooter className="sticky bottom-0 flex-row justify-end gap-2 border-t-[0.5px] border-foreground/[0.102] bg-background px-6 py-3 dark:bg-[#171717]">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={!isDirty || editCouponMut.isPending}
+                      onClick={() => methods.reset()}
+                    >
+                      Discard
+                    </Button>
+                    <Button type="submit" disabled={!isDirty || editCouponMut.isPending}>
+                      {editCouponMut.isPending ? 'Saving…' : 'Save changes'}
+                    </Button>
+                  </SheetFooter>
+                </Gate>
+              </form>
+            </Form>
+          )}
+        </SheetContent>
+      </Sheet>
+      <ConfirmationModal
+        visible={confirmingClose}
+        header="Confirm to close"
+        buttonLabel="Confirm"
+        onSelectCancel={() => setConfirmingClose(false)}
+        onSelectConfirm={() => {
+          setConfirmingClose(false)
+          methods.reset()
+          navigate('..')
+        }}
+      >
+        <Modal.Content>
+          <p className="py-4 text-sm text-muted-foreground">
+            There are unsaved changes. Are you sure you want to close the panel? Your changes will
+            be lost.
+          </p>
+        </Modal.Content>
+      </ConfirmationModal>
+    </>
   )
 }
+
+const STATUS_VARIANTS: Record<string, 'success' | 'secondary' | 'warning'> = {
+  Active: 'success',
+  Disabled: 'secondary',
+  Archived: 'secondary',
+  Exhausted: 'warning',
+  Expired: 'secondary',
+}
+
+/** A titled group of the panel, as the create panel's: a quiet heading over its rows. */
+const PanelSection = ({ title, children }: { title: string; children: React.ReactNode }) => (
+  <section className="flex flex-col gap-3 border-b-[0.5px] border-foreground/[0.102] pb-6 last:border-b-0 last:pb-0">
+    <h3 className="text-sm font-medium text-muted-foreground">{title}</h3>
+    <div className="flex flex-col gap-4">{children}</div>
+  </section>
+)
+
+/** A value that can't be edited here, on the form's grid: label on the left, value on the right. */
+const ReadRow = ({
+  label,
+  hint,
+  children,
+}: {
+  label: string
+  hint?: string
+  children: React.ReactNode
+}) => (
+  <div className="grid items-start gap-2 md:grid-cols-12">
+    <span className="pt-px text-xs text-muted-foreground md:col-span-4">{label}</span>
+    <div className="flex flex-col gap-1 text-[13px] text-foreground md:col-span-8">
+      {children}
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  </div>
+)
+
+/** How often the coupon was used, with a bar against its limit when it has one. */
+const Redemptions = ({ count, limit }: { count: number; limit?: number }) => (
+  <div className="flex flex-col gap-1.5">
+    <span className="tabular-nums">
+      {count}
+      <span className="text-muted-foreground"> / {limit ?? '∞'}</span>
+    </span>
+    {limit ? (
+      <span className="h-1 w-full max-w-40 overflow-hidden rounded-full bg-foreground/[0.08]">
+        <span
+          className="block h-full rounded-full bg-foreground/60"
+          style={{ width: `${Math.min(100, (count / limit) * 100)}%` }}
+        />
+      </span>
+    ) : null}
+  </div>
+)
+
+/** The coupon's status actions, by its state: restore, enable or disable, archive, delete. */
+const CouponActions = ({
+  archived,
+  disabled,
+  deletable,
+  onAction,
+  onDelete,
+}: {
+  archived: boolean
+  disabled: boolean
+  /** A coupon never redeemed can be deleted outright. */
+  deletable: boolean
+  /** Runs the action, then shows the list tab the coupon moved to. */
+  onAction: (action: CouponAction, tab: string) => void
+  onDelete: () => void
+}) => (
+  <DropdownMenu>
+    <DropdownMenuTrigger asChild>
+      <Button variant="secondary" size="sm" className="gap-1.5 pr-2">
+        Actions
+        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+      </Button>
+    </DropdownMenuTrigger>
+    <DropdownMenuContent align="end">
+      {archived ? (
+        <DropdownMenuItem onClick={() => onAction(CouponAction.ENABLE, 'active')}>
+          Restore & enable
+        </DropdownMenuItem>
+      ) : disabled ? (
+        <DropdownMenuItem onClick={() => onAction(CouponAction.ENABLE, 'active')}>
+          Enable
+        </DropdownMenuItem>
+      ) : (
+        <DropdownMenuItem onClick={() => onAction(CouponAction.DISABLE, 'inactive')}>
+          Disable
+        </DropdownMenuItem>
+      )}
+      {!archived && (
+        <DropdownMenuItem onClick={() => onAction(CouponAction.ARCHIVE, 'archived')}>
+          Archive
+        </DropdownMenuItem>
+      )}
+      {deletable && (
+        <DropdownMenuItem variant="destructive" onClick={onDelete}>
+          Delete
+        </DropdownMenuItem>
+      )}
+    </DropdownMenuContent>
+  </DropdownMenu>
+)

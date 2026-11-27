@@ -1,5 +1,5 @@
-import { create, type MessageInitShape } from '@bufbuild/protobuf';
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
+import { create, type MessageInitShape } from '@bufbuild/protobuf'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,6 +22,7 @@ import { CirclePower, Pencil, Pin, PinOff } from 'lucide-react'
 import { FC, forwardRef, useImperativeHandle, useState } from 'react'
 import { toast } from 'sonner'
 
+import { SectionEmptyState } from '@/components/empty-state/SectionEmptyState'
 import { EntityEntitlementDialog } from '@/features/entitlements/EntityEntitlementDialog'
 import { InheritedIcon } from '@/features/entitlements/InheritedIcon'
 import { LimitTermsBadges, termsOfValue } from '@/features/entitlements/LimitTermsBadges'
@@ -48,8 +49,7 @@ import {
   EntitlementEntitySchema,
   EntitlementValueSchema,
   ResolvedEntitlement,
-} from '@/rpc/api/entitlements/v1/models_pb';
-
+} from '@/rpc/api/entitlements/v1/models_pb'
 
 import {
   toEntitlementEntity,
@@ -219,8 +219,7 @@ const RowActions: FC<RowActionsProps> = ({
   const localRow = localEntitlements.find(e => e.featureId === row.feature?.id)
   const canRemove = pinnedHere && !!localRow
 
-  const isBusy =
-    createMutation.isPending || updateMutation.isPending || deleteMutation.isPending
+  const isBusy = createMutation.isPending || updateMutation.isPending || deleteMutation.isPending
 
   const isBoolean = row.value.case === 'boolean'
   const isMetered = row.value.case === 'metered'
@@ -243,8 +242,8 @@ const RowActions: FC<RowActionsProps> = ({
         </Tooltip>
       )}
 
-      {canPin && (
-        pinnedHere ? (
+      {canPin &&
+        (pinnedHere ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -272,8 +271,7 @@ const RowActions: FC<RowActionsProps> = ({
             </TooltipTrigger>
             <TooltipContent>{entitlementTooltip(label, 'pin')}</TooltipContent>
           </Tooltip>
-        )
-      )}
+        ))}
 
       {(isBoolean || isMetered) && (
         <Tooltip>
@@ -284,12 +282,16 @@ const RowActions: FC<RowActionsProps> = ({
               onClick={handleToggleDisable}
               disabled={isBusy || entity.type === 'product'}
             >
-              {disabled
-                ? <CirclePower size={12} className="text-destructive" />
-                : <CirclePower size={12} className="text-primary" />}
+              {disabled ? (
+                <CirclePower size={12} className="text-destructive" />
+              ) : (
+                <CirclePower size={12} className="text-primary" />
+              )}
             </button>
           </TooltipTrigger>
-          <TooltipContent>{entitlementTooltip(label, disabled ? 'enable' : 'disable')}</TooltipContent>
+          <TooltipContent>
+            {entitlementTooltip(label, disabled ? 'enable' : 'disable')}
+          </TooltipContent>
         </Tooltip>
       )}
     </div>
@@ -298,286 +300,280 @@ const RowActions: FC<RowActionsProps> = ({
 
 // ── Main panel ────────────────────────────────────────────────────────────────
 
-export const ResolvedEntitlementsPanel = forwardRef<ResolvedEntitlementsPanelHandle, Props>(({
-  entity,
-  canPin,
-  hideAddButton = false,
-  hidePinAll = false,
-  meteredLabels,
-}, ref) => {
-  const label = ENTITY_LABEL[entity.type]
-  const { entitlements: resolved, isLoading } = useResolvedEntitlementsForEntity(entity)
-  const { units: metricUnits } = useUsageUnits(
-    resolved.flatMap(r => (r.value.case === 'metered' ? [r.value.value.metricId] : []))
-  )
-  const batchCreate = useBatchCreateEntitlements(entity)
+export const ResolvedEntitlementsPanel = forwardRef<ResolvedEntitlementsPanelHandle, Props>(
+  ({ entity, canPin, hideAddButton = false, hidePinAll = false, meteredLabels }, ref) => {
+    const label = ENTITY_LABEL[entity.type]
+    const { entitlements: resolved, isLoading } = useResolvedEntitlementsForEntity(entity)
+    const { units: metricUnits } = useUsageUnits(
+      resolved.flatMap(r => (r.value.case === 'metered' ? [r.value.value.metricId] : []))
+    )
+    const batchCreate = useBatchCreateEntitlements(entity)
 
-  // Dialog state for Override / Add
-  const [dialog, setDialog] = useState<
-    | { open: false }
-    | { open: true; row?: ResolvedEntitlement }
-  >({ open: false })
+    // Dialog state for Override / Add
+    const [dialog, setDialog] = useState<
+      { open: false } | { open: true; row?: ResolvedEntitlement }
+    >({ open: false })
 
-  // Fetch direct entitlements for this entity so we can look up row ids for deletion.
-  // Product has no proto EntitlementEntity variant — skip the query for it.
-  const localEntitlementsQuery = useQuery(
-    listEntitlementsByEntity,
-    entity.type !== 'product'
-      ? { entity: toEntitlementEntity(entity) }
-      : { entity: undefined as unknown as EntitlementEntity }
-  )
-  const localEntitlements: Entitlement[] =
-    entity.type !== 'product'
-      ? (localEntitlementsQuery.data?.entitlements ?? [])
-      : []
+    // Fetch direct entitlements for this entity so we can look up row ids for deletion.
+    // Product has no proto EntitlementEntity variant — skip the query for it.
+    const localEntitlementsQuery = useQuery(
+      listEntitlementsByEntity,
+      entity.type !== 'product'
+        ? { entity: toEntitlementEntity(entity) }
+        : { entity: undefined as unknown as EntitlementEntity }
+    )
+    const localEntitlements: Entitlement[] =
+      entity.type !== 'product' ? (localEntitlementsQuery.data?.entitlements ?? []) : []
 
-  const queryClient = useQueryClient()
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-      schema: listEntitlementsByEntity.parent,
-      cardinality: undefined
-    }) })
-  }
-
-  // Pin all: confirmation gate + batch-create every entitlement not yet pinned here.
-  const unpinnedRows = resolved.filter(r => !isPinnedHere(r, entity))
-  const [pinAllOpen, setPinAllOpen] = useState(false)
-
-  const requestPinAll = () => {
-    if (entity.type === 'product' || batchCreate.disabled) return
-    if (unpinnedRows.length === 0) {
-      toast.info('All entitlements are already pinned on this ' + label + '.')
-      return
+    const queryClient = useQueryClient()
+    const invalidate = () => {
+      queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: listEntitlementsByEntity.parent,
+          cardinality: undefined,
+        }),
+      })
     }
-    setPinAllOpen(true)
-  }
 
-  const confirmPinAll = () => {
-    batchCreate.mutate(
-      unpinnedRows.map(r => ({
-        featureId: r.feature!.id,
-        value: entitlementValueToSpec(r.value),
-      }))
-    )
-    setPinAllOpen(false)
-  }
+    // Pin all: confirmation gate + batch-create every entitlement not yet pinned here.
+    const unpinnedRows = resolved.filter(r => !isPinnedHere(r, entity))
+    const [pinAllOpen, setPinAllOpen] = useState(false)
 
-  // On a product detail page every row belongs to that product (or to no product), so
-  // grouping by product is redundant — fall back to a single flat list.
-  const showGrouping = entity.type !== 'product'
-  const groups = showGrouping
-    ? groupByProduct(resolved, r =>
-      r.feature?.product ? { id: r.feature.product.id, name: r.feature.product.name } : undefined
-    )
-    : [{ id: null, name: '', items: resolved }]
+    const requestPinAll = () => {
+      if (entity.type === 'product' || batchCreate.disabled) return
+      if (unpinnedRows.length === 0) {
+        toast.info('All entitlements are already pinned on this ' + label + '.')
+        return
+      }
+      setPinAllOpen(true)
+    }
 
-  // Proto entity for dialog (product has no proto variant — undefined disables the dialog)
-  const protoEntity: MessageInitShape<typeof EntitlementEntitySchema> | undefined =
-    entity.type !== 'product'
-      ? toEntitlementEntity(entity)
-      : undefined
+    const confirmPinAll = () => {
+      batchCreate.mutate(
+        unpinnedRows.map(r => ({
+          featureId: r.feature!.id,
+          value: entitlementValueToSpec(r.value),
+        }))
+      )
+      setPinAllOpen(false)
+    }
 
-  // Exclude all features already resolved on this entity (locally pinned OR inherited).
-  // Already-resolved features should be edited via the Override action, not added again.
-  const existingFeatureIds = new Set<string>([
-    ...localEntitlements.map(e => e.featureId),
-    ...resolved.map(r => r.feature?.id ?? '').filter(Boolean),
-  ])
-
-  // Add-on entitlements are inherited from the linked product; users can only override
-  // existing entitlement values, not add new ones. Product surfaces never have an Add.
-  const showAddButton =
-    entity.type !== 'product' && entity.type !== 'add-on' && !hideAddButton
-
-  useImperativeHandle(ref, () => ({
-    openAdd: () => {
-      if (entity.type === 'product') return
-      setDialog({ open: true })
-    },
-  }))
-  const showPinAll = canPin && !hidePinAll && entity.type !== 'product'
-  const hasHeaderActions = showAddButton || showPinAll
-
-  return (
-    <TooltipProvider>
-      <div className="flex flex-col gap-4">
-        {/* Action row (no internal title — outer page section already provides one) */}
-        {hasHeaderActions && (
-          <div className="flex items-center justify-end gap-2">
-            {/* Add entitlement (hidden on Product context — entitlements live on plan version / add-on) */}
-            {showAddButton && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => setDialog({ open: true })}
-                  >
-                    Add entitlement
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {`Attach a new entitlement to this ${label}.`}
-                </TooltipContent>
-              </Tooltip>
-            )}
-
-            {/* Pin all (only when canPin and entity is not product) */}
-            {showPinAll && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={requestPinAll}
-                    disabled={batchCreate.isPending}
-                  >
-                    Pin all
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-56">
-                  {entitlementTooltip(label, 'pinAll')}
-                </TooltipContent>
-              </Tooltip>
-            )}
-          </div>
-        )}
-
-        {/* Body */}
-        {isLoading ? (
-          <div className="flex flex-col gap-2">
-            <Skeleton className="h-10 w-full"/>
-            <Skeleton className="h-10 w-full"/>
-          </div>
-        ) : resolved.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No entitlements resolved for this {label}.</p>
-        ) : (
-          [...groups]
-            .sort((a, b) => {
-              if (!a.id) return 1
-              if (!b.id) return -1
-              return a.name.localeCompare(b.name)
-            })
-            .map(group => (
-            <div key={group.id ?? '__general__'}>
-              {showGrouping && (
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 px-1">
-                  {group.name}
-                </p>
-              )}
-              <div className="border border-border rounded-lg divide-y divide-border overflow-hidden">
-                {[...group.items]
-                  .sort((a, b) => (a.feature?.name ?? '').localeCompare(b.feature?.name ?? ''))
-                  .map(r => {
-                    const featureId = r.feature?.id ?? ''
-                    const featureName = r.feature?.name ?? featureId
-                    const disabled = isEntitlementDisabled(r.value)
-                    const pinned = isPinnedHere(r, entity)
-
-                    return (
-                      <div
-                        key={featureId}
-                        className={cn(
-                          'group flex items-center justify-between px-4 py-2.5 text-sm',
-                          disabled && 'opacity-60'
-                        )}
-                      >
-                        {/* Feature name + inheritance icon. */}
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="font-medium truncate">{featureName}</span>
-                          {(() => {
-                            const featureProduct = r.feature?.product
-                            const isDirectlySet =
-                              entity.type === 'product' ? !!featureProduct : pinned
-                            if (isDirectlySet) return null
-                            // On a product surface the row is, by definition, inherited
-                            // from a global (cross-product) feature.
-                            const tooltip =
-                              entity.type === 'product'
-                                ? 'Inherited from a global feature.'
-                                : buildInheritanceTooltip(r.origin, featureProduct)
-                            return <InheritedIcon tooltip={tooltip}/>
-                          })()}
-                          <LimitTermsBadges terms={termsOfValue(r.value)} />
-                          {r.value.case === 'metered' &&
-                            meteredLabels?.get(r.value.value.metricId) && (
-                              <span className="text-xs text-muted-foreground truncate">
-                                {meteredLabels.get(r.value.value.metricId)}
-                              </span>
-                            )}
-                        </div>
-
-                        {/* Value + actions */}
-                        <div className="flex items-center gap-2 shrink-0 ml-4">
-                        <span className="text-muted-foreground text-xs tabular-nums">
-                          {formatResolvedValue(
-                            r.value,
-                            r.value.case === 'metered' ? metricUnits[r.value.value.metricId] : undefined
-                          )}
-                        </span>
-                          <RowActions
-                            row={r}
-                            entity={entity}
-                            label={label}
-                            canPin={canPin}
-                            pinnedHere={pinned}
-                            localEntitlements={localEntitlements}
-                            onOverride={row => setDialog({ open: true, row })}
-                            onInvalidate={invalidate}
-                          />
-                        </div>
-                      </div>
-                    )
-                  })}
-              </div>
-            </div>
-          ))
-        )}
-
-        {/* Override / Add dialog */}
-        {dialog.open && protoEntity && (() => {
-          const existing = dialog.row
-            ? localEntitlements.find(e => e.featureId === dialog.row?.feature?.id)
+    // On a product detail page every row belongs to that product (or to no product), so
+    // grouping by product is redundant — fall back to a single flat list.
+    const showGrouping = entity.type !== 'product'
+    const groups = showGrouping
+      ? groupByProduct(resolved, r =>
+          r.feature?.product
+            ? { id: r.feature.product.id, name: r.feature.product.name }
             : undefined
-          // Inherited row (no local override yet) → seed the dialog with the resolved value
-          // so the override form is pre-filled with the current value.
-          const seedValue =
-            dialog.row && !existing
-              ? create(EntitlementValueSchema, entitlementValueToSpec(dialog.row.value))
-              : undefined
-          return (
-            <EntityEntitlementDialog
-              entity={protoEntity}
-              existing={existing}
-              seedValue={seedValue}
-              featureId={dialog.row?.feature?.id}
-              featureIsMetered={dialog.row?.value.case === 'metered'}
-              existingFeatureIds={existingFeatureIds}
-              onClose={() => setDialog({ open: false })}
-            />
-          )
-        })()}
+        )
+      : [{ id: null, name: '', items: resolved }]
 
-        {/* Pin all confirmation */}
-        <AlertDialog open={pinAllOpen} onOpenChange={setPinAllOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Pin all entitlements?</AlertDialogTitle>
-              <AlertDialogDescription>
-                {`This will save local copies of ${unpinnedRows.length} inherited ${
-                  unpinnedRows.length === 1 ? 'entitlement' : 'entitlements'
-                } on this ${label}. Pinned values stay fixed even if upstream changes.`}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={confirmPinAll}>Pin all</AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </div>
-    </TooltipProvider>
-  );
-})
+    // Proto entity for dialog (product has no proto variant — undefined disables the dialog)
+    const protoEntity: MessageInitShape<typeof EntitlementEntitySchema> | undefined =
+      entity.type !== 'product' ? toEntitlementEntity(entity) : undefined
+
+    // Exclude all features already resolved on this entity (locally pinned OR inherited).
+    // Already-resolved features should be edited via the Override action, not added again.
+    const existingFeatureIds = new Set<string>([
+      ...localEntitlements.map(e => e.featureId),
+      ...resolved.map(r => r.feature?.id ?? '').filter(Boolean),
+    ])
+
+    // Add-on entitlements are inherited from the linked product; users can only override
+    // existing entitlement values, not add new ones. Product surfaces never have an Add.
+    const showAddButton = entity.type !== 'product' && entity.type !== 'add-on' && !hideAddButton
+
+    useImperativeHandle(ref, () => ({
+      openAdd: () => {
+        if (entity.type === 'product') return
+        setDialog({ open: true })
+      },
+    }))
+    const showPinAll = canPin && !hidePinAll && entity.type !== 'product'
+    const hasHeaderActions = showAddButton || showPinAll
+
+    return (
+      <TooltipProvider>
+        <div className="flex flex-col gap-4">
+          {/* Action row (no internal title — outer page section already provides one) */}
+          {hasHeaderActions && (
+            <div className="flex items-center justify-end gap-2">
+              {/* Add entitlement (hidden on Product context — entitlements live on plan version / add-on) */}
+              {showAddButton && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button size="sm" variant="secondary" onClick={() => setDialog({ open: true })}>
+                      Add entitlement
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{`Attach a new entitlement to this ${label}.`}</TooltipContent>
+                </Tooltip>
+              )}
+
+              {/* Pin all (only when canPin and entity is not product) */}
+              {showPinAll && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={requestPinAll}
+                      disabled={batchCreate.isPending}
+                    >
+                      Pin all
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent multiline className="max-w-56">
+                    {entitlementTooltip(label, 'pinAll')}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+          )}
+
+          {/* Body */}
+          {isLoading ? (
+            <div className="flex flex-col gap-2">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+          ) : resolved.length === 0 ? (
+            <SectionEmptyState className="bg-card dark:bg-foreground/[0.035]">
+              No entitlements resolved for this {label}.
+            </SectionEmptyState>
+          ) : (
+            [...groups]
+              .sort((a, b) => {
+                if (!a.id) return 1
+                if (!b.id) return -1
+                return a.name.localeCompare(b.name)
+              })
+              .map(group => (
+                <div key={group.id ?? '__general__'}>
+                  {showGrouping && (
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 px-1">
+                      {group.name}
+                    </p>
+                  )}
+                  <div className="border border-border rounded-lg divide-y divide-border overflow-hidden">
+                    {[...group.items]
+                      .sort((a, b) => (a.feature?.name ?? '').localeCompare(b.feature?.name ?? ''))
+                      .map(r => {
+                        const featureId = r.feature?.id ?? ''
+                        const featureName = r.feature?.name ?? featureId
+                        const disabled = isEntitlementDisabled(r.value)
+                        const pinned = isPinnedHere(r, entity)
+
+                        return (
+                          <div
+                            key={featureId}
+                            className={cn(
+                              'group flex items-center justify-between px-4 py-2.5 text-sm',
+                              disabled && 'opacity-60'
+                            )}
+                          >
+                            {/* Feature name + inheritance icon. */}
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="font-medium truncate">{featureName}</span>
+                              {(() => {
+                                const featureProduct = r.feature?.product
+                                const isDirectlySet =
+                                  entity.type === 'product' ? !!featureProduct : pinned
+                                if (isDirectlySet) return null
+                                // On a product surface the row is, by definition, inherited
+                                // from a global (cross-product) feature.
+                                const tooltip =
+                                  entity.type === 'product'
+                                    ? 'Inherited from a global feature.'
+                                    : buildInheritanceTooltip(r.origin, featureProduct)
+                                return <InheritedIcon tooltip={tooltip} />
+                              })()}
+                              <LimitTermsBadges terms={termsOfValue(r.value)} />
+                              {r.value.case === 'metered' &&
+                                meteredLabels?.get(r.value.value.metricId) && (
+                                  <span className="text-xs text-muted-foreground truncate">
+                                    {meteredLabels.get(r.value.value.metricId)}
+                                  </span>
+                                )}
+                            </div>
+
+                            {/* Value + actions */}
+                            <div className="flex items-center gap-2 shrink-0 ml-4">
+                              <span className="text-muted-foreground text-xs tabular-nums">
+                                {formatResolvedValue(
+                                  r.value,
+                                  r.value.case === 'metered'
+                                    ? metricUnits[r.value.value.metricId]
+                                    : undefined
+                                )}
+                              </span>
+                              <RowActions
+                                row={r}
+                                entity={entity}
+                                label={label}
+                                canPin={canPin}
+                                pinnedHere={pinned}
+                                localEntitlements={localEntitlements}
+                                onOverride={row => setDialog({ open: true, row })}
+                                onInvalidate={invalidate}
+                              />
+                            </div>
+                          </div>
+                        )
+                      })}
+                  </div>
+                </div>
+              ))
+          )}
+
+          {/* Override / Add dialog */}
+          {dialog.open &&
+            protoEntity &&
+            (() => {
+              const existing = dialog.row
+                ? localEntitlements.find(e => e.featureId === dialog.row?.feature?.id)
+                : undefined
+              // Inherited row (no local override yet) → seed the dialog with the resolved value
+              // so the override form is pre-filled with the current value.
+              const seedValue =
+                dialog.row && !existing
+                  ? create(EntitlementValueSchema, entitlementValueToSpec(dialog.row.value))
+                  : undefined
+              return (
+                <EntityEntitlementDialog
+                  entity={protoEntity}
+                  existing={existing}
+                  seedValue={seedValue}
+                  featureId={dialog.row?.feature?.id}
+                  featureIsMetered={dialog.row?.value.case === 'metered'}
+                  existingFeatureIds={existingFeatureIds}
+                  onClose={() => setDialog({ open: false })}
+                />
+              )
+            })()}
+
+          {/* Pin all confirmation */}
+          <AlertDialog open={pinAllOpen} onOpenChange={setPinAllOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Pin all entitlements?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {`This will save local copies of ${unpinnedRows.length} inherited ${
+                    unpinnedRows.length === 1 ? 'entitlement' : 'entitlements'
+                  } on this ${label}. Pinned values stay fixed even if upstream changes.`}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={confirmPinAll}>Pin all</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      </TooltipProvider>
+    )
+  }
+)
 
 ResolvedEntitlementsPanel.displayName = 'ResolvedEntitlementsPanel'

@@ -99,7 +99,7 @@ const OverridePriceButton = ({ fee, onClick }: { fee?: SubscriptionFee; onClick:
           </Button>
         </span>
       </TooltipTrigger>
-      <TooltipContent className="max-w-xs">{CREDIT_PACK_OVERRIDE_HINT}</TooltipContent>
+      <TooltipContent multiline className="max-w-xs">{CREDIT_PACK_OVERRIDE_HINT}</TooltipContent>
     </Tooltip>
   )
 

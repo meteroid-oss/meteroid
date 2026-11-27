@@ -250,7 +250,7 @@ export const QuoteSigners = ({
                             Copy link
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent className="max-w-xs">
+                        <TooltipContent multiline className="max-w-xs">
                           Anyone with this link can sign as {recipient.name || recipient.email}
                         </TooltipContent>
                       </Tooltip>

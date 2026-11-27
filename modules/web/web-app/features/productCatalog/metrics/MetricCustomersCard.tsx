@@ -13,6 +13,7 @@ import { ExternalLink, Users } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
 
+import { SectionEmptyState } from '@/components/empty-state/SectionEmptyState'
 import { useModule } from '@/edition'
 import { isAdditiveAggregation } from '@/features/productCatalog/metrics/aggregation'
 import { useBasePath } from '@/hooks/useBasePath'
@@ -116,7 +117,10 @@ export const MetricCustomersCard = ({ metricId, aggregationType }: MetricCustome
   // Shares and bar widths are relative to what's displayed, so dropping "Other"
   // rescales the named customers to fill the chart instead of leaving them tiny.
   const total = useMemo(() => visibleRows.reduce((acc, r) => acc + r.value, 0), [visibleRows])
-  const max = useMemo(() => visibleRows.reduce((acc, r) => Math.max(acc, r.value), 0), [visibleRows])
+  const max = useMemo(
+    () => visibleRows.reduce((acc, r) => Math.max(acc, r.value), 0),
+    [visibleRows]
+  )
 
   const isLoading = usageQuery.isLoading
 
@@ -165,10 +169,13 @@ export const MetricCustomersCard = ({ metricId, aggregationType }: MetricCustome
           ))}
         </div>
       ) : visibleRows.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-32 text-muted-foreground gap-2">
-          <Users size={20} className="opacity-60" />
-          <div className="text-sm">No customer usage in this period</div>
-        </div>
+        <SectionEmptyState
+          className="bg-card"
+          icon={<Users />}
+          title="No customer usage in this period"
+        >
+          Customers who send events for this metric show here, ranked by their usage.
+        </SectionEmptyState>
       ) : (
         <div className="space-y-2.5">
           {visibleRows.map(row => {

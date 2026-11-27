@@ -83,14 +83,14 @@ export const EventTypesSummary = ({ eventTypes }: { eventTypes: string[] }) => {
   if (eventTypes.length < 2) return <span>{summary}</span>
 
   return (
-    <TooltipProvider delayDuration={100}>
+    <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
           <span className="cursor-default underline decoration-dotted underline-offset-4">
             {summary}
           </span>
         </TooltipTrigger>
-        <TooltipContent className="max-w-[320px]">
+        <TooltipContent multiline className="max-w-[320px]">
           <ul className="space-y-0.5 font-mono text-xs">
             {[...eventTypes].sort().map(eventType => (
               <li key={eventType}>{eventType}</li>

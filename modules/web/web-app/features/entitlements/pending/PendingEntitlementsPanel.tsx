@@ -363,7 +363,7 @@ export const PendingEntitlementsPanel: FC<Props> = ({ selection, pending, onChan
                 Pin all
               </Button>
             </TooltipTrigger>
-            <TooltipContent className="max-w-56">
+            <TooltipContent multiline className="max-w-56">
               {`Save local copies of every upstream entitlement on this ${entityLabel}. Already-pinned entries are skipped.`}
             </TooltipContent>
           </Tooltip>

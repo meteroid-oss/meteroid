@@ -1,8 +1,11 @@
 import { skipToken } from '@connectrpc/connect-query'
 import { Button } from '@md/ui'
+import { Coins, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router'
 
-import { PageSection } from '@/components/layouts/shared/PageSection'
+import { SectionEmptyState } from '@/components/empty-state/SectionEmptyState'
+import { DetailSection } from '@/components/layouts/DetailLayout'
+import { SectionAddButton } from '@/features/customers/cards/ContainedTableSection'
 import { useIsDraftVersion, usePlanWithVersion } from '@/features/plans/hooks/usePlan'
 import { EditPriceComponent } from '@/features/plans/pricecomponents/EditPriceComponent'
 import { PriceComponentCard } from '@/features/plans/pricecomponents/PriceComponentCard'
@@ -25,16 +28,17 @@ export const PriceComponentSection = () => {
   const priceComponents = list?.components
 
   return (
-    <PageSection
-      header={{
-        title: 'Pricing',
-        subtitle: 'What subscribers on this plan pay.',
-        actions: isDraft ? (
-          <Button variant="outline" onClick={() => navigate('./add-component')} className="py-1.5">
-            + Add a price component
-          </Button>
-        ) : null,
-      }}
+    <DetailSection
+      title="Pricing"
+      description="What subscribers on this plan pay."
+      actions={
+        isDraft && (
+          <SectionAddButton
+            label="Add a price component"
+            onClick={() => navigate('./add-component')}
+          />
+        )
+      }
     >
       <ComponentRefsProvider list={list}>
         <div className="grid gap-y-4">
@@ -46,10 +50,30 @@ export const PriceComponentSection = () => {
             )
           )}
           {priceComponents?.length === 0 && (
-            <span className="text-sm text-muted-foreground">No price components</span>
+            <SectionEmptyState
+              className="bg-card"
+              icon={<Coins />}
+              title="No pricing yet"
+              action={
+                isDraft && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    hasIcon
+                    onClick={() => navigate('./add-component')}
+                  >
+                    <Plus size={14} /> Add a price component
+                  </Button>
+                )
+              }
+            >
+              {isDraft
+                ? 'Add a price component to set what subscribers on this plan pay: a flat fee, seats, usage or a one-off charge.'
+                : 'This version has no price components. Create a new version to add pricing.'}
+            </SectionEmptyState>
           )}
         </div>
       </ComponentRefsProvider>
-    </PageSection>
+    </DetailSection>
   )
 }

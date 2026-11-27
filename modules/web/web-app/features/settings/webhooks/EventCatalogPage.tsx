@@ -12,9 +12,10 @@ import {
 } from '@md/ui'
 import { githubDark, githubLight } from '@uiw/codemirror-theme-github'
 import CodeMirror from '@uiw/react-codemirror'
-import { ArrowLeftIcon, CheckIcon, CopyIcon } from 'lucide-react'
+import { CheckIcon, CopyIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
+import { ListSkeleton } from '@/components/Loading'
 import { useQuery } from '@/lib/connectrpc'
 import { copyToClipboard } from '@/lib/helpers'
 import { type WebhookEventType } from '@/rpc/api/webhooksout/v1/models_pb'
@@ -22,7 +23,7 @@ import { listWebhookEventTypes } from '@/rpc/api/webhooksout/v1/webhooksout-Webh
 import { useTheme } from 'providers/ThemeProvider'
 
 /** Every event an endpoint can subscribe to, with what it means and its payload. */
-export const EventCatalogPage = ({ onBack }: { onBack: () => void }) => {
+export const EventCatalogPage = () => {
   const eventTypesQuery = useQuery(listWebhookEventTypes)
   const [selectedName, setSelectedName] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -44,21 +45,14 @@ export const EventCatalogPage = ({ onBack }: { onBack: () => void }) => {
 
   return (
     <div className="flex max-w-5xl flex-col gap-5">
-      <div className="space-y-3">
-        <Button variant="ghost" size="sm" hasIcon className="-ml-2" onClick={onBack}>
-          <ArrowLeftIcon size={14} /> Webhooks
-        </Button>
-        <div className="space-y-1">
-          <h3 className="text-base font-semibold">Event catalog</h3>
-          <p className="text-sm text-muted-foreground">
-            The events you can subscribe an endpoint to. Amounts are integers in the currency&apos;s
-            minor unit, so 129000 in EUR is €1,290.00.
-          </p>
-        </div>
-      </div>
+      {/* Its place is the Event catalog tab of Webhooks, which names it. */}
+      <p className="text-[13px] leading-snug text-muted-foreground">
+        The events you can subscribe an endpoint to. Amounts are integers in the currency&apos;s
+        minor unit, so 129000 in EUR is €1,290.00.
+      </p>
 
       {eventTypesQuery.isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <ListSkeleton rows={6} className="p-0" />
       ) : (
         <div className="flex min-h-0 gap-6">
           <nav className="w-60 shrink-0 space-y-4">

@@ -1,20 +1,29 @@
 import {
-  Button,
-  Command,
-  CommandEmpty,
-  CommandItem,
+  cn,
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
   Flex,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
   useSidebar,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { CommandList } from 'cmdk'
-import { ChevronsUpDownIcon, PlusIcon } from 'lucide-react'
+import { PlusIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 
+import { SelectorChevronsIcon } from '@/components/icons/AppIcons'
+import {
+  SIDEBAR_MENU_CONTENT,
+  SIDEBAR_MENU_ITEM,
+  SIDEBAR_MENU_ITEM_CURRENT,
+  SIDEBAR_MENU_SEPARATOR,
+} from '@/components/layouts/shared/sidebarMenuStyles'
+import { CreateTenantModal } from '@/features/tenants/CreateTenant'
 import { useOrganizationSlug } from '@/hooks/useOrganization'
 import { useTenant } from '@/hooks/useTenant'
 import { useQuery } from '@/lib/connectrpc'
@@ -40,62 +49,81 @@ export const TenantDropdown = () => {
   const tenants = useQuery(listTenants).data?.tenants ?? []
 
   const [open, setOpen] = useState(false)
+  const [creating, setCreating] = useState(false)
 
   useEffect(() => {
     setOpen(false)
   }, [tenant])
 
+  // The environment's colour in the round slot the design gives the tenant (as in the menu below).
   const tenantColor = (
-    <span className={`rounded-full p-1 h-4 w-4 ${getColor(tenant?.environment)}`} />
+    <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-foreground/10">
+      <span className={cn('size-1.5 rounded-full', getColor(tenant?.environment))} />
+    </span>
   )
 
-  return state === 'collapsed' ? (
-    <div className={`h-4 w-4 rounded-full ${getColor(tenant?.environment)} text-center`} />
+  const menu = state === 'collapsed' ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="flex h-8 w-full items-center justify-center">
+          <span className={`size-2 rounded-full ${getColor(tenant?.environment)}`} />
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="right">{tenant?.name}</TooltipContent>
+    </Tooltip>
   ) : (
     <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger className="w-full">
+      <DropdownMenuTrigger className="w-full rounded-full outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring">
+        {/* A pill: a quiet 6% tint (about #222 on the sidebar) and a 10% border. */}
         <Flex
           align="center"
-          justify="between"
-          className="h-8 px-4 py-2 rounded-full border border-[#FFFFFF15] tenant-popover-bg w-full hover:bg-sidebar-accent"
+          className="h-8 w-full gap-2 rounded-full border border-foreground/10 bg-foreground/[0.06] pl-2.5 pr-4 transition-colors hover:bg-foreground/10"
         >
-          <Flex align="center" className="gap-2">
-            {tenantColor}
-            <span className="max-w-36 overflow-hidden text-nowrap text-xs" title={tenant?.name}>
-              {tenant?.name}
-            </span>
-          </Flex>
-          <ChevronsUpDownIcon size="13" className="text-muted-foreground" />
+          {tenantColor}
+          <span
+            className="min-w-0 flex-1 truncate text-left text-[13px] leading-[18px] font-medium text-foreground"
+            title={tenant?.name}
+          >
+            {tenant?.name}
+          </span>
+          <SelectorChevronsIcon className="text-faint-foreground" />
         </Flex>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[246px] p-0">
-        <Command>
-          <CommandEmpty>No tenant found.</CommandEmpty>
-          <CommandList className="max-h-52 overflow-y-auto">
-            {tenants
-              .sort((a, b) => a.name.localeCompare(b.name))
-              .map(tenant => (
-                <Link
-                  key={tenant.id}
-                  to={`/${org}/${tenant.slug}`}
-                  onClick={() => queryClient.invalidateQueries()}
-                >
-                  <CommandItem key={tenant.id} className="flex flex-row space-x-2 items-center ">
-                    <span className={`rounded-full p-1 ${getColor(tenant?.environment)}`} />
-                    <span>{tenant.name}</span>
-                  </CommandItem>
-                </Link>
-              ))}
-          </CommandList>
-          <CommandItem>
-            <Link to={`/${org}/tenants/new`} className="w-full text-xs">
-              <Button size="content" variant="ghost" hasIcon className="text-xs">
-                <PlusIcon size="12" /> New tenant
-              </Button>
-            </Link>
-          </CommandItem>
-        </Command>
+      <DropdownMenuContent
+        side="top"
+        align="start"
+        className={cn('max-h-80 w-[246px] overflow-y-auto', SIDEBAR_MENU_CONTENT)}
+      >
+        {[...tenants]
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map(t => (
+            <DropdownMenuItem
+              key={t.id}
+              asChild
+              className={cn(SIDEBAR_MENU_ITEM, t.id === tenant?.id && SIDEBAR_MENU_ITEM_CURRENT)}
+            >
+              <Link to={`/${org}/${t.slug}`} onClick={() => queryClient.invalidateQueries()}>
+                {/* The environment's colour, in the round slot the design gives each tenant. */}
+                <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-foreground/10">
+                  <span className={cn('size-1.5 rounded-full', getColor(t.environment))} />
+                </span>
+                <span className="truncate">{t.name}</span>
+              </Link>
+            </DropdownMenuItem>
+          ))}
+        <DropdownMenuSeparator className={SIDEBAR_MENU_SEPARATOR} />
+        <DropdownMenuItem className={SIDEBAR_MENU_ITEM} onSelect={() => setCreating(true)}>
+          <PlusIcon size={16} strokeWidth={1.5} className="shrink-0" />
+          Create new tenant
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+
+  return (
+    <>
+      {menu}
+      <CreateTenantModal open={creating} onOpenChange={setCreating} />
+    </>
   )
 }

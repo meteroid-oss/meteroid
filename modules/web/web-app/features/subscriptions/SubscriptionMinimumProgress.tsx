@@ -18,7 +18,7 @@ export const SubscriptionMinimumProgress = ({ subscriptionId }: { subscriptionId
   )
   if (query.isLoading) {
     return (
-      <div className="mb-6 rounded-lg border border-border bg-card p-4">
+      <div className="rounded-lg border border-border bg-card p-4">
         <Skeleton height={16} width={200} className="mb-3" />
         <Skeleton height={12} />
       </div>

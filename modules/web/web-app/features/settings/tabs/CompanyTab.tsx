@@ -1,9 +1,9 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
   Button,
+  FieldLabel,
   Form,
   InputFormField,
-  Label,
   Select,
   SelectContent,
   SelectItem,
@@ -16,7 +16,7 @@ import { useWatch } from 'react-hook-form'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
-import { CopyToClipboardButton } from '@/components/CopyToClipboard'
+import { CopyField } from '@/components/CopyToClipboard'
 import { InlineLoading } from '@/components/Loading'
 import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
 import {
@@ -159,12 +159,8 @@ export const CompanyTab = () => {
               autoComplete="off"
             />
             <div className="space-y-1">
-              <Label>Invoice entity ID</Label>
-              <CopyToClipboardButton
-                text={invoiceEntityId || ''}
-                buttonClassName="w-full justify-start"
-                buttonVariant="outline"
-              />
+              <FieldLabel>Invoice entity ID</FieldLabel>
+              <CopyField label="Invoice entity ID" value={invoiceEntityId || ''} />
             </div>
             <InputFormField
               name="addressLine1"
@@ -289,7 +285,7 @@ const CountrySelect = ({ methods }: { methods: Methods<typeof merchantSchema> })
 
   return (
     <div className="space-y-1">
-      <Label>Country</Label>
+      <FieldLabel>Country</FieldLabel>
       <Select value={country}>
         <SelectTrigger disabled>
           <SelectValue placeholder="Select a country" />

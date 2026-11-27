@@ -15,14 +15,18 @@ import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 
 import { Gate } from '@/components/Gate'
+import { InitialAvatar } from '@/components/icons/AppIcons'
 import { slotItems } from '@/edition'
 import { MemberAvatar } from '@/features/accounts/components/MemberAvatar'
+import { MemberPicker } from '@/features/accounts/components/MemberPicker'
+import { useAssignOwner } from '@/features/accounts/hooks/useAssignOwner'
 import {
   IntegrationType,
   SyncCustomerModal,
 } from '@/features/settings/integrations/SyncCustomerModal'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
+import { usePermissions } from '@/hooks/usePermissions'
 import { useQuery } from '@/lib/connectrpc'
 import { lifecycleStateLabel, lifecycleStateVariant } from '@/lib/lifecycle'
 import { formatCurrency } from '@/lib/utils/numbers'
@@ -72,7 +76,10 @@ const CustomerRowActions = ({
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <MoreVerticalIcon size={16} className="cursor-pointer" />
+          <MoreVerticalIcon
+            size={16}
+            className="cursor-pointer text-faint-foreground hover:text-foreground transition-colors"
+          />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={() => navigate(`${basePath}/customers/${customerId}`)}>
@@ -127,48 +134,21 @@ export const useCustomersColumns = ({ rows }: { rows: CustomerBrief[] }) => {
         id: 'name',
         header: 'Name',
         enableSorting: true,
-        cell: ({ row }) => <Link to={`${row.original.id}`}>{row.original.name}</Link>,
-      },
-      ...moduleColumns.map(
-        ({ id, header, Cell }) =>
-          ({
-            id,
-            header,
-            enableSorting: false,
-            cell: ({ row }) => <Cell customer={row.original} />,
-          }) satisfies ColumnDef<CustomerBrief>
-      ),
-      {
-        header: 'Country',
-        className: 'hidden md:table-cell',
-        cell: ({ row }) => <CountryFlag name={row.original.country} />,
-        enableSorting: false,
+        cell: ({ row }) => (
+          <Link to={`${row.original.id}`} className="flex items-center gap-2 font-medium">
+            <InitialAvatar name={row.original.name} />
+            <span className="truncate">{row.original.name}</span>
+          </Link>
+        ),
       },
       {
-        id: 'lifecycle',
-        header: 'Status',
-        enableSorting: false,
-        cell: ({ row }) =>
-          row.original.lifecycleState ? (
-            <Badge variant={lifecycleStateVariant(row.original.lifecycleState)}>
-              {lifecycleStateLabel(row.original.lifecycleState)}
-            </Badge>
-          ) : null,
+        id: 'alias',
+        header: 'Alias',
+        className: 'hidden 2xl:table-cell',
+        accessorFn: cell => cell.alias,
+        // Secondary to the name, like the country: muted.
+        cell: ({ row }) => <span className="text-muted-foreground">{row.original.alias}</span>,
       },
-      ...(isExpress
-        ? []
-        : [
-            {
-              id: 'owner',
-              header: 'Owner',
-              enableSorting: false,
-              className: 'w-16',
-              // The initials, with the name in a tooltip: a name column would crowd the row.
-              cell: ({ row }: { row: Row<CustomerBrief> }) => (
-                <MemberAvatar userId={row.original.owner?.userId} />
-              ),
-            } as ColumnDef<CustomerBrief>,
-          ]),
       {
         id: 'mrr',
         header: 'MRR',
@@ -183,17 +163,56 @@ export const useCustomersColumns = ({ rows }: { rows: CustomerBrief[] }) => {
           ),
       },
       {
+        id: 'lifecycle',
+        header: 'Status',
+        enableSorting: false,
+        cell: ({ row }) =>
+          row.original.lifecycleState ? (
+            <Badge variant={lifecycleStateVariant(row.original.lifecycleState)}>
+              {lifecycleStateLabel(row.original.lifecycleState)}
+            </Badge>
+          ) : null,
+      },
+      {
         id: 'email',
         header: 'Email',
         className: 'hidden lg:table-cell max-w-[16rem] truncate',
         accessorFn: cell => cell.billingEmail,
       },
       {
-        id: 'alias',
-        header: 'Alias',
-        className: 'hidden 2xl:table-cell',
-        accessorFn: cell => cell.alias,
+        id: 'country',
+        header: 'Country',
+        className: 'hidden md:table-cell text-right',
+        // Secondary to the name: muted, as the other supporting columns; to the right.
+        cell: ({ row }) => (
+          <span className="flex justify-end text-muted-foreground">
+            <CountryFlag name={row.original.country} />
+          </span>
+        ),
+        enableSorting: false,
       },
+      ...(isExpress
+        ? []
+        : [
+            {
+              id: 'owner',
+              header: 'Owner',
+              enableSorting: false,
+              className: 'w-20',
+              // Picked in the cell itself: not a link to the customer.
+              meta: { skipLink: true },
+              cell: ({ row }: { row: Row<CustomerBrief> }) => <OwnerCell customer={row.original} />,
+            } as ColumnDef<CustomerBrief>,
+          ]),
+      ...moduleColumns.map(
+        ({ id, header, Cell }) =>
+          ({
+            id,
+            header,
+            enableSorting: false,
+            cell: ({ row }) => <Cell customer={row.original} />,
+          }) satisfies ColumnDef<CustomerBrief>
+      ),
       {
         id: 'created_at',
         header: 'Created',
@@ -221,5 +240,39 @@ export const useCustomersColumns = ({ rows }: { rows: CustomerBrief[] }) => {
     // The visible module columns are identified by their ids.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [moduleColumnIds, isExpress]
+  )
+}
+
+/**
+ * The account owner: their initials (the name in a tooltip, as a name would crowd the row), or a
+ * dashed circle when nobody owns the account. Who may manage customers picks the owner here.
+ */
+const OwnerCell = ({ customer }: { customer: CustomerBrief }) => {
+  const canAssign = usePermissions().has('customers:manage')
+  const assign = useAssignOwner()
+  const ownerId = customer.owner?.userId
+
+  if (!canAssign) {
+    return ownerId ? (
+      <MemberAvatar userId={ownerId} />
+    ) : (
+      <span
+        aria-label="No owner"
+        role="img"
+        className="block h-5 w-5 rounded-full border border-dashed border-foreground/25"
+      />
+    )
+  }
+
+  return (
+    <MemberPicker
+      compact
+      // The column sits on the right: the menu opens from the avatar's right edge, leftwards.
+      align="end"
+      value={ownerId}
+      label={`Owner of ${customer.name}`}
+      disabled={assign.isPending}
+      onChange={ownerUserId => assign.mutate({ customerIds: [customer.id], ownerUserId })}
+    />
   )
 }

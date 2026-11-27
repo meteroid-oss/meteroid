@@ -1,4 +1,4 @@
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
   Button,
   Form,
@@ -54,10 +54,11 @@ export const PlanTrial = ({
   }
 
   return (
-    <div className="flex flex-row gap-2 items-center text-sm ">
+    // The trial as a row in a box, as the other sections' content; Edit on its right in a draft.
+    <div className="flex flex-row items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-3 text-sm">
       <PlanTrialReadonly config={config} currentPlanId={currentPlanId} planType={planType} />
       {isDraft && (
-        <Button type="button" variant="link" onClick={() => setIsEditing(true)}>
+        <Button type="button" size="sm" variant="secondary" onClick={() => setIsEditing(true)}>
           Edit
         </Button>
       )}
@@ -104,7 +105,7 @@ export function PlanTrialForm({
       queryClient.invalidateQueries({
         queryKey: createConnectQueryKey({
           schema: getPlanOverview.parent,
-          cardinality: undefined
+          cardinality: undefined,
         }),
       })
     },
@@ -238,11 +239,14 @@ export function PlanTrialForm({
                     <>No payment method will be required.</>
                   ) : data.trialIsFree ? (
                     <>
-                      If checkout and automatic charge are set, payment method will be collected at checkout and a charge
-                      will be made when the trial ends.
+                      If checkout and automatic charge are set, payment method will be collected at
+                      checkout and a charge will be made when the trial ends.
                     </>
                   ) : (
-                    <>This is a paid trial. Only the resolved features are impacted, not the billing period nor the price.</>
+                    <>
+                      This is a paid trial. Only the resolved features are impacted, not the billing
+                      period nor the price.
+                    </>
                   )}
                 </p>
               </div>
@@ -302,14 +306,22 @@ export function PlanTrialReadonly({ config, currentPlanId, planType }: PlanTrial
   const isFreePlan = planType === PlanType.FREE
 
   if (!config) {
-    return <p className="text-sm">No trial configured.</p>
+    return (
+      <p className="text-sm text-muted-foreground">
+        No trial configured. New subscribers start on this plan right away.
+      </p>
+    )
   }
 
   const renderTrialDescription = () => {
     const { durationDays, trialingPlanId, trialIsFree } = config
 
     if (!durationDays || durationDays <= 0) {
-      return <p className="text-sm">No trial configured.</p>
+      return (
+        <p className="text-sm text-muted-foreground">
+          No trial configured. New subscribers start on this plan right away.
+        </p>
+      )
     }
 
     const trialPlanName = isCurrentPlan(trialingPlanId)

@@ -12,7 +12,7 @@ import {
   PopoverTrigger,
   cn,
 } from '@md/ui'
-import { Check, ChevronsUpDown } from 'lucide-react'
+import { Check, ChevronDown, ChevronsUpDown } from 'lucide-react'
 import { useState } from 'react'
 
 import { MemberAvatar } from '@/features/accounts/components/MemberAvatar'
@@ -32,6 +32,7 @@ export const MemberPicker = ({
   align = 'start',
   compact = false,
   field = false,
+  variant = 'ghost',
 }: {
   value?: string
   onChange: (userId: string | undefined) => void
@@ -45,6 +46,8 @@ export const MemberPicker = ({
   compact?: boolean
   /** A form field beside selects: their height, background and border. */
   field?: boolean
+  /** The trigger's button style; `secondary` among other actions (a selection's toolbar). */
+  variant?: 'ghost' | 'secondary'
 }) => {
   const [open, setOpen] = useState(false)
   const { members, meId, isLoading } = useMembers()
@@ -58,7 +61,7 @@ export const MemberPicker = ({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild disabled={disabled}>
         <Button
-          variant="ghost"
+          variant={variant}
           size="sm"
           role="combobox"
           aria-expanded={open}
@@ -79,15 +82,21 @@ export const MemberPicker = ({
             ) : (
               <span
                 aria-hidden
-                className="h-5 w-5 rounded-full border border-dashed border-muted-foreground/50"
+                className="h-5 w-5 rounded-full border border-dashed border-foreground/25"
               />
             )
           ) : value ? (
             <MemberAvatar userId={value} showName size={field ? 'sm' : 'md'} />
           ) : (
-            <span className="text-muted-foreground">{placeholder}</span>
+            <span className={variant === 'secondary' ? undefined : 'text-muted-foreground'}>
+              {placeholder}
+            </span>
           )}
-          {!disabled && !compact && (
+          {/* Among actions it opens a menu (one chevron); as a field it picks a value (two). */}
+          {!disabled && !compact && variant === 'secondary' && (
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          )}
+          {!disabled && !compact && variant !== 'secondary' && (
             <ChevronsUpDown
               className={cn(
                 'shrink-0',

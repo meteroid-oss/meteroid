@@ -16,8 +16,8 @@ import {
 } from '../ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 
-import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from './form'
-import { genericFormFieldVariants as genVariants } from './generic-form-field'
+import { FormControl, FormDescription, FormField, FormItem, FormMessage } from './form'
+import { FieldLabel, genericFormFieldVariants as genVariants } from './generic-form-field'
 
 interface FormComboboxProps<
   TFieldValues extends FieldValues,
@@ -71,11 +71,17 @@ export function ComboboxFormField<
       {...props}
       render={({ field }) => (
         <FormItem className={cn(genVariants.formField({ layout }), containerClassName)}>
+          {/* The same label row as every other field: on the bare FormLabel (inline), the
+              vertical margin did nothing and the label sat on the control. */}
           {label && (
-            <FormLabel className={cn('my-2', genVariants.label({ layout }), labelClassName)}>
+            <FieldLabel
+              asFormLabel
+              required={required}
+              layout={layout}
+              labelClassName={labelClassName}
+            >
               {label}
-              {required && <span className="text-destructive text-xs pl-1">*</span>}
-            </FormLabel>
+            </FieldLabel>
           )}
           <Popover open={open} onOpenChange={setOpen} modal>
             <PopoverTrigger asChild>
@@ -86,7 +92,8 @@ export function ComboboxFormField<
                   aria-expanded={open}
                   aria-required={required}
                   className={cn(
-                    'flex h-9 w-full border border-border items-center justify-between whitespace-nowrap rounded-md font-normal  bg-input hover:bg-input px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1',
+                    // Drawn as a text field (see Input).
+                    'flex h-8 w-full items-center justify-between whitespace-nowrap rounded-md border border-field-border bg-field px-3 py-1 text-[13px] font-normal text-field-foreground shadow-none transition-[border-color,box-shadow] hover:bg-field placeholder:text-field-placeholder focus:outline-none focus-visible:border-foreground/25 focus-visible:ring-[3px] focus-visible:ring-foreground/8 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1',
                     // horizontal layout makes FormItem a 12-col grid — claim the 8 columns
                     // the label leaves, like SelectFormField does. flex-row undoes the
                     // variant's flex-col, which would stack the value above the caret.
@@ -165,7 +172,7 @@ export function ComboboxFormField<
                     <>
                       <CommandSeparator />
                       <div
-                        className="h-8 relative flex cursor-default select-none items-center rounded-sm pt-1 text-sm outline-none"
+                        className="h-8 relative flex cursor-pointer select-none items-center rounded-sm pt-1 text-sm outline-none"
                         onClick={() => setOpen(false)}
                       >
                         {action}

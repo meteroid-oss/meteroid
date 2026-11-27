@@ -82,7 +82,7 @@ export const DeliveriesChart = ({ stats }: { stats: WebhookDailyStats[] }) => {
         </div>
       </div>
 
-      <TooltipProvider delayDuration={50}>
+      <TooltipProvider>
         <div className="flex items-end gap-2" style={{ height: BAR_AREA_PX + 20 }}>
           {days.map(day => {
             const bars = SEGMENTS.map(segment => ({

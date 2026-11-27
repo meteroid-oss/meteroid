@@ -1,4 +1,4 @@
-import { createBrowserRouter } from 'react-router'
+import { createBrowserRouter, type RouteObject } from 'react-router'
 
 import { OnboardingLayout } from '@/components/layouts/OnboardingLayout'
 import { editionOrgRoutes, editionProtectedRoutes, editionRootRoutes } from '@/edition'
@@ -18,6 +18,19 @@ import { Providers } from 'providers/Providers'
 import { anonymousRoutes } from 'router/anonymous'
 import { portalRoutes } from 'router/portal'
 import { tenantRoutes } from 'router/tenant'
+
+// Design previews, served by the dev server only (and left out of production builds).
+const devPreviewRoutes: RouteObject[] = import.meta.env.DEV
+  ? [
+      {
+        path: '/preview/go-live',
+        lazy: async () => ({
+          Component: (await import('@/pages/preview/goLivePreview')).GoLivePreview,
+        }),
+        handle: { title: 'Go live preview' },
+      },
+    ]
+  : []
 
 const router = createBrowserRouter(
   [
@@ -92,6 +105,7 @@ const router = createBrowserRouter(
           handle: { title: 'Accept invite' },
         },
         ...editionRootRoutes(),
+        ...devPreviewRoutes,
       ],
     },
   ]

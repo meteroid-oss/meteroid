@@ -7,7 +7,6 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-  GenericFormField,
   Label,
   Popover,
   PopoverContent,
@@ -17,9 +16,7 @@ import {
 } from '@md/ui'
 import { Plus, Tag, X } from 'lucide-react'
 import { useState } from 'react'
-import { useFormContext } from 'react-hook-form'
 
-import { SubscribablePlanVersionSelect } from '@/features/plans/SubscribablePlanVersionSelect'
 import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
 import { priceSummaryBadges } from '@/features/plans/pricecomponents/utils'
 import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
@@ -34,7 +31,6 @@ import {
 } from '@/features/subscriptions/pricecomponents/PriceComponentsLogic'
 
 import type { LinesTableActions } from '@/features/quotes/editor/LinesTable'
-import type { QuoteFormValues } from '@/features/quotes/editor/quoteFormSchema'
 import type { EditorLine, QuoteV2State } from '@/features/quotes/editor/quoteV2'
 import type { PriceComponentsState } from '@/features/subscriptions/pricecomponents/PriceComponentsLogic'
 import type { AddOn } from '@/rpc/api/addons/v1/models_pb'
@@ -92,7 +88,6 @@ export const LinesSection = ({
   minimumCommitment,
   requireCustomer = true,
 }: LinesSectionProps) => {
-  const { control } = useFormContext<QuoteFormValues>()
   const [addingFee, setAddingFee] = useState(false)
   const [overrideComponentId, setOverrideComponentId] = useState<string>()
   const [editExtraIndex, setEditExtraIndex] = useState<number>()
@@ -115,25 +110,13 @@ export const LinesSection = ({
   const setDisplay = (patch: Partial<QuoteV2State['displayOptions']>) =>
     setV2(prev => ({ ...prev, displayOptions: { ...prev.displayOptions, ...patch } }))
 
-  const planSelect = (
-    <div className="flex flex-col items-end gap-1">
-      <GenericFormField
-        control={control}
-        name="plan_version_id"
-        label="Plan"
-        layout="vertical"
-        containerClassName="w-64 max-w-full"
-        render={({ field }) => (
-          <SubscribablePlanVersionSelect value={field.value} onChange={field.onChange} />
-        )}
-      />
-      {currency && <span className="text-xs text-muted-foreground">Priced in {currency}</span>}
-    </div>
-  )
-
   const content = () => {
     if (!planVersionId) {
-      return <p className="text-sm text-muted-foreground">No plan selected</p>
+      return (
+        <p className="text-sm text-muted-foreground">
+          Choose a plan under Quote details: its lines appear here.
+        </p>
+      )
     }
     if (requireCustomer && !customerId) {
       return <p className="text-sm text-muted-foreground">No customer selected</p>
@@ -299,7 +282,7 @@ export const LinesSection = ({
   }
 
   return (
-    <EditorSection id="quote-lines" title="Plan & lines" aside={planSelect}>
+    <EditorSection id="quote-lines" title="Line items">
       {content()}
     </EditorSection>
   )

@@ -36,7 +36,7 @@ export const FilterChip = ({ filter, field, loaded, onChange, onRemove }: Props)
   if (unavailable) {
     return (
       <div
-        className="flex items-center rounded-md border border-dashed text-xs text-muted-foreground"
+        className="flex h-[26px] items-center rounded-[5px] border-[0.5px] border-dashed border-foreground/25 text-xs text-muted-foreground"
         title="This field is no longer available, so this filter is ignored"
       >
         <span className="flex items-center gap-1 px-2 py-1">
@@ -56,18 +56,22 @@ export const FilterChip = ({ filter, field, loaded, onChange, onRemove }: Props)
   }
 
   return (
-    <div className="flex items-center rounded-md border bg-muted/40 text-xs">
+    // A raised pill: the field, its operator (quieter) and the value, then a divider and ✕.
+    <div className="flex h-[26px] max-w-80 items-center overflow-hidden rounded-[5px] border-[0.5px] border-foreground/15 bg-foreground/[0.05] text-xs">
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <button className="flex items-center gap-1 px-2 py-1 hover:bg-muted" type="button">
-            <span className="font-medium">{label}</span>
-            <span className="text-muted-foreground">{OP_LABELS[filter.op]}</span>
+          <button
+            className="flex h-full min-w-0 items-center gap-1 px-2 transition-colors hover:bg-foreground/[0.05] focus-visible:outline-none focus-visible:bg-foreground/[0.08]"
+            type="button"
+          >
+            <span className="shrink-0 font-medium text-foreground">{label}</span>
+            <span className="shrink-0 text-muted-foreground">{OP_LABELS[filter.op]}</span>
             {field && OPTION_WIDGETS.has(field.widget) && !VALUELESS_OPS.has(filter.op) ? (
-              <span className="font-medium">
+              <span className="truncate font-medium text-foreground">
                 <OptionSummary widget={field.widget as OptionWidget} values={filter.values} />
               </span>
             ) : (
-              summary && <span className="font-medium">{summary}</span>
+              summary && <span className="truncate font-medium text-foreground">{summary}</span>
             )}
           </button>
         </PopoverTrigger>
@@ -87,12 +91,43 @@ export const FilterChip = ({ filter, field, loaded, onChange, onRemove }: Props)
       </Popover>
       <button
         type="button"
-        className="px-1.5 py-1 text-muted-foreground hover:text-foreground"
+        className="flex h-full shrink-0 items-center border-l-[0.5px] border-foreground/15 px-1.5 text-muted-foreground transition-colors hover:bg-foreground/[0.05] hover:text-foreground focus-visible:outline-none focus-visible:bg-foreground/[0.08]"
         onClick={onRemove}
-        aria-label="Remove filter"
+        aria-label={`Remove the ${label} filter`}
       >
         <XIcon size="12" />
       </button>
     </div>
   )
 }
+
+/**
+ * A filter the page was opened with (from a link, e.g. one subscription's invoices) rather than
+ * one picked in the Filter menu: the same pill, with only a way to clear it.
+ */
+export const ContextChip = ({
+  label,
+  value,
+  onRemove,
+  removeLabel,
+}: {
+  label: string
+  value?: string
+  onRemove: () => void
+  removeLabel: string
+}) => (
+  <div className="flex h-[26px] max-w-80 items-center overflow-hidden rounded-[5px] border-[0.5px] border-foreground/15 bg-foreground/[0.05] text-xs">
+    <span className="flex min-w-0 items-center gap-1 px-2">
+      <span className="shrink-0 font-medium text-foreground">{label}</span>
+      {value && <span className="truncate text-muted-foreground">{value}</span>}
+    </span>
+    <button
+      type="button"
+      className="flex h-full shrink-0 items-center border-l-[0.5px] border-foreground/15 px-1.5 text-muted-foreground transition-colors hover:bg-foreground/[0.05] hover:text-foreground focus-visible:outline-none focus-visible:bg-foreground/[0.08]"
+      onClick={onRemove}
+      aria-label={removeLabel}
+    >
+      <XIcon size="12" />
+    </button>
+  </div>
+)

@@ -345,12 +345,12 @@ export const StepSettings = () => {
                       >
                         Migration Settings
                       </Label>
-                      <TooltipProvider delayDuration={100}>
+                      <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <InfoIcon className="h-4 w-4 text-muted-foreground cursor-help" />
                           </TooltipTrigger>
-                          <TooltipContent className="max-w-xs">
+                          <TooltipContent multiline className="max-w-xs">
                             <p>
                               {activationCondition !== 'ON_START'
                                 ? 'Requires "On Start Date" activation condition.'
@@ -539,12 +539,12 @@ export const StepSettings = () => {
                     placeholder="Select payment method type"
                     control={methods.control}
                     labelTooltip={
-                      <TooltipProvider delayDuration={100}>
+                      <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <InfoIcon className="h-4 w-4 text-muted-foreground cursor-help" />
                           </TooltipTrigger>
-                          <TooltipContent className="max-w-96">
+                          <TooltipContent multiline className="max-w-96">
                             Online: Use card and/or direct debit payments via your payment
                             providers.
                             <br />
@@ -574,12 +574,12 @@ export const StepSettings = () => {
                   <div className="space-y-2">
                     <div className="flex items-center gap-1">
                       <Label className="text-sm font-medium">Auto-advance invoices</Label>
-                      <TooltipProvider delayDuration={100}>
+                      <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <InfoIcon className="h-4 w-4 text-muted-foreground cursor-help" />
                           </TooltipTrigger>
-                          <TooltipContent>
+                          <TooltipContent multiline>
                             <p className="max-w-xs">
                               Automatically finalize draft invoices when generated. Disable to
                               manually review and finalize invoices.
@@ -608,12 +608,12 @@ export const StepSettings = () => {
                   <div className="space-y-2">
                     <div className="flex items-center gap-1">
                       <Label className="text-sm font-medium">Charge automatically</Label>
-                      <TooltipProvider delayDuration={100}>
+                      <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <InfoIcon className="h-4 w-4 text-muted-foreground cursor-help" />
                           </TooltipTrigger>
-                          <TooltipContent>
+                          <TooltipContent multiline>
                             <p className="max-w-xs">
                               {!hasOnlinePaymentProvider
                                 ? 'Requires a card or direct debit payment provider to be configured on the invoicing entity.'
@@ -750,7 +750,7 @@ export const StepSettings = () => {
         )}
 
         <div className="flex gap-2 justify-end">
-          <Button onClick={previousStep} variant="secondary">
+          <Button type="button" onClick={previousStep} variant="secondary">
             Back
           </Button>
           <Button type="submit">Next: Summary</Button>

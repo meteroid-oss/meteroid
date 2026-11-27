@@ -8,6 +8,7 @@ export const QuoteActivityCard = ({ quoteId }: { quoteId: string }) => (
       entityId={quoteId}
       limit={5}
       emptyLabel="No activity recorded"
+      timeline
     />
   </RailCard>
 )

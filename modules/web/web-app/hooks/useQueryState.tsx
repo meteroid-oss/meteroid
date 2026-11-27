@@ -8,6 +8,15 @@ export const ARRAY_SERDE = {
   deserialize: (value: string) => value.split(','),
 }
 
+/**
+ * A list whose empty value means "every value" (no filter) while its default is a selection:
+ * kept as `all`, since an empty param would fall back to the default.
+ */
+export const ALL_OR_LIST_SERDE = {
+  serialize: (value: string[]) => (value.length > 0 ? value.join(',') : 'all'),
+  deserialize: (value: string) => (value === 'all' ? [] : value.split(',')),
+}
+
 // URL-friendly serde for a protobuf enum, storing the readable enum name
 // (e.g. ?status=FINALIZED) and mapping undefined to an absent param.
 export const enumSerde = <E extends Record<string, string | number>>(enumObj: E) => ({

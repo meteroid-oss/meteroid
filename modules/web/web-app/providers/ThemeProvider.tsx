@@ -5,6 +5,9 @@ export interface UseThemeProps {
   isDarkMode: boolean
   toggleTheme: () => void
   setDarkMode: (darkMode: boolean, options?: { persistent: boolean }) => void
+  /** An experimental dark theme layered over dark mode, or `default` for none. */
+  darkVariant: DarkVariant
+  setDarkVariant: (variant: DarkVariant) => void
 }
 
 interface ThemeProviderProps {
@@ -16,6 +19,8 @@ export const ThemeContext = createContext<UseThemeProps>({
   isDarkMode: false,
   toggleTheme: () => {},
   setDarkMode: () => {},
+  darkVariant: 'default',
+  setDarkVariant: () => {},
 })
 
 export const useTheme = () => useContext(ThemeContext)
@@ -42,9 +47,41 @@ export const useForceTheme = (theme: 'dark' | 'light') => {
 }
 
 const LSK = 'userpreferences_DarkMode'
+// Experimental dark themes: a class on <body> that refines `.dark` (see main.css), shown only
+// while dark mode is on. Horizon leans warm, Moss green.
+export const DARK_VARIANTS = ['default', 'horizon', 'moss'] as const
+export type DarkVariant = (typeof DARK_VARIANTS)[number]
+export const DARK_VARIANT_LABELS: Record<DarkVariant, string> = {
+  default: 'Default',
+  horizon: 'Horizon',
+  moss: 'Moss',
+}
+const VARIANT_LSK = 'userpreferences_DarkVariant'
+const readVariant = (): DarkVariant => {
+  const stored = localStorage.getItem(VARIANT_LSK)
+  return (DARK_VARIANTS as readonly string[]).includes(stored ?? '')
+    ? (stored as DarkVariant)
+    : 'default'
+}
+
 export const ThemeProvider = ({ children }: ThemeProviderProps) => {
   const [isDarkMode, setIsDarkMode] = useState(false)
   const [isInitialized, setIsInitialized] = useState(false)
+  const [darkVariant, setVariantState] = useState<DarkVariant>(readVariant)
+
+  useEffect(() => {
+    for (const variant of DARK_VARIANTS) {
+      document.body.classList.toggle(
+        `theme-${variant}`,
+        variant !== 'default' && variant === darkVariant
+      )
+    }
+  }, [darkVariant])
+
+  const setDarkVariant = (variant: DarkVariant) => {
+    localStorage.setItem(VARIANT_LSK, variant)
+    setVariantState(variant)
+  }
 
   useEffect(() => {
     // const key = localStorage.getItem(LSK)
@@ -85,6 +122,8 @@ export const ThemeProvider = ({ children }: ThemeProviderProps) => {
           toggleTheme,
           setDarkMode,
           isInitialized,
+          darkVariant,
+          setDarkVariant,
         }}
       >
         {children}

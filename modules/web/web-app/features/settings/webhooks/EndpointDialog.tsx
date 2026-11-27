@@ -6,8 +6,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  FieldLabel,
   Input,
-  Label,
 } from '@md/ui'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
@@ -129,7 +129,7 @@ export const EndpointDialog = ({ open, onOpenChange, editing, onCreated }: Props
 
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="webhook-url">Endpoint URL</Label>
+            <FieldLabel htmlFor="webhook-url">Endpoint URL</FieldLabel>
             <Input
               id="webhook-url"
               value={url}
@@ -165,7 +165,7 @@ export const EndpointDialog = ({ open, onOpenChange, editing, onCreated }: Props
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="webhook-description">Description (optional)</Label>
+            <FieldLabel htmlFor="webhook-description">Description (optional)</FieldLabel>
             <Input
               id="webhook-description"
               value={description}
@@ -175,7 +175,7 @@ export const EndpointDialog = ({ open, onOpenChange, editing, onCreated }: Props
           </div>
 
           <div className="space-y-1.5">
-            <Label>Event types</Label>
+            <FieldLabel>Event types</FieldLabel>
             <EventTypeSelect
               allEvents={allEvents}
               onAllEventsChange={setAllEvents}
@@ -185,7 +185,7 @@ export const EndpointDialog = ({ open, onOpenChange, editing, onCreated }: Props
           </div>
 
           <div className="space-y-1.5">
-            <Label>Custom headers (optional)</Label>
+            <FieldLabel>Custom headers (optional)</FieldLabel>
             <p className="text-xs text-muted-foreground">
               Sent with every delivery, e.g. an API key your receiver checks.
             </p>

@@ -25,12 +25,21 @@ import {
   TableRow,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { ArchiveIcon, MoreHorizontalIcon, PencilIcon, RefreshCwIcon } from 'lucide-react'
+import {
+  ArchiveIcon,
+  Link2,
+  MoreHorizontalIcon,
+  PencilIcon,
+  Plus,
+  RefreshCwIcon,
+} from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
-import { PageSection } from '@/components/layouts/shared/PageSection'
+import { SectionEmptyState } from '@/components/empty-state/SectionEmptyState'
+import { DetailSection } from '@/components/layouts/DetailLayout'
+import { SectionAddButton } from '@/features/customers/cards/ContainedTableSection'
 import { useIsDraftVersion, usePlanWithVersion } from '@/features/plans/hooks/usePlan'
 import { PurchaseLinkDialog } from '@/features/purchase-links/PurchaseLinkDialog'
 import { invalidatePurchaseLinks } from '@/features/purchase-links/utils'
@@ -109,21 +118,15 @@ const PurchaseLinks = ({
     dialog?.kind === 'regenerate' || dialog?.kind === 'archive' ? dialog.link : undefined
 
   return (
-    <PageSection
-      header={{
-        title: 'Purchase links',
-        subtitle: 'Public, reusable links to buy this plan without a pre-existing account.',
-        actions:
-          canManage && planActive ? (
-            <Button
-              variant="outline"
-              className="py-1.5"
-              onClick={() => setDialog({ kind: 'edit' })}
-            >
-              + New purchase link
-            </Button>
-          ) : null,
-      }}
+    <DetailSection
+      title="Purchase links"
+      description="Public, reusable links to buy this plan without a pre-existing account."
+      actions={
+        canManage &&
+        planActive && (
+          <SectionAddButton label="New purchase link" onClick={() => setDialog({ kind: 'edit' })} />
+        )
+      }
     >
       <div className="flex flex-col gap-3">
         {(links.length > 0 || includeArchived) && (
@@ -143,14 +146,31 @@ const PurchaseLinks = ({
         )}
 
         {query.isLoading ? null : links.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
-            <p>
-              Share a purchase link on your website or in an email: buyers enter their email and
-              billing details, then pay through checkout. Each purchase creates a new customer and a
-              subscription to this plan.
-            </p>
-            {!planActive && <p className="mt-2">Publish the plan to create purchase links.</p>}
-          </div>
+          <SectionEmptyState
+            className="bg-card"
+            icon={<Link2 />}
+            title="No purchase links yet"
+            action={
+              canManage &&
+              planActive && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  hasIcon
+                  onClick={() => setDialog({ kind: 'edit' })}
+                >
+                  <Plus size={14} /> New purchase link
+                </Button>
+              )
+            }
+          >
+            Share a purchase link on your website or in an email: buyers enter their email and
+            billing details, then pay through checkout. Each purchase creates a new customer and a
+            subscription to this plan.
+            {!planActive && (
+              <span className="mt-2 block">Publish the plan to create purchase links.</span>
+            )}
+          </SectionEmptyState>
         ) : (
           <div className="overflow-x-auto rounded-lg border border-border">
             <Table>
@@ -290,6 +310,6 @@ const PurchaseLinks = ({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </PageSection>
+    </DetailSection>
   )
 }

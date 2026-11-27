@@ -9,7 +9,12 @@ interface Props {
 export const QuoteStatusBadge = ({ status }: Props) => {
   switch (status) {
     case QuoteStatus.DRAFT:
-      return <Badge variant="ghost">Draft</Badge>
+      // The platform's grey tag, at the design's 20px (11px text, 6px sides).
+      return (
+        <Badge variant="secondary" size="sm" className="h-5 px-1.5">
+          Draft
+        </Badge>
+      )
     case QuoteStatus.PENDING:
       return <Badge variant="warning">Pending</Badge>
     case QuoteStatus.ACCEPTED:

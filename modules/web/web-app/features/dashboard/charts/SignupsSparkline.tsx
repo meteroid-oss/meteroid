@@ -2,6 +2,7 @@ import { linearGradientDef } from '@nivo/core'
 import { ComputedSeries, LineSeries, ResponsiveLine } from '@nivo/line'
 import { useRef, useState } from 'react'
 
+import { ChartEmptyState } from '@/components/charts/ChartEmptyState'
 import { MrrCrosshair } from '@/features/dashboard/charts/MrrCrosshair'
 import { ActiveSerieLayer } from '@/features/dashboard/charts/utils'
 import { useQuery } from '@/lib/connectrpc'
@@ -31,11 +32,7 @@ export const SignupsSparkline = () => {
   const isEmpty = !chartData.data?.series?.data?.length
 
   if (isEmpty) {
-    return (
-      <div className="w-full  align-center bottom-0 font-semibold text-sm text-center  ">
-        no data
-      </div>
-    )
+    return <ChartEmptyState compact error={!!chartData.error} title="No new customers yet" />
   }
 
   return (
@@ -65,7 +62,7 @@ export const SignupsSparkline = () => {
           ]),
         ]}
         fill={[{ match: '*', id: 'gradientZ' }]}
-        colors={[theme.isDarkMode ? '#8b8a74' : '#513ceb']}
+        colors={[theme.isDarkMode ? '#a78bfa' : '#7c3aed']}
         lineWidth={1}
         data={series}
         layers={['areas', 'lines', props => <ActiveSerieLayer {...props} setSerie={setSerie} />]}

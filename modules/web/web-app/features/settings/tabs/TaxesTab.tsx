@@ -36,6 +36,7 @@ import { InlineLoading } from '@/components/Loading'
 import { SubdivisionSelect } from '@/components/SubdivisionSelect'
 import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
 import {
+  SettingsEmptyState,
   SettingsSection,
 } from '@/features/settings/components/SettingsSection'
 import { useInvoicingEntity } from '@/features/settings/hooks/useInvoicingEntity'
@@ -743,9 +744,7 @@ export const TaxesTab = () => {
                 </Table>
                 </div>
               ) : (
-                <div className="text-center py-6 text-sm text-muted-foreground">
-                  No custom rates yet.
-                </div>
+                <SettingsEmptyState>No custom rates yet.</SettingsEmptyState>
               )}
           </SettingsSection>
 
@@ -827,9 +826,7 @@ export const TaxesTab = () => {
                 </Table>
                 </div>
               ) : (
-                <div className="text-center py-6 text-sm text-muted-foreground">
-                  No tax categories available.
-                </div>
+                <SettingsEmptyState>No tax categories available.</SettingsEmptyState>
               )}
           </SettingsSection>
         </>

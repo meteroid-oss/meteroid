@@ -1,6 +1,14 @@
 import { create } from '@bufbuild/protobuf'
 import { timestampDate, timestampFromDate } from '@bufbuild/protobuf/wkt'
-import { Badge, Button } from '@md/ui'
+import {
+  Badge,
+  Button,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@md/ui'
 import { keepPreviousData } from '@tanstack/react-query'
 import { ColumnDef } from '@tanstack/react-table'
 import { format, parseISO } from 'date-fns'
@@ -10,11 +18,10 @@ import { DateRange } from 'react-day-picker'
 import { useSearchParams } from 'react-router'
 
 import { Gate } from '@/components/Gate'
+import { EmptyState } from '@/components/empty-state/EmptyState'
 import { ListPageLayout, ListToolbarSearch, RefreshButton } from '@/components/layouts'
 import { StandardTable } from '@/components/table/StandardTable'
 import { slotItems, useVisibleItems } from '@/edition'
-import { BaseFilter } from '@/features/TablePage'
-import { CustomerSelect } from '@/features/customers/CustomerSelect'
 import { DatePickerWithRange } from '@/features/dashboard/DateRangePicker'
 import {
   EventCustomerLink,
@@ -23,6 +30,8 @@ import {
   stringifyProperties,
 } from '@/features/events/EventDetails'
 import { EventsImportModal } from '@/features/events/EventsImportModal'
+import { FilterBar, optionField } from '@/features/filters/FilterBar'
+import { ResolvedField } from '@/features/filters/useFilterFields'
 import { useListPagination } from '@/hooks/useTablePreferences'
 import { useQuery as useConnectQuery } from '@/lib/connectrpc'
 import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
@@ -60,6 +69,14 @@ const initialRange = (params: URLSearchParams): DateRange => {
   start.setDate(start.getDate() - 30)
   return { from: start, to: end }
 }
+
+const CUSTOMER_FIELD = {
+  field: 'customer',
+  label: 'Customer',
+  widget: 'customer',
+  ops: ['equals'],
+  group: 'Filters',
+} satisfies ResolvedField
 
 export const EventsPage: FunctionComponent = () => {
   // Filters live in the URL (`customer`, `code`, `from`, `to`) so other pages can deep-link here.
@@ -158,6 +175,33 @@ export const EventsPage: FunctionComponent = () => {
       `events-${pagination.pageIndex}-${pagination.pageSize}-${search}-${customerId}-${eventCodes.join(',')}-${sortOrder}-${dateRange?.from?.getTime()}-${dateRange?.to?.getTime()}`,
   })
 
+  // No event at all gets the empty state. The list reads a window (the last 30 days unless a range
+  // is picked), so when the default window is empty one event of any time is looked for first.
+  // Live mode keeps polling the window: the first event to arrive brings the table back.
+  const isNarrowed =
+    !!search || !!customerId || eventCodes.length > 0 || params.has('from') || params.has('to')
+  const windowEmpty =
+    !isNarrowed &&
+    pagination.pageIndex === 0 &&
+    eventsQuery.isSuccess &&
+    (eventsQuery.data?.events?.length ?? 0) === 0
+  const allTimeRequest = useMemo(
+    () =>
+      create(SearchEventsRequestSchema, {
+        from: timestampFromDate(new Date(0)),
+        to: timestampFromDate(new Date()),
+        limit: 1,
+        offset: 0,
+        eventCodes: [],
+        customerIds: [],
+        sortOrder: SearchEventsRequest_SortOrder.TIMESTAMP_DESC,
+      }),
+    []
+  )
+  const anyEventQuery = useConnectQuery(searchEvents, allTimeRequest, { enabled: windowEmpty })
+  const isEmpty =
+    windowEmpty && anyEventQuery.isSuccess && (anyEventQuery.data?.events?.length ?? 0) === 0
+
   // Highlight new events when in live mode
   useEffect(() => {
     if (isLive && eventsQuery.data?.events) {
@@ -254,42 +298,46 @@ export const EventsPage: FunctionComponent = () => {
       }
       toolbar={
         <>
-          <ListToolbarSearch
-            value={search}
-            onChange={setSearch}
-            placeholder="Search events..."
-            className="max-w-[200px]"
-          />
-          <DatePickerWithRange range={dateRange} setRange={setDateRange} />
-          <CustomerSelect
-            value={customerId}
-            onChange={e => setCustomerId(e || undefined)}
-            placeholder="All customers"
-            clearable
-            variant="filter"
-          />
-          <BaseFilter
-            entries={codeOptions}
-            emptyLabel="All event codes"
-            selected={eventCodes}
-            onSelectionChange={(value, checked) =>
-              setEventCodes(
-                checked ? [...eventCodes, value] : eventCodes.filter(code => code !== value)
-              )
-            }
-          />
-          <BaseFilter
-            entries={SORT_ORDER_OPTIONS.map(o => ({ label: o.label, value: o.value.toString() }))}
-            emptyLabel="Newest first"
-            selected={[sortOrder.toString()]}
-            onSelectionChange={(value, checked) =>
-              setSortOrder(checked ? parseInt(value) : SearchEventsRequest_SortOrder.TIMESTAMP_DESC)
-            }
+          <ListToolbarSearch value={search} onChange={setSearch} placeholder="Search events..." />
+          <FilterBar
+            local={[
+              {
+                field: CUSTOMER_FIELD,
+                values: customerId ? [customerId] : [],
+                set: ([value]) => setCustomerId(value || undefined),
+              },
+              {
+                field: optionField('code', 'Event code', codeOptions),
+                values: eventCodes,
+                set: setEventCodes,
+              },
+            ]}
           />
         </>
       }
       toolbarTrailing={
         <>
+          {/* The time window and the order: how the list is read, not what it holds. */}
+          <DatePickerWithRange
+            range={dateRange}
+            setRange={setDateRange}
+            triggerClassName="h-[30px] w-auto md:w-auto border-0 bg-transparent px-2 text-[13px] text-muted-foreground shadow-none hover:bg-foreground/[0.06] hover:text-foreground [&_svg]:size-3.5"
+          />
+          <Select value={String(sortOrder)} onValueChange={value => setSortOrder(parseInt(value))}>
+            <SelectTrigger
+              aria-label="Order"
+              className="h-[30px] w-auto gap-1.5 border-0 bg-transparent px-2 text-[13px] font-normal text-muted-foreground shadow-none hover:bg-foreground/[0.06] hover:text-foreground"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="end">
+              {SORT_ORDER_OPTIONS.map(option => (
+                <SelectItem key={option.value} value={String(option.value)}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button
             variant={isLive ? 'default' : 'outline'}
             size="sm"
@@ -311,30 +359,46 @@ export const EventsPage: FunctionComponent = () => {
         </>
       }
     >
-      <StandardTable
-        tableKey="events"
-        columns={columns}
-        data={eventsQuery.data?.events || []}
-        getRowId={event => event.id}
-        enableSelection={selectionActions.length > 0}
-        renderSelectionActions={(rows, clearSelection) =>
-          selectionActions.map(({ id, Action }) => (
-            <Action
-              key={id}
-              events={rows.map(row => row.original)}
-              clearSelection={clearSelection}
-            />
-          ))
-        }
-        pagination={pagination}
-        setPagination={setPagination}
-        totalCount={eventsQuery.data?.events?.length || 0}
-        isLoading={eventsQuery.isLoading}
-        emptyMessage="No events found"
-        rowClassName={row =>
-          newEventIds.has(row.original.id) ? 'animate-pulse bg-green-50 dark:bg-green-950' : ''
-        }
-      />
+      {isEmpty ? (
+        <EmptyState
+          title="No events yet"
+          description="Send usage events from your app and they show up here as they arrive."
+          scene="events"
+          actions={
+            // Import runs as a batch job (settings:manage), as in the header.
+            <Gate perm="settings:manage">
+              <Button size="sm" variant="secondary" onClick={() => setIsUploadOpen(true)}>
+                Import CSV
+              </Button>
+            </Gate>
+          }
+        />
+      ) : (
+        <StandardTable
+          tableKey="events"
+          columns={columns}
+          data={eventsQuery.data?.events || []}
+          getRowId={event => event.id}
+          enableSelection={selectionActions.length > 0}
+          renderSelectionActions={(rows, clearSelection) =>
+            selectionActions.map(({ id, Action }) => (
+              <Action
+                key={id}
+                events={rows.map(row => row.original)}
+                clearSelection={clearSelection}
+              />
+            ))
+          }
+          pagination={pagination}
+          setPagination={setPagination}
+          totalCount={eventsQuery.data?.events?.length || 0}
+          isLoading={eventsQuery.isLoading}
+          emptyMessage="No events found"
+          rowClassName={row =>
+            newEventIds.has(row.original.id) ? 'animate-pulse bg-green-50 dark:bg-green-950' : ''
+          }
+        />
+      )}
 
       <EventsImportModal
         openState={[isUploadOpen, setIsUploadOpen]}

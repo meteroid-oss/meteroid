@@ -1,7 +1,9 @@
-import { Button, Card, Skeleton, cn } from '@md/ui'
+import { Skeleton, cn } from '@md/ui'
+import { ArrowRight } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link } from 'react-router'
 
+import { DashboardCard, DashboardCardTitle } from '@/features/dashboard/cards/DashboardCard'
 import { useCurrency } from '@/hooks/useCurrency'
 
 export interface TrendProp {
@@ -26,21 +28,26 @@ export const StatCard: React.FC<StatCardProp> = ({
   trend,
   loading,
 }) => {
-  return (
-    <Card className="h-[120px] grow flex flex-col">
-      <div className="text-sm font-semibold flex flex-row px-6 py-4 items-baseline w-full justify-between grow">
-        <div>{title}</div>
+  const card = (
+    <DashboardCard
+      raised
+      className={cn(
+        'flex h-[125px] grow flex-col justify-between',
+        detailPath && 'transition-colors duration-200 group-hover:border-foreground/20'
+      )}
+    >
+      <div className="flex w-full flex-row items-center justify-between">
+        <DashboardCardTitle>{title}</DashboardCardTitle>
         {detailPath && (
-          <Link to={detailPath}>
-            <Button variant="ghost">
-              <span className="underline decoration-slate-700 decoration-dashed underline-offset-2">
-                View
-              </span>
-            </Button>
-          </Link>
+          // Where the card leads: a quiet arrow that steps to the right on hover.
+          <ArrowRight
+            aria-hidden
+            size={14}
+            className="text-faint-foreground transition-[translate,color] duration-200 ease-out group-hover:translate-x-0.5 group-hover:text-foreground/70 motion-reduce:transition-none"
+          />
         )}
       </div>
-      <div className="px-6 pb-4">
+      <div>
         {loading ? (
           <div className="w-full flex items-end gap-4 pb-1">
             <Skeleton width="100%" height="1.5rem" />
@@ -49,7 +56,7 @@ export const StatCard: React.FC<StatCardProp> = ({
         ) : (
           <>
             <div className="flex flex-row gap-4 items-baseline">
-              {value && <div className="text-2xl font-medium">{value}</div>}
+              {value && <div className="font-display text-[21px] leading-none">{value}</div>}
 
               {secondaryValue && (
                 <div className="text-xs text-muted-foreground self-baseline">{secondaryValue}</div>
@@ -59,7 +66,19 @@ export const StatCard: React.FC<StatCardProp> = ({
           </>
         )}
       </div>
-    </Card>
+    </DashboardCard>
+  )
+
+  // With a destination the whole card is the link.
+  return detailPath ? (
+    <Link
+      to={detailPath}
+      className="group flex grow rounded-[6px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {card}
+    </Link>
+  ) : (
+    card
   )
 }
 
@@ -81,8 +100,8 @@ export const StatCardTrend = ({ value, percent, period, positiveIsGreen }: Trend
         value === 0
           ? 'text-muted-foreground'
           : positiveIsGreen === value > 0
-            ? 'text-success'
-            : 'text-red-500'
+            ? 'text-success dark:text-[#02d590]'
+            : 'text-tag-destructive'
       )}
     >
       {formattedTrend}

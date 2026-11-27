@@ -14,15 +14,20 @@ import {
   Skeleton,
   Tooltip,
   TooltipContent,
+  TooltipGroup,
+  TooltipGroupItem,
   TooltipProvider,
   TooltipTrigger,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { cn } from '@ui/lib'
-import { CirclePower, Pencil, Pin, PinOff } from 'lucide-react'
+import { CirclePower, Pencil, Pin, PinOff, ToggleRight } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
+import { raisedList, raisedListRow } from '@/components/RaisedList'
+import { RowActionButton } from '@/components/RowActionButton'
+import { SectionEmptyState } from '@/components/empty-state/SectionEmptyState'
 import { EntityEntitlementDialog } from '@/features/entitlements/EntityEntitlementDialog'
 import { InheritedIcon } from '@/features/entitlements/InheritedIcon'
 import { LimitTermsBadges, termsOfValue } from '@/features/entitlements/LimitTermsBadges'
@@ -140,14 +145,20 @@ export const EffectiveEntitlementsCard = ({
   if (entitlements.length === 0) {
     return (
       <div className="flex flex-col gap-3">
-        <p className="text-sm text-muted-foreground">No active entitlements.</p>
-        {showActions && (
-          <div>
-            <Button size="sm" variant="secondary" onClick={() => setDialog({ open: true })}>
-              Add entitlement
-            </Button>
-          </div>
-        )}
+        <SectionEmptyState
+          className="bg-card dark:bg-foreground/[0.035]"
+          icon={<ToggleRight />}
+          title="No active entitlements"
+          action={
+            showActions && (
+              <Button size="sm" variant="secondary" onClick={() => setDialog({ open: true })}>
+                Add entitlement
+              </Button>
+            )
+          }
+        >
+          Features and limits granted by the plan, its add-ons or an override show here.
+        </SectionEmptyState>
         {dialog.open && subscriptionEntity && (
           <EntityEntitlementDialog
             entity={subscriptionEntity as MessageInitShape<typeof EntitlementEntitySchema>}
@@ -220,7 +231,7 @@ export const EffectiveEntitlementsCard = ({
                   Pin all
                 </Button>
               </TooltipTrigger>
-              <TooltipContent className="max-w-56">
+              <TooltipContent multiline className="max-w-56">
                 Save local copies of every upstream entitlement on this subscription. Already-pinned
                 entries are skipped.
               </TooltipContent>
@@ -246,7 +257,7 @@ export const EffectiveEntitlementsCard = ({
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 px-1">
                 {group.name}
               </p>
-              <div className="border border-border rounded-lg divide-y divide-border overflow-hidden">
+              <div className={raisedList}>
                 {[...group.items]
                   .sort((a, b) => (a.feature?.name ?? '').localeCompare(b.feature?.name ?? ''))
                   .map((e, i) => (
@@ -439,75 +450,58 @@ const RowActions = ({
   const isMetered = value.case === 'metered'
 
   return (
-    <div className="flex items-center gap-1">
+    <TooltipGroup className="flex items-center gap-1.5">
       {!isBoolean && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className="p-1 hover:bg-muted rounded"
-              onClick={() => onOverride(entitlement)}
-              disabled={isBusy}
-            >
-              <Pencil size={12} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{entitlementTooltip('subscription', 'override')}</TooltipContent>
-        </Tooltip>
+        <TooltipGroupItem label={entitlementTooltip('subscription', 'override')}>
+          <RowActionButton
+            aria-label={entitlementTooltip('subscription', 'override')}
+            onClick={() => onOverride(entitlement)}
+            disabled={isBusy}
+          >
+            <Pencil />
+          </RowActionButton>
+        </TooltipGroupItem>
       )}
 
       {pinnedHere ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className="p-1 hover:bg-muted rounded text-destructive"
-              onClick={handleRemove}
-              disabled={isBusy}
-            >
-              <PinOff size={12} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{entitlementTooltip('subscription', 'unpin')}</TooltipContent>
-        </Tooltip>
+        <TooltipGroupItem label={entitlementTooltip('subscription', 'unpin')}>
+          {/* Unpinning removes the local override: the one destructive action here. */}
+          <RowActionButton
+            destructive
+            aria-label={entitlementTooltip('subscription', 'unpin')}
+            onClick={handleRemove}
+            disabled={isBusy}
+          >
+            <PinOff />
+          </RowActionButton>
+        </TooltipGroupItem>
       ) : (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className="p-1 hover:bg-muted rounded"
-              onClick={handlePin}
-              disabled={isBusy}
-            >
-              <Pin size={12} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{entitlementTooltip('subscription', 'pin')}</TooltipContent>
-        </Tooltip>
+        <TooltipGroupItem label={entitlementTooltip('subscription', 'pin')}>
+          <RowActionButton
+            aria-label={entitlementTooltip('subscription', 'pin')}
+            onClick={handlePin}
+            disabled={isBusy}
+          >
+            <Pin />
+          </RowActionButton>
+        </TooltipGroupItem>
       )}
 
       {(isBoolean || isMetered) && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className="p-1 hover:bg-muted rounded"
-              onClick={handleToggleDisable}
-              disabled={isBusy}
-            >
-              {isDisabled ? (
-                <CirclePower size={12} className="text-destructive" />
-              ) : (
-                <CirclePower size={12} className="text-primary" />
-              )}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>
-            {entitlementTooltip('subscription', isDisabled ? 'enable' : 'disable')}
-          </TooltipContent>
-        </Tooltip>
+        <TooltipGroupItem
+          label={entitlementTooltip('subscription', isDisabled ? 'enable' : 'disable')}
+        >
+          {/* Quiet like the others; a disabled row already shows dimmed. */}
+          <RowActionButton
+            aria-label={entitlementTooltip('subscription', isDisabled ? 'enable' : 'disable')}
+            onClick={handleToggleDisable}
+            disabled={isBusy}
+          >
+            <CirclePower />
+          </RowActionButton>
+        </TooltipGroupItem>
       )}
-    </div>
+    </TooltipGroup>
   )
 }
 
@@ -550,7 +544,8 @@ const EntitlementRow = ({
   return (
     <div
       className={cn(
-        'group flex items-center justify-between px-4 py-2.5 text-sm',
+        'group flex items-center justify-between text-sm',
+        raisedListRow,
         isDisabled && 'opacity-60'
       )}
     >

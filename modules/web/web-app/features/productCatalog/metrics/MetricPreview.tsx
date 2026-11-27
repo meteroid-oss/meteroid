@@ -479,6 +479,17 @@ export const MetricPreview = ({
               currency="USD"
               isLoading={chartQuery.isLoading}
               isError={!!chartQuery.error}
+              onRetry={() => chartQuery.refetch()}
+              empty={{
+                title: 'No usage in this period',
+                description: (
+                  <>
+                    No <span className="font-mono text-foreground">{trimmedCode}</span> events
+                    were received in this range. Try a longer range, or check that your events
+                    are being sent.
+                  </>
+                ),
+              }}
               paletteKeys={breakdown ? segmentKeys : undefined}
               showLegend={false}
               // Usage is often fractional (float sums, unit conversion); don't round it away.

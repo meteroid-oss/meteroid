@@ -1,10 +1,12 @@
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
-import { Button } from '@md/ui'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
+import { Badge, cn } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { ChevronDownIcon, ChevronRightIcon, Trash2Icon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import { LocalId } from '@/components/LocalId'
+import { RowActionButton } from '@/components/RowActionButton'
+import { containedTable } from '@/features/customers/cards/ContainedTableSection'
 import { useIsDraftVersion, usePlanWithVersion } from '@/features/plans/hooks/usePlan'
 import {
   deriveSummary,
@@ -63,7 +65,7 @@ export const AddOnCard: React.FC<Props> = ({ addOn }) => {
       queryClient.invalidateQueries({
         queryKey: createConnectQueryKey({
           schema: listAddOns.parent,
-          cardinality: undefined
+          cardinality: undefined,
         }),
       })
     },
@@ -80,52 +82,49 @@ export const AddOnCard: React.FC<Props> = ({ addOn }) => {
   }
 
   return (
-    <div className="flex flex-col grow px-4 py-4 border border-border shadow-sm rounded-lg max-w-4xl group bg-card">
-      <div
-        className="mt-0.5 flex flex-row min-h-9"
-        onClick={() => setIsCollapsed(!isCollapsed)}
-      >
-        <div className="flex flex-row items-center cursor-pointer w-full">
-          <div className="mr-2">
-            {isCollapsed ? (
-              <ChevronRightIcon className="w-5 l-5 text-accent-1 group-hover:text-muted-foreground" />
-            ) : (
-              <ChevronDownIcon className="w-5 l-5 text-accent-1 group-hover:text-muted-foreground" />
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <h4 className="text-base text-accent-1 font-semibold">{addOn.name}</h4>
-            <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground">
-              Add-on
-            </span>
-            <LocalId localId={addOn.id} className="max-w-24" />
-          </div>
+    // A framed item as the price components: its name on top (a click shows its prices), what it
+    // is below; in a draft, Remove on the right, always visible.
+    <div className={cn('overflow-hidden rounded-lg border border-border bg-card', containedTable)}>
+      <div className="flex items-center justify-between gap-4 px-4 py-3">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          onClick={() => setIsCollapsed(!isCollapsed)}
+          aria-expanded={!isCollapsed}
+        >
+          {isCollapsed ? (
+            <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" />
+          )}
+          <h4 className="truncate text-[15px] font-medium text-foreground">{addOn.name}</h4>
+          <Badge variant="secondary" size="sm" className="shrink-0">
+            Add-on
+          </Badge>
+        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <LocalId
+            localId={addOn.id}
+            className="max-w-24"
+            buttonClassName="h-6 px-2 py-0 text-[11px]"
+          />
+          {isDraft && (
+            <RowActionButton destructive onClick={handleRemove} aria-label="Remove add-on">
+              <Trash2Icon />
+            </RowActionButton>
+          )}
         </div>
-        {isDraft && (
-          <div className="hidden group-hover:flex">
-            <Button
-              variant="ghost"
-              className="bg-transparent text-destructive hover:text-destructive"
-              onClick={handleRemove}
-              size="icon"
-            >
-              <Trash2Icon size={12} strokeWidth={2} />
-            </Button>
-          </div>
-        )}
       </div>
-      <div className="flex flex-col grow px-7">
+      <div className="flex flex-col border-t border-border px-4 py-3">
         <div className="flex flex-col">
-          <div className="grid grid-cols-3 gap-x-6 mt-4">
+          <div className="grid grid-cols-3 gap-x-6">
             <PriceComponentProperty
               label="Pricing model"
               className="col-span-1 border-r border-border pr-4"
             >
               <span>{summary.pricingModel}</span>
             </PriceComponentProperty>
-            {addOn.productId && (
-              <ProductLinkedItem productId={addOn.productId} />
-            )}
+            {addOn.productId && <ProductLinkedItem productId={addOn.productId} />}
             <PriceComponentProperty
               label="Cadence"
               className="col-span-1 border-r border-border last:border-none pr-4"
@@ -135,7 +134,7 @@ export const AddOnCard: React.FC<Props> = ({ addOn }) => {
           </div>
         </div>
         {!isCollapsed && (
-          <div className="mt-6 flex flex-col grow">
+          <div className="mt-4 flex grow flex-col border-t border-border pt-4">
             <PricingDetailsView prices={prices} currency={currency} />
           </div>
         )}

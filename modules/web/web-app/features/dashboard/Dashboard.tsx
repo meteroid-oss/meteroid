@@ -1,8 +1,10 @@
 import { Button, Card, Checkbox, Flex, Separator } from '@md/ui'
-import { Heart, SettingsIcon } from 'lucide-react'
+import { SettingsIcon } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link } from 'react-router'
 
+import { QuickActions } from '@/features/dashboard/QuickActions'
+import { DashboardCard } from '@/features/dashboard/cards/DashboardCard'
 import { DetailsSection } from '@/features/dashboard/sections/DetailsSection'
 import { MrrSection } from '@/features/dashboard/sections/MrrSection'
 import { TopSection } from '@/features/dashboard/sections/TopSection'
@@ -46,18 +48,21 @@ export const Dashboard = () => {
 
   return (
     <>
-      <div className="h-full  w-full self-center space-y-6 relative">
-        <div>
-          <h1 className="text-2xl text-acc font-semibold">
+      <div className="relative mx-auto flex w-full max-w-[1024px] flex-col gap-8 pt-4 pb-10">
+        <div className="flex flex-col gap-3">
+          <h1 className="font-display text-2xl leading-none font-medium">
             Good {timeOfDay}
             {username ? `, ${username}` : null}
           </h1>
-          <span className="text-md font-medium text-muted-foreground">{date}</span>
+          <span className="text-[13px] leading-none tracking-[-0.13px] text-foreground/60">
+            {date}
+          </span>
         </div>
-        <Separator />
+        {!isExpress && <QuickActions />}
+        <Separator className="bg-foreground/[0.07]" />
         {showAddressSetup && !isExpress && (
-          <Card variant="accent2">
-            <div className="px-6 py-4">
+          <DashboardCard>
+            <div>
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-sm font-semibold pb-1">Complete your setup</div>
@@ -73,14 +78,18 @@ export const Dashboard = () => {
                 </Button>
               </div>
             </div>
-          </Card>
+          </DashboardCard>
         )}
         <Card variant="accent2" className="hidden">
           <div className="px-6 py-4">
             <div className="text-sm font-semibold pb-4">Complete your onboarding</div>
             <Flex direction="column" className="gap-2">
               <Flex align="center" className="gap-2">
-                <Checkbox disabled className="rounded-full border-none bg-success" checked />{' '}
+                <Checkbox
+                  disabled
+                  className="rounded-full border-none bg-success before:hidden [--check-mark:white]"
+                  checked
+                />{' '}
                 <div className="text-sm mt-[0.5px]">Configure your pricing</div>
               </Flex>
               <Flex align="center" className="gap-2">
@@ -97,21 +106,8 @@ export const Dashboard = () => {
         </Card>
         <TopSection />
         {!isExpress && <MrrSection />}
-        <Separator />
+        <Separator className="bg-foreground/[0.07]" />
         <DetailsSection />
-        <Separator />
-        <div className="h-10 text-center justify-center text-xs text-muted-foreground flex gap-1 ">
-          <span>2026 © Meteroid /</span>
-          <span className="flex items-baseline gap-1">
-            Built with <Heart size="10" fill="red" strokeWidth={0} className="" /> in Europe /
-          </span>
-          <span>
-            Open-source on{' '}
-            <a href="https://go.meteroid.com/github" className="underline">
-              Github
-            </a>
-          </span>
-        </div>
       </div>
     </>
   )

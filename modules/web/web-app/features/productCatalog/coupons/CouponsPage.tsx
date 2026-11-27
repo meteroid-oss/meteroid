@@ -1,10 +1,10 @@
-import { PlusIcon } from '@md/icons'
 import { SortingState } from '@tanstack/react-table'
 import { Button, Tabs, TabsList, TabsTrigger } from '@ui/components'
 import { FunctionComponent, useCallback, useState } from 'react'
 import { Outlet, useNavigate } from 'react-router'
 
 import { Gate } from '@/components/Gate'
+import { AddIcon } from '@/components/icons/AppIcons'
 import { ListPageLayout, ListToolbarSearch, RefreshButton } from '@/components/layouts'
 import { CouponsTable } from '@/features/productCatalog/coupons/CouponsTable'
 import { useDebounceValue } from '@/hooks/useDebounce'
@@ -57,7 +57,6 @@ export const CouponsPage: FunctionComponent = () => {
   return (
     <ListPageLayout
       title="Coupons"
-      count={couponsQuery.data?.paginationMeta?.totalItems}
       tabs={
         <Tabs value={statusFilter} onValueChange={setStatusFilter}>
           <TabsList variant="ghost">
@@ -71,7 +70,7 @@ export const CouponsPage: FunctionComponent = () => {
       actions={
         <Gate perm="catalog:manage">
           <Button variant="primary" size="sm" hasIcon onClick={() => navigate('add-coupon')}>
-            <PlusIcon className="w-4 h-4" /> New coupon
+            <AddIcon /> New coupon
           </Button>
         </Gate>
       }
@@ -80,7 +79,6 @@ export const CouponsPage: FunctionComponent = () => {
           value={search ?? ''}
           onChange={setSearch}
           placeholder="Search coupons"
-          className="max-w-[220px]"
         />
       }
       toolbarTrailing={

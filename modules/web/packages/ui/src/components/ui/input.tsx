@@ -17,10 +17,11 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
       <input
         type={showPassword ? 'text' : type}
         className={cn(
-          'flex h-9 w-full rounded-md border border-border bg-input px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground',
-          'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-          'disabled:cursor-not-allowed disabled:bg-muted disabled:opacity-50',
-          rightText && 'rounded-r-none',
+          // 32px field: a faint fill and border, 13px text. Focus lightens the border and adds a soft halo.
+          'flex h-8 w-full rounded-md border border-field-border bg-field px-3 py-1 text-[13px] text-field-foreground transition-[color,border-color,box-shadow] file:border-0 file:bg-transparent file:text-[13px] file:font-medium placeholder:text-field-placeholder',
+          'focus-visible:outline-none focus-visible:border-foreground/25 focus-visible:ring-[3px] focus-visible:ring-foreground/8',
+          'disabled:cursor-not-allowed disabled:opacity-50',
+          rightText && 'rounded-r-none border-r-0',
           showPasswordToggle && 'pr-10',
           showPasswordToggle && !showPassword && 'password', // chrome has a weird behavior with type=password and will ignore autocomplete=off. This is a workaround
           className
@@ -50,7 +51,8 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
         return (
           <div className={cn('flex', wrapperClassName)}>
             {inputElement}
-            <div className="border border-border border-l-0 rounded-md rounded-l-none self-end h-9 text-sm px-2 content-center bg-muted text-muted-foreground">
+            {/* The unit ("Days", "%") reads as the end of the same field. */}
+            <div className="border border-field-border border-l-0 rounded-md rounded-l-none self-end h-8 text-[13px] px-3 content-center bg-field text-field-placeholder">
               {rightText}
             </div>
           </div>

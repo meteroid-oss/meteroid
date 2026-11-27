@@ -43,7 +43,7 @@ export const CustomerFormFields = <T extends CustomerFormSchema>({
     <>
       {/* Customer Details Section */}
       <div className="space-y-4">
-        <h3 className="font-semibold">Customer details</h3>
+        <h3 className="text-base leading-5 font-medium">Customer details</h3>
         <FormField
           control={control}
           name="customerType"
@@ -144,7 +144,7 @@ export const CustomerFormFields = <T extends CustomerFormSchema>({
 
       {/* Billing Address Section */}
       <div className="space-y-4">
-        <h3 className="font-semibold">Billing address</h3>
+        <h3 className="text-base leading-5 font-medium">Billing address</h3>
         <InputFormField
           control={control}
           label="Address line 1"
@@ -186,14 +186,14 @@ export const CustomerFormFields = <T extends CustomerFormSchema>({
       </div>
 
       <section className="space-y-4">
-        {!isIndividual && <h3 className="font-semibold">Tax information</h3>}
+        {!isIndividual && <h3 className="text-base leading-5 font-medium">Tax information</h3>}
         <CustomerTaxFields key={customerType} control={control} />
       </section>
 
       {/* Shipping Address Section */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold">Shipping address</h3>
+          <h3 className="text-base leading-5 font-medium">Shipping address</h3>
           {!showShippingAddress && (
             <Button
               type="button"

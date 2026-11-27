@@ -10,6 +10,8 @@ import {
   AlertDialogTitle,
   Badge,
   Button,
+  cn,
+  FieldLabel,
   Label,
   RadioGroup,
   RadioGroupItem,
@@ -18,7 +20,6 @@ import {
   SheetDescription,
   SheetHeader,
   SheetTitle,
-  cn,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -256,7 +257,7 @@ const DeliveryForm = ({ onClose }: { onClose: () => void }) => {
 
         {mode === EmailDeliveryMode.TEST && (
           <div className="space-y-1.5">
-            <Label className="text-[13px]">Test recipients</Label>
+            <FieldLabel>Test recipients</FieldLabel>
             <div className="rounded-md border border-border p-1">
               <ValuesTagInput
                 value={recipients}

@@ -22,7 +22,7 @@ export const ReversalKindBadge = ({ kind, reason }: Props) => {
       <TooltipTrigger asChild>
         <span>{badge}</span>
       </TooltipTrigger>
-      <TooltipContent className="max-w-xs">{reason}</TooltipContent>
+      <TooltipContent multiline className="max-w-xs">{reason}</TooltipContent>
     </Tooltip>
   )
 }

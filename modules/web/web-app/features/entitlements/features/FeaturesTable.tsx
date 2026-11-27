@@ -119,7 +119,7 @@ export const FeaturesTable = ({
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
-                    className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                    className="p-1.5 rounded hover:bg-muted text-faint-foreground hover:text-foreground"
                     onClick={e => e.stopPropagation()}
                   >
                     <MoreVertical size={14} />

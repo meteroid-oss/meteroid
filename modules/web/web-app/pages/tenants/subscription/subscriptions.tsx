@@ -1,15 +1,15 @@
-import { PlusIcon } from '@md/icons'
 import { Button } from '@md/ui'
 import { FileUpIcon } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { Link } from 'react-router'
 
 import { Gate } from '@/components/Gate'
+import { EmptyState } from '@/components/empty-state/EmptyState'
+import { AddIcon } from '@/components/icons/AppIcons'
 import { ListPageLayout, ListToolbarSearch, RefreshButton } from '@/components/layouts'
 import { Slot, hasSlot } from '@/edition'
-import { MultiFilter } from '@/features/TablePage'
 import { useCustomPropertyColumns } from '@/features/customproperties/useCustomPropertyColumns'
-import { FilterBar } from '@/features/filters/FilterBar'
+import { FilterBar, optionField } from '@/features/filters/FilterBar'
 import { useEntityFilters } from '@/features/filters/useEntityFilters'
 import { useRequestFilters } from '@/features/filters/useRequestFilters'
 import { ViewsBar } from '@/features/listviews/ViewsBar'
@@ -18,7 +18,7 @@ import { SubscriptionsTable } from '@/features/subscriptions'
 import { SubscriptionsImportModal } from '@/features/subscriptions/modals/SubscriptionsImportModal'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
-import { ARRAY_SERDE, useQueryState } from '@/hooks/useQueryState'
+import { ALL_OR_LIST_SERDE, useQueryState } from '@/hooks/useQueryState'
 import { useListPagination, useResetPageOnChange } from '@/hooks/useTablePreferences'
 import { useQuery } from '@/lib/connectrpc'
 import { sortingStateToOrderBy } from '@/lib/utils/sorting'
@@ -30,6 +30,19 @@ import { listSubscriptions } from '@/rpc/api/subscriptions/v1/subscriptions-Subs
 import type { SortingState } from '@tanstack/react-table'
 
 const DEFAULT_STATUSES = ['pending', 'trialing', 'active']
+const ALL_STATUSES = [
+  'pending',
+  'trialing',
+  'active',
+  'canceled',
+  'aborted',
+  'ended',
+  'trial_expired',
+  'errored',
+]
+
+const sameValues = (a: string[], b: string[]) =>
+  a.length === b.length && a.every(value => b.includes(value))
 const DEFAULT_SORTING: SortingState = []
 // URL params captured by saved views as quick filters.
 const QUICK_KEYS = ['status']
@@ -42,7 +55,11 @@ export const Subscriptions = () => {
   const debouncedSearch = useDebounceValue(search, 400)
 
   const [pagination, setPagination] = useListPagination()
-  const [statusFilter, setStatusFilter] = useQueryState('status', DEFAULT_STATUSES, ARRAY_SERDE)
+  const [statusFilter, setStatusFilter] = useQueryState(
+    'status',
+    DEFAULT_STATUSES,
+    ALL_OR_LIST_SERDE
+  )
   const [filters, setFilters] = useEntityFilters()
   const requestFilters = useRequestFilters(CustomPropertyEntityType.SUBSCRIPTION, filters)
   const { hiddenIds: cpHiddenIds } = useCustomPropertyColumns(CustomPropertyEntityType.SUBSCRIPTION)
@@ -88,11 +105,31 @@ export const Subscriptions = () => {
   const data = subscriptionsQuery.data?.subscriptions ?? []
   const count = Number(subscriptionsQuery.data?.paginationMeta?.totalItems ?? 0)
   const isLoading = subscriptionsQuery.isLoading || !queryEnabled
+  // No subscription at all gets the empty state. The default view hides ended and canceled ones,
+  // so when it is empty one subscription of any status is looked for first.
+  const isNarrowed =
+    !!debouncedSearch ||
+    !sameValues(statusFilter, DEFAULT_STATUSES) ||
+    filters.length > 0 ||
+    !!savedViews.activeView
+  const defaultViewEmpty =
+    !isNarrowed && pagination.pageIndex === 0 && subscriptionsQuery.isSuccess && count === 0
+  const anySubscriptionQuery = useQuery(
+    listSubscriptions,
+    {
+      pagination: { perPage: 1, page: 0 },
+      status: ALL_STATUSES.map(mapSubscriptionStatusToGrpc),
+    },
+    { enabled: defaultViewEmpty }
+  )
+  const isEmpty =
+    defaultViewEmpty &&
+    anySubscriptionQuery.isSuccess &&
+    Number(anySubscriptionQuery.data?.paginationMeta?.totalItems ?? 0) === 0
 
   return (
     <ListPageLayout
       title="Subscriptions"
-      count={count}
       actions={
         isExpress ? undefined : (
           <>
@@ -103,7 +140,7 @@ export const Subscriptions = () => {
             <Gate perm="billing:subscriptions:manage">
               <Link to="create">
                 <Button variant="primary" size="sm" hasIcon>
-                  <PlusIcon size={10} fill="white" /> New subscription
+                  <AddIcon /> New subscription
                 </Button>
               </Link>
             </Gate>
@@ -117,26 +154,13 @@ export const Subscriptions = () => {
             value={search}
             onChange={setSearch}
             placeholder="Search subscriptions"
-            className="max-w-xs"
-          />
-          <MultiFilter
-            emptyLabel="All statuses"
-            entries={[
-              { label: 'Pending', value: 'pending' },
-              { label: 'Trialing', value: 'trialing' },
-              { label: 'Active', value: 'active' },
-              { label: 'Canceled', value: 'canceled' },
-              { label: 'Aborted', value: 'aborted' },
-              { label: 'Ended', value: 'ended' },
-              { label: 'Trial Expired', value: 'trial_expired' },
-              { label: 'Errored', value: 'errored' },
-            ]}
-            hook={[statusFilter, setStatusFilter]}
           />
           <FilterBar
             entityType={CustomPropertyEntityType.SUBSCRIPTION}
             filters={filters}
             onChange={setFilters}
+            local={[{ field: STATUS_FIELD, values: statusFilter, set: setStatusFilter }]}
+            entityGroup="Properties"
           />
         </>
       }
@@ -144,22 +168,44 @@ export const Subscriptions = () => {
         <RefreshButton isLoading={isLoading} onClick={() => subscriptionsQuery.refetch()} />
       }
     >
-      <SubscriptionsTable
-        tableKey="subscriptions"
-        columnState={savedViews.columnState}
-        data={data}
-        totalCount={count}
-        pagination={pagination}
-        setPagination={setPagination}
-        isLoading={isLoading}
-        sorting={sorting}
-        onSortingChange={handleSortingChange}
-        chart={
-          hasSlot('listPage.metricStrip') ? (
-            <Slot name="listPage.metricStrip" metricKey="active_subscriptions" />
-          ) : undefined
-        }
-      />
+      {isEmpty ? (
+        <EmptyState
+          title="No subscriptions yet"
+          description="Subscribe a customer to a plan to start billing them on a schedule."
+          scene="subscriptions"
+          actions={
+            isExpress ? undefined : (
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="secondary" onClick={() => setImportVisible(true)}>
+                  Import CSV
+                </Button>
+                <Gate perm="billing:subscriptions:manage">
+                  <Button size="sm" variant="default" asChild>
+                    <Link to="create">New subscription</Link>
+                  </Button>
+                </Gate>
+              </div>
+            )
+          }
+        />
+      ) : (
+        <SubscriptionsTable
+          tableKey="subscriptions"
+          columnState={savedViews.columnState}
+          data={data}
+          totalCount={count}
+          pagination={pagination}
+          setPagination={setPagination}
+          isLoading={isLoading}
+          sorting={sorting}
+          onSortingChange={handleSortingChange}
+          chart={
+            hasSlot('listPage.metricStrip') ? (
+              <Slot name="listPage.metricStrip" metricKey="active_subscriptions" />
+            ) : undefined
+          }
+        />
+      )}
       <SubscriptionsImportModal
         openState={[importVisible, setImportVisible]}
         onSuccess={() => subscriptionsQuery.refetch()}
@@ -167,6 +213,17 @@ export const Subscriptions = () => {
     </ListPageLayout>
   )
 }
+
+const STATUS_FIELD = optionField('status', 'Status', [
+  { label: 'Pending', value: 'pending' },
+  { label: 'Trialing', value: 'trialing' },
+  { label: 'Active', value: 'active' },
+  { label: 'Canceled', value: 'canceled' },
+  { label: 'Aborted', value: 'aborted' },
+  { label: 'Ended', value: 'ended' },
+  { label: 'Trial expired', value: 'trial_expired' },
+  { label: 'Errored', value: 'errored' },
+])
 
 function mapSubscriptionStatusToGrpc(s: string): SubscriptionStatus {
   switch (s) {

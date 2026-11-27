@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { env } from '@/lib/env'
+import { showScrollbarsWhileScrolling } from '@/lib/scrollbars'
 import { App } from 'App'
 
 import '@/styles/main.css'
@@ -21,6 +22,7 @@ async function startOpenReplay() {
 }
 
 startOpenReplay().catch(error => console.error('OpenReplay failed to start', error))
+showScrollbarsWhileScrolling()
 
 createRoot(document.getElementById('root') as HTMLElement).render(
   <StrictMode>

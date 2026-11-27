@@ -1,24 +1,14 @@
-import { PlusIcon } from '@md/icons'
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@md/ui'
 import { SortingState } from '@tanstack/react-table'
 import { Button } from '@ui/components'
-import { ChevronDown } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 
 import { Gate } from '@/components/Gate'
+import { EmptyState } from '@/components/empty-state/EmptyState'
+import { AddIcon } from '@/components/icons/AppIcons'
 import { ListPageLayout, ListToolbarSearch, RefreshButton } from '@/components/layouts'
 import { FeaturesTable } from '@/features/entitlements/features/FeaturesTable'
+import { FilterBar, optionField } from '@/features/filters/FilterBar'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { useQueryState } from '@/hooks/useQueryState'
 import { useListPagination, useResetPageOnChange } from '@/hooks/useTablePreferences'
@@ -45,11 +35,6 @@ function statusLabel(s: FeatureStatus): string {
   }
 }
 
-function selectionLabel(selection: Set<FeatureStatus>): string {
-  if (selection.size === ALL_STATUSES.length) return 'All statuses'
-  const shown = selection.size === 0 ? DEFAULT_STATUSES : Array.from(selection)
-  return shown.map(statusLabel).join(', ')
-}
 
 export const FeaturesPage = () => {
   const navigate = useNavigate()
@@ -69,6 +54,10 @@ export const FeaturesPage = () => {
   const productsQuery = useQuery(listProducts, { pagination: { page: 0, perPage: 200 } })
   const products = productsQuery.data?.products ?? []
 
+  const isDefaultStatuses =
+    statusSelection.size === DEFAULT_STATUSES.length &&
+    DEFAULT_STATUSES.every(status => statusSelection.has(status))
+
   const query = useQuery(listFeatures, {
     pagination: { page: pagination.pageIndex, perPage: pagination.pageSize },
     statuses: Array.from(statusSelection),
@@ -76,26 +65,32 @@ export const FeaturesPage = () => {
     productId: productFilter || undefined,
   })
 
-  const toggleStatus = (s: FeatureStatus) => {
-    setStatusSelection(prev => {
-      const next = new Set(prev)
-      if (next.has(s)) {
-        next.delete(s)
-      } else {
-        next.add(s)
-      }
-      return next
-    })
-  }
+
+  // No feature at all gets the empty state. The default view hides archived features, so when it
+  // is empty one feature of any status is looked for first.
+  const isNarrowed = !!debouncedSearch || !!productFilter || !isDefaultStatuses
+  const defaultViewEmpty =
+    !isNarrowed &&
+    pagination.pageIndex === 0 &&
+    query.isSuccess &&
+    (query.data?.paginationMeta?.totalItems ?? 0) === 0
+  const anyFeatureQuery = useQuery(
+    listFeatures,
+    { pagination: { page: 0, perPage: 1 }, statuses: ALL_STATUSES },
+    { enabled: defaultViewEmpty }
+  )
+  const isEmpty =
+    defaultViewEmpty &&
+    anyFeatureQuery.isSuccess &&
+    (anyFeatureQuery.data?.paginationMeta?.totalItems ?? 0) === 0
 
   return (
     <ListPageLayout
       title="Features"
-      count={query.data?.paginationMeta?.totalItems}
       actions={
         <Gate perm="catalog:manage">
           <Button variant="primary" size="sm" hasIcon onClick={() => navigate('create')}>
-            <PlusIcon className="w-4 h-4" /> New feature
+            <AddIcon /> New feature
           </Button>
         </Gate>
       }
@@ -105,55 +100,65 @@ export const FeaturesPage = () => {
             value={search ?? ''}
             onChange={setSearch}
             placeholder="Search features"
-            className="max-w-[220px]"
           />
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-8 text-sm gap-1">
-                {selectionLabel(statusSelection)}
-                <ChevronDown className="w-4 h-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              {ALL_STATUSES.map(s => (
-                <DropdownMenuCheckboxItem
-                  key={s}
-                  checked={statusSelection.has(s)}
-                  onCheckedChange={() => toggleStatus(s)}
-                >
-                  {statusLabel(s)}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Select
-            value={productFilter ?? '__all__'}
-            onValueChange={v => setProductFilter(v === '__all__' ? undefined : v)}
-          >
-            <SelectTrigger className="w-40 h-8 text-sm">
-              <SelectValue placeholder="All products" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all__">All products</SelectItem>
-              {products.map(p => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <FilterBar
+            local={[
+              {
+                field: optionField(
+                  'status',
+                  'Status',
+                  ALL_STATUSES.map(status => ({ value: String(status), label: statusLabel(status) }))
+                ),
+                // The baseline (all but archived) is no filter: a chip only for another choice.
+                values: isDefaultStatuses ? [] : Array.from(statusSelection).map(String),
+                set: values =>
+                  setStatusSelection(
+                    new Set(
+                      values.length > 0
+                        ? values.map(value => Number(value) as FeatureStatus)
+                        : DEFAULT_STATUSES
+                    )
+                  ),
+              },
+              {
+                field: optionField(
+                  'product',
+                  'Product',
+                  products.map(product => ({ value: product.id, label: product.name })),
+                  { multi: false }
+                ),
+                values: productFilter ? [productFilter] : [],
+                set: ([value]) => setProductFilter(value),
+              },
+            ]}
+          />
         </>
       }
       toolbarTrailing={<RefreshButton isLoading={query.isLoading} onClick={() => query.refetch()} />}
     >
-      <FeaturesTable
-        query={query}
-        pagination={pagination}
-        setPagination={setPagination}
-        sorting={sorting}
-        onSortingChange={setSorting}
-        onAction={(feature, target) => setPendingAction({ feature, target })}
-      />
+      {isEmpty ? (
+        <EmptyState
+          title="No features yet"
+          description="Features decide what each plan gives access to, from simple switches to usage limits."
+          scene="features"
+          actions={
+            <Gate perm="catalog:manage">
+              <Button size="sm" variant="default" onClick={() => navigate('create')}>
+                New feature
+              </Button>
+            </Gate>
+          }
+        />
+      ) : (
+        <FeaturesTable
+          query={query}
+          pagination={pagination}
+          setPagination={setPagination}
+          sorting={sorting}
+          onSortingChange={setSorting}
+          onAction={(feature, target) => setPendingAction({ feature, target })}
+        />
+      )}
 
       <FeatureActionDialog pending={pendingAction} onClose={() => setPendingAction(null)} />
     </ListPageLayout>

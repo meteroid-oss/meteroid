@@ -25,7 +25,10 @@ import {
   JOB_TYPE_LABELS,
   getStatusConfig,
 } from '@/features/batch-jobs/statusConfig'
-import { SettingsSection } from '@/features/settings/components/SettingsSection'
+import {
+  SettingsEmptyState,
+  SettingsSection,
+} from '@/features/settings/components/SettingsSection'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { listBatchJobs } from '@/rpc/api/batchjobs/v1/batchjobs-BatchJobsService_connectquery'
@@ -82,7 +85,6 @@ export const BatchJobsTab: FunctionComponent = () => {
     <div className="flex max-w-3xl flex-col gap-6">
       <SettingsSection
         divided={false}
-        title="Batch jobs"
         description="Monitor and manage asynchronous batch processing jobs like CSV imports."
       >
         <div className="space-y-4">
@@ -138,9 +140,7 @@ export const BatchJobsTab: FunctionComponent = () => {
           </div>
 
           {jobs.length === 0 ? (
-            <div className="rounded-lg border border-border p-8 text-center">
-              <p className="text-sm text-muted-foreground">No batch jobs found</p>
-            </div>
+            <SettingsEmptyState>No batch jobs found</SettingsEmptyState>
           ) : (
             <div className="overflow-hidden rounded-lg border border-border">
               <Table>

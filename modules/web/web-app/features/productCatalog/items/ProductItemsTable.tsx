@@ -111,7 +111,7 @@ export const ProductsTable: FC<ProductsTableProps> = ({
           <Gate perm="catalog:manage">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm">
+                <Button variant="ghost" size="sm" className="text-faint-foreground hover:text-foreground transition-colors">
                   <MoreVerticalIcon size={16} />
                 </Button>
               </DropdownMenuTrigger>

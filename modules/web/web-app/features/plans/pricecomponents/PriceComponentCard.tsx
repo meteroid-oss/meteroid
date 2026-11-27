@@ -1,5 +1,5 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
-import { Badge, Button, Tooltip, TooltipContent, TooltipTrigger } from '@md/ui'
+import { Badge, Tooltip, TooltipContent, TooltipTrigger, cn } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAtom } from 'jotai'
 import { PencilIcon, Trash2Icon } from 'lucide-react'
@@ -7,9 +7,14 @@ import { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
 
+import { RowActionButton } from '@/components/RowActionButton'
 import { metricUnitFromProto } from '@/features/billing/metrics/units'
+import { containedTable } from '@/features/customers/cards/ContainedTableSection'
 import { useIsDraftVersion, usePlanWithVersion } from '@/features/plans/hooks/usePlan'
-import { useComponentMetric, useComponentProduct } from '@/features/plans/pricecomponents/componentRefs'
+import {
+  useComponentMetric,
+  useComponentProduct,
+} from '@/features/plans/pricecomponents/componentRefs'
 import { PriceComponentProperty } from '@/features/plans/pricecomponents/components/PriceComponentProperty'
 import { PricingDetailsView } from '@/features/plans/pricecomponents/components/PricingDetailsView'
 import {
@@ -18,10 +23,7 @@ import {
   humanizeKey,
   isIncludedPack,
 } from '@/features/plans/pricecomponents/components/pricingFormat'
-import {
-  editedComponentsAtom,
-  useCurrency,
-} from '@/features/plans/pricecomponents/utils'
+import { editedComponentsAtom, useCurrency } from '@/features/plans/pricecomponents/utils'
 import { useBasePath } from '@/hooks/useBasePath'
 import { formatCadence } from '@/lib/mapping/prices'
 import { rpcErrorMessage } from '@/lib/rpcError'
@@ -62,23 +64,24 @@ export const PriceComponentCard: React.FC<{
         queryClient.invalidateQueries({
           queryKey: createConnectQueryKey({
             schema: listPriceComponents,
-            cardinality: undefined
-          })
+            cardinality: undefined,
+          }),
         })
-      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: getResolvedEntitlementsForPlanVersion.parent,
-        cardinality: undefined
-      }) })
+      queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: getResolvedEntitlementsForPlanVersion.parent,
+          cardinality: undefined,
+        }),
+      })
     },
-    onError: error => toast.error(rpcErrorMessage(error, 'The price component could not be removed')),
+    onError: error =>
+      toast.error(rpcErrorMessage(error, 'The price component could not be removed')),
   })
 
   const showConfirmationModal = useConfirmationModal()
 
   const removeComponent = async () => {
-    showConfirmationModal(() =>
-      deleteComponentMutation.mutate({ priceComponentId: component.id })
-    )
+    showConfirmationModal(() => deleteComponentMutation.mutate({ priceComponentId: component.id }))
   }
 
   const editComponent = () => {
@@ -86,66 +89,62 @@ export const PriceComponentCard: React.FC<{
   }
 
   return (
+    // A framed item as the detail pages' tables: what it is and how it bills on top, its prices
+    // below. In a draft its actions sit on the right, always visible.
     <article
-      className="flex flex-col gap-4 px-4 py-4 border border-border shadow-sm rounded-lg max-w-4xl group bg-card"
+      className={cn('overflow-hidden rounded-lg border border-border bg-card', containedTable)}
       key={component.id}
     >
-      <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 min-h-8">
-        <div className="flex items-center gap-2 min-w-0">
-          <h4 className="text-base font-semibold text-foreground truncate">{component.name}</h4>
-          <Badge variant="secondary" size="sm" className="shrink-0">
-            {componentKindLabel(component.prices)}
-          </Badge>
-          {product && product.name !== component.name && (
-            <Badge size="sm" className="shrink-0 border-transparent bg-brand/10 text-brand shadow-none hover:bg-brand/10">
-              {product.name}
+      <header className="flex items-start justify-between gap-4 border-b border-border px-4 py-3">
+        <div className="flex min-w-0 flex-col gap-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <h4 className="truncate text-[15px] font-medium text-foreground">{component.name}</h4>
+            <Badge variant="secondary" size="sm" className="shrink-0">
+              {componentKindLabel(component.prices)}
             </Badge>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">
+            {product && product.name !== component.name && (
+              <Badge size="sm" className="shrink-0">
+                {product.name}
+              </Badge>
+            )}
+          </div>
+          <span className="text-[13px] text-muted-foreground">
             {billingSummary(component.prices, structure, metric)}
           </span>
-          {isDraft && (
-            <div className="flex opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    className="!rounded-r-none bg-transparent text-destructive hover:text-destructive"
-                    onClick={removeComponent}
-                    size="icon"
-                    aria-label="Delete price component"
-                  >
-                    <Trash2Icon size={12} strokeWidth={2} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Delete price component</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    className="!rounded-l-none"
-                    onClick={editComponent}
-                    size="icon"
-                    aria-label="Edit price component"
-                  >
-                    <PencilIcon size={12} strokeWidth={2} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Edit price component</TooltipContent>
-              </Tooltip>
-            </div>
-          )}
         </div>
+        {isDraft && (
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <RowActionButton onClick={editComponent} aria-label="Edit price component">
+                  <PencilIcon />
+                </RowActionButton>
+              </TooltipTrigger>
+              <TooltipContent>Edit price component</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <RowActionButton
+                  destructive
+                  onClick={removeComponent}
+                  aria-label="Delete price component"
+                >
+                  <Trash2Icon />
+                </RowActionButton>
+              </TooltipTrigger>
+              <TooltipContent>Delete price component</TooltipContent>
+            </Tooltip>
+          </div>
+        )}
       </header>
-      <PricingDetailsView
-        prices={component.prices}
-        currency={currency}
-        usageUnit={metricUnitFromProto(metric)}
-        slotUnitName={structure?.case === 'slot' ? structure.value.unitName : undefined}
-      />
+      <div className="p-4">
+        <PricingDetailsView
+          prices={component.prices}
+          currency={currency}
+          usageUnit={metricUnitFromProto(metric)}
+          slotUnitName={structure?.case === 'slot' ? structure.value.unitName : undefined}
+        />
+      </div>
     </article>
   )
 }

@@ -48,7 +48,7 @@ function Info({ text }: { text: string }) {
       <TooltipTrigger asChild>
         <InfoIcon size={12} className="text-muted-foreground cursor-help" />
       </TooltipTrigger>
-      <TooltipContent className="max-w-56">{text}</TooltipContent>
+      <TooltipContent multiline className="max-w-56">{text}</TooltipContent>
     </Tooltip>
   )
 }

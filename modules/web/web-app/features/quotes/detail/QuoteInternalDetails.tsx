@@ -22,7 +22,7 @@ export const QuoteInternalDetails = ({
   return (
     <Collapsible className="rounded-lg border border-border bg-card">
       <CollapsibleTrigger className="group flex w-full items-center justify-between gap-2 px-4 py-3 text-left">
-        <span className="text-sm font-semibold text-foreground">
+        <span className="text-[15px] font-medium text-foreground">
           Deal & internal
           {parts.length > 0 && (
             <span className="font-normal text-muted-foreground"> · {parts.join(', ')}</span>

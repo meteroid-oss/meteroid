@@ -19,7 +19,7 @@ export const SubscriptionStatusBadge = ({ status }: Props) => {
     case SubscriptionStatus.PENDING:
       return <Badge variant="warning">Pending</Badge>
     case SubscriptionStatus.TRIALING:
-      return <Badge variant="outline">Trial</Badge>
+      return <Badge variant="info">Trial</Badge>
     case SubscriptionStatus.TRIAL_EXPIRED:
       return <Badge variant="warning">Trial Expired</Badge>
     case SubscriptionStatus.ERRORED:

@@ -11,6 +11,7 @@ import { ChevronDownIcon, ChevronUpIcon } from 'lucide-react'
 import { Fragment, useCallback } from 'react'
 
 import { CustomTable } from '@/components/table/CustomTable'
+import { columnClassName } from '@/components/table/actionColumn'
 
 interface ExpandableTableProps<A> {
   columns: ColumnDef<A>[]
@@ -45,7 +46,7 @@ export const ExpandableTable = <A extends { isExpandable?: boolean }>({
           <TableRow>
             {row.getVisibleCells().map(cell => {
               return (
-                <TableCell key={cell.id}>
+                <TableCell key={cell.id} className={columnClassName(cell.column.columnDef)}>
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
                 </TableCell>
               )

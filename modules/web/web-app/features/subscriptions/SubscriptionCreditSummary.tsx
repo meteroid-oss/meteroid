@@ -332,7 +332,7 @@ export const BalanceDetails = ({
           {children}
         </span>
       </TooltipTrigger>
-      <TooltipContent className="max-w-80 space-y-1 tabular-nums">
+      <TooltipContent multiline className="max-w-80 space-y-1 tabular-nums">
         {lines.map(line => (
           <p key={line}>{line}</p>
         ))}

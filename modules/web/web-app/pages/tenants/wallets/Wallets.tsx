@@ -10,6 +10,7 @@ import {
   liveUpdatingLabel,
   walletHealthDescription,
 } from '@/features/credit/walletStatus'
+import { FilterBar } from '@/features/filters/FilterBar'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { useQueryState } from '@/hooks/useQueryState'
@@ -17,7 +18,7 @@ import { useQuery } from '@/lib/connectrpc'
 import { WalletStatus } from '@/rpc/api/wallets/v1/models_pb'
 import { listWalletSummaries } from '@/rpc/api/wallets/v1/wallets-WalletsService_connectquery'
 
-import { WalletStatusFilter, parseWalletFilter, walletFilterRequest } from './WalletStatusFilter'
+import { parseWalletFilter, walletFilterRequest, walletStatusField } from './WalletStatusFilter'
 
 import type { WalletFilter } from './WalletStatusFilter'
 import type { WalletSummary } from '@/rpc/api/wallets/v1/models_pb'
@@ -113,16 +114,22 @@ export const Wallets = () => {
   return (
     <ListPageLayout
       title="Wallets"
-      count={count}
       toolbar={
         <>
           <ListToolbarSearch
             value={text}
             onChange={setText}
             placeholder="Search customers"
-            className="max-w-xs"
           />
-          <WalletStatusFilter value={filter} onChange={setFilter} />
+          <FilterBar
+            local={[
+              {
+                field: walletStatusField(),
+                values: filter ? [filter] : [],
+                set: ([value]) => setFilter(value),
+              },
+            ]}
+          />
         </>
       }
       toolbarTrailing={

@@ -17,7 +17,7 @@ export const AccessCheckInfo = ({ className }: { className?: string }) => (
         className={cn('inline shrink-0 cursor-help text-muted-foreground', className)}
       />
     </TooltipTrigger>
-    <TooltipContent className="max-w-72">{ACCESS_CHECK_EXPLAINER}</TooltipContent>
+    <TooltipContent multiline className="max-w-72">{ACCESS_CHECK_EXPLAINER}</TooltipContent>
   </Tooltip>
 )
 

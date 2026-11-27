@@ -227,12 +227,12 @@ export const AddonCreatePanel = () => {
           <div className="flex items-start gap-3">
             <div className="flex items-center gap-1.5 w-36 pt-2 shrink-0">
               <Label className="text-sm font-medium text-muted-foreground">Instances</Label>
-              <TooltipProvider delayDuration={100}>
+              <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <InfoIcon className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
                   </TooltipTrigger>
-                  <TooltipContent className="max-w-64">
+                  <TooltipContent multiline className="max-w-64">
                     How many times this add-on can be added to a single subscription.
                   </TooltipContent>
                 </Tooltip>

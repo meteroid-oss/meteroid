@@ -39,6 +39,13 @@ export const SecuritySection = () => {
 
   const active = tabs.find(t => t.tab.value === sub) ?? tabs[0]
 
+  // A single surface (two-factor alone, as in the open-source edition) needs no tab bar; the
+  // tabs appear once an edition adds another (SSO, roles, audit trails).
+  if (tabs.length === 1) {
+    const Only = tabs[0].tab.Content
+    return <Only />
+  }
+
   return (
     <Tabs value={active?.tab.value} onValueChange={setSub} className="flex flex-col gap-5">
       <TabsList className="self-start">

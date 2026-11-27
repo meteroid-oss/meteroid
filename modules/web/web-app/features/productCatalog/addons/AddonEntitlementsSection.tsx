@@ -5,6 +5,8 @@ import {
   Skeleton,
   Tooltip,
   TooltipContent,
+  TooltipGroup,
+  TooltipGroupItem,
   TooltipProvider,
   TooltipTrigger,
 } from '@md/ui'
@@ -166,7 +168,7 @@ export const AddonEntitlementsSection = ({ addonId }: Props) => {
                   Pin all
                 </Button>
               </TooltipTrigger>
-              <TooltipContent className="max-w-56">
+              <TooltipContent multiline className="max-w-56">
                 {entitlementTooltip('add-on', 'pinAll')}
               </TooltipContent>
             </Tooltip>
@@ -200,70 +202,62 @@ export const AddonEntitlementsSection = ({ addonId }: Props) => {
                     {!pinned && <InheritedIcon tooltip="Inherited from product"/>}
                     <LimitTermsBadges terms={termsOfValue(r.value)} />
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0 ml-3">
+                  <TooltipGroup className="flex items-center gap-2 text-xs text-muted-foreground shrink-0 ml-3">
                     <span>{formatResolvedValue(r.value)}</span>
                     {!isBoolean && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            className="p-1 hover:bg-muted rounded"
-                            onClick={() => setDialog({ open: true, row: r })}
-                            disabled={isBusy}
-                          >
-                            <Pencil size={12}/>
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>{entitlementTooltip('add-on', 'override')}</TooltipContent>
-                      </Tooltip>
+                      <TooltipGroupItem label={entitlementTooltip('add-on', 'override')}>
+                        <button
+                          aria-label={entitlementTooltip('add-on', 'override')}
+                          type="button"
+                          className="p-1 hover:bg-muted rounded"
+                          onClick={() => setDialog({ open: true, row: r })}
+                          disabled={isBusy}
+                        >
+                          <Pencil size={12}/>
+                        </button>
+                      </TooltipGroupItem>
                     )}
                     {pinned ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            className="p-1 hover:bg-muted rounded text-destructive"
-                            onClick={() => handleUnpin(r)}
-                            disabled={isBusy}
-                          >
-                            <PinOff size={12}/>
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>{entitlementTooltip('add-on', 'unpin')}</TooltipContent>
-                      </Tooltip>
+                      <TooltipGroupItem label={entitlementTooltip('add-on', 'unpin')}>
+                        <button
+                          aria-label={entitlementTooltip('add-on', 'unpin')}
+                          type="button"
+                          className="p-1 hover:bg-muted rounded text-destructive"
+                          onClick={() => handleUnpin(r)}
+                          disabled={isBusy}
+                        >
+                          <PinOff size={12}/>
+                        </button>
+                      </TooltipGroupItem>
                     ) : (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            className="p-1 hover:bg-muted rounded"
-                            onClick={() => handlePin(r)}
-                            disabled={isBusy}
-                          >
-                            <Pin size={12}/>
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>{entitlementTooltip('add-on', 'pin')}</TooltipContent>
-                      </Tooltip>
+                      <TooltipGroupItem label={entitlementTooltip('add-on', 'pin')}>
+                        <button
+                          aria-label={entitlementTooltip('add-on', 'pin')}
+                          type="button"
+                          className="p-1 hover:bg-muted rounded"
+                          onClick={() => handlePin(r)}
+                          disabled={isBusy}
+                        >
+                          <Pin size={12}/>
+                        </button>
+                      </TooltipGroupItem>
                     )}
                     {(isBoolean || isMetered) && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            className="p-1 hover:bg-muted rounded"
-                            onClick={() => handleToggleDisable(r)}
-                            disabled={isBusy}
-                          >
-                            {disabled
-                              ? <CirclePower size={12} className="text-destructive"/>
-                              : <CirclePower size={12} className="text-primary"/>}
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>{entitlementTooltip('add-on', disabled ? 'enable' : 'disable')}</TooltipContent>
-                      </Tooltip>
+                      <TooltipGroupItem label={entitlementTooltip('add-on', disabled ? 'enable' : 'disable')}>
+                        <button
+                          aria-label={entitlementTooltip('add-on', disabled ? 'enable' : 'disable')}
+                          type="button"
+                          className="p-1 hover:bg-muted rounded"
+                          onClick={() => handleToggleDisable(r)}
+                          disabled={isBusy}
+                        >
+                          {disabled
+                            ? <CirclePower size={12} className="text-destructive"/>
+                            : <CirclePower size={12} className="text-primary"/>}
+                        </button>
+                      </TooltipGroupItem>
                     )}
-                  </div>
+                  </TooltipGroup>
                 </div>
               )
             })}

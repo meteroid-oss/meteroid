@@ -11,6 +11,7 @@ export const ActivityCard = ({ customer }: Props) => {
       entityType="customer"
       entityId={customer.id}
       emptyLabel="No activity yet for this customer"
+      timeline
     />
   )
 }

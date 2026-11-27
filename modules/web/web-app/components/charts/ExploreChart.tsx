@@ -5,14 +5,16 @@ import { useTooltip } from '@nivo/tooltip'
 import dayjs from 'dayjs'
 import { useMemo, useRef, useState } from 'react'
 
+
+import { ChartEmptyState } from '@/components/charts/ChartEmptyState'
 import { makeAxisFormatter, makeFormatter, scaleValue } from '@/components/charts/format'
-import { ChartNoData } from '@/features/dashboard/charts/ChartNoData'
 import { Crosshair } from '@/features/dashboard/charts/Crosshair'
 import { ActiveSerieLayer } from '@/features/dashboard/charts/utils'
 import { lifecycleStateLabel } from '@/lib/lifecycle'
 import { useTheme } from 'providers/ThemeProvider'
 
 import type { ChartSpec, ForecastPoint } from '@/components/charts/types'
+import type { ReactNode } from 'react'
 
 export interface ExplorePoint {
   windowStart: string
@@ -56,6 +58,10 @@ interface ExploreChartProps {
    * shown rounded.
    */
   valueFormatter?: (v: number) => string
+  /** What the empty chart says: why it is empty and what fills it. */
+  empty?: { title: ReactNode; description?: ReactNode; action?: ReactNode }
+  /** Refetch, offered as "Try again" when the query failed. */
+  onRetry?: () => void
 }
 
 type ChartShape = 'line' | 'area' | 'bar' | 'stacked'
@@ -194,6 +200,8 @@ export const ExploreChart = ({
   showLegend = true,
   paletteKeys,
   valueFormatter,
+  empty,
+  onRetry,
 }: ExploreChartProps) => {
   const theme = useTheme()
   const shape = resolveShape(entry)
@@ -357,7 +365,15 @@ export const ExploreChart = ({
     )
   }
   if (isEmpty) {
-    return <ChartNoData error={isError} />
+    return (
+      <ChartEmptyState
+        error={isError}
+        onRetry={onRetry}
+        title={empty?.title ?? 'No data in this period'}
+        description={empty?.description ?? 'Try a longer time range.'}
+        action={empty?.action}
+      />
+    )
   }
 
   if (isLineLike(shape)) {

@@ -8,7 +8,7 @@ export const TopSection = () => {
   // const { formatAmount } = useCurrency()
 
   return (
-    <div className="flex flex-row  flex-wrap md:flex-nowrap items-center gap-4 ml-auto ">
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
       <StatCard
         title="Signups"
         loading={!stats.isFetched}

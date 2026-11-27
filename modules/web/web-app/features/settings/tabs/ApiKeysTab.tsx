@@ -18,9 +18,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  FieldLabel,
   Input,
   InputWithIcon,
-  Label,
   Skeleton,
   Table,
   TableBody,
@@ -30,11 +30,14 @@ import {
   TableRow,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { CheckIcon, CopyIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { CheckIcon, CopyIcon, KeyRoundIcon, PlusIcon, Trash2Icon } from 'lucide-react'
 import { FunctionComponent, useState } from 'react'
 import { toast } from 'sonner'
 
-import { SettingsSection } from '@/features/settings/components/SettingsSection'
+import {
+  SettingsEmptyState,
+  SettingsSection,
+} from '@/features/settings/components/SettingsSection'
 import { useQuery } from '@/lib/connectrpc'
 import { copyToClipboard } from '@/lib/helpers'
 import {
@@ -131,11 +134,10 @@ export const ApiKeysTab: FunctionComponent = () => {
     <div className="flex max-w-3xl flex-col gap-6">
       <SettingsSection
         divided={false}
-        title="API keys"
         description="Create an API key to access our API."
         action={
           <Button hasIcon onClick={() => setIsCreateDialogOpen(true)} size="sm">
-            <PlusIcon size={12} /> Create api token
+            <PlusIcon size={12} /> Create API token
           </Button>
         }
       >
@@ -167,9 +169,22 @@ export const ApiKeysTab: FunctionComponent = () => {
           )}
 
           {sortedTokens.length === 0 ? (
-            <div className="rounded-lg border border-border p-8 text-center">
-              <p className="text-sm text-muted-foreground">No API keys yet</p>
-            </div>
+            <SettingsEmptyState
+              icon={<KeyRoundIcon />}
+              title="No API keys yet"
+              action={
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  hasIcon
+                  onClick={() => setIsCreateDialogOpen(true)}
+                >
+                  <PlusIcon size={14} /> Create API token
+                </Button>
+              }
+            >
+              Create a token to authenticate your requests to the Meteroid API.
+            </SettingsEmptyState>
           ) : (
             <div className="overflow-hidden rounded-lg border border-border">
               <Table>
@@ -226,7 +241,7 @@ export const ApiKeysTab: FunctionComponent = () => {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="token-name">Token Name</Label>
+              <FieldLabel htmlFor="token-name">Token name</FieldLabel>
               <Input
                 id="token-name"
                 placeholder="e.g., Production API Key"

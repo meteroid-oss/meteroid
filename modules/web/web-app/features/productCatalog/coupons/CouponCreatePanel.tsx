@@ -46,7 +46,7 @@ const InfoTooltip = ({ children }: { children: React.ReactNode }) => (
     <TooltipTrigger asChild>
       <InfoIcon className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
     </TooltipTrigger>
-    <TooltipContent className="max-w-72">{children}</TooltipContent>
+    <TooltipContent multiline className="max-w-72">{children}</TooltipContent>
   </Tooltip>
 )
 
@@ -141,7 +141,7 @@ export const CouponCreatePanel: FunctionComponent = () => {
           .then(() => void 0)
       }
     >
-      <TooltipProvider delayDuration={100}>
+      <TooltipProvider>
       <div className="space-y-6">
         {/* Basic Info */}
         <section className="space-y-4 mt-4">

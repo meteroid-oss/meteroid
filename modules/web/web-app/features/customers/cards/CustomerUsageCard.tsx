@@ -1,10 +1,25 @@
-import { Card, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton } from '@md/ui'
+import {
+  Button,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@md/ui'
 import { format, subDays } from 'date-fns'
-import { Gauge } from 'lucide-react'
+import { Gauge, TriangleAlert } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
 
-import { PanelEmptyState } from '@/components/empty-state/PanelEmptyState'
+import { SectionEmptyState } from '@/components/empty-state/SectionEmptyState'
+import { ContainedTableSection } from '@/features/customers/cards/ContainedTableSection'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { formatUsage } from '@/lib/utils/numbers'
@@ -53,13 +68,7 @@ const Sparkline = ({ values, height = 22 }: { values: number[]; height?: number 
     })
     .join(' ')
   return (
-    <svg
-      width="100%"
-      height={h}
-      viewBox={`0 0 ${w} ${h}`}
-      preserveAspectRatio="none"
-      aria-hidden
-    >
+    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden>
       <polyline
         points={points}
         fill="none"
@@ -75,7 +84,8 @@ const Sparkline = ({ values, height = 22 }: { values: number[]; height?: number 
 /**
  * Per-customer usage: every tenant billable metric's usage for this customer in one batched
  * call (the server fans out the per-metric aggregates and returns partial results if one
- * errors). A ranked table of the whole-range total (in the metric's op) plus a daily trend.
+ * errors). A ranked table of the whole-range total (in the metric's op) plus a daily trend, in
+ * the customer page's contained table.
  */
 export const CustomerUsageCard = ({ customerId }: { customerId: string }) => {
   const basePath = useBasePath()
@@ -103,71 +113,100 @@ export const CustomerUsageCard = ({ customerId }: { customerId: string }) => {
 
   if (query.data && query.data.totalCount === 0) {
     return (
-      <Card className="overflow-hidden">
-        <PanelEmptyState
-          icon={Gauge}
-          title="No usage metrics yet"
-          description="Define billable metrics in the product catalog to track this customer's usage."
-        />
-      </Card>
+      <SectionEmptyState
+        className="bg-card"
+        icon={<Gauge />}
+        title="No usage metrics yet"
+        action={
+          <Button size="sm" variant="secondary" asChild>
+            <Link to={`${basePath}/metrics`}>Go to metrics</Link>
+          </Button>
+        }
+      >
+        Define billable metrics in the product catalog to track this customer&apos;s usage.
+      </SectionEmptyState>
     )
   }
 
+  const summary = [
+    rows.length > 0 ? `${rows.length} active` : null,
+    partial ? `${evaluated} of ${totalMetrics} metrics read` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <div className="text-[13px] text-muted-foreground">
-          {[
-            rows.length > 0 ? `${rows.length} active` : null,
-            partial ? `${evaluated} of ${totalMetrics} metrics read` : null,
-          ]
-            .filter(Boolean)
-            .join(' · ')}
-        </div>
-        <Select value={range} onValueChange={v => setRange(v as RangePreset)}>
-          <SelectTrigger className="w-[160px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {(Object.keys(RANGES) as RangePreset[]).map(key => (
-              <SelectItem key={key} value={key}>
-                {RANGES[key].label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <Card className="overflow-hidden">
-        <div className="grid grid-cols-[1fr_auto_auto] items-center gap-4 px-4 py-2 border-b border-border text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          <div>Metric</div>
-          <div className="text-right">Usage</div>
-          <div className="w-24 text-right">Trend</div>
-        </div>
-
-        {query.isLoading ? (
-          <div className="divide-y divide-border">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="px-4 py-3">
-                <Skeleton height={20} />
-              </div>
-            ))}
-          </div>
-        ) : rows.length === 0 ? (
-          <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-            {query.error ? 'Usage is temporarily unavailable.' : 'No usage recorded in this period.'}
-          </div>
-        ) : (
-          <div className="divide-y divide-border">
-            {rows.map(m => (
-              <div
+    <ContainedTableSection
+      title="Usage"
+      headerExtra={
+        <>
+          {summary && <span className="text-[13px] text-muted-foreground">{summary}</span>}
+          <Select value={range} onValueChange={v => setRange(v as RangePreset)}>
+            <SelectTrigger className="h-7 w-[140px] text-[13px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(RANGES) as RangePreset[]).map(key => (
+                <SelectItem key={key} value={key}>
+                  {RANGES[key].label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </>
+      }
+    >
+      {/* Laid out as the invoices table beside it (24px in on the left, 32px column headers),
+          with taller rows for the metric's name, its aggregation and the trend. */}
+      <Table className="[&_td:first-child]:pl-6 [&_td:last-child]:pr-6 [&_td]:px-2.5 [&_th:first-child]:pl-6 [&_th:last-child]:pr-6 [&_th]:!h-8 [&_th]:px-2.5 [&_th]:text-[13px] [&_th]:font-medium [&_th]:text-foreground/60">
+        <TableHeader className="border-t-0 bg-transparent">
+          <TableRow className="hover:bg-transparent">
+            <TableHead>Metric</TableHead>
+            <TableHead className="text-right">Usage</TableHead>
+            <TableHead className="w-32 text-right">Trend</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {query.isLoading ? (
+            Array.from({ length: 3 }, (_, i) => (
+              <TableRow key={i} className="h-[60px] hover:bg-transparent">
+                <TableCell colSpan={3}>
+                  <Skeleton height={20} />
+                </TableCell>
+              </TableRow>
+            ))
+          ) : rows.length === 0 ? (
+            <TableRow className="hover:bg-transparent">
+              <TableCell colSpan={3} className="p-0">
+                {query.error ? (
+                  <SectionEmptyState
+                    framed={false}
+                    icon={<TriangleAlert />}
+                    title="Usage is temporarily unavailable"
+                  >
+                    The usage for this customer could not be read. Try again in a moment.
+                  </SectionEmptyState>
+                ) : (
+                  <SectionEmptyState
+                    framed={false}
+                    icon={<Gauge />}
+                    title={`No usage in the ${RANGES[range].label.toLowerCase()}`}
+                  >
+                    Events this customer reports for your metrics show here. Try a longer period.
+                  </SectionEmptyState>
+                )}
+              </TableCell>
+            </TableRow>
+          ) : (
+            rows.map(m => (
+              <TableRow
                 key={m.metricId}
-                className="grid grid-cols-[1fr_auto_auto] items-center gap-4 px-4 py-2.5 text-[13px] hover:bg-muted/40"
+                className="h-[60px] text-[13px] hover:bg-foreground/[0.04]"
               >
-                <div className="min-w-0">
+                <TableCell className="max-w-0">
                   <Link
                     to={`${basePath}/metrics/${m.metricId}`}
-                    className="font-medium text-foreground hover:text-brand hover:underline truncate block"
+                    className="block truncate font-medium text-foreground hover:underline"
                     title={m.label}
                   >
                     {m.label}
@@ -175,16 +214,20 @@ export const CustomerUsageCard = ({ customerId }: { customerId: string }) => {
                   <div className="text-[11px] text-muted-foreground">
                     {AGGREGATION_LABEL[m.aggregation] ?? m.aggregation}
                   </div>
-                </div>
-                <div className="text-right tabular-nums font-medium">{formatUsage(m.total)}</div>
-                <div className="w-24 flex justify-end text-brand">
-                  <Sparkline values={m.trend.map(p => p.value)} />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-    </div>
+                </TableCell>
+                <TableCell className="whitespace-nowrap text-right font-medium tabular-nums">
+                  {formatUsage(m.total)}
+                </TableCell>
+                <TableCell className="w-32">
+                  <div className="ml-auto w-24 text-brand">
+                    <Sparkline values={m.trend.map(p => p.value)} />
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))
+          )}
+        </TableBody>
+      </Table>
+    </ContainedTableSection>
   )
 }

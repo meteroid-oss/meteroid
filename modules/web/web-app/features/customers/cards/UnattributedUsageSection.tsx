@@ -79,8 +79,8 @@ export const UnattributedUsageSection = ({ customerId }: { customerId: string })
 
   if (recentQuery.isError || monthQuery.isError) {
     return (
-      <section className="flex flex-col gap-2">
-        <h3 className="text-lg font-medium">Unattributed usage</h3>
+      <section className="flex flex-col gap-4">
+        <h3 className="text-base font-medium">Unattributed usage</h3>
         <p className="text-sm text-muted-foreground">The unattributed usage could not be loaded.</p>
       </section>
     )
@@ -91,9 +91,9 @@ export const UnattributedUsageSection = ({ customerId }: { customerId: string })
   const usage = monthQuery.data?.usage ?? []
 
   return (
-    <section className="flex flex-col gap-2">
+    <section className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-lg font-medium">Unattributed usage</h3>
+        <h3 className="text-base font-medium">Unattributed usage</h3>
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
@@ -122,11 +122,13 @@ export const UnattributedUsageSection = ({ customerId }: { customerId: string })
       <p className="text-sm text-muted-foreground">
         Usage that matches no subscription&apos;s usage filter while every subscription pricing the
         metric has one. It is kept and billed to nobody. A new usage filter on an active
-        subscription pricing the metric bills what is not invoiced yet; usage already invoiced
-        stays unattributed.
+        subscription pricing the metric bills what is not invoiced yet; usage already invoiced stays
+        unattributed.
       </p>
       {monthQuery.isLoading ? null : usage.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No unattributed usage in {monthLabel(month)}.</p>
+        <p className="text-sm text-muted-foreground">
+          No unattributed usage in {monthLabel(month)}.
+        </p>
       ) : (
         <div className="overflow-x-auto rounded-md border border-border">
           <Table className="text-xs">

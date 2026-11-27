@@ -246,12 +246,12 @@ export const EditSubscriptionModal = ({
               label="Payment Methods"
               control={methods.control}
               labelTooltip={
-                <TooltipProvider delayDuration={100}>
+                <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <InfoIcon className="h-4 w-4 text-muted-foreground cursor-help" />
                     </TooltipTrigger>
-                    <TooltipContent className="max-w-80">
+                    <TooltipContent multiline className="max-w-80">
                       Online: Use card and/or direct debit payments.
                       <br />
                       Bank Transfer: Invoice with bank transfer instructions.
