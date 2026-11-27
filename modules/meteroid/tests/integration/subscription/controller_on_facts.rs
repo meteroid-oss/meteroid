@@ -1636,8 +1636,8 @@ async fn a_cancellation_in_the_period_and_the_renewal_are_one_step(#[future] tes
     assert_eq!(count(&outbox(&env, sub_id).await, "cancelled"), 1);
 }
 
-/// Decision 6: a subscription on a free plan whose every charge is zero writes no document at its
-/// renewals, as a free plan never billed; its state still renews. A standard plan priced at
+/// Decision 6: a subscription on a free plan whose every charge is zero writes no document, at its
+/// start or its renewals, as a free plan never billed; its state still renews. A standard plan priced at
 /// nothing is as free.
 /// Rules: R-104
 #[rstest]
@@ -1671,8 +1671,12 @@ async fn a_free_plan_billing_nothing_writes_no_document(
         .no_trial()
         .create(env.services())
         .await;
+    assert!(
+        invoices(&env, sub_id).await.is_empty(),
+        "no opening invoice"
+    );
     run(&env).await;
-    let written = invoices(&env, sub_id).await;
+    assert!(invoices(&env, sub_id).await.is_empty(), "none at its start");
 
     env.set_now(at(3, 1, 13));
     run(&env).await;
@@ -1682,8 +1686,193 @@ async fn a_free_plan_billing_nothing_writes_no_document(
         .is_active()
         .has_period_start(day(3, 1))
         .has_period_end(day(4, 1));
-    assert_eq!(invoices(&env, sub_id).await, written, "no renewal written");
-    assert!(written.iter().all(|(start, _)| *start < day(2, 1)));
+    assert!(
+        invoices(&env, sub_id).await.is_empty(),
+        "no renewal written"
+    );
+}
+
+/// A free plan's unwritten periods stay unwritten once it is changed to a paid plan: the change
+/// bills its own days, no zero invoice is back-dated to the free months.
+/// Rules: R-104
+#[rstest]
+#[tokio::test]
+async fn a_free_plan_changed_to_a_paid_one_back_dates_no_zero_invoice(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.set_now(at(1, 1, 12));
+    let version = PlanVersionId::new();
+    PlanSeed::new(PlanId::new(), "Free at nothing", version)
+        .components(vec![SeedComp::rate(
+            PriceComponentId::new(),
+            "Free Rate",
+            PRODUCT_PLATFORM_FEE_ID,
+            PriceId::new(),
+            DieselBillingPeriodEnum::Monthly,
+            Decimal::ZERO,
+        )])
+        .seed(&mut env.conn().await)
+        .await
+        .expect("a free plan");
+    let sub_id = subscription()
+        .plan_version(version)
+        .start_date(day(1, 1))
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    run(&env).await;
+    env.set_now(at(3, 10, 12));
+    run(&env).await;
+    assert!(
+        invoices(&env, sub_id).await.is_empty(),
+        "no free month written"
+    );
+
+    env.services()
+        .apply_plan_change_immediate_at(
+            Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+            day(3, 10),
+        )
+        .await
+        .expect("an immediate upgrade");
+    run(&env).await;
+    let zero: Vec<_> = env
+        .get_invoices(sub_id)
+        .await
+        .into_iter()
+        .filter(|invoice| invoice.total == 0)
+        .map(|invoice| invoice.billing_period_start)
+        .collect();
+    assert!(zero.is_empty(), "zero invoices back-dated to {zero:?}");
+    assert!(
+        !env.get_invoices(sub_id).await.is_empty(),
+        "the upgrade bills"
+    );
+}
+
+/// A free plan's included credit renews each period: its zero invoice, which grants it, is
+/// written at every renewal, as on a plan priced at nothing.
+/// Rules: R-104
+#[rstest]
+#[case::typed_free(true)]
+#[case::priced_at_nothing(false)]
+#[tokio::test]
+async fn a_free_plans_included_credit_renews(
+    #[future] test_env: TestEnv,
+    #[case] typed_free: bool,
+) {
+    use meteroid_store::domain::prices::{FeeStructure, Pricing};
+    let env = test_env.await;
+    env.set_now(at(1, 1, 12));
+    let version = PlanVersionId::new();
+    let mut credits = SeedComp::rate(
+        PriceComponentId::new(),
+        "Included credits",
+        PRODUCT_PLATFORM_FEE_ID,
+        PriceId::new(),
+        DieselBillingPeriodEnum::Monthly,
+        Decimal::ZERO,
+    )
+    .with_structure(FeeStructure::Credit {});
+    credits.prices[0].pricing = Pricing::Credit {
+        unit_price: Decimal::ZERO,
+        quantity: 1,
+        credit_amount: dec!(500),
+        expiry: None,
+        credit_unit_id: None,
+        rollover: None,
+        once: false,
+    };
+    let seed = PlanSeed::new(PlanId::new(), "Free with credits", version);
+    let seed = if typed_free { seed.free() } else { seed };
+    seed.components(vec![credits])
+        .seed(&mut env.conn().await)
+        .await
+        .expect("a free plan including credit");
+    let sub_id = subscription()
+        .customer(CUST_UBER_ID)
+        .plan_version(version)
+        .start_date(day(1, 1))
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    run(&env).await;
+    env.set_now(at(2, 5, 12));
+    run(&env).await;
+    env.run_outbox_and_orchestration().await;
+
+    let written = invoices(&env, sub_id).await;
+    assert_eq!(
+        written.iter().map(|(start, _)| *start).collect::<Vec<_>>(),
+        vec![day(1, 1), day(2, 1)],
+        "the renewal grants it again"
+    );
+    let granted: i64 = env
+        .store()
+        .customer_credit_wallets(TENANT_ID, CUST_UBER_ID)
+        .await
+        .expect("wallets")
+        .into_iter()
+        .flat_map(|wallet| wallet.grants)
+        .filter(|grant| grant.source == CreditGrantSource::Included)
+        .map(|grant| grant.amount_minor)
+        .sum();
+    assert_eq!(granted, 100_000, "500 a month for two months");
+}
+
+/// A paid plan's period of zero charges still gets its invoice: only a free plan's is skipped.
+/// Rules: R-104
+#[rstest]
+#[tokio::test]
+async fn a_paid_plans_period_of_zero_charges_still_gets_its_invoice(#[future] test_env: TestEnv) {
+    use meteroid_store::domain::UsagePricingModel;
+    let env = test_env.await;
+    env.set_now(at(1, 1, 12));
+    let version = PlanVersionId::new();
+    PlanSeed::new(PlanId::new(), "Pay as you go", version)
+        .components(vec![
+            SeedComp::rate(
+                PriceComponentId::new(),
+                "Platform",
+                PRODUCT_PLATFORM_FEE_ID,
+                PriceId::new(),
+                DieselBillingPeriodEnum::Monthly,
+                Decimal::ZERO,
+            ),
+            SeedComp::usage(
+                PriceComponentId::new(),
+                "Bandwidth",
+                PRODUCT_BANDWIDTH_ID,
+                METRIC_BANDWIDTH,
+                PriceId::new(),
+                DieselBillingPeriodEnum::Monthly,
+                UsagePricingModel::PerUnit { rate: dec!(0.10) },
+            ),
+        ])
+        .seed(&mut env.conn().await)
+        .await
+        .expect("a paid plan");
+    let sub_id = subscription()
+        .plan_version(version)
+        .start_date(day(1, 1))
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    assert_eq!(
+        billed(&env, sub_id).await,
+        vec![(
+            meteroid_store::domain::enums::InvoiceType::Recurring,
+            day(1, 1),
+            0
+        )],
+        "its opening period is invoiced at zero"
+    );
 }
 
 /// A free plan billing bandwidth at 0.10 a unit, 100 units in any window read.

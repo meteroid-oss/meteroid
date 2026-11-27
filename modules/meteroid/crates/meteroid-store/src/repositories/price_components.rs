@@ -446,6 +446,50 @@ pub(crate) async fn lock_draft_version_tx(
     Ok(version)
 }
 
+/// A plan version's components with their prices, legacy (v1) pricing included.
+pub(crate) async fn price_components_of(
+    conn: &mut PgConn,
+    plan_version_id: PlanVersionId,
+    tenant_id: TenantId,
+) -> StoreResult<Vec<PriceComponent>> {
+    let component_rows =
+        PriceComponentRow::list_by_plan_version_id(conn, tenant_id, plan_version_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+    let legacy_fees: Vec<Option<serde_json::Value>> = component_rows
+        .iter()
+        .map(|row| row.legacy_fee.clone())
+        .collect();
+    let mut components = component_rows
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect::<Result<Vec<PriceComponent>, Report<StoreError>>>()?;
+    attach_prices(conn, tenant_id, &mut components).await?;
+
+    // Extract legacy pricing data for v1 components (no fake IDs)
+    let has_v1 = components
+        .iter()
+        .zip(&legacy_fees)
+        .any(|(c, legacy)| c.prices.is_empty() && legacy.is_some());
+    if has_v1 {
+        let pv = PlanVersionRow::find_by_id_and_tenant_id(conn, plan_version_id, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        for (component, legacy) in components.iter_mut().zip(&legacy_fees) {
+            if component.prices.is_empty()
+                && let Some(legacy_json) = legacy
+            {
+                let legacy: LegacyPricingData =
+                    extract_legacy_pricing(legacy_json, pv.currency.clone())?;
+                component.legacy_pricing = Some(legacy);
+            }
+        }
+    }
+
+    Ok(components)
+}
+
 /// Attaches to each component its links and their prices, read in two queries.
 pub(crate) async fn attach_prices(
     conn: &mut PgConn,
@@ -886,42 +930,7 @@ impl PriceComponentInterface for Store {
         plan_version_id: PlanVersionId,
         tenant_id: TenantId,
     ) -> StoreResult<Vec<PriceComponent>> {
-        let component_rows =
-            PriceComponentRow::list_by_plan_version_id(conn, tenant_id, plan_version_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-
-        let legacy_fees: Vec<Option<serde_json::Value>> = component_rows
-            .iter()
-            .map(|row| row.legacy_fee.clone())
-            .collect();
-        let mut components = component_rows
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<PriceComponent>, Report<StoreError>>>()?;
-        attach_prices(conn, tenant_id, &mut components).await?;
-
-        // Extract legacy pricing data for v1 components (no fake IDs)
-        let has_v1 = components
-            .iter()
-            .zip(&legacy_fees)
-            .any(|(c, legacy)| c.prices.is_empty() && legacy.is_some());
-        if has_v1 {
-            let pv = PlanVersionRow::find_by_id_and_tenant_id(conn, plan_version_id, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-            for (component, legacy) in components.iter_mut().zip(&legacy_fees) {
-                if component.prices.is_empty()
-                    && let Some(legacy_json) = legacy
-                {
-                    let legacy: LegacyPricingData =
-                        extract_legacy_pricing(legacy_json, pv.currency.clone())?;
-                    component.legacy_pricing = Some(legacy);
-                }
-            }
-        }
-
-        Ok(components)
+        price_components_of(conn, plan_version_id, tenant_id).await
     }
 
     async fn get_price_component_by_id(

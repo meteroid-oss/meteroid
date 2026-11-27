@@ -3,8 +3,12 @@
 use common_domain::actor::Actor;
 use common_domain::ids::{BaseId, PlanId, PlanVersionId, PriceComponentId, PriceId};
 use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
+use meteroid_store::domain::credit::CreditGrantSource;
+use meteroid_store::domain::prices::{FeeStructure, Pricing};
 use meteroid_store::domain::product_family_journeys::ProductFamilyJourney;
 use meteroid_store::repositories::ProductFamilyJourneysInterface;
+use meteroid_store::repositories::credit::CustomerCreditWalletsInterface;
+use rstest::rstest;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
@@ -67,6 +71,10 @@ async fn a_standard_plan_priced_at_nothing_needs_no_payment_method() {
         .await
         .expect("nothing to charge: no payment method needed");
     env.get_subscription(created.id).await.assert().is_active();
+    assert!(
+        env.get_invoices(created.id).await.is_empty(),
+        "a free plan opens no invoice"
+    );
     let refused = subscribe(team)
         .await
         .expect_err("a priced plan charged automatically needs a payment provider");
@@ -106,4 +114,69 @@ async fn a_standard_plan_priced_at_nothing_can_be_the_signup_plan() {
         .await
         .expect("subscribed with no payment method");
     env.get_subscription(created.id).await.assert().is_active();
+    assert!(env.get_invoices(created.id).await.is_empty());
+}
+
+/// Included credit is granted from a zero invoice: a plan billing nothing but including some
+/// still opens one, which grants it, typed free or not.
+#[rstest]
+#[case::priced_at_nothing(false)]
+#[case::typed_free(true)]
+#[tokio::test]
+async fn a_plan_including_credit_opens_its_zero_invoice(#[case] typed_free: bool) {
+    let env = test_env().await;
+    let (plan, version) = (PlanId::new(), PlanVersionId::new());
+    let mut credits = SeedComp::rate(
+        PriceComponentId::new(),
+        "Included credits",
+        PRODUCT_PLATFORM_FEE_ID,
+        PriceId::new(),
+        DieselBillingPeriodEnum::Monthly,
+        Decimal::ZERO,
+    )
+    .with_structure(FeeStructure::Credit {});
+    credits.prices[0].pricing = Pricing::Credit {
+        unit_price: Decimal::ZERO,
+        quantity: 1,
+        credit_amount: dec!(500),
+        expiry: None,
+        credit_unit_id: None,
+        rollover: None,
+        once: false,
+    };
+    let seed = PlanSeed::new(plan, "Hobby with credits", version);
+    let seed = if typed_free { seed.free() } else { seed };
+    seed.components(vec![credits])
+        .seed(&mut env.conn().await)
+        .await
+        .expect("a plan including credit");
+    let created = env
+        .services()
+        .insert_subscription(
+            Actor::User { id: USER_ID },
+            subscription()
+                .customer(CUST_UBER_ID)
+                .plan_version(version)
+                .on_start()
+                .no_trial()
+                .request(),
+            TENANT_ID,
+        )
+        .await
+        .expect("subscribed");
+    env.run_outbox_and_orchestration().await;
+    let invoices = env.get_invoices(created.id).await;
+    assert_eq!(invoices.len(), 1, "the invoice granting the credit");
+    assert_eq!(invoices[0].total, 0);
+    let granted: i64 = env
+        .store()
+        .customer_credit_wallets(TENANT_ID, CUST_UBER_ID)
+        .await
+        .expect("wallets")
+        .into_iter()
+        .flat_map(|wallet| wallet.grants)
+        .filter(|grant| grant.source == CreditGrantSource::Included)
+        .map(|grant| grant.amount_minor)
+        .sum();
+    assert_eq!(granted, 50_000, "500 included");
 }

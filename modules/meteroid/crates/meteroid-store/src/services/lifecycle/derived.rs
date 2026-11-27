@@ -2,6 +2,8 @@
 //! version and its cadence, `pending_checkout` and the MRR; each transition's logs and outbox,
 //! stamped at the instant its fact put it; the documents now due; and when to look again.
 
+use std::collections::HashMap;
+
 use billing_core::evaluate::{DocumentSlot, Status, evaluate};
 use billing_core::facts::{Ending, EndingKind, Facts};
 use billing_core::transition::{Deadlines, Due, Step, Stored, Transition, step};
@@ -33,7 +35,6 @@ use crate::domain::{DetailedInvoice, SubscriptionDetails, SubscriptionStatusEnum
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
 use crate::repositories::entity_activity::EntityActivityInterface;
-use crate::repositories::price_components::PriceComponentInterface;
 use crate::services::credit::coupon_grant::has_started;
 use crate::services::evaluate::bill::midnight;
 use crate::services::evaluate::load::load_facts;
@@ -128,10 +129,49 @@ pub(crate) fn writes_document(
     collects_unattended: bool,
     status: Status,
 ) -> bool {
-    if free_plan && !reads_usage && due.charges.iter().all(|charge| charge.amount == 0) {
+    if free_plan && !reads_usage && bills_nothing(due) {
         return false;
     }
     !due.awaiting_checkout || (status == Status::TrialExpired && collects_unattended)
+}
+
+/// Every charge is zero and grants no credit: included credit is minted from the issued invoice.
+fn bills_nothing(due: &Due) -> bool {
+    due.charges
+        .iter()
+        .all(|charge| charge.amount == 0 && charge.credit_grant.is_none())
+}
+
+/// See [`Services::plan_is_free`].
+pub(crate) async fn plan_is_free_tx(
+    conn: &mut PgConn,
+    plan_version: PlanVersionId,
+    tenant_id: TenantId,
+) -> StoreResult<bool> {
+    let plan = db(PlanRow::get_with_version(conn, plan_version, tenant_id).await)?;
+    if plan.plan.plan_type == PlanTypeEnum::Free {
+        return Ok(true);
+    }
+    let components =
+        crate::repositories::price_components::price_components_of(conn, plan_version, tenant_id)
+            .await?;
+    Ok(charges_nothing(&components) && !components.iter().any(includes_credit))
+}
+
+/// The plan version in force on `day`: taken by the latest switch on or before it, else left by
+/// the first one, else `current`.
+fn version_on(
+    switches: &[(NaiveDate, PlanVersionId, PlanVersionId)],
+    day: NaiveDate,
+    current: PlanVersionId,
+) -> PlanVersionId {
+    switches
+        .iter()
+        .rev()
+        .find(|(on, _, _)| *on <= day)
+        .map(|(_, _, taken)| *taken)
+        .or_else(|| switches.first().map(|(_, left, _)| *left))
+        .unwrap_or(current)
 }
 
 /// A credit pack, paid or included.
@@ -337,7 +377,7 @@ impl Services {
             .map(|need| need.document)
             .collect();
         let documents = self
-            .documents_to_write(conn, &row, &step.documents, &reading, &derived)
+            .documents_to_write(conn, &row, &step, &reading, &derived)
             .await?;
         let ends = step.transitions.iter().any(|transition| {
             matches!(
@@ -431,6 +471,13 @@ impl Services {
                 Some(cadence.into()),
             )
             .await)?;
+        }
+        // A switch to a free plan leaves the debts carried to its next invoice stranded (R-104).
+        for (_, to, on) in &switches {
+            if self.plan_is_free(conn, *to, tenant_id).await? {
+                let on = on.and_time(chrono::NaiveTime::MIN).and_utc();
+                self.reopen_stranded_debts_tx(conn, &row, on, now).await?;
+            }
         }
         // A change to another option of the same version switches no plan, and may keep the
         // cadence: recorded as the period it starts begins.
@@ -678,29 +725,48 @@ impl Services {
         &self,
         conn: &mut PgConn,
         row: &SubscriptionRow,
-        due: &[Due],
+        step: &Step,
         reading: &[DocumentSlot],
         derived: &Stored,
     ) -> StoreResult<Vec<Due>> {
+        let due = &step.documents;
         if due.is_empty() {
             return Ok(Vec::new());
         }
         let plan_version = derived.plan_version.unwrap_or(row.plan_version_id);
-        let plan = db(PlanRow::get_with_version(conn, plan_version, row.tenant_id).await)?;
-        let bills_nothing = due.iter().any(|document| {
-            !reading.contains(&document.slot)
-                && document.charges.iter().all(|charge| charge.amount == 0)
-        });
-        // Priced at nothing, a plan is free whatever its type. Included credit is granted from
-        // its zero invoice, so a plan including some still writes it.
-        let free_plan = plan.plan.plan_type == PlanTypeEnum::Free
-            || (bills_nothing && {
-                let components = self
-                    .store
-                    .list_price_components_with_conn(conn, plan_version, row.tenant_id)
-                    .await?;
-                charges_nothing(&components) && !components.iter().any(includes_credit)
-            });
+        let zero_due =
+            |document: &Due| !reading.contains(&document.slot) && bills_nothing(document);
+        // R-104 per document, on the plan version in force on its day: a free plan's periods
+        // stay unwritten once it is changed to a paid one.
+        let mut free_plan = Vec::with_capacity(due.len());
+        if due.iter().any(zero_due) {
+            // This step's switches are recorded after its documents are written.
+            let mut switches = db(SubscriptionEventRow::plan_switches(conn, row.id).await)?;
+            for transition in &step.transitions {
+                if let Transition::Plan { from, to, at } = transition
+                    && from != to
+                    && !switches.contains(&(at.date_naive(), *from, *to))
+                {
+                    switches.push((at.date_naive(), *from, *to));
+                }
+            }
+            switches.sort_by_key(|(on, _, _)| *on);
+            let mut free_of: HashMap<PlanVersionId, bool> = HashMap::new();
+            for document in due {
+                let version = version_on(&switches, document.at.date_naive(), plan_version);
+                let free = match free_of.get(&version) {
+                    Some(free) => *free,
+                    None => {
+                        let free = self.plan_is_free(conn, version, row.tenant_id).await?;
+                        free_of.insert(version, free);
+                        free
+                    }
+                };
+                free_plan.push(free);
+            }
+        } else {
+            free_plan.resize(due.len(), false);
+        }
         let collects_unattended = row.charge_automatically
             && due.iter().any(|document| document.awaiting_checkout)
             && !db(CustomerPaymentMethodRow::list_by_customer_id(
@@ -712,17 +778,29 @@ impl Services {
             .is_empty();
         Ok(due
             .iter()
-            .filter(|document| {
+            .zip(free_plan)
+            .filter(|(document, free_plan)| {
                 writes_document(
                     document,
                     reading.contains(&document.slot),
-                    free_plan,
+                    *free_plan,
                     collects_unattended,
                     derived.status,
                 )
             })
-            .cloned()
+            .map(|(document, _)| document.clone())
             .collect())
+    }
+
+    /// Free as R-104 reads it: typed free, or priced at nothing with no credit pack (granted
+    /// from its zero invoice). A typed free plan's credit lines are kept by the caller.
+    pub(in crate::services) async fn plan_is_free(
+        &self,
+        conn: &mut PgConn,
+        plan_version: PlanVersionId,
+        tenant_id: TenantId,
+    ) -> StoreResult<bool> {
+        plan_is_free_tx(conn, plan_version, tenant_id).await
     }
 
     /// Writes one document due; None when it bills nothing.

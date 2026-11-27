@@ -221,7 +221,8 @@ impl Services {
                 .store
                 .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
                 .await?;
-            // A period after an invoiced one closes a period, whatever cadence it now runs on.
+            // A period after an invoiced one closes a period, whatever cadence it now runs on; on a
+            // free plan, whose first period wrote no invoice to tell (R-104), any after the first.
             let follows = InvoiceRow::latest_recurring_period_before(
                 conn,
                 tenant_id,
@@ -230,7 +231,14 @@ impl Services {
             )
             .await
             .map_err(Into::<Report<StoreError>>::into)?
-            .is_some();
+            .is_some()
+                || (subscription
+                    .subscription
+                    .billing_start_date
+                    .is_some_and(|start| start < period_start)
+                    && self
+                        .plan_is_free(conn, subscription.subscription.plan_version_id, tenant_id)
+                        .await?);
             let elapsed = subscription.subscription.billing_start_date.map(|start| {
                 crate::utils::periods::calculate_elapsed_cycles(
                     start,

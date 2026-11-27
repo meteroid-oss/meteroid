@@ -1052,7 +1052,11 @@ impl Services {
                                     make_billing_mode(),
                                     crate::services::invoices::PeriodBilling::Bill,
                                 )
-                                .await?;
+                                .await?
+                                .ok_or(
+                                    Report::new(StoreError::InsertError)
+                                        .attach("No invoice for the payment settled"),
+                                )?;
 
                                 let billing_start_date = subscription
                                     .subscription

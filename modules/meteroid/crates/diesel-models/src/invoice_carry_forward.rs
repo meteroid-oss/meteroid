@@ -273,39 +273,43 @@ impl InvoiceCarryForwardRow {
             .into_db_result()
     }
 
-    /// Whether the customer keeps a subscription in `currency` running past `after`, so that a
-    /// later invoice can take what is carried: neither its end date nor a cancellation or term
-    /// end (scheduled or not) ends it by then.
-    pub async fn customer_has_later_invoice(
+    /// The customer's subscriptions in `currency` running past `after`, with their plan version,
+    /// so that a later invoice of theirs can take what is carried: neither its end date nor a
+    /// cancellation or term end (scheduled or not) ends it by then.
+    pub async fn customer_later_invoice_subscriptions(
         conn: &mut PgConn,
         tenant_id: TenantId,
         customer_id: CustomerId,
         currency: &str,
         after: chrono::NaiveDate,
-    ) -> DbResult<bool> {
+    ) -> DbResult<
+        Vec<(
+            common_domain::ids::SubscriptionId,
+            common_domain::ids::PlanVersionId,
+        )>,
+    > {
         use crate::enums::SubscriptionStatusEnum;
         use crate::schema::subscription::dsl as s;
         use crate::schema::subscription_ending::dsl as e;
         use diesel::BoolExpressionMethods;
         let ends_by = after.and_time(chrono::NaiveTime::MIN);
-        diesel::select(diesel::dsl::exists(
-            s::subscription
-                .filter(s::tenant_id.eq(tenant_id))
-                .filter(s::customer_id.eq(customer_id))
-                .filter(s::currency.eq(currency))
-                .filter(s::status.eq_any(SubscriptionStatusEnum::not_terminal()))
-                .filter(s::end_date.is_null().or(s::end_date.gt(after)))
-                .filter(diesel::dsl::not(diesel::dsl::exists(
-                    e::subscription_ending
-                        .filter(e::subscription_id.eq(s::id))
-                        .filter(e::tenant_id.eq(tenant_id))
-                        .filter(e::at.le(ends_by)),
-                ))),
-        ))
-        .get_result(conn)
-        .await
-        .attach("Error while looking for a later invoice")
-        .into_db_result()
+        s::subscription
+            .filter(s::tenant_id.eq(tenant_id))
+            .filter(s::customer_id.eq(customer_id))
+            .filter(s::currency.eq(currency))
+            .filter(s::status.eq_any(SubscriptionStatusEnum::not_terminal()))
+            .filter(s::end_date.is_null().or(s::end_date.gt(after)))
+            .filter(diesel::dsl::not(diesel::dsl::exists(
+                e::subscription_ending
+                    .filter(e::subscription_id.eq(s::id))
+                    .filter(e::tenant_id.eq(tenant_id))
+                    .filter(e::at.le(ends_by)),
+            )))
+            .select((s::id, s::plan_version_id))
+            .load(conn)
+            .await
+            .attach("Error while looking for a later invoice")
+            .into_db_result()
     }
 
     /// The balances `invoice_id` carried out or took in, with the other invoice's number.

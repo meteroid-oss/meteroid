@@ -18,6 +18,7 @@ use rstest::rstest;
 use rust_decimal::Decimal;
 
 use crate::data::ids::*;
+use crate::data::plans::{PlanSeed, SeedComp};
 use crate::harness::{TestEnv, subscription, test_env};
 
 async fn carry(env: &TestEnv, invoice: &Invoice) -> CarrySummary {
@@ -531,4 +532,142 @@ async fn a_last_amount_below_the_provider_minimum_is_not_chased(#[future] test_e
         state.not_eligible_reason,
         Some(NotEligibleReason::BelowProviderMinimum)
     );
+}
+
+/// A free plan of the customer's, billing nothing, writes no invoice (R-104): it is no later
+/// invoice to carry an amount to.
+async fn free_subscription(env: &TestEnv) {
+    let version = free_plan(env).await;
+    subscription()
+        .plan_version(version)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+}
+
+/// A plan billing nothing, in the seeded product family.
+async fn free_plan(env: &TestEnv) -> common_domain::ids::PlanVersionId {
+    use common_domain::ids::{BaseId, PlanId, PlanVersionId, PriceComponentId, PriceId};
+    use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
+    let version = PlanVersionId::new();
+    PlanSeed::new(PlanId::new(), "Free", version)
+        .components(vec![SeedComp::rate(
+            PriceComponentId::new(),
+            "Free Rate",
+            PRODUCT_PLATFORM_FEE_ID,
+            PriceId::new(),
+            DieselBillingPeriodEnum::Monthly,
+            Decimal::ZERO,
+        )])
+        .seed(&mut env.conn().await)
+        .await
+        .expect("a free plan");
+    version
+}
+
+/// An ending subscription collects its last amount, though the customer also holds a free plan.
+#[rstest]
+#[tokio::test]
+async fn a_free_plan_takes_no_carried_amount(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    set_min_charge(&env, Some(5_000)).await;
+    free_subscription(&env).await;
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .end_date(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    let january = env.get_invoices(sub_id).await.remove(0);
+    assert_eq!(carry(&env, &january).await.carried_forward, 0);
+    assert_eq!(january.amount_due, 3_500);
+}
+
+/// A debt carried in January reopens where it was carried once its subscription ended, though
+/// the customer also holds a free plan.
+#[rstest]
+#[tokio::test]
+async fn a_debt_a_free_plan_will_not_take_reopens(#[future] test_env: TestEnv) {
+    use chrono::TimeZone;
+    use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
+
+    let env = test_env.await;
+    set_min_charge(&env, Some(5_000)).await;
+    env.set_now(chrono::Utc.with_ymd_and_hms(2024, 1, 10, 10, 0, 0).unwrap());
+    free_subscription(&env).await;
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    env.services()
+        .cancel_subscription(
+            Actor::System,
+            sub_id,
+            TENANT_ID,
+            None,
+            CancellationEffectiveAt::EndOfBillingPeriod,
+        )
+        .await
+        .expect("cancel at the end of January");
+    env.set_now(chrono::Utc.with_ymd_and_hms(2024, 2, 5, 10, 0, 0).unwrap());
+    env.process_cycles().await;
+    env.services()
+        .run_invoice_deadlines()
+        .await
+        .expect("deadlines");
+    let invoices = env.get_invoices(sub_id).await;
+    assert_eq!(invoices.len(), 1, "nothing billed after January");
+    let january = &invoices[0];
+    assert_eq!(january.payment_status, InvoicePaymentStatus::Unpaid);
+    assert_eq!(january.amount_due, 3_500);
+    assert_eq!(carry(&env, january).await.carried_forward, 0);
+}
+
+/// A debt carried in January to the next invoice reopens where it was carried once a downgrade
+/// to a free plan applies on Feb 1: the free plan writes no invoice to take it.
+#[rstest]
+#[tokio::test]
+async fn a_downgrade_to_a_free_plan_reopens_a_carried_debt(#[future] test_env: TestEnv) {
+    use chrono::TimeZone;
+
+    let env = test_env.await;
+    set_min_charge(&env, Some(5_000)).await;
+    let free = free_plan(&env).await;
+    env.set_now(chrono::Utc.with_ymd_and_hms(2024, 1, 10, 10, 0, 0).unwrap());
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    let january = env.get_invoices(sub_id).await.remove(0);
+    assert_eq!(
+        carry(&env, &january).await.carried_forward,
+        3_500,
+        "carried"
+    );
+    env.services()
+        .schedule_plan_change(Actor::System, sub_id, TENANT_ID, free, vec![])
+        .await
+        .expect("a downgrade to the free plan at the period's end");
+    env.set_now(chrono::Utc.with_ymd_and_hms(2024, 2, 5, 10, 0, 0).unwrap());
+    env.process_cycles().await;
+    env.services()
+        .run_invoice_deadlines()
+        .await
+        .expect("deadlines");
+    let invoices = env.get_invoices(sub_id).await;
+    assert_eq!(invoices.len(), 1, "nothing billed on the free plan");
+    let january = &invoices[0];
+    assert_eq!(january.payment_status, InvoicePaymentStatus::Unpaid);
+    assert_eq!(january.amount_due, 3_500);
+    assert_eq!(carry(&env, january).await.carried_forward, 0);
 }

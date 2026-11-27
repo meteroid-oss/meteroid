@@ -19,6 +19,16 @@ struct FirstSwitch {
 }
 
 #[derive(diesel::QueryableByName)]
+struct PlanSwitch {
+    #[diesel(sql_type = diesel::sql_types::Date)]
+    applies_to: NaiveDate,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    old_version: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    new_version: Option<String>,
+}
+
+#[derive(diesel::QueryableByName)]
 struct CadenceOrigin {
     #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Date>)]
     origin: Option<NaiveDate>,
@@ -191,6 +201,46 @@ impl SubscriptionEventRow {
             row.and_then(|row| Some((row.version?.parse().ok()?, row.applies_to)))
         })
         .attach("Error while reading a subscription's first plan switch")
+        .into_db_result()
+    }
+
+    /// The subscription's switches to another plan, earliest first: day, version left, version
+    /// taken. Amendments, recorded as switches to the same plan, are left out.
+    pub async fn plan_switches(
+        conn: &mut PgConn,
+        subscription_uid: SubscriptionId,
+    ) -> DbResult<
+        Vec<(
+            NaiveDate,
+            common_domain::ids::PlanVersionId,
+            common_domain::ids::PlanVersionId,
+        )>,
+    > {
+        use diesel_async::RunQueryDsl;
+
+        diesel::sql_query(
+            "SELECT applies_to, details ->> 'old_plan_version_id' AS old_version, \
+                    details ->> 'new_plan_version_id' AS new_version \
+             FROM subscription_event \
+             WHERE subscription_id = $1 AND event_type = 'SWITCH' \
+               AND details ->> 'old_plan_version_id' IS DISTINCT FROM details ->> 'new_plan_version_id' \
+             ORDER BY applies_to, created_at",
+        )
+        .bind::<diesel::sql_types::Uuid, _>(subscription_uid)
+        .get_results::<PlanSwitch>(conn)
+        .await
+        .map(|rows| {
+            rows.into_iter()
+                .filter_map(|row| {
+                    Some((
+                        row.applies_to,
+                        row.old_version?.parse().ok()?,
+                        row.new_version?.parse().ok()?,
+                    ))
+                })
+                .collect()
+        })
+        .attach("Error while listing a subscription's plan switches")
         .into_db_result()
     }
 

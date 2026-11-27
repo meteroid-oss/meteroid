@@ -256,7 +256,18 @@ impl Services {
             .await
             .change_context(StoreError::InvoiceComputationError)?;
 
-        if invoice_content.invoice_lines.is_empty() {
+        let lines = &invoice_content.invoice_lines;
+        // R-104: a free plan's period billing nothing is skipped as an empty one is, except a
+        // line granting credit, which is minted from the issued invoice.
+        let may_skip = lines.is_empty()
+            || (period_billing == PeriodBilling::Bill
+                && lines
+                    .iter()
+                    .all(|line| line.amount_subtotal == 0 && line.credit_grant_amount.is_none())
+                && self
+                    .plan_is_free(conn, subscription.plan_version_id, tenant_id)
+                    .await?);
+        if may_skip {
             // An empty line set usually means nothing to bill. The exception is an *elapsed*
             // arrears period, whose usage may still be imported during grace: keep the empty draft
             // as the anchor that schedules finalization and captures that usage on refresh (still
@@ -284,7 +295,7 @@ impl Services {
             };
             if !anchor_for_late_usage {
                 log::info!(
-                    "No invoice lines computed for subscription {}. Skipping draft invoice creation.",
+                    "Nothing to bill for subscription {}. Skipping draft invoice creation.",
                     subscription.id
                 );
                 return Ok(None);

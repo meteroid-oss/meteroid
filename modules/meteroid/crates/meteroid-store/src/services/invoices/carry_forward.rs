@@ -8,16 +8,19 @@ use crate::domain::fx::FxTable;
 use crate::errors::StoreError;
 use crate::repositories::historical_rates::get_historical_rate_from_usd_by_date_cached;
 use crate::services::credit::value_application;
+use crate::services::lifecycle::derived::plan_is_free_tx;
 use chrono::{DateTime, Utc};
-use common_domain::ids::{ConnectorId, TenantId};
+use common_domain::ids::{ConnectorId, CustomerId, PlanVersionId, TenantId};
 use diesel_models::PgConn;
 use diesel_models::connectors::ConnectorRow;
+use diesel_models::enums::SubscriptionChangeKindEnum;
 use diesel_models::invoice_carry_forward::{
     CarryTarget, InvoiceCarryForwardRow, InvoiceCarryForwardRowNew,
 };
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::lock::CustomerLock;
+use diesel_models::subscription_changes::SubscriptionChangeRow;
 use error_stack::Report;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -248,15 +251,14 @@ pub(crate) async fn carry_balances_tx(
     let candidate = if total < 0 { total } else { amount_due }.saturating_add(previous_balance);
     let later_invoice = candidate > 0
         && candidate < minimum
-        && InvoiceCarryForwardRow::customer_has_later_invoice(
+        && customer_has_later_invoice(
             conn,
             invoice.tenant_id,
             invoice.customer_id,
             &invoice.currency,
             dates.billed_through,
         )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+        .await?;
 
     let balances =
         CarriedBalances::decide(total, amount_due, previous_balance, minimum, later_invoice);
@@ -297,7 +299,7 @@ pub(crate) async fn takes_stranded_debts_tx(
     if pending <= 0 {
         return Ok(false);
     }
-    let later = InvoiceCarryForwardRow::customer_has_later_invoice(
+    let later = customer_has_later_invoice(
         conn,
         invoice.tenant_id,
         invoice.customer_id,
@@ -307,8 +309,7 @@ pub(crate) async fn takes_stranded_debts_tx(
             invoice.invoice_date,
         ),
     )
-    .await
-    .map_err(Into::<Report<StoreError>>::into)?;
+    .await?;
     Ok(!later)
 }
 
@@ -325,15 +326,7 @@ pub(crate) async fn reopen_stranded_debts_tx(
         InvoiceCarryForwardRow::customer_has_draft_in(conn, tenant_id, customer_id, currency)
             .await
             .map_err(Into::<Report<StoreError>>::into)?
-            || InvoiceCarryForwardRow::customer_has_later_invoice(
-                conn,
-                tenant_id,
-                customer_id,
-                currency,
-                ended_on,
-            )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+            || customer_has_later_invoice(conn, tenant_id, customer_id, currency, ended_on).await?;
     if taken {
         return Ok(Vec::new());
     }
@@ -347,6 +340,52 @@ pub(crate) async fn reopen_stranded_debts_tx(
         crate::repositories::invoice_account::settle_tx(conn, tenant_id, *source, None).await?;
     }
     Ok(debts.into_iter().map(|(source, _)| source).collect())
+}
+
+/// Whether a later invoice of the customer in `currency` can take what is carried: a subscription
+/// running past `after` on a plan that bills then, a change to come by `after` included, as a free
+/// plan writes no invoice (R-104).
+async fn customer_has_later_invoice(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    customer_id: CustomerId,
+    currency: &str,
+    after: chrono::NaiveDate,
+) -> StoreResult<bool> {
+    let subscriptions = InvoiceCarryForwardRow::customer_later_invoice_subscriptions(
+        conn,
+        tenant_id,
+        customer_id,
+        currency,
+        after,
+    )
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?;
+    for (subscription_id, current) in subscriptions {
+        let next = SubscriptionChangeRow::list_pending(
+            conn,
+            &tenant_id,
+            subscription_id,
+            &[SubscriptionChangeKindEnum::PlanChange],
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .into_iter()
+        .filter(|change| change.effective_at.date() <= after)
+        .filter_map(|change| {
+            change
+                .change
+                .pointer("/ApplyPlanChange/new_plan_version_id")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|id| id.parse::<PlanVersionId>().ok())
+        })
+        .next_back()
+        .unwrap_or(current);
+        if !plan_is_free_tx(conn, next, tenant_id).await? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// The end of the latest period lines ending on `ends` bill, never before `invoice_date`: a later
