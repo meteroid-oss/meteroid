@@ -1,0 +1,21 @@
+---
+source: modules/metric-core/src/sql/golden.rs
+expression: raw_sum/group_plan_attr
+---
+SELECT
+    toDateTime(tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_start,
+    toDateTime(tumbleEnd(toDateTime(timestamp), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_end,
+    sum(toFloat64OrZero(properties[?{"tokens"}])) AS value,
+    dictGetOrDefault('meteroid.dim_plan_dict', 'name', tuple(ifNull(plan_id, toUUID('00000000-0000-0000-0000-000000000000'))), '(none)') AS _prop_plan,
+    toString(ifNull(plan_id, toUUID('00000000-0000-0000-0000-000000000000'))) AS _dis_plan
+FROM (
+    SELECT id, customer_id, timestamp, ingested_at, properties
+    FROM raw_events_v2
+    WHERE (tenant_id = ?{11111111-1111-1111-1111-111111111111} AND code = ?{"api_call"} AND timestamp >= toDateTime(?{1767571200}) AND timestamp <= toDateTime(?{1769904000}) AND properties[?{"tokens"}] != '' AND isNotNull(toFloat64OrNull(properties[?{"tokens"}]))) AND is_tombstone = 0 AND ((SELECT count() FROM meteroid.event_voids_local WHERE tenant_id = toUUID('11111111-1111-1111-1111-111111111111') AND code IN ('api_call') AND timestamp >= toDateTime(1767571200) AND timestamp <= toDateTime(1769904000)) = 0 OR (customer_id, id, ingested_at) NOT IN (SELECT customer_id, id, ingested_at FROM meteroid.event_voids_local WHERE tenant_id = toUUID('11111111-1111-1111-1111-111111111111') AND code IN ('api_call') AND timestamp >= toDateTime(1767571200) AND timestamp <= toDateTime(1769904000)))
+)
+GROUP BY
+    tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?{"UTC"}),
+    tumbleEnd(toDateTime(timestamp), toIntervalDay(1), ?{"UTC"}),
+    ifNull(plan_id, toUUID('00000000-0000-0000-0000-000000000000'))
+ORDER BY
+    window_start

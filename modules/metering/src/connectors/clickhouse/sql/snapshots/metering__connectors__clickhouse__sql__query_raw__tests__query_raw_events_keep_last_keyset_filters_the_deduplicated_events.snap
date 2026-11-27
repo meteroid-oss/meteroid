@@ -1,0 +1,24 @@
+---
+source: modules/metering/src/connectors/clickhouse/sql/query_raw.rs
+expression: pretty
+---
+SELECT
+    id,
+    code,
+    customer_id,
+    tenant_id,
+    timestamp,
+    ingested_at,
+    properties,
+    is_tombstone
+FROM (
+    SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties, is_tombstone
+    FROM raw_events_v2
+    WHERE (tenant_id = ?{ffffffff-ffff-ffff-ffff-ffffffffffff} AND timestamp >= toDateTime(?{1704067200}) AND timestamp < toDateTime(?{1704153600})) AND is_tombstone = 0 AND ((SELECT count() FROM meteroid.event_voids_local WHERE tenant_id = toUUID('ffffffff-ffff-ffff-ffff-ffffffffffff') AND timestamp >= toDateTime(1704067200) AND timestamp <= toDateTime(1704153600)) = 0 OR (customer_id, id, ingested_at) NOT IN (SELECT customer_id, id, ingested_at FROM meteroid.event_voids_local WHERE tenant_id = toUUID('ffffffff-ffff-ffff-ffff-ffffffffffff') AND timestamp >= toDateTime(1704067200) AND timestamp <= toDateTime(1704153600))) ORDER BY ingested_at DESC LIMIT 1 BY id, customer_id
+)
+WHERE
+    (toUnixTimestamp64Nano(timestamp) > ?{7} OR (toUnixTimestamp64Nano(timestamp) = ?{7} AND id > ?{"evt_1"}))
+ORDER BY
+    timestamp ASC,
+    id ASC
+LIMIT ?{1} OFFSET ?{0}

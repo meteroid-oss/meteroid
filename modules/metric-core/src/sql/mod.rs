@@ -1,6 +1,11 @@
+pub mod ast;
 pub mod compiler;
+#[cfg(test)]
+mod golden;
+pub mod render;
+pub mod scope;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BindValue {
     String(String),
     Strings(Vec<String>),
@@ -13,6 +18,15 @@ pub enum BindValue {
 /// What `Latest` ranks raw events by: distinct events sharing a timestamp would tie in `argMax`,
 /// which then picks either value non-deterministically.
 pub const LATEST_EVENT_ORDER: &str = "(timestamp, ingested_at, id)";
+
+/// [`LATEST_EVENT_ORDER`] as a tree.
+pub fn latest_event_order() -> ast::Expr {
+    ast::Expr::Tuple(vec![
+        ast::Expr::col("timestamp"),
+        ast::Expr::col("ingested_at"),
+        ast::Expr::col("id"),
+    ])
+}
 
 /// How a raw-events read collapses re-sent event ids.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,7 +106,7 @@ pub struct EventsSource<'a> {
 
 /// The read's own predicates, repeated on the void set. A tombstone is an exact copy of the row it
 /// cancels, so the void of any row the read keeps matches them too.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct VoidScope {
     codes: Vec<String>,
     customers: Vec<uuid::Uuid>,
@@ -131,7 +145,11 @@ impl VoidScope {
         let list = |items: Vec<String>| items.join(", ");
         let mut terms = vec![format!("tenant_id = toUUID('{tenant_id}')")];
         if !self.codes.is_empty() {
-            let codes = self.codes.iter().map(|c| string_literal(c)).collect();
+            let codes = self
+                .codes
+                .iter()
+                .map(|c| render::string_literal(c))
+                .collect();
             terms.push(format!("code IN ({})", list(codes)));
         }
         if !self.customers.is_empty() {
@@ -144,52 +162,68 @@ impl VoidScope {
     }
 }
 
-fn string_literal(value: &str) -> String {
-    format!("'{}'", value.replace('\\', "\\\\").replace('\'', "\\'"))
-}
-
 impl EventsSource<'_> {
-    /// `FROM ( SELECT <columns> FROM <events> WHERE (<conditions>) AND <live> )`. The void set is
-    /// read from the local table (one shard), narrowed by `scope`; an empty one skips the `NOT IN`.
-    pub fn from_sql(&self, columns: &str, conditions: &str, scope: &VoidScope) -> String {
-        format!(
-            "FROM ( SELECT {columns} FROM {} WHERE {}{} )",
-            self.table,
-            self.live_filter(conditions, scope),
-            self.dedup.limit_by_suffix()
-        )
-    }
-
-    /// `FROM <events> WHERE (<conditions>) AND <live>`, without a subquery or the dedup: for a
-    /// read that sorts and limits the table itself.
-    pub fn flat_from_sql(&self, conditions: &str, scope: &VoidScope) -> String {
-        format!(
-            "FROM {} WHERE {}",
-            self.table,
-            self.live_filter(conditions, scope)
-        )
-    }
-
     pub fn dedup(&self) -> EventDedup {
         self.dedup
     }
 
-    fn live_filter(&self, conditions: &str, scope: &VoidScope) -> String {
-        let voids = format!(
-            "FROM {}.{EVENT_VOIDS_TABLE} WHERE {}",
-            self.database,
-            scope.sql(self.tenant_id)
-        );
-        let live = format!(
-            "is_tombstone = 0 AND ((SELECT count() {voids}) = 0 OR (customer_id, id, ingested_at) \
-             NOT IN (SELECT customer_id, id, ingested_at {voids}))"
-        );
-        if conditions.is_empty() {
-            live
-        } else {
-            format!("({conditions}) AND {live}")
-        }
+    /// The live rows of `columns` matching every `filter` conjunct, as a typed relation.
+    pub fn read(
+        &self,
+        columns: Vec<ast::Ident>,
+        filter: Vec<ast::Expr>,
+        scope: VoidScope,
+    ) -> ast::Relation {
+        ast::Relation::Events(ast::EventsRead {
+            table: self.table.to_string(),
+            database: self.database.to_string(),
+            tenant_id: self.tenant_id,
+            dedup: self.dedup,
+            columns,
+            filter,
+            scope,
+            flat: false,
+        })
     }
+
+    /// [`Self::read`] as `<table> WHERE …`, for a select that sorts and limits the table
+    /// itself. `None` when the tenant dedups, which needs the subquery.
+    pub fn read_flat(&self, filter: Vec<ast::Expr>, scope: VoidScope) -> Option<ast::Relation> {
+        (self.dedup == EventDedup::Off).then(|| {
+            ast::Relation::Events(ast::EventsRead {
+                table: self.table.to_string(),
+                database: self.database.to_string(),
+                tenant_id: self.tenant_id,
+                dedup: self.dedup,
+                columns: vec![],
+                filter,
+                scope,
+                flat: true,
+            })
+        })
+    }
+}
+
+/// No tombstone, and no copy cancelled by a void in `scope`; an empty void set skips the `NOT IN`.
+fn live_filter_sql(database: &str, tenant_id: uuid::Uuid, scope: &VoidScope) -> String {
+    let voids = format!(
+        "FROM {database}.{EVENT_VOIDS_TABLE} WHERE {}",
+        scope.sql(tenant_id)
+    );
+    format!(
+        "is_tombstone = 0 AND ((SELECT count() {voids}) = 0 OR (customer_id, id, ingested_at) \
+         NOT IN (SELECT customer_id, id, ingested_at {voids}))"
+    )
+}
+
+/// Checks the tenant isolation of `query`, then renders it.
+pub fn render_scoped(
+    query: &ast::Query,
+    settings: &[ast::Setting],
+    tenant: uuid::Uuid,
+) -> Result<SafeQuery, String> {
+    scope::verify_tenant_scope(query, tenant)?;
+    Ok(render::render(query, settings))
 }
 
 #[derive(Debug)]
@@ -199,6 +233,11 @@ pub struct SafeQuery {
 }
 
 impl SafeQuery {
+    /// The `?` the ClickHouse client binds: `??` is a literal one.
+    pub fn placeholders(&self) -> usize {
+        self.sql.replace("??", "").matches('?').count()
+    }
+
     pub fn into_query(self, client: &clickhouse::Client) -> clickhouse::query::Query {
         let mut q = client.query(&self.sql);
         for b in self.binds {
@@ -212,43 +251,6 @@ impl SafeQuery {
             };
         }
         q
-    }
-}
-
-/// A piece of SQL together with the positional binds it consumes, kept in lock-step.
-///
-/// Threading separate `Vec<BindValue>` next to a `String` makes the "Nth `?` ⇄ Nth bind"
-/// invariant the caller's problem (see the carry-over gauge / `simple_series` reassembly
-/// comments). `Fragment` instead owns both: every method that emits a `?` pushes its bind at
-/// the same moment, so order and count can't drift.
-#[derive(Debug, Default)]
-pub struct Fragment {
-    pub sql: String,
-    pub binds: Vec<BindValue>,
-}
-
-impl Fragment {
-    pub fn new() -> Self {
-        Fragment::default()
-    }
-
-    /// Append raw SQL that carries no bind.
-    pub fn push_sql(&mut self, sql: &str) {
-        self.sql.push_str(sql);
-    }
-
-    /// Append a single `?` placeholder and the value it binds, atomically.
-    pub fn push_placeholder(&mut self, value: BindValue) {
-        self.sql.push('?');
-        self.binds.push(value);
-    }
-
-    /// Append `prefix`, then a `?` placeholder bound to `value`, then `suffix` — the common
-    /// "wrap a single bound value in some surrounding SQL" shape, kept atomic.
-    pub fn push_bound(&mut self, prefix: &str, value: BindValue, suffix: &str) {
-        self.sql.push_str(prefix);
-        self.push_placeholder(value);
-        self.sql.push_str(suffix);
     }
 }
 
@@ -312,12 +314,34 @@ pub fn dimension_disambiguator_alias(dim: &crate::metric::Dimension) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn latest_event_order_renders_the_constant() {
+        let select = super::ast::Select {
+            items: vec![super::ast::Item::new(super::latest_event_order())],
+            ..Default::default()
+        };
+        let sql = super::render::render(&select.query(), &[]).sql;
+        assert_eq!(sql, format!("SELECT {}", super::LATEST_EVENT_ORDER));
+    }
+
     use super::*;
 
+    /// `FROM <the read>` of `id, properties` filtered on `tenant_id = ? AND code = ?`.
     fn source_sql(dedup: EventDedup, scope: &VoidScope) -> String {
-        EventsTable::new("raw_events_v2")
+        let read = EventsTable::new("raw_events_v2")
             .source("meteroid", uuid::Uuid::from_u128(7), dedup)
-            .from_sql("id, properties", "tenant_id = ? AND code = ?", scope)
+            .read(
+                vec![ast::Ident::trusted("id"), ast::Ident::trusted("properties")],
+                vec![
+                    ast::Expr::col("tenant_id")
+                        .eq(ast::Expr::Bind(BindValue::Uuid(uuid::Uuid::from_u128(7)))),
+                    ast::Expr::col("code").eq(ast::Expr::Bind(BindValue::String("c".into()))),
+                ],
+                scope.clone(),
+            );
+        let select = ast::Select::new(vec![ast::Item::new(ast::Expr::Star)], read);
+        let sql = render::render(&select.query(), &[]).sql;
+        sql.strip_prefix("SELECT * ").unwrap().to_string()
     }
 
     const VOIDS: &str = "FROM meteroid.event_voids_local WHERE tenant_id = toUUID('00000000-0000-0000-0000-000000000007')";

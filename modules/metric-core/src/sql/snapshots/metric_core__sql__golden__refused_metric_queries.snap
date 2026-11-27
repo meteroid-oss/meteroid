@@ -1,0 +1,7 @@
+---
+source: modules/metric-core/src/sql/golden.rs
+expression: refused
+---
+fact_sum/group_property: invalid metric region: property dimensions need a usage (raw-event) metric
+snapshot_mrr/group_property: invalid metric region: property dimensions need a usage (raw-event) metric
+d_fused_with_plain/group_property: invalid metric region: property dimensions need a usage (raw-event) metric

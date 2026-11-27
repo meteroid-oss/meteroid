@@ -1,0 +1,20 @@
+---
+source: modules/metering/src/connectors/clickhouse/sql/query_raw.rs
+expression: pretty
+---
+SELECT
+    min(toDateTime(timestamp)) AS window_start,
+    max(toDateTime(timestamp)) AS window_end,
+    toString(count()) AS value,
+    properties[?{"customer_id"}] AS _prop_customer_id,
+    properties[?{"region"}] AS _prop_region,
+    properties[?{"code"}] AS _prop_code
+FROM (
+    SELECT id, customer_id, timestamp, ingested_at, properties
+    FROM raw_events_v2
+    WHERE (tenant_id = ?{ffffffff-ffff-ffff-ffff-ffffffffffff} AND code = ?{"event"} AND timestamp >= toDateTime(?{1704067200})) AND is_tombstone = 0 AND ((SELECT count() FROM meteroid.event_voids_local WHERE tenant_id = toUUID('ffffffff-ffff-ffff-ffff-ffffffffffff') AND code IN ('event') AND timestamp >= toDateTime(1704067200)) = 0 OR (customer_id, id, ingested_at) NOT IN (SELECT customer_id, id, ingested_at FROM meteroid.event_voids_local WHERE tenant_id = toUUID('ffffffff-ffff-ffff-ffff-ffffffffffff') AND code IN ('event') AND timestamp >= toDateTime(1704067200)))
+)
+GROUP BY
+    properties[?{"customer_id"}],
+    properties[?{"region"}],
+    properties[?{"code"}]

@@ -1,0 +1,40 @@
+---
+source: modules/metric-core/src/sql/golden.rs
+expression: d_scalar/no_window
+---
+WITH
+    m_fact_sum AS (
+        SELECT
+            toDateTime(?{1767571200}) AS window_start,
+            toDateTime(?{1769904000}) AS window_end,
+            sum(toFloat64(delta_cents_usd)) AS value
+        FROM fact_mrr_movement FINAL
+        WHERE
+            tenant_id = ?{11111111-1111-1111-1111-111111111111}
+            AND toDateTime(at) >= toDateTime(?{1767571200})
+            AND toDateTime(at) <= toDateTime(?{1769904000})
+        ORDER BY
+            window_start
+    ),
+    m_fact_max AS (
+        SELECT
+            toDateTime(?{1767571200}) AS window_start,
+            toDateTime(?{1769904000}) AS window_end,
+            max(toFloat64(delta_cents_usd)) AS value
+        FROM fact_mrr_movement FINAL
+        WHERE
+            tenant_id = ?{11111111-1111-1111-1111-111111111111}
+            AND toDateTime(at) >= toDateTime(?{1767571200})
+            AND toDateTime(at) <= toDateTime(?{1769904000})
+        ORDER BY
+            window_start
+    )
+SELECT
+    coalesce(m_fact_sum.window_start, m_fact_max.window_start) AS window_start,
+    coalesce(m_fact_sum.window_end, m_fact_max.window_end) AS window_end,
+    least(least(coalesce(m_fact_max.value, 0), 100), greatest(0, -abs(coalesce(m_fact_sum.value, 0)))) AS value
+FROM m_fact_sum
+FULL OUTER JOIN m_fact_max ON m_fact_sum.window_start = m_fact_max.window_start AND m_fact_sum.window_end = m_fact_max.window_end
+ORDER BY
+    window_start
+SETTINGS join_use_nulls = 1

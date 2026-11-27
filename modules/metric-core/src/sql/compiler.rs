@@ -1,81 +1,129 @@
-//! Compiler from the engine-agnostic metric model to ClickHouse SQL.
+//! Compiler from the engine-agnostic metric model to ClickHouse SQL, through the typed
+//! [`super::ast`] tree: the compiler builds the tree, [`super::scope`] checks its tenant
+//! isolation, [`super::render`] writes the SQL with its binds.
 
 use crate::domain::WindowSize;
 use crate::metric::{
     AggregateOp, AggregateSpec, BinOp, CohortDef, CohortPredicate, CohortReduction, CrossPeriod,
-    Dimension, DimensionFilter, Expr, FactSource, FilterOp, GaugeOp, GaugeSpec, MetricDef,
-    MetricError, MetricKind, MetricQuery, MetricRegistry, MetricSource, PropertyOp,
+    Dimension, DimensionFilter, Expr as MetricExpr, FactSource, FilterOp, GaugeOp, GaugeSpec,
+    MetricDef, MetricError, MetricKind, MetricQuery, MetricRegistry, MetricSource, PropertyOp,
     PropertyValueType, ThresholdOp, TimeWeight, TimeWeightedSpec, UnaryOp,
 };
+use crate::sql::ast::{
+    DictLookup, Expr, Fill, Frame, FrameBound, Ident, Item, JoinKind, Op, Query, Relation, Select,
+    SetOp, Setting, Table, TableScope, Window, literal_key,
+};
 use crate::sql::{
-    BindValue, EventDedup, EventsSource, EventsTable, Fragment, LATEST_EVENT_ORDER, PropertyColumn,
-    SafeQuery, VoidScope, dimension_alias,
+    BindValue, EventDedup, EventsSource, EventsTable, SafeQuery, VoidScope,
+    dimension_disambiguator_alias, latest_event_order,
 };
 use chrono::Utc;
 use common_domain::ids::BaseId;
 
-/// The ClickHouse dictionary mapping `customer_id` → customer attributes (country,
-/// plan tier, custom metadata). Backed by `dim_customer`; loaded in memory so a
-/// `dictGet` during `GROUP BY` is an O(1) lookup, not a join — the scalable way to
-/// slice any metric by any customer attribute.
+/// `customer_id` → customer attributes (country, plan tier, custom metadata), backed by
+/// `dim_customer` and held in memory: a `dictGet` during `GROUP BY` is a lookup, not a join.
 const CUSTOMER_DICT: &str = "dim_customer_dict";
 
-/// The ClickHouse dictionary mapping `plan_id` → plan attributes (name). Backed by
-/// `dim_plan`; a `dictGet` during `GROUP BY` turns the raw `plan_id` split into a
-/// readable plan name without a join — the customer-dict pattern applied to plans.
+/// `plan_id` → plan name, backed by `dim_plan`.
 const PLAN_DICT: &str = "dim_plan_dict";
 
-/// The ClickHouse dictionary mapping `product_id` → product attributes (name). Backed
-/// by `dim_product`; a `dictGet` during `GROUP BY` turns the raw `product_id` split
-/// into a readable product name without a join — the plan-dict pattern applied to
-/// products, so revenue can be collected per individual product, not just per plan.
+/// `product_id` → product name, backed by `dim_product`.
 const PRODUCT_DICT: &str = "dim_product_dict";
 
-/// The all-zero UUID stand-in for a NULL plan/product key. `dictGet` rejects a
-/// Nullable key argument outright (`CANNOT_INSERT_NULL_IN_ORDINARY_COLUMN`), so a
-/// nullable id is coalesced to this sentinel — absent from every dictionary, it
-/// resolves to the default below.
-const NIL_UUID: &str = "toUUID('00000000-0000-0000-0000-000000000000')";
-
-/// The breakdown label for rows whose plan/product id is NULL (e.g. one-time or
-/// usage revenue lines with no plan/product lineage).
+/// The breakdown label for rows whose plan/product id is NULL (e.g. one-time or usage revenue
+/// lines with no plan/product lineage).
 const NONE_LABEL: &str = "(none)";
+
+/// `dictGet` rejects a Nullable key, so a nullable id is coalesced to this UUID, absent from
+/// every dictionary.
+fn nil_uuid() -> Expr {
+    Expr::call(
+        "toUUID",
+        [Expr::str("00000000-0000-0000-0000-000000000000")],
+    )
+}
+
+fn bind_str(value: &str) -> Expr {
+    Expr::Bind(BindValue::String(value.to_string()))
+}
+
+/// `properties[?]`: the property name is bound, never inlined.
+fn property(name: &str) -> Expr {
+    Expr::Index(Box::new(Expr::col("properties")), Box::new(bind_str(name)))
+}
+
+/// `properties['name']`, for a name validated by [`literal_key`].
+fn property_literal(name: &str) -> Expr {
+    Expr::Index(Box::new(Expr::col("properties")), Box::new(Expr::str(name)))
+}
+
+fn column(qualifier: &Option<Ident>, name: &Ident) -> Expr {
+    Expr::Column(qualifier.clone(), name.clone())
+}
+
+fn alias(name: String) -> Ident {
+    Ident::from_alias(name)
+}
+
+fn customer_uuids(query: &MetricQuery) -> Expr {
+    Expr::Bind(BindValue::Uuids(
+        query.customer_ids.iter().map(|id| id.as_uuid()).collect(),
+    ))
+}
+
+fn tenant_bind(query: &MetricQuery) -> Expr {
+    Expr::Bind(BindValue::Uuid(query.tenant_id.as_uuid()))
+}
 
 /// The per-source context a [`Dimension`] resolves against.
 struct DimCtx<'a> {
-    /// The ClickHouse database holding the dimension dictionaries. dictGet resolves an
-    /// unqualified dictionary name against the *session* database, which resets to `default`
-    /// on the remote hop of a Distributed read — so every dictionary reference must be
-    /// database-qualified or it fails there with `Dictionary not found`.
     database: &'a str,
-    /// Table/sub-query qualifier prefix applied to native columns (e.g. `"f."`, or `""`).
-    qualifier: &'a str,
-    /// The customer-id column on this source (drives `CustomerAttr` lookups).
-    customer_column: &'a str,
-    /// The plan-id column on this source (drives `PlanAttr` lookups). Only valid on
-    /// fact sources that carry it (the same constraint as the legacy `plan_id` split).
-    plan_column: &'a str,
-    /// The product-id column on this source (drives `ProductAttr` lookups). Only valid
-    /// on fact sources that carry it (the revenue-item fact).
-    product_column: &'a str,
-    /// `true` for a structured fact source, `false` for the raw-events table.
+    /// `f` when the fact read is joined to FX rates, else unqualified.
+    qualifier: Option<Ident>,
+    customer_column: Ident,
+    /// Only valid on fact sources that carry it.
+    plan_column: Ident,
+    /// Only valid on fact sources that carry it (the revenue-item fact).
+    product_column: Ident,
     is_fact: bool,
 }
 
-/// The value SQL for a [`Dimension`] (no alias). Open-ended names are bound as
-/// values (`properties[?]`) or allowlist-validated before inlining, so an
-/// arbitrary user-chosen dimension can never inject SQL.
-fn dim_value_sql(
-    dim: &Dimension,
-    ctx: &DimCtx,
-    binds: &mut Vec<BindValue>,
-) -> Result<String, MetricError> {
+impl DimCtx<'_> {
+    fn lookup(&self, dictionary: &'static str, attribute: &str, key: Expr) -> Expr {
+        Expr::Dict(DictLookup {
+            database: self.database.to_string(),
+            dictionary,
+            attribute: attribute.to_string(),
+            key: Box::new(key),
+            default: None,
+        })
+    }
+
+    /// A name lookup on a nullable id, NULL ids landing in the `(none)` bucket.
+    fn name_lookup(&self, dictionary: &'static str, id_column: &Ident) -> Expr {
+        Expr::Dict(DictLookup {
+            database: self.database.to_string(),
+            dictionary,
+            attribute: "name".to_string(),
+            key: Box::new(self.null_guarded(id_column)),
+            default: Some(Box::new(Expr::str(NONE_LABEL))),
+        })
+    }
+
+    fn null_guarded(&self, id_column: &Ident) -> Expr {
+        Expr::call("ifNull", [column(&self.qualifier, id_column), nil_uuid()])
+    }
+
+    fn customer(&self) -> Expr {
+        column(&self.qualifier, &self.customer_column)
+    }
+}
+
+/// The value of a [`Dimension`]. Open-ended names are bound (`properties[?]`) or validated
+/// before inlining, so a user-chosen dimension can never inject SQL.
+fn dim_value(dim: &Dimension, ctx: &DimCtx) -> Result<Expr, MetricError> {
     match dim {
-        // Source default: a native column on a fact, an event property on raw events.
-        Dimension::Auto(n) if ctx.is_fact => {
-            ensure_inlinable(n)?;
-            Ok(format!("{}{n}", ctx.qualifier))
-        }
+        Dimension::Auto(n) if ctx.is_fact => Ok(column(&ctx.qualifier, &Ident::column(n)?)),
         Dimension::Auto(n) | Dimension::Property(n) => {
             if matches!(dim, Dimension::Property(_)) && ctx.is_fact {
                 return Err(MetricError::Invalid(
@@ -83,143 +131,85 @@ fn dim_value_sql(
                     "property dimensions need a usage (raw-event) metric".to_string(),
                 ));
             }
-            binds.push(BindValue::String(n.clone()));
-            Ok("properties[?]".to_string())
+            Ok(property(n))
         }
-        Dimension::Column(n) => {
-            ensure_inlinable(n)?;
-            Ok(format!("{}{n}", ctx.qualifier))
-        }
+        Dimension::Column(n) => Ok(column(&ctx.qualifier, &Ident::column(n)?)),
         Dimension::CustomerAttr(n) => {
-            // dictGet's attribute name must be a constant string literal, so it is
-            // inlined — allowlist-validated so it can't break out of the quotes. The
-            // dictionary has a complex (UUID) key, so the id is passed as a tuple.
-            ensure_inlinable(n)?;
-            Ok(format!(
-                "dictGet('{}.{CUSTOMER_DICT}', '{n}', tuple({}{}))",
-                ctx.database, ctx.qualifier, ctx.customer_column
-            ))
+            literal_key(n)?;
+            Ok(ctx.lookup(CUSTOMER_DICT, n, ctx.customer()))
         }
+        // The plan dictionary exposes only `name`; `n` is the output key.
         Dimension::PlanAttr(n) => {
-            // The dim_plan dictionary exposes only `name`, so the dict attribute is
-            // the constant 'name'; the carried `n` is the output dimension key/alias
-            // (the breakdown key, e.g. "plan"), so the result column lands under the
-            // key the caller asked for rather than the generic "name". Allowlist-
-            // validated so it stays a safe SQL alias. plan_id is Nullable, so the key
-            // is null-guarded (a raw Nullable key makes dictGet throw); NULL rows fall
-            // into a labelled bucket via dictGetOrDefault.
-            ensure_inlinable(n)?;
-            Ok(format!(
-                "dictGetOrDefault('{}.{PLAN_DICT}', 'name', tuple(ifNull({}{}, {NIL_UUID})), '{NONE_LABEL}')",
-                ctx.database, ctx.qualifier, ctx.plan_column
-            ))
+            literal_key(n)?;
+            Ok(ctx.name_lookup(PLAN_DICT, &ctx.plan_column))
         }
+        // ClickHouse rejects Map as a dictionary attribute, so `attributes` is projected as JSON.
         Dimension::CustomerAttrMap { map_key, .. } => {
-            // The customer `attributes` map is projected into the dictionary as a JSON
-            // string (ClickHouse rejects Map as a dictionary attribute type), so a single
-            // key is read with JSONExtractString over the constant 'attributes' attribute.
-            // `map_key` is the attribute read from the map (inlined and allowlist-validated
-            // so it can't break out of the string literal); the output column is aliased
-            // from the dimension's `alias` elsewhere.
-            ensure_inlinable(map_key)?;
-            Ok(format!(
-                "JSONExtractString(dictGet('{}.{CUSTOMER_DICT}', 'attributes', tuple({}{})), '{map_key}')",
-                ctx.database, ctx.qualifier, ctx.customer_column
-            ))
+            literal_key(map_key)?;
+            let json = ctx.lookup(CUSTOMER_DICT, "attributes", ctx.customer());
+            Ok(Expr::call("JSONExtractString", [json, Expr::str(map_key)]))
         }
+        // Text whatever the stored JSON type: strings unquoted, other scalars raw, null in (none).
         Dimension::CustomerProperty { key, .. } => {
-            // Read as text whatever the stored JSON type: strings unquoted, other scalars
-            // raw (`42`, `true`), and an absent or null key lands in the (none) bucket.
-            let json = format!(
-                "dictGet('{}.{CUSTOMER_DICT}', 'custom_properties', tuple({}{}))",
-                ctx.database, ctx.qualifier, ctx.customer_column
-            );
-            binds.extend((0..4).map(|_| BindValue::String(key.clone())));
-            Ok(format!(
-                "multiIf(JSONType({json}, ?) = 'String', JSONExtractString({json}, ?), \
-                 JSONType({json}, ?) = 'Null', '{NONE_LABEL}', JSONExtractRaw({json}, ?))"
+            let json = ctx.lookup(CUSTOMER_DICT, "custom_properties", ctx.customer());
+            let typed = |json: &Expr| Expr::call("JSONType", [json.clone(), bind_str(key)]);
+            Ok(Expr::call(
+                "multiIf",
+                [
+                    typed(&json).eq(Expr::str("String")),
+                    Expr::call("JSONExtractString", [json.clone(), bind_str(key)]),
+                    typed(&json).eq(Expr::str("Null")),
+                    Expr::str(NONE_LABEL),
+                    Expr::call("JSONExtractRaw", [json, bind_str(key)]),
+                ],
             ))
         }
         Dimension::ProductAttr(n) => {
-            // Same shape as PlanAttr but keyed on product_id, resolved via the
-            // dim_product dictionary — collects a metric per individual product. The
-            // dict exposes only `name`; `n` is the output key/alias (e.g. "product").
-            // product_id is Nullable, so the key is null-guarded the same way.
-            ensure_inlinable(n)?;
-            Ok(format!(
-                "dictGetOrDefault('{}.{PRODUCT_DICT}', 'name', tuple(ifNull({}{}, {NIL_UUID})), '{NONE_LABEL}')",
-                ctx.database, ctx.qualifier, ctx.product_column
-            ))
+            literal_key(n)?;
+            Ok(ctx.name_lookup(PRODUCT_DICT, &ctx.product_column))
         }
+        // Groups on the customer id (see `entity_id`), so same-named customers stay distinct.
         Dimension::CustomerName(n) => {
-            // Per-customer split: the display value is the customer name from the
-            // dim_customer dictionary, but grouping keys on customer_id (see
-            // `entity_id_expr`), so distinct same-named customers stay distinct.
-            ensure_inlinable(n)?;
-            Ok(format!(
-                "dictGetOrDefault('{}.{CUSTOMER_DICT}', 'name', tuple(ifNull({}{}, {NIL_UUID})), '{NONE_LABEL}')",
-                ctx.database, ctx.qualifier, ctx.customer_column
-            ))
+            literal_key(n)?;
+            Ok(ctx.name_lookup(CUSTOMER_DICT, &ctx.customer_column))
         }
     }
 }
 
-/// The null-guarded id expression an [entity dimension](Dimension::is_entity) groups
-/// on. Entity dimensions key on the id (plan/product/customer) so two entities that
-/// share a display name remain distinct series; the name is only a label. `None` for
-/// non-entity dimensions, which key on their own value.
-fn entity_id_expr(dim: &Dimension, ctx: &DimCtx) -> Option<String> {
+/// The id an [entity dimension](Dimension::is_entity) groups on, so two entities sharing a
+/// display name remain distinct series. `None` for dimensions keyed on their own value.
+fn entity_id(dim: &Dimension, ctx: &DimCtx) -> Option<Expr> {
     let col = match dim {
-        Dimension::PlanAttr(_) => ctx.plan_column,
-        Dimension::ProductAttr(_) => ctx.product_column,
-        Dimension::CustomerName(_) => ctx.customer_column,
+        Dimension::PlanAttr(_) => &ctx.plan_column,
+        Dimension::ProductAttr(_) => &ctx.product_column,
+        Dimension::CustomerName(_) => &ctx.customer_column,
         _ => return None,
     };
-    Some(format!("ifNull({}{}, {NIL_UUID})", ctx.qualifier, col))
+    Some(ctx.null_guarded(col))
 }
 
-/// The GROUP BY expression for a dimension: the grouping id for entity dimensions,
-/// else the dimension's own value.
-fn dim_group_sql(
-    dim: &Dimension,
-    ctx: &DimCtx,
-    binds: &mut Vec<BindValue>,
-) -> Result<String, MetricError> {
-    match entity_id_expr(dim, ctx) {
+fn dim_group(dim: &Dimension, ctx: &DimCtx) -> Result<Expr, MetricError> {
+    match entity_id(dim, ctx) {
         Some(id) => Ok(id),
-        None => dim_value_sql(dim, ctx, binds),
+        None => dim_value(dim, ctx),
     }
 }
 
-/// The SELECT columns for a dimension: always its `dimension_alias` value column,
-/// plus for entity dimensions a `_dis_` disambiguator column carrying the grouping id
-/// so the backend can tell same-named entities apart.
-fn dim_select_columns(
-    dim: &Dimension,
-    ctx: &DimCtx,
-    binds: &mut Vec<BindValue>,
-) -> Result<Vec<String>, MetricError> {
-    let mut cols = vec![dim_select_sql(dim, ctx, binds)?];
-    if let Some(id) = entity_id_expr(dim, ctx) {
-        cols.push(format!(
-            "toString({id}) AS {}",
-            crate::sql::dimension_disambiguator_alias(dim)
+/// The dimension's value under its `dimension_alias`, plus for entity dimensions the grouping
+/// id under its disambiguator alias.
+fn dim_items(dim: &Dimension, ctx: &DimCtx) -> Result<Vec<Item>, MetricError> {
+    let mut items = vec![Item::aliased(dim_value(dim, ctx)?, dimension_alias(dim))];
+    if let Some(id) = entity_id(dim, ctx) {
+        items.push(Item::aliased(
+            Expr::call("toString", [id]),
+            alias(dimension_disambiguator_alias(dim)),
         ));
     }
-    Ok(cols)
+    Ok(items)
 }
 
-/// `dim_value_sql` plus the stable `AS <alias>` the backend reads back.
-fn dim_select_sql(
-    dim: &Dimension,
-    ctx: &DimCtx,
-    binds: &mut Vec<BindValue>,
-) -> Result<String, MetricError> {
-    Ok(format!(
-        "{} AS {}",
-        dim_value_sql(dim, ctx, binds)?,
-        dimension_alias(dim)
-    ))
+fn dimension_alias(dim: &Dimension) -> Ident {
+    alias(crate::sql::dimension_alias(dim))
 }
 
 /// DoS cap: the time-weighted gauge compiles to a cross join, so an unbounded window count melts the cluster.
@@ -227,49 +217,21 @@ const MAX_GAUGE_WINDOWS: i64 = 100_000;
 
 const MAX_WINDOWS: i64 = 100_000;
 
-/// Only allow a conservative charset for inlined (not bound) identifiers; anything that could break out of a string literal is rejected.
-fn ensure_inlinable(name: &str) -> Result<(), MetricError> {
-    if name.is_empty() || name.len() > 128 {
-        return Err(MetricError::Invalid(
-            name.to_string(),
-            "property name empty or too long".to_string(),
-        ));
-    }
-    if name
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | ':'))
-    {
-        Ok(())
-    } else {
-        Err(MetricError::Invalid(
-            name.to_string(),
-            "property name contains characters not allowed in an inlined identifier".to_string(),
-        ))
-    }
-}
-
-/// Stricter than ensure_inlinable: an unqualified identifier, so a `.`-qualified name (`system.tables`) can never be reached via a client-supplied source.
-fn ensure_table_name(name: &str) -> Result<(), MetricError> {
-    let mut chars = name.chars();
-    let valid = name.len() <= 128
-        && matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
-    if valid {
-        Ok(())
-    } else {
-        Err(MetricError::Invalid(
-            name.to_string(),
-            "table name must be an unqualified identifier (no schema, no '.')".to_string(),
-        ))
-    }
-}
-
 struct Series {
-    sql: String,
-    binds: Vec<BindValue>,
-    dims: Vec<String>,
-    /// Per-statement `SETTINGS`; applied to the outermost statement only (invalid inside the subquery a transform embeds `sql` as).
-    settings: Vec<String>,
+    query: Query,
+    dims: Vec<Ident>,
+    /// Statement-level, so only the outermost query carries them.
+    settings: Vec<Setting>,
+}
+
+impl Series {
+    fn select(select: Select, dims: Vec<Ident>) -> Series {
+        Series {
+            query: select.query(),
+            dims,
+            settings: vec![],
+        }
+    }
 }
 
 pub fn compile(
@@ -278,6 +240,17 @@ pub fn compile(
     events: impl Into<EventsTable>,
     database: &str,
 ) -> Result<SafeQuery, MetricError> {
+    let (tree, settings) = compile_tree(registry, query, events, database)?;
+    finish(&tree, &settings, query)
+}
+
+/// The tree [`compile`] renders, with its statement settings.
+pub fn compile_tree(
+    registry: &MetricRegistry,
+    query: &MetricQuery,
+    events: impl Into<EventsTable>,
+    database: &str,
+) -> Result<(Query, Vec<Setting>), MetricError> {
     registry.validate()?;
     let table: EventsTable = events.into();
     let events = table.source(
@@ -320,18 +293,8 @@ pub fn compile(
 
     // Cross-period transforms read prior windows: build from an earlier `history_from`, then floor the output back to `>= from` after the window function.
     let history_from = query.window.as_ref().and_then(|w| match &query.transform {
-        Some(CrossPeriod::RunningTotal) | Some(CrossPeriod::RunningTotalLagged) => {
-            Some(chrono::DateTime::from_timestamp(0, 0).expect("epoch is valid"))
-        }
-        Some(CrossPeriod::PeriodOverPeriodDelta) | Some(CrossPeriod::PercentChange) => {
-            Some(query.from - window_duration(w))
-        }
-        Some(CrossPeriod::MovingAverage { periods }) => {
-            Some(query.from - window_duration(w) * periods.saturating_sub(1) as i32)
-        }
-        None if carry_over_gauge => {
-            Some(chrono::DateTime::from_timestamp(0, 0).expect("epoch is valid"))
-        }
+        Some(t) => Some(history_from(t, query.from, w)),
+        None if carry_over_gauge => Some(epoch()),
         None => None,
     });
 
@@ -355,17 +318,9 @@ pub fn compile(
         series = carry_over_gauge_series(series, query, w);
     }
 
-    let settings_suffix = if series.settings.is_empty() {
-        String::new()
-    } else {
-        format!(" SETTINGS {}", series.settings.join(", "))
-    };
-
-    let mut final_query = match &query.transform {
-        None => SafeQuery {
-            sql: series.sql,
-            binds: series.binds,
-        },
+    let settings = std::mem::take(&mut series.settings);
+    let final_query = match &query.transform {
+        None => series.query,
         Some(transform) => {
             let floor_ts = history_from.map(|_| query.from.timestamp());
             // A running total is a continuous balance: gap-fill the visible range so the line carries the cumulative value across empty windows.
@@ -373,7 +328,7 @@ pub fn compile(
                 (CrossPeriod::RunningTotal, Some(w)) => Some(GapFill {
                     from_ts: query.from.timestamp(),
                     to_ts: query.to.unwrap_or_else(Utc::now).timestamp(),
-                    interval: interval_sql(w).to_string(),
+                    window: w.clone(),
                     tz: tz_name(query),
                 }),
                 _ => None,
@@ -381,8 +336,16 @@ pub fn compile(
             apply_cross_period(series, transform, floor_ts, fill)
         }
     };
-    final_query.sql.push_str(&settings_suffix);
-    Ok(final_query)
+    Ok((final_query, settings))
+}
+
+fn finish(
+    tree: &Query,
+    settings: &[Setting],
+    query: &MetricQuery,
+) -> Result<SafeQuery, MetricError> {
+    crate::sql::render_scoped(tree, settings, query.tenant_id.as_uuid())
+        .map_err(|e| MetricError::Invalid("tenant_scope".to_string(), e))
 }
 
 fn build_series(
@@ -391,7 +354,7 @@ fn build_series(
     query: &MetricQuery,
     events: EventsSource<'_>,
     database: &str,
-    cohort: Option<&CohortClause>,
+    cohort: Option<&Query>,
 ) -> Result<Series, MetricError> {
     // Per-metric filters AND into *this* metric's read only: clone the query with the
     // request-level filters extended by the def's own. A derived metric has no direct read, so its
@@ -447,13 +410,41 @@ enum ValueAgg {
     Gauge(GaugeSpec),
 }
 
-fn interval_sql(window: &WindowSize) -> &'static str {
-    match window {
-        WindowSize::Minute => "toIntervalMinute(1)",
-        WindowSize::Hour => "toIntervalHour(1)",
-        WindowSize::Day => "toIntervalDay(1)",
-        WindowSize::Week => "toIntervalWeek(1)",
+fn interval(window: &WindowSize) -> Expr {
+    intervals(window, Expr::Int(1))
+}
+
+fn epoch() -> chrono::DateTime<Utc> {
+    chrono::DateTime::from_timestamp(0, 0).expect("epoch is valid")
+}
+
+/// Where a transform starts reading, so its first visible window sees the windows it compares
+/// against: from epoch for cumulative totals, else as many windows back as it looks.
+fn history_from(
+    transform: &CrossPeriod,
+    from: chrono::DateTime<Utc>,
+    window: &WindowSize,
+) -> chrono::DateTime<Utc> {
+    match transform {
+        CrossPeriod::RunningTotal | CrossPeriod::RunningTotalLagged => epoch(),
+        CrossPeriod::PeriodOverPeriodDelta | CrossPeriod::PercentChange => {
+            from - window_duration(window)
+        }
+        CrossPeriod::MovingAverage { periods } => {
+            from - window_duration(window) * periods.saturating_sub(1) as i32
+        }
     }
+}
+
+/// `toInterval<Unit>(n)`: `n` windows.
+fn intervals(window: &WindowSize, n: Expr) -> Expr {
+    let name = match window {
+        WindowSize::Minute => "toIntervalMinute",
+        WindowSize::Hour => "toIntervalHour",
+        WindowSize::Day => "toIntervalDay",
+        WindowSize::Week => "toIntervalWeek",
+    };
+    Expr::call(name, [n])
 }
 
 fn window_duration(window: &WindowSize) -> chrono::Duration {
@@ -482,7 +473,52 @@ fn tz_name(query: &MetricQuery) -> String {
         .to_string()
 }
 
-fn dim_columns(query: &MetricQuery) -> Vec<String> {
+/// `tumbleStart(toDateTime(<ts>), <interval>, <tz>)`, or `tumbleEnd`.
+fn tumble(function: &'static str, ts: Expr, window: &WindowSize, tz: &str) -> Expr {
+    Expr::call(
+        function,
+        [
+            Expr::call("toDateTime", [ts]),
+            interval(window),
+            bind_str(tz),
+        ],
+    )
+}
+
+/// `tumbleStart`/`tumbleEnd` return a `Date` for week intervals, which the JSON read-back can't
+/// parse as a timestamp: `toDateTime(_, tz)` makes every grain a `DateTime`.
+fn as_datetime(value: Expr, tz: &str) -> Expr {
+    Expr::call("toDateTime", [value, bind_str(tz)])
+}
+
+/// The `window_start`/`window_end` items: tumbling windows, or one bucket over the whole range
+/// with constant bounds so several metrics align.
+fn window_items(query: &MetricQuery, ts: &Expr) -> Vec<Item> {
+    match &query.window {
+        Some(window) => {
+            let tz = tz_name(query);
+            vec![
+                Item::as_(
+                    as_datetime(tumble("tumbleStart", ts.clone(), window, &tz), &tz),
+                    "window_start",
+                ),
+                Item::as_(
+                    as_datetime(tumble("tumbleEnd", ts.clone(), window, &tz), &tz),
+                    "window_end",
+                ),
+            ]
+        }
+        None => vec![
+            Item::as_(Expr::datetime(query.from.timestamp()), "window_start"),
+            Item::as_(
+                Expr::datetime(query.to.unwrap_or_else(Utc::now).timestamp()),
+                "window_end",
+            ),
+        ],
+    }
+}
+
+fn dim_columns(query: &MetricQuery) -> Vec<Ident> {
     // A `customer_ids` scope is a WHERE filter only, never an output dimension —
     // otherwise a non-broken-down metric returns one row per (window × customer).
     query.group_by.iter().map(dimension_alias).collect()
@@ -492,11 +528,53 @@ fn dim_columns(query: &MetricQuery) -> Vec<String> {
 fn event_dim_ctx(database: &str) -> DimCtx<'_> {
     DimCtx {
         database,
-        qualifier: "",
-        customer_column: "customer_id",
-        plan_column: "plan_id",
-        product_column: "product_id",
+        qualifier: None,
+        customer_column: Ident::trusted("customer_id"),
+        plan_column: Ident::trusted("plan_id"),
+        product_column: Ident::trusted("product_id"),
         is_fact: false,
+    }
+}
+
+fn meter_event_columns() -> Vec<Ident> {
+    [
+        "id",
+        "customer_id",
+        "timestamp",
+        "ingested_at",
+        "properties",
+    ]
+    .into_iter()
+    .map(Ident::trusted)
+    .collect()
+}
+
+/// `tenant_id = ? AND code = ? AND timestamp >= toDateTime(?) [AND timestamp <= toDateTime(?)]`.
+fn raw_event_bounds(
+    query: &MetricQuery,
+    event_code: &str,
+    from_ts: i64,
+    to_ts: Option<i64>,
+) -> Vec<Expr> {
+    let mut filter = vec![
+        Expr::col("tenant_id").eq(tenant_bind(query)),
+        Expr::col("code").eq(bind_str(event_code)),
+        Expr::col("timestamp").ge(Expr::datetime(from_ts)),
+    ];
+    if let Some(to) = to_ts {
+        filter.push(Expr::col("timestamp").le(Expr::datetime(to)));
+    }
+    filter
+}
+
+/// The void set narrowed to a raw read's code and time range.
+fn void_scope(event_code: &str, from_ts: i64, to_ts: Option<i64>) -> VoidScope {
+    let scope = VoidScope::default()
+        .code(event_code)
+        .since(format!("toDateTime({from_ts})"));
+    match to_ts {
+        Some(to) => scope.until(format!("toDateTime({to})")),
+        None => scope,
     }
 }
 
@@ -506,124 +584,59 @@ fn simple_series(
     query: &MetricQuery,
     events: EventsSource<'_>,
     database: &str,
-    cohort: Option<&CohortClause>,
+    cohort: Option<&Query>,
 ) -> Result<Series, MetricError> {
-    let mut select_binds: Vec<BindValue> = Vec::new();
-    let mut where_binds: Vec<BindValue> = Vec::new();
-    let mut group_binds: Vec<BindValue> = Vec::new();
-
-    let tz = tz_name(query);
-    let mut select_columns: Vec<String> = Vec::new();
-    let mut group_columns: Vec<String> = Vec::new();
-
-    if let Some(window) = &query.window {
-        let interval = interval_sql(window);
-        // `tumbleStart`/`tumbleEnd` return a `Date` (not `DateTime`) for week/month
-        // intervals, which the JSON read-back can't parse as a timestamp — wrap in
-        // `toDateTime(_, tz)` so every grain yields a `DateTime` uniformly.
-        select_binds.push(BindValue::String(tz.clone()));
-        select_binds.push(BindValue::String(tz.clone()));
-        select_columns.push(format!(
-            "toDateTime(tumbleStart(toDateTime(timestamp), {interval}, ?), ?) AS window_start"
-        ));
-        select_binds.push(BindValue::String(tz.clone()));
-        select_binds.push(BindValue::String(tz.clone()));
-        select_columns.push(format!(
-            "toDateTime(tumbleEnd(toDateTime(timestamp), {interval}, ?), ?) AS window_end"
-        ));
-    } else {
-        // Whole-range single bucket with constant bounds, so multiple metrics align.
-        select_binds.push(BindValue::I64(query.from.timestamp()));
-        select_columns.push("toDateTime(?) AS window_start".to_string());
-        let end = query.to.unwrap_or_else(Utc::now).timestamp();
-        select_binds.push(BindValue::I64(end));
-        select_columns.push("toDateTime(?) AS window_end".to_string());
-    }
-
-    let value_column = match &agg {
-        ValueAgg::Aggregate(spec) => aggregate_value_sql(spec, &mut select_binds)?,
-        ValueAgg::Gauge(spec) => gauge_value_sql(spec, &mut select_binds)?,
+    let mut items = window_items(query, &Expr::col("timestamp"));
+    let value = match &agg {
+        ValueAgg::Aggregate(spec) => aggregate_value(spec)?,
+        ValueAgg::Gauge(spec) => gauge_value(spec)?,
     };
-    select_columns.push(value_column);
+    items.push(Item::as_(value, "value"));
 
     let dim_ctx = event_dim_ctx(database);
     for d in &query.group_by {
-        select_columns.extend(dim_select_columns(d, &dim_ctx, &mut select_binds)?);
+        items.extend(dim_items(d, &dim_ctx)?);
     }
 
-    let mut conditions: Vec<String> = Vec::new();
-    conditions.push("tenant_id = ?".to_string());
-    where_binds.push(BindValue::Uuid(query.tenant_id.as_uuid()));
-    conditions.push("code = ?".to_string());
-    where_binds.push(BindValue::String(event_code.to_string()));
-    conditions.push("timestamp >= toDateTime(?)".to_string());
-    where_binds.push(BindValue::I64(query.from.timestamp()));
-    if let Some(to) = query.to {
-        conditions.push("timestamp <= toDateTime(?)".to_string());
-        where_binds.push(BindValue::I64(to.timestamp()));
-    }
+    let from_ts = query.from.timestamp();
+    let to_ts = query.to.map(|t| t.timestamp());
+    let mut filter = raw_event_bounds(query, event_code, from_ts, to_ts);
     if !query.customer_ids.is_empty() {
-        conditions.push("customer_id IN ?".to_string());
-        where_binds.push(BindValue::Uuids(
-            query.customer_ids.iter().map(|id| id.as_uuid()).collect(),
-        ));
+        filter.push(Expr::col("customer_id").in_set(customer_uuids(query)));
     }
-    push_dimension_filters(&query.filters, &mut conditions, &mut where_binds);
+    filter.extend(dimension_filters(&query.filters));
     if let Some(value_prop) = value_property_of(&agg) {
-        let col = PropertyColumn(value_prop);
-        let p1 = col.path_sql(&mut where_binds);
-        // CountDistinct counts distinct raw values, commonly non-numeric strings
-        // (e.g. a user id), so it only requires the property to be present. Every
-        // other value aggregation coerces through toFloat64, so it also guards on
-        // numeric parseability — a guard that would wrongly drop every row here.
-        if matches!(&agg, ValueAgg::Aggregate(s) if matches!(s.op, AggregateOp::CountDistinct)) {
-            conditions.push(format!("{p1} != ''"));
-        } else {
-            let p2 = col.path_sql(&mut where_binds);
-            conditions.push(format!("{p1} != '' AND isNotNull(toFloat64OrNull({p2}))"));
+        filter.push(property(value_prop).ne(Expr::str("")));
+        // CountDistinct counts raw values, often non-numeric (a user id): presence is enough.
+        // Every other aggregation coerces through toFloat64, so it also needs a parseable value.
+        if !matches!(&agg, ValueAgg::Aggregate(s) if matches!(s.op, AggregateOp::CountDistinct)) {
+            filter.push(Expr::call(
+                "isNotNull",
+                [Expr::call("toFloat64OrNull", [property(value_prop)])],
+            ));
         }
     }
     if let Some(c) = cohort {
-        conditions.push(format!("customer_id IN ( {} )", c.sql));
-        where_binds.extend(c.binds.iter().cloned());
+        filter.push(Expr::col("customer_id").in_set(Expr::subquery(c.clone())));
     }
 
+    let mut group_by = Vec::new();
     if let Some(window) = &query.window {
-        let interval = interval_sql(window);
-        group_binds.push(BindValue::String(tz.clone()));
-        group_columns.push(format!("tumbleStart(toDateTime(timestamp), {interval}, ?)"));
-        group_binds.push(BindValue::String(tz.clone()));
-        group_columns.push(format!("tumbleEnd(toDateTime(timestamp), {interval}, ?)"));
+        let tz = tz_name(query);
+        group_by.push(tumble("tumbleStart", Expr::col("timestamp"), window, &tz));
+        group_by.push(tumble("tumbleEnd", Expr::col("timestamp"), window, &tz));
     }
     for d in &query.group_by {
-        group_columns.push(dim_group_sql(d, &dim_ctx, &mut group_binds)?);
+        group_by.push(dim_group(d, &dim_ctx)?);
     }
 
-    let mut scope = VoidScope::default()
-        .code(event_code)
-        .customers(query.customer_ids.iter().map(|id| id.as_uuid()))
-        .since(format!("toDateTime({})", query.from.timestamp()));
-    if let Some(to) = query.to {
-        scope = scope.until(format!("toDateTime({})", to.timestamp()));
-    }
-    let source = events.from_sql(METER_EVENT_COLUMNS, &conditions.join(" AND "), &scope);
-
-    let mut sql = format!("SELECT {} {source}", select_columns.join(", "));
-    if !group_columns.is_empty() {
-        sql.push_str(&format!(" GROUP BY {}", group_columns.join(", ")));
-    }
-    sql.push_str(" ORDER BY window_start");
-
-    let mut binds = select_binds;
-    binds.extend(where_binds);
-    binds.extend(group_binds);
-
-    Ok(Series {
-        sql,
-        binds,
-        dims: dim_columns(query),
-        settings: vec![],
-    })
+    let scope = void_scope(event_code, from_ts, to_ts)
+        .customers(query.customer_ids.iter().map(|id| id.as_uuid()));
+    let source = events.read(meter_event_columns(), filter, scope);
+    let select = Select::new(items, source)
+        .group_by(group_by)
+        .order_by_window_start();
+    Ok(Series::select(select, dim_columns(query)))
 }
 
 fn value_property_of(agg: &ValueAgg) -> Option<&str> {
@@ -639,197 +652,145 @@ fn value_property_of(agg: &ValueAgg) -> Option<&str> {
     }
 }
 
-/// The ClickHouse function call for an [`AggregateOp`], with the function-name mapping in one
-/// place. Call sites differ only in their expressions, passed explicitly:
-/// - `count`: the full `Count` rendering (e.g. `toFloat64(count(*))` vs bare `count(*)`).
-/// - `value`: the per-row numeric expression `sum`/`avg`/`min`/`max`/`argMax` aggregate over
-///   (already wrapped in the call site's `toFloat64` vs `toFloat64OrZero` flavour).
-/// - `latest_ts`: what `Latest` ranks by inside `argMax(value, ts)`.
-/// - `distinct`: the `CountDistinct` argument for `uniq(...)` (often the raw column/path rather
-///   than the float-coerced `value`).
-fn aggregate_op_expr(
-    op: AggregateOp,
-    count: &str,
-    value: &str,
-    latest_ts: &str,
-    distinct: &str,
-) -> String {
+/// The aggregate call for an [`AggregateOp`] other than `Count`/`CountDistinct`, whose
+/// renderings differ per call site: `value` is the per-row numeric expression, `latest` what
+/// `Latest` ranks by.
+fn aggregate(op: AggregateOp, value: Expr, latest: Expr) -> Expr {
     match op {
-        AggregateOp::Count => count.to_string(),
-        AggregateOp::Sum => format!("sum({value})"),
-        AggregateOp::Avg => format!("avg({value})"),
-        AggregateOp::Min => format!("min({value})"),
-        AggregateOp::Max => format!("max({value})"),
-        AggregateOp::Latest => format!("argMax({value}, {latest_ts})"),
-        AggregateOp::CountDistinct => format!("uniq({distinct})"),
-    }
-}
-
-/// The `*If`-suffixed form of [`aggregate_op_expr`]: each ClickHouse aggregate wrapped in
-/// its conditional variant (`sumIf`/`countIf`/`argMaxIf`/`uniqIf`/…) so it reduces only the
-/// rows where `predicate` holds. `metric_delta_set` uses it to compute the current- and
-/// prior-window aggregates in one grouped scan. Args mirror `aggregate_op_expr`:
-/// - `count_if`: the full `countIf(<predicate>)` rendering.
-/// - `value_if`: the per-row numeric expression `sum`/`avg`/`min`/`max`/`argMax` aggregates.
-/// - `ts_if`: what `argMaxIf` ranks by.
-/// - `value_col`: the `uniqIf` distinct argument.
-/// - `predicate`: the per-row window test each `*If` applies.
-fn aggregate_op_if_expr(
-    op: AggregateOp,
-    count_if: &str,
-    value_if: &str,
-    ts_if: &str,
-    value_col: &str,
-    predicate: &str,
-) -> String {
-    match op {
-        AggregateOp::Count => count_if.to_string(),
-        AggregateOp::Sum => format!("sumIf({value_if}, {predicate})"),
-        AggregateOp::Avg => format!("avgIf({value_if}, {predicate})"),
-        AggregateOp::Min => format!("minIf({value_if}, {predicate})"),
-        AggregateOp::Max => format!("maxIf({value_if}, {predicate})"),
-        AggregateOp::Latest => format!("argMaxIf({value_if}, {ts_if}, {predicate})"),
-        AggregateOp::CountDistinct => format!("uniqIf({value_col}, {predicate})"),
-    }
-}
-
-fn aggregate_value_sql(
-    spec: &AggregateSpec,
-    binds: &mut Vec<BindValue>,
-) -> Result<String, MetricError> {
-    let value_expr = |binds: &mut Vec<BindValue>| -> Result<String, MetricError> {
-        match &spec.value_property {
-            Some(prop) => {
-                let path = PropertyColumn(prop).path_sql(binds);
-                Ok(format!("toFloat64OrZero({path})"))
-            }
-            None => Err(MetricError::Invalid(
-                format!("{:?}", spec.op),
-                "value_property is required".to_string(),
-            )),
+        AggregateOp::Sum => Expr::call("sum", [value]),
+        AggregateOp::Avg => Expr::call("avg", [value]),
+        AggregateOp::Min => Expr::call("min", [value]),
+        AggregateOp::Max => Expr::call("max", [value]),
+        AggregateOp::Latest => Expr::call("argMax", [value, latest]),
+        AggregateOp::Count | AggregateOp::CountDistinct => {
+            unreachable!("count aggregates are rendered by their call site")
         }
-    };
+    }
+}
 
-    // Count/CountDistinct yield an integer ClickHouse coerces to Float64 explicitly; the rest
-    // already aggregate a Float64 expression. The `?`-pushing exprs are evaluated lazily so a
-    // value-less op (Count) never binds a phantom property path.
+/// The `*If` form of an aggregate, reducing only the rows where `predicate` holds:
+/// `countIf(p)`, `uniqIf(distinct, p)`, `sumIf(value, p)`, `argMaxIf(value, latest, p)`, ….
+fn aggregate_if(
+    op: AggregateOp,
+    value: Expr,
+    latest: Expr,
+    distinct: Expr,
+    predicate: Expr,
+) -> Expr {
+    match op {
+        AggregateOp::Count => Expr::call("countIf", [predicate]),
+        AggregateOp::Sum => Expr::call("sumIf", [value, predicate]),
+        AggregateOp::Avg => Expr::call("avgIf", [value, predicate]),
+        AggregateOp::Min => Expr::call("minIf", [value, predicate]),
+        AggregateOp::Max => Expr::call("maxIf", [value, predicate]),
+        AggregateOp::Latest => Expr::call("argMaxIf", [value, latest, predicate]),
+        AggregateOp::CountDistinct => Expr::call("uniqIf", [distinct, predicate]),
+    }
+}
+
+fn required_value_property<'a>(
+    spec: &'a AggregateSpec,
+    name: String,
+    message: &str,
+) -> Result<&'a str, MetricError> {
+    spec.value_property
+        .as_deref()
+        .ok_or_else(|| MetricError::Invalid(name, message.to_string()))
+}
+
+fn aggregate_value(spec: &AggregateSpec) -> Result<Expr, MetricError> {
     let expr = match spec.op {
-        AggregateOp::Count => "toFloat64(count(*))".to_string(),
+        AggregateOp::Count => Expr::call("toFloat64", [Expr::call("count", [Expr::Star])]),
         AggregateOp::CountDistinct => {
-            let prop = spec.value_property.as_deref().ok_or_else(|| {
-                MetricError::Invalid(
-                    "CountDistinct".to_string(),
-                    "value_property is required".to_string(),
-                )
-            })?;
-            let path = PropertyColumn(prop).path_sql(binds);
-            format!("toFloat64(uniq({path}))")
+            let prop = required_value_property(
+                spec,
+                "CountDistinct".to_string(),
+                "value_property is required",
+            )?;
+            Expr::call("toFloat64", [Expr::call("uniq", [property(prop)])])
         }
-        _ => {
-            let value = value_expr(binds)?;
-            aggregate_op_expr(spec.op, "", &value, LATEST_EVENT_ORDER, "")
+        op => {
+            let prop =
+                required_value_property(spec, format!("{op:?}"), "value_property is required")?;
+            let value = Expr::call("toFloat64OrZero", [property(prop)]);
+            aggregate(op, value, latest_event_order())
         }
     };
-    Ok(format!("{} AS value", apply_unit_conversion(spec, expr)))
+    Ok(apply_unit_conversion(spec, expr))
 }
 
-/// Divide an aggregate expression by the metric's unit-conversion factor, matching the
-/// billing path (invoice line computation). A factor of `None` / ≤ 1 / non-finite is a
-/// no-op — returns `expr` unchanged so unconverted metrics compile byte-identically. The
-/// factor is inlined as a numeric literal (it is an `f64`, injection-safe) and pushes no
-/// bind, so callers can wrap without disturbing bind order.
-fn apply_unit_conversion(spec: &AggregateSpec, expr: String) -> String {
+/// Divide an aggregate by the metric's unit-conversion factor, matching the billing path
+/// (invoice line computation). `None` / ≤ 1 / non-finite leaves it unchanged.
+fn apply_unit_conversion(spec: &AggregateSpec, expr: Expr) -> Expr {
     match spec.unit_conversion_factor {
-        Some(factor) if factor.is_finite() && factor > 1.0 => format!("({expr}) / {factor}"),
+        Some(factor) if factor.is_finite() && factor > 1.0 => expr.op(Op::Div, Expr::Float(factor)),
         _ => expr,
     }
 }
 
-fn gauge_value_sql(spec: &GaugeSpec, binds: &mut Vec<BindValue>) -> Result<String, MetricError> {
+fn gauge_value(spec: &GaugeSpec) -> Result<Expr, MetricError> {
     let prop = spec.value_property.as_deref().ok_or_else(|| {
         MetricError::Invalid(
             "gauge".to_string(),
             "value_property is required".to_string(),
         )
     })?;
-    let col = match spec.op {
-        GaugeOp::Latest => {
-            let path = PropertyColumn(prop).path_sql(binds);
-            format!("argMax(toFloat64OrZero({path}), {LATEST_EVENT_ORDER}) AS value")
-        }
-        GaugeOp::Max => {
-            let path = PropertyColumn(prop).path_sql(binds);
-            format!("max(toFloat64OrZero({path})) AS value")
-        }
-        GaugeOp::TimeWeighted(_) => {
-            return Err(MetricError::Unsupported(
-                "time-weighted gauge is compiled by time_weighted_series".to_string(),
-            ));
-        }
-    };
-    Ok(col)
-}
-
-fn push_dimension_filters(
-    filters: &[DimensionFilter],
-    conditions: &mut Vec<String>,
-    binds: &mut Vec<BindValue>,
-) {
-    for f in filters {
-        if f.values.is_empty() {
-            continue;
-        }
-        let col = PropertyColumn(&f.property);
-        match f.op {
-            FilterOp::In => {
-                let ored = f
-                    .values
-                    .iter()
-                    .map(|v| {
-                        let path = col.path_sql(binds);
-                        binds.push(BindValue::String(v.clone()));
-                        format!("{path} = ?")
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" OR ");
-                conditions.push(format!("({ored})"));
-            }
-            FilterOp::NotIn => {
-                // Presence-required negation: the event must carry the property, and its
-                // value must be none of `values`. Without mapContains, an absent key reads
-                // as '' and would slip through every `!=`.
-                binds.push(BindValue::String(f.property.clone()));
-                let mut parts = vec!["mapContains(properties, ?)".to_string()];
-                for v in &f.values {
-                    let path = col.path_sql(binds);
-                    binds.push(BindValue::String(v.clone()));
-                    parts.push(format!("{path} != ?"));
-                }
-                conditions.push(format!("({})", parts.join(" AND ")));
-            }
-        }
+    let value = Expr::call("toFloat64OrZero", [property(prop)]);
+    match spec.op {
+        GaugeOp::Latest => Ok(Expr::call("argMax", [value, latest_event_order()])),
+        GaugeOp::Max => Ok(Expr::call("max", [value])),
+        GaugeOp::TimeWeighted(_) => Err(MetricError::Unsupported(
+            "time-weighted gauge is compiled by time_weighted_series".to_string(),
+        )),
     }
 }
 
-const METER_EVENT_COLUMNS: &str = "id, customer_id, timestamp, ingested_at, properties";
+/// Raw-event property filters. `NotIn` requires the property to be present: an absent key reads
+/// as `''` and would otherwise slip through every `!=`.
+fn dimension_filters(filters: &[DimensionFilter]) -> Vec<Expr> {
+    filters
+        .iter()
+        .filter(|f| !f.values.is_empty())
+        .map(|f| match f.op {
+            FilterOp::In => Expr::Or(
+                f.values
+                    .iter()
+                    .map(|v| property(&f.property).eq(bind_str(v)))
+                    .collect(),
+            ),
+            FilterOp::NotIn => {
+                let mut parts = vec![Expr::call(
+                    "mapContains",
+                    [Expr::col("properties"), bind_str(&f.property)],
+                )];
+                parts.extend(
+                    f.values
+                        .iter()
+                        .map(|v| property(&f.property).ne(bind_str(v))),
+                );
+                Expr::And(parts)
+            }
+        })
+        .collect()
+}
 
 fn time_weighted_series(
     event_code: &str,
     tw: &TimeWeightedSpec,
     query: &MetricQuery,
     events: EventsSource<'_>,
-    cohort: Option<&CohortClause>,
+    cohort: Option<&Query>,
 ) -> Result<Series, MetricError> {
     let to = query.to.unwrap_or_else(Utc::now);
-    let mut binds: Vec<BindValue> = Vec::new();
 
-    // Validate every property name inlined (not bound) into the gauge SQL. The
-    // time-weighted gauge reads from the raw-event property map, so only property
-    // dimensions apply (column/customer-attribute splits aren't meaningful here).
-    ensure_inlinable(&tw.identity_property)?;
+    // The gauge reads the raw-event property map, so only property dimensions apply.
+    let identity = literal_key(&tw.identity_property)?;
+    let mut dims: Vec<(&str, Ident)> = Vec::new();
     for d in &query.group_by {
         match d {
-            Dimension::Auto(n) | Dimension::Property(n) => ensure_inlinable(n)?,
+            Dimension::Auto(n) | Dimension::Property(n) => {
+                dims.push((literal_key(n)?, dimension_alias(d)))
+            }
             Dimension::Column(_)
             | Dimension::CustomerAttr(_)
             | Dimension::PlanAttr(_)
@@ -844,23 +805,17 @@ fn time_weighted_series(
             }
         }
     }
-    if let TimeWeight::ValueSeconds(prop) = &tw.weight {
-        ensure_inlinable(prop)?;
-    }
+    let weight = match &tw.weight {
+        TimeWeight::Seconds => None,
+        TimeWeight::ValueSeconds(prop) => Some(literal_key(prop)?),
+    };
 
-    let (window_function, seconds_in_interval) = match &query.window {
-        Some(WindowSize::Minute) => ("toStartOfMinute", "60".to_string()),
-        Some(WindowSize::Hour) => ("toStartOfHour", "3600".to_string()),
-        Some(WindowSize::Day) => ("toStartOfDay", "86400".to_string()),
-        Some(WindowSize::Week) => ("toStartOfWeek", "604800".to_string()),
-        None => (
-            "toStartOfSecond",
-            (to.timestamp() - query.from.timestamp()).max(1).to_string(),
-        ),
+    let interval_secs = match &query.window {
+        Some(w) => window_seconds(w),
+        None => (to.timestamp() - query.from.timestamp()).max(1),
     };
 
     // Bound the cross-join blast radius (see MAX_GAUGE_WINDOWS).
-    let interval_secs: i64 = seconds_in_interval.parse().unwrap_or(1).max(1);
     let span_secs = (to.timestamp() - query.from.timestamp()).max(0);
     let window_count = span_secs / interval_secs + 1;
     if window_count > MAX_GAUGE_WINDOWS {
@@ -872,169 +827,273 @@ fn time_weighted_series(
         ));
     }
 
-    let identity_access = map_access(&tw.identity_property);
-    let group_dim_selects = query
-        .group_by
-        .iter()
-        .map(|d| format!(", {} AS {}", map_access(d.name()), dimension_alias(d)))
-        .collect::<String>();
-    let group_dim_passthrough = query
-        .group_by
-        .iter()
-        .map(|d| format!(", el.{}", dimension_alias(d)))
-        .collect::<String>();
-    let group_dim_final_select = query
-        .group_by
-        .iter()
-        .map(|d| format!(", ip.{0} AS {0}", dimension_alias(d)))
-        .collect::<String>();
-    let group_dim_final_groupby = query
-        .group_by
-        .iter()
-        .map(|d| format!(", ip.{}", dimension_alias(d)))
-        .collect::<String>();
+    let el = |name: &Ident| Expr::Column(Some(Ident::trusted("el")), name.clone());
+    let ip = |name: &Ident| Expr::Column(Some(Ident::trusted("ip")), name.clone());
+    let identity_access = property_literal(identity);
 
-    let (weight_value_select, weight_expr) = match &tw.weight {
-        TimeWeight::Seconds => (String::new(), "1".to_string()),
-        TimeWeight::ValueSeconds(prop) => (
-            format!(", {} AS weight_value", map_access(prop)),
-            "toFloat64OrZero(el.weight_value)".to_string(),
-        ),
+    let params = Select {
+        items: vec![
+            Item::as_(Expr::datetime(query.from.timestamp()), "window_start"),
+            Item::as_(Expr::datetime(to.timestamp()), "window_end"),
+            Item::as_(
+                Expr::call("toUUID", [tenant_bind(query)]),
+                "param_tenant_id",
+            ),
+        ],
+        ..Select::default()
     };
 
-    binds.push(BindValue::I64(query.from.timestamp()));
-    binds.push(BindValue::I64(to.timestamp()));
-    binds.push(BindValue::Uuid(query.tenant_id.as_uuid()));
-
-    let (code_filter, code_bind, scope) = if tw.lifecycle_codes.is_empty() {
-        let scope = VoidScope::default().code(event_code);
-        ("code = ?", BindValue::String(event_code.to_string()), scope)
-    } else {
-        let scope = VoidScope::default().codes(&tw.lifecycle_codes);
+    let (code_filter, void_scope) = if tw.lifecycle_codes.is_empty() {
         (
-            "code IN ?",
-            BindValue::Strings(tw.lifecycle_codes.clone()),
-            scope,
+            Expr::col("code").eq(bind_str(event_code)),
+            VoidScope::default().code(event_code),
+        )
+    } else {
+        (
+            Expr::col("code").in_set(Expr::Bind(BindValue::Strings(tw.lifecycle_codes.clone()))),
+            VoidScope::default().codes(&tw.lifecycle_codes),
         )
     };
     // Filtered (and keep-last deduped) before the window function, scoped to the tenant.
-    binds.push(BindValue::Uuid(query.tenant_id.as_uuid()));
-    binds.push(code_bind);
-    let lifecycle_source = events.from_sql(
-        "id, customer_id, tenant_id, timestamp, properties",
-        &format!("tenant_id = ? AND {code_filter}"),
-        &scope,
+    let lifecycle_source = events.read(
+        ["id", "customer_id", "tenant_id", "timestamp", "properties"]
+            .into_iter()
+            .map(Ident::trusted)
+            .collect(),
+        [Expr::col("tenant_id").eq(tenant_bind(query)), code_filter]
+            .into_iter()
+            .chain(dimension_filters(&query.filters))
+            .collect(),
+        void_scope,
     );
+    let mut lifecycle_items = vec![
+        Item::new(Expr::col("customer_id")),
+        Item::new(Expr::col("tenant_id")),
+        Item::as_(identity_access.clone(), "identity"),
+        Item::as_(Expr::col("timestamp"), "start_time"),
+        Item::as_(
+            Expr::call(
+                "leadInFrame",
+                [Expr::call("toNullable", [Expr::col("timestamp")])],
+            )
+            .over(Window {
+                partition_by: vec![
+                    Expr::col("customer_id"),
+                    Expr::col("tenant_id"),
+                    identity_access,
+                ],
+                order_by: vec![Expr::col("timestamp")],
+                frame: Some(Frame {
+                    start: FrameBound::CurrentRow,
+                    end: FrameBound::UnboundedFollowing,
+                }),
+            }),
+            "end_time",
+        ),
+    ];
+    for (name, dim_alias) in &dims {
+        lifecycle_items.push(Item::aliased(property_literal(name), dim_alias.clone()));
+    }
+    if let Some(prop) = &weight {
+        lifecycle_items.push(Item::as_(property_literal(prop), "weight_value"));
+    }
+    let event_lifecycle = Select::new(lifecycle_items, lifecycle_source);
 
-    let mut customer_param = if query.customer_ids.is_empty() {
-        String::new()
-    } else {
-        binds.push(BindValue::Uuids(
-            query.customer_ids.iter().map(|id| id.as_uuid()).collect(),
-        ));
-        " AND el.customer_id IN ?".to_string()
+    let window_start = Expr::qcol("params", "window_start");
+    let window_end = Expr::qcol("params", "window_end");
+    let el_end = Expr::qcol("el", "end_time");
+    let weight_expr = match &weight {
+        None => Expr::Int(1),
+        Some(_) => Expr::call("toFloat64OrZero", [Expr::qcol("el", "weight_value")]),
     };
-    if let Some(c) = cohort {
-        customer_param.push_str(&format!(" AND el.customer_id IN ( {} )", c.sql));
-        binds.extend(c.binds.iter().cloned());
+    let mut period_items = vec![
+        Item::new(Expr::qcol("el", "customer_id")),
+        Item::as_(
+            Expr::call(
+                "greatest",
+                [Expr::qcol("el", "start_time"), window_start.clone()],
+            ),
+            "period_start",
+        ),
+        Item::as_(
+            Expr::call(
+                "least",
+                [
+                    Expr::call("COALESCE", [el_end.clone(), window_end.clone()]),
+                    window_end.clone(),
+                ],
+            ),
+            "period_end",
+        ),
+        Item::as_(weight_expr, "w"),
+    ];
+    period_items.extend(dims.iter().map(|(_, a)| Item::new(el(a))));
+    let mut period_filter =
+        vec![Expr::qcol("el", "tenant_id").eq(Expr::qcol("params", "param_tenant_id"))];
+    if !query.customer_ids.is_empty() {
+        period_filter.push(Expr::qcol("el", "customer_id").in_set(customer_uuids(query)));
     }
-
-    let sql = format!(
-        r#"WITH
-    params AS (
-        SELECT toDateTime(?) AS window_start, toDateTime(?) AS window_end, ? AS param_tenant_id
-    ),
-    event_lifecycle AS (
-        SELECT
-            customer_id,
-            tenant_id,
-            {identity_access} AS identity,
-            timestamp AS start_time,
-            leadInFrame(toNullable(timestamp)) OVER (
-                PARTITION BY customer_id, tenant_id, {identity_access}
-                ORDER BY timestamp
-                ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
-            ) AS end_time{group_dim_selects}{weight_value_select}
-        {lifecycle_source}
-    ),
-    instance_periods AS (
-        SELECT
-            el.customer_id,
-            greatest(el.start_time, params.window_start) AS period_start,
-            least(COALESCE(el.end_time, params.window_end), params.window_end) AS period_end,
-            {weight_expr} AS w{group_dim_passthrough}
-        FROM event_lifecycle el
-        CROSS JOIN params
-        WHERE el.tenant_id = params.param_tenant_id{customer_param}
-          AND el.start_time < params.window_end
-          AND (el.end_time > params.window_start OR el.end_time IS NULL)
-    ),
-    time_series AS (
-        SELECT
-            toDateTime(toDateTime({window_function}(window_start)) + number * {seconds_in_interval}) AS window_start,
-            toDateTime(toDateTime({window_function}(window_start)) + (number + 1) * {seconds_in_interval}) AS window_end
-        FROM params
-        ARRAY JOIN range(toUInt32((toUnixTimestamp(window_end) - toUnixTimestamp({window_function}(window_start))) / {seconds_in_interval}) + 1) AS number
+    if let Some(c) = cohort {
+        period_filter.push(Expr::qcol("el", "customer_id").in_set(Expr::subquery(c.clone())));
+    }
+    period_filter.push(Expr::qcol("el", "start_time").lt(window_end.clone()));
+    period_filter.push(Expr::Or(vec![
+        el_end.clone().gt(window_start.clone()),
+        Expr::IsNull(Box::new(el_end)),
+    ]));
+    let instance_periods = Select::new(
+        period_items,
+        Relation::Named(
+            Ident::trusted("event_lifecycle"),
+            Some(Ident::trusted("el")),
+        )
+        .join(
+            JoinKind::Cross,
+            Relation::Named(Ident::trusted("params"), None),
+            None,
+        ),
     )
-SELECT
-    ts.window_start AS window_start,
-    ts.window_end AS window_end,
-    sum(
-        if(ip.period_start < ts.window_end AND ip.period_end > ts.window_start,
-           dateDiff('second', greatest(ts.window_start, ip.period_start), least(ts.window_end, ip.period_end)) * ip.w,
-           0)
-    ) AS value,
-    ip.customer_id AS customer_id{group_dim_final_select}
-FROM time_series ts
-CROSS JOIN instance_periods ip
-WHERE ip.period_start < ts.window_end AND ip.period_end > ts.window_start
-GROUP BY ts.window_start, ts.window_end, ip.customer_id{group_dim_final_groupby}
-ORDER BY window_start"#,
+    .filter(period_filter);
+
+    // Qualified: the grid's own `window_start`/`window_end` aliases would otherwise shadow the
+    // params columns inside the ARRAY JOIN, a cycle the analyzer reports as an unknown `number`.
+    // The grid starts at the window holding `from`, in the query's time zone, and steps by
+    // calendar intervals (a DST day is not 86400 s); without a window it is one bucket.
+    let tz = tz_name(query);
+    let origin = match &query.window {
+        Some(w) => as_datetime(tumble("tumbleStart", window_start.clone(), w, &tz), &tz),
+        None => Expr::call("toDateTime", [window_start.clone()]),
+    };
+    let grid_bound = |n: Expr| match &query.window {
+        Some(w) => origin.clone().op(Op::Add, intervals(w, n)),
+        None => Expr::call(
+            "toDateTime",
+            [origin
+                .clone()
+                .op(Op::Add, n.op(Op::Mul, Expr::Int(interval_secs)))],
+        ),
+    };
+    let time_series = Select::new(
+        vec![
+            Item::as_(grid_bound(Expr::col("number")), "window_start"),
+            Item::as_(
+                grid_bound(Expr::col("number").op(Op::Add, Expr::Int(1))),
+                "window_end",
+            ),
+        ],
+        Relation::ArrayJoin {
+            from: Box::new(Relation::Named(Ident::trusted("params"), None)),
+            columns: vec![(
+                Expr::call(
+                    "range",
+                    [Expr::call(
+                        "toUInt32",
+                        [Expr::call("toUnixTimestamp", [window_end.clone()])
+                            .op(Op::Sub, Expr::call("toUnixTimestamp", [origin.clone()]))
+                            .op(Op::Div, Expr::Int(interval_secs))],
+                    )
+                    .op(Op::Add, Expr::Int(1))],
+                ),
+                Ident::trusted("number"),
+            )],
+        },
     );
 
-    let mut dims = vec!["customer_id".to_string()];
-    for d in &query.group_by {
-        dims.push(dimension_alias(d));
-    }
+    let ts_start = Expr::qcol("ts", "window_start");
+    let ts_end = Expr::qcol("ts", "window_end");
+    let overlaps = || {
+        vec![
+            Expr::qcol("ip", "period_start").lt(ts_end.clone()),
+            Expr::qcol("ip", "period_end").gt(ts_start.clone()),
+        ]
+    };
+    let overlap_seconds = Expr::call(
+        "dateDiff",
+        [
+            Expr::str("second"),
+            Expr::call(
+                "greatest",
+                [ts_start.clone(), Expr::qcol("ip", "period_start")],
+            ),
+            Expr::call("least", [ts_end.clone(), Expr::qcol("ip", "period_end")]),
+        ],
+    )
+    .op(Op::Mul, Expr::qcol("ip", "w"));
+    let mut items = vec![
+        Item::as_(ts_start.clone(), "window_start"),
+        Item::as_(ts_end.clone(), "window_end"),
+        Item::as_(
+            Expr::call(
+                "sum",
+                [Expr::call(
+                    "if",
+                    [Expr::And(overlaps()), overlap_seconds, Expr::Int(0)],
+                )],
+            ),
+            "value",
+        ),
+        Item::as_(Expr::qcol("ip", "customer_id"), "customer_id"),
+    ];
+    items.extend(dims.iter().map(|(_, a)| Item::aliased(ip(a), a.clone())));
+    let mut group_by = vec![
+        ts_start.clone(),
+        ts_end.clone(),
+        Expr::qcol("ip", "customer_id"),
+    ];
+    group_by.extend(dims.iter().map(|(_, a)| ip(a)));
+    let body = Select::new(
+        items,
+        Relation::Named(Ident::trusted("time_series"), Some(Ident::trusted("ts"))).join(
+            JoinKind::Cross,
+            Relation::Named(
+                Ident::trusted("instance_periods"),
+                Some(Ident::trusted("ip")),
+            ),
+            None,
+        ),
+    )
+    .filter(overlaps())
+    .group_by(group_by)
+    .order_by_window_start();
 
+    let query_tree = Query::with_ctes(
+        vec![
+            (Ident::trusted("params"), params.query()),
+            (Ident::trusted("event_lifecycle"), event_lifecycle.query()),
+            (Ident::trusted("instance_periods"), instance_periods.query()),
+            (Ident::trusted("time_series"), time_series.query()),
+        ],
+        body.query(),
+    );
+
+    let mut out_dims = vec![Ident::trusted("customer_id")];
+    out_dims.extend(dims.into_iter().map(|(_, a)| a));
     Ok(Series {
-        sql,
-        binds,
-        dims,
+        query: query_tree,
+        dims: out_dims,
         settings: vec![],
     })
 }
 
-fn map_access(prop: &str) -> String {
-    let escaped = prop.replace('\'', "''");
-    format!("properties['{escaped}']")
-}
-
-/// Render dimension filters as fact-column conditions, one string per filter. Shared by the
-/// read's `WHERE` and by the per-operand `*If` predicates a fused read isolates its members with.
-fn fact_filter_conditions(filters: &[DimensionFilter], binds: &mut Vec<BindValue>) -> Vec<String> {
+/// Fact-column filters, one parenthesised condition each. Shared by the read's `WHERE` and by
+/// the per-operand `*If` predicates of a fused read.
+fn fact_filter_conditions(filters: &[DimensionFilter]) -> Result<Vec<Expr>, MetricError> {
     let mut out = Vec::new();
-    for f in filters {
-        if f.values.is_empty() {
-            continue;
-        }
-        let (sep, cmp) = match f.op {
-            FilterOp::In => (" OR ", "="),
-            // Fact columns are always present, so negation is a plain per-value !=.
-            FilterOp::NotIn => (" AND ", "!="),
+    for f in filters.iter().filter(|f| !f.values.is_empty()) {
+        let col = Expr::ident(&Ident::column(&f.property)?);
+        // Fact columns are always present, so negation is a plain per-value !=.
+        let (op, cmp) = match f.op {
+            FilterOp::In => (Expr::Or as fn(Vec<Expr>) -> Expr, Op::Eq),
+            FilterOp::NotIn => (Expr::And as fn(Vec<Expr>) -> Expr, Op::Ne),
         };
-        let joined = f
+        let parts = f
             .values
             .iter()
-            .map(|v| {
-                binds.push(BindValue::String(v.clone()));
-                format!("{} {cmp} ?", f.property)
-            })
-            .collect::<Vec<_>>()
-            .join(sep);
-        out.push(format!("({joined})"));
+            .map(|v| col.clone().op(cmp, bind_str(v)))
+            .collect();
+        out.push(op(parts));
     }
-    out
+    Ok(out)
 }
 
 /// Whether filters actually restrict anything. A value-less filter is skipped when rendered, so
@@ -1044,10 +1103,9 @@ fn has_effective_filters(filters: &[DimensionFilter]) -> bool {
 }
 
 /// One operand of a fused fact read: the column it lands in and the per-metric filters that
-/// isolate it. A lone member with no filters is the ordinary single-metric read, and emits
-/// byte-identical SQL to the unfused path.
+/// isolate it. A lone member with no filters is the ordinary single-metric read.
 struct FusedMember<'a> {
-    column: String,
+    column: Ident,
     filters: &'a [DimensionFilter],
 }
 
@@ -1056,14 +1114,16 @@ fn fact_series(
     spec: &AggregateSpec,
     query: &MetricQuery,
     database: &str,
-    cohort: Option<&CohortClause>,
+    cohort: Option<&Query>,
 ) -> Result<Series, MetricError> {
     let lone = [FusedMember {
-        column: "value".to_string(),
+        column: Ident::trusted("value"),
         filters: &[],
     }];
     fact_series_fused(fs, spec, query, database, cohort, &lone)
 }
+
+const FX_TABLE: &str = "dim_fx_rate";
 
 /// The fact read behind one or more operands. Operands sharing a fact source, aggregate and
 /// request scope differ only by their per-metric filters, so one grouped scan can emit all of
@@ -1073,36 +1133,19 @@ fn fact_series_fused(
     spec: &AggregateSpec,
     query: &MetricQuery,
     database: &str,
-    cohort: Option<&CohortClause>,
+    cohort: Option<&Query>,
     members: &[FusedMember<'_>],
 ) -> Result<Series, MetricError> {
-    // Every identifier is inlined — allowlist-validate them all.
-    ensure_table_name(&fs.table)?;
-    for ident in [
-        &fs.value_column,
-        &fs.timestamp_column,
-        &fs.customer_column,
-        &fs.tenant_column,
-    ] {
-        ensure_inlinable(ident)?;
-    }
-    // group_by dimensions are validated as they're resolved (see dim_value_sql).
+    let table = Ident::table(&fs.table)?;
+    let valcol = Ident::column(&fs.value_column)?;
+    let ts = Ident::column(&fs.timestamp_column)?;
+    let cust = Ident::column(&fs.customer_column)?;
+    let tenant_col = Ident::column(&fs.tenant_column)?;
     for f in &query.filters {
-        ensure_inlinable(&f.property)?;
+        Ident::column(&f.property)?;
     }
-
-    let ts = &fs.timestamp_column;
-    let cust = &fs.customer_column;
-    let valcol = &fs.value_column;
-
-    let mut select_binds: Vec<BindValue> = Vec::new();
-    let mut where_binds: Vec<BindValue> = Vec::new();
-    // FX build-side binds; emitted between the fact `WHERE` and the `GROUP BY`, so ordered there too.
-    let mut fx_binds: Vec<BindValue> = Vec::new();
-    let mut group_binds: Vec<BindValue> = Vec::new();
 
     // FX: convert each USD money row at its own date's historical rate BEFORE aggregating, so a running total accumulates already-converted deltas.
-    const FX_TABLE: &str = "dim_fx_rate";
     let fx_active = matches!(
         spec.op,
         AggregateOp::Sum
@@ -1110,305 +1153,297 @@ fn fact_series_fused(
             | AggregateOp::Min
             | AggregateOp::Max
             | AggregateOp::Latest
-    ) && valcol.ends_with("_usd")
+    ) && valcol.as_str().ends_with("_usd")
         && query
             .reporting_currency
             .as_deref()
             .is_some_and(|c| !c.is_empty() && c != "USD");
-    let q = if fx_active { "f." } else { "" };
+    let q = fx_active.then(|| Ident::trusted("f"));
     // Native-currency column paired with the USD one: a row already in the reporting currency is summed natively to avoid sub-cent FX drift.
-    let native_col = valcol.strip_suffix("_usd").unwrap_or(valcol.as_str());
-    // A daily-snapshot (stock) fact: a bucket must report its latest day's level, not
-    // the sum of every day in it. Drives the two-level reduction at the assembly below.
+    let native_col = Ident::column(
+        valcol
+            .as_str()
+            .strip_suffix("_usd")
+            .unwrap_or(valcol.as_str()),
+    )?;
+    // A daily-snapshot (stock) fact: a bucket reports its latest day's level, not the sum of
+    // every day in it (two-level reduction below).
     let snapshot = fs.snapshot;
+    let ts_expr = column(&q, &ts);
+    let ts_datetime = Expr::call("toDateTime", [ts_expr.clone()]);
 
-    let tz = tz_name(query);
-    let mut select_columns: Vec<String> = Vec::new();
-    let mut group_columns: Vec<String> = Vec::new();
-
-    if let Some(window) = &query.window {
-        let interval = interval_sql(window);
-        // `tumbleStart`/`tumbleEnd` return a `Date` (not `DateTime`) for week/month
-        // intervals, which the JSON read-back can't parse as a timestamp — wrap in
-        // `toDateTime(_, tz)` so every grain yields a `DateTime` uniformly.
-        select_binds.push(BindValue::String(tz.clone()));
-        select_binds.push(BindValue::String(tz.clone()));
-        select_columns.push(format!(
-            "toDateTime(tumbleStart(toDateTime({q}{ts}), {interval}, ?), ?) AS window_start"
-        ));
-        select_binds.push(BindValue::String(tz.clone()));
-        select_binds.push(BindValue::String(tz.clone()));
-        select_columns.push(format!(
-            "toDateTime(tumbleEnd(toDateTime({q}{ts}), {interval}, ?), ?) AS window_end"
-        ));
-    } else {
-        select_binds.push(BindValue::I64(query.from.timestamp()));
-        select_columns.push("toDateTime(?) AS window_start".to_string());
-        let end = query.to.unwrap_or_else(Utc::now).timestamp();
-        select_binds.push(BindValue::I64(end));
-        select_columns.push("toDateTime(?) AS window_end".to_string());
-    }
+    let mut items = window_items(query, &ts_expr);
 
     let value_expr = if fx_active {
-        format!(
-            "if(f.currency = f.fx_currency, toFloat64(f.{native_col}), toFloat64(f.{valcol}) * fx.rate_from_usd)"
+        Expr::call(
+            "if",
+            [
+                Expr::qcol("f", "currency").eq(Expr::qcol("f", "fx_currency")),
+                Expr::call("toFloat64", [column(&q, &native_col)]),
+                Expr::call("toFloat64", [column(&q, &valcol)])
+                    .op(Op::Mul, Expr::qcol("fx", "rate_from_usd")),
+            ],
         )
     } else {
-        format!("toFloat64({valcol})")
+        Expr::call("toFloat64", [Expr::ident(&valcol)])
     };
-    // A filtered member reduces only its own rows via `*If` — the isolation the unfused path gets
-    // from a per-metric `WHERE`. These predicates sit in the SELECT, so their binds go there too.
+    // A filtered member reduces only its own rows via `*If`: the isolation the unfused path gets
+    // from a per-metric `WHERE`.
     for m in members {
-        for f in m.filters {
-            ensure_inlinable(&f.property)?;
-        }
-        let predicate = {
-            let conds = fact_filter_conditions(m.filters, &mut select_binds);
-            (!conds.is_empty()).then(|| conds.join(" AND "))
-        };
-        let col = &m.column;
-        let value_col = match (&predicate, spec.op) {
-            (None, AggregateOp::Count) => format!("toFloat64(count(*)) AS {col}"),
-            (None, AggregateOp::CountDistinct) => format!("toFloat64(uniq({valcol})) AS {col}"),
-            (None, _) => format!(
-                "{} AS {col}",
-                aggregate_op_expr(
-                    spec.op,
-                    "",
-                    &value_expr,
-                    &format!("toDateTime({q}{ts})"),
-                    ""
-                )
-            ),
-            (Some(p), AggregateOp::Count) => format!("toFloat64(countIf({p})) AS {col}"),
-            (Some(p), AggregateOp::CountDistinct) => {
-                format!("toFloat64(uniqIf({valcol}, {p})) AS {col}")
+        let conds = fact_filter_conditions(m.filters)?;
+        let predicate = (!conds.is_empty()).then_some(Expr::And(conds));
+        let value = match (predicate, spec.op) {
+            (None, AggregateOp::Count) => {
+                Expr::call("toFloat64", [Expr::call("count", [Expr::Star])])
             }
-            (Some(p), _) => format!(
-                "{} AS {col}",
-                aggregate_op_if_expr(
-                    spec.op,
-                    &format!("countIf({p})"),
-                    &value_expr,
-                    &format!("toDateTime({q}{ts})"),
-                    valcol,
-                    p,
-                )
+            (None, AggregateOp::CountDistinct) => {
+                Expr::call("toFloat64", [Expr::call("uniq", [Expr::ident(&valcol)])])
+            }
+            (None, op) => aggregate(op, value_expr.clone(), ts_datetime.clone()),
+            (Some(p), AggregateOp::Count) => Expr::call("toFloat64", [Expr::call("countIf", [p])]),
+            (Some(p), AggregateOp::CountDistinct) => Expr::call(
+                "toFloat64",
+                [Expr::call("uniqIf", [Expr::ident(&valcol), p])],
+            ),
+            (Some(p), op) => aggregate_if(
+                op,
+                value_expr.clone(),
+                ts_datetime.clone(),
+                Expr::ident(&valcol),
+                p,
             ),
         };
-        select_columns.push(value_col);
+        items.push(Item::aliased(value, m.column.clone()));
     }
 
     let fact_ctx = DimCtx {
         database,
-        qualifier: q,
-        customer_column: cust,
-        plan_column: "plan_id",
-        product_column: "product_id",
+        qualifier: q.clone(),
+        customer_column: cust.clone(),
+        plan_column: Ident::trusted("plan_id"),
+        product_column: Ident::trusted("product_id"),
         is_fact: true,
     };
     for d in &query.group_by {
-        select_columns.extend(dim_select_columns(d, &fact_ctx, &mut select_binds)?);
+        items.extend(dim_items(d, &fact_ctx)?);
     }
     // Carry each row's snapshot day so the outer reduction can keep the bucket's latest.
     if snapshot {
-        select_columns.push(format!("toDate({q}{ts}) AS _snap_day"));
-    }
-
-    let mut conditions: Vec<String> = Vec::new();
-    conditions.push(format!("{} = ?", fs.tenant_column));
-    where_binds.push(BindValue::Uuid(query.tenant_id.as_uuid()));
-    conditions.push(format!("toDateTime({ts}) >= toDateTime(?)"));
-    where_binds.push(BindValue::I64(query.from.timestamp()));
-    if let Some(to) = query.to {
-        conditions.push(format!("toDateTime({ts}) <= toDateTime(?)"));
-        where_binds.push(BindValue::I64(to.timestamp()));
-    }
-    if !query.customer_ids.is_empty() {
-        conditions.push(format!("{cust} IN ?"));
-        where_binds.push(BindValue::Uuids(
-            query.customer_ids.iter().map(|id| id.as_uuid()).collect(),
+        items.push(Item::as_(
+            Expr::call("toDate", [ts_expr.clone()]),
+            "_snap_day",
         ));
     }
-    conditions.extend(fact_filter_conditions(&query.filters, &mut where_binds));
+
+    let unqualified_ts = Expr::call("toDateTime", [Expr::ident(&ts)]);
+    let mut filter = vec![
+        Expr::ident(&tenant_col).eq(tenant_bind(query)),
+        unqualified_ts
+            .clone()
+            .ge(Expr::datetime(query.from.timestamp())),
+    ];
+    if let Some(to) = query.to {
+        filter.push(unqualified_ts.le(Expr::datetime(to.timestamp())));
+    }
+    if !query.customer_ids.is_empty() {
+        filter.push(Expr::ident(&cust).in_set(customer_uuids(query)));
+    }
+    filter.extend(fact_filter_conditions(&query.filters)?);
     // Narrow the read to the union of the members' rows; the `*If` predicates above split that
-    // union back out per operand. Skipped when any member is unfiltered — its union is everything,
-    // which is also what keeps the lone-member path byte-identical to the unfused read.
+    // union back out per operand. Skipped when any member is unfiltered: its union is everything.
     if !members.is_empty() && members.iter().all(|m| has_effective_filters(m.filters)) {
         let mut ored = Vec::new();
         for m in members {
-            let mut conds = fact_filter_conditions(m.filters, &mut where_binds);
-            // Each condition is already parenthesised; only a multi-filter member needs grouping.
+            let mut conds = fact_filter_conditions(m.filters)?;
             ored.push(if conds.len() > 1 {
-                format!("({})", conds.join(" AND "))
+                Expr::And(conds)
             } else {
                 conds.remove(0)
             });
         }
-        conditions.push(if ored.len() > 1 {
-            format!("({})", ored.join(" OR "))
+        filter.push(if ored.len() > 1 {
+            Expr::Or(ored)
         } else {
             ored.remove(0)
         });
     }
     if let Some(c) = cohort {
-        conditions.push(format!("{cust} IN ( {} )", c.sql));
-        where_binds.extend(c.binds.iter().cloned());
+        filter.push(Expr::ident(&cust).in_set(Expr::subquery(c.clone())));
     }
 
+    let mut group_by = Vec::new();
     if let Some(window) = &query.window {
-        let interval = interval_sql(window);
-        group_binds.push(BindValue::String(tz.clone()));
-        group_binds.push(BindValue::String(tz.clone()));
-        group_columns.push(format!(
-            "toDateTime(tumbleStart(toDateTime({q}{ts}), {interval}, ?), ?)"
+        let tz = tz_name(query);
+        group_by.push(as_datetime(
+            tumble("tumbleStart", ts_expr.clone(), window, &tz),
+            &tz,
         ));
-        group_binds.push(BindValue::String(tz.clone()));
-        group_binds.push(BindValue::String(tz.clone()));
-        group_columns.push(format!(
-            "toDateTime(tumbleEnd(toDateTime({q}{ts}), {interval}, ?), ?)"
+        group_by.push(as_datetime(
+            tumble("tumbleEnd", ts_expr.clone(), window, &tz),
+            &tz,
         ));
     }
     for d in &query.group_by {
-        group_columns.push(dim_group_sql(d, &fact_ctx, &mut group_binds)?);
+        group_by.push(dim_group(d, &fact_ctx)?);
     }
     // Snapshot: total per (bucket, day) first, so the outer wrap can pick the latest day.
     if snapshot {
-        group_columns.push(format!("toDate({q}{ts})"));
+        group_by.push(Expr::call("toDate", [ts_expr.clone()]));
     }
 
     // FINAL: fact sources are ReplacingMergeTree(version); the read must dedup to the latest version or aggregates double-count.
-    let mut sql = format!("SELECT {}", select_columns.join(", "));
-    if fx_active {
-        let mut inner_cols: Vec<&str> = vec![valcol.as_str(), native_col, "currency", ts.as_str()];
-        // A customer-attribute split is computed via dictGet(customer_id) in the
-        // outer query, so the dedup subquery must carry the customer column even
-        // when no explicit customer scope was requested.
-        let needs_customer = !query.customer_ids.is_empty()
-            || query.group_by.iter().any(|d| {
-                matches!(
-                    d,
-                    Dimension::CustomerAttr(_)
-                        | Dimension::CustomerAttrMap { .. }
-                        | Dimension::CustomerProperty { .. }
-                        | Dimension::CustomerName(_)
-                )
-            });
-        if needs_customer {
-            inner_cols.push(cust.as_str());
-        }
-        for d in &query.group_by {
-            // CustomerAttr derives from the customer column (already carried);
-            // PlanAttr/ProductAttr derive from plan_id/product_id, so carry those
-            // rather than the attribute name; native column/auto dimensions must
-            // survive the dedup projection.
-            match d {
-                Dimension::CustomerAttr(_)
-                | Dimension::CustomerAttrMap { .. }
-                | Dimension::CustomerProperty { .. }
-                | Dimension::CustomerName(_) => {}
-                Dimension::PlanAttr(_) => inner_cols.push("plan_id"),
-                Dimension::ProductAttr(_) => inner_cols.push("product_id"),
-                _ => inner_cols.push(d.name()),
-            }
-        }
-        // A fused member's `*If` predicate is evaluated in the OUTER select, above this dedup
-        // projection — so the columns it tests have to survive it.
-        for m in members {
-            for f in m.filters {
-                if !f.values.is_empty() {
-                    inner_cols.push(f.property.as_str());
-                }
-            }
-        }
-        let mut seen = std::collections::HashSet::new();
-        let inner_select = inner_cols
-            .into_iter()
-            .filter(|c| seen.insert(*c))
-            .collect::<Vec<_>>()
-            .join(", ");
-        // Restrict the ASOF *build* side: `fx_currency` is constant but appears only in the join
-        // condition, so the bare table hashes every currency and every date in history, per CTE.
-        // No lower date bound — rates are sparse before ~2024 and history-primed operands read
-        // from epoch, so clipping the low end could drop a row's match; the upper bound is safe
-        // because `fx.date <= toDate(f.at) <= toDate(to)`. FINAL because duplicate (currency, date)
-        // keys with conflicting rates otherwise let the ASOF match pick a stale one.
-        let mut fx_conditions = vec!["currency = ?".to_string()];
-        fx_binds.push(BindValue::String(
-            query.reporting_currency.clone().unwrap_or_default(),
-        ));
-        if let Some(to) = query.to {
-            fx_conditions.push("date <= toDate(toDateTime(?))".to_string());
-            fx_binds.push(BindValue::I64(to.timestamp()));
-        }
-        sql.push_str(&format!(
-            " FROM ( SELECT {}, toLowCardinality(?) AS fx_currency FROM {} FINAL WHERE {} ) AS f \
-             ASOF LEFT JOIN ( SELECT currency, date, rate_from_usd FROM {} FINAL WHERE {} ) AS fx \
-             ON f.fx_currency = fx.currency AND fx.date <= toDate(f.{})",
-            inner_select,
-            fs.table,
-            conditions.join(" AND "),
-            FX_TABLE,
-            fx_conditions.join(" AND "),
-            ts,
-        ));
+    let fact_table = Relation::final_table(Table::tenant(table, tenant_col));
+    let inner = if fx_active {
+        let fx_from = fx_join(
+            query,
+            members,
+            &valcol,
+            &native_col,
+            &ts,
+            &cust,
+            fact_table,
+            filter,
+        )?;
+        Select::new(items, fx_from).group_by(group_by)
     } else {
-        sql.push_str(&format!(
-            " FROM {} FINAL WHERE {}",
-            fs.table,
-            conditions.join(" AND ")
-        ));
-    }
-    if !group_columns.is_empty() {
-        sql.push_str(&format!(" GROUP BY {}", group_columns.join(", ")));
-    }
+        Select::new(items, fact_table)
+            .filter(filter)
+            .group_by(group_by)
+    };
 
-    // A snapshot (point-in-time daily level) must not sum a multi-day bucket's rows —
-    // that multiplies the standing balance by the number of days. The read above already
-    // reduces ACROSS entities per snapshot day (grouped by `_snap_day`); wrap it so each
-    // bucket keeps only its LATEST day's total (`argMax` by that day). A one-day bucket has
-    // a single day, so the argMax is a no-op there and day-grain values are unchanged.
-    if snapshot {
-        let mut carried: Vec<String> = Vec::new();
+    // A snapshot (daily level) must not sum a multi-day bucket's rows, which multiplies the
+    // balance by the number of days: each bucket keeps only its latest day's total.
+    let select = if snapshot {
+        let mut carried: Vec<Expr> = Vec::new();
         for d in &query.group_by {
-            carried.push(dimension_alias(d));
-            if entity_id_expr(d, &fact_ctx).is_some() {
-                carried.push(crate::sql::dimension_disambiguator_alias(d));
+            carried.push(Expr::ident(&dimension_alias(d)));
+            if entity_id(d, &fact_ctx).is_some() {
+                carried.push(Expr::ident(&alias(dimension_disambiguator_alias(d))));
             }
         }
-        let tail: String = carried.iter().map(|c| format!(", {c}")).collect();
-        sql = format!(
-            "SELECT window_start, window_end, argMax(value, _snap_day) AS value{tail} \
-             FROM ( {sql} ) GROUP BY window_start, window_end{tail}"
-        );
-    }
-    sql.push_str(" ORDER BY window_start");
+        let mut outer_items = vec![
+            Item::new(Expr::col("window_start")),
+            Item::new(Expr::col("window_end")),
+            Item::as_(
+                Expr::call("argMax", [Expr::col("value"), Expr::col("_snap_day")]),
+                "value",
+            ),
+        ];
+        outer_items.extend(carried.iter().cloned().map(Item::new));
+        let mut outer_group = vec![Expr::col("window_start"), Expr::col("window_end")];
+        outer_group.extend(carried);
+        Select::new(outer_items, Relation::subquery(inner.query())).group_by(outer_group)
+    } else {
+        inner
+    };
 
-    let mut binds = select_binds;
-    if fx_active {
-        binds.push(BindValue::String(
-            query.reporting_currency.clone().unwrap_or_default(),
-        ));
-    }
-    binds.extend(where_binds);
-    binds.extend(fx_binds);
-    binds.extend(group_binds);
-
-    Ok(Series {
-        sql,
-        binds,
-        dims: dim_columns(query),
-        settings: vec![],
-    })
+    Ok(Series::select(
+        select.order_by_window_start(),
+        dim_columns(query),
+    ))
 }
 
-struct CohortClause {
-    sql: String,
-    binds: Vec<BindValue>,
+/// The fact rows joined, as of their own date, to the reporting currency's USD rate:
+/// `( SELECT … FROM <fact> FINAL WHERE … ) AS f ASOF LEFT JOIN ( <rates> ) AS fx`.
+#[allow(clippy::too_many_arguments)]
+fn fx_join(
+    query: &MetricQuery,
+    members: &[FusedMember<'_>],
+    valcol: &Ident,
+    native_col: &Ident,
+    ts: &Ident,
+    cust: &Ident,
+    fact_table: Relation,
+    filter: Vec<Expr>,
+) -> Result<Relation, MetricError> {
+    let mut inner_cols: Vec<Ident> = vec![
+        valcol.clone(),
+        native_col.clone(),
+        Ident::trusted("currency"),
+        ts.clone(),
+    ];
+    // A customer-attribute split resolves the customer column in the outer query.
+    let needs_customer = !query.customer_ids.is_empty()
+        || query.group_by.iter().any(|d| {
+            matches!(
+                d,
+                Dimension::CustomerAttr(_)
+                    | Dimension::CustomerAttrMap { .. }
+                    | Dimension::CustomerProperty { .. }
+                    | Dimension::CustomerName(_)
+            )
+        });
+    if needs_customer {
+        inner_cols.push(cust.clone());
+    }
+    for d in &query.group_by {
+        match d {
+            Dimension::CustomerAttr(_)
+            | Dimension::CustomerAttrMap { .. }
+            | Dimension::CustomerProperty { .. }
+            | Dimension::CustomerName(_) => {}
+            Dimension::PlanAttr(_) => inner_cols.push(Ident::trusted("plan_id")),
+            Dimension::ProductAttr(_) => inner_cols.push(Ident::trusted("product_id")),
+            _ => inner_cols.push(Ident::column(d.name())?),
+        }
+    }
+    // A fused member's `*If` predicate is evaluated above this projection.
+    for m in members {
+        for f in m.filters.iter().filter(|f| !f.values.is_empty()) {
+            inner_cols.push(Ident::column(&f.property)?);
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut inner_items: Vec<Item> = inner_cols
+        .into_iter()
+        .filter(|c| seen.insert(c.clone()))
+        .map(|c| Item::new(Expr::ident(&c)))
+        .collect();
+    let currency = bind_str(query.reporting_currency.as_deref().unwrap_or_default());
+    inner_items.push(Item::as_(
+        Expr::call("toLowCardinality", [currency.clone()]),
+        "fx_currency",
+    ));
+    let facts = Select::new(inner_items, fact_table).filter(filter);
+
+    // Restrict the ASOF build side to the one currency, through `to`: no lower bound, since
+    // history-primed operands read from epoch and rates are sparse before ~2024. FINAL because
+    // duplicate (currency, date) keys with conflicting rates could match a stale one.
+    let mut fx_filter = vec![Expr::col("currency").eq(currency)];
+    if let Some(to) = query.to {
+        fx_filter
+            .push(Expr::col("date").le(Expr::call("toDate", [Expr::datetime(to.timestamp())])));
+    }
+    let rates = Select::new(
+        vec![
+            Item::new(Expr::col("currency")),
+            Item::new(Expr::col("date")),
+            Item::new(Expr::col("rate_from_usd")),
+        ],
+        Relation::final_table(Table {
+            database: None,
+            name: Ident::trusted(FX_TABLE),
+            scope: TableScope::Global,
+        }),
+    )
+    .filter(fx_filter);
+
+    Ok(Relation::aliased_subquery(facts.query(), "f").join(
+        JoinKind::AsofLeft,
+        Relation::aliased_subquery(rates.query(), "fx"),
+        Some(Expr::And(vec![
+            Expr::qcol("f", "fx_currency").eq(Expr::qcol("fx", "currency")),
+            Expr::qcol("fx", "date").le(Expr::call(
+                "toDate",
+                [Expr::Column(Some(Ident::trusted("f")), ts.clone())],
+            )),
+        ])),
+    ))
 }
 
-fn fmt_threshold(v: f64) -> Result<String, MetricError> {
-    // Reject NaN/inf: they render as literals whose comparisons are always false, i.e. a silently empty cohort.
+/// A threshold inlined as a literal: an integer when it is one, else the float. NaN/inf are
+/// rejected: their comparisons are always false, a silently empty cohort.
+fn threshold_literal(v: f64) -> Result<Expr, MetricError> {
     if !v.is_finite() {
         return Err(MetricError::Invalid(
             "threshold".to_string(),
@@ -1416,16 +1451,43 @@ fn fmt_threshold(v: f64) -> Result<String, MetricError> {
         ));
     }
     if v.fract() == 0.0 && v.abs() < 1e15 {
-        Ok(format!("{}", v as i64))
+        Ok(Expr::Int(v as i64))
     } else {
-        Ok(format!("{v}"))
+        Ok(Expr::Float(v))
     }
 }
 
-/// Compile a cohort to a `SELECT DISTINCT customer_id` over the INTERSECT of its
-/// predicates — the *member set*, not a metric series filtered by it. Tenant scope and
-/// the time window come from `query` (`tenant_id`/`from`/`to`); `metric`/`group_by`/etc.
-/// are ignored. This is the engine half of `analytics::segment::resolve_segment_members`.
+fn threshold_op(op: ThresholdOp) -> Op {
+    match op {
+        ThresholdOp::Gt => Op::Gt,
+        ThresholdOp::Gte => Op::Ge,
+        ThresholdOp::Lt => Op::Lt,
+        ThresholdOp::Lte => Op::Le,
+    }
+}
+
+fn cohort_needs_predicates(cohort: &CohortDef) -> Result<(), MetricError> {
+    if cohort.predicates.is_empty() {
+        return Err(MetricError::Invalid(
+            "cohort".to_string(),
+            "a cohort needs at least one predicate".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// `SELECT customer_id FROM ( <set> ) AS <alias>`, the single-column shape set operations
+/// combine.
+fn customer_ids_of(set: Query, alias: &'static str) -> Query {
+    Select::new(
+        vec![Item::new(Expr::col("customer_id"))],
+        Relation::aliased_subquery(set, alias),
+    )
+    .query()
+}
+
+/// A cohort's member set: `SELECT DISTINCT customer_id` over the INTERSECT of its predicates.
+/// Only the tenant and time range of `query` apply (`analytics::segment::resolve_segment_members`).
 pub fn compile_cohort_members(
     registry: &MetricRegistry,
     cohort: &CohortDef,
@@ -1433,6 +1495,18 @@ pub fn compile_cohort_members(
     events: impl Into<EventsTable>,
     database: &str,
 ) -> Result<SafeQuery, MetricError> {
+    let tree = compile_cohort_members_tree(registry, cohort, query, events, database)?;
+    finish(&tree, &[], query)
+}
+
+/// The tree [`compile_cohort_members`] renders.
+pub fn compile_cohort_members_tree(
+    registry: &MetricRegistry,
+    cohort: &CohortDef,
+    query: &MetricQuery,
+    events: impl Into<EventsTable>,
+    database: &str,
+) -> Result<Query, MetricError> {
     registry.validate()?;
     let table: EventsTable = events.into();
     let events = table.source(
@@ -1440,29 +1514,22 @@ pub fn compile_cohort_members(
         query.tenant_id.as_uuid(),
         EventDedup::new(query.keep_last_events),
     );
-    if cohort.predicates.is_empty() {
-        return Err(MetricError::Invalid(
-            "cohort".to_string(),
-            "a cohort needs at least one predicate".to_string(),
-        ));
-    }
-    // Each predicate projects a single id column under varying names (`id`,
-    // `customer_id`); alias every branch to `customer_id` so the INTERSECT and the
-    // outer projection are name-stable for the backend's JSONEachRow read.
-    let mut selects = Vec::new();
-    let mut binds: Vec<BindValue> = Vec::new();
+    cohort_needs_predicates(cohort)?;
+    // Each predicate projects one id column under varying names (`id`, `customer_id`): every
+    // branch is re-aliased to `customer_id` so the INTERSECT is name-stable.
+    let mut parts = Vec::new();
     for p in &cohort.predicates {
-        let (sql, mut b) = compile_cohort_predicate(registry, p, query, events)?;
-        selects.push(format!("( SELECT customer_id FROM ( {sql} ) AS p )"));
-        binds.append(&mut b);
+        let predicate = compile_cohort_predicate(registry, p, query, events)?;
+        parts.push(customer_ids_of(predicate, "p").nested());
     }
-    Ok(SafeQuery {
-        sql: format!(
-            "SELECT DISTINCT customer_id FROM ( {} ) AS members",
-            selects.join(" INTERSECT ")
-        ),
-        binds,
-    })
+    let members = Select {
+        distinct: true,
+        ..Select::new(
+            vec![Item::new(Expr::col("customer_id"))],
+            Relation::aliased_subquery(Query::SetOp(SetOp::Intersect, parts), "members"),
+        )
+    };
+    Ok(members.query())
 }
 
 fn compile_cohort(
@@ -1470,24 +1537,53 @@ fn compile_cohort(
     cohort: &CohortDef,
     query: &MetricQuery,
     events: EventsSource<'_>,
-) -> Result<CohortClause, MetricError> {
-    if cohort.predicates.is_empty() {
-        return Err(MetricError::Invalid(
-            "cohort".to_string(),
-            "a cohort needs at least one predicate".to_string(),
-        ));
-    }
-    let mut selects = Vec::new();
-    let mut binds: Vec<BindValue> = Vec::new();
+) -> Result<Query, MetricError> {
+    cohort_needs_predicates(cohort)?;
+    let mut parts = Vec::new();
     for p in &cohort.predicates {
-        let (sql, mut b) = compile_cohort_predicate(registry, p, query, events)?;
-        selects.push(format!("( {sql} )"));
-        binds.append(&mut b);
+        parts.push(compile_cohort_predicate(registry, p, query, events)?.nested());
     }
-    Ok(CohortClause {
-        sql: selects.join(" INTERSECT "),
-        binds,
-    })
+    Ok(Query::SetOp(SetOp::Intersect, parts))
+}
+
+/// `SELECT <id> AS customer_id FROM <table> FINAL WHERE tenant_id = ? AND <condition>`.
+fn dimension_members(
+    query: &MetricQuery,
+    table: &str,
+    id_column: &str,
+    condition: impl FnOnce() -> Result<Expr, MetricError>,
+    checked: &[&str],
+) -> Result<Query, MetricError> {
+    let table = Ident::table(table)?;
+    let id = Ident::column(id_column)?;
+    for ident in checked {
+        Ident::column(ident)?;
+    }
+    let tenant = Ident::trusted("tenant_id");
+    let filter = vec![Expr::ident(&tenant).eq(tenant_bind(query)), condition()?];
+    Ok(Select::new(
+        vec![Item::as_(Expr::ident(&id), "customer_id")],
+        Relation::final_table(Table::tenant(table, tenant)),
+    )
+    .filter(filter)
+    .query())
+}
+
+/// The tenant's customers outside `excluded` (an anti-join on `dim_customer`).
+fn customers_not_in(query: &MetricQuery, excluded: Query) -> Query {
+    let tenant = Ident::trusted("tenant_id");
+    Select::new(
+        vec![Item::as_(Expr::col("id"), "customer_id")],
+        Relation::final_table(Table::tenant(
+            Ident::trusted("dim_customer"),
+            tenant.clone(),
+        )),
+    )
+    .filter(vec![
+        Expr::ident(&tenant).eq(tenant_bind(query)),
+        Expr::col("id").not_in_set(Expr::subquery(excluded)),
+    ])
+    .query()
 }
 
 fn compile_cohort_predicate(
@@ -1495,48 +1591,41 @@ fn compile_cohort_predicate(
     predicate: &CohortPredicate,
     query: &MetricQuery,
     events: EventsSource<'_>,
-) -> Result<(String, Vec<BindValue>), MetricError> {
+) -> Result<Query, MetricError> {
     match predicate {
         CohortPredicate::Dimension {
             table,
             id_column,
             column,
             values,
-        } => {
-            ensure_table_name(table)?;
-            for ident in [id_column, column] {
-                ensure_inlinable(ident)?;
-            }
-            let mut binds = vec![BindValue::Uuid(query.tenant_id.as_uuid())];
-            binds.push(BindValue::Strings(values.clone()));
-            let sql = format!(
-                "SELECT {id_column} AS customer_id FROM {table} FINAL WHERE tenant_id = ? AND {column} IN ?"
-            );
-            Ok((sql, binds))
-        }
+        } => dimension_members(
+            query,
+            table,
+            id_column,
+            || {
+                Ok(Expr::ident(&Ident::column(column)?)
+                    .in_set(Expr::Bind(BindValue::Strings(values.clone()))))
+            },
+            &[column],
+        ),
+        // `key` is bound into the map subscript: an arbitrary property is matched, never inlined.
         CohortPredicate::DimensionMap {
             table,
             id_column,
             map_column,
             key,
             values,
-        } => {
-            ensure_table_name(table)?;
-            for ident in [id_column, map_column] {
-                ensure_inlinable(ident)?;
-            }
-            let binds = vec![
-                BindValue::Uuid(query.tenant_id.as_uuid()),
-                BindValue::String(key.clone()),
-                BindValue::Strings(values.clone()),
-            ];
-            // `key` is bound into the map subscript, so an arbitrary property name is
-            // matched without ever being inlined as SQL.
-            let sql = format!(
-                "SELECT {id_column} AS customer_id FROM {table} FINAL WHERE tenant_id = ? AND {map_column}[?] IN ?"
-            );
-            Ok((sql, binds))
-        }
+        } => dimension_members(
+            query,
+            table,
+            id_column,
+            || {
+                let map = Expr::ident(&Ident::column(map_column)?);
+                Ok(Expr::Index(Box::new(map), Box::new(bind_str(key)))
+                    .in_set(Expr::Bind(BindValue::Strings(values.clone()))))
+            },
+            &[map_column],
+        ),
         CohortPredicate::CustomProperty {
             table,
             id_column,
@@ -1545,35 +1634,58 @@ fn compile_cohort_predicate(
             op,
             value_type,
             values,
-        } => {
-            ensure_table_name(table)?;
-            for ident in [id_column, json_column] {
-                ensure_inlinable(ident)?;
-            }
-            let mut binds = vec![BindValue::Uuid(query.tenant_id.as_uuid())];
-            let cond =
-                custom_property_condition(json_column, key, *op, *value_type, values, &mut binds)?;
-            let sql = format!(
-                "SELECT {id_column} AS customer_id FROM {table} FINAL WHERE tenant_id = ? AND {cond}"
-            );
-            Ok((sql, binds))
-        }
+        } => dimension_members(
+            query,
+            table,
+            id_column,
+            || {
+                let json = Ident::column(json_column)?;
+                custom_property_condition(&json, key, *op, *value_type, values)
+            },
+            &[json_column],
+        ),
         CohortPredicate::ActivePlan { plan_ids } => {
             // Per subscription: the latest plan, and the lifecycle delta of its latest
             // state-changing event (+1 active / -1 left). Active on plan = delta is +1.
-            let binds = vec![
-                BindValue::Uuid(query.tenant_id.as_uuid()),
-                BindValue::Strings(plan_ids.clone()),
-            ];
-            let sql = "SELECT customer_id FROM (\
-                 SELECT subscription_id, any(customer_id) AS customer_id, \
-                        argMax(plan_id, at) AS _plan, \
-                        argMaxIf(lifecycle_delta, at, lifecycle_delta != 0) AS _state \
-                   FROM fact_subscription_event FINAL WHERE tenant_id = ? \
-                   GROUP BY subscription_id) \
-                 WHERE _state = 1 AND toString(_plan) IN ?"
-                .to_string();
-            Ok((sql, binds))
+            let tenant = Ident::trusted("tenant_id");
+            let at = Expr::col("at");
+            let latest = Select::new(
+                vec![
+                    Item::new(Expr::col("subscription_id")),
+                    Item::as_(Expr::call("any", [Expr::col("customer_id")]), "customer_id"),
+                    Item::as_(
+                        Expr::call("argMax", [Expr::col("plan_id"), at.clone()]),
+                        "_plan",
+                    ),
+                    Item::as_(
+                        Expr::call(
+                            "argMaxIf",
+                            [
+                                Expr::col("lifecycle_delta"),
+                                at,
+                                Expr::col("lifecycle_delta").ne(Expr::Int(0)),
+                            ],
+                        ),
+                        "_state",
+                    ),
+                ],
+                Relation::final_table(Table::tenant(
+                    Ident::trusted("fact_subscription_event"),
+                    tenant.clone(),
+                )),
+            )
+            .filter(vec![Expr::ident(&tenant).eq(tenant_bind(query))])
+            .group_by(vec![Expr::col("subscription_id")]);
+            Ok(Select::new(
+                vec![Item::new(Expr::col("customer_id"))],
+                Relation::subquery(latest.query()),
+            )
+            .filter(vec![
+                Expr::col("_state").eq(Expr::Int(1)),
+                Expr::call("toString", [Expr::col("_plan")])
+                    .in_set(Expr::Bind(BindValue::Strings(plan_ids.clone()))),
+            ])
+            .query())
         }
         CohortPredicate::MetricThreshold {
             metric,
@@ -1581,10 +1693,9 @@ fn compile_cohort_predicate(
             threshold,
         } => metric_active_set(registry, metric, *op, *threshold, query, events),
         CohortPredicate::MetricInactive { metric, max_active } => {
-            // Anti-join the active set against the tenant customer universe: a metric
-            // a customer never emits leaves no group row, so the active set can't see
-            // who's missing — `dim_customer` MINUS active is the only way.
-            let (active_sql, active_binds) = metric_active_set(
+            // A metric a customer never emits leaves no group row, so the active set can't see
+            // who's missing: `dim_customer` minus the active set is the only way.
+            let active = metric_active_set(
                 registry,
                 metric,
                 ThresholdOp::Gt,
@@ -1592,13 +1703,7 @@ fn compile_cohort_predicate(
                 query,
                 events,
             )?;
-            let mut binds = vec![BindValue::Uuid(query.tenant_id.as_uuid())];
-            binds.extend(active_binds);
-            let sql = format!(
-                "SELECT id AS customer_id FROM dim_customer FINAL WHERE tenant_id = ? \
-                 AND id NOT IN ( {active_sql} )"
-            );
-            Ok((sql, binds))
+            Ok(customers_not_in(query, active))
         }
         CohortPredicate::MetricDelta {
             metric,
@@ -1615,137 +1720,76 @@ fn compile_cohort_predicate(
             events,
         ),
         CohortPredicate::And { children } => {
-            compile_cohort_set_op(registry, children, query, events, "INTERSECT")
+            compile_cohort_set_op(registry, children, query, events, SetOp::Intersect)
         }
         CohortPredicate::Or { children } => {
-            compile_cohort_set_op(registry, children, query, events, "UNION DISTINCT")
+            compile_cohort_set_op(registry, children, query, events, SetOp::UnionDistinct)
         }
         CohortPredicate::Not { child } => {
-            let (child_sql, mut child_binds) =
-                compile_cohort_predicate(registry, child, query, events)?;
-            let mut binds = vec![BindValue::Uuid(query.tenant_id.as_uuid())];
-            binds.append(&mut child_binds);
-            let sql = format!(
-                "SELECT id AS customer_id FROM dim_customer FINAL WHERE tenant_id = ? \
-                 AND id NOT IN ( {child_sql} )"
-            );
-            Ok((sql, binds))
+            let excluded = compile_cohort_predicate(registry, child, query, events)?;
+            Ok(customers_not_in(query, excluded))
         }
     }
 }
 
-/// Build the typed `WHERE` condition for a [`CohortPredicate::CustomProperty`] leaf, pushing its
-/// binds in placeholder order. `json_column` is already inlined-validated; `key` and the
-/// comparison values are always bound.
-///
-/// The native `JSON` column is read via `toString(col)` + `JSONExtract*`: this is the
-/// version-robust path for a *dynamic* (bound) key — native JSON path access (`col.key`) needs a
-/// literal path. `value_type` picks the accessor so a NUMBER compares as `Float64` and a DATE as
-/// an ISO string (lexically ordered), not the lossy stringified compare the legacy map leaf did.
-/// Numeric literals are bound as strings and cast in-SQL (`toFloat64(?)`), avoiding a new
-/// [`BindValue`] variant; the wire boundary validates they parse. Comparisons that a missing key
-/// would spuriously satisfy (`= 0`, `!= x`, `< date`) are guarded with `JSONHas`.
+/// The condition of a [`CohortPredicate::CustomProperty`] leaf: `JSONExtract*` over
+/// `toString(col)` (a bound key), typed by `value_type`. Comparisons a missing key would
+/// satisfy are guarded with `JSONHas`.
 fn custom_property_condition(
-    json_column: &str,
+    json_column: &Ident,
     key: &str,
     op: PropertyOp,
     value_type: PropertyValueType,
     values: &[String],
-    binds: &mut Vec<BindValue>,
-) -> Result<String, MetricError> {
-    let js = format!("toString({json_column})");
-    // `JSONHas(json, key)` — presence guard; binds the key.
-    let has = |binds: &mut Vec<BindValue>| {
-        binds.push(BindValue::String(key.to_string()));
-        format!("JSONHas({js}, ?)")
-    };
-    // The typed accessor for the property value; binds the key.
-    let accessor = |binds: &mut Vec<BindValue>| {
-        binds.push(BindValue::String(key.to_string()));
+) -> Result<Expr, MetricError> {
+    let js = Expr::call("toString", [Expr::ident(json_column)]);
+    let has = Expr::call("JSONHas", [js.clone(), bind_str(key)]);
+    let accessor = Expr::call(
         match value_type {
-            PropertyValueType::Number => format!("JSONExtractFloat({js}, ?)"),
-            PropertyValueType::Boolean => format!("JSONExtractBool({js}, ?)"),
-            PropertyValueType::Text | PropertyValueType::Date => {
-                format!("JSONExtractString({js}, ?)")
-            }
-        }
-    };
-    let nth = |i: usize| -> Result<String, MetricError> {
-        values.get(i).cloned().ok_or_else(|| {
+            PropertyValueType::Number => "JSONExtractFloat",
+            PropertyValueType::Boolean => "JSONExtractBool",
+            PropertyValueType::Text | PropertyValueType::Date => "JSONExtractString",
+        },
+        [js, bind_str(key)],
+    );
+    let nth = |i: usize| -> Result<&String, MetricError> {
+        values.get(i).ok_or_else(|| {
             MetricError::Invalid(
                 "custom property".to_string(),
                 format!("operator {op:?} needs at least {} value(s)", i + 1),
             )
         })
     };
-    // A numeric literal is bound as a string and cast in-SQL; text/date bind as-is.
-    let cmp_operand = |binds: &mut Vec<BindValue>, raw: String| -> String {
-        binds.push(BindValue::String(raw));
-        match value_type {
-            PropertyValueType::Number => "toFloat64(?)".to_string(),
-            _ => "?".to_string(),
-        }
+    // Numeric literals are bound as strings and cast in SQL.
+    let operand = |raw: &String| match value_type {
+        PropertyValueType::Number => Expr::call("toFloat64", [bind_str(raw)]),
+        _ => bind_str(raw),
+    };
+    let guarded = |cmp: Op, raw: &String| {
+        Expr::And(vec![has.clone(), accessor.clone().op(cmp, operand(raw))])
     };
 
     let cond = match op {
-        PropertyOp::IsSet => has(binds),
-        PropertyOp::IsEmpty => format!("NOT {}", has(binds)),
-        PropertyOp::IsTrue => {
-            let a = accessor(binds);
-            format!("{a} = 1")
-        }
-        PropertyOp::IsFalse => {
-            let h = has(binds);
-            let a = accessor(binds);
-            format!("{h} AND {a} = 0")
-        }
-        PropertyOp::Equals => {
-            let h = has(binds);
-            let a = accessor(binds);
-            let v = cmp_operand(binds, nth(0)?);
-            format!("{h} AND {a} = {v}")
-        }
-        PropertyOp::NotEquals => {
-            let h = has(binds);
-            let a = accessor(binds);
-            let v = cmp_operand(binds, nth(0)?);
-            format!("{h} AND {a} != {v}")
-        }
-        PropertyOp::Gt | PropertyOp::After => {
-            let h = has(binds);
-            let a = accessor(binds);
-            let v = cmp_operand(binds, nth(0)?);
-            format!("{h} AND {a} > {v}")
-        }
-        PropertyOp::Gte => {
-            let h = has(binds);
-            let a = accessor(binds);
-            let v = cmp_operand(binds, nth(0)?);
-            format!("{h} AND {a} >= {v}")
-        }
-        PropertyOp::Lt | PropertyOp::Before => {
-            let h = has(binds);
-            let a = accessor(binds);
-            let v = cmp_operand(binds, nth(0)?);
-            format!("{h} AND {a} < {v}")
-        }
-        PropertyOp::Lte => {
-            let h = has(binds);
-            let a = accessor(binds);
-            let v = cmp_operand(binds, nth(0)?);
-            format!("{h} AND {a} <= {v}")
-        }
+        PropertyOp::IsSet => has,
+        PropertyOp::IsEmpty => Expr::Not(Box::new(has)),
+        PropertyOp::IsTrue => accessor.eq(Expr::Int(1)),
+        PropertyOp::IsFalse => Expr::And(vec![has, accessor.eq(Expr::Int(0))]),
+        PropertyOp::Equals => guarded(Op::Eq, nth(0)?),
+        PropertyOp::NotEquals => guarded(Op::Ne, nth(0)?),
+        PropertyOp::Gt | PropertyOp::After => guarded(Op::Gt, nth(0)?),
+        PropertyOp::Gte => guarded(Op::Ge, nth(0)?),
+        PropertyOp::Lt | PropertyOp::Before => guarded(Op::Lt, nth(0)?),
+        PropertyOp::Lte => guarded(Op::Le, nth(0)?),
         PropertyOp::Between => {
-            let h = has(binds);
-            let a = accessor(binds);
-            let lo = cmp_operand(binds, nth(0)?);
-            let hi = cmp_operand(binds, nth(1)?);
-            format!("{h} AND {a} >= {lo} AND {a} <= {hi}")
+            let (lo, hi) = (nth(0)?, nth(1)?);
+            Expr::And(vec![
+                has,
+                accessor.clone().ge(operand(lo)),
+                accessor.le(operand(hi)),
+            ])
         }
         PropertyOp::Contains => {
-            let a = accessor(binds);
-            binds.push(BindValue::String(nth(0)?));
-            format!("positionCaseInsensitive({a}, ?) > 0")
+            Expr::call("positionCaseInsensitive", [accessor, bind_str(nth(0)?)]).gt(Expr::Int(0))
         }
         PropertyOp::In => {
             if values.is_empty() {
@@ -1754,35 +1798,38 @@ fn custom_property_condition(
                     "IN needs at least one value".to_string(),
                 ));
             }
+            let set = Expr::Bind(BindValue::Strings(values.to_vec()));
             match value_type {
                 PropertyValueType::Number => {
-                    let h = has(binds);
-                    let a = accessor(binds);
-                    binds.push(BindValue::Strings(values.to_vec()));
-                    format!("{h} AND has(arrayMap(v -> toFloat64(v), ?), {a})")
+                    let v = Ident::trusted("v");
+                    let as_floats = Expr::call(
+                        "arrayMap",
+                        [
+                            Expr::Lambda(
+                                v.clone(),
+                                Box::new(Expr::call("toFloat64", [Expr::ident(&v)])),
+                            ),
+                            set,
+                        ],
+                    );
+                    Expr::And(vec![has, Expr::call("has", [as_floats, accessor])])
                 }
-                _ => {
-                    let a = accessor(binds);
-                    binds.push(BindValue::Strings(values.to_vec()));
-                    format!("{a} IN ?")
-                }
+                _ => accessor.in_set(set),
             }
         }
     };
     Ok(cond)
 }
 
-/// Combine child predicates' customer-id sets with a ClickHouse set operator
-/// (`INTERSECT` for AND, `UNION DISTINCT` for OR). Each child is wrapped in a
-/// derived table so its own set-ops (a nested Or inside an And) keep their
-/// precedence; binds are appended in child order to match the placeholder order.
+/// Combine child predicates' customer-id sets with a set operator. Each child sits in a derived
+/// table so its own set operations keep their precedence.
 fn compile_cohort_set_op(
     registry: &MetricRegistry,
     children: &[CohortPredicate],
     query: &MetricQuery,
     events: EventsSource<'_>,
-    op: &str,
-) -> Result<(String, Vec<BindValue>), MetricError> {
+    op: SetOp,
+) -> Result<Query, MetricError> {
     if children.is_empty() {
         return Err(MetricError::Invalid(
             "cohort".to_string(),
@@ -1790,19 +1837,53 @@ fn compile_cohort_set_op(
         ));
     }
     let mut parts = Vec::new();
-    let mut binds: Vec<BindValue> = Vec::new();
     for child in children {
-        let (sql, mut b) = compile_cohort_predicate(registry, child, query, events)?;
-        parts.push(format!("SELECT customer_id FROM ( {sql} ) AS c"));
-        binds.append(&mut b);
+        let child = compile_cohort_predicate(registry, child, query, events)?;
+        parts.push(customer_ids_of(child, "c"));
     }
-    Ok((parts.join(&format!(" {op} ")), binds))
+    Ok(Query::SetOp(op, parts))
 }
 
-/// `SELECT customer_id … GROUP BY customer_id HAVING <agg> <op> <lit>` — the set of
-/// customers whose aggregate of `metric` over the query window satisfies the comparison.
-/// Shared by the `MetricThreshold` predicate and the active-set anti-join of
-/// `MetricInactive`. `metric` must be a non-derived aggregate.
+fn aggregate_spec<'a>(def: &'a MetricDef, what: &str) -> Result<&'a AggregateSpec, MetricError> {
+    match &def.kind {
+        MetricKind::Aggregate(s) => Ok(s),
+        _ => Err(MetricError::Unsupported(format!(
+            "cohort {what} require an aggregate metric"
+        ))),
+    }
+}
+
+/// The identifiers of a fact source, validated: table, value, timestamp, customer, tenant.
+struct FactIdents {
+    table: Ident,
+    value: Ident,
+    ts: Ident,
+    customer: Ident,
+    tenant: Ident,
+}
+
+impl FactIdents {
+    fn new(fs: &FactSource) -> Result<FactIdents, MetricError> {
+        Ok(FactIdents {
+            table: Ident::table(&fs.table)?,
+            value: Ident::column(&fs.value_column)?,
+            ts: Ident::column(&fs.timestamp_column)?,
+            customer: Ident::column(&fs.customer_column)?,
+            tenant: Ident::column(&fs.tenant_column)?,
+        })
+    }
+
+    fn source(&self) -> Relation {
+        Relation::final_table(Table::tenant(self.table.clone(), self.tenant.clone()))
+    }
+
+    fn ts(&self) -> Expr {
+        Expr::call("toDateTime", [Expr::ident(&self.ts)])
+    }
+}
+
+/// The customers whose aggregate of `metric` (a non-derived aggregate) over the query window
+/// satisfies `<op> <threshold>`. Also the active set `MetricInactive` anti-joins.
 fn metric_active_set(
     registry: &MetricRegistry,
     metric: &str,
@@ -1810,110 +1891,76 @@ fn metric_active_set(
     threshold: f64,
     query: &MetricQuery,
     events: EventsSource<'_>,
-) -> Result<(String, Vec<BindValue>), MetricError> {
+) -> Result<Query, MetricError> {
     let def = registry
         .get(metric)
         .ok_or_else(|| MetricError::UnknownMetric(metric.to_string()))?;
-    let spec = match &def.kind {
-        MetricKind::Aggregate(s) => s,
-        _ => {
-            return Err(MetricError::Unsupported(
-                "cohort thresholds require an aggregate metric".to_string(),
-            ));
-        }
-    };
-    let mut binds: Vec<BindValue> = Vec::new();
-    let lit = fmt_threshold(threshold)?;
-    let cmp = op.as_sql();
+    let spec = aggregate_spec(def, "thresholds")?;
+    let lit = threshold_literal(threshold)?;
+    let cmp = threshold_op(op);
 
     match &def.source {
         MetricSource::RawEvents => {
-            let mut conditions = vec!["tenant_id = ?".to_string()];
-            binds.push(BindValue::Uuid(query.tenant_id.as_uuid()));
-            conditions.push("code = ?".to_string());
-            binds.push(BindValue::String(def.event_code.clone()));
-            conditions.push("timestamp >= toDateTime(?)".to_string());
-            binds.push(BindValue::I64(query.from.timestamp()));
-            if let Some(to) = query.to {
-                conditions.push("timestamp <= toDateTime(?)".to_string());
-                binds.push(BindValue::I64(to.timestamp()));
-            }
-            // Divide by the unit-conversion factor so the threshold is compared in the
-            // metric's converted (billed) unit, not raw event units.
-            let having = apply_unit_conversion(spec, raw_having_expr(spec, &mut binds)?);
-            let mut scope = VoidScope::default()
-                .code(&def.event_code)
-                .since(format!("toDateTime({})", query.from.timestamp()));
-            if let Some(to) = query.to {
-                scope = scope.until(format!("toDateTime({})", to.timestamp()));
-            }
-            let source = events.from_sql(METER_EVENT_COLUMNS, &conditions.join(" AND "), &scope);
-            let sql = format!(
-                "SELECT customer_id {source} GROUP BY customer_id HAVING {having} {cmp} {lit}"
+            let from_ts = query.from.timestamp();
+            let to_ts = query.to.map(|t| t.timestamp());
+            let filter = raw_event_bounds(query, &def.event_code, from_ts, to_ts);
+            // Divided by the unit-conversion factor: the threshold is in the billed unit.
+            let having = apply_unit_conversion(spec, raw_having_expr(spec)?);
+            let source = events.read(
+                meter_event_columns(),
+                filter,
+                void_scope(&def.event_code, from_ts, to_ts),
             );
-            Ok((sql, binds))
+            Ok(
+                Select::new(vec![Item::new(Expr::col("customer_id"))], source)
+                    .group_by(vec![Expr::col("customer_id")])
+                    .having(vec![having.op(cmp, lit)])
+                    .query(),
+            )
         }
         MetricSource::Fact(fs) => {
-            ensure_table_name(&fs.table)?;
-            for ident in [
-                &fs.value_column,
-                &fs.timestamp_column,
-                &fs.customer_column,
-                &fs.tenant_column,
-            ] {
-                ensure_inlinable(ident)?;
-            }
-            let mut conditions = vec![format!("{} = ?", fs.tenant_column)];
-            binds.push(BindValue::Uuid(query.tenant_id.as_uuid()));
-            // A STOCK reduction (AsOf) evaluates the level as-of `to`: drop the lower
-            // time bound so a `Sum` accumulates every delta through `to` (a running
-            // total = the MRR level) and a `Latest`/argMax picks the newest snapshot
-            // on-or-before `to` (the AR level). A FLOW keeps `>= from` and sums the
-            // window (net-new MRR, revenue booked in the period).
+            let f = FactIdents::new(fs)?;
+            let mut filter = vec![Expr::ident(&f.tenant).eq(tenant_bind(query))];
+            // A stock (AsOf) is the level as-of `to`: no lower bound, so a `Sum` accumulates
+            // every delta through `to` and a `Latest` picks the newest snapshot on or before it.
             if !matches!(spec.cohort_reduction, CohortReduction::AsOf) {
-                conditions.push(format!(
-                    "toDateTime({}) >= toDateTime(?)",
-                    fs.timestamp_column
-                ));
-                binds.push(BindValue::I64(query.from.timestamp()));
+                filter.push(f.ts().ge(Expr::datetime(query.from.timestamp())));
             }
             if let Some(to) = query.to {
-                conditions.push(format!(
-                    "toDateTime({}) <= toDateTime(?)",
-                    fs.timestamp_column
-                ));
-                binds.push(BindValue::I64(to.timestamp()));
+                filter.push(f.ts().le(Expr::datetime(to.timestamp())));
             }
-            let v = format!("toFloat64({})", fs.value_column);
-            let having = aggregate_op_expr(
-                spec.op,
-                "count(*)",
-                &v,
-                &format!("toDateTime({})", fs.timestamp_column),
-                &fs.value_column,
-            );
-            let sql = format!(
-                "SELECT {0} AS customer_id FROM {1} FINAL WHERE {2} GROUP BY {0} HAVING {having} {cmp} {lit}",
-                fs.customer_column,
-                fs.table,
-                conditions.join(" AND ")
-            );
-            Ok((sql, binds))
+            let having = match spec.op {
+                AggregateOp::Count => Expr::call("count", [Expr::Star]),
+                AggregateOp::CountDistinct => Expr::call("uniq", [Expr::ident(&f.value)]),
+                op => aggregate(op, Expr::call("toFloat64", [Expr::ident(&f.value)]), f.ts()),
+            };
+            Ok(Select::new(
+                vec![Item::as_(Expr::ident(&f.customer), "customer_id")],
+                f.source(),
+            )
+            .filter(filter)
+            .group_by(vec![Expr::ident(&f.customer)])
+            .having(vec![having.op(cmp, lit)])
+            .query())
         }
     }
 }
 
-/// `SELECT customer_id … GROUP BY customer_id HAVING <prior> != 0 AND (<cur> - <prior>) /
-/// <prior> * 100 <op> <pct>` — the set of customers whose metric aggregate changed, window
-/// over window, by at least `pct` percent. One scan spans `[prior_from, to]`; `cur`/`prior`
-/// are computed with conditional aggregates (`sumIf` etc.) splitting that scan into the
-/// current window `[from, to]` and the prior window `[prior_from, from)`. The prior length
-/// is `prior_window_days` days, defaulting to the current window length (`to - from`), a
-/// symmetric period-over-period comparison. `metric` must be a non-derived aggregate.
-///
-/// `cur`/`prior` are aliased once in the inner SELECT and referenced by name in HAVING (each
-/// heavy conditional aggregate is evaluated a single time), then the outer projection keeps
-/// only `customer_id` so the predicate is the single-column shape the cohort set-ops expect.
+/// `prior != 0 AND (cur - prior) / prior * 100 <op> <pct>`.
+fn delta_having(op: ThresholdOp, pct: Expr) -> Vec<Expr> {
+    let (cur, prior) = (Expr::col("cur"), Expr::col("prior"));
+    vec![
+        prior.clone().ne(Expr::Int(0)),
+        cur.op(Op::Sub, prior.clone())
+            .op(Op::Div, prior)
+            .op(Op::Mul, Expr::Int(100))
+            .op(threshold_op(op), pct),
+    ]
+}
+
+/// The customers whose aggregate changed by `<op> pct` percent between `[from, to]` and the
+/// `prior_window_days` before it (default: as long), in one scan split by `*If` aggregates.
+/// No unit conversion: a constant divisor cancels in the ratio.
 fn metric_delta_set(
     registry: &MetricRegistry,
     metric: &str,
@@ -1922,26 +1969,12 @@ fn metric_delta_set(
     prior_window_days: Option<u32>,
     query: &MetricQuery,
     events: EventsSource<'_>,
-) -> Result<(String, Vec<BindValue>), MetricError> {
+) -> Result<Query, MetricError> {
     let def = registry
         .get(metric)
         .ok_or_else(|| MetricError::UnknownMetric(metric.to_string()))?;
-    // The unit-conversion factor is deliberately NOT applied here: this predicate is a
-    // window-over-window *percentage* change, and a constant divisor cancels between the
-    // current and prior aggregates, so the result is identical with or without it.
-    let spec = match &def.kind {
-        MetricKind::Aggregate(s) => s,
-        _ => {
-            return Err(MetricError::Unsupported(
-                "cohort deltas require an aggregate metric".to_string(),
-            ));
-        }
-    };
+    let spec = aggregate_spec(def, "deltas")?;
 
-    // Current window = the query's [from, to]; prior window = [prior_from, from). The prior
-    // length is `prior_window_days` days, defaulting to the current window length so the two
-    // windows are symmetric. `prior_from = from - W` is computed here (never client-supplied),
-    // so the boundary timestamps are safe server-side i64s bound like every other time bound.
     let to = query.to.unwrap_or(query.from);
     let window_days = (to - query.from).num_days();
     let prior_days = prior_window_days.map(i64::from).unwrap_or(window_days);
@@ -1950,159 +1983,101 @@ fn metric_delta_set(
     let prior_from_ts = prior_from.timestamp();
     let to_ts = to.timestamp();
 
-    let pct_lit = fmt_threshold(pct)?;
-    let cmp = op.as_sql();
+    let pct = threshold_literal(pct)?;
+    let windows = |ts: Expr| {
+        let cur = ts.clone().ge(Expr::datetime(from_ts));
+        let prior = Expr::And(vec![
+            ts.clone().lt(Expr::datetime(from_ts)),
+            ts.ge(Expr::datetime(prior_from_ts)),
+        ]);
+        (cur, prior)
+    };
 
-    let mut binds: Vec<BindValue> = Vec::new();
-    let mut where_binds: Vec<BindValue> = Vec::new();
-
-    // Bind order follows textual emission: the SELECT's `cur` aggregate binds, then `prior`'s,
-    // then WHERE (the scan bounds). The HAVING references the aliases only (no binds) and
-    // inlines `pct` via `fmt_threshold`, exactly like the absolute-threshold predicates.
     let inner = match &def.source {
         MetricSource::RawEvents => {
-            let cur_pred = "timestamp >= toDateTime(?)";
-            let prior_pred = "timestamp < toDateTime(?) AND timestamp >= toDateTime(?)";
-            let cur = raw_delta_agg(spec, cur_pred, &[from_ts], &mut binds)?;
-            let prior = raw_delta_agg(spec, prior_pred, &[from_ts, prior_from_ts], &mut binds)?;
-            let mut conditions = vec!["tenant_id = ?".to_string()];
-            where_binds.push(BindValue::Uuid(query.tenant_id.as_uuid()));
-            conditions.push("code = ?".to_string());
-            where_binds.push(BindValue::String(def.event_code.clone()));
-            conditions.push("timestamp >= toDateTime(?)".to_string());
-            where_binds.push(BindValue::I64(prior_from_ts));
-            conditions.push("timestamp <= toDateTime(?)".to_string());
-            where_binds.push(BindValue::I64(to_ts));
-            binds.append(&mut where_binds);
-            let scope = VoidScope::default()
-                .code(&def.event_code)
-                .since(format!("toDateTime({prior_from_ts})"))
-                .until(format!("toDateTime({to_ts})"));
-            let source = events.from_sql(METER_EVENT_COLUMNS, &conditions.join(" AND "), &scope);
-            format!(
-                "SELECT customer_id, toFloat64({cur}) AS cur, toFloat64({prior}) AS prior \
-                 {source} GROUP BY customer_id \
-                 HAVING prior != 0 AND (cur - prior) / prior * 100 {cmp} {pct_lit}"
+            let (cur_pred, prior_pred) = windows(Expr::col("timestamp"));
+            let cur = raw_delta_agg(spec, cur_pred)?;
+            let prior = raw_delta_agg(spec, prior_pred)?;
+            let filter = raw_event_bounds(query, &def.event_code, prior_from_ts, Some(to_ts));
+            let source = events.read(
+                meter_event_columns(),
+                filter,
+                void_scope(&def.event_code, prior_from_ts, Some(to_ts)),
+            );
+            Select::new(
+                vec![
+                    Item::new(Expr::col("customer_id")),
+                    Item::as_(Expr::call("toFloat64", [cur]), "cur"),
+                    Item::as_(Expr::call("toFloat64", [prior]), "prior"),
+                ],
+                source,
             )
+            .group_by(vec![Expr::col("customer_id")])
+            .having(delta_having(op, pct))
         }
         MetricSource::Fact(fs) => {
-            ensure_table_name(&fs.table)?;
-            for ident in [
-                &fs.value_column,
-                &fs.timestamp_column,
-                &fs.customer_column,
-                &fs.tenant_column,
-            ] {
-                ensure_inlinable(ident)?;
-            }
-            let ts = format!("toDateTime({})", fs.timestamp_column);
-            let cur_pred = format!("{ts} >= toDateTime(?)");
-            let prior_pred = format!("{ts} < toDateTime(?) AND {ts} >= toDateTime(?)");
-            let cur = fact_delta_agg(spec, fs, &cur_pred, &[from_ts], &mut binds);
-            let prior =
-                fact_delta_agg(spec, fs, &prior_pred, &[from_ts, prior_from_ts], &mut binds);
-            let mut conditions = vec![format!("{} = ?", fs.tenant_column)];
-            where_binds.push(BindValue::Uuid(query.tenant_id.as_uuid()));
-            conditions.push(format!("{ts} >= toDateTime(?)"));
-            where_binds.push(BindValue::I64(prior_from_ts));
-            conditions.push(format!("{ts} <= toDateTime(?)"));
-            where_binds.push(BindValue::I64(to_ts));
-            binds.append(&mut where_binds);
-            format!(
-                "SELECT {0} AS customer_id, toFloat64({cur}) AS cur, toFloat64({prior}) AS prior \
-                 FROM {1} FINAL WHERE {2} GROUP BY {0} \
-                 HAVING prior != 0 AND (cur - prior) / prior * 100 {cmp} {pct_lit}",
-                fs.customer_column,
-                fs.table,
-                conditions.join(" AND ")
+            let f = FactIdents::new(fs)?;
+            let (cur_pred, prior_pred) = windows(f.ts());
+            let agg = |predicate: Expr| {
+                aggregate_if(
+                    spec.op,
+                    Expr::call("toFloat64", [Expr::ident(&f.value)]),
+                    f.ts(),
+                    Expr::ident(&f.value),
+                    predicate,
+                )
+            };
+            let filter = vec![
+                Expr::ident(&f.tenant).eq(tenant_bind(query)),
+                f.ts().ge(Expr::datetime(prior_from_ts)),
+                f.ts().le(Expr::datetime(to_ts)),
+            ];
+            Select::new(
+                vec![
+                    Item::as_(Expr::ident(&f.customer), "customer_id"),
+                    Item::as_(Expr::call("toFloat64", [agg(cur_pred)]), "cur"),
+                    Item::as_(Expr::call("toFloat64", [agg(prior_pred)]), "prior"),
+                ],
+                f.source(),
             )
+            .filter(filter)
+            .group_by(vec![Expr::ident(&f.customer)])
+            .having(delta_having(op, pct))
         }
     };
-    Ok((format!("SELECT customer_id FROM ( {inner} ) AS d"), binds))
+    Ok(customer_ids_of(inner.query(), "d"))
 }
 
-/// One conditional aggregate (`cur` or `prior`) of a RAW-EVENTS delta. Pushes its binds in
-/// textual order: the value/distinct property path first (it precedes the predicate in every
-/// `*If` form), then the predicate's bound window bounds — so placeholder order matches
-/// emission. `Count` binds no property path.
-fn raw_delta_agg(
-    spec: &AggregateSpec,
-    predicate_sql: &str,
-    window_bounds: &[i64],
-    binds: &mut Vec<BindValue>,
-) -> Result<String, MetricError> {
-    let (value_if, distinct) = if matches!(spec.op, AggregateOp::Count) {
-        (String::new(), String::new())
-    } else {
-        let prop = spec.value_property.as_deref().ok_or_else(|| {
-            MetricError::Invalid(
-                format!("{:?}", spec.op),
-                "value_property required".to_string(),
-            )
-        })?;
-        let path = PropertyColumn(prop).path_sql(binds);
-        (format!("toFloat64OrZero({path})"), path)
-    };
-    for b in window_bounds {
-        binds.push(BindValue::I64(*b));
-    }
-    Ok(aggregate_op_if_expr(
-        spec.op,
-        &format!("countIf({predicate_sql})"),
-        &value_if,
-        LATEST_EVENT_ORDER,
-        &distinct,
-        predicate_sql,
-    ))
-}
-
-/// One conditional aggregate (`cur` or `prior`) of a FACT delta. The value/distinct columns
-/// are inlined identifiers (allowlist-validated by the caller), so the only binds are the
-/// predicate's window bounds, pushed in textual order.
-fn fact_delta_agg(
-    spec: &AggregateSpec,
-    fs: &FactSource,
-    predicate_sql: &str,
-    window_bounds: &[i64],
-    binds: &mut Vec<BindValue>,
-) -> String {
-    let v = format!("toFloat64({})", fs.value_column);
-    for b in window_bounds {
-        binds.push(BindValue::I64(*b));
-    }
-    aggregate_op_if_expr(
-        spec.op,
-        &format!("countIf({predicate_sql})"),
-        &v,
-        &format!("toDateTime({})", fs.timestamp_column),
-        &fs.value_column,
-        predicate_sql,
-    )
-}
-
-fn raw_having_expr(
-    spec: &AggregateSpec,
-    binds: &mut Vec<BindValue>,
-) -> Result<String, MetricError> {
+/// One conditional aggregate (`cur` or `prior`) of a raw-events delta.
+fn raw_delta_agg(spec: &AggregateSpec, predicate: Expr) -> Result<Expr, MetricError> {
     if matches!(spec.op, AggregateOp::Count) {
-        return Ok("count(*)".to_string());
+        return Ok(Expr::call("countIf", [predicate]));
     }
-    let prop = spec.value_property.as_deref().ok_or_else(|| {
-        MetricError::Invalid(
-            format!("{:?}", spec.op),
-            "value_property required".to_string(),
-        )
-    })?;
-    let path = PropertyColumn(prop).path_sql(binds);
-    let v = format!("toFloat64OrZero({path})");
-    // Count handled by the early return above; pass an unreachable marker for that arm.
-    Ok(aggregate_op_expr(
+    let prop = required_value_property(spec, format!("{:?}", spec.op), "value_property required")?;
+    Ok(aggregate_if(
         spec.op,
-        "unreachable",
-        &v,
-        LATEST_EVENT_ORDER,
-        &path,
+        Expr::call("toFloat64OrZero", [property(prop)]),
+        latest_event_order(),
+        property(prop),
+        predicate,
     ))
+}
+
+fn raw_having_expr(spec: &AggregateSpec) -> Result<Expr, MetricError> {
+    match spec.op {
+        AggregateOp::Count => Ok(Expr::call("count", [Expr::Star])),
+        op => {
+            let prop = required_value_property(spec, format!("{op:?}"), "value_property required")?;
+            Ok(match op {
+                AggregateOp::CountDistinct => Expr::call("uniq", [property(prop)]),
+                _ => aggregate(
+                    op,
+                    Expr::call("toFloat64OrZero", [property(prop)]),
+                    latest_event_order(),
+                ),
+            })
+        }
+    }
 }
 
 /// A (metric key, optional transform) pair, as `collect_operands` yields it.
@@ -2111,8 +2086,8 @@ type OperandKey = (String, Option<CrossPeriod>);
 /// Where an operand's value lands. Fusion puts several operands in one CTE, so the column is no
 /// longer always `value`.
 struct OperandRef {
-    alias: String,
-    column: String,
+    alias: Ident,
+    column: Ident,
 }
 
 /// What makes two operands fusable: the same fact read under the same aggregate. Everything else
@@ -2123,10 +2098,9 @@ struct FusionKey {
     spec: AggregateSpec,
 }
 
-/// Operands fuse when one grouped scan can produce all of them — isolated only by their own
-/// per-metric filters. A transformed operand reads a history-primed range, a snapshot needs a
-/// second reduction keyed on `value`, and a unit-conversion divisor rescales the whole series;
-/// none survive being folded into a shared read, so they keep their own CTE.
+/// Operands fuse when one grouped scan, split by their own filters, produces all of them. A
+/// transform (history-primed range), a snapshot (second reduction) or a unit conversion
+/// (rescaled series) keeps its own CTE.
 fn fusion_key(def: &MetricDef, transform: Option<&CrossPeriod>) -> Option<FusionKey> {
     if transform.is_some() || !has_effective_filters(&def.filters) {
         return None;
@@ -2145,15 +2119,15 @@ fn fusion_key(def: &MetricDef, transform: Option<&CrossPeriod>) -> Option<Fusion
 
 fn derived_series(
     registry: &MetricRegistry,
-    expr: &Expr,
+    expr: &MetricExpr,
     query: &MetricQuery,
     events: EventsSource<'_>,
     database: &str,
-    cohort: Option<&CohortClause>,
+    cohort: Option<&Query>,
 ) -> Result<Series, MetricError> {
     // Each operand is a (metric key, optional per-operand transform) pair, deduped while keeping
     // expression order. The same metric may appear both plain and transformed — they become two
-    // distinct CTEs (see `operand_alias`), which is precisely how a retention ratio composes a
+    // distinct CTEs (see `operand_alias`), which is how a retention ratio composes a
     // lagged-cumulative *opening balance* against a within-window flow.
     let operands = dedup_operands(collect_operands(expr));
     if operands.is_empty() {
@@ -2164,14 +2138,13 @@ fn derived_series(
     }
 
     let dims = dim_columns(query);
-    let mut ctes: Vec<String> = Vec::new();
-    let mut binds: Vec<BindValue> = Vec::new();
-    // True once any operand is history-primed (a lagged/running cumulative built from epoch): the
-    // derived join then spans pre-`from` windows, so the final result must be floored.
+    let mut ctes: Vec<(Ident, Query)> = Vec::new();
+    // A history-primed operand (a cumulative built from epoch) makes the join span pre-`from`
+    // windows, so the result is floored.
     let mut history_primed = false;
 
     // Partition operands into fusion groups in first-appearance order. Operands that can't fuse
-    // (or are alone) keep their own CTE and the exact SQL they had before.
+    // (or are alone) keep their own CTE.
     let mut groups: Vec<(Option<FusionKey>, Vec<usize>)> = Vec::new();
     for (i, (key, transform)) in operands.iter().enumerate() {
         let def = registry
@@ -2193,31 +2166,30 @@ fn derived_series(
     }
 
     let mut refs: Vec<(OperandKey, OperandRef)> = Vec::new();
-    let mut aliases: Vec<String> = Vec::new();
-    // A fused CTE needs a synthetic alias that can't collide with a metric literally keyed
-    // `fused_0`, whose own CTE would be `m_fused_0`.
+    let mut aliases: Vec<Ident> = Vec::new();
+    // A fused CTE's synthetic alias can't collide with a metric literally keyed `fused_0`, whose
+    // own CTE would be `m_fused_0`.
     let mut used: std::collections::HashSet<String> = operands
         .iter()
-        .map(|(k, t)| operand_alias(k, t.as_ref()))
+        .map(|(k, t)| operand_alias(k, t.as_ref()).as_str().to_string())
         .collect();
     for (fkey, members) in &groups {
-        // A fused group reads once and emits one column per operand; everything else is unchanged.
         if let (Some(FusionKey { fs, spec }), true) = (fkey.as_ref(), members.len() > 1) {
-            let alias = (0..)
+            let fused_alias = (0..)
                 .map(|n| format!("m_fused_{n}"))
                 .find(|a| used.insert(a.clone()))
+                .map(alias)
                 .expect("an unused alias always exists");
             let defs: Vec<&MetricDef> = members
                 .iter()
                 .map(|&i| registry.get(&operands[i].0).expect("resolved above"))
                 .collect();
-            // Name each column after its metric so the outer expression reads back as the metrics
-            // it fuses. `sanitize` is many-to-one, so a suffix breaks the rare key-to-key tie.
+            // Each column is named after its metric; a suffix breaks the rare sanitize tie.
             let mut taken = std::collections::HashSet::new();
-            let columns: Vec<String> = members
+            let columns: Vec<Ident> = members
                 .iter()
                 .map(|&i| {
-                    let base = format!("value_{}", sanitize(&operands[i].0));
+                    let base = format!("value_{}", crate::sql::sanitize_identifier(&operands[i].0));
                     (0..)
                         .map(|n| {
                             if n == 0 {
@@ -2227,6 +2199,7 @@ fn derived_series(
                             }
                         })
                         .find(|c| taken.insert(c.clone()))
+                        .map(alias)
                         .expect("an unused column always exists")
                 })
                 .collect();
@@ -2239,160 +2212,165 @@ fn derived_series(
                 })
                 .collect();
             let sub = fact_series_fused(fs, spec, query, database, cohort, &fused)?;
-            ctes.push(format!("{alias} AS ( {} )", sub.sql));
-            binds.extend(sub.binds);
+            ctes.push((fused_alias.clone(), sub.query));
             for (&i, column) in members.iter().zip(&columns) {
                 refs.push((
                     operands[i].clone(),
                     OperandRef {
-                        alias: alias.clone(),
+                        alias: fused_alias.clone(),
                         column: column.clone(),
                     },
                 ));
             }
-            aliases.push(alias);
+            aliases.push(fused_alias);
             continue;
         }
 
         let i = members[0];
         let (key, transform) = &operands[i];
         let def = registry.get(key).expect("resolved above");
-        let alias = operand_alias(key, transform.as_ref());
+        let operand = operand_alias(key, transform.as_ref());
         let sub = match transform {
-            // Plain within-window operand: the existing sub-series.
             None => build_series(registry, def, query, events, database, cohort)?,
-            // Transformed operand: build the sub-series over a history-primed range, then apply the
-            // window function to it. Running/lagged cumulatives prime from epoch so the first
-            // *displayed* window already carries a correct opening balance.
+            // A transformed operand is built over a history-primed range, then windowed.
+            // Running/lagged cumulatives prime from epoch so the first *displayed* window already
+            // carries a correct opening balance.
             Some(t) => {
-                let primed = matches!(
-                    t,
-                    CrossPeriod::RunningTotal | CrossPeriod::RunningTotalLagged
-                );
-                let sub_query = if primed {
-                    history_primed = true;
-                    let mut q = query.clone();
-                    q.from = chrono::DateTime::from_timestamp(0, 0).expect("epoch is valid");
-                    q
-                } else {
-                    query.clone()
+                let primed_from = match (t, &query.window) {
+                    (CrossPeriod::RunningTotal | CrossPeriod::RunningTotalLagged, _) => {
+                        Some(epoch())
+                    }
+                    (_, Some(w)) => Some(history_from(t, query.from, w)),
+                    (_, None) => None,
                 };
+                let mut sub_query = query.clone();
+                if let Some(from) = primed_from {
+                    history_primed = true;
+                    sub_query.from = from;
+                }
                 let base = build_series(registry, def, &sub_query, events, database, cohort)?;
                 transformed_sub_series(base, t)
             }
         };
-        ctes.push(format!("{alias} AS ( {} )", sub.sql));
-        binds.extend(sub.binds);
+        ctes.push((operand.clone(), sub.query));
         refs.push((
             operands[i].clone(),
             OperandRef {
-                alias: alias.clone(),
-                column: "value".to_string(),
+                alias: operand.clone(),
+                column: Ident::trusted("value"),
             },
         ));
-        aliases.push(alias);
+        aliases.push(operand);
     }
 
-    // FULL OUTER JOIN chain over the emitted CTEs — one per fusion group, so a fully fused
-    // expression has no join at all. Explicit ON conditions (never USING — bare USING-key
-    // resolution is analyzer-dependent). Runs with `join_use_nulls = 1`.
-    let mut key_cols = vec!["window_start".to_string(), "window_end".to_string()];
+    // FULL OUTER JOIN chain over the CTEs, one per fusion group. Explicit ON conditions (bare
+    // USING-key resolution is analyzer-dependent), run with `join_use_nulls = 1`.
+    let mut key_cols = vec![Ident::trusted("window_start"), Ident::trusted("window_end")];
     key_cols.extend(dims.iter().cloned());
 
-    let coalesce_key = |aliases: &[String], col: &str| -> String {
+    let coalesce_key = |aliases: &[Ident], col: &Ident| -> Expr {
+        let qualified = |a: &Ident| Expr::Column(Some(a.clone()), col.clone());
         if aliases.len() == 1 {
-            format!("{}.{col}", aliases[0])
+            qualified(&aliases[0])
         } else {
-            let qualified = aliases
-                .iter()
-                .map(|a| format!("{a}.{col}"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("coalesce({qualified})")
+            Expr::call(
+                "coalesce",
+                aliases.iter().map(qualified).collect::<Vec<_>>(),
+            )
         }
     };
 
-    let mut from_clause = aliases[0].clone();
-    for (i, alias) in aliases.iter().enumerate().skip(1) {
+    let mut from = Relation::Named(aliases[0].clone(), None);
+    for (i, a) in aliases.iter().enumerate().skip(1) {
         let on = key_cols
             .iter()
-            .map(|col| format!("{} = {alias}.{col}", coalesce_key(&aliases[..i], col)))
-            .collect::<Vec<_>>()
-            .join(" AND ");
-        from_clause.push_str(&format!(" FULL OUTER JOIN {alias} ON {on}"));
+            .map(|col| {
+                coalesce_key(&aliases[..i], col).eq(Expr::Column(Some(a.clone()), col.clone()))
+            })
+            .collect();
+        from = from.join(
+            JoinKind::FullOuter,
+            Relation::Named(a.clone(), None),
+            Some(Expr::And(on)),
+        );
     }
 
-    let mut select_cols: Vec<String> = Vec::new();
-    select_cols.push(format!(
-        "{} AS window_start",
-        coalesce_key(&aliases, "window_start")
-    ));
-    select_cols.push(format!(
-        "{} AS window_end",
-        coalesce_key(&aliases, "window_end")
-    ));
-    select_cols.push(format!("{} AS value", compile_expr(expr, &refs)));
+    let mut items = vec![
+        Item::as_(
+            coalesce_key(&aliases, &Ident::trusted("window_start")),
+            "window_start",
+        ),
+        Item::as_(
+            coalesce_key(&aliases, &Ident::trusted("window_end")),
+            "window_end",
+        ),
+        Item::as_(compile_expr(expr, &refs), "value"),
+    ];
     for d in &dims {
-        select_cols.push(format!("{} AS {d}", coalesce_key(&aliases, d)));
+        items.push(Item::aliased(coalesce_key(&aliases, d), d.clone()));
     }
-
-    let joined = format!(
-        "WITH {} SELECT {} FROM {} ORDER BY window_start",
-        ctes.join(", "),
-        select_cols.join(", "),
-        from_clause
+    let joined = Query::with_ctes(
+        ctes,
+        Select::new(items, from).order_by_window_start().query(),
     );
 
-    // A history-primed operand makes the join span pre-`from` windows (so the lagged cumulative
-    // carries a real opening balance into the first displayed window). Floor the *result* back to
-    // `>= from` in an outer select — never inside the operand's WHERE, which would erase the very
-    // history the window function needs.
-    let sql = if history_primed {
-        let dim_select = if dims.is_empty() {
-            String::new()
-        } else {
-            format!(", {}", dims.join(", "))
-        };
-        binds.push(BindValue::I64(query.from.timestamp()));
-        format!(
-            "SELECT window_start, window_end, value{dim_select} FROM ( {joined} ) \
-             WHERE window_start >= toDateTime(?) ORDER BY window_start"
-        )
+    // Floor the *result* back to `>= from` in an outer select, never inside an operand's WHERE,
+    // which would erase the history the window function needs.
+    let query_tree = if history_primed {
+        series_columns(&dims, Relation::subquery(joined))
+            .filter(vec![
+                Expr::col("window_start").ge(Expr::datetime(query.from.timestamp())),
+            ])
+            .order_by_window_start()
+            .query()
     } else {
         joined
     };
 
     // Force NULL (not type defaults) for missing-side columns so the key coalesce is correct under every server config.
     let settings = if aliases.len() > 1 {
-        vec!["join_use_nulls = 1".to_string()]
+        vec![Setting {
+            name: "join_use_nulls",
+            value: 1,
+        }]
     } else {
         vec![]
     };
 
     Ok(Series {
-        sql,
-        binds,
+        query: query_tree,
         dims,
         settings,
     })
 }
 
+/// `SELECT window_start, window_end, value, <dims> FROM <from>`.
+fn series_columns(dims: &[Ident], from: Relation) -> Select {
+    let mut items = vec![
+        Item::new(Expr::col("window_start")),
+        Item::new(Expr::col("window_end")),
+        Item::new(Expr::col("value")),
+    ];
+    items.extend(dims.iter().map(|d| Item::new(Expr::ident(d))));
+    Select::new(items, from)
+}
+
 /// Collect `(metric key, optional per-operand transform)` operands in expression order.
-fn collect_operands(expr: &Expr) -> Vec<(String, Option<CrossPeriod>)> {
+fn collect_operands(expr: &MetricExpr) -> Vec<(String, Option<CrossPeriod>)> {
     let mut out = Vec::new();
-    fn walk(e: &Expr, out: &mut Vec<(String, Option<CrossPeriod>)>) {
+    fn walk(e: &MetricExpr, out: &mut Vec<(String, Option<CrossPeriod>)>) {
         match e {
-            Expr::Metric(k) => out.push((k.clone(), None)),
-            Expr::MetricTransformed { metric, transform } => {
+            MetricExpr::Metric(k) => out.push((k.clone(), None)),
+            MetricExpr::MetricTransformed { metric, transform } => {
                 out.push((metric.clone(), Some(transform.clone())))
             }
-            Expr::Const(_) => {}
-            Expr::Binary(l, _, r) => {
+            MetricExpr::Const(_) => {}
+            MetricExpr::Binary(l, _, r) => {
                 walk(l, out);
                 walk(r, out);
             }
-            Expr::Unary(_, e) => walk(e, out),
-            Expr::Clamp { expr, min, max } => {
+            MetricExpr::Unary(_, e) => walk(e, out),
+            MetricExpr::Clamp { expr, min, max } => {
                 walk(expr, out);
                 if let Some(min) = min {
                     walk(min, out);
@@ -2401,7 +2379,9 @@ fn collect_operands(expr: &Expr) -> Vec<(String, Option<CrossPeriod>)> {
                     walk(max, out);
                 }
             }
-            Expr::Coalesce(items) | Expr::Greatest(items) | Expr::Least(items) => {
+            MetricExpr::Coalesce(items)
+            | MetricExpr::Greatest(items)
+            | MetricExpr::Least(items) => {
                 for item in items {
                     walk(item, out);
                 }
@@ -2425,146 +2405,147 @@ fn dedup_operands(
     out
 }
 
-/// The window-function `value` expression for a [`CrossPeriod`] transform, given the already-built
-/// `OVER (...)` clause body (`order`, including any `PARTITION BY`). Single source of truth shared
-/// by [`transformed_sub_series`] (sub-series, no floor) and [`apply_cross_period`] (outer floor).
-fn cross_period_value_expr(transform: &CrossPeriod, order: &str) -> String {
-    match transform {
-        CrossPeriod::RunningTotal => {
-            format!("sum(value) OVER ({order} ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)")
-        }
-        // Opening balance: the cumulative total *through the previous window*.
-        CrossPeriod::RunningTotalLagged => {
-            format!("sum(value) OVER ({order} ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)")
-        }
-        CrossPeriod::PeriodOverPeriodDelta => format!(
-            "value - lagInFrame(value, 1, 0) OVER ({order} ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)"
-        ),
-        CrossPeriod::PercentChange => format!(
-            "(value - lagInFrame(value, 1, 0) OVER ({order} ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)) / nullIf(lagInFrame(value, 1, 0) OVER ({order} ROWS BETWEEN 1 PRECEDING AND CURRENT ROW), 0)"
-        ),
-        CrossPeriod::MovingAverage { periods } => {
-            let preceding = periods.saturating_sub(1);
-            format!("avg(value) OVER ({order} ROWS BETWEEN {preceding} PRECEDING AND CURRENT ROW)")
-        }
-    }
-}
-
-/// Wrap a (history-primed, windowed) base sub-series in a [`CrossPeriod`] window function,
-/// producing a CTE-ready `window_start, window_end, value, <dims>` series. Mirrors
-/// [`apply_cross_period`]'s window-function SQL but emits a sub-series (no outer floor — the
-/// derived join floors the composed result once, after all operands are joined).
-fn transformed_sub_series(base: Series, transform: &CrossPeriod) -> Series {
-    let order = if base.dims.is_empty() {
-        "ORDER BY window_start".to_string()
-    } else {
-        format!(
-            "PARTITION BY {} ORDER BY window_start",
-            base.dims.join(", ")
+/// The window-function `value` for a [`CrossPeriod`] transform over a series partitioned by
+/// `dims` and ordered by `window_start`.
+fn cross_period_value(transform: &CrossPeriod, dims: &[Ident]) -> Expr {
+    let window = |(start, end): (FrameBound, FrameBound)| Window {
+        partition_by: dims.iter().map(Expr::ident).collect(),
+        order_by: vec![Expr::col("window_start")],
+        frame: Some(Frame { start, end }),
+    };
+    let lag = || {
+        Expr::call(
+            "lagInFrame",
+            [Expr::col("value"), Expr::Int(1), Expr::Int(0)],
         )
+        .over(window((FrameBound::Preceding(1), FrameBound::CurrentRow)))
     };
-    let value_expr = cross_period_value_expr(transform, &order);
-    let dim_select = if base.dims.is_empty() {
-        String::new()
-    } else {
-        format!(", {}", base.dims.join(", "))
-    };
-    Series {
-        sql: format!(
-            "SELECT window_start, window_end, {value_expr} AS value{dim_select} FROM ( {} )",
-            base.sql
-        ),
-        binds: base.binds,
-        dims: base.dims,
-        settings: base.settings,
+    let value = Expr::col("value");
+    match transform {
+        CrossPeriod::RunningTotal => Expr::call("sum", [value]).over(window((
+            FrameBound::UnboundedPreceding,
+            FrameBound::CurrentRow,
+        ))),
+        // Opening balance: the cumulative total *through the previous window*.
+        CrossPeriod::RunningTotalLagged => Expr::call("sum", [value]).over(window((
+            FrameBound::UnboundedPreceding,
+            FrameBound::Preceding(1),
+        ))),
+        CrossPeriod::PeriodOverPeriodDelta => value.op(Op::Sub, lag()),
+        CrossPeriod::PercentChange => value
+            .op(Op::Sub, lag())
+            .op(Op::Div, Expr::call("nullIf", [lag(), Expr::Int(0)])),
+        CrossPeriod::MovingAverage { periods } => Expr::call("avg", [value]).over(window((
+            FrameBound::Preceding(periods.saturating_sub(1)),
+            FrameBound::CurrentRow,
+        ))),
     }
 }
 
-/// The qualified column an operand reads. Falls back to the unfused naming so a reference that
-/// somehow escaped `collect_operands` still resolves to its own CTE.
+/// `SELECT window_start, window_end, <transform> AS value, <dims> FROM ( <series> )`.
+fn window_series(series: Series, transform: &CrossPeriod) -> (Select, Vec<Ident>, Vec<Setting>) {
+    let mut items = vec![
+        Item::new(Expr::col("window_start")),
+        Item::new(Expr::col("window_end")),
+        Item::as_(cross_period_value(transform, &series.dims), "value"),
+    ];
+    items.extend(series.dims.iter().map(|d| Item::new(Expr::ident(d))));
+    (
+        Select::new(items, Relation::subquery(series.query)),
+        series.dims,
+        series.settings,
+    )
+}
+
+/// A transformed operand of a derived metric: no floor, the derived join floors once.
+fn transformed_sub_series(base: Series, transform: &CrossPeriod) -> Series {
+    let (select, dims, settings) = window_series(base, transform);
+    Series {
+        query: select.query(),
+        dims,
+        settings,
+    }
+}
+
 fn operand_value(
     refs: &[(OperandKey, OperandRef)],
     key: &str,
     transform: Option<&CrossPeriod>,
-) -> String {
+) -> Expr {
     refs.iter()
         .find(|((k, t), _)| k == key && t.as_ref() == transform)
-        .map(|(_, r)| format!("{}.{}", r.alias, r.column))
-        .unwrap_or_else(|| format!("{}.value", operand_alias(key, transform)))
+        .map(|(_, r)| Expr::Column(Some(r.alias.clone()), r.column.clone()))
+        .unwrap_or_else(|| {
+            Expr::Column(Some(operand_alias(key, transform)), Ident::trusted("value"))
+        })
 }
 
-fn compile_expr(expr: &Expr, refs: &[(OperandKey, OperandRef)]) -> String {
+fn compile_expr(expr: &MetricExpr, refs: &[(OperandKey, OperandRef)]) -> Expr {
     match expr {
         // Zero-fill: under `join_use_nulls = 1` a window missing from one sub-series yields NULL.
-        // A fused operand is already 0 there (its `*If` reduced no rows), so this is a no-op.
-        Expr::Metric(k) => format!("coalesce({}, 0)", operand_value(refs, k, None)),
-        // A transformed operand reads its own (lagged-cumulative / windowed) CTE. We keep the NULL
-        // here (not coalesce-to-0): an *opening balance* of NULL must propagate to a NULL ratio,
-        // not a guarded 0 that would read as "0% retention".
-        Expr::MetricTransformed { metric, transform } => {
+        MetricExpr::Metric(k) => {
+            Expr::call("coalesce", [operand_value(refs, k, None), Expr::Int(0)])
+        }
+        // An *opening balance* of NULL propagates to a NULL ratio, not a guarded 0 that would
+        // read as "0% retention".
+        MetricExpr::MetricTransformed { metric, transform } => {
             operand_value(refs, metric, Some(transform))
         }
-        Expr::Const(c) => format!("{c}"),
-        Expr::Binary(l, op, r) => {
-            let ls = compile_expr(l, refs);
+        MetricExpr::Const(c) => Expr::Float(*c),
+        MetricExpr::Binary(l, op, r) => {
+            let l = compile_expr(l, refs);
             match op {
-                BinOp::Add => format!("({ls} + {})", compile_expr(r, refs)),
-                BinOp::Sub => format!("({ls} - {})", compile_expr(r, refs)),
-                BinOp::Mul => format!("({ls} * {})", compile_expr(r, refs)),
-                // Divide-by-zero guard.
+                BinOp::Add => l.op(Op::Add, compile_expr(r, refs)),
+                BinOp::Sub => l.op(Op::Sub, compile_expr(r, refs)),
+                BinOp::Mul => l.op(Op::Mul, compile_expr(r, refs)),
                 BinOp::Div => {
                     let denom = match r.as_ref() {
-                        Expr::Metric(k) => operand_value(refs, k, None),
-                        Expr::MetricTransformed { metric, transform } => {
+                        MetricExpr::Metric(k) => operand_value(refs, k, None),
+                        MetricExpr::MetricTransformed { metric, transform } => {
                             operand_value(refs, metric, Some(transform))
                         }
                         _ => compile_expr(r, refs),
                     };
-                    format!("({ls} / nullIf({denom}, 0))")
+                    l.op(Op::Div, Expr::call("nullIf", [denom, Expr::Int(0)]))
                 }
             }
         }
-        Expr::Unary(op, e) => {
-            let es = compile_expr(e, refs);
+        MetricExpr::Unary(op, e) => {
+            let e = compile_expr(e, refs);
             match op {
-                UnaryOp::Neg => format!("(-({es}))"),
-                UnaryOp::Abs => format!("abs({es})"),
+                UnaryOp::Neg => Expr::Neg(Box::new(e)),
+                UnaryOp::Abs => Expr::call("abs", [e]),
             }
         }
-        Expr::Clamp { expr, min, max } => {
+        MetricExpr::Clamp { expr, min, max } => {
             let mut out = compile_expr(expr, refs);
-            // Lower-bound first so the result also respects the upper bound when both are present.
+            // Lower bound first, so the upper bound also holds when both are present.
             if let Some(min) = min {
-                out = format!("greatest({}, {out})", compile_expr(min, refs));
+                out = Expr::call("greatest", [compile_expr(min, refs), out]);
             }
             if let Some(max) = max {
-                out = format!("least({}, {out})", compile_expr(max, refs));
+                out = Expr::call("least", [compile_expr(max, refs), out]);
             }
             out
         }
-        Expr::Coalesce(items) => format!("coalesce({})", compile_expr_list(items, refs)),
-        Expr::Greatest(items) => format!("greatest({})", compile_expr_list(items, refs)),
-        Expr::Least(items) => format!("least({})", compile_expr_list(items, refs)),
+        MetricExpr::Coalesce(items) => Expr::call("coalesce", compile_exprs(items, refs)),
+        MetricExpr::Greatest(items) => Expr::call("greatest", compile_exprs(items, refs)),
+        MetricExpr::Least(items) => Expr::call("least", compile_exprs(items, refs)),
     }
 }
 
-fn compile_expr_list(items: &[Expr], refs: &[(OperandKey, OperandRef)]) -> String {
-    items
-        .iter()
-        .map(|i| compile_expr(i, refs))
-        .collect::<Vec<_>>()
-        .join(", ")
+fn compile_exprs(items: &[MetricExpr], refs: &[(OperandKey, OperandRef)]) -> Vec<Expr> {
+    items.iter().map(|i| compile_expr(i, refs)).collect()
 }
 
-/// The CTE alias for a (possibly transformed) operand. A plain reference reads `m_<key>`; a
-/// transformed operand reads a distinct CTE so the same metric can appear both as a within-window
-/// flow (`m_mrr_delta`) and as a lagged cumulative (`m_mrr_delta__running_total_lagged`) in one
-/// expression — exactly what retention ratios need.
-fn operand_alias(key: &str, transform: Option<&CrossPeriod>) -> String {
-    match transform {
-        None => format!("m_{}", sanitize(key)),
-        Some(t) => format!("m_{}__{}", sanitize(key), transform_suffix(t)),
-    }
+/// The CTE of a (possibly transformed) operand: `m_<key>`, or `m_<key>__<transform>` so one
+/// metric can be both a flow and a lagged cumulative in one expression (retention ratios).
+fn operand_alias(key: &str, transform: Option<&CrossPeriod>) -> Ident {
+    let key = crate::sql::sanitize_identifier(key);
+    alias(match transform {
+        None => format!("m_{key}"),
+        Some(t) => format!("m_{key}__{}", transform_suffix(t)),
+    })
 }
 
 fn transform_suffix(transform: &CrossPeriod) -> &'static str {
@@ -2577,17 +2558,12 @@ fn transform_suffix(transform: &CrossPeriod) -> &'static str {
     }
 }
 
-fn sanitize(key: &str) -> String {
-    crate::sql::sanitize_identifier(key)
-}
-
 struct GapFill {
     from_ts: i64,
     to_ts: i64,
-    interval: String,
-    /// The window's timezone, so the fill start floors to the same bucket boundary the
-    /// window function produces (else a non-aligned `from` — e.g. any weekday for a week
-    /// grain — puts fill rows off the real buckets, doubling/misplacing points).
+    window: WindowSize,
+    /// The fill start floors to the same bucket boundary as the window function, else a
+    /// non-aligned `from` (any weekday for a week grain) puts fill rows off the real buckets.
     tz: String,
 }
 
@@ -2596,161 +2572,143 @@ fn apply_cross_period(
     transform: &CrossPeriod,
     floor_ts: Option<i64>,
     fill: Option<GapFill>,
-) -> SafeQuery {
-    let partition = if series.dims.is_empty() {
-        String::new()
-    } else {
-        format!("PARTITION BY {} ", series.dims.join(", "))
-    };
-    let order = format!("{partition}ORDER BY window_start");
+) -> Query {
+    let (mut windowed, dims, _) = window_series(series, transform);
 
-    let value_expr = cross_period_value_expr(transform, &order);
-
-    let dim_select = if series.dims.is_empty() {
-        String::new()
-    } else {
-        format!(", {}", series.dims.join(", "))
-    };
-
-    let mut binds = series.binds;
-    let mut windowed = format!(
-        "SELECT window_start, window_end, {value_expr} AS value{dim_select} FROM ( {} )",
-        series.sql
-    );
-
-    // Densify a dimensionless cumulative series via WITH FILL + INTERPOLATE, carrying `value` forward into empty windows.
-    let filled = fill.as_ref().filter(|_| series.dims.is_empty());
-    if let Some(g) = filled {
-        // Floor the fill start to the window's own bucket boundary (`tumbleStart`, wrapped
-        // in `toDateTime` since it yields a `Date` for week/month) so the fill grid lands
-        // exactly on the real buckets — otherwise a non-aligned `from` interleaves off-grid
-        // rows with the real ones.
-        windowed.push_str(&format!(
-            " ORDER BY window_start WITH FILL \
-             FROM toDateTime(tumbleStart(toDateTime(?), {interval}, ?), ?) \
-             TO toDateTime(?) STEP {interval} INTERPOLATE (value AS value)",
-            interval = g.interval
-        ));
-        binds.push(BindValue::I64(g.from_ts));
-        binds.push(BindValue::String(g.tz.clone()));
-        binds.push(BindValue::String(g.tz.clone()));
-        binds.push(BindValue::I64(g.to_ts));
+    // Densify a dimensionless cumulative series, carrying `value` into empty windows.
+    let filled = fill.filter(|_| dims.is_empty());
+    if let Some(g) = &filled {
+        windowed.order_by = vec![Expr::col("window_start").into()];
+        windowed.fill = Some(Fill {
+            from: as_datetime(
+                tumble(
+                    "tumbleStart",
+                    Expr::Bind(BindValue::I64(g.from_ts)),
+                    &g.window,
+                    &g.tz,
+                ),
+                &g.tz,
+            ),
+            to: Expr::datetime(g.to_ts),
+            step: interval(&g.window),
+            interpolate: vec![(Ident::trusted("value"), Expr::col("value"))],
+        });
     }
 
     match floor_ts {
-        None => SafeQuery {
-            sql: format!("{windowed} ORDER BY window_start"),
-            binds,
-        },
+        None => windowed.order_by_window_start().query(),
         // The window function must see pre-`from` rows for the opening balance, so floor in an outer select, never in its WHERE.
         Some(ts) => {
-            let window_end_col = match filled {
-                Some(g) => format!("window_start + {} AS window_end", g.interval),
-                None => "window_end".to_string(),
-            };
-            binds.push(BindValue::I64(ts));
-            SafeQuery {
-                sql: format!(
-                    "SELECT window_start, {window_end_col}, value{dim_select} FROM ( {windowed} ) \
-                     WHERE window_start >= toDateTime(?) ORDER BY window_start"
+            let window_end = match &filled {
+                Some(g) => Item::as_(
+                    Expr::col("window_start").op(Op::Add, interval(&g.window)),
+                    "window_end",
                 ),
-                binds,
-            }
+                None => Item::new(Expr::col("window_end")),
+            };
+            let mut select = series_columns(&dims, Relation::subquery(windowed.query()));
+            select.items[1] = window_end;
+            select
+                .filter(vec![Expr::col("window_start").ge(Expr::datetime(ts))])
+                .order_by_window_start()
+                .query()
         }
     }
 }
 
-/// Forward-fill a Latest/Max gauge so empty windows inherit the prior window's level (a persisting
-/// balance). The input `series` is primed from epoch (so a pre-`from` event sets the opening level);
-/// here we densify the visible range into a window grid, carry the last non-null level forward with a
-/// window function, then floor the output back to `>= from`.
+/// Forward-fill a Latest/Max gauge: empty windows inherit the prior level. The epoch-primed
+/// `series` is densified into a window grid, the last level carried forward, then floored to `from`.
 fn carry_over_gauge_series(series: Series, query: &MetricQuery, window: &WindowSize) -> Series {
-    let interval = interval_sql(window);
-    let step = window_seconds(window);
+    let step = Expr::Int(window_seconds(window));
     let tz = tz_name(query);
     let from_ts = query.from.timestamp();
     let to_ts = query.to.unwrap_or_else(Utc::now).timestamp();
-
     let dims = series.dims.clone();
-    let dim_list = if dims.is_empty() {
-        String::new()
-    } else {
-        format!(", {}", dims.join(", "))
-    };
-    let partition = if dims.is_empty() {
-        String::new()
-    } else {
-        format!("PARTITION BY {} ", dims.join(", "))
+    let window_bounds = || {
+        vec![
+            Item::new(Expr::col("window_start")),
+            Item::new(Expr::col("window_end")),
+        ]
     };
 
-    let mut binds = series.binds;
-
-    // Densify so empty windows exist as rows the forward-fill can carry into. We only fabricate the
-    // dense grid for the ungrouped (single-series balance) case: a scaffold can't know which
-    // dimension tuples to densify, and emitting NULL-dimension rows would pollute the result with
-    // junk groups. For grouped gauges we forward-fill over the rows the gauge already produced
-    // (fully-empty windows for a given dimension stay absent — per-dimension densification is not done
-    // here). The forward-fill itself applies in both cases.
+    // Only the ungrouped (single balance) series gets a dense grid: a scaffold can't know which
+    // dimension tuples to densify. Grouped gauges forward-fill over the rows they produced.
     let inner = if dims.is_empty() {
-        // Build the dense grid as a Fragment so each `?` carries its bind inline: the old code
-        // pushed six binds in a separate block that had to mirror the SQL's `?` order by hand.
-        let mut grid = Fragment::new();
-        grid.push_bound(
-            "SELECT toDateTime(tumbleStart(toDateTime(",
-            BindValue::I64(from_ts),
-            &format!("), {interval}, "),
-        );
-        grid.push_bound(
-            "",
-            BindValue::String(tz.clone()),
-            &format!(") + number * {step}) AS window_start, toDateTime(tumbleStart(toDateTime("),
-        );
-        grid.push_bound("", BindValue::I64(from_ts), &format!("), {interval}, "));
-        grid.push_bound(
-            "",
-            BindValue::String(tz.clone()),
-            &format!(
-                ") + (number + 1) * {step}) AS window_end FROM numbers(toUInt64((toUnixTimestamp(toDateTime("
-            ),
-        );
-        grid.push_bound(
-            "",
-            BindValue::I64(to_ts),
-            ")) - toUnixTimestamp(toDateTime(",
-        );
-        grid.push_bound("", BindValue::I64(from_ts), &format!("))) / {step}) + 1)"));
-        binds.extend(grid.binds);
-        let grid = grid.sql;
-        // `max` collapses the (real, scaffold-NULL) pair per window to the real level, NULL when only
-        // the scaffold is present; `last_value ... IGNORE NULLS` then carries the level forward.
-        format!(
-            "SELECT window_start, window_end, max(value) AS value FROM ( \
-                 SELECT window_start, window_end, value FROM ( {} ) \
-                 UNION ALL \
-                 SELECT window_start, window_end, NULL AS value FROM ( {grid} ) \
-             ) GROUP BY window_start, window_end",
-            series.sql
+        let grid_start = |offset: Expr| {
+            Expr::call(
+                "toDateTime",
+                [tumble(
+                    "tumbleStart",
+                    Expr::Bind(BindValue::I64(from_ts)),
+                    window,
+                    &tz,
+                )
+                .op(Op::Add, offset.op(Op::Mul, step.clone()))],
+            )
+        };
+        let unix = |secs: i64| Expr::call("toUnixTimestamp", [Expr::datetime(secs)]);
+        let count = Expr::call(
+            "toUInt64",
+            [unix(to_ts)
+                .op(Op::Sub, unix(from_ts))
+                .op(Op::Div, step.clone())],
         )
+        .op(Op::Add, Expr::Int(1));
+        let grid = Select {
+            items: vec![
+                Item::as_(grid_start(Expr::col("number")), "window_start"),
+                Item::as_(
+                    grid_start(Expr::col("number").op(Op::Add, Expr::Int(1))),
+                    "window_end",
+                ),
+            ],
+            from: Some(Relation::Function(Expr::call("numbers", [count]))),
+            ..Select::default()
+        };
+        // `max` collapses the (real, scaffold-NULL) pair per window to the real level.
+        let mut real = window_bounds();
+        real.push(Item::new(Expr::col("value")));
+        let mut scaffold = window_bounds();
+        scaffold.push(Item::as_(Expr::Null, "value"));
+        let both = Query::SetOp(
+            SetOp::UnionAll,
+            vec![
+                Select::new(real, Relation::subquery(series.query)).query(),
+                Select::new(scaffold, Relation::subquery(grid.query())).query(),
+            ],
+        );
+        let mut items = window_bounds();
+        items.push(Item::as_(Expr::call("max", [Expr::col("value")]), "value"));
+        Select::new(items, Relation::subquery(both))
+            .group_by(vec![Expr::col("window_start"), Expr::col("window_end")])
     } else {
-        format!(
-            "SELECT window_start, window_end, value{dim_list} FROM ( {} )",
-            series.sql
-        )
+        series_columns(&dims, Relation::subquery(series.query))
     };
 
-    let sql = format!(
-        "SELECT window_start, window_end, \
-            coalesce(last_value(value) IGNORE NULLS OVER ({partition}ORDER BY window_start \
-                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW), 0) AS value{dim_list} \
-         FROM ( {inner} ) \
-         WHERE window_start >= toDateTime(?) \
-         ORDER BY window_start"
-    );
-    binds.push(BindValue::I64(from_ts));
+    let carried = Expr::Over {
+        call: Box::new(Expr::call("last_value", [Expr::col("value")])),
+        ignore_nulls: true,
+        window: Window {
+            partition_by: dims.iter().map(Expr::ident).collect(),
+            order_by: vec![Expr::col("window_start")],
+            frame: Some(Frame {
+                start: FrameBound::UnboundedPreceding,
+                end: FrameBound::CurrentRow,
+            }),
+        },
+    };
+    let mut items = window_bounds();
+    items.push(Item::as_(
+        Expr::call("coalesce", [carried, Expr::Int(0)]),
+        "value",
+    ));
+    items.extend(dims.iter().map(|d| Item::new(Expr::ident(d))));
+    let select = Select::new(items, Relation::subquery(inner.query()))
+        .filter(vec![Expr::col("window_start").ge(Expr::datetime(from_ts))])
+        .order_by_window_start();
 
     Series {
-        sql,
-        binds,
+        query: select.query(),
         dims,
         settings: series.settings,
     }
@@ -2848,7 +2806,7 @@ mod tests {
         );
         let out = compile(&reg, &base_query("bytes"), "raw_events_v2", "meteroid").unwrap();
         assert!(
-            normalize(&out.sql).contains("(sum(toFloat64OrZero(properties[?]))) / 1024 AS value"),
+            normalize(&out.sql).contains("sum(toFloat64OrZero(properties[?])) / 1024 AS value"),
             "converted aggregate: {}",
             normalize(&out.sql)
         );
@@ -2943,7 +2901,7 @@ mod tests {
         .unwrap();
         let sql = normalize(&out.sql);
         assert!(
-            sql.contains("(mapContains(properties, ?) AND properties[?] != ?)"),
+            sql.contains("mapContains(properties, ?) AND properties[?] != ?"),
             "NotIn filter compiles to a presence-guarded !=: {sql}"
         );
     }
@@ -3006,7 +2964,7 @@ mod tests {
         )
         .unwrap();
 
-        let sql = normalize(&series.sql);
+        let sql = normalize(&crate::sql::render::render(&series.query, &[]).sql);
         assert!(
             sql.contains("customer_id IN ?"),
             "scope kept as a WHERE filter: {sql}"
@@ -3022,7 +2980,7 @@ mod tests {
             "GROUP BY omits customer_id: {group_by}"
         );
         assert!(
-            !series.dims.iter().any(|d| d == "customer_id"),
+            !series.dims.iter().any(|d| d.as_str() == "customer_id"),
             "series dims omit customer_id: {:?}",
             series.dims
         );
@@ -3087,7 +3045,7 @@ mod tests {
         q.window = Some(WindowSize::Hour);
         let out = compile(&reg, &q, "raw_events_v2", "meteroid").unwrap();
         assert!(out.sql.contains("leadInFrame(toNullable(timestamp))"));
-        assert!(out.sql.contains("toStartOfHour"));
+        assert!(out.sql.contains("+ toIntervalHour(number)"));
         assert!(out.sql.contains("dateDiff('second'"));
         assert!(out.sql.contains("code IN ?"));
         assert!(out.sql.contains("ARRAY JOIN range"));
@@ -3125,7 +3083,7 @@ mod tests {
         ));
         assert!(
             out.sql
-                .contains("(coalesce(m_revenue.value, 0) / nullIf(m_users.value, 0)) AS value")
+                .contains("coalesce(m_revenue.value, 0) / nullIf(m_users.value, 0) AS value")
         );
     }
 
@@ -3154,10 +3112,7 @@ mod tests {
             Box::new(Expr::Metric("revenue".into())),
         ));
         let out = compile(&neg, &base_query("custom"), "raw_events_v2", "meteroid").unwrap();
-        assert!(
-            out.sql
-                .contains("(-(coalesce(m_revenue.value, 0))) AS value")
-        );
+        assert!(out.sql.contains("-coalesce(m_revenue.value, 0) AS value"));
 
         let abs = derived_over_two(Expr::Unary(
             UnaryOp::Abs,
@@ -3290,24 +3245,6 @@ mod tests {
         assert!(out.sql.contains(
             "argMax(toFloat64OrZero(properties[?]), (timestamp, ingested_at, id)) AS value"
         ));
-    }
-
-    #[test]
-    fn carry_over_gauge_binds_match_placeholders() {
-        // Positional binds: a `?`/bind count or order mismatch is a runtime failure the
-        // string-contains assertions can't see, so pin parity explicitly.
-        let out = compile(
-            &balance_gauge(true),
-            &base_query("balance"),
-            "raw_events_v2",
-            "meteroid",
-        )
-        .unwrap();
-        assert_eq!(
-            out.sql.matches('?').count(),
-            out.binds.len(),
-            "every placeholder must have exactly one bind"
-        );
     }
 
     #[test]
@@ -3449,7 +3386,7 @@ mod tests {
         // Divide guards the (NULL/0) opening balance.
         assert!(
             out.sql
-                .contains("/ nullIf(m_delta__running_total_lagged.value, 0))"),
+                .contains("/ nullIf(m_delta__running_total_lagged.value, 0) AS value"),
             "opening balance denominator is null-guarded"
         );
         // History priming: the lagged operand reads from epoch, and the result is floored to `from`.
@@ -3808,14 +3745,14 @@ mod tests {
         );
         assert!(
             sql.contains(
-                "sumIf(toFloat64(delta_cents), (movement_type = 'NewBusiness')) AS value_gained"
+                "sumIf(toFloat64(delta_cents), movement_type = 'NewBusiness') AS value_gained"
             ) && sql
-                .contains("sumIf(toFloat64(delta_cents), (movement_type = 'Churn')) AS value_lost"),
+                .contains("sumIf(toFloat64(delta_cents), movement_type = 'Churn') AS value_lost"),
             "each operand becomes its own conditional aggregate, named for its metric: {sql}"
         );
         // The read is narrowed to the union, so unrelated movement types never enter the group by.
         assert!(
-            sql.contains("AND ((movement_type = 'NewBusiness') OR (movement_type = 'Churn'))"),
+            sql.contains("AND (movement_type = 'NewBusiness' OR movement_type = 'Churn')"),
             "{sql}"
         );
         assert!(
@@ -4359,7 +4296,7 @@ mod tests {
         assert!(out.sql.contains("m_revenue AS ("));
         assert!(
             out.sql
-                .contains("(coalesce(m_revenue.value, 0) / nullIf(m_users.value, 0))")
+                .contains("coalesce(m_revenue.value, 0) / nullIf(m_users.value, 0)")
         );
         assert!(out.sql.contains("FROM fact_mrr_movement FINAL WHERE"));
         assert!(
@@ -4515,7 +4452,7 @@ mod tests {
             .sql,
         );
         assert!(
-            sql.contains("HAVING (sum(toFloat64OrZero(properties[?]))) / 1024 > 5"),
+            sql.contains("HAVING sum(toFloat64OrZero(properties[?])) / 1024 > 5"),
             "threshold HAVING divides by factor: {sql}"
         );
     }
@@ -4661,72 +4598,6 @@ mod tests {
             "up >=50% HAVING: {sql}"
         );
         assert!(sql.contains("FROM fact_mrr_movement FINAL WHERE"), "{sql}");
-    }
-
-    #[test]
-    fn delta_binds_follow_placeholder_order() {
-        let delta = |metric: &str| crate::metric::CohortDef {
-            predicates: vec![CohortPredicate::MetricDelta {
-                metric: metric.into(),
-                op: ThresholdOp::Lte,
-                pct: -30.0,
-                prior_window_days: None,
-            }],
-        };
-        let tenant = TenantId::default().as_uuid();
-        let (from, prior_from, to) = (1704067200, 1703980800, 1704153600);
-
-        let raw = MetricRegistry::new().with(MetricDef::aggregate(
-            "bytes",
-            "usage",
-            AggregateOp::Sum,
-            Some("amount"),
-        ));
-        let sql = inline_binds(
-            &compile_cohort_members(
-                &raw,
-                &delta("bytes"),
-                &base_query("bytes"),
-                "raw_events_v2",
-                "meteroid",
-            )
-            .unwrap(),
-        );
-        assert!(
-            sql.contains(&format!(
-                "toFloat64(sumIf(toFloat64OrZero(properties['amount']), timestamp >= toDateTime({from}))) AS cur, \
-                 toFloat64(sumIf(toFloat64OrZero(properties['amount']), timestamp < toDateTime({from}) AND timestamp >= toDateTime({prior_from}))) AS prior \
-                 FROM ( SELECT id, customer_id, timestamp, ingested_at, properties FROM raw_events_v2 \
-                 WHERE (tenant_id = '{tenant}' AND code = 'usage' \
-                 AND timestamp >= toDateTime({prior_from}) AND timestamp <= toDateTime({to}))"
-            )),
-            "{sql}"
-        );
-
-        let fact = MetricRegistry::new().with(MetricDef::fact_aggregate(
-            "net_new_mrr",
-            AggregateOp::Sum,
-            mrr_fact(),
-        ));
-        let sql = inline_binds(
-            &compile_cohort_members(
-                &fact,
-                &delta("net_new_mrr"),
-                &base_query("net_new_mrr"),
-                "raw_events_v2",
-                "meteroid",
-            )
-            .unwrap(),
-        );
-        assert!(
-            sql.contains(&format!(
-                "sumIf(toFloat64(delta_cents), toDateTime(at) >= toDateTime({from}))) AS cur, \
-                 toFloat64(sumIf(toFloat64(delta_cents), toDateTime(at) < toDateTime({from}) AND toDateTime(at) >= toDateTime({prior_from}))) AS prior \
-                 FROM fact_mrr_movement FINAL WHERE tenant_id = '{tenant}' \
-                 AND toDateTime(at) >= toDateTime({prior_from}) AND toDateTime(at) <= toDateTime({to})"
-            )),
-            "{sql}"
-        );
     }
 
     #[test]
@@ -5052,48 +4923,6 @@ mod tests {
                 "ORDER BY ingested_at DESC LIMIT 1 BY id, customer_id ) GROUP BY customer_id"
             ),
             "{keep_last}"
-        );
-    }
-
-    #[test]
-    fn delta_binds_follow_the_sql_text() {
-        let reg = MetricRegistry::new().with(MetricDef::aggregate(
-            "bytes",
-            "usage",
-            AggregateOp::Sum,
-            Some("amount"),
-        ));
-        let cohort = crate::metric::CohortDef {
-            predicates: vec![delta_predicate()],
-        };
-        let out = compile_cohort_members(
-            &reg,
-            &cohort,
-            &base_query("bytes"),
-            "raw_events_v2",
-            "meteroid",
-        )
-        .unwrap();
-        assert!(
-            normalize(&out.sql).starts_with(
-                "SELECT DISTINCT customer_id FROM ( ( SELECT customer_id FROM ( SELECT customer_id \
-                 FROM ( SELECT customer_id, toFloat64(sumIf(toFloat64OrZero(properties[?])"
-            ),
-            "{}",
-            out.sql
-        );
-        assert!(
-            matches!(
-                &out.binds[..3],
-                [BindValue::String(p), BindValue::I64(_), BindValue::String(_)] if p == "amount"
-            ),
-            "the SELECT's aggregates bind first: {:?}",
-            out.binds
-        );
-        assert!(
-            matches!(&out.binds[5], BindValue::Uuid(t) if *t == TenantId::default().as_uuid()),
-            "then the WHERE: {:?}",
-            out.binds
         );
     }
 

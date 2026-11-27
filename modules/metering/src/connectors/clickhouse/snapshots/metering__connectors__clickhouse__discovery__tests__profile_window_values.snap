@@ -1,0 +1,23 @@
+---
+source: modules/metering/src/connectors/clickhouse/discovery.rs
+expression: profile_window_values
+---
+SELECT
+    key AS key,
+    val AS value,
+    toUInt64(count()) AS cnt
+FROM (
+    SELECT properties
+    FROM raw_events_v2
+    WHERE (tenant_id = toUUID('00000000-0000-0000-0000-00000000d15c') AND code = ?{"api"} AND timestamp >= toDateTime(1767571200) AND timestamp < toDateTime(1769904000)) AND is_tombstone = 0 AND ((SELECT count() FROM meteroid.event_voids_local WHERE tenant_id = toUUID('00000000-0000-0000-0000-00000000d15c') AND code IN ('api') AND timestamp >= toDateTime(1767571200) AND timestamp <= toDateTime(1769904000)) = 0 OR (customer_id, id, ingested_at) NOT IN (SELECT customer_id, id, ingested_at FROM meteroid.event_voids_local WHERE tenant_id = toUUID('00000000-0000-0000-0000-00000000d15c') AND code IN ('api') AND timestamp >= toDateTime(1767571200) AND timestamp <= toDateTime(1769904000)))
+)
+ARRAY JOIN mapKeys(properties) AS key, mapValues(properties) AS val
+WHERE
+    val != ''
+GROUP BY
+    key,
+    value
+ORDER BY
+    key,
+    cnt DESC
+LIMIT 5 BY key

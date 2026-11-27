@@ -8,4 +8,6 @@ pub mod json;
 pub mod metric;
 pub mod migrate;
 pub mod sql;
+#[cfg(any(test, feature = "test-corpus"))]
+pub mod testing;
 pub mod utils;

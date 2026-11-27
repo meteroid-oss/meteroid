@@ -1,0 +1,11 @@
+---
+source: modules/metering/src/connectors/clickhouse/discovery.rs
+expression: profile_trailing_total
+---
+SELECT
+    toUInt64(count()) AS total
+FROM (
+    SELECT properties
+    FROM raw_events_v2
+    WHERE (tenant_id = toUUID('00000000-0000-0000-0000-00000000d15c') AND code = ?{"api"} AND timestamp >= now() - INTERVAL 30 DAY AND timestamp < now()) AND is_tombstone = 0 AND ((SELECT count() FROM meteroid.event_voids_local WHERE tenant_id = toUUID('00000000-0000-0000-0000-00000000d15c') AND code IN ('api') AND timestamp >= now() - INTERVAL 30 DAY AND timestamp <= now()) = 0 OR (customer_id, id, ingested_at) NOT IN (SELECT customer_id, id, ingested_at FROM meteroid.event_voids_local WHERE tenant_id = toUUID('00000000-0000-0000-0000-00000000d15c') AND code IN ('api') AND timestamp >= now() - INTERVAL 30 DAY AND timestamp <= now()))
+)

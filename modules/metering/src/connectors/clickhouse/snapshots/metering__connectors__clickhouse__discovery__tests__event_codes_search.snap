@@ -1,0 +1,17 @@
+---
+source: modules/metering/src/connectors/clickhouse/discovery.rs
+expression: event_codes_search
+---
+SELECT
+    code AS code,
+    toUInt64(count()) AS cnt
+FROM (
+    SELECT code
+    FROM raw_events_v2
+    WHERE (tenant_id = toUUID('00000000-0000-0000-0000-00000000d15c') AND timestamp >= now() - INTERVAL 90 DAY AND code ILIKE ?{"%ap%"}) AND is_tombstone = 0 AND ((SELECT count() FROM meteroid.event_voids_local WHERE tenant_id = toUUID('00000000-0000-0000-0000-00000000d15c') AND timestamp >= now() - INTERVAL 90 DAY) = 0 OR (customer_id, id, ingested_at) NOT IN (SELECT customer_id, id, ingested_at FROM meteroid.event_voids_local WHERE tenant_id = toUUID('00000000-0000-0000-0000-00000000d15c') AND timestamp >= now() - INTERVAL 90 DAY))
+)
+GROUP BY
+    code
+ORDER BY
+    cnt DESC
+LIMIT 20

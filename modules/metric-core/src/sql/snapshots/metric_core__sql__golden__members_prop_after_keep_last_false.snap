@@ -1,0 +1,20 @@
+---
+source: modules/metric-core/src/sql/golden.rs
+expression: members prop_after keep_last=false
+---
+SELECT DISTINCT
+    customer_id
+FROM (
+    (
+        SELECT
+            customer_id
+        FROM (
+            SELECT
+                id AS customer_id
+            FROM dim_customer FINAL
+            WHERE
+                tenant_id = ?{11111111-1111-1111-1111-111111111111}
+                AND JSONHas(toString(custom_properties), ?{"seats"}) AND JSONExtractString(toString(custom_properties), ?{"seats"}) > ?{"2026-01-01"}
+        ) AS p
+    )
+) AS members

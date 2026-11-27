@@ -1,61 +1,85 @@
 //! Exact meter values. Numeric aggregates leave ClickHouse as decimal text and are parsed
 //! into `rust_decimal`; Float64 only guards values and orders them for Min and Max.
 
-use crate::connectors::clickhouse::sql::{BindValue, PropertyColumn};
 use crate::domain::{MeterAggregation, MeterValue};
-use metric_core::sql::LATEST_EVENT_ORDER;
+use metric_core::sql::ast::{Expr, Ident, Item};
+use metric_core::sql::latest_event_order;
 use rust_decimal::Decimal;
 use std::str::FromStr;
 
-/// WHERE condition on the value property: it parses, is finite and below 1e18. Anything
-/// else is skipped like an unparsable value.
-pub(super) fn numeric_guard(col: &PropertyColumn, binds: &mut Vec<BindValue>) -> String {
-    format!("abs(toFloat64OrNull({})) < 1e18", col.path_sql(binds))
-}
-
-fn decimal_expr(col: &PropertyColumn, binds: &mut Vec<BindValue>) -> String {
-    let exact = col.path_sql(binds);
-    let float = col.path_sql(binds);
-    format!(
-        "ifNull(toDecimal128OrNull({exact}, 9), accurateCastOrNull(toFloat64OrNull({float}), 'Decimal(38, 9)'))"
+/// `properties[?]`: the property name is bound.
+pub(super) fn property(name: &str) -> Expr {
+    Expr::Index(
+        Box::new(Expr::col("properties")),
+        Box::new(Expr::Bind(metric_core::sql::BindValue::String(
+            name.to_string(),
+        ))),
     )
 }
 
-fn fallbacks_column(col: &PropertyColumn, binds: &mut Vec<BindValue>) -> String {
-    format!(
-        "toString(countIf(isNull(toDecimal128OrNull({}, 9)))) AS decimal_fallbacks",
-        col.path_sql(binds)
+/// The value property parses, is finite and below 1e18. Anything else is skipped like an
+/// unparsable value.
+pub(super) fn numeric_guard(name: &str) -> Expr {
+    let float = Expr::call("toFloat64OrNull", [property(name)]);
+    Expr::call("abs", [float]).lt(Expr::Literal("1e18"))
+}
+
+fn decimal(name: &str) -> Expr {
+    Expr::call(
+        "ifNull",
+        [
+            Expr::call("toDecimal128OrNull", [property(name), Expr::Int(9)]),
+            Expr::call(
+                "accurateCastOrNull",
+                [
+                    Expr::call("toFloat64OrNull", [property(name)]),
+                    Expr::str("Decimal(38, 9)"),
+                ],
+            ),
+        ],
     )
 }
 
-/// The winning event's original string and its decimal, ordered by `key` (which may bind).
-fn winner_columns(
-    function: &str,
-    col: &PropertyColumn,
-    binds: &mut Vec<BindValue>,
-    key: impl FnOnce(&mut Vec<BindValue>) -> String,
-) -> Vec<String> {
-    let raw = col.path_sql(binds);
-    let decimal = decimal_expr(col, binds);
-    let key = key(binds);
+fn as_text(expr: Expr) -> Expr {
+    Expr::call("toString", [expr])
+}
+
+fn fallbacks(name: &str) -> Item {
+    let not_decimal = Expr::call(
+        "isNull",
+        [Expr::call(
+            "toDecimal128OrNull",
+            [property(name), Expr::Int(9)],
+        )],
+    );
+    Item::as_(
+        as_text(Expr::call("countIf", [not_decimal])),
+        "decimal_fallbacks",
+    )
+}
+
+/// The winning event's original string and its decimal, ranked by `key`.
+fn winner(function: &'static str, name: &str, key: Expr) -> Vec<Item> {
+    let pair = Expr::call("tuple", [property(name), as_text(decimal(name))]);
+    let element =
+        |n: &'static str| Expr::Column(Some(Ident::trusted("_winner")), Ident::trusted(n));
     vec![
-        format!("{function}(tuple({raw}, toString({decimal})), {key}) AS _winner"),
-        "_winner.1 AS value_raw".to_string(),
-        "_winner.2 AS value".to_string(),
+        Item::as_(Expr::call(function, [pair, key]), "_winner"),
+        Item::as_(element("1"), "value_raw"),
+        Item::as_(element("2"), "value"),
     ]
 }
 
-/// SELECT columns of a meter aggregation: `value` (decimal text), `value_raw` (Min, Max,
+/// SELECT items of a meter aggregation: `value` (decimal text), `value_raw` (Min, Max,
 /// Latest: the winner's original string), `value_count` (Avg) and `decimal_fallbacks`.
-pub(super) fn aggregation_columns(
+pub(super) fn aggregation_items(
     aggregation: &MeterAggregation,
     value_property: Option<&str>,
-    binds: &mut Vec<BindValue>,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<Item>, String> {
     if let MeterAggregation::Count = aggregation {
-        return Ok(vec!["toString(count()) AS value".to_string()]);
+        return Ok(vec![Item::as_(as_text(Expr::call("count", [])), "value")]);
     }
-    let Some(value_property) = value_property else {
+    let Some(name) = value_property else {
         return Err(match aggregation {
             MeterAggregation::CountDistinct => {
                 "value_property is required for CountDistinct aggregation"
@@ -64,41 +88,32 @@ pub(super) fn aggregation_columns(
         }
         .to_string());
     };
-    let col = PropertyColumn(value_property);
-
-    let mut columns = match aggregation {
+    let float = || Expr::call("toFloat64OrNull", [property(name)]);
+    let mut items = match aggregation {
         MeterAggregation::Count => unreachable!(),
         MeterAggregation::CountDistinct => {
-            return Ok(vec![format!(
-                "toString(uniqExact({})) AS value",
-                col.path_sql(binds)
+            return Ok(vec![Item::as_(
+                as_text(Expr::call("uniqExact", [property(name)])),
+                "value",
             )]);
         }
-        MeterAggregation::Sum => {
-            vec![format!(
-                "toString(sum({})) AS value",
-                decimal_expr(&col, binds)
-            )]
-        }
+        MeterAggregation::Sum => vec![Item::as_(
+            as_text(Expr::call("sum", [decimal(name)])),
+            "value",
+        )],
         MeterAggregation::Avg => vec![
-            format!("toString(sum({})) AS value", decimal_expr(&col, binds)),
-            "toString(count()) AS value_count".to_string(),
+            Item::as_(as_text(Expr::call("sum", [decimal(name)])), "value"),
+            Item::as_(as_text(Expr::call("count", [])), "value_count"),
         ],
-        MeterAggregation::Min => winner_columns("argMin", &col, binds, |binds| {
-            format!("toFloat64OrNull({})", col.path_sql(binds))
-        }),
-        MeterAggregation::Max => winner_columns("argMax", &col, binds, |binds| {
-            format!("toFloat64OrNull({})", col.path_sql(binds))
-        }),
-        MeterAggregation::Latest => {
-            winner_columns("argMax", &col, binds, |_| LATEST_EVENT_ORDER.to_string())
-        }
+        MeterAggregation::Min => winner("argMin", name, float()),
+        MeterAggregation::Max => winner("argMax", name, float()),
+        MeterAggregation::Latest => winner("argMax", name, latest_event_order()),
     };
-    columns.push(fallbacks_column(&col, binds));
-    Ok(columns)
+    items.push(fallbacks(name));
+    Ok(items)
 }
 
-/// Reads the columns of [`aggregation_columns`] back. A value beyond `rust_decimal`'s 28
+/// Reads the columns of [`aggregation_items`] back. A value beyond `rust_decimal`'s 28
 /// digits is an error, never a rounded or dropped value.
 pub fn parse_meter_value(row: &serde_json::Value) -> Result<(MeterValue, u64), String> {
     let decimal = match row.get("value") {

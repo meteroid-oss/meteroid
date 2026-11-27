@@ -1,0 +1,60 @@
+---
+source: modules/metric-core/src/sql/golden.rs
+expression: tw_seconds/keep_last
+---
+WITH
+    params AS (
+        SELECT
+            toDateTime(?{1767571200}) AS window_start,
+            toDateTime(?{1769904000}) AS window_end,
+            toUUID(?{11111111-1111-1111-1111-111111111111}) AS param_tenant_id
+    ),
+    event_lifecycle AS (
+        SELECT
+            customer_id,
+            tenant_id,
+            properties['instance_id'] AS identity,
+            timestamp AS start_time,
+            leadInFrame(toNullable(timestamp)) OVER (PARTITION BY customer_id, tenant_id, properties['instance_id'] ORDER BY timestamp ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) AS end_time
+        FROM (
+            SELECT id, customer_id, tenant_id, timestamp, properties
+            FROM raw_events_v2
+            WHERE (tenant_id = ?{11111111-1111-1111-1111-111111111111} AND code = ?{"storage"}) AND is_tombstone = 0 AND ((SELECT count() FROM meteroid.event_voids_local WHERE tenant_id = toUUID('11111111-1111-1111-1111-111111111111') AND code IN ('storage')) = 0 OR (customer_id, id, ingested_at) NOT IN (SELECT customer_id, id, ingested_at FROM meteroid.event_voids_local WHERE tenant_id = toUUID('11111111-1111-1111-1111-111111111111') AND code IN ('storage'))) ORDER BY ingested_at DESC LIMIT 1 BY id, customer_id
+        )
+    ),
+    instance_periods AS (
+        SELECT
+            el.customer_id,
+            greatest(el.start_time, params.window_start) AS period_start,
+            least(COALESCE(el.end_time, params.window_end), params.window_end) AS period_end,
+            1 AS w
+        FROM event_lifecycle AS el
+        CROSS JOIN params
+        WHERE
+            el.tenant_id = params.param_tenant_id
+            AND el.start_time < params.window_end
+            AND (el.end_time > params.window_start OR el.end_time IS NULL)
+    ),
+    time_series AS (
+        SELECT
+            toDateTime(tumbleStart(toDateTime(params.window_start), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) + toIntervalDay(number) AS window_start,
+            toDateTime(tumbleStart(toDateTime(params.window_start), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) + toIntervalDay(number + 1) AS window_end
+        FROM params
+        ARRAY JOIN range(toUInt32((toUnixTimestamp(params.window_end) - toUnixTimestamp(toDateTime(tumbleStart(toDateTime(params.window_start), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}))) / 86400) + 1) AS number
+    )
+SELECT
+    ts.window_start AS window_start,
+    ts.window_end AS window_end,
+    sum(if(ip.period_start < ts.window_end AND ip.period_end > ts.window_start, dateDiff('second', greatest(ts.window_start, ip.period_start), least(ts.window_end, ip.period_end)) * ip.w, 0)) AS value,
+    ip.customer_id AS customer_id
+FROM time_series AS ts
+CROSS JOIN instance_periods AS ip
+WHERE
+    ip.period_start < ts.window_end
+    AND ip.period_end > ts.window_start
+GROUP BY
+    ts.window_start,
+    ts.window_end,
+    ip.customer_id
+ORDER BY
+    window_start

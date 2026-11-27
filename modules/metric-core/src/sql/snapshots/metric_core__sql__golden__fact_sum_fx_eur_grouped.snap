@@ -1,0 +1,47 @@
+---
+source: modules/metric-core/src/sql/golden.rs
+expression: fact_sum/fx_eur_grouped
+---
+SELECT
+    toDateTime(tumbleStart(toDateTime(f.at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_start,
+    toDateTime(tumbleEnd(toDateTime(f.at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_end,
+    sum(if(f.currency = f.fx_currency, toFloat64(f.delta_cents), toFloat64(f.delta_cents_usd) * fx.rate_from_usd)) AS value,
+    dictGet('meteroid.dim_customer_dict', 'country', tuple(f.customer_id)) AS _prop_country,
+    dictGetOrDefault('meteroid.dim_plan_dict', 'name', tuple(ifNull(f.plan_id, toUUID('00000000-0000-0000-0000-000000000000'))), '(none)') AS _prop_plan,
+    toString(ifNull(f.plan_id, toUUID('00000000-0000-0000-0000-000000000000'))) AS _dis_plan,
+    f.movement_type AS _prop_movement_type
+FROM (
+    SELECT
+        delta_cents_usd,
+        delta_cents,
+        currency,
+        at,
+        customer_id,
+        plan_id,
+        movement_type,
+        toLowCardinality(?{"EUR"}) AS fx_currency
+    FROM fact_mrr_movement FINAL
+    WHERE
+        tenant_id = ?{11111111-1111-1111-1111-111111111111}
+        AND toDateTime(at) >= toDateTime(?{1767571200})
+        AND toDateTime(at) <= toDateTime(?{1769904000})
+        AND customer_id IN ?{["03030303-0303-0303-0303-030303030303"]}
+) AS f
+ASOF LEFT JOIN (
+    SELECT
+        currency,
+        date,
+        rate_from_usd
+    FROM dim_fx_rate FINAL
+    WHERE
+        currency = ?{"EUR"}
+        AND date <= toDate(toDateTime(?{1769904000}))
+) AS fx ON f.fx_currency = fx.currency AND fx.date <= toDate(f.at)
+GROUP BY
+    toDateTime(tumbleStart(toDateTime(f.at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}),
+    toDateTime(tumbleEnd(toDateTime(f.at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}),
+    dictGet('meteroid.dim_customer_dict', 'country', tuple(f.customer_id)),
+    ifNull(f.plan_id, toUUID('00000000-0000-0000-0000-000000000000')),
+    f.movement_type
+ORDER BY
+    window_start

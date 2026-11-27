@@ -1,0 +1,70 @@
+---
+source: modules/metric-core/src/sql/golden.rs
+expression: gauge_carry/transform_delta
+---
+SELECT
+    window_start,
+    window_end,
+    value
+FROM (
+    SELECT
+        window_start,
+        window_end,
+        value - lagInFrame(value, 1, 0) OVER (ORDER BY window_start ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS value
+    FROM (
+        SELECT
+            window_start,
+            window_end,
+            coalesce(last_value(value) IGNORE NULLS OVER (ORDER BY window_start ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW), 0) AS value
+        FROM (
+            SELECT
+                window_start,
+                window_end,
+                max(value) AS value
+            FROM (
+                SELECT
+                    window_start,
+                    window_end,
+                    value
+                FROM (
+                    SELECT
+                        toDateTime(tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_start,
+                        toDateTime(tumbleEnd(toDateTime(timestamp), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_end,
+                        argMax(toFloat64OrZero(properties[?{"gb"}]), (timestamp, ingested_at, id)) AS value
+                    FROM (
+                        SELECT id, customer_id, timestamp, ingested_at, properties
+                        FROM raw_events_v2
+                        WHERE (tenant_id = ?{11111111-1111-1111-1111-111111111111} AND code = ?{"storage"} AND timestamp >= toDateTime(?{1767484800}) AND timestamp <= toDateTime(?{1769904000}) AND properties[?{"gb"}] != '' AND isNotNull(toFloat64OrNull(properties[?{"gb"}]))) AND is_tombstone = 0 AND ((SELECT count() FROM meteroid.event_voids_local WHERE tenant_id = toUUID('11111111-1111-1111-1111-111111111111') AND code IN ('storage') AND timestamp >= toDateTime(1767484800) AND timestamp <= toDateTime(1769904000)) = 0 OR (customer_id, id, ingested_at) NOT IN (SELECT customer_id, id, ingested_at FROM meteroid.event_voids_local WHERE tenant_id = toUUID('11111111-1111-1111-1111-111111111111') AND code IN ('storage') AND timestamp >= toDateTime(1767484800) AND timestamp <= toDateTime(1769904000)))
+                    )
+                    GROUP BY
+                        tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?{"UTC"}),
+                        tumbleEnd(toDateTime(timestamp), toIntervalDay(1), ?{"UTC"})
+                    ORDER BY
+                        window_start
+                )
+                UNION ALL
+                SELECT
+                    window_start,
+                    window_end,
+                    NULL AS value
+                FROM (
+                    SELECT
+                        toDateTime(tumbleStart(toDateTime(?{1767571200}), toIntervalDay(1), ?{"UTC"}) + number * 86400) AS window_start,
+                        toDateTime(tumbleStart(toDateTime(?{1767571200}), toIntervalDay(1), ?{"UTC"}) + (number + 1) * 86400) AS window_end
+                    FROM numbers(toUInt64((toUnixTimestamp(toDateTime(?{1769904000})) - toUnixTimestamp(toDateTime(?{1767571200}))) / 86400) + 1)
+                )
+            )
+            GROUP BY
+                window_start,
+                window_end
+        )
+        WHERE
+            window_start >= toDateTime(?{1767571200})
+        ORDER BY
+            window_start
+    )
+)
+WHERE
+    window_start >= toDateTime(?{1767571200})
+ORDER BY
+    window_start

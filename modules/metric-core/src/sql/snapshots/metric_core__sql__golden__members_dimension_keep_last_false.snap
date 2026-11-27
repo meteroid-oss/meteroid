@@ -1,0 +1,20 @@
+---
+source: modules/metric-core/src/sql/golden.rs
+expression: members dimension keep_last=false
+---
+SELECT DISTINCT
+    customer_id
+FROM (
+    (
+        SELECT
+            customer_id
+        FROM (
+            SELECT
+                id AS customer_id
+            FROM dim_customer FINAL
+            WHERE
+                tenant_id = ?{11111111-1111-1111-1111-111111111111}
+                AND country IN ?{["FR", "DE"]}
+        ) AS p
+    )
+) AS members

@@ -1,0 +1,6 @@
+---
+source: modules/metric-core/src/sql/golden.rs
+expression: refused
+---
+members empty keep_last=false: invalid metric cohort: a cohort needs at least one predicate
+members empty keep_last=true: invalid metric cohort: a cohort needs at least one predicate

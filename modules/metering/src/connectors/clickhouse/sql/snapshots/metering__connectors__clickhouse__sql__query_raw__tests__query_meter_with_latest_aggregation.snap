@@ -1,0 +1,16 @@
+---
+source: modules/metering/src/connectors/clickhouse/sql/query_raw.rs
+expression: pretty
+---
+SELECT
+    min(toDateTime(timestamp)) AS window_start,
+    max(toDateTime(timestamp)) AS window_end,
+    argMax(tuple(properties[?{"value"}], toString(ifNull(toDecimal128OrNull(properties[?{"value"}], 9), accurateCastOrNull(toFloat64OrNull(properties[?{"value"}]), 'Decimal(38, 9)')))), (timestamp, ingested_at, id)) AS _winner,
+    _winner.1 AS value_raw,
+    _winner.2 AS value,
+    toString(countIf(isNull(toDecimal128OrNull(properties[?{"value"}], 9)))) AS decimal_fallbacks
+FROM (
+    SELECT id, customer_id, timestamp, ingested_at, properties
+    FROM raw_events_v2
+    WHERE (tenant_id = ?{ffffffff-ffff-ffff-ffff-ffffffffffff} AND code = ?{"status"} AND timestamp >= toDateTime(?{1704067200}) AND properties[?{"value"}] != '' AND abs(toFloat64OrNull(properties[?{"value"}])) < 1e18) AND is_tombstone = 0 AND ((SELECT count() FROM meteroid.event_voids_local WHERE tenant_id = toUUID('ffffffff-ffff-ffff-ffff-ffffffffffff') AND code IN ('status') AND timestamp >= toDateTime(1704067200)) = 0 OR (customer_id, id, ingested_at) NOT IN (SELECT customer_id, id, ingested_at FROM meteroid.event_voids_local WHERE tenant_id = toUUID('ffffffff-ffff-ffff-ffff-ffffffffffff') AND code IN ('status') AND timestamp >= toDateTime(1704067200)))
+)

@@ -1,0 +1,33 @@
+---
+source: modules/metric-core/src/sql/golden.rs
+expression: snapshot_mrr/group_customer_attr_map
+---
+SELECT
+    window_start,
+    window_end,
+    argMax(value, _snap_day) AS value,
+    _prop_segment
+FROM (
+    SELECT
+        toDateTime(tumbleStart(toDateTime(snapshot_date), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_start,
+        toDateTime(tumbleEnd(toDateTime(snapshot_date), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_end,
+        sum(toFloat64(mrr_cents_usd)) AS value,
+        JSONExtractString(dictGet('meteroid.dim_customer_dict', 'attributes', tuple(customer_id)), 'segment') AS _prop_segment,
+        toDate(snapshot_date) AS _snap_day
+    FROM fact_mrr_snapshot FINAL
+    WHERE
+        tenant_id = ?{11111111-1111-1111-1111-111111111111}
+        AND toDateTime(snapshot_date) >= toDateTime(?{1767571200})
+        AND toDateTime(snapshot_date) <= toDateTime(?{1769904000})
+    GROUP BY
+        toDateTime(tumbleStart(toDateTime(snapshot_date), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}),
+        toDateTime(tumbleEnd(toDateTime(snapshot_date), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}),
+        JSONExtractString(dictGet('meteroid.dim_customer_dict', 'attributes', tuple(customer_id)), 'segment'),
+        toDate(snapshot_date)
+)
+GROUP BY
+    window_start,
+    window_end,
+    _prop_segment
+ORDER BY
+    window_start

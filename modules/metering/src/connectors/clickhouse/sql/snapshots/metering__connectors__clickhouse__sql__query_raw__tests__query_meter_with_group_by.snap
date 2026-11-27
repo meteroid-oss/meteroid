@@ -1,0 +1,24 @@
+---
+source: modules/metering/src/connectors/clickhouse/sql/query_raw.rs
+expression: pretty
+---
+SELECT
+    tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?{"UTC"}) AS window_start,
+    tumbleEnd(toDateTime(timestamp), toIntervalDay(1), ?{"UTC"}) AS window_end,
+    toString(sum(ifNull(toDecimal128OrNull(properties[?{"duration"}], 9), accurateCastOrNull(toFloat64OrNull(properties[?{"duration"}]), 'Decimal(38, 9)')))) AS value,
+    toString(count()) AS value_count,
+    toString(countIf(isNull(toDecimal128OrNull(properties[?{"duration"}], 9)))) AS decimal_fallbacks,
+    properties[?{"region"}] AS _prop_region,
+    properties[?{"endpoint"}] AS _prop_endpoint
+FROM (
+    SELECT id, customer_id, timestamp, ingested_at, properties
+    FROM raw_events_v2
+    WHERE (tenant_id = ?{ffffffff-ffff-ffff-ffff-ffffffffffff} AND code = ?{"transaction"} AND timestamp >= toDateTime(?{1704067200}) AND properties[?{"duration"}] != '' AND abs(toFloat64OrNull(properties[?{"duration"}])) < 1e18) AND is_tombstone = 0 AND ((SELECT count() FROM meteroid.event_voids_local WHERE tenant_id = toUUID('ffffffff-ffff-ffff-ffff-ffffffffffff') AND code IN ('transaction') AND timestamp >= toDateTime(1704067200)) = 0 OR (customer_id, id, ingested_at) NOT IN (SELECT customer_id, id, ingested_at FROM meteroid.event_voids_local WHERE tenant_id = toUUID('ffffffff-ffff-ffff-ffff-ffffffffffff') AND code IN ('transaction') AND timestamp >= toDateTime(1704067200)))
+)
+GROUP BY
+    tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?{"UTC"}),
+    tumbleEnd(toDateTime(timestamp), toIntervalDay(1), ?{"UTC"}),
+    properties[?{"region"}],
+    properties[?{"endpoint"}]
+ORDER BY
+    window_start

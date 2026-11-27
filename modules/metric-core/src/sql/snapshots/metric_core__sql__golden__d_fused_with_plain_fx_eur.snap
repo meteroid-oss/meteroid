@@ -1,0 +1,85 @@
+---
+source: modules/metric-core/src/sql/golden.rs
+expression: d_fused_with_plain/fx_eur
+---
+WITH
+    m_fused_0 AS (
+        SELECT
+            toDateTime(tumbleStart(toDateTime(f.at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_start,
+            toDateTime(tumbleEnd(toDateTime(f.at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_end,
+            sumIf(if(f.currency = f.fx_currency, toFloat64(f.delta_cents), toFloat64(f.delta_cents_usd) * fx.rate_from_usd), movement_type = ?{"churn"}) AS value_churn,
+            sumIf(if(f.currency = f.fx_currency, toFloat64(f.delta_cents), toFloat64(f.delta_cents_usd) * fx.rate_from_usd), movement_type = ?{"expansion"}) AS value_expansion
+        FROM (
+            SELECT
+                delta_cents_usd,
+                delta_cents,
+                currency,
+                at,
+                movement_type,
+                toLowCardinality(?{"EUR"}) AS fx_currency
+            FROM fact_mrr_movement FINAL
+            WHERE
+                tenant_id = ?{11111111-1111-1111-1111-111111111111}
+                AND toDateTime(at) >= toDateTime(?{1767571200})
+                AND toDateTime(at) <= toDateTime(?{1769904000})
+                AND (movement_type = ?{"churn"} OR movement_type = ?{"expansion"})
+        ) AS f
+        ASOF LEFT JOIN (
+            SELECT
+                currency,
+                date,
+                rate_from_usd
+            FROM dim_fx_rate FINAL
+            WHERE
+                currency = ?{"EUR"}
+                AND date <= toDate(toDateTime(?{1769904000}))
+        ) AS fx ON f.fx_currency = fx.currency AND fx.date <= toDate(f.at)
+        GROUP BY
+            toDateTime(tumbleStart(toDateTime(f.at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}),
+            toDateTime(tumbleEnd(toDateTime(f.at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"})
+        ORDER BY
+            window_start
+    ),
+    m_fact_sum AS (
+        SELECT
+            toDateTime(tumbleStart(toDateTime(f.at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_start,
+            toDateTime(tumbleEnd(toDateTime(f.at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_end,
+            sum(if(f.currency = f.fx_currency, toFloat64(f.delta_cents), toFloat64(f.delta_cents_usd) * fx.rate_from_usd)) AS value
+        FROM (
+            SELECT
+                delta_cents_usd,
+                delta_cents,
+                currency,
+                at,
+                toLowCardinality(?{"EUR"}) AS fx_currency
+            FROM fact_mrr_movement FINAL
+            WHERE
+                tenant_id = ?{11111111-1111-1111-1111-111111111111}
+                AND toDateTime(at) >= toDateTime(?{1767571200})
+                AND toDateTime(at) <= toDateTime(?{1769904000})
+        ) AS f
+        ASOF LEFT JOIN (
+            SELECT
+                currency,
+                date,
+                rate_from_usd
+            FROM dim_fx_rate FINAL
+            WHERE
+                currency = ?{"EUR"}
+                AND date <= toDate(toDateTime(?{1769904000}))
+        ) AS fx ON f.fx_currency = fx.currency AND fx.date <= toDate(f.at)
+        GROUP BY
+            toDateTime(tumbleStart(toDateTime(f.at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}),
+            toDateTime(tumbleEnd(toDateTime(f.at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"})
+        ORDER BY
+            window_start
+    )
+SELECT
+    coalesce(m_fused_0.window_start, m_fact_sum.window_start) AS window_start,
+    coalesce(m_fused_0.window_end, m_fact_sum.window_end) AS window_end,
+    coalesce(m_fused_0.value_churn, 0) + coalesce(m_fused_0.value_expansion, 0) - coalesce(m_fact_sum.value, 0) AS value
+FROM m_fused_0
+FULL OUTER JOIN m_fact_sum ON m_fused_0.window_start = m_fact_sum.window_start AND m_fused_0.window_end = m_fact_sum.window_end
+ORDER BY
+    window_start
+SETTINGS join_use_nulls = 1

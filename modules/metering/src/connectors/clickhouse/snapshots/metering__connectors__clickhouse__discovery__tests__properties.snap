@@ -1,0 +1,21 @@
+---
+source: modules/metering/src/connectors/clickhouse/discovery.rs
+expression: properties
+---
+SELECT
+    key AS key,
+    toUInt64(uniqExact(val)) AS cardinality,
+    topK(8)(val) AS samples,
+    toUInt64(countIf(val != '' AND isNotNull(toFloat64OrNull(val)))) AS numeric_count,
+    toUInt64(countIf(val != '')) AS nonempty_count
+FROM (
+    SELECT properties
+    FROM raw_events_v2
+    WHERE (tenant_id = toUUID('00000000-0000-0000-0000-00000000d15c') AND code = ?{"api"} AND timestamp >= now() - INTERVAL 30 DAY) AND is_tombstone = 0 AND ((SELECT count() FROM meteroid.event_voids_local WHERE tenant_id = toUUID('00000000-0000-0000-0000-00000000d15c') AND code IN ('api') AND timestamp >= now() - INTERVAL 30 DAY) = 0 OR (customer_id, id, ingested_at) NOT IN (SELECT customer_id, id, ingested_at FROM meteroid.event_voids_local WHERE tenant_id = toUUID('00000000-0000-0000-0000-00000000d15c') AND code IN ('api') AND timestamp >= now() - INTERVAL 30 DAY))
+)
+ARRAY JOIN mapKeys(properties) AS key, mapValues(properties) AS val
+GROUP BY
+    key
+ORDER BY
+    count() DESC
+LIMIT 50

@@ -1,0 +1,32 @@
+---
+source: modules/metric-core/src/sql/golden.rs
+expression: members delta_fact keep_last=false
+---
+SELECT DISTINCT
+    customer_id
+FROM (
+    (
+        SELECT
+            customer_id
+        FROM (
+            SELECT
+                customer_id
+            FROM (
+                SELECT
+                    customer_id AS customer_id,
+                    toFloat64(uniqIf(delta_cents_usd, toDateTime(at) >= toDateTime(?{1767571200}))) AS cur,
+                    toFloat64(uniqIf(delta_cents_usd, toDateTime(at) < toDateTime(?{1767571200}) AND toDateTime(at) >= toDateTime(?{1765238400}))) AS prior
+                FROM fact_mrr_movement FINAL
+                WHERE
+                    tenant_id = ?{11111111-1111-1111-1111-111111111111}
+                    AND toDateTime(at) >= toDateTime(?{1765238400})
+                    AND toDateTime(at) <= toDateTime(?{1769904000})
+                GROUP BY
+                    customer_id
+                HAVING
+                    prior != 0
+                    AND (cur - prior) / prior * 100 > 12.5
+            ) AS d
+        ) AS p
+    )
+) AS members

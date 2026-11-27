@@ -1,0 +1,41 @@
+---
+source: modules/metric-core/src/sql/golden.rs
+expression: d_running/no_window
+---
+SELECT
+    window_start,
+    window_end,
+    value
+FROM (
+    WITH
+        m_fact_sum__running_total AS (
+            SELECT
+                window_start,
+                window_end,
+                sum(value) OVER (ORDER BY window_start ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS value
+            FROM (
+                SELECT
+                    toDateTime(?{0}) AS window_start,
+                    toDateTime(?{1769904000}) AS window_end,
+                    sum(toFloat64(delta_cents_usd)) AS value
+                FROM fact_mrr_movement FINAL
+                WHERE
+                    tenant_id = ?{11111111-1111-1111-1111-111111111111}
+                    AND toDateTime(at) >= toDateTime(?{0})
+                    AND toDateTime(at) <= toDateTime(?{1769904000})
+                ORDER BY
+                    window_start
+            )
+        )
+    SELECT
+        m_fact_sum__running_total.window_start AS window_start,
+        m_fact_sum__running_total.window_end AS window_end,
+        m_fact_sum__running_total.value / nullIf(100, 0) AS value
+    FROM m_fact_sum__running_total
+    ORDER BY
+        window_start
+)
+WHERE
+    window_start >= toDateTime(?{1767571200})
+ORDER BY
+    window_start

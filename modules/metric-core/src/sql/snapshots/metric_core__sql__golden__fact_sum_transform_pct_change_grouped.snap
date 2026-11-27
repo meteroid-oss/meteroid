@@ -1,0 +1,38 @@
+---
+source: modules/metric-core/src/sql/golden.rs
+expression: fact_sum/transform_pct_change_grouped
+---
+SELECT
+    window_start,
+    window_end,
+    value,
+    _prop_region
+FROM (
+    SELECT
+        window_start,
+        window_end,
+        (value - lagInFrame(value, 1, 0) OVER (PARTITION BY _prop_region ORDER BY window_start ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)) / nullIf(lagInFrame(value, 1, 0) OVER (PARTITION BY _prop_region ORDER BY window_start ROWS BETWEEN 1 PRECEDING AND CURRENT ROW), 0) AS value,
+        _prop_region
+    FROM (
+        SELECT
+            toDateTime(tumbleStart(toDateTime(at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_start,
+            toDateTime(tumbleEnd(toDateTime(at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_end,
+            sum(toFloat64(delta_cents_usd)) AS value,
+            region AS _prop_region
+        FROM fact_mrr_movement FINAL
+        WHERE
+            tenant_id = ?{11111111-1111-1111-1111-111111111111}
+            AND toDateTime(at) >= toDateTime(?{1767484800})
+            AND toDateTime(at) <= toDateTime(?{1769904000})
+        GROUP BY
+            toDateTime(tumbleStart(toDateTime(at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}),
+            toDateTime(tumbleEnd(toDateTime(at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}),
+            region
+        ORDER BY
+            window_start
+    )
+)
+WHERE
+    window_start >= toDateTime(?{1767571200})
+ORDER BY
+    window_start

@@ -1,0 +1,36 @@
+---
+source: modules/metric-core/src/sql/golden.rs
+expression: fact_sum/transform_running_total
+---
+SELECT
+    window_start,
+    window_start + toIntervalDay(1) AS window_end,
+    value
+FROM (
+    SELECT
+        window_start,
+        window_end,
+        sum(value) OVER (ORDER BY window_start ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS value
+    FROM (
+        SELECT
+            toDateTime(tumbleStart(toDateTime(at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_start,
+            toDateTime(tumbleEnd(toDateTime(at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_end,
+            sum(toFloat64(delta_cents_usd)) AS value
+        FROM fact_mrr_movement FINAL
+        WHERE
+            tenant_id = ?{11111111-1111-1111-1111-111111111111}
+            AND toDateTime(at) >= toDateTime(?{0})
+            AND toDateTime(at) <= toDateTime(?{1769904000})
+        GROUP BY
+            toDateTime(tumbleStart(toDateTime(at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}),
+            toDateTime(tumbleEnd(toDateTime(at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"})
+        ORDER BY
+            window_start
+    )
+    ORDER BY
+        window_start WITH FILL FROM toDateTime(tumbleStart(toDateTime(?{1767571200}), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) TO toDateTime(?{1769904000}) STEP toIntervalDay(1) INTERPOLATE (value AS value)
+)
+WHERE
+    window_start >= toDateTime(?{1767571200})
+ORDER BY
+    window_start

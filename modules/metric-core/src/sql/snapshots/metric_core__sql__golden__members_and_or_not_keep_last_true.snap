@@ -1,0 +1,68 @@
+---
+source: modules/metric-core/src/sql/golden.rs
+expression: members and_or_not keep_last=true
+---
+SELECT DISTINCT
+    customer_id
+FROM (
+    (
+        SELECT
+            customer_id
+        FROM (
+            SELECT
+                customer_id
+            FROM (
+                SELECT
+                    customer_id
+                FROM (
+                    SELECT
+                        id AS customer_id
+                    FROM dim_customer FINAL
+                    WHERE
+                        tenant_id = ?{11111111-1111-1111-1111-111111111111}
+                        AND country IN ?{["FR", "DE"]}
+                ) AS c
+                UNION DISTINCT
+                SELECT
+                    customer_id
+                FROM (
+                    SELECT
+                        customer_id
+                    FROM (
+                        SELECT
+                            subscription_id,
+                            any(customer_id) AS customer_id,
+                            argMax(plan_id, at) AS _plan,
+                            argMaxIf(lifecycle_delta, at, lifecycle_delta != 0) AS _state
+                        FROM fact_subscription_event FINAL
+                        WHERE
+                            tenant_id = ?{11111111-1111-1111-1111-111111111111}
+                        GROUP BY
+                            subscription_id
+                    )
+                    WHERE
+                        _state = 1
+                        AND toString(_plan) IN ?{["p3"]}
+                ) AS c
+            ) AS c
+            INTERSECT
+            SELECT
+                customer_id
+            FROM (
+                SELECT
+                    id AS customer_id
+                FROM dim_customer FINAL
+                WHERE
+                    tenant_id = ?{11111111-1111-1111-1111-111111111111}
+                    AND id NOT IN (
+                        SELECT
+                            id AS customer_id
+                        FROM dim_customer FINAL
+                        WHERE
+                            tenant_id = ?{11111111-1111-1111-1111-111111111111}
+                            AND country IN ?{["FR", "DE"]}
+                    )
+            ) AS c
+        ) AS p
+    )
+) AS members

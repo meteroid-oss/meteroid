@@ -1,0 +1,91 @@
+---
+source: modules/metric-core/src/sql/golden.rs
+expression: d_transforms/day
+---
+SELECT
+    window_start,
+    window_end,
+    value
+FROM (
+    WITH
+        m_raw_sum__moving_avg AS (
+            SELECT
+                window_start,
+                window_end,
+                avg(value) OVER (ORDER BY window_start ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) AS value
+            FROM (
+                SELECT
+                    toDateTime(tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_start,
+                    toDateTime(tumbleEnd(toDateTime(timestamp), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_end,
+                    sum(toFloat64OrZero(properties[?{"tokens"}])) AS value
+                FROM (
+                    SELECT id, customer_id, timestamp, ingested_at, properties
+                    FROM raw_events_v2
+                    WHERE (tenant_id = ?{11111111-1111-1111-1111-111111111111} AND code = ?{"api_call"} AND timestamp >= toDateTime(?{1767398400}) AND timestamp <= toDateTime(?{1769904000}) AND properties[?{"tokens"}] != '' AND isNotNull(toFloat64OrNull(properties[?{"tokens"}]))) AND is_tombstone = 0 AND ((SELECT count() FROM meteroid.event_voids_local WHERE tenant_id = toUUID('11111111-1111-1111-1111-111111111111') AND code IN ('api_call') AND timestamp >= toDateTime(1767398400) AND timestamp <= toDateTime(1769904000)) = 0 OR (customer_id, id, ingested_at) NOT IN (SELECT customer_id, id, ingested_at FROM meteroid.event_voids_local WHERE tenant_id = toUUID('11111111-1111-1111-1111-111111111111') AND code IN ('api_call') AND timestamp >= toDateTime(1767398400) AND timestamp <= toDateTime(1769904000)))
+                )
+                GROUP BY
+                    tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?{"UTC"}),
+                    tumbleEnd(toDateTime(timestamp), toIntervalDay(1), ?{"UTC"})
+                ORDER BY
+                    window_start
+            )
+        ),
+        m_raw_sum__pct_change AS (
+            SELECT
+                window_start,
+                window_end,
+                (value - lagInFrame(value, 1, 0) OVER (ORDER BY window_start ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)) / nullIf(lagInFrame(value, 1, 0) OVER (ORDER BY window_start ROWS BETWEEN 1 PRECEDING AND CURRENT ROW), 0) AS value
+            FROM (
+                SELECT
+                    toDateTime(tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_start,
+                    toDateTime(tumbleEnd(toDateTime(timestamp), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_end,
+                    sum(toFloat64OrZero(properties[?{"tokens"}])) AS value
+                FROM (
+                    SELECT id, customer_id, timestamp, ingested_at, properties
+                    FROM raw_events_v2
+                    WHERE (tenant_id = ?{11111111-1111-1111-1111-111111111111} AND code = ?{"api_call"} AND timestamp >= toDateTime(?{1767484800}) AND timestamp <= toDateTime(?{1769904000}) AND properties[?{"tokens"}] != '' AND isNotNull(toFloat64OrNull(properties[?{"tokens"}]))) AND is_tombstone = 0 AND ((SELECT count() FROM meteroid.event_voids_local WHERE tenant_id = toUUID('11111111-1111-1111-1111-111111111111') AND code IN ('api_call') AND timestamp >= toDateTime(1767484800) AND timestamp <= toDateTime(1769904000)) = 0 OR (customer_id, id, ingested_at) NOT IN (SELECT customer_id, id, ingested_at FROM meteroid.event_voids_local WHERE tenant_id = toUUID('11111111-1111-1111-1111-111111111111') AND code IN ('api_call') AND timestamp >= toDateTime(1767484800) AND timestamp <= toDateTime(1769904000)))
+                )
+                GROUP BY
+                    tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?{"UTC"}),
+                    tumbleEnd(toDateTime(timestamp), toIntervalDay(1), ?{"UTC"})
+                ORDER BY
+                    window_start
+            )
+        ),
+        m_fact_sum__delta AS (
+            SELECT
+                window_start,
+                window_end,
+                value - lagInFrame(value, 1, 0) OVER (ORDER BY window_start ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS value
+            FROM (
+                SELECT
+                    toDateTime(tumbleStart(toDateTime(at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_start,
+                    toDateTime(tumbleEnd(toDateTime(at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_end,
+                    sum(toFloat64(delta_cents_usd)) AS value
+                FROM fact_mrr_movement FINAL
+                WHERE
+                    tenant_id = ?{11111111-1111-1111-1111-111111111111}
+                    AND toDateTime(at) >= toDateTime(?{1767484800})
+                    AND toDateTime(at) <= toDateTime(?{1769904000})
+                GROUP BY
+                    toDateTime(tumbleStart(toDateTime(at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}),
+                    toDateTime(tumbleEnd(toDateTime(at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"})
+                ORDER BY
+                    window_start
+            )
+        )
+    SELECT
+        coalesce(m_raw_sum__moving_avg.window_start, m_raw_sum__pct_change.window_start, m_fact_sum__delta.window_start) AS window_start,
+        coalesce(m_raw_sum__moving_avg.window_end, m_raw_sum__pct_change.window_end, m_fact_sum__delta.window_end) AS window_end,
+        m_raw_sum__moving_avg.value + (m_raw_sum__pct_change.value - m_fact_sum__delta.value) AS value
+    FROM m_raw_sum__moving_avg
+    FULL OUTER JOIN m_raw_sum__pct_change ON m_raw_sum__moving_avg.window_start = m_raw_sum__pct_change.window_start AND m_raw_sum__moving_avg.window_end = m_raw_sum__pct_change.window_end
+    FULL OUTER JOIN m_fact_sum__delta ON coalesce(m_raw_sum__moving_avg.window_start, m_raw_sum__pct_change.window_start) = m_fact_sum__delta.window_start AND coalesce(m_raw_sum__moving_avg.window_end, m_raw_sum__pct_change.window_end) = m_fact_sum__delta.window_end
+    ORDER BY
+        window_start
+)
+WHERE
+    window_start >= toDateTime(?{1767571200})
+ORDER BY
+    window_start
+SETTINGS join_use_nulls = 1

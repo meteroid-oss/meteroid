@@ -1,0 +1,30 @@
+---
+source: modules/metric-core/src/sql/golden.rs
+expression: d_fused_multi_filter/day
+---
+WITH
+    m_fused_0 AS (
+        SELECT
+            toDateTime(tumbleStart(toDateTime(at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_start,
+            toDateTime(tumbleEnd(toDateTime(at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}) AS window_end,
+            sumIf(toFloat64(delta_cents_usd), (movement_type = ?{"churn"} OR movement_type = ?{"contraction"}) AND plan_id = ?{"99999999-9999-9999-9999-999999999999"}) AS value_churn_or_contraction_by_plan,
+            sumIf(toFloat64(delta_cents_usd), movement_type = ?{"expansion"}) AS value_expansion
+        FROM fact_mrr_movement FINAL
+        WHERE
+            tenant_id = ?{11111111-1111-1111-1111-111111111111}
+            AND toDateTime(at) >= toDateTime(?{1767571200})
+            AND toDateTime(at) <= toDateTime(?{1769904000})
+            AND (((movement_type = ?{"churn"} OR movement_type = ?{"contraction"}) AND plan_id = ?{"99999999-9999-9999-9999-999999999999"}) OR movement_type = ?{"expansion"})
+        GROUP BY
+            toDateTime(tumbleStart(toDateTime(at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"}),
+            toDateTime(tumbleEnd(toDateTime(at), toIntervalDay(1), ?{"UTC"}), ?{"UTC"})
+        ORDER BY
+            window_start
+    )
+SELECT
+    m_fused_0.window_start AS window_start,
+    m_fused_0.window_end AS window_end,
+    coalesce(m_fused_0.value_churn_or_contraction_by_plan, 0) + coalesce(m_fused_0.value_expansion, 0) AS value
+FROM m_fused_0
+ORDER BY
+    window_start

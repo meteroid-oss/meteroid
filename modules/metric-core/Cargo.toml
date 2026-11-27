@@ -27,5 +27,9 @@ tokio = { workspace = true, features = ["time"] }
 uuid = { workspace = true, features = ["v4"] }
 workspace-hack = { version = "0.1", path = "../../crates/workspace-hack" }
 
+[features]
+test-corpus = []
+
 [dev-dependencies]
+insta = { workspace = true }
 rstest = { workspace = true }
