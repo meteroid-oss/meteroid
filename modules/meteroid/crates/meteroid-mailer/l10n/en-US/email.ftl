@@ -181,3 +181,11 @@ cancellation-received = Cancellation received
 # $date = a long localized date, $time = HH:MM in UTC.
 cancellation-received-at = { $date } at { $time } UTC
 last-day-of-service = Last day of service
+
+## Expiring card (kind payment_method_expiring). $method is e.g. "Visa •••• 4242", $date a long localized date.
+payment-method-expiring-subject = Your payment method for { $company } expires soon
+payment-method-expiring-heading = Your card expires soon
+payment-method-expiring-intro = Your { $method } expires on { $date }. Update it so your subscription keeps renewing without interruption.
+payment-method-label = Payment method
+payment-method-expires = Expires
+update-card = Update payment method

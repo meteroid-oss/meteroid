@@ -2648,6 +2648,16 @@ diesel::table! {
 }
 
 diesel::table! {
+    payment_method_expiry_notice (payment_method_id, exp_year, exp_month) {
+        payment_method_id -> Uuid,
+        tenant_id -> Uuid,
+        exp_year -> Int4,
+        exp_month -> Int4,
+        notified_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     payment_reminder_sequence (id) {
         id -> Uuid,
         tenant_id -> Uuid,
@@ -4429,6 +4439,8 @@ diesel::joinable!(organization_milestone -> tenant (tenant_id));
 diesel::joinable!(organization_sso_connection -> organization (organization_id));
 diesel::joinable!(outbox_event -> tenant (tenant_id));
 diesel::joinable!(password_reset_token -> user (user_id));
+diesel::joinable!(payment_method_expiry_notice -> customer_payment_method (payment_method_id));
+diesel::joinable!(payment_method_expiry_notice -> tenant (tenant_id));
 diesel::joinable!(payment_reminder_sequence -> invoicing_entity (invoicing_entity_id));
 diesel::joinable!(payment_reminder_sequence -> tenant (tenant_id));
 diesel::joinable!(payment_reminder_step -> payment_reminder_sequence (sequence_id));

@@ -274,6 +274,7 @@ pub const NOT_COPIED: &[&str] = &[
     "customer_credit_purchase",
     "customer_credit_unrecovered",
     "customer_payment_method",
+    "payment_method_expiry_notice",
     "invoice",
     "invoice_carry_forward",
     "invoice_payment_reminder",

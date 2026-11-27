@@ -181,3 +181,11 @@ cancellation-received = Opzegging ontvangen op
 # $date = een lange gelokaliseerde datum, $time = HH:MM in UTC.
 cancellation-received-at = { $date } om { $time } UTC
 last-day-of-service = Laatste dag van de dienstverlening
+
+## Verlopende kaart (type payment_method_expiring). $method bijv. "Visa •••• 4242", $date een lange gelokaliseerde datum.
+payment-method-expiring-subject = Je betaalmethode voor { $company } verloopt binnenkort
+payment-method-expiring-heading = Je kaart verloopt binnenkort
+payment-method-expiring-intro = Je { $method } verloopt op { $date }. Werk hem bij zodat je abonnement zonder onderbreking wordt verlengd.
+payment-method-label = Betaalmethode
+payment-method-expires = Verloopt
+update-card = Betaalmethode bijwerken

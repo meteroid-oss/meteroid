@@ -102,6 +102,14 @@ export const EMAIL_KIND_META: EmailKindMeta[] = [
     attachesDocument: false,
   },
   {
+    kind: EmailKind.PAYMENT_METHOD_EXPIRING,
+    label: 'Card expiring',
+    description:
+      'Sent before the card an automatically charged subscription uses expires, with a link to update it.',
+    editableCopy: false,
+    attachesDocument: false,
+  },
+  {
     kind: EmailKind.SUBSCRIPTION_CANCELLED,
     label: 'Cancellation confirmed',
     description: 'Sent when a subscription cancellation is recorded, with its end date.',
@@ -173,7 +181,13 @@ const GROUPS: KindGroup[] = [
     title: 'Quotes',
     kinds: [EmailKind.QUOTE_READY, EmailKind.QUOTE_ACCEPTED].map(k => byKind(k)!),
   },
-  { title: 'Subscriptions', kinds: [byKind(EmailKind.SUBSCRIPTION_CANCELLED)!] },
+  {
+    title: 'Subscriptions',
+    kinds: [
+      byKind(EmailKind.SUBSCRIPTION_CANCELLED)!,
+      byKind(EmailKind.PAYMENT_METHOD_EXPIRING)!,
+    ],
+  },
   {
     title: 'Prepaid balance',
     kinds: [EmailKind.WALLET_BALANCE_LOW, EmailKind.AUTO_TOP_UP_FAILED].map(k => byKind(k)!),

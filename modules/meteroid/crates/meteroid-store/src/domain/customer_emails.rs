@@ -3,8 +3,8 @@ use crate::domain::payment_reminders::{Audience, SendWindow};
 use crate::errors::{StoreError, StoreErrorReport};
 use chrono::NaiveDateTime;
 use common_domain::ids::{
-    BudgetId, CreditNoteId, CreditOperationId, CustomerId, InvoiceId, InvoicingEntityId,
-    PaymentReminderSequenceId, PaymentTransactionId, SubscriptionId, WalletId,
+    BudgetId, CreditNoteId, CreditOperationId, CustomerId, CustomerPaymentMethodId, InvoiceId,
+    InvoicingEntityId, PaymentReminderSequenceId, PaymentTransactionId, SubscriptionId, WalletId,
 };
 use diesel_models::email_kind_audience::EmailKindAudienceRow;
 use diesel_models::enums::EmailKindAudienceModeEnum;
@@ -51,6 +51,8 @@ pub enum EmailKind {
     BudgetExceeded,
     /// A cancellation was recorded: the customer's confirmation in text form (§ 312k BGB).
     SubscriptionCancelled,
+    /// The card a subscription is charged on expires soon; the link updates it.
+    PaymentMethodExpiring,
     /// Billing moved from another provider: the customer adds a payment method Meteroid charges.
     PaymentMethodRequested,
 }
@@ -95,13 +97,15 @@ impl EmailKind {
                 | Self::BudgetThreshold
                 | Self::BudgetExceeded
                 | Self::SubscriptionCancelled
+                | Self::PaymentMethodExpiring
                 | Self::PaymentMethodRequested
         )
     }
 
     fn default_enabled(&self) -> bool {
-        // Reminders need a deliberate sequence and copy; tenants opt out of the rest globally.
-        !matches!(self, Self::PaymentReminder)
+        // Reminders need a deliberate sequence and copy, and an expiring-card notice is a new
+        // email to every customer: tenants opt in. They opt out of the rest.
+        !matches!(self, Self::PaymentReminder | Self::PaymentMethodExpiring)
     }
 }
 
@@ -370,6 +374,15 @@ pub enum EmailContext {
         received_at: NaiveDateTime,
         ends_at: NaiveDateTime,
     },
+    /// The card on file, which an automatically charged subscription uses, expires at the end of
+    /// `exp_month` of `exp_year`.
+    PaymentMethodExpiring {
+        customer_id: CustomerId,
+        payment_method_id: CustomerPaymentMethodId,
+        method: String,
+        exp_month: u32,
+        exp_year: i32,
+    },
     /// `update_by` is the day the payment method is needed; the link is minted when it is sent.
     PaymentMethodRequested {
         customer_id: CustomerId,
@@ -434,6 +447,7 @@ impl EmailContext {
             | Self::AutoTopUpFailed { .. }
             | Self::BudgetAlert { .. }
             | Self::SubscriptionCancelled { .. }
+            | Self::PaymentMethodExpiring { .. }
             | Self::PaymentMethodRequested { .. } => None,
         }
     }
@@ -445,6 +459,7 @@ impl EmailContext {
             | Self::AutoTopUpFailed { customer_id, .. }
             | Self::BudgetAlert { customer_id, .. }
             | Self::SubscriptionCancelled { customer_id, .. }
+            | Self::PaymentMethodExpiring { customer_id, .. }
             | Self::PaymentMethodRequested { customer_id, .. } => Some(*customer_id),
             _ => None,
         }
@@ -478,8 +493,9 @@ mod tests {
     }
     use common_domain::ids::BaseId;
 
-    /// Migration `2026-09-26-160627_customer_emails` `disabled_kinds` column default.
-    const COLUMN_DEFAULT: &[&str] = &["payment_reminder"];
+    /// The `disabled_kinds` column default, as migration
+    /// `2026-11-27-018493_payment_method_expiry_notice` sets it.
+    const COLUMN_DEFAULT: &[&str] = &["payment_reminder", "payment_method_expiring"];
 
     #[test]
     fn default_disabled_matches_the_column_default() {

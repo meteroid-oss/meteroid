@@ -2,6 +2,7 @@
 //! sweeper and the per-invoice read model.
 
 pub mod audience;
+pub mod card_expiry;
 pub mod schedule;
 pub mod state;
 pub mod sweep;

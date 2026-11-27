@@ -181,3 +181,11 @@ cancellation-received = Cancelamento recebido em
 # $date = uma data longa localizada, $time = HH:MM em UTC.
 cancellation-received-at = { $date } às { $time } UTC
 last-day-of-service = Último dia de serviço
+
+## Cartão expirando (tipo payment_method_expiring). $method p. ex. "Visa •••• 4242", $date uma data longa localizada.
+payment-method-expiring-subject = Seu método de pagamento para { $company } expira em breve
+payment-method-expiring-heading = Seu cartão expira em breve
+payment-method-expiring-intro = Seu { $method } expira em { $date }. Atualize-o para que sua assinatura continue sendo renovada sem interrupção.
+payment-method-label = Método de pagamento
+payment-method-expires = Expira em
+update-card = Atualizar método de pagamento

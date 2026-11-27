@@ -74,6 +74,13 @@ const CUSTOMER_READ_METHODS: &[(&str, &[&str])] = &[
     ),
 ];
 
+/// The writes a `payment_methods` token adds to the read methods: saving a card and making it the
+/// default. Fails closed like the read allowlist.
+const PAYMENT_METHOD_METHODS: &[(&str, &[&str])] = &[(
+    "meteroid.portal.shared.v1.PortalSharedService",
+    &["SetupIntent", "AddPaymentMethod", "SetDefaultPaymentMethod"],
+)];
+
 /// Read methods EE modules serve, so absent from the core protos.
 const MODULE_CUSTOMER_READ_METHODS: &[(&str, &[&str])] = &[(
     "meteroid.portal.migration.v1.PortalMigrationService",
@@ -92,11 +99,14 @@ fn delegated_allows(gm: &GrpcServiceMethod) -> bool {
     !DELEGATED_READ_ONLY_SERVICES.contains(&gm.service.as_str()) || is_customer_read_method(gm)
 }
 
-fn is_customer_read_method(gm: &GrpcServiceMethod) -> bool {
-    CUSTOMER_READ_METHODS
+fn listed(allowlist: &[(&str, &[&str])], gm: &GrpcServiceMethod) -> bool {
+    allowlist
         .iter()
-        .chain(MODULE_CUSTOMER_READ_METHODS)
         .any(|(service, methods)| gm.service == *service && methods.contains(&gm.method.as_str()))
+}
+
+fn is_customer_read_method(gm: &GrpcServiceMethod) -> bool {
+    listed(CUSTOMER_READ_METHODS, gm) || listed(MODULE_CUSTOMER_READ_METHODS, gm)
 }
 
 /// `None` is a legacy token minted before scopes, which keeps full access.
@@ -104,6 +114,9 @@ fn customer_scopes_allow(scopes: Option<&[PortalScope]>, gm: &GrpcServiceMethod)
     match scopes {
         None => true,
         Some(scopes) if scopes.contains(&PortalScope::Manage) => true,
+        Some(scopes) if scopes.contains(&PortalScope::PaymentMethods) => {
+            is_customer_read_method(gm) || listed(PAYMENT_METHOD_METHODS, gm)
+        }
         Some(scopes) => scopes.contains(&PortalScope::Read) && is_customer_read_method(gm),
     }
 }
@@ -358,6 +371,48 @@ mod tests {
     }
 
     #[test]
+    fn payment_methods_token_reads_and_updates_the_card_only() {
+        let card = Some(vec![PortalScope::PaymentMethods]);
+        for (service, method) in [
+            (SHARED, "SetupIntent"),
+            (SHARED, "AddPaymentMethod"),
+            (SHARED, "SetDefaultPaymentMethod"),
+            (SUBSCRIPTION, "GetSubscriptionDetails"),
+            (
+                "meteroid.portal.customer.v1.PortalCustomerService",
+                "GetCustomerPortalOverview",
+            ),
+        ] {
+            assert!(
+                authorize_customer(card.clone(), service, method).is_ok(),
+                "{service}/{method}"
+            );
+        }
+        for (service, method) in [
+            (SHARED, "UpdateCustomer"),
+            (SUBSCRIPTION, "ConfirmPlanChange"),
+            (SUBSCRIPTION, "CancelSubscription"),
+            (WALLETS, "TopUpWallet"),
+            (WALLET_CONTROLS, "SetAutoTopUp"),
+            (
+                "meteroid.portal.invoice.v1.PortalInvoiceService",
+                "ConfirmInvoicePayment",
+            ),
+            (
+                "meteroid.portal.retention.v1.PortalRetentionService",
+                "Confirm",
+            ),
+        ] {
+            let denied = authorize_customer(card.clone(), service, method).err();
+            assert_eq!(
+                denied.map(|s| s.code()),
+                Some(Code::PermissionDenied),
+                "{service}/{method}"
+            );
+        }
+    }
+
+    #[test]
     fn manage_token_has_full_customer_access() {
         for scopes in [PortalScope::ALL.to_vec(), vec![PortalScope::Manage]] {
             for (service, method) in [
@@ -602,7 +657,7 @@ mod tests {
             })
             .collect();
 
-        for (service, methods) in CUSTOMER_READ_METHODS {
+        for (service, methods) in CUSTOMER_READ_METHODS.iter().chain(PAYMENT_METHOD_METHODS) {
             for method in *methods {
                 assert!(
                     known.contains(&(service.to_string(), method.to_string())),

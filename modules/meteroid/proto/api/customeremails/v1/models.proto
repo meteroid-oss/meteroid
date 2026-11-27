@@ -22,6 +22,7 @@ enum EmailKind {
   SUBSCRIPTION_CANCELLED = 13;
   // Billing moved from another provider: the customer adds a payment method.
   PAYMENT_METHOD_REQUESTED = 14;
+  PAYMENT_METHOD_EXPIRING = 15;
 }
 
 enum EmailAudienceMode {

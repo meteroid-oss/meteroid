@@ -54,6 +54,9 @@ impl Audience {
 pub enum PortalScope {
     Read,
     Manage,
+    /// What `Read` allows in the portal, and adding a payment method or making one the default;
+    /// nothing in the client API. The scope of a link Meteroid emails to update a card.
+    PaymentMethods,
 }
 
 impl PortalScope {

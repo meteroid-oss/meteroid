@@ -192,6 +192,12 @@ pub enum Body {
         received_at: NaiveDateTime,
         last_day: NaiveDate,
     },
+    /// The card a subscription is charged on expires on `expires_on`; the link updates it.
+    PaymentMethodExpiring {
+        method: String,
+        expires_on: NaiveDate,
+        cta: Cta,
+    },
     /// Billing moved from `previous_provider`: the customer adds a payment method by `update_by`.
     PaymentMethodRequested {
         previous_provider: String,
@@ -856,6 +862,34 @@ pub fn render(
                 render_layout(lang, subject, preheader, header, footer, &l10n, content)?,
             )
         }
+        Body::PaymentMethodExpiring {
+            method,
+            expires_on,
+            cta,
+        } => {
+            let date = long_date(lang, &expires_on);
+            let intro = l10n
+                .payment_method_expiring_intro(&method, &date)
+                .to_string();
+            let content = PaymentFailedContent {
+                heading: l10n.payment_method_expiring_heading().to_string(),
+                label: None,
+                intro: intro.clone(),
+                summary: SummaryBoxTemplate {
+                    hero: None,
+                    rows: vec![
+                        row(l10n.payment_method_label(), method.clone()),
+                        row(l10n.payment_method_expires(), date.clone()),
+                    ],
+                },
+                cta: button(cta, l10n.update_card(), &color),
+            };
+            let subject = l10n.payment_method_expiring_subject(company).to_string();
+            (
+                subject.clone(),
+                render_layout(lang, subject, Some(intro), header, footer, &l10n, content)?,
+            )
+        }
         Body::SubscriptionCancelled {
             plan_name,
             received_at,
@@ -1208,6 +1242,14 @@ mod tests {
                 },
             ),
             ("subscription_cancelled", subscription_cancelled()),
+            (
+                "payment_method_expiring",
+                Body::PaymentMethodExpiring {
+                    method: "Visa •••• 4242".into(),
+                    expires_on: NaiveDate::from_ymd_opt(2027, 3, 31).unwrap(),
+                    cta: Cta::new("https://portal.example/customer?page=settings"),
+                },
+            ),
         ]
     }
 
@@ -1249,7 +1291,7 @@ mod tests {
                     "{ctx}: powered-by logo"
                 );
                 if !kind.starts_with("quote_") && kind != "subscription_cancelled" {
-                    if kind != "payment_method_requested" {
+                    if kind != "payment_method_requested" && kind != "payment_method_expiring" {
                         assert!(html.contains("class=\"hero-amount\""), "{ctx}: hero");
                     }
                     assert!(html.contains("mso-hide:all"), "{ctx}: preheader");
@@ -1307,6 +1349,10 @@ mod tests {
                         (l10n.auto_top_up_suspended_heading(), None)
                     }
                     "subscription_cancelled" => (l10n.subscription_cancelled_heading(), None),
+                    "payment_method_expiring" => (
+                        l10n.payment_method_expiring_heading(),
+                        Some(l10n.update_card()),
+                    ),
                     _ => unreachable!(),
                 };
                 assert!(

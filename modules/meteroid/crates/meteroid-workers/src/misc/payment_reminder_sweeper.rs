@@ -1,5 +1,6 @@
 //! Payment reminder sweeper: every cron tick the leader executes the due reminder steps and
-//! enrols newly eligible invoices (`Services::run_payment_reminder_sweep`). Leader election
+//! enrols newly eligible invoices (`Services::run_payment_reminder_sweep`), then tells customers
+//! whose card expires soon (`Services::run_card_expiry_sweep`). Leader election
 //! keeps the per-entity keyset scan on one replica; execution locks per invoice.
 
 use distributed_lock::LeaderElection;
@@ -20,9 +21,12 @@ pub async fn run_payment_reminder_sweeper(
 }
 
 async fn run_once(services: &Arc<Services>) -> meteroid_store::StoreResult<()> {
-    let stats = services
-        .run_payment_reminder_sweep(common_clock::now().naive_utc())
-        .await?;
+    let now = common_clock::now().naive_utc();
+    let stats = services.run_payment_reminder_sweep(now).await?;
+    let told = services.run_card_expiry_sweep(now).await?;
+    if told > 0 {
+        log::info!("Card expiry sweep: {told} customers told their card expires soon");
+    }
     if stats.did_work() {
         log::info!(
             "Payment reminder sweep: {} executed, {} deferred, {} completed, {} ended, \

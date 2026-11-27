@@ -407,3 +407,97 @@ impl CustomerPaymentMethodRowNew {
             .into_db_result()
     }
 }
+
+/// A customer's current card that an automatically charged subscription uses, about to expire.
+#[derive(Debug, diesel::QueryableByName)]
+pub struct ExpiringCardRow {
+    #[diesel(sql_type = diesel::sql_types::Uuid)]
+    pub id: uuid::Uuid,
+    #[diesel(sql_type = diesel::sql_types::Uuid)]
+    pub tenant_id: uuid::Uuid,
+    #[diesel(sql_type = diesel::sql_types::Uuid)]
+    pub customer_id: uuid::Uuid,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    pub card_brand: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    pub card_last4: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Int4)]
+    pub card_exp_month: i32,
+    #[diesel(sql_type = diesel::sql_types::Int4)]
+    pub card_exp_year: i32,
+}
+
+/// Cards valid through a day in `from..=to`, still unnotified for that expiry, that are their
+/// customer's current method and that a running subscription charges automatically online, where
+/// the customer's invoicing entity sends the expiring-card email.
+pub async fn list_expiring_charged_cards(
+    conn: &mut PgConn,
+    from: chrono::NaiveDate,
+    to: chrono::NaiveDate,
+    limit: i64,
+) -> DbResult<Vec<ExpiringCardRow>> {
+    use diesel::sql_types::{Date, Int8};
+    use diesel_async::RunQueryDsl;
+
+    diesel::sql_query(
+        "SELECT DISTINCT cpm.id, cpm.tenant_id, cpm.customer_id, cpm.card_brand, cpm.card_last4,
+                cpm.card_exp_month, cpm.card_exp_year
+         FROM customer_payment_method cpm
+         JOIN customer c ON c.id = cpm.customer_id AND c.current_payment_method_id = cpm.id
+         JOIN invoicing_entity_email_settings es
+           ON es.invoicing_entity_id = c.invoicing_entity_id
+          AND NOT ('payment_method_expiring' = ANY (es.disabled_kinds))
+         JOIN subscription s ON s.customer_id = c.id AND s.tenant_id = c.tenant_id
+         WHERE cpm.archived_at IS NULL
+           AND c.archived_at IS NULL
+           AND cpm.payment_method_type = 'CARD'
+           AND cpm.card_exp_month BETWEEN 1 AND 12
+           AND cpm.card_exp_year IS NOT NULL
+           AND (make_date(cpm.card_exp_year, cpm.card_exp_month, 1) + interval '1 month'
+                - interval '1 day')::date BETWEEN $1 AND $2
+           AND s.status IN ('ACTIVE', 'TRIAL_ACTIVE')
+           AND s.charge_automatically
+           AND (s.payment_methods_config IS NULL OR s.payment_methods_config ->> 'type' = 'online')
+           AND NOT EXISTS (
+               SELECT 1 FROM payment_method_expiry_notice n
+               WHERE n.payment_method_id = cpm.id
+                 AND n.exp_year = cpm.card_exp_year
+                 AND n.exp_month = cpm.card_exp_month)
+         ORDER BY cpm.id
+         LIMIT $3",
+    )
+    .bind::<Date, _>(from)
+    .bind::<Date, _>(to)
+    .bind::<Int8, _>(limit)
+    .load(conn)
+    .await
+    .attach("Error while listing expiring cards")
+    .into_db_result()
+}
+
+/// Records that the card's customer was told of this expiry: false when it already was.
+pub async fn record_expiry_notice(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    payment_method_id: CustomerPaymentMethodId,
+    exp_year: i32,
+    exp_month: i32,
+) -> DbResult<bool> {
+    use diesel::sql_types::{Int4, Uuid};
+    use diesel_async::RunQueryDsl;
+
+    diesel::sql_query(
+        "INSERT INTO payment_method_expiry_notice (payment_method_id, tenant_id, exp_year, exp_month)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT DO NOTHING",
+    )
+    .bind::<Uuid, _>(payment_method_id)
+    .bind::<Uuid, _>(tenant_id)
+    .bind::<Int4, _>(exp_year)
+    .bind::<Int4, _>(exp_month)
+    .execute(conn)
+    .await
+    .map(|inserted| inserted > 0)
+    .attach("Error while recording a card expiry notice")
+    .into_db_result()
+}

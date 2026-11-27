@@ -46,11 +46,16 @@ pub fn hash_portal_token(token: &str) -> String {
     hex::encode(Sha256::digest(token.as_bytes()))
 }
 
-/// `Manage` implies `Read`, so a scope set is either read-only or full.
+/// `Manage` implies the others and `PaymentMethods` implies `Read`, so a scope set is full,
+/// payment methods, or read-only.
 pub fn canonical_scopes(scopes: Option<&[PortalScope]>) -> Vec<PortalScope> {
     match scopes {
-        Some(scopes) if !scopes.contains(&PortalScope::Manage) => vec![PortalScope::Read],
-        _ => PortalScope::ALL.to_vec(),
+        Some(scopes) if scopes.contains(&PortalScope::Manage) => PortalScope::ALL.to_vec(),
+        Some(scopes) if scopes.contains(&PortalScope::PaymentMethods) => {
+            vec![PortalScope::PaymentMethods]
+        }
+        Some(_) => vec![PortalScope::Read],
+        None => PortalScope::ALL.to_vec(),
     }
 }
 
@@ -58,6 +63,7 @@ fn scope_name(scope: PortalScope) -> &'static str {
     match scope {
         PortalScope::Read => "read",
         PortalScope::Manage => "manage",
+        PortalScope::PaymentMethods => "payment_methods",
     }
 }
 
@@ -74,6 +80,7 @@ fn parse_scopes(names: &[Option<String>]) -> StoreResult<Vec<PortalScope>> {
         .map(|name| match name.as_deref() {
             Some("read") => Ok(PortalScope::Read),
             Some("manage") => Ok(PortalScope::Manage),
+            Some("payment_methods") => Ok(PortalScope::PaymentMethods),
             other => {
                 Err(StoreError::InvalidArgument(format!("unknown portal scope {other:?}")).into())
             }
@@ -266,7 +273,7 @@ mod tests {
     }
 
     #[test]
-    fn scopes_collapse_to_read_only_or_full() {
+    fn scopes_collapse_to_read_only_payment_methods_or_full() {
         let full = PortalScope::ALL.to_vec();
         assert_eq!(canonical_scopes(None), full);
         assert_eq!(canonical_scopes(Some(&[PortalScope::Manage])), full);
@@ -276,6 +283,18 @@ mod tests {
         );
         assert_eq!(parse_scopes(&scope_names(&full)).unwrap(), full);
         assert!(parse_scopes(&[Some("admin".into())]).is_err());
+
+        let card = vec![PortalScope::PaymentMethods];
+        assert_eq!(
+            canonical_scopes(Some(&[PortalScope::Read, PortalScope::PaymentMethods])),
+            card
+        );
+        assert_eq!(
+            canonical_scopes(Some(&[PortalScope::PaymentMethods, PortalScope::Manage])),
+            full,
+            "manage includes it"
+        );
+        assert_eq!(parse_scopes(&scope_names(&card)).unwrap(), card);
     }
 
     #[test]

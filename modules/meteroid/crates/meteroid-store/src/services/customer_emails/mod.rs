@@ -21,7 +21,7 @@ use crate::services::customer_locale::{customer_default_locale, customer_locale_
 use crate::services::payment_reminders::sweep::reminder_send_guard;
 use crate::services::{Services, ServicesEdge};
 use crate::{Store, StoreResult};
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::{Datelike, NaiveDate, NaiveDateTime};
 use common_domain::ids::{
     BaseId, BudgetId, CustomerId, InvoiceId, PaymentReminderSequenceId, StoredDocumentId,
     SubscriptionId, TenantId,
@@ -494,6 +494,7 @@ impl Services {
             | EmailContext::AutoTopUpFailed { customer_id, .. }
             | EmailContext::BudgetAlert { customer_id, .. }
             | EmailContext::SubscriptionCancelled { customer_id, .. }
+            | EmailContext::PaymentMethodExpiring { customer_id, .. }
             | EmailContext::PaymentMethodRequested { customer_id, .. } => {
                 Ok(customer_target(*customer_id))
             }
@@ -1141,6 +1142,24 @@ impl Services {
                 last_day: last_day_of_service(*ends_at),
             },
             (
+                EmailKind::PaymentMethodExpiring,
+                EmailContext::PaymentMethodExpiring {
+                    method,
+                    exp_month,
+                    exp_year,
+                    ..
+                },
+            ) => Body::PaymentMethodExpiring {
+                method: method.clone(),
+                expires_on: card_expires_on(*exp_month, *exp_year).ok_or_else(|| {
+                    Report::new(StoreError::InvalidArgument(format!(
+                        "invalid card expiry {exp_month}/{exp_year}"
+                    )))
+                })?,
+                // Minted once the email is sure to go out, below.
+                cta: Cta::new(String::new()),
+            },
+            (
                 EmailKind::PaymentMethodRequested,
                 EmailContext::PaymentMethodRequested {
                     update_by,
@@ -1201,6 +1220,20 @@ impl Services {
                 return Ok(BuildOutcome::Skip(SkipReason::NoRecipients, target));
             }
         }
+        let body = match body {
+            Body::PaymentMethodExpiring {
+                method, expires_on, ..
+            } => Body::PaymentMethodExpiring {
+                method,
+                expires_on,
+                cta: Cta::new(if build == Build::Preview {
+                    self.preview_card_update_link()
+                } else {
+                    self.card_update_link(tenant_id, customer_id).await?
+                }),
+            },
+            body => body,
+        };
         let lang = override_or(
             locale_override,
             customer_locale_for(&entity, &customer.preferred_locales),
@@ -1422,6 +1455,15 @@ impl Services {
                 },
                 vec![],
             ),
+            EmailKind::PaymentMethodExpiring => (
+                Subject::Fixed,
+                Body::PaymentMethodExpiring {
+                    method: "Visa •••• 4242".to_string(),
+                    expires_on: card_expires_on(today.month(), today.year()).unwrap_or(today),
+                    cta: Cta::new(self.preview_card_update_link()),
+                },
+                vec![],
+            ),
             EmailKind::SubscriptionCancelled => (
                 Subject::Fixed,
                 Body::SubscriptionCancelled {
@@ -1575,9 +1617,55 @@ fn context_name(context: &EmailContext) -> &'static str {
         EmailContext::AutoTopUpFailed { .. } => "auto_top_up_failed",
         EmailContext::BudgetAlert { .. } => "budget_alert",
         EmailContext::SubscriptionCancelled { .. } => "subscription_cancelled",
+        EmailContext::PaymentMethodExpiring { .. } => "payment_method_expiring",
         EmailContext::PaymentMethodRequested { .. } => "payment_method_requested",
     }
 }
+
+impl Services {
+    /// The portal's payment methods for `customer_id`, on a token that may only read the portal
+    /// and update payment methods, for a week.
+    async fn card_update_link(
+        &self,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+    ) -> StoreResult<String> {
+        use crate::repositories::portal_tokens::PortalTokensInterface;
+        let issued = self
+            .store
+            .customer_portal_token(
+                tenant_id,
+                customer_id,
+                chrono::Duration::days(CARD_UPDATE_LINK_TTL_DAYS),
+                Some(vec![common_domain::auth::PortalScope::PaymentMethods]),
+                false,
+                crate::jwt_claims::ClientClaims::default(),
+            )
+            .await?;
+        Ok(format!(
+            "{}/portal/customer?token={}&page=settings",
+            self.store.settings.public_url.trim_end_matches('/'),
+            issued.token
+        ))
+    }
+
+    /// What a preview shows in place of a live link.
+    fn preview_card_update_link(&self) -> String {
+        format!(
+            "{}/portal/customer?token=preview&page=settings",
+            self.store.settings.public_url.trim_end_matches('/')
+        )
+    }
+}
+
+/// A card is valid through the last day of its expiry month.
+pub(crate) fn card_expires_on(exp_month: u32, exp_year: i32) -> Option<NaiveDate> {
+    let first = NaiveDate::from_ymd_opt(exp_year, exp_month, 1)?;
+    first.checked_add_months(chrono::Months::new(1))?.pred_opt()
+}
+
+/// How long the link of an expiring-card email stays valid.
+const CARD_UPDATE_LINK_TTL_DAYS: i64 = 7;
 
 /// An ending at midnight leaves the day before as the last one served; an instant, its own day.
 fn last_day_of_service(ends_at: NaiveDateTime) -> NaiveDate {

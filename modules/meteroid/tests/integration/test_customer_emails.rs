@@ -540,7 +540,7 @@ async fn entity_email_settings_round_trip_and_audit(#[future] test_env: TestEnv)
 
 #[rstest]
 #[tokio::test]
-async fn only_payment_reminders_ship_disabled(#[future] test_env: TestEnv) {
+async fn only_reminders_and_expiring_cards_ship_disabled(#[future] test_env: TestEnv) {
     let env = test_env.await;
     let mut client = clients(&env).await.customer_emails;
     let settings = client
@@ -573,14 +573,20 @@ async fn only_payment_reminders_ship_disabled(#[future] test_env: TestEnv) {
         !kind_enabled(&settings, api::EmailKind::PaymentReminder),
         "reminders need a deliberate sequence: off until enabled"
     );
-    assert_eq!(settings.kinds.len(), 14, "{:?}", enabled_kinds(&settings));
+    assert!(
+        !kind_enabled(&settings, api::EmailKind::PaymentMethodExpiring),
+        "a new email to every customer: off until enabled"
+    );
+    assert_eq!(settings.kinds.len(), 15, "{:?}", enabled_kinds(&settings));
 
     // An entity created after the migration gets the disabled set written explicitly.
     let created = create_entity(&env, "Fresh").await;
     let stored = stored_disabled_kinds(&env, created)
         .await
         .expect("row inserted");
-    assert_eq!(stored, vec!["payment_reminder"]);
+    let mut stored = stored;
+    stored.sort();
+    assert_eq!(stored, vec!["payment_method_expiring", "payment_reminder"]);
 }
 
 #[rstest]
@@ -633,7 +639,14 @@ async fn lazy_settings_upsert_keeps_reminders_disabled(#[future] test_env: TestE
     assert!(kind_enabled(&after_toggle, api::EmailKind::InvoiceReady));
     let mut stored = stored_disabled_kinds(&env, b).await.expect("row");
     stored.sort();
-    assert_eq!(stored, vec!["invoice_paid", "payment_reminder"]);
+    assert_eq!(
+        stored,
+        vec![
+            "invoice_paid",
+            "payment_method_expiring",
+            "payment_reminder"
+        ]
+    );
 
     // Enabling is the only path that removes a kind from the set.
     let enabled = client
