@@ -123,8 +123,34 @@ impl Services {
             effective_at,
             requested_at,
             None,
+            true,
         ))
         .await?
+        .ok_or_else(|| Report::new(StoreError::CancellationError))
+    }
+
+    /// A cancellation the customer never asked for, as a migration rolled back to its source:
+    /// nothing confirms it to them, the subscription simply stops at `effective_at`.
+    pub(in crate::services) async fn cancel_subscription_unconfirmed(
+        &self,
+        actor: Actor,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        reason: Option<String>,
+        effective_at: CancellationEffectiveAt,
+    ) -> StoreResult<Subscription> {
+        Box::pin(self.cancel_subscription_unless(
+            actor,
+            subscription_id,
+            tenant_id,
+            reason,
+            effective_at,
+            common_clock::now(),
+            None,
+            false,
+        ))
+        .await?
+        .map(|outcome| outcome.subscription)
         .ok_or_else(|| Report::new(StoreError::CancellationError))
     }
 
@@ -140,6 +166,7 @@ impl Services {
         effective_at: CancellationEffectiveAt,
         requested_at: chrono::DateTime<chrono::Utc>,
         still_unpaid: Option<InvoiceId>,
+        confirm_to_customer: bool,
     ) -> StoreResult<Option<CancellationOutcome>> {
         if requested_at > common_clock::now() {
             return Err(Report::new(StoreError::InvalidArgument(
@@ -350,7 +377,7 @@ impl Services {
                     .await?;
 
                     // Dunning ends the subscription for the merchant: no cancellation was received.
-                    if still_unpaid.is_none() {
+                    if still_unpaid.is_none() && confirm_to_customer {
                         confirm_cancellation_tx(&self.store, conn, &subscription, now, ends_at)
                             .await?;
                     }

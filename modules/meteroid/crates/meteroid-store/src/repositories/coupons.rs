@@ -503,96 +503,11 @@ impl CouponInterface for Store {
     async fn create_coupon_with_terms(
         &self,
         actor: Actor,
-        mut coupon: CouponNew,
+        coupon: CouponNew,
         terms: CouponTerms,
     ) -> StoreResult<Coupon> {
         let mut conn = self.get_conn().await?;
-
-        coupon.discount.validate()?;
-        validate_fixed_amounts(&coupon.discount, &terms.fixed_amounts)?;
-        refuse_if_valid_after_expiry(terms.valid_from, coupon.expires_at)?;
-        let eligibility = stored_rule(terms.eligibility)?;
-        if coupon.discount.is_credit()
-            && (coupon.recurring_value.is_some() || terms.duration_months.is_some())
-        {
-            return Err(Report::new(StoreError::InvalidArgument(
-                "a promotional credit coupon must not have a duration".to_owned(),
-            )));
-        }
-        validate_duration_months(terms.duration_months, coupon.recurring_value)?;
-        coupon.code = normalize_coupon_code(&coupon)?;
-        let is_credit = coupon.discount.is_credit();
-        let tenant_id = coupon.tenant_id;
-        let plan_ids = coupon.plan_ids.clone();
-        let add_on_ids = terms.add_on_ids;
-        let mut coupon_row: CouponRowNew = coupon.try_into()?;
-        coupon_row.eligibility = Eligibility::to_row(eligibility.as_ref());
-        coupon_row.valid_from = terms.valid_from;
-        coupon_row.fixed_amounts = fixed_amounts_to_row(&terms.fixed_amounts)?;
-        coupon_row.duration_months = terms.duration_months;
-        let coupon_id = coupon_row.id;
-
-        let coupon = self
-            .transaction_with(&mut conn, |conn| {
-                let actor = &actor;
-                async move {
-                    // Credit codes match whatever the case, so they must not shadow, nor be
-                    // shadowed by, another live code that differs only in case.
-                    if CouponRow::code_taken_ignoring_case(
-                        conn,
-                        tenant_id,
-                        &coupon_row.code,
-                        !is_credit,
-                    )
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?
-                    {
-                        return Err(Report::new(StoreError::DuplicateValue {
-                            entity: "coupon",
-                            key: Some(coupon_row.code.clone()),
-                        }));
-                    }
-                    refuse_foreign_plans(conn, tenant_id, &plan_ids).await?;
-                    let row = coupon_row
-                        .insert(conn)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-
-                    if !plan_ids.is_empty() {
-                        let plan_rows: Vec<CouponPlanRowNew> = plan_ids
-                            .iter()
-                            .map(|plan_id| CouponPlanRowNew {
-                                coupon_id,
-                                plan_id: *plan_id,
-                            })
-                            .collect();
-                        CouponPlanRowNew::insert_batch(&plan_rows, conn)
-                            .await
-                            .map_err(Into::<Report<StoreError>>::into)?;
-                    }
-
-                    replace_coupon_add_ons(conn, tenant_id, coupon_id, &add_on_ids).await?;
-
-                    let mut coupon: Coupon = row.try_into()?;
-                    coupon.plan_ids = plan_ids;
-                    coupon.add_on_ids = add_on_ids;
-
-                    self.internal
-                        .record_outbox_batch_tx(
-                            conn,
-                            tenant_id,
-                            actor,
-                            vec![OutboxEvent::coupon_created(coupon.clone().into())],
-                        )
-                        .await?;
-
-                    Ok(coupon)
-                }
-                .scope_boxed()
-            })
-            .await?;
-
-        Ok(coupon)
+        self.create_coupon_tx(&mut conn, actor, coupon, terms).await
     }
 
     async fn delete_coupon(&self, tenant_id: TenantId, id: CouponId) -> StoreResult<()> {
@@ -866,6 +781,104 @@ impl CouponInterface for Store {
             Some(row) => Ok(Some(coupon_with_scope(&mut conn, row).await?)),
             None => Ok(None),
         }
+    }
+}
+
+impl Store {
+    /// [`CouponInterface::create_coupon_with_terms`] on `conn`: in the caller's transaction when
+    /// it holds one, so a coupon made for a write that fails is never left behind.
+    pub async fn create_coupon_tx(
+        &self,
+        conn: &mut PgConn,
+        actor: Actor,
+        mut coupon: CouponNew,
+        terms: CouponTerms,
+    ) -> StoreResult<Coupon> {
+        coupon.discount.validate()?;
+        validate_fixed_amounts(&coupon.discount, &terms.fixed_amounts)?;
+        refuse_if_valid_after_expiry(terms.valid_from, coupon.expires_at)?;
+        let eligibility = stored_rule(terms.eligibility)?;
+        if coupon.discount.is_credit()
+            && (coupon.recurring_value.is_some() || terms.duration_months.is_some())
+        {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "a promotional credit coupon must not have a duration".to_owned(),
+            )));
+        }
+        validate_duration_months(terms.duration_months, coupon.recurring_value)?;
+        coupon.code = normalize_coupon_code(&coupon)?;
+        let is_credit = coupon.discount.is_credit();
+        let tenant_id = coupon.tenant_id;
+        let plan_ids = coupon.plan_ids.clone();
+        let add_on_ids = terms.add_on_ids;
+        let mut coupon_row: CouponRowNew = coupon.try_into()?;
+        coupon_row.eligibility = Eligibility::to_row(eligibility.as_ref());
+        coupon_row.valid_from = terms.valid_from;
+        coupon_row.fixed_amounts = fixed_amounts_to_row(&terms.fixed_amounts)?;
+        coupon_row.duration_months = terms.duration_months;
+        let coupon_id = coupon_row.id;
+
+        let coupon = self
+            .transaction_with(conn, |conn| {
+                let actor = &actor;
+                async move {
+                    // Credit codes match whatever the case, so they must not shadow, nor be
+                    // shadowed by, another live code that differs only in case.
+                    if CouponRow::code_taken_ignoring_case(
+                        conn,
+                        tenant_id,
+                        &coupon_row.code,
+                        !is_credit,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?
+                    {
+                        return Err(Report::new(StoreError::DuplicateValue {
+                            entity: "coupon",
+                            key: Some(coupon_row.code.clone()),
+                        }));
+                    }
+                    refuse_foreign_plans(conn, tenant_id, &plan_ids).await?;
+                    let row = coupon_row
+                        .insert(conn)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    if !plan_ids.is_empty() {
+                        let plan_rows: Vec<CouponPlanRowNew> = plan_ids
+                            .iter()
+                            .map(|plan_id| CouponPlanRowNew {
+                                coupon_id,
+                                plan_id: *plan_id,
+                            })
+                            .collect();
+                        CouponPlanRowNew::insert_batch(&plan_rows, conn)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+                    }
+
+                    replace_coupon_add_ons(conn, tenant_id, coupon_id, &add_on_ids).await?;
+
+                    let mut coupon: Coupon = row.try_into()?;
+                    coupon.plan_ids = plan_ids;
+                    coupon.add_on_ids = add_on_ids;
+
+                    self.internal
+                        .record_outbox_batch_tx(
+                            conn,
+                            tenant_id,
+                            actor,
+                            vec![OutboxEvent::coupon_created(coupon.clone().into())],
+                        )
+                        .await?;
+
+                    Ok(coupon)
+                }
+                .scope_boxed()
+            })
+            .await?;
+
+        Ok(coupon)
     }
 }
 

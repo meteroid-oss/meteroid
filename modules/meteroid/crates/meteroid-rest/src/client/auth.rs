@@ -47,7 +47,8 @@ pub async fn client_auth_middleware(
         return Ok(next.run(req).await);
     }
 
-    let authorized = authorize(req.headers(), &app_state)
+    let writes = writes(req.method(), path);
+    let authorized = authorize(req.headers(), &app_state, writes)
         .await
         .map_err(|rejection| {
             log::debug!("Client API request rejected: {}", rejection.message);
@@ -65,9 +66,17 @@ fn bearer(headers: &HeaderMap) -> Option<&str> {
         .and_then(|s| s.strip_prefix("Bearer "))
 }
 
+/// Posts that only read, answered like a `GET` would be.
+const READING_POSTS: &[&str] = &["/api/client/v1/entitlements/check"];
+
+fn writes(method: &http::Method, path: &str) -> bool {
+    !(method.is_safe() || *method == http::Method::POST && READING_POSTS.contains(&path))
+}
+
 async fn authorize(
     headers: &HeaderMap,
     app_state: &AppState,
+    writes: bool,
 ) -> Result<AuthorizedAsCustomer, Rejection> {
     let token = bearer(headers).ok_or(Rejection::unauthorized(
         "Invalid or missing Authorization header",
@@ -90,7 +99,7 @@ async fn authorize(
         return Err(Rejection::forbidden("Not a customer token"));
     };
 
-    if !grants_read(scopes.as_deref()) {
+    if !grants_read(scopes.as_deref()) || writes && !grants_manage(scopes.as_deref()) {
         return Err(Rejection::forbidden(
             "The token's scopes do not allow this operation.",
         ));
@@ -247,6 +256,10 @@ fn grants_read(scopes: Option<&[PortalScope]>) -> bool {
     })
 }
 
+fn grants_manage(scopes: Option<&[PortalScope]>) -> bool {
+    scopes.is_none_or(|scopes| scopes.contains(&PortalScope::Manage))
+}
+
 /// `find_tenant_by_id` is cached in the store.
 async fn resolve_tenant_env(
     app_state: &AppState,
@@ -329,5 +342,31 @@ impl IntoResponse for Rejection {
             response.extensions_mut().insert(OriginRefused);
         }
         response
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use http::Method;
+
+    #[test]
+    fn only_manage_writes() {
+        let cancel = "/api/client/v1/retention/sessions";
+        assert!(writes(&Method::POST, cancel));
+        assert!(writes(&Method::DELETE, "/api/client/v1/customer"));
+        assert!(!writes(&Method::GET, "/api/client/v1/customer"));
+        assert!(!writes(&Method::POST, "/api/client/v1/entitlements/check"));
+
+        assert!(grants_manage(None));
+        assert!(grants_manage(Some(&[PortalScope::Manage])));
+        assert!(grants_read(Some(&[PortalScope::Read])));
+        assert!(!grants_manage(Some(&[PortalScope::Read])));
+        let card = [PortalScope::PaymentMethods];
+        assert!(
+            !grants_read(Some(&card)),
+            "a card link reaches nothing here"
+        );
+        assert!(!grants_manage(Some(&card)));
     }
 }

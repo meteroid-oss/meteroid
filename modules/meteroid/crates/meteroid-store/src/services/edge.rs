@@ -1541,6 +1541,27 @@ impl ServicesEdge {
             .await
     }
 
+    /// [`Self::cancel_subscription`] the customer never asked for (a migration rolled back): no
+    /// cancellation confirmation is sent to them.
+    pub async fn cancel_subscription_unconfirmed(
+        &self,
+        actor: Actor,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        reason: Option<String>,
+        effective_at: CancellationEffectiveAt,
+    ) -> StoreResult<Subscription> {
+        self.services
+            .cancel_subscription_unconfirmed(
+                actor,
+                subscription_id,
+                tenant_id,
+                reason,
+                effective_at,
+            )
+            .await
+    }
+
     /// [`Self::cancel_subscription`] with the documents its ending issued when it applied in the
     /// request (API v2). Committed, it never fails: what could not follow is logged and retried
     /// by the controller (R-121, R-141).

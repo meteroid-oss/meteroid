@@ -378,6 +378,7 @@ impl Services {
             CancellationEffectiveAt::Immediate,
             common_clock::now(),
             Some(invoice_id),
+            false,
         ))
         .await?;
         if cancelled.is_some() {

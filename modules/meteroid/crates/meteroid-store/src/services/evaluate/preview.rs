@@ -788,6 +788,8 @@ pub struct VirtualPeriodInvoice {
     /// Metrics the period bills usage of that a supplied `usage` had no quantity for: billed as
     /// zero.
     pub missing_usage: Vec<BillableMetricId>,
+    /// The currency the subscription bills in, as its insert would choose it.
+    pub currency: String,
 }
 
 impl Services {
@@ -879,6 +881,7 @@ impl Services {
                 content,
                 period_starts,
                 missing_usage,
+                currency: details.subscription.currency.clone(),
             })
         })
         .await

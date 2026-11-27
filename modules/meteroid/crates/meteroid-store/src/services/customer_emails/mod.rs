@@ -134,12 +134,17 @@ pub enum SendOrigin {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Build {
     Send(SendOrigin),
+    /// The send-time gates of a send, deciding whether it would go out: no link is minted.
+    Check(SendOrigin),
     Preview,
 }
 
 impl Build {
     fn applies_audience(self) -> bool {
-        self == Self::Send(SendOrigin::Automatic)
+        matches!(
+            self,
+            Self::Send(SendOrigin::Automatic) | Self::Check(SendOrigin::Automatic)
+        )
     }
 }
 
@@ -534,6 +539,28 @@ impl Services {
             pay_link,
             whitelabel,
             Build::Send(origin),
+        )
+        .await
+    }
+
+    /// Whether the email would go out now, its send-time gates applied, minting no link.
+    pub(in crate::services) async fn check_customer_email(
+        &self,
+        tenant_id: TenantId,
+        kind: EmailKind,
+        context: &EmailContext,
+        pay_link: PayLink<'_>,
+        origin: SendOrigin,
+    ) -> StoreResult<BuildOutcome> {
+        self.build_customer_email_for(
+            tenant_id,
+            kind,
+            context,
+            None,
+            None,
+            pay_link,
+            false,
+            Build::Check(origin),
         )
         .await
     }
@@ -1042,7 +1069,7 @@ impl Services {
             .public_url
             .trim_end_matches('/')
             .to_string();
-        if build == Build::Preview {
+        if matches!(build, Build::Preview | Build::Check(_)) {
             return Ok(format!("{base}/portal/customer?token=preview"));
         }
         let ttl = update_by
@@ -1055,7 +1082,7 @@ impl Services {
                 tenant_id,
                 customer_id,
                 ttl,
-                Some(vec![common_domain::auth::PortalScope::Manage]),
+                Some(vec![common_domain::auth::PortalScope::PaymentMethods]),
                 false,
                 crate::jwt_claims::ClientClaims::default(),
             )
@@ -1786,14 +1813,11 @@ impl ServicesEdge {
         };
         let outcome = self
             .services
-            .build_customer_email(
+            .check_customer_email(
                 tenant_id,
                 kind,
                 &context,
-                None,
-                None,
                 &no_pay_link,
-                false,
                 SendOrigin::Automatic,
             )
             .await?;
