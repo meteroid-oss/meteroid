@@ -19,27 +19,29 @@ const SheetOverlay = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof SheetPrimitive.Overlay>
 >(({ className, ...props }, ref) => (
   <SheetPrimitive.Overlay
-    className={cn(
-      'fixed inset-0 z-50 bg-black/80 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:duration-300 data-[state=open]:duration-500',
-      className
-    )}
+    className={cn('mt-backdrop fixed inset-0 z-50', className)}
     {...props}
     ref={ref}
   />
 ))
 SheetOverlay.displayName = SheetPrimitive.Overlay.displayName
 
+// Only the right-hand panel uses the shared side-panel motion (`mt-sheet`); the other sides keep
+// their full-width slide.
+const edgeSlide =
+  'transition ease-in-out data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-300 data-[state=open]:duration-500'
+
 const sheetVariants = cva(
-  'fixed z-50 gap-4 bg-background dark:bg-[#171717] p-6 shadow-lg overflow-y-auto transition ease-in-out data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-300 data-[state=open]:duration-500',
+  'fixed z-50 gap-4 bg-background dark:bg-[#171717] p-6 shadow-lg overflow-y-auto',
   {
     variants: {
       side: {
-        top: 'inset-x-0 top-0 border-b data-[state=closed]:slide-out-to-top-[100%] data-[state=open]:slide-in-from-top-[100%]',
-        bottom:
-          'inset-x-0 bottom-0 border-t data-[state=closed]:slide-out-to-bottom-[100%] data-[state=open]:slide-in-from-bottom-[100%]',
-        left: 'inset-y-0 left-0 h-full w-3/4 border-r data-[state=closed]:slide-out-to-left-[100%] data-[state=open]:slide-in-from-left-[100%] ',
+        top: `${edgeSlide} inset-x-0 top-0 border-b data-[state=closed]:slide-out-to-top-[100%] data-[state=open]:slide-in-from-top-[100%]`,
+        bottom: `${edgeSlide} inset-x-0 bottom-0 border-t data-[state=closed]:slide-out-to-bottom-[100%] data-[state=open]:slide-in-from-bottom-[100%]`,
+        left: `${edgeSlide} inset-y-0 left-0 h-full w-3/4 border-r data-[state=closed]:slide-out-to-left-[100%] data-[state=open]:slide-in-from-left-[100%]`,
+        // Floats 8px off the window edge as a rounded panel with a 0.5px border at 12%.
         right:
-          'flex flex-col inset-y-0 right-0 h-full w-3/4 border-l data-[state=closed]:slide-out-to-right-[100%] data-[state=open]:slide-in-from-right-[100%] ',
+          'mt-sheet flex flex-col inset-y-0 right-0 h-full w-3/4 border-l sm:inset-y-2 sm:right-2 sm:h-auto sm:rounded-[10px] sm:border-[0.5px] sm:border-foreground/12 sm:shadow-[0_0_0_1px_rgba(0,0,0,0.6),0_4px_6px_-4px_rgba(16,24,40,0.1),0_10px_15px_-3px_rgba(0,0,0,0.1)]',
       },
       size: {
         vertical: '',
@@ -58,7 +60,8 @@ const sheetVariants = cva(
 )
 
 interface SheetContentProps
-  extends React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>,
+  extends
+    React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>,
     VariantProps<typeof sheetVariants> {}
 
 const SheetContent = React.forwardRef<
@@ -66,16 +69,27 @@ const SheetContent = React.forwardRef<
   SheetContentProps
 >(({ side = 'right', size, className, children, ...props }, ref) => (
   <SheetPortal>
-    <SheetOverlay />
+    <SheetOverlay
+      className={
+        side === 'right'
+          ? 'mt-sheet-overlay'
+          : 'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0'
+      }
+    />
     <SheetPrimitive.Content
       ref={ref}
       className={cn(sheetVariants({ side, size }), className)}
       {...props}
     >
       {children}
-      <SheetPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">
-        <Button size="icon" variant="ghost" className="rounded-full h-6 w-6">
-          <Cross2Icon className="h-4 w-4" />
+      {/* A 26px round close button: a faint fill, the cross in the quiet grey. */}
+      <SheetPrimitive.Close className="absolute right-4 top-4 rounded-full ring-offset-background focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none">
+        <Button
+          size="icon"
+          variant="ghost"
+          className="size-[26px] rounded-full bg-foreground/[0.04] text-faint-foreground hover:bg-foreground/10 hover:text-foreground"
+        >
+          <Cross2Icon className="size-3.5" />
         </Button>
         <span className="sr-only">Close</span>
       </SheetPrimitive.Close>
@@ -91,7 +105,7 @@ SheetHeader.displayName = 'SheetHeader'
 
 const SheetFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn('flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2', className)}
+    className={cn('flex flex-col-reverse gap-2.5 sm:flex-row sm:justify-end', className)}
     {...props}
   />
 )
@@ -103,7 +117,7 @@ const SheetTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <SheetPrimitive.Title
     ref={ref}
-    className={cn('text-lg font-semibold text-foreground', className)}
+    className={cn('font-display text-lg leading-[30px] font-medium text-foreground', className)}
     {...props}
   />
 ))

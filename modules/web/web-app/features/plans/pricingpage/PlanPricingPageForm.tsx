@@ -541,7 +541,7 @@ const Hint = ({ text }: { text: string }) => (
         <HelpCircleIcon size={13} />
       </button>
     </TooltipTrigger>
-    <TooltipContent className="max-w-64 text-xs font-normal">{text}</TooltipContent>
+    <TooltipContent multiline className="max-w-64 text-xs font-normal">{text}</TooltipContent>
   </Tooltip>
 )
 

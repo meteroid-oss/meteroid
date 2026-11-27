@@ -1,7 +1,8 @@
-import { Button, Tabs, TabsContent, TabsList, TabsTrigger } from '@md/ui'
+import { Button, Tabs, TabsContent, TabsList, TabsTrigger, cn } from '@md/ui'
 import { useCallback, useState } from 'react'
 import { Link } from 'react-router'
 
+import { DetailPageFrame } from '@/components/layouts/DetailLayout'
 import { Slot, hasSlot, placeAfter, slotItems, useVisibleItems } from '@/edition'
 import { QuoteLineComments } from '@/edition/types'
 import { QuoteView } from '@/features/quotes/QuoteView'
@@ -16,6 +17,7 @@ import { pendingCountersignerFor } from '@/features/quotes/detail/signers'
 import { QuoteActionDialogs, useQuoteActions } from '@/features/quotes/detail/useQuoteActions'
 import { Band } from '@/features/subscriptions/SubscriptionAttention'
 import { useBasePath } from '@/hooks/useBasePath'
+import { useScrollFade } from '@/hooks/useScrollFade'
 import { useQuery } from '@/lib/connectrpc'
 import { MinimumCommitment } from '@/rpc/api/plans/v1/models_pb'
 import { getPlanWithVersionByVersionId } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
@@ -58,6 +60,7 @@ export const QuoteDetailView = ({ quote, onChanged }: Props) => {
   const canCountersign = q?.status === QuoteStatus.PENDING && Boolean(countersigner)
 
   const [tab, setTab] = useState('document')
+  const tabFade = useScrollFade<HTMLDivElement>()
   const [anchor, setAnchor] = useState<string | undefined>()
   const [focusRequest, setFocusRequest] = useState(0)
   const reply = useCallback((line?: string) => {
@@ -84,19 +87,22 @@ export const QuoteDetailView = ({ quote, onChanged }: Props) => {
 
   if (!q) return null
 
-  return (
-    <div className="flex min-h-full flex-col">
-      <QuoteDetailHeader
-        quote={quote}
-        planName={planName}
-        approval={approvalQuery.data}
-        approvalLoading={approvalQuery.isLoading}
-        canCountersign={canCountersign}
-        actions={actions}
-        nameOf={nameOf}
-        onChanged={onChanged}
-      />
+  const headerProps = {
+    quote,
+    planName,
+    approval: approvalQuery.data,
+    approvalLoading: approvalQuery.isLoading,
+    canCountersign,
+    actions,
+    nameOf,
+    onChanged,
+  }
 
+  return (
+    // The top bar, then on the card surface the quote's header and, below it, the document with
+    // the signers, discussion and activity beside it, as before.
+    <DetailPageFrame header={<QuoteDetailHeader part="bar" {...headerProps} />}>
+      <QuoteDetailHeader part="title" {...headerProps} />
       <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-6 p-4 sm:p-6 lg:flex-row lg:items-start">
         <div className="flex min-w-0 flex-1 flex-col gap-4">
           {quote.signatureCodesUnavailable &&
@@ -123,14 +129,23 @@ export const QuoteDetailView = ({ quote, onChanged }: Props) => {
           )}
 
           <Tabs value={tab} onValueChange={setTab}>
-            <TabsList variant="ghost" className="mb-3" aria-label="Quote views">
+            <TabsList
+              ref={tabFade.ref}
+              variant="underline"
+              aria-label="Quote views"
+              className={cn(
+                'w-full overflow-x-auto',
+                tabFade.fadeLeft && 'scroll-fade-x-left',
+                tabFade.fadeRight && 'scroll-fade-x-right'
+              )}
+            >
               {tabList.map(entry => (
                 <TabsTrigger key={entry.id} value={entry.id}>
                   {entry.label}
                 </TabsTrigger>
               ))}
             </TabsList>
-            <TabsContent value="document">
+            <TabsContent value="document" className="mt-6">
               <QuoteView
                 quote={quote}
                 mode="detailed"
@@ -141,13 +156,13 @@ export const QuoteDetailView = ({ quote, onChanged }: Props) => {
                 selectedLine={anchor}
               />
             </TabsContent>
-            <TabsContent value="revisions">
+            <TabsContent value="revisions" className="mt-6">
               <QuoteHistory quoteId={q.id} />
             </TabsContent>
-            <TabsContent value="audit">
+            <TabsContent value="audit" className="mt-6">
               <QuoteEvidence quoteId={q.id} />
             </TabsContent>
-            <TabsContent value="settings">
+            <TabsContent value="settings" className="mt-6">
               <QuoteSettingsTab
                 quote={quote}
                 minimumCommitment={effectiveMinimum}
@@ -155,7 +170,7 @@ export const QuoteDetailView = ({ quote, onChanged }: Props) => {
               />
             </TabsContent>
             {moduleTabs.map(({ id, Content }) => (
-              <TabsContent key={id} value={id}>
+              <TabsContent key={id} value={id} className="mt-6">
                 <Content quote={quote} onChanged={onChanged} />
               </TabsContent>
             ))}
@@ -188,6 +203,6 @@ export const QuoteDetailView = ({ quote, onChanged }: Props) => {
       </div>
 
       <QuoteActionDialogs quote={quote} actions={actions} countersigner={countersigner} />
-    </div>
+    </DetailPageFrame>
   )
 }

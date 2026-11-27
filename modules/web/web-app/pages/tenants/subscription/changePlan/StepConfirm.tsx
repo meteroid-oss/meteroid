@@ -6,6 +6,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  Checkbox,
   Label,
   RadioGroup,
   RadioGroupItem,
@@ -295,11 +296,9 @@ export const StepConfirm = () => {
                           adjustment.
                         </p>
                         <label className="flex items-center gap-2 mt-2 cursor-pointer">
-                          <input
-                            type="checkbox"
+                          <Checkbox
                             checked={forceAnnual}
-                            onChange={e => setForceAnnual(e.target.checked)}
-                            className="rounded border-border"
+                            onCheckedChange={checked => setForceAnnual(checked === true)}
                           />
                           <span className="text-xs">I understand, proceed anyway</span>
                         </label>

@@ -142,7 +142,11 @@ export const FeatureDetailSheet = () => {
   return (
     <>
       <Sheet open onOpenChange={() => navigate('..')}>
-        <SheetContent size="medium">
+        <SheetContent
+          size="medium"
+          // The status dialog renders outside the sheet; a click in it mustn't close the sheet.
+          onInteractOutside={e => pendingAction && e.preventDefault()}
+        >
           <SheetHeader className="pb-2">
             {feature ? (
               <>

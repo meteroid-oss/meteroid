@@ -191,7 +191,7 @@ export const Help = ({
         <HelpCircleIcon size={11} aria-label={typeof text === 'string' ? text : `About ${label}`} />
       </span>
     </TooltipTrigger>
-    <TooltipContent className={wide ? 'max-w-80 text-xs' : 'max-w-56'}>{text}</TooltipContent>
+    <TooltipContent multiline className={wide ? 'max-w-80 text-xs' : 'max-w-56'}>{text}</TooltipContent>
   </Tooltip>
 )
 

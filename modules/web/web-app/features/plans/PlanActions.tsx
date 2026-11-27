@@ -1,4 +1,4 @@
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
   Button,
   DropdownMenu,
@@ -9,7 +9,14 @@ import {
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAtom } from 'jotai'
-import { ArchiveIcon, ArchiveRestoreIcon, HistoryIcon, MoreHorizontalIcon } from 'lucide-react'
+import {
+  ArchiveIcon,
+  ArchiveRestoreIcon,
+  ChevronDown,
+  HistoryIcon,
+  PencilIcon,
+  Settings2,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
@@ -47,10 +54,12 @@ export const useEditInDraft = () => {
 
   const copyToDraftMutation = useMutation(copyVersionToDraft, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: listPlans.parent,
-        cardinality: undefined
-      }) })
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: listPlans.parent,
+          cardinality: undefined,
+        }),
+      })
     },
   })
 
@@ -103,10 +112,12 @@ export const PlanActions = ({ onHistory }: { onHistory?: () => void }) => {
 
   const discardDraftMutation = useMutation(discardDraftVersion, {
     onSuccess: async () => {
-      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: listPlans.parent,
-        cardinality: undefined
-      }) })
+      queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: listPlans.parent,
+          cardinality: undefined,
+        }),
+      })
     },
   })
 
@@ -133,22 +144,30 @@ export const PlanActions = ({ onHistory }: { onHistory?: () => void }) => {
 
   const publishPlanMutation = useMutation(publishPlanVersion, {
     onSuccess: async res => {
-      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: getPlanOverview.parent,
-        cardinality: undefined
-      }) })
-      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: getPlanWithVersion.parent,
-        cardinality: undefined
-      }) })
-      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: listPlans.parent,
-        cardinality: undefined
-      }) })
-      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: listAddOns.parent,
-        cardinality: undefined
-      }) })
+      queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: getPlanOverview.parent,
+          cardinality: undefined,
+        }),
+      })
+      queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: getPlanWithVersion.parent,
+          cardinality: undefined,
+        }),
+      })
+      queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: listPlans.parent,
+          cardinality: undefined,
+        }),
+      })
+      queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: listAddOns.parent,
+          cardinality: undefined,
+        }),
+      })
 
       const version = res.planVersion?.version
       setIsBusy(false)
@@ -172,18 +191,24 @@ export const PlanActions = ({ onHistory }: { onHistory?: () => void }) => {
 
   const archiveMutation = useMutation(archivePlan, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: listPlans.parent,
-        cardinality: undefined
-      }) })
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: getPlanWithVersion.parent,
-        cardinality: undefined
-      }) })
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: getPlanOverview.parent,
-        cardinality: undefined
-      }) })
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: listPlans.parent,
+          cardinality: undefined,
+        }),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: getPlanWithVersion.parent,
+          cardinality: undefined,
+        }),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: getPlanOverview.parent,
+          cardinality: undefined,
+        }),
+      })
       toast.success('Plan archived successfully')
     },
     onError: () => {
@@ -193,18 +218,24 @@ export const PlanActions = ({ onHistory }: { onHistory?: () => void }) => {
 
   const unarchiveMutation = useMutation(unarchivePlan, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: listPlans.parent,
-        cardinality: undefined
-      }) })
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: getPlanWithVersion.parent,
-        cardinality: undefined
-      }) })
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: getPlanOverview.parent,
-        cardinality: undefined
-      }) })
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: listPlans.parent,
+          cardinality: undefined,
+        }),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: getPlanWithVersion.parent,
+          cardinality: undefined,
+        }),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: getPlanOverview.parent,
+          cardinality: undefined,
+        }),
+      })
       toast.success('Plan unarchived successfully')
     },
     onError: () => {
@@ -234,11 +265,20 @@ export const PlanActions = ({ onHistory }: { onHistory?: () => void }) => {
 
   return isDraft ? (
     <>
-      {wip && (
-        <div className="text-warning text-xs self-center">A charge being edited is not saved</div>
-      )}
-      <div className="flex gap-2">
-        <Button variant="outline" size="sm" onClick={confirmDiscardDraft}>
+      {/* The top bar's buttons, as on the other detail pages: 28px, the primary action last. */}
+      {wip && <span className="text-[13px] text-warning">A charge being edited is not saved</span>}
+      <div className="flex items-center gap-2">
+        {!isOutdatedDraft && (
+          <Button variant="secondary" size="sm" hasIcon onClick={() => navigate('edit-overview')}>
+            <Settings2 size={14} className="text-muted-foreground" /> Edit details
+          </Button>
+        )}
+        <Button
+          variant="secondary"
+          size="sm"
+          className="text-tag-destructive hover:text-tag-destructive"
+          onClick={confirmDiscardDraft}
+        >
           Discard draft
         </Button>
         {!isOutdatedDraft && (
@@ -290,27 +330,23 @@ export const PlanActions = ({ onHistory }: { onHistory?: () => void }) => {
       </ConfirmationModal>
     </>
   ) : (
-    <div className="flex gap-2">
+    <div className="flex items-center gap-2">
       {onHistory && (
-        <Button variant="outline" size="sm" hasIcon onClick={onHistory}>
-          <HistoryIcon size={14} /> Version history
+        <Button variant="secondary" size="sm" hasIcon onClick={onHistory}>
+          <HistoryIcon size={14} className="text-muted-foreground" /> Version history
         </Button>
       )}
-      <Button
-        variant="primary"
-        size="sm"
-        disabled={editInDraft.pending}
-        onClick={() => void editInDraft.open()}
-      >
-        {editInDraft.hasDraft ? 'Continue the draft' : 'Edit prices in a draft'}
-      </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="size-8" aria-label="Plan actions">
-            <MoreHorizontalIcon size={16} />
+          <Button variant="secondary" className="gap-1.5 pr-2" size="sm">
+            Actions <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => navigate('edit-overview')}>
+            <Settings2 size={16} className="mr-2" />
+            Edit plan details
+          </DropdownMenuItem>
           {planWithVersion.plan?.planStatus === PlanStatus.ARCHIVED ? (
             <DropdownMenuItem onClick={handleUnarchive}>
               <ArchiveRestoreIcon size={16} className="mr-2" />
@@ -324,6 +360,16 @@ export const PlanActions = ({ onHistory }: { onHistory?: () => void }) => {
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+      <Button
+        variant="primary"
+        size="sm"
+        hasIcon
+        disabled={editInDraft.pending}
+        onClick={() => void editInDraft.open()}
+      >
+        <PencilIcon size={14} />
+        {editInDraft.hasDraft ? 'Continue the draft' : 'Edit prices in a draft'}
+      </Button>
     </div>
   )
 }

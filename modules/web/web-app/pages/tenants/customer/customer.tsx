@@ -3,23 +3,32 @@ import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { Button, Flex, Separator, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { cn } from '@ui/lib'
-import { AlertTriangle, ExternalLink, Plus } from 'lucide-react'
+import { AlertTriangle } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 
 import { LocalId } from '@/components/LocalId'
 import { TenantPageLayout } from '@/components/layouts'
+import {
+  DetailColumns,
+  DetailMain,
+  DetailPageFrame,
+  DetailRow,
+  DetailSidebar,
+  DetailTitle,
+} from '@/components/layouts/DetailLayout'
 import { Slot, placeAfter, slotItems, useVisibleItems } from '@/edition'
 import { CustomerWalletsPanel, useCustomerCreditBalances } from '@/features/credit'
 import { CustomerHeader, CustomersCreatePanel } from '@/features/customers'
+import { CustomerAvatar } from '@/features/customers/CustomerAvatar'
 import { OwnerPicker } from '@/features/customers/OwnerPicker'
 import { ActivityCard } from '@/features/customers/cards/ActivityCard'
-import { CustomerSubscriptions } from '@/features/customers/cards/CustomerSubscriptions'
 import {
-  CustomerSummaryStrip,
-  ReceivablesLine,
-  useCustomerSummary,
-} from '@/features/customers/cards/CustomerSummary'
+  ContainedTableSection,
+  SectionAddButton,
+} from '@/features/customers/cards/ContainedTableSection'
+import { CustomerSubscriptions } from '@/features/customers/cards/CustomerSubscriptions'
+import { CustomerSummaryStrip } from '@/features/customers/cards/CustomerSummary'
 import { CustomerUsageCard } from '@/features/customers/cards/CustomerUsageCard'
 import { InvoicesCard } from '@/features/customers/cards/InvoicesCard'
 import { PaymentMethodsCard } from '@/features/customers/cards/PaymentMethodsCard'
@@ -72,9 +81,6 @@ const tabAliases = (): Record<string, string> =>
       (tab.aliases ?? []).map(alias => [alias, tab.id])
     )
   )
-
-const tabTriggerCls =
-  'rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none'
 
 export const Customer = () => {
   const { customerId } = useTypedParams<{ customerId: string }>()
@@ -222,119 +228,134 @@ export const Customer = () => {
       ? getPaymentRoutingWarnings(data, invoicingEntityProvidersQuery.data)
       : []
 
-  const summary = useCustomerSummary(customerId ?? '')
-
   const isLoading = customerQuery.isLoading || invoicingEntityQuery.isLoading
 
   return (
     <Fragment>
       <TenantPageLayout>
-        <Flex direction="column" className="h-full">
-          <CustomerHeader
-            setShowEditCustomer={() => setEditCustomerVisible(true)}
-            id={data?.id}
-            name={data?.name || data?.alias}
-            archivedAt={data?.archivedAt ? timestampDate(data.archivedAt) : undefined}
-            lifecycleState={data?.lifecycleState}
-          />
+        <DetailPageFrame
+          header={
+            <CustomerHeader
+              setShowEditCustomer={() => setEditCustomerVisible(true)}
+              id={data?.id}
+              name={data?.name || data?.alias}
+              archivedAt={data?.archivedAt ? timestampDate(data.archivedAt) : undefined}
+              lifecycleState={data?.lifecycleState}
+              onOpenPortal={!isExpress ? handleOpenCustomerPortal : undefined}
+              portalPending={portalTokenMutation.isPending}
+            />
+          }
+        >
           {isLoading || !data ? (
-            <>
+            <div className="flex flex-col gap-2 p-6">
               <Skeleton height={16} width={50} />
               <Skeleton height={44} />
-            </>
+            </div>
           ) : (
-            <Flex className="flex-col lg:flex-row lg:h-full">
-              <Flex
-                direction="column"
-                className="gap-4 w-full lg:w-2/3 border-b lg:border-b-0 lg:border-r border-border px-6 lg:px-12 py-6"
-              >
-                <CustomerSummaryStrip customerId={data.id} customer={data} />
-                <Tabs value={tab} onValueChange={setTab} className="w-full mt-4">
+            <DetailColumns>
+              <DetailMain>
+                <DetailTitle
+                  media={<CustomerAvatar name={data.name} size="lg" />}
+                  title={data.name}
+                  subtitle={data.alias}
+                />
+                <Tabs value={tab} onValueChange={setTab} className="w-full">
                   <TabsList
                     ref={tabFade.ref}
+                    variant="underline"
                     className={cn(
-                      'h-auto w-full justify-start gap-6 overflow-x-auto rounded-none border-b border-border bg-transparent p-0',
+                      'w-full overflow-x-auto',
                       tabFade.fadeLeft && 'scroll-fade-x-left',
                       tabFade.fadeRight && 'scroll-fade-x-right'
                     )}
                   >
                     {tabList.map(t => (
-                      <TabsTrigger key={t.id} value={t.id} className={tabTriggerCls}>
+                      <TabsTrigger key={t.id} value={t.id}>
                         {t.label}
                       </TabsTrigger>
                     ))}
                   </TabsList>
-                  <TabsContent value="overview" className="mt-4 flex flex-col gap-6">
+                  <TabsContent
+                    value="overview"
+                    // 32px above and below each divider between the sections. Drawn as the top border of the
+                    // section below it, so a section can leave its own out.
+                    className="mt-6 flex flex-col [&>*+*]:border-t [&>*+*]:border-border [&>*]:py-8 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0"
+                  >
+                    <CustomerSummaryStrip customerId={data.id} customer={data} />
                     <Slot name="customerDetail.attention" customerId={data.id} />
                     {!isExpress && canViewSubscriptions && <UnattributedBanner customerId={data.id} />}
                     {!isExpress && canViewSubscriptions && (
-                      <section className="flex flex-col gap-2">
-                        <Flex align="center" justify="between">
-                          <h3 className="text-lg font-medium">Subscriptions</h3>
+                      // Follows the cards without a divider, 32px below them.
+                      <section className="flex flex-col gap-4 !border-t-0 !pt-0">
+                        <Flex align="center" justify="between" className="h-7">
+                          <h3 className="text-base font-medium">Subscriptions</h3>
                           {canManageSubscriptions && (
-                            <Flex
-                              align="center"
-                              className="gap-1 text-sm cursor-pointer hover:text-primary"
+                            <SectionAddButton
+                              label="New subscription"
                               onClick={() =>
                                 navigate(
                                   `${basePath}/subscriptions/create?customerId=${customerId}`
                                 )
                               }
-                            >
-                              <Plus size={10} /> New subscription
-                            </Flex>
+                            />
                           )}
                         </Flex>
-                        <CustomerSubscriptions customerId={data.id} />
+                        <CustomerSubscriptions
+                          customerId={data.id}
+                          onCreate={
+                            canManageSubscriptions
+                              ? () =>
+                                  navigate(
+                                    `${basePath}/subscriptions/create?customerId=${customerId}`
+                                  )
+                              : undefined
+                          }
+                        />
                       </section>
                     )}
                     {!isExpress && canViewSubscriptions && (
                       <UnattributedUsageSection customerId={data.id} />
                     )}
                     {canViewInvoices && (
-                      <section className="flex flex-col gap-2">
-                        <Flex align="center" justify="between">
-                          <h3 className="text-lg font-medium">Invoices</h3>
-                          {!isExpress && canManageInvoices && (
-                            <Flex
-                              align="center"
-                              className="gap-1 text-sm cursor-pointer hover:text-primary"
-                              onClick={() =>
-                                navigate(`${basePath}/invoices/create?customerId=${customerId}`)
-                              }
-                            >
-                              <Plus size={10} /> New invoice
-                            </Flex>
-                          )}
-                        </Flex>
-                        {summary.data?.receivables && (
-                          <ReceivablesLine receivables={summary.data.receivables} />
-                        )}
-                        <div className="flex-none">
-                          <InvoicesCard customer={data} />
-                        </div>
-                      </section>
+                      <ContainedTableSection
+                        title="Invoices"
+                        actionLabel="New invoice"
+                        onAction={
+                          !isExpress && canManageInvoices
+                            ? () => navigate(`${basePath}/invoices/create?customerId=${customerId}`)
+                            : undefined
+                        }
+                      >
+                        <InvoicesCard
+                          customer={data}
+                          onCreate={
+                            !isExpress && canManageInvoices
+                              ? () =>
+                                  navigate(`${basePath}/invoices/create?customerId=${customerId}`)
+                              : undefined
+                          }
+                        />
+                      </ContainedTableSection>
                     )}
                     {!isExpress && canViewQuotes && (
-                      <section className="flex flex-col gap-2">
-                        <Flex align="center" justify="between">
-                          <h3 className="text-lg font-medium">Quotes</h3>
-                          {canManageQuotes && (
-                            <Flex
-                              align="center"
-                              className="gap-1 text-sm cursor-pointer hover:text-primary"
-                              onClick={() =>
-                                navigate(`${basePath}/quotes/create?customerId=${customerId}`)
-                              }
-                            >
-                              <Plus size={10} /> New quote
-                            </Flex>
-                          )}
-                        </Flex>
-                        <div className="flex-none">
-                          <QuotesCard customer={data} />
-                        </div>
-                      </section>
+                      <ContainedTableSection
+                        title="Quotes"
+                        actionLabel="New quote"
+                        onAction={
+                          canManageQuotes
+                            ? () => navigate(`${basePath}/quotes/create?customerId=${customerId}`)
+                            : undefined
+                        }
+                      >
+                        <QuotesCard
+                          customer={data}
+                          onCreate={
+                            canManageQuotes
+                              ? () => navigate(`${basePath}/quotes/create?customerId=${customerId}`)
+                              : undefined
+                          }
+                        />
+                      </ContainedTableSection>
                     )}
                   </TabsContent>
                   <TabsContent value="usage" className="mt-4">
@@ -371,13 +392,11 @@ export const Customer = () => {
                     </TabsContent>
                   )}
                 </Tabs>
-              </Flex>
-              <Flex direction="column" className="gap-2 w-full lg:w-1/3">
-                <Flex direction="column" className="gap-2 p-6">
-                  <div className="flex justify-between items-start gap-2">
-                    <div className="text-lg font-medium min-w-0 truncate" title={data.name}>
-                      {data.name}
-                    </div>
+              </DetailMain>
+              <DetailSidebar>
+                <Flex direction="column" className="gap-3 p-6">
+                  <div className="mb-2 flex h-7 items-center justify-between gap-2">
+                    <div className="text-[15px] font-medium">Details</div>
 
                     {!isExpress && canManageCustomers && (
                       <Button
@@ -390,10 +409,22 @@ export const Customer = () => {
                       </Button>
                     )}
                   </div>
-                  <div className="text-muted-foreground text-[13px] mb-3">{data.alias}</div>
-                  <FlexDetails title="ID" value={<LocalId localId={data.localId} />} />
+                  <DetailRow
+                    title="ID"
+                    value={
+                      // Quiet and compact: a reference to copy, not something to read. The full ID
+                      // is in the hover title and on the clipboard.
+                      <span title={data.localId} className="inline-flex max-w-[160px]">
+                        <LocalId
+                          localId={data.localId}
+                          buttonClassName="h-6 max-w-full px-2 py-0 gap-1.5 bg-transparent text-muted-foreground hover:text-foreground dark:bg-transparent"
+                          className="min-w-0 text-[11px] tracking-normal"
+                        />
+                      </span>
+                    }
+                  />
                   {!isExpress && (
-                    <FlexDetails
+                    <DetailRow
                       title="Owner"
                       value={
                         <OwnerPicker
@@ -406,13 +437,13 @@ export const Customer = () => {
                       }
                     />
                   )}
-                  <FlexDetails title="Legal name" value={data.name} />
-                  <FlexDetails title="Email" value={data.billingEmail} />
-                  <FlexDetails title="Currency" value={data.currency} />
+                  <DetailRow title="Legal name" value={data.name} />
+                  <DetailRow title="Email" value={data.billingEmail} />
+                  <DetailRow title="Currency" value={data.currency} />
                   {creditBalances.map(balance => (
-                    <FlexDetails key={balance.id} title={balance.label} value={balance.formatted} />
+                    <DetailRow key={balance.id} title={balance.label} value={balance.formatted} />
                   ))}
-                  <FlexDetails
+                  <DetailRow
                     title="Invoicing Entity"
                     value={
                       invoicingEntityQuery.data?.entity ? (
@@ -430,7 +461,7 @@ export const Customer = () => {
                     }
                   />
                   {data.billingAddress && (
-                    <FlexDetails
+                    <DetailRow
                       title="Address"
                       value={
                         <AddressLinesCompact address={data.billingAddress} className="text-right" />
@@ -438,7 +469,7 @@ export const Customer = () => {
                     />
                   )}
 
-                  <FlexDetails
+                  <DetailRow
                     title="Country"
                     value={
                       data.billingAddress?.country ? (
@@ -452,7 +483,7 @@ export const Customer = () => {
                     }
                   />
 
-                  <FlexDetails
+                  <DetailRow
                     title="Custom taxes"
                     value={
                       data.customTaxes && data.customTaxes.length > 0 ? (
@@ -468,7 +499,7 @@ export const Customer = () => {
                       )
                     }
                   />
-                  <FlexDetails
+                  <DetailRow
                     title="Tax ID"
                     value={
                       data.vatNumber ? (
@@ -486,16 +517,16 @@ export const Customer = () => {
                     }
                   />
                   {data.buyerReference && (
-                    <FlexDetails title="Buyer reference" value={data.buyerReference} />
+                    <DetailRow title="Buyer reference" value={data.buyerReference} />
                   )}
                 </Flex>
                 {customPropertyRows.length > 0 && (
                   <>
-                    <Separator className="-my-3" />
-                    <Flex direction="column" className="gap-2 p-6">
+                    <Separator className="-my-3 h-[0.5px]" />
+                    <Flex direction="column" className="gap-3 p-6">
                       <div className="text-[15px] font-medium">Custom properties</div>
                       {customPropertyRows.map(row => (
-                        <FlexDetails
+                        <DetailRow
                           key={row.key}
                           title={row.label}
                           value={<CustomPropertyValue def={row.def} value={row.raw} />}
@@ -504,32 +535,14 @@ export const Customer = () => {
                     </Flex>
                   </>
                 )}
-                <Separator className="-my-3" />
-                <Flex direction="column" className="gap-2 p-6">
+                <Separator className="-my-3 h-[0.5px]" />
+                <Flex direction="column" className="gap-3 p-6">
                   <div className="text-[15px] font-medium">Invoicing</div>
-                  <FlexDetails title="Invoicing emails" value={data.invoicingEmails?.join(', ')} />
+                  <DetailRow title="Invoicing emails" value={data.invoicingEmails?.join(', ')} />
                   <Slot name="customerDetail.invoicingRows" customerId={data.id} />
                 </Flex>
-                {!isExpress && (
-                  <>
-                    <Separator className="-my-3" />
-                    <Flex direction="column" className="gap-2 p-6">
-                      <div className="text-[15px] font-medium">Portal</div>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={handleOpenCustomerPortal}
-                        disabled={portalTokenMutation.isPending}
-                        className="w-full"
-                      >
-                        <ExternalLink size={14} className="mr-2" />
-                        Open Customer Portal
-                      </Button>
-                    </Flex>
-                  </>
-                )}
-                <Separator className="-my-3" />
-                <Flex direction="column" className="gap-2 p-6">
+                <Separator className="-my-3 h-[0.5px]" />
+                <Flex direction="column" className="gap-3 p-6">
                   <Flex align="center" justify="between" className="mb-2">
                     <div className="text-[15px] font-medium">Integrations</div>
                     {!isExpress && canManageCustomers && (
@@ -543,7 +556,7 @@ export const Customer = () => {
                       </Button>
                     )}
                   </Flex>
-                  <FlexDetails title="Alias (External ID)" value={data.alias} />
+                  <DetailRow title="Alias (External ID)" value={data.alias} />
                   {data.customerConnections?.map(connection => {
                     // Prefer the connector's own name (alias); fall back to the
                     // provider display name if the connector isn't loaded yet.
@@ -557,7 +570,7 @@ export const Customer = () => {
                       isSandbox
                     )
                     return (
-                      <FlexDetails
+                      <DetailRow
                         key={connection.id}
                         title={`${connectorName} ID`}
                         value={connection.externalCustomerId}
@@ -566,7 +579,7 @@ export const Customer = () => {
                     )
                   })}
                 </Flex>
-                <Separator className="-my-3" />
+                <Separator className="-my-3 h-[0.5px]" />
                 <Flex direction="column" className="gap-2 p-6">
                   <div className="text-[15px] font-medium">Payment methods</div>
                   <PaymentMethodsCard
@@ -590,7 +603,7 @@ export const Customer = () => {
                 </Flex>
                 {canViewAnalytics && (
                   <>
-                    <Separator className="-my-3" />
+                    <Separator className="-my-3 h-[0.5px]" />
 
                     <Flex direction="column" className="gap-2 p-6">
                       <div className="text-[15px] font-medium">Activity</div>
@@ -598,10 +611,10 @@ export const Customer = () => {
                     </Flex>
                   </>
                 )}
-              </Flex>
-            </Flex>
+              </DetailSidebar>
+            </DetailColumns>
           )}
-        </Flex>
+        </DetailPageFrame>
       </TenantPageLayout>
       <CustomersCreatePanel
         visible={editPanelVisible}
@@ -625,29 +638,6 @@ export const Customer = () => {
     </Fragment>
   )
 }
-
-const FlexDetails = ({
-  title,
-  value,
-  externalLink,
-}: {
-  title: string
-  value?: string | React.ReactNode
-  externalLink?: string
-}) => (
-  <Flex align="center" justify="between">
-    <div className="text-[13px] text-muted-foreground">{title}</div>
-    <div className="max-w-[250px] break-words text-right">
-      {externalLink ? (
-        <a href={externalLink} target="_blank" rel="noopener noreferrer">
-          <div className="text-[13px] text-brand hover:underline">{value ?? 'N/A'}</div>
-        </a>
-      ) : (
-        <div className="text-[13px]">{value ?? '-'}</div>
-      )}
-    </div>
-  </Flex>
-)
 
 const getProviderLink = (
   provider: ConnectorProviderEnum | undefined,

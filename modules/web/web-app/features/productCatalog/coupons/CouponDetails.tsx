@@ -267,8 +267,9 @@ export const CouponDetails: FunctionComponent<{ couponLocalId: string; onClose: 
     <Gate perm="catalog:manage">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" hasIcon className="h-7">
-            Actions <ChevronDown className="w-4 h-4" />
+          <Button variant="secondary" size="sm" className="h-7 gap-1.5 pr-2">
+            Actions
+            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
@@ -323,8 +324,8 @@ export const CouponDetails: FunctionComponent<{ couponLocalId: string; onClose: 
           {coupon.lastRedemptionAt ? null : (
             <DropdownMenuItem
               key="delete"
+              variant="destructive"
               onClick={() => removeCouponMut.mutateAsync({ couponId: coupon.id })}
-              className="bg-destructive text-destructive-foreground"
             >
               Delete
             </DropdownMenuItem>
@@ -419,7 +420,7 @@ export const CouponDetails: FunctionComponent<{ couponLocalId: string; onClose: 
           <Gate perm="catalog:manage">
             <div className="flex justify-end">
               <Button type="submit" variant="primary" size="sm" disabled={editCouponMut.isPending}>
-                Save
+                {editCouponMut.isPending ? 'Saving…' : 'Save'}
               </Button>
             </div>
           </Gate>

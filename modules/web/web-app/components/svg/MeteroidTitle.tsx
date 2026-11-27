@@ -9,13 +9,14 @@ interface Props {
   forceTheme?: 'dark' | 'light'
 }
 
-export const MeteroidTitle = memo(({ width = 120, height = 25, forceTheme }: Props) => {
+// The mark and the wordmark side by side, as designed: 133 × 31.65, about 4.2 : 1.
+export const MeteroidTitle = memo(({ width = 101, height = 24, forceTheme }: Props) => {
   const { isDarkMode } = useTheme()
 
   const enforceDarkMode = forceTheme === 'dark' || (forceTheme === undefined && isDarkMode)
 
   return (
-    <div className="w-32 h-7">
+    <div className="flex h-7 items-center">
       <SVG
         src={`/img/meteroid-logo-wordmark--${enforceDarkMode ? 'dark' : 'light'}.svg`}
         width={width}

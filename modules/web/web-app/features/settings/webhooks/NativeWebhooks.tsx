@@ -1,9 +1,10 @@
-import { Button } from '@md/ui'
-import { ArrowLeftIcon } from 'lucide-react'
+import { Button, Tabs, TabsList, TabsTrigger } from '@md/ui'
+import { ArrowLeftIcon, PlusIcon } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
+import { SettingsSection } from '@/features/settings/components/SettingsSection'
 import { EndpointDialog } from '@/features/settings/webhooks/EndpointDialog'
 import { EndpointPage, type EndpointTab } from '@/features/settings/webhooks/EndpointPage'
 import { EndpointsList } from '@/features/settings/webhooks/EndpointsList'
@@ -48,7 +49,8 @@ export const NativeWebhooks = () => {
   const toList = () => navigate('.')
   const toEndpoint = (id: string, tab?: EndpointTab) =>
     navigate(tab ? `endpoints/${id}?tab=${tab}` : `endpoints/${id}`)
-  const toCatalog = () => navigate('catalog')
+  // The page's own tabs: switching them replaces the entry, as switching settings tabs does.
+  const showTab = (tab: string) => navigate(tab === 'catalog' ? 'catalog' : '.', { replace: true })
 
   const openEditor = (endpoint?: WebhookEndpoint) => {
     setEditing(endpoint)
@@ -136,12 +138,7 @@ export const NativeWebhooks = () => {
 
   let content: ReactNode
   if (view.kind === 'catalog') {
-    content = (
-      <EventCatalogPage
-        onBack={toList}
-        hasV1Endpoints={endpoints.some(endpoint => endpoint.v1Payloads)}
-      />
-    )
+    content = <EventCatalogPage hasV1Endpoints={endpoints.some(endpoint => endpoint.v1Payloads)} />
   } else if (view.kind === 'endpoint') {
     const endpoint = endpoints.find(e => e.id === view.id)
     content = endpoint ? (
@@ -177,8 +174,37 @@ export const NativeWebhooks = () => {
         onSetUp={setSettingUp}
         onToggleDisabled={toggleDisabled}
         onRemove={confirmRemove}
-        onOpenCatalog={toCatalog}
       />
+    )
+  }
+
+  // The list and the catalog share the page's header (its action where API keys has its own)
+  // and its tabs; an endpoint's page replaces both, with its own way back.
+  if (view.kind !== 'endpoint') {
+    const setupPending = endpoints.some(e => e.needsSetup)
+    content = (
+      <SettingsSection
+        divided={false}
+        description="Send signed billing events to your systems. Each endpoint has its own signing secret and delivery log."
+        action={
+          <Button
+            size="sm"
+            hasIcon
+            variant={setupPending ? 'outline' : 'default'}
+            onClick={() => openEditor()}
+          >
+            <PlusIcon size={12} /> Add endpoint
+          </Button>
+        }
+      >
+        <Tabs value={view.kind === 'catalog' ? 'catalog' : 'endpoints'} onValueChange={showTab}>
+          <TabsList variant="underline" className="w-full">
+            <TabsTrigger value="endpoints">Endpoints</TabsTrigger>
+            <TabsTrigger value="catalog">Event catalog</TabsTrigger>
+          </TabsList>
+        </Tabs>
+        <div className="mt-5">{content}</div>
+      </SettingsSection>
     )
   }
 

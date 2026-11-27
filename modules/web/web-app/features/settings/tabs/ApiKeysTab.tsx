@@ -22,6 +22,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  FieldLabel,
   Input,
   InputWithIcon,
   Label,
@@ -38,12 +39,19 @@ import {
   cn,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { CheckIcon, ChevronRightIcon, CopyIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import {
+  CheckIcon,
+  ChevronRightIcon,
+  CopyIcon,
+  KeyRoundIcon,
+  PlusIcon,
+  Trash2Icon,
+} from 'lucide-react'
 import { FunctionComponent, useState } from 'react'
 import { toast } from 'sonner'
 
 import { ApiKeyKind, invalidOrigins, parseOrigins } from '@/features/settings/apiKeys/apiKeyForm'
-import { SettingsSection } from '@/features/settings/components/SettingsSection'
+import { SettingsEmptyState, SettingsSection } from '@/features/settings/components/SettingsSection'
 import { useQuery } from '@/lib/connectrpc'
 import { copyToClipboard } from '@/lib/helpers'
 import {
@@ -186,7 +194,6 @@ export const ApiKeysTab: FunctionComponent = () => {
     <div className="flex max-w-3xl flex-col gap-6">
       <SettingsSection
         divided={false}
-        title="API keys"
         description="Secret keys call the API from your servers. Publishable keys read your pricing pages from your website."
         action={
           <Button hasIcon onClick={() => setIsCreateDialogOpen(true)} size="sm">
@@ -223,9 +230,22 @@ export const ApiKeysTab: FunctionComponent = () => {
           )}
 
           {sortedTokens.length === 0 ? (
-            <div className="rounded-lg border border-border p-8 text-center">
-              <p className="text-sm text-muted-foreground">No API keys yet</p>
-            </div>
+            <SettingsEmptyState
+              icon={<KeyRoundIcon />}
+              title="No API keys yet"
+              action={
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  hasIcon
+                  onClick={() => setIsCreateDialogOpen(true)}
+                >
+                  <PlusIcon size={14} /> Create API key
+                </Button>
+              }
+            >
+              Create a secret key for your servers, or a publishable key for your website.
+            </SettingsEmptyState>
           ) : (
             <div className="overflow-hidden rounded-lg border border-border">
               <Table>
@@ -317,7 +337,7 @@ export const ApiKeysTab: FunctionComponent = () => {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="token-name">Name</Label>
+              <FieldLabel htmlFor="token-name">Name</FieldLabel>
               <Input
                 id="token-name"
                 placeholder="e.g., Production server"

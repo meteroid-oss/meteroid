@@ -72,6 +72,8 @@ function formatDuration(start: Date, end: Date): string {
 interface BatchJobDetailProps {
   jobId: string
   onBack?: () => void
+  /** On its own page the top bar's breadcrumb leads back: no "Back to jobs" of its own. */
+  hideBack?: boolean
 }
 
 const BackToJobs: FunctionComponent<{ onBack?: () => void }> = ({ onBack }) => {
@@ -94,7 +96,11 @@ const BackToJobs: FunctionComponent<{ onBack?: () => void }> = ({ onBack }) => {
   )
 }
 
-export const BatchJobDetail: FunctionComponent<BatchJobDetailProps> = ({ jobId, onBack }) => {
+export const BatchJobDetail: FunctionComponent<BatchJobDetailProps> = ({
+  jobId,
+  onBack,
+  hideBack = false,
+}) => {
   const queryClient = useQueryClient()
   const [showCancelDialog, setShowCancelDialog] = useState(false)
   const [expandedChunks, setExpandedChunks] = useState<Set<string>>(new Set())
@@ -202,7 +208,7 @@ export const BatchJobDetail: FunctionComponent<BatchJobDetailProps> = ({ jobId, 
     return (
       <div className="py-4">
         <div className="mb-4">
-          <BackToJobs onBack={onBack} />
+          {!hideBack && <BackToJobs onBack={onBack} />}
         </div>
         <div className="border border-border rounded-lg p-8 text-center">
           <p className="text-sm text-muted-foreground">Job not found</p>
@@ -220,7 +226,7 @@ export const BatchJobDetail: FunctionComponent<BatchJobDetailProps> = ({ jobId, 
 
   return (
     <div className="py-4 space-y-4">
-      <BackToJobs onBack={onBack} />
+      {!hideBack && <BackToJobs onBack={onBack} />}
 
       {/* Job Summary */}
       <Card>

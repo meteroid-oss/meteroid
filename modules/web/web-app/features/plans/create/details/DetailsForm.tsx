@@ -120,7 +120,7 @@ export const DetailsForm: FC<Props> = ({ onCancel, onNext, defaultValues, submit
           </div>
 
           <div className="flex justify-end w-full items-center space-x-3">
-            <Button variant="secondary" onClick={onCancel}>
+            <Button type="button" variant="secondary" onClick={onCancel}>
               Cancel
             </Button>
 

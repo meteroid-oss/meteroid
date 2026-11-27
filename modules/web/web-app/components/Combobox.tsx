@@ -46,7 +46,8 @@ export function Combobox({
           role="combobox"
           aria-expanded={open}
           className={cn(
-            'flex h-9 w-full border border-border items-center justify-between whitespace-nowrap rounded-md font-normal  bg-transparent hover:bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1',
+            // Drawn as a text field (see Input).
+            'flex h-8 w-full items-center justify-between whitespace-nowrap rounded-md border border-field-border bg-field px-3 py-1 text-[13px] font-normal text-field-foreground shadow-none transition-[border-color,box-shadow] hover:bg-field placeholder:text-field-placeholder focus:outline-none focus-visible:border-foreground/25 focus-visible:ring-[3px] focus-visible:ring-foreground/8 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1',
             className
             //!field.value && ''
           )}

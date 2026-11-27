@@ -215,7 +215,7 @@ const QuoteRowActions: FC<{ quote: Quote; basePath: string }> = ({ quote, basePa
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <MoreVerticalIcon size={16} className="cursor-pointer" />
+          <MoreVerticalIcon size={16} className="cursor-pointer text-faint-foreground hover:text-foreground transition-colors" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem asChild>

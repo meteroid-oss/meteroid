@@ -1,5 +1,4 @@
-import { Card } from '@md/ui'
-
+import { DashboardCard } from '@/features/dashboard/cards/DashboardCard'
 import { SparklineCard } from '@/features/dashboard/cards/SparklineCard'
 import { TopRevenueByCustomers } from '@/features/dashboard/cards/TopRevenueByCustomer'
 import { SignupsSparkline } from '@/features/dashboard/charts/SignupsSparkline'
@@ -12,7 +11,7 @@ export const DetailsSection = () => {
   const stats = useQuery(generalStats)
 
   return (
-    <Card>
+    <DashboardCard className="p-0">
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-0 gap-y-4">
         <SparklineCard
           className=" "
@@ -29,6 +28,6 @@ export const DetailsSection = () => {
         />
         <TopRevenueByCustomers />
       </div>
-    </Card>
+    </DashboardCard>
   )
 }

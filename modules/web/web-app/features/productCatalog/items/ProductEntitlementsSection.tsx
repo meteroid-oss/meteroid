@@ -14,6 +14,8 @@ import { Pencil, PlusIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import { Gate } from '@/components/Gate'
+import { RowActionButton } from '@/components/RowActionButton'
+import { SectionEmptyState } from '@/components/empty-state/SectionEmptyState'
 import { FeatureCreateSheet } from '@/features/entitlements/features/FeatureCreateSheet'
 import { FeatureStatusBadge } from '@/features/entitlements/features/FeatureStatusBadge'
 import { RowSheet } from '@/features/entitlements/rows/RowSheet'
@@ -49,16 +51,9 @@ const ProductFeatureRow = ({ feature }: { feature: Feature }) => {
       </TableCell>
       <TableCell className="w-px py-1.5 align-top">
         <Gate perm="catalog:manage">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            aria-label="Edit default"
-            onClick={() => setEditing(true)}
-          >
-            <Pencil size={14} />
-          </Button>
+          <RowActionButton aria-label="Edit default" onClick={() => setEditing(true)}>
+            <Pencil />
+          </RowActionButton>
         </Gate>
         {editing && (
           <RowSheet
@@ -112,9 +107,7 @@ export const ProductEntitlementsSection = ({ productId }: Props) => {
       {featuresQuery.isLoading ? (
         <Skeleton className="h-24 w-full" />
       ) : features.length === 0 ? (
-        <p className="rounded-lg border border-border px-4 py-6 text-center text-sm text-muted-foreground">
-          No features
-        </p>
+        <SectionEmptyState className="bg-card dark:bg-foreground/[0.035]">No features</SectionEmptyState>
       ) : (
         <div className="overflow-hidden rounded-lg border border-border">
           <Table>

@@ -8,6 +8,7 @@ import {
   errorInterceptor,
   loggingInterceptor,
 } from '@/lib/connectrpc-interceptors'
+import { mockStatsInterceptor } from '@/lib/dev/mockStats'
 import { env } from '@/lib/env'
 import { queryClient } from '@/lib/react-query'
 
@@ -18,7 +19,8 @@ import router from './router/router'
 // transport reference, so a new instance would orphan the entire query cache.
 const transport = createGrpcWebTransport({
   baseUrl: env.meteroidApiUri,
-  interceptors: [errorInterceptor, loggingInterceptor, authInterceptor],
+  // mockStatsInterceptor only answers in development, when turned on with ?mockStats=on.
+  interceptors: [errorInterceptor, loggingInterceptor, authInterceptor, mockStatsInterceptor],
 })
 
 // <Toaster /> is mounted only in providers/Providers: sonner renders each toast in every Toaster.

@@ -1,5 +1,6 @@
-import { Badge, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@md/ui'
+import { Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@md/ui'
 import { cn } from '@ui/lib'
+import { Check, Minus } from 'lucide-react'
 
 import { OPTION_WIDGETS, OptionPicker, OptionWidget } from './OptionPicker'
 import { FilterOp, MULTI_VALUE_OPS, VALUELESS_OPS } from './filterTypes'
@@ -51,18 +52,48 @@ export const FilterValueInput = ({ field, op, values, onChange, autoFocus }: Pro
     const selected = new Set(values)
     const toggle = (v: string) =>
       onChange(selected.has(v) ? values.filter(x => x !== v) : [...values, v])
+    // A checklist, as the searchable pickers show theirs; grouped options get a row per group
+    // that toggles the whole group.
+    const options = field.options ?? []
+    const groups = Array.from(new Set(options.map(o => o.group)))
+    const setGroup = (members: string[], on: boolean) =>
+      onChange(
+        on
+          ? [...values, ...members.filter(v => !selected.has(v))]
+          : values.filter(v => !members.includes(v))
+      )
     return (
-      <div className="flex flex-wrap gap-1.5">
-        {(field.options ?? []).map(o => (
-          <Badge
-            key={o.value}
-            variant={selected.has(o.value) ? 'default' : 'outline'}
-            className="cursor-pointer"
-            onClick={() => toggle(o.value)}
-          >
-            {o.label}
-          </Badge>
-        ))}
+      <div role="group" aria-label={field.label} className="-mx-1 flex flex-col gap-px">
+        {groups.map(group => {
+          const members = options.filter(o => o.group === group)
+          const count = members.filter(o => selected.has(o.value)).length
+          return (
+            <div key={group ?? ''} className="flex flex-col gap-px">
+              {group && (
+                <CheckRow
+                  label={group}
+                  checked={count === 0 ? false : count === members.length ? true : 'mixed'}
+                  onToggle={() =>
+                    setGroup(
+                      members.map(o => o.value),
+                      count < members.length
+                    )
+                  }
+                  strong
+                />
+              )}
+              {members.map(o => (
+                <CheckRow
+                  key={o.value}
+                  label={o.label}
+                  checked={selected.has(o.value)}
+                  onToggle={() => toggle(o.value)}
+                  inset={Boolean(group)}
+                />
+              ))}
+            </div>
+          )
+        })}
       </div>
     )
   }
@@ -138,3 +169,42 @@ export const FilterValueInput = ({ field, op, values, onChange, autoFocus }: Pro
     />
   )
 }
+
+/** One option of a checklist: a small box (ticked, dashed for a part of a group) and its label. */
+const CheckRow = ({
+  label,
+  checked,
+  onToggle,
+  inset = false,
+  strong = false,
+}: {
+  label: string
+  checked: boolean | 'mixed'
+  onToggle: () => void
+  inset?: boolean
+  strong?: boolean
+}) => (
+  <button
+    type="button"
+    role="checkbox"
+    aria-checked={checked}
+    onClick={onToggle}
+    className={cn(
+      'flex h-[30px] items-center gap-2 rounded-[5px] px-2 text-left text-[13px] transition-colors hover:bg-foreground/[0.06] focus-visible:outline-none focus-visible:bg-foreground/[0.08]',
+      inset && 'pl-7',
+      strong ? 'font-medium text-foreground' : 'text-foreground/90'
+    )}
+  >
+    <span
+      aria-hidden
+      className={cn(
+        'flex size-3.5 shrink-0 items-center justify-center rounded-[3px] border-[0.5px]',
+        checked ? 'border-foreground bg-foreground text-background' : 'border-foreground/30'
+      )}
+    >
+      {checked === true && <Check className="size-2.5" strokeWidth={3} />}
+      {checked === 'mixed' && <Minus className="size-2.5" strokeWidth={3} />}
+    </span>
+    {label}
+  </button>
+)

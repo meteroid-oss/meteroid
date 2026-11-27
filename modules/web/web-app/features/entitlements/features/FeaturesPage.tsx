@@ -1,23 +1,15 @@
-import { PlusIcon } from '@md/icons'
-import {
-  Button,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Tabs,
-  TabsList,
-  TabsTrigger,
-} from '@md/ui'
+import { Button, Tabs, TabsList, TabsTrigger } from '@md/ui'
 import { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router'
 
 import { Gate } from '@/components/Gate'
+import { EmptyState } from '@/components/empty-state/EmptyState'
+import { AddIcon } from '@/components/icons/AppIcons'
 import { ListPageLayout, ListToolbarSearch, RefreshButton } from '@/components/layouts'
 import { FeaturesTable } from '@/features/entitlements/features/FeaturesTable'
 import { FeatureActionDialog, PendingFeatureAction } from '@/features/entitlements/features/statusActions'
-import { TypeFilter } from '@/features/resources/TypeSelect'
+import { FilterBar, optionField } from '@/features/filters/FilterBar'
+import { useResourceTypes } from '@/features/resources/hooks'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { useQueryState } from '@/hooks/useQueryState'
 import { useListPagination, useResetPageOnChange } from '@/hooks/useTablePreferences'
@@ -36,7 +28,8 @@ const STATUS_TABS = {
 
 type StatusTab = keyof typeof STATUS_TABS
 
-const ALL_PRODUCTS = '__all__'
+const ALL_STATUSES = [FeatureStatus.ACTIVE, FeatureStatus.DISABLED, FeatureStatus.ARCHIVED]
+const CUSTOMER = '__customer__'
 
 export const FeaturesPage = () => {
   const navigate = useNavigate()
@@ -59,6 +52,7 @@ export const FeaturesPage = () => {
   const groupByProduct = !productFilter
 
   const products = useQuery(listProducts, { pagination: { page: 0, perPage: 200 } }).data?.products ?? []
+  const { all: resourceTypes, hasTypes } = useResourceTypes()
 
   const query = useQuery(listFeatures, {
     pagination: { page: pagination.pageIndex, perPage: pagination.pageSize },
@@ -69,10 +63,28 @@ export const FeaturesPage = () => {
     order: groupByProduct ? FeatureOrder.PRODUCT : FeatureOrder.UNSPECIFIED,
   })
 
+  // No feature at all gets the empty state. The default view hides archived features, so when it
+  // is empty one feature of any status is looked for first.
+  const isNarrowed =
+    !!debouncedSearch || !!productFilter || appliesPer !== undefined || tab !== 'current'
+  const defaultViewEmpty =
+    !isNarrowed &&
+    pagination.pageIndex === 0 &&
+    query.isSuccess &&
+    (query.data?.paginationMeta?.totalItems ?? 0) === 0
+  const anyFeatureQuery = useQuery(
+    listFeatures,
+    { pagination: { page: 0, perPage: 1 }, statuses: ALL_STATUSES },
+    { enabled: defaultViewEmpty }
+  )
+  const isEmpty =
+    defaultViewEmpty &&
+    anyFeatureQuery.isSuccess &&
+    (anyFeatureQuery.data?.paginationMeta?.totalItems ?? 0) === 0
+
   return (
     <ListPageLayout
       title="Features"
-      count={query.data?.paginationMeta?.totalItems}
       tabs={
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList variant="ghost">
@@ -87,7 +99,7 @@ export const FeaturesPage = () => {
       actions={
         <Gate perm="catalog:manage">
           <Button variant="primary" size="sm" hasIcon onClick={() => navigate('create')}>
-            <PlusIcon className="h-4 w-4" /> New feature
+            <AddIcon /> New feature
           </Button>
         </Gate>
       }
@@ -97,36 +109,65 @@ export const FeaturesPage = () => {
             value={search ?? ''}
             onChange={setSearch}
             placeholder="Search features"
-            className="max-w-[220px]"
           />
-          <Select
-            value={productFilter ?? ALL_PRODUCTS}
-            onValueChange={v => setProductFilter(v === ALL_PRODUCTS ? undefined : v)}
-          >
-            <SelectTrigger className="h-8 w-40 text-sm">
-              <SelectValue placeholder="All products" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL_PRODUCTS}>All products</SelectItem>
-              {products.map(p => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <TypeFilter value={appliesPer} onChange={setAppliesPer} anyLabel="Applies per: any" />
+          <FilterBar
+            local={[
+              {
+                field: optionField(
+                  'product',
+                  'Product',
+                  products.map(product => ({ value: product.id, label: product.name })),
+                  { multi: false }
+                ),
+                values: productFilter ? [productFilter] : [],
+                set: ([value]) => setProductFilter(value),
+              },
+              ...(hasTypes
+                ? [
+                    {
+                      field: optionField(
+                        'appliesPer',
+                        'Applies per',
+                        [
+                          { value: CUSTOMER, label: 'Customer' },
+                          ...resourceTypes.map(t => ({ value: t.id, label: t.name })),
+                        ],
+                        { multi: false }
+                      ),
+                      values: appliesPer === undefined ? [] : [appliesPer || CUSTOMER],
+                      set: ([value]: string[]) =>
+                        setAppliesPer(value === undefined ? undefined : value === CUSTOMER ? '' : value),
+                    },
+                  ]
+                : []),
+            ]}
+          />
         </>
       }
       toolbarTrailing={<RefreshButton isLoading={query.isLoading} onClick={() => query.refetch()} />}
     >
-      <FeaturesTable
-        query={query}
-        pagination={pagination}
-        setPagination={setPagination}
-        onAction={onAction}
-        groupByProduct={groupByProduct}
-      />
+      {isEmpty ? (
+        <EmptyState
+          title="No features yet"
+          description="Features decide what each plan gives access to, from simple switches to usage limits."
+          scene="features"
+          actions={
+            <Gate perm="catalog:manage">
+              <Button size="sm" variant="default" onClick={() => navigate('create')}>
+                New feature
+              </Button>
+            </Gate>
+          }
+        />
+      ) : (
+        <FeaturesTable
+          query={query}
+          pagination={pagination}
+          setPagination={setPagination}
+          onAction={onAction}
+          groupByProduct={groupByProduct}
+        />
+      )}
 
       <FeatureActionDialog pending={pendingAction} onClose={() => setPendingAction(null)} />
     </ListPageLayout>

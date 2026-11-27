@@ -264,7 +264,7 @@ export function CSVImportDialog<TConfig extends CSVImportConfig = CSVImportConfi
                                         <InfoIcon className="h-3 w-3 text-muted-foreground" />
                                       </span>
                                     </TooltipTrigger>
-                                    <TooltipContent className="max-w-xs">
+                                    <TooltipContent multiline className="max-w-xs">
                                       {col.tooltipMessage}
                                     </TooltipContent>
                                   </Tooltip>
@@ -289,7 +289,7 @@ export function CSVImportDialog<TConfig extends CSVImportConfig = CSVImportConfi
                                           <InfoIcon className="h-3 w-3 text-muted-foreground" />
                                         </span>
                                       </TooltipTrigger>
-                                      <TooltipContent className="max-w-xs">
+                                      <TooltipContent multiline className="max-w-xs">
                                         {col.tooltipMessage}
                                       </TooltipContent>
                                     </Tooltip>
@@ -547,7 +547,7 @@ function CSVPreviewSection({
                                   )}
                                 </span>
                               </TooltipTrigger>
-                              <TooltipContent className="max-w-xs text-xs">
+                              <TooltipContent multiline className="max-w-xs text-xs">
                                 {cellError}
                               </TooltipContent>
                             </Tooltip>

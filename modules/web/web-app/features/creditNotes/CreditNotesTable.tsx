@@ -86,7 +86,7 @@ export const CreditNotesTable = ({
         cell: ({ row }) => (
           <Popover>
             <PopoverTrigger>
-              <MoreVerticalIcon size={16} className="cursor-pointer" />
+              <MoreVerticalIcon size={16} className="cursor-pointer text-faint-foreground hover:text-foreground transition-colors" />
             </PopoverTrigger>
             <PopoverContent className="p-0 pl-4 text-sm w-36 " side="bottom" align="end">
               <Link

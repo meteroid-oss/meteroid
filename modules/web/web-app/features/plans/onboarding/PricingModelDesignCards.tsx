@@ -42,8 +42,8 @@ const PeriodPicker = ({ isAnnual, setIsAnnual, className }: PeriodPickerProps) =
     <div className={cn('flex flex-row justify-center text-xs gap-1 items-center', className)}>
       <Switch
         id={id}
-        thumbClassName="h-3 w-3 group-hover:ring-1 group-hover:ring-brand"
-        className="h-4 w-8  "
+        thumbClassName="top-0.5 left-0.5 h-3 w-3 group-hover:ring-1 group-hover:ring-brand"
+        className="h-4 w-8 [--motion-switch-travel:16px]"
         checked={isAnnual}
         onCheckedChange={setIsAnnual}
         tabIndex={-1}

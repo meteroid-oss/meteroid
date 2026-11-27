@@ -37,10 +37,11 @@ import {
   TriangleAlertIcon,
   Trash2,
 } from 'lucide-react'
-import { Fragment, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
+import { DetailPageFrame } from '@/components/layouts/DetailLayout'
 import { Slot } from '@/edition'
 import { EntityActivityTimeline } from '@/features/activity/EntityActivityTimeline'
 import { CreditNoteStatusBadge } from '@/features/creditNotes'
@@ -134,20 +135,36 @@ export const Invoice = () => {
 
   const data = invoiceQuery.data?.invoice
   const isLoading = invoiceQuery.isLoading
+  const basePath = useBasePath()
 
   return (
-    <Fragment>
-      <Flex direction="column" className="h-full">
+    <DetailPageFrame
+      section={{ label: 'Invoices', to: `${basePath}/invoices` }}
+      title={
+        data ? (
+          <span className="flex items-center gap-2">
+            <span className="truncate">{data.invoiceNumber}</span>
+            <InvoiceStatusBadge
+              status={data.status}
+              consolidatedInto={data.consolidatedIntoInvoiceId}
+            />
+          </span>
+        ) : (
+          'Invoice'
+        )
+      }
+    >
+      <Flex direction="column" className="h-full flex-1">
         {isLoading || !data ? (
-          <>
+          <div className="flex flex-col gap-2 p-6">
             <Skeleton height={16} width={50} />
             <Skeleton height={44} />
-          </>
+          </div>
         ) : (
           <InvoiceView invoice={data} invoiceId={invoiceId ?? ''} />
         )}
       </Flex>
-    </Fragment>
+    </DetailPageFrame>
   )
 }
 
@@ -357,20 +374,20 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         queryClient.invalidateQueries({
           queryKey: createConnectQueryKey({
             schema: getInvoice,
-            cardinality: undefined
-          })
+            cardinality: undefined,
+          }),
         }),
         queryClient.invalidateQueries({
           queryKey: createConnectQueryKey({
             schema: previewInvoiceSvg,
-            cardinality: undefined
-          })
+            cardinality: undefined,
+          }),
         }),
         queryClient.invalidateQueries({
           queryKey: createConnectQueryKey({
             schema: checkEinvoicingReadiness,
-            cardinality: undefined
-          })
+            cardinality: undefined,
+          }),
         }),
       ])
       // After the invalidations settle, so the checkmark means "the preview you see is new"
@@ -391,7 +408,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         queryKey: createConnectQueryKey({
           schema: listInvoices,
           input: {},
-          cardinality: 'finite'
+          cardinality: 'finite',
         }),
       })
       // Navigate back to the invoices list after successful deletion
@@ -409,7 +426,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         queryKey: createConnectQueryKey({
           schema: getInvoice,
           input: { id: invoice?.id ?? '' },
-          cardinality: 'finite'
+          cardinality: 'finite',
         }),
       })
     },
@@ -426,7 +443,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
           queryKey: createConnectQueryKey({
             schema: getInvoice,
             input: { id: invoice?.id ?? '' },
-            cardinality: 'finite'
+            cardinality: 'finite',
           }),
         }),
         queryClient.invalidateQueries({
@@ -437,7 +454,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
               invoiceId: invoice?.id ?? '',
             },
 
-            cardinality: 'finite'
+            cardinality: 'finite',
           }),
         }),
       ])
@@ -472,7 +489,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         queryKey: createConnectQueryKey({
           schema: getInvoice,
           input: { id: invoice?.id ?? '' },
-          cardinality: 'finite'
+          cardinality: 'finite',
         }),
       })
     },
@@ -599,8 +616,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
     .filter(cn => cn.status === CreditNoteStatus.FINALIZED)
     .reduce((sum, cn) => sum + Math.abs(Number(cn.total)), 0)
   const hasChildInvoice = Boolean(invoice.childInvoiceId)
-  const canCreateCorrectedInvoice =
-    totalCredited >= Number(invoice.total) && !hasChildInvoice
+  const canCreateCorrectedInvoice = totalCredited >= Number(invoice.total) && !hasChildInvoice
 
   const createCorrectedInvoiceMutation = useMutation(createCorrectedInvoice, {
     onSuccess: data => {
@@ -626,26 +642,29 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
 
   if (isEditMode) {
     return (
-      <InvoiceEditForm
-        invoice={invoice}
-        invoiceId={invoiceId}
-        onCancel={() => {
-          setIsEditMode(false)
-          queryClient.invalidateQueries({
-            queryKey: createConnectQueryKey({
-              schema: getInvoice,
-              input: { id: invoiceId },
-              cardinality: 'finite'
-            }),
-          })
-        }}
-        onSuccess={() => setIsEditMode(false)}
-      />
-    );
+      // On the card surface, with the padding the page's layout gave it before.
+      <div className="p-6">
+        <InvoiceEditForm
+          invoice={invoice}
+          invoiceId={invoiceId}
+          onCancel={() => {
+            setIsEditMode(false)
+            queryClient.invalidateQueries({
+              queryKey: createConnectQueryKey({
+                schema: getInvoice,
+                input: { id: invoiceId },
+                cardinality: 'finite',
+              }),
+            })
+          }}
+          onSuccess={() => setIsEditMode(false)}
+        />
+      </div>
+    )
   }
 
   return (
-    <Flex className="flex-col lg:flex-row lg:h-full">
+    <Flex className="flex-1 flex-col lg:flex-row lg:h-full">
       {showSyncPennylaneModal && (
         <SyncInvoiceModal
           invoiceNumber={invoice.invoiceNumber}
@@ -717,10 +736,10 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
       {/* Left Panel - Invoice Details */}
       <Flex
         direction="column"
-        className="w-full lg:w-1/3 border-b lg:border-b-0 lg:border-r border-border"
+        className="w-full lg:w-1/3 border-b-[0.5px] lg:border-b-0 lg:border-r-[0.5px] border-border"
       >
         {/* Fixed Header - Always Visible */}
-        <Flex direction="column" className="gap-2 p-6 border-b border-border">
+        <Flex direction="column" className="gap-3 p-6 border-b-[0.5px] border-border">
           <div className="flex justify-between items-start gap-2">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0">
               <InvoiceStatusBadge
@@ -730,13 +749,15 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
               {invoice.consolidatedIntoInvoiceId ? (
                 <Link
                   to={`${basePath}/invoices/${invoice.consolidatedIntoInvoiceId}`}
-                  className="flex items-center gap-1 text-lg font-medium hover:underline"
+                  className="flex items-center gap-1 font-display text-xl font-medium hover:underline"
                 >
                   Merged into {invoice.consolidatedIntoInvoiceNumber ?? 'consolidated invoice'}
                   <ExternalLink size={15} />
                 </Link>
               ) : (
-                <div className="text-lg font-medium">Invoice {invoice.invoiceNumber}</div>
+                <div className="font-display text-xl font-medium">
+                  Invoice {invoice.invoiceNumber}
+                </div>
               )}
               {invoice.parentInvoiceId && (
                 <Link
@@ -756,235 +777,241 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
               )}
             </div>
             {!invoice.consolidatedIntoInvoiceId && canManageInvoices && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="secondary" size="sm" hasIcon className="shrink-0">
-                  Actions
-                  <ChevronDown className="w-4 h-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {!isExpress && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <DropdownMenuItem onClick={() => setIsEditMode(true)} disabled={!canEdit}>
-                          <Edit size="16" className="mr-2" />
-                          Edit Invoice
-                        </DropdownMenuItem>
-                      </span>
-                    </TooltipTrigger>
-                    {!canEdit && <TooltipContent>Only draft invoices can be edited</TooltipContent>}
-                  </Tooltip>
-                )}
-                {!isExpress && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <DropdownMenuItem
-                          onClick={doRefresh}
-                          disabled={!canRefresh || refresh.isPending}
-                        >
-                          <RefreshCcw
-                            size="16"
-                            className={cn(refresh.isPending && 'animate-spin', 'mr-2')}
-                          />
-                          Refresh
-                        </DropdownMenuItem>
-                      </span>
-                    </TooltipTrigger>
-                    {!canRefresh && (
-                      <TooltipContent>
-                        {!isDraft
-                          ? 'Only draft invoices can be refreshed'
-                          : 'Manual invoices cannot be refreshed'}
-                      </TooltipContent>
-                    )}
-                  </Tooltip>
-                )}
-                {invoice.paymentStatus !== InvoicePaymentStatus.PAID &&
-                  Number(invoice.amountDue) > 0 && (
-                    <DropdownMenuItem
-                      onClick={handlePayOnline}
-                      disabled={paymentTokenMutation.isPending}
-                    >
-                      <ExternalLink size="16" className="mr-2" />
-                      Share Payment Link
-                    </DropdownMenuItem>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="secondary" size="sm" hasIcon className="shrink-0">
+                    Actions
+                    <ChevronDown className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {!isExpress && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <DropdownMenuItem onClick={() => setIsEditMode(true)} disabled={!canEdit}>
+                            <Edit size="16" className="mr-2" />
+                            Edit Invoice
+                          </DropdownMenuItem>
+                        </span>
+                      </TooltipTrigger>
+                      {!canEdit && (
+                        <TooltipContent>Only draft invoices can be edited</TooltipContent>
+                      )}
+                    </Tooltip>
                   )}
-                {!isExpress &&
-                  invoice.status === InvoiceStatus.FINALIZED &&
-                  Number(invoice.amountDue) > 0 && (
-                    <DropdownMenuItem onClick={() => setIsMarkAsPaidDialogOpen(true)}>
-                      <CheckCircleIcon size="16" className="mr-2" />
-                      Mark as Paid
-                    </DropdownMenuItem>
+                  {!isExpress && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <DropdownMenuItem
+                            onClick={doRefresh}
+                            disabled={!canRefresh || refresh.isPending}
+                          >
+                            <RefreshCcw
+                              size="16"
+                              className={cn(refresh.isPending && 'animate-spin', 'mr-2')}
+                            />
+                            Refresh
+                          </DropdownMenuItem>
+                        </span>
+                      </TooltipTrigger>
+                      {!canRefresh && (
+                        <TooltipContent>
+                          {!isDraft
+                            ? 'Only draft invoices can be refreshed'
+                            : 'Manual invoices cannot be refreshed'}
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
                   )}
-                {!isExpress && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <DropdownMenuItem
-                          disabled={!canFinalize}
-                          onClick={() => setShowFinalizeConfirmation(true)}
-                        >
-                          <CheckCircleIcon size="16" className="mr-2" />
-                          Finalize & Send
-                        </DropdownMenuItem>
-                      </span>
-                    </TooltipTrigger>
-                    {!canFinalize && (
-                      <TooltipContent>Only draft invoices can be finalized</TooltipContent>
-                    )}
-                  </Tooltip>
-                )}
-                {!isExpress && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <DropdownMenuItem
-                          disabled={!canSendToPennylane}
-                          onClick={() => setShowSyncPennylaneModal(true)}
-                        >
-                          <FolderSyncIcon size="16" className="mr-2" />
-                          Sync to Pennylane
-                        </DropdownMenuItem>
-                      </span>
-                    </TooltipTrigger>
-                    {!canSendToPennylane && (
-                      <TooltipContent>Pennylane integration not connected</TooltipContent>
-                    )}
-                  </Tooltip>
-                )}
-                {!isExpress && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <DropdownMenuItem
-                          disabled={!canCreateCreditNote}
-                          onClick={() => setShowCreateCreditNoteDialog(true)}
-                        >
-                          <FileText size="16" className="mr-2" />
-                          Create Credit Note
-                        </DropdownMenuItem>
-                      </span>
-                    </TooltipTrigger>
-                    {!canCreateCreditNote && (
-                      <TooltipContent>Only finalized invoices can have credit notes</TooltipContent>
-                    )}
-                  </Tooltip>
-                )}
-                {!isExpress && totalCredited > 0 && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <DropdownMenuItem
-                          disabled={
-                            !canCreateCorrectedInvoice || createCorrectedInvoiceMutation.isPending
-                          }
-                          onClick={handleCreateCorrectedInvoice}
-                        >
-                          <FilePlus2 size="16" className="mr-2" />
-                          Create Corrected Invoice
-                        </DropdownMenuItem>
-                      </span>
-                    </TooltipTrigger>
-                    {hasChildInvoice && (
-                      <TooltipContent>
-                        A corrected invoice already exists for this invoice
-                      </TooltipContent>
-                    )}
-                  </Tooltip>
-                )}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <DropdownMenuItem disabled={!invoice.pdfDocumentId}>
-                        <a
-                          href={invoice.pdfDocumentId ? pdf_url : '#'}
-                          download={`invoice_${invoice.invoiceNumber}.pdf`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex items-center gap-2"
-                        >
-                          <Download size="16" />
-                          Download PDF
-                        </a>
+                  {invoice.paymentStatus !== InvoicePaymentStatus.PAID &&
+                    Number(invoice.amountDue) > 0 && (
+                      <DropdownMenuItem
+                        onClick={handlePayOnline}
+                        disabled={paymentTokenMutation.isPending}
+                      >
+                        <ExternalLink size="16" className="mr-2" />
+                        Share Payment Link
                       </DropdownMenuItem>
-                    </span>
-                  </TooltipTrigger>
-                  {!invoice.pdfDocumentId && <TooltipContent>PDF not yet generated</TooltipContent>}
-                </Tooltip>
-                {!isExpress && (
+                    )}
+                  {!isExpress &&
+                    invoice.status === InvoiceStatus.FINALIZED &&
+                    Number(invoice.amountDue) > 0 && (
+                      <DropdownMenuItem onClick={() => setIsMarkAsPaidDialogOpen(true)}>
+                        <CheckCircleIcon size="16" className="mr-2" />
+                        Mark as Paid
+                      </DropdownMenuItem>
+                    )}
+                  {!isExpress && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <DropdownMenuItem
+                            disabled={!canFinalize}
+                            onClick={() => setShowFinalizeConfirmation(true)}
+                          >
+                            <CheckCircleIcon size="16" className="mr-2" />
+                            Finalize & Send
+                          </DropdownMenuItem>
+                        </span>
+                      </TooltipTrigger>
+                      {!canFinalize && (
+                        <TooltipContent>Only draft invoices can be finalized</TooltipContent>
+                      )}
+                    </Tooltip>
+                  )}
+                  {!isExpress && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <DropdownMenuItem
+                            disabled={!canSendToPennylane}
+                            onClick={() => setShowSyncPennylaneModal(true)}
+                          >
+                            <FolderSyncIcon size="16" className="mr-2" />
+                            Sync to Pennylane
+                          </DropdownMenuItem>
+                        </span>
+                      </TooltipTrigger>
+                      {!canSendToPennylane && (
+                        <TooltipContent>Pennylane integration not connected</TooltipContent>
+                      )}
+                    </Tooltip>
+                  )}
+                  {!isExpress && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <DropdownMenuItem
+                            disabled={!canCreateCreditNote}
+                            onClick={() => setShowCreateCreditNoteDialog(true)}
+                          >
+                            <FileText size="16" className="mr-2" />
+                            Create Credit Note
+                          </DropdownMenuItem>
+                        </span>
+                      </TooltipTrigger>
+                      {!canCreateCreditNote && (
+                        <TooltipContent>
+                          Only finalized invoices can have credit notes
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                  )}
+                  {!isExpress && totalCredited > 0 && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <DropdownMenuItem
+                            disabled={
+                              !canCreateCorrectedInvoice || createCorrectedInvoiceMutation.isPending
+                            }
+                            onClick={handleCreateCorrectedInvoice}
+                          >
+                            <FilePlus2 size="16" className="mr-2" />
+                            Create Corrected Invoice
+                          </DropdownMenuItem>
+                        </span>
+                      </TooltipTrigger>
+                      {hasChildInvoice && (
+                        <TooltipContent>
+                          A corrected invoice already exists for this invoice
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                  )}
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span>
-                        <DropdownMenuItem
-                          disabled={!canDelete}
-                          onClick={() => setShowDeleteConfirmation(true)}
-                          className="text-destructive focus:text-destructive"
-                        >
-                          <Trash2 size="16" className="mr-2" />
-                          Delete
+                        <DropdownMenuItem disabled={!invoice.pdfDocumentId}>
+                          <a
+                            href={invoice.pdfDocumentId ? pdf_url : '#'}
+                            download={`invoice_${invoice.invoiceNumber}.pdf`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center gap-2"
+                          >
+                            <Download size="16" />
+                            Download PDF
+                          </a>
                         </DropdownMenuItem>
                       </span>
                     </TooltipTrigger>
-                    {!canDelete && (
-                      <TooltipContent>Only draft invoices can be deleted</TooltipContent>
+                    {!invoice.pdfDocumentId && (
+                      <TooltipContent>PDF not yet generated</TooltipContent>
                     )}
                   </Tooltip>
-                )}
-                {!isExpress && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <DropdownMenuItem
-                          disabled={!canVoid}
-                          onClick={() => setShowVoidConfirmation(true)}
-                          className="text-destructive focus:text-destructive"
-                        >
-                          <BanIcon size="16" className="mr-2" />
-                          Void
-                        </DropdownMenuItem>
-                      </span>
-                    </TooltipTrigger>
-                    {!canVoid && (
-                      <TooltipContent>Only finalized invoices can be voided</TooltipContent>
-                    )}
-                  </Tooltip>
-                )}
-                {!isExpress && canRegenerate && (
-                  <DropdownMenuItem
-                    disabled={regenerateInvoiceMutation.isPending}
-                    onClick={() => setShowRegenerateConfirmation(true)}
-                  >
-                    <RotateCcw size="16" className="mr-2" />
-                    Regenerate invoice
-                  </DropdownMenuItem>
-                )}
-                {!isExpress && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <DropdownMenuItem
-                          disabled={!canMarkAsUncollectible}
-                          onClick={() => setShowMarkAsUncollectibleConfirmation(true)}
-                          className="text-destructive focus:text-destructive"
-                        >
-                          <FileX2Icon size="16" className="mr-2" />
-                          Mark As Uncollectible
-                        </DropdownMenuItem>
-                      </span>
-                    </TooltipTrigger>
-                    {!canMarkAsUncollectible && (
-                      <TooltipContent>
-                        Only finalized invoices can be marked as uncollectible
-                      </TooltipContent>
-                    )}
-                  </Tooltip>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  {!isExpress && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <DropdownMenuItem
+                            disabled={!canDelete}
+                            onClick={() => setShowDeleteConfirmation(true)}
+                            className="text-destructive focus:text-destructive"
+                          >
+                            <Trash2 size="16" className="mr-2" />
+                            Delete
+                          </DropdownMenuItem>
+                        </span>
+                      </TooltipTrigger>
+                      {!canDelete && (
+                        <TooltipContent>Only draft invoices can be deleted</TooltipContent>
+                      )}
+                    </Tooltip>
+                  )}
+                  {!isExpress && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <DropdownMenuItem
+                            disabled={!canVoid}
+                            onClick={() => setShowVoidConfirmation(true)}
+                            className="text-destructive focus:text-destructive"
+                          >
+                            <BanIcon size="16" className="mr-2" />
+                            Void
+                          </DropdownMenuItem>
+                        </span>
+                      </TooltipTrigger>
+                      {!canVoid && (
+                        <TooltipContent>Only finalized invoices can be voided</TooltipContent>
+                      )}
+                    </Tooltip>
+                  )}
+                  {!isExpress && canRegenerate && (
+                    <DropdownMenuItem
+                      disabled={regenerateInvoiceMutation.isPending}
+                      onClick={() => setShowRegenerateConfirmation(true)}
+                    >
+                      <RotateCcw size="16" className="mr-2" />
+                      Regenerate invoice
+                    </DropdownMenuItem>
+                  )}
+                  {!isExpress && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <DropdownMenuItem
+                            disabled={!canMarkAsUncollectible}
+                            onClick={() => setShowMarkAsUncollectibleConfirmation(true)}
+                            className="text-destructive focus:text-destructive"
+                          >
+                            <FileX2Icon size="16" className="mr-2" />
+                            Mark As Uncollectible
+                          </DropdownMenuItem>
+                        </span>
+                      </TooltipTrigger>
+                      {!canMarkAsUncollectible && (
+                        <TooltipContent>
+                          Only finalized invoices can be marked as uncollectible
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
           </div>
 
@@ -1005,14 +1032,14 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
             </Link>
           )}
 
-          <div className="text-3xl font-bold">
+          <div className="font-display text-[28px] font-medium leading-none tabular-nums">
             {formatCurrency(Number(invoice.total) || 0, invoice.currency)}
           </div>
         </Flex>
 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-auto">
-          <Flex direction="column" className="gap-2 p-6">
+          <Flex direction="column" className="gap-3 p-6">
             <FlexDetails title="Invoice number" value={invoice.invoiceNumber} />
 
             <FlexDetails
@@ -1061,7 +1088,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                     <TooltipTrigger asChild>
                       <span className="text-[13px]">{lastRefreshedLabel ?? 'Not yet'}</span>
                     </TooltipTrigger>
-                    <TooltipContent>
+                    <TooltipContent multiline>
                       {invoice.dataUpdatedAt
                         ? parseAndFormatDateTime(invoice.dataUpdatedAt)
                         : 'This draft still carries the lines it was created with. Usage refreshes hourly.'}
@@ -1076,10 +1103,10 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
             <FlexDetails title="Currency" value={invoice.currency} />
           </Flex>
 
-          <Separator className="-my-3" />
+          <Separator className="-my-3 h-[0.5px]" />
 
-          <Flex direction="column" className="gap-2 p-6">
-            <div className="text-[15px] font-medium">Customer</div>
+          <Flex direction="column" className="gap-3 p-6">
+            <div className="mb-2 flex h-7 items-center text-[15px] font-medium">Customer</div>
             <FlexDetails
               title="Customer"
               value={invoice.customerDetails?.name}
@@ -1118,20 +1145,22 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
             xmlUrl={xml_url || undefined}
           />
 
-          <Separator className="-my-3" />
+          <Separator className="-my-3 h-[0.5px]" />
 
-          <Flex direction="column" className="gap-2 p-6">
-            <div className="text-[15px] font-medium">Line Items</div>
+          <Flex direction="column" className="gap-3 p-6">
+            <div className="mb-2 flex h-7 items-center text-[15px] font-medium">Line Items</div>
             <InvoiceLineItems items={invoice.lineItems} invoice={invoice} />
             <div className="mt-4 pt-4 border-t">
               <InvoiceSummaryLines invoice={invoice} />
             </div>
           </Flex>
 
-          <Separator className="-my-3" />
+          <Separator className="-my-3 h-[0.5px]" />
 
-          <Flex direction="column" className="gap-2 p-6">
-            <div className="text-[15px] font-medium">Payment Information</div>
+          <Flex direction="column" className="gap-3 p-6">
+            <div className="mb-2 flex h-7 items-center text-[15px] font-medium">
+              Payment Information
+            </div>
             <FlexDetails
               title="Payment Status"
               value={
@@ -1175,7 +1204,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
               Number(invoice.amountDue) > 0 && (
                 <div className="mt-4">
                   <Button
-                    variant="outline"
+                    variant="secondary"
                     size="sm"
                     onClick={() => setIsAddPaymentDialogOpen(true)}
                     className="w-full"
@@ -1206,16 +1235,13 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
             totalAmount={(Number(invoice.amountDue) / 100).toFixed(2)}
           />
 
-          <SharePaymentLinkDialog
-            url={paymentLinkUrl}
-            onClose={() => setPaymentLinkUrl(null)}
-          />
+          <SharePaymentLinkDialog url={paymentLinkUrl} onClose={() => setPaymentLinkUrl(null)} />
 
           {invoice.memo && (
             <>
-              <Separator className="-my-3" />
-              <Flex direction="column" className="gap-2 p-6">
-                <div className="text-[15px] font-medium">Memo</div>
+              <Separator className="-my-3 h-[0.5px]" />
+              <Flex direction="column" className="gap-3 p-6">
+                <div className="mb-2 flex h-7 items-center text-[15px] font-medium">Memo</div>
                 <div className="text-[13px] text-muted-foreground whitespace-pre-line">
                   {invoice.memo}
                 </div>
@@ -1225,9 +1251,11 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
 
           {creditNotes.length > 0 && (
             <>
-              <Separator className="-my-3" />
-              <Flex direction="column" className="gap-2 p-6">
-                <div className="text-[15px] font-medium">Credit Notes</div>
+              <Separator className="-my-3 h-[0.5px]" />
+              <Flex direction="column" className="gap-3 p-6">
+                <div className="mb-2 flex h-7 items-center text-[15px] font-medium">
+                  Credit Notes
+                </div>
                 <div className="space-y-2">
                   {creditNotes.map(cn => (
                     <Link
@@ -1259,9 +1287,9 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
 
           {invoice.consolidatedChildren.length > 0 && (
             <>
-              <Separator className="-my-3" />
-              <Flex direction="column" className="gap-2 p-6">
-                <div className="text-[15px] font-medium">
+              <Separator className="-my-3 h-[0.5px]" />
+              <Flex direction="column" className="gap-3 p-6">
+                <div className="mb-2 flex h-7 items-center text-[15px] font-medium">
                   Consolidated from {invoice.consolidatedChildren.length} subscriptions
                 </div>
                 <div className="text-[12px] text-muted-foreground">
@@ -1310,9 +1338,11 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
 
           {customPropertyRows.length > 0 && (
             <>
-              <Separator className="-my-3" />
-              <Flex direction="column" className="gap-2 p-6">
-                <div className="text-[15px] font-medium">Custom properties</div>
+              <Separator className="-my-3 h-[0.5px]" />
+              <Flex direction="column" className="gap-3 p-6">
+                <div className="mb-2 flex h-7 items-center text-[15px] font-medium">
+                  Custom properties
+                </div>
                 {customPropertyRows.map(row => (
                   <FlexDetails
                     key={row.key}
@@ -1324,21 +1354,24 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
             </>
           )}
 
-          <Separator className="-my-3" />
-          <Flex direction="column" className="gap-2 p-6">
-            <div className="text-[15px] font-medium">Activity</div>
+          <Separator className="-my-3 h-[0.5px]" />
+          <Flex direction="column" className="gap-3 p-6">
+            <div className="mb-2 flex h-7 items-center text-[15px] font-medium">Activity</div>
             <EntityActivityTimeline
               entityType="invoice"
               entityId={invoiceId}
               emptyLabel="No activity yet for this invoice"
+              timeline
             />
           </Flex>
 
           {getLatestConnMeta(invoice.connectionMetadata?.pennylane)?.externalId && (
             <>
-              <Separator className="-my-3" />
-              <Flex direction="column" className="gap-2 p-6">
-                <div className="text-[15px] font-medium">Integrations</div>
+              <Separator className="-my-3 h-[0.5px]" />
+              <Flex direction="column" className="gap-3 p-6">
+                <div className="mb-2 flex h-7 items-center text-[15px] font-medium">
+                  Integrations
+                </div>
                 <FlexDetails
                   title="Pennylane ID"
                   value={getLatestConnMeta(invoice.connectionMetadata?.pennylane)?.externalId}
@@ -1356,9 +1389,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
           {invoice.consolidatedIntoInvoiceId ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
               <FileText size={32} className="opacity-50" />
-              <div className="text-sm font-medium text-foreground">
-                No standalone document
-              </div>
+              <div className="text-sm font-medium text-foreground">No standalone document</div>
               <div className="max-w-sm text-[13px]">
                 This is an internal per-subscription record that was merged into{' '}
                 {invoice.consolidatedIntoInvoiceNumber ?? 'a consolidated invoice'}. The customer
@@ -1743,13 +1774,15 @@ const EInvoicingSection = ({
 
   return (
     <>
-      <Separator className="-my-3" />
-      <Flex direction="column" className="gap-2 p-6">
-        <div className="text-[15px] font-medium">E-invoicing</div>
+      <Separator className="-my-3 h-[0.5px]" />
+      <Flex direction="column" className="gap-3 p-6">
+        <div className="mb-2 flex h-7 items-center text-[15px] font-medium">E-invoicing</div>
         {issues === 0 ? (
           <FlexDetails
             title="Status"
-            value={checkDraft ? `Ready to issue as ${outcome.profile}` : `Issued as ${outcome.profile}`}
+            value={
+              checkDraft ? `Ready to issue as ${outcome.profile}` : `Issued as ${outcome.profile}`
+            }
           />
         ) : (
           <Collapsible open={open} onOpenChange={setOpen}>
@@ -1810,7 +1843,7 @@ const EInvoicingSection = ({
   )
 }
 
-// FlexDetails component matching the customer page pattern
+// A sidebar row as on the other detail pages (see `DetailRow`); the title may be a node here.
 const FlexDetails = ({
   title,
   value,
@@ -1822,18 +1855,20 @@ const FlexDetails = ({
   externalLink?: string
   link?: string
 }) => (
-  <Flex align="start" justify="between">
-    <div className="text-[13px] text-muted-foreground">{title}</div>
-    {externalLink ? (
-      <a href={externalLink} target="_blank" rel="noopener noreferrer">
-        <div className="text-[13px] text-brand hover:underline">{value ?? 'N/A'}</div>
-      </a>
-    ) : link ? (
-      <Link to={link}>
-        <div className="text-[13px] text-brand hover:underline">{value ?? 'N/A'}</div>
-      </Link>
-    ) : (
-      <div className="text-[13px]">{value ?? 'N/A'}</div>
-    )}
-  </Flex>
+  <div className="flex items-start justify-between gap-4">
+    <div className="shrink-0 text-[13px] text-muted-foreground">{title}</div>
+    <div className="min-w-0 max-w-[250px] break-words text-right">
+      {externalLink ? (
+        <a href={externalLink} target="_blank" rel="noopener noreferrer">
+          <div className="text-[13px] text-brand hover:underline">{value ?? 'N/A'}</div>
+        </a>
+      ) : link ? (
+        <Link to={link}>
+          <div className="text-[13px] text-brand hover:underline">{value ?? 'N/A'}</div>
+        </Link>
+      ) : (
+        <div className="text-[13px]">{value ?? 'N/A'}</div>
+      )}
+    </div>
+  </div>
 )

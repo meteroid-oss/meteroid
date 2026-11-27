@@ -105,7 +105,7 @@ const Pagination: FunctionComponent<PaginationProps> = ({
     !countPicker && totalPages <= 1 ? (
       <span className="text-xs tabular-nums text-muted-foreground">{countLabel}</span>
     ) : (
-      <div className="inline-flex h-7 items-center overflow-hidden rounded-md border border-border text-xs">
+      <div className="inline-flex h-7 items-center overflow-hidden rounded-md border border-foreground/[0.102] text-xs">
         {totalPages > 1 && (
           <Button
             onClick={handlePreviousPage}

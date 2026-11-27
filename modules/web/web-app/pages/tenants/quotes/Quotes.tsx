@@ -1,15 +1,14 @@
 import { Button } from '@md/ui'
 import { SortingState } from '@tanstack/react-table'
-import { Plus } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { Link } from 'react-router'
 
 import { Gate } from '@/components/Gate'
+import { AddIcon } from '@/components/icons/AppIcons'
 import { ListPageHeader, ListToolbarSearch, RefreshButton, TableCard } from '@/components/layouts'
 import { Slot, hasSlot } from '@/edition'
-import { BaseFilter } from '@/features/TablePage'
 import { useCustomPropertyColumns } from '@/features/customproperties/useCustomPropertyColumns'
-import { FilterBar } from '@/features/filters/FilterBar'
+import { FilterBar, optionField } from '@/features/filters/FilterBar'
 import { useEntityFilters } from '@/features/filters/useEntityFilters'
 import { useRequestFilters } from '@/features/filters/useRequestFilters'
 import { ViewsBar } from '@/features/listviews/ViewsBar'
@@ -33,6 +32,20 @@ const statusSerde = enumSerde(QuoteStatus)
 const DEFAULT_SORTING: SortingState = [{ id: 'created_at', desc: true }]
 // URL params captured by saved views as quick filters.
 const QUICK_KEYS = ['status']
+
+const STATUS_FIELD = optionField(
+  'status',
+  'Status',
+  [
+    { label: 'Draft', value: 'DRAFT' },
+    { label: 'Pending', value: 'PENDING' },
+    { label: 'Accepted', value: 'ACCEPTED' },
+    { label: 'Declined', value: 'DECLINED' },
+    { label: 'Expired', value: 'EXPIRED' },
+    { label: 'Cancelled', value: 'CANCELLED' },
+  ],
+  { multi: false }
+)
 
 export const Quotes = () => {
   const basePath = useBasePath()
@@ -90,10 +103,9 @@ export const Quotes = () => {
   const isLoading = quotesQuery.isLoading || !queryEnabled
 
   return (
-    <div className="flex flex-col gap-4">
+    <div data-full-bleed className="flex min-h-0 flex-1 flex-col">
       <ListPageHeader
         title="Quotes"
-        count={totalCount}
         tabs={<QuoteListTabs />}
         actions={
           <>
@@ -104,7 +116,7 @@ export const Quotes = () => {
               ) : (
                 <Button asChild variant="primary" size="sm" hasIcon>
                   <Link to={`${basePath}/quotes/create`}>
-                    <Plus className="w-4 h-4" />
+                    <AddIcon />
                     New Quote
                   </Link>
                 </Button>
@@ -113,37 +125,28 @@ export const Quotes = () => {
           </>
         }
       />
-      <Slot name="quoteList.aside" />
-      <UnsavedQuoteDrafts />
+      <div className="flex shrink-0 flex-col gap-3 px-3 pb-3 empty:hidden">
+        <Slot name="quoteList.aside" />
+        <UnsavedQuoteDrafts />
+      </div>
       <TableCard
         footer={<ViewsBar views={savedViews} entityLabel="quotes" />}
         toolbar={
           <>
-            <ListToolbarSearch
-              value={search}
-              onChange={setSearch}
-              placeholder="Search quotes..."
-              className="max-w-xs"
-            />
-            <BaseFilter
-              entries={[
-                { label: 'Draft', value: 'DRAFT' },
-                { label: 'Pending', value: 'PENDING' },
-                { label: 'Accepted', value: 'ACCEPTED' },
-                { label: 'Declined', value: 'DECLINED' },
-                { label: 'Expired', value: 'EXPIRED' },
-                { label: 'Cancelled', value: 'CANCELLED' },
-              ]}
-              emptyLabel="All Statuses"
-              selected={status !== undefined ? [QuoteStatus[status]] : []}
-              onSelectionChange={(value, checked) =>
-                setStatus(checked ? QuoteStatus[value as keyof typeof QuoteStatus] : undefined)
-              }
-            />
+            <ListToolbarSearch value={search} onChange={setSearch} placeholder="Search quotes..." />
             <FilterBar
               entityType={CustomPropertyEntityType.QUOTE}
               filters={filters}
               onChange={setFilters}
+              local={[
+                {
+                  field: STATUS_FIELD,
+                  values: status !== undefined ? [QuoteStatus[status]] : [],
+                  set: ([value]) =>
+                    setStatus(value ? QuoteStatus[value as keyof typeof QuoteStatus] : undefined),
+                },
+              ]}
+              entityGroup="Properties"
             />
           </>
         }

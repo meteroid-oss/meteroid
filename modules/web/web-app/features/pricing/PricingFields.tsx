@@ -143,7 +143,7 @@ const LabelHint = ({ text }: { text: string }) => (
     <TooltipTrigger asChild>
       <HelpCircleIcon size={12} aria-label={text} className="cursor-help text-muted-foreground" />
     </TooltipTrigger>
-    <TooltipContent className="max-w-64 text-xs">{text}</TooltipContent>
+    <TooltipContent multiline className="max-w-64 text-xs">{text}</TooltipContent>
   </Tooltip>
 )
 
@@ -273,7 +273,7 @@ export function RateCardPricingFields({
                       </button>
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent className="max-w-64 text-xs">
+                  <TooltipContent multiline className="max-w-64 text-xs">
                     {copy
                       ? "The card's rates today, the markup applied, become this price's own: later changes to the card no longer reach it."
                       : `The card has no rate in ${currency ?? 'this currency'} to copy.`}

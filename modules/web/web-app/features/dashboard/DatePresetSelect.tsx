@@ -43,10 +43,14 @@ export function getDateRangeFromPreset(preset: DateRangePreset): DateRange {
   }
 }
 
+/** Borderless filter trigger used in the dashboard cards ("All plans ⌄", "Last 30 days ⌄"). */
+export const DASHBOARD_FILTER_TRIGGER =
+  'h-8 w-auto gap-2 rounded-lg border-0 bg-transparent px-3 text-[13px] font-medium tracking-[-0.13px] text-foreground/75 shadow-none hover:bg-accent hover:text-foreground focus:ring-0'
+
 export function DatePresetSelect({ value, onChange, disabled }: DatePresetSelectProps) {
   return (
     <Select value={value} onValueChange={v => onChange(v as DateRangePreset)} disabled={disabled}>
-      <SelectTrigger className="w-[150px]">
+      <SelectTrigger className={DASHBOARD_FILTER_TRIGGER}>
         <SelectValue placeholder="Select range" />
       </SelectTrigger>
       <SelectContent>

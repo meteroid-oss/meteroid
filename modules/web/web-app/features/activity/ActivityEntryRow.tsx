@@ -1,5 +1,5 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
-import { Button, HoverCard, HoverCardContent, HoverCardTrigger } from '@md/ui'
+import { Button, HoverCard, HoverCardContent, HoverCardTrigger, cn } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow } from 'date-fns'
 import {
@@ -63,6 +63,8 @@ import { parseMetadata } from './types'
 type Props = {
   entry: ActivityEntry
   compact?: boolean
+  /** Drawn as a step of a timeline: a vertical line runs from this entry's icon to the next. */
+  timeline?: boolean
 }
 
 interface RenderedEntry {
@@ -1108,7 +1110,7 @@ const SendAgainButton = ({ activityId, kind }: { activityId: string; kind: strin
   )
 }
 
-export const ActivityEntryRow = ({ entry, compact = false }: Props) => {
+export const ActivityEntryRow = ({ entry, compact = false, timeline = false }: Props) => {
   const rendered = renderEntry(entry)
   const occurred = new Date(entry.occurredAt)
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -1130,15 +1132,49 @@ export const ActivityEntryRow = ({ entry, compact = false }: Props) => {
 
   return (
     <>
-      <li className="flex items-start gap-2.5 py-2">
-        <div className="flex h-[18px] shrink-0 items-center">
-          <div className="flex h-6 w-6 items-center justify-center rounded-full border bg-muted/40">
+      <li
+        className={
+          timeline
+            ? 'group/entry relative flex items-start gap-3 pb-5 last:pb-0'
+            : 'flex items-start gap-2.5 py-2'
+        }
+      >
+        {timeline && (
+          // The line down to the next entry's icon, through the centre of this one's, with a
+          // little air at both ends. The last entry has none.
+          <span
+            aria-hidden
+            className="absolute bottom-1 left-[11.5px] top-[28px] w-px bg-border group-last/entry:hidden"
+          />
+        )}
+        <div className={timeline ? 'flex shrink-0' : 'flex h-[18px] shrink-0 items-center'}>
+          <div
+            className={cn(
+              // In the badges' tones: a tinted circle, the icon in the tone's colour. An icon's own
+              // tone class (text-success…) picks the tone; one without is neutral.
+              'flex h-6 w-6 items-center justify-center rounded-full bg-tag-neutral-bg text-tag-neutral [&_svg]:text-current',
+              // Positive events in the info tone (blue), not green.
+              'has-[.text-success]:bg-tag-info-bg has-[.text-success]:text-tag-info',
+              'has-[.text-warning]:bg-tag-warning-bg has-[.text-warning]:text-tag-warning',
+              'has-[.text-destructive]:bg-tag-destructive-bg has-[.text-destructive]:text-tag-destructive'
+            )}
+          >
             {rendered.icon}
           </div>
         </div>
-        <div className="flex-1 min-w-0">
+        {/* In a timeline the title's first line sits level with the icon's centre. */}
+        <div className={timeline ? 'min-w-0 flex-1 pt-[3px]' : 'flex-1 min-w-0'}>
           <div className={titleRowClass}>
-            <div className="text-[13px] leading-snug break-words min-w-0">
+            <div
+              className={cn(
+                'text-[13px] leading-snug break-words min-w-0',
+                // In a timeline the action reads quieter than what it happened to: the title's
+                // text is muted, its links (entity names, which set their own colour) and
+                // emphasis stay bright. A title with no element in it is all subject, so stays.
+                timeline &&
+                  'text-muted-foreground [&:not(:has(*))]:text-foreground [&_.font-medium]:text-foreground'
+              )}
+            >
               {rendered.title}
               {rendered.emailPreview && (
                 <Button

@@ -13,6 +13,7 @@ import { Link } from 'react-router'
 
 import { CustomTable } from '@/components/table/CustomTable'
 import { GroupHeaderRow } from '@/components/table/GroupHeaderRow'
+import { SELECT_COLUMN_ID, columnClassName } from '@/components/table/actionColumn'
 import { useTableDensity, useTablePreferences } from '@/hooks/useTablePreferences'
 
 interface StandardTableProps<A> {
@@ -144,33 +145,58 @@ const standardRowRenderer = <A extends object>(
   rowClassName?: (row: Row<A>) => string,
   onRowIntent?: (row: Row<A>) => void
 ) => {
-  const cells = row.getVisibleCells().map(cell => {
+  const visibleCells = row.getVisibleCells()
+  // The row's primary item: the first column after the selection checkbox. Its label underlines
+  // on hover when the row leads somewhere (see `mt-row-primary` in main.css).
+  const primaryCellId = visibleCells.find(cell => cell.column.id !== SELECT_COLUMN_ID)?.id
+
+  const cells = visibleCells.map(cell => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const colDef = cell.column.columnDef as any
     const skipLink = colDef.meta?.skipLink === true
+    const isPrimary = cell.id === primaryCellId
+    const content = flexRender(cell.column.columnDef.cell, cell.getContext())
     return (
-      <TableCell key={cell.id} className={colDef.className}>
+      <TableCell
+        key={cell.id}
+        className={columnClassName(colDef)}
+        data-primary={isPrimary || undefined}
+      >
         {rowLink && !skipLink ? (
           <Link to={rowLink(row)} className="block w-full h-full align-middle min-h-[20px] min-w-1">
-            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+            {isPrimary ? <span className="mt-row-primary">{content}</span> : content}
           </Link>
         ) : (
-          flexRender(cell.column.columnDef.cell, cell.getContext())
+          content
         )}
       </TableCell>
     )
   })
 
+  // Selected rows get a light tint (see the row styles in CustomTable).
+  const selected = row.getIsSelected() ? 'selected' : undefined
+
   if (onRowIntent) {
     return (
-      <IntentRow key={row.id} className={rowClassName?.(row)} onIntent={() => onRowIntent(row)}>
+      <IntentRow
+        key={row.id}
+        className={rowClassName?.(row)}
+        data-state={selected}
+        data-row-id={row.id}
+        onIntent={() => onRowIntent(row)}
+      >
         {cells}
       </IntentRow>
     )
   }
 
   return (
-    <TableRow key={row.id} className={rowClassName?.(row)}>
+    <TableRow
+      key={row.id}
+      className={rowClassName?.(row)}
+      data-state={selected}
+      data-row-id={row.id}
+    >
       {cells}
     </TableRow>
   )
@@ -183,10 +209,14 @@ const IntentRow = ({
   className,
   onIntent,
   children,
+  'data-state': dataState,
+  'data-row-id': rowId,
 }: {
   className?: string
   onIntent: () => void
   children: ReactNode
+  'data-state'?: string
+  'data-row-id'?: string
 }) => {
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const cancel = () => clearTimeout(timer.current)
@@ -194,6 +224,8 @@ const IntentRow = ({
   return (
     <TableRow
       className={className}
+      data-state={dataState}
+      data-row-id={rowId}
       onPointerEnter={() => {
         cancel()
         timer.current = setTimeout(onIntent, HOVER_INTENT_MS)

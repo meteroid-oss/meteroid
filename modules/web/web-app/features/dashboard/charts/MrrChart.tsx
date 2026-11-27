@@ -1,11 +1,18 @@
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@md/ui'
+import {
+  cn,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@md/ui'
 import { linearGradientDef } from '@nivo/core'
 import { ComputedSeries, LineSeries, LineSvgProps, ResponsiveLine } from '@nivo/line'
 import { ChevronDownIcon } from '@radix-ui/react-icons'
+import { ArrowDownIcon, ArrowUpIcon } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 
+import { ChartEmptyState } from '@/components/charts/ChartEmptyState'
 import { MrrColorCircle, MrrColorCircleColors } from '@/features/dashboard/cards/MrrBreakdownCard'
-import { ChartNoData } from '@/features/dashboard/charts/ChartNoData'
 import { MrrCrosshair } from '@/features/dashboard/charts/MrrCrosshair'
 import { ChartType } from '@/features/dashboard/charts/types'
 import { ActiveSerieLayer } from '@/features/dashboard/charts/utils'
@@ -186,14 +193,14 @@ export const MrrChart = ({
 
   return (
     <div>
-      <div className="py-4 flex flex-row gap-12">
-        <div className="flex flex-col gap-2">
+      <div className="pb-5 flex flex-row gap-12">
+        <div className="flex flex-col gap-4">
           {onChartTypeChange ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-1 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors">
+                <button className="flex items-center gap-2 text-[13px] leading-none tracking-[-0.13px] text-foreground/60 hover:text-foreground transition-colors">
                   {chartType === 'revenue' ? 'Revenue' : 'MRR'}
-                  <ChevronDownIcon className="h-3 w-3" />
+                  <ChevronDownIcon className="size-3" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start">
@@ -204,19 +211,30 @@ export const MrrChart = ({
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <div className="text-sm font-semibold text-muted-foreground">MRR</div>
+            <div className="text-[13px] leading-none tracking-[-0.13px] text-foreground/60">
+              MRR
+            </div>
           )}
-          <div>
-            <span className="text-2xl font-semibold leading-6">
+          <div className="flex flex-col gap-3">
+            <span className="font-display text-[21px] leading-none">
               {formatAmount(currentTotal / 100)}
             </span>
-          </div>
-          <div className="text-sm text-muted-foreground">
-            <span className={isPositive ? 'text-success' : 'text-destructive'}>
-              {isPositive && '+'}
-              {changePercent.toFixed(1)}%
-            </span>
-            <span className="ml-1">vs last period</span>
+            <div className="flex items-center gap-1 text-[13px] leading-none tracking-[-0.13px] text-muted-foreground">
+              <span
+                className={cn(
+                  'flex items-center gap-1',
+                  isPositive ? 'text-success dark:text-[#02d590]' : 'text-tag-destructive'
+                )}
+              >
+                {isPositive ? (
+                  <ArrowUpIcon className="size-3" />
+                ) : (
+                  <ArrowDownIcon className="size-3" />
+                )}
+                {Math.abs(changePercent).toFixed(1)}%
+              </span>
+              <span>vs last period</span>
+            </div>
           </div>
         </div>
       </div>
@@ -239,7 +257,12 @@ export const MrrChart = ({
           }}
         />
         {isEmpty ? (
-          <ChartNoData error={!!chartData.error} />
+          <ChartEmptyState
+            error={!!chartData.error}
+            onRetry={() => chartData.refetch()}
+            title="No MRR in this period"
+            description="MRR shows up here once a customer has an active subscription."
+          />
         ) : (
           <ResponsiveLine<LineSeries>
             {...commonChartProps}

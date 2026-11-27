@@ -3,7 +3,14 @@ import * as React from 'react'
 
 import { cn } from '@ui/lib'
 
-const TooltipProvider = TooltipPrimitive.Provider
+/** Tooltips open 80ms after hover or focus; moving on to the next trigger skips the delay. */
+const TooltipProvider = ({
+  delayDuration = 80,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Provider>) => (
+  <TooltipPrimitive.Provider delayDuration={delayDuration} {...props} />
+)
+TooltipProvider.displayName = TooltipPrimitive.Provider.displayName
 
 const Tooltip = TooltipPrimitive.Root
 
@@ -11,13 +18,18 @@ const TooltipTrigger = TooltipPrimitive.Trigger
 
 const TooltipContent = React.forwardRef<
   React.ElementRef<typeof TooltipPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>
->(({ className, sideOffset = 4, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content> & {
+    /** Let longer text wrap (up to `max-w-xs`, or a `max-w-*` in `className`). By default a
+     *  tooltip is a single line. */
+    multiline?: boolean
+  }
+>(({ className, sideOffset = 4, multiline, ...props }, ref) => (
   <TooltipPrimitive.Content
     ref={ref}
     sideOffset={sideOffset}
     className={cn(
-      'z-50 overflow-hidden rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground whitespace-normal break-words animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
+      'mt-tooltip z-50 text-xs',
+      multiline && 'max-w-xs whitespace-normal break-words',
       className
     )}
     {...props}

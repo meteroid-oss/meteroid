@@ -260,6 +260,6 @@ const Hint = ({ children }: { children: string }) => (
     <TooltipTrigger asChild>
       <InfoIcon className="h-3.5 w-3.5 cursor-help text-muted-foreground" />
     </TooltipTrigger>
-    <TooltipContent className="max-w-72">{children}</TooltipContent>
+    <TooltipContent multiline className="max-w-72">{children}</TooltipContent>
   </Tooltip>
 )

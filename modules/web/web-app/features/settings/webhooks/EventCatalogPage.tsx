@@ -15,9 +15,10 @@ import {
 } from '@md/ui'
 import { githubDark, githubLight } from '@uiw/codemirror-theme-github'
 import CodeMirror from '@uiw/react-codemirror'
-import { ArrowLeftIcon, CheckIcon, CopyIcon } from 'lucide-react'
+import { CheckIcon, CopyIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
+import { ListSkeleton } from '@/components/Loading'
 import { useQuery } from '@/lib/connectrpc'
 import { copyToClipboard } from '@/lib/helpers'
 import { type WebhookEventType } from '@/rpc/api/webhooksout/v1/models_pb'
@@ -26,17 +27,11 @@ import { useTheme } from 'providers/ThemeProvider'
 
 type Payloads = 'v2' | 'v1'
 
-interface Props {
-  onBack: () => void
-  /** Some endpoint still receives API v1's payloads: their catalog is offered beside v2's. */
-  hasV1Endpoints: boolean
-}
-
 /**
  * Every event an endpoint can subscribe to, with what it means and its payload: as API v2's
  * payloads carry it (what an endpoint created now receives), or API v1's.
  */
-export const EventCatalogPage = ({ onBack, hasV1Endpoints }: Props) => {
+export const EventCatalogPage = ({ hasV1Endpoints }: { hasV1Endpoints: boolean }) => {
   const [payloads, setPayloads] = useState<Payloads>('v2')
   const eventTypesQuery = useQuery(listWebhookEventTypes, {
     v2Payloads: !hasV1Endpoints || payloads === 'v2',
@@ -61,29 +56,21 @@ export const EventCatalogPage = ({ onBack, hasV1Endpoints }: Props) => {
 
   return (
     <div className="flex max-w-5xl flex-col gap-5">
-      <div className="space-y-3">
-        <Button variant="ghost" size="sm" hasIcon className="-ml-2" onClick={onBack}>
-          <ArrowLeftIcon size={14} /> Webhooks
-        </Button>
-        <div className="space-y-1">
-          <h3 className="text-base font-semibold">Event catalog</h3>
-          <p className="text-sm text-muted-foreground">
-            The events you can subscribe an endpoint to. Amounts are integers in the currency&apos;s
-            minor unit, so 129000 in EUR is €1,290.00.
-          </p>
-        </div>
-        {hasV1Endpoints && (
-          <Tabs value={payloads} onValueChange={value => setPayloads(value as Payloads)}>
-            <TabsList className="justify-start">
-              <TabsTrigger value="v2">API v2 payloads</TabsTrigger>
-              <TabsTrigger value="v1">API v1 payloads</TabsTrigger>
-            </TabsList>
-          </Tabs>
-        )}
-      </div>
+      <p className="text-[13px] leading-snug text-muted-foreground">
+        The events you can subscribe an endpoint to. Amounts are integers in the currency&apos;s
+        minor unit, so 129000 in EUR is €1,290.00.
+      </p>
+      {hasV1Endpoints && (
+        <Tabs value={payloads} onValueChange={value => setPayloads(value as Payloads)}>
+          <TabsList className="justify-start">
+            <TabsTrigger value="v2">API v2 payloads</TabsTrigger>
+            <TabsTrigger value="v1">API v1 payloads</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )}
 
       {eventTypesQuery.isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <ListSkeleton rows={6} className="p-0" />
       ) : (
         <div className="flex min-h-0 gap-6">
           <nav className="w-60 shrink-0 space-y-4">

@@ -8,7 +8,8 @@ import { Button } from './button'
 import { Spinner } from './spinner'
 
 const variants = cva(
-  'relative bg-popover my-4 border rounded-xl shadow-xl data-open:animate-overlay-show data-closed:animate-overlay-hide',
+  // Full width below `sm` (minus a 16px margin each side), so the surface can be a size container.
+  'mt-modal mt-modal-surface relative my-4 w-[calc(100vw-2rem)] sm:w-full',
   {
     variants: {
       size: {
@@ -87,7 +88,7 @@ const Modal = ({
   const footerContent = customFooter ? (
     customFooter
   ) : (
-    <div className="flex w-full space-x-2 justify-end">
+    <div className="mt-modal-footer flex w-full gap-2 justify-end">
       <Button variant="secondary" onClick={onCancel} disabled={loading} size="sm">
         {cancelText}
       </Button>
@@ -115,13 +116,11 @@ const Modal = ({
         <Dialog.Overlay
           className="z-50
           fixed
-          bg-black
+          mt-backdrop
           h-full w-full
           left-0
           top-0
-          opacity-75
-          data-closed:animate-fade-out-overlay-bg
-          data-open:animate-fade-in-overlay-bg"
+          mt-overlay"
         />
         <Dialog.Overlay
           className="z-50
@@ -130,7 +129,7 @@ const Modal = ({
           grid
           place-items-center
           overflow-y-auto
-          data-open:animate-overlay-show data-closed:animate-overlay-hide"
+          mt-modal-holder"
         >
           <Dialog.Content
             className={cn(variants({ size }), className)}
@@ -139,14 +138,16 @@ const Modal = ({
             aria-describedby={undefined}
           >
             {header && (
-              <div className=" space-y-1 py-3 px-4 sm:px-5 rounded-xl rounded-b-none border-b border-border">
-                <Dialog.Title className="text-sm font-medium">{header}</Dialog.Title>
+              <div className="px-4 pt-4 pb-3">
+                <Dialog.Title className="font-display text-[15px] font-medium leading-none text-foreground">
+                  {header}
+                </Dialog.Title>
               </div>
             )}
             {!header && <Dialog.Title className="sr-only">Dialog</Dialog.Title>}
             {children}
             {!hideFooter && (
-              <div className="flex justify-end gap-2 py-3 px-5 border-t ">{footerContent}</div>
+              <div className="mt-modal-footer flex justify-end gap-2 p-2">{footerContent}</div>
             )}
           </Dialog.Content>
         </Dialog.Overlay>
@@ -156,7 +157,7 @@ const Modal = ({
 }
 
 function Content({ children }: { children: React.ReactNode }) {
-  return <div className="px-5">{children}</div>
+  return <div className="px-4">{children}</div>
 }
 
 function Separator() {

@@ -18,6 +18,8 @@ on:
       - "spec/**"
       - "editions/**"
       - "ee/**"
+      - "!ee/web/**"
+      - "!ee/modules/*/web/**"
   pull_request:
     types: [ opened, reopened, synchronize ]
     paths:
@@ -33,6 +35,8 @@ on:
       - "spec/**"
       - "editions/**"
       - "ee/**"
+      - "!ee/web/**"
+      - "!ee/modules/*/web/**"
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.ref }}"

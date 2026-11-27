@@ -89,6 +89,21 @@ module.exports = {
           DEFAULT: 'hsl(var(--muted) / <alpha-value>)',
           foreground: 'hsl(var(--muted-foreground) / <alpha-value>)',
         },
+        // Form controls; the tokens can carry their own alpha, so no <alpha-value> here.
+        field: {
+          DEFAULT: 'hsl(var(--field))',
+          border: 'hsl(var(--field-border))',
+          foreground: 'hsl(var(--field-foreground))',
+          placeholder: 'hsl(var(--field-placeholder))',
+        },
+        select: {
+          DEFAULT: 'hsl(var(--select))',
+          border: 'hsl(var(--select-border))',
+        },
+        'checkbox-checked': 'hsl(var(--checkbox-checked) / <alpha-value>)',
+        faint: {
+          foreground: 'hsl(var(--faint-foreground) / <alpha-value>)',
+        },
         accent: {
           DEFAULT: 'hsl(var(--accent) / <alpha-value>)',
           foreground: 'hsl(var(--accent-foreground) / <alpha-value>)',
@@ -97,8 +112,14 @@ module.exports = {
           DEFAULT: 'hsl(var(--popover) / <alpha-value>)',
           foreground: 'hsl(var(--popover-foreground) / <alpha-value>)',
         },
+        menu: {
+          DEFAULT: 'hsl(var(--menu) / <alpha-value>)',
+          foreground: 'hsl(var(--menu-foreground) / <alpha-value>)',
+          accent: 'hsl(var(--menu-accent) / <alpha-value>)',
+        },
         card: {
           DEFAULT: 'hsl(var(--card) / <alpha-value>)',
+          table: 'hsl(var(--card-table) / <alpha-value>)',
           foreground: 'hsl(var(--card-foreground) / <alpha-value>)',
         },
         warning: {
@@ -109,12 +130,25 @@ module.exports = {
           DEFAULT: 'hsl(var(--success) / <alpha-value>)',
           foreground: 'hsl(var(--success-foreground) / <alpha-value>)',
         },
+        info: {
+          DEFAULT: 'hsl(var(--info) / <alpha-value>)',
+          foreground: 'hsl(var(--info-foreground) / <alpha-value>)',
+        },
+        // Tag (Badge) tones: `text-tag-<tone>` on `bg-tag-<tone>-bg`.
+        tag: Object.fromEntries(
+          ['info', 'warning', 'success', 'neutral', 'destructive'].flatMap(tone => [
+            [tone, `hsl(var(--tag-${tone}) / <alpha-value>)`],
+            [`${tone}-bg`, `hsl(var(--tag-${tone}-bg) / <alpha-value>)`],
+          ])
+        ),
         sidebar: {
           DEFAULT: 'hsl(var(--sidebar-background))',
           foreground: 'hsl(var(--sidebar-foreground))',
+          icon: 'hsl(var(--sidebar-icon))',
           primary: 'hsl(var(--sidebar-primary))',
           'primary-foreground': 'hsl(var(--sidebar-primary-foreground))',
           accent: 'hsl(var(--sidebar-accent))',
+          active: 'hsl(var(--sidebar-active))',
           'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
           border: 'hsl(var(--sidebar-border))',
           ring: 'hsl(var(--sidebar-ring))',

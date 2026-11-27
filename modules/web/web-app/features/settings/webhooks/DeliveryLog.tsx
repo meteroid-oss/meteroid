@@ -18,6 +18,7 @@ import { RefreshCwIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import Pagination from '@/components/table/CustomTable/components/Pagination/Pagination'
+import { SettingsEmptyState } from '@/features/settings/components/SettingsSection'
 import { DELIVERY_STATUS_LABEL, DeliveryStatusBadge } from '@/features/settings/webhooks/badges'
 import { useQuery } from '@/lib/connectrpc'
 import { WebhookDeliveryStatusEnum } from '@/rpc/api/webhooksout/v1/models_pb'
@@ -100,7 +101,7 @@ export const DeliveryLog = ({ endpointId, onOpen }: Props) => {
             <Skeleton height={20} width="100%" />
           </div>
         ) : deliveries.length === 0 ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">No deliveries yet.</p>
+          <SettingsEmptyState framed={false}>No deliveries yet.</SettingsEmptyState>
         ) : (
           <Table>
             <TableHeader>

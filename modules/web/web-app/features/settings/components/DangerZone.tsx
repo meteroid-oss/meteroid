@@ -88,6 +88,6 @@ const DangerButton = ({
         </Button>
       </span>
     </TooltipTrigger>
-    {disabledReason != null && <TooltipContent>{disabledReason}</TooltipContent>}
+    {disabledReason != null && <TooltipContent multiline>{disabledReason}</TooltipContent>}
   </Tooltip>
 )

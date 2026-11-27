@@ -176,7 +176,7 @@ const InvoiceRowActions = ({ invoiceId }: { invoiceId: string }) => {
         }}
       >
         <DropdownMenuTrigger asChild>
-          <MoreVerticalIcon size={16} className="cursor-pointer" />
+          <MoreVerticalIcon size={16} className="cursor-pointer text-faint-foreground hover:text-foreground transition-colors" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={() => navigate(`${basePath}/invoices/${invoiceId}`)}>

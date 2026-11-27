@@ -1,20 +1,19 @@
-import { PlusIcon } from '@md/icons'
-import { Badge, Button } from '@md/ui'
-import { X } from 'lucide-react'
+import { Button } from '@md/ui'
 import { useCallback, useState } from 'react'
 import { Link } from 'react-router'
 
 import { Gate } from '@/components/Gate'
+import { EmptyState } from '@/components/empty-state/EmptyState'
+import { AddIcon } from '@/components/icons/AppIcons'
 import { ListPageLayout, ListToolbarSearch, RefreshButton } from '@/components/layouts'
 import { Slot, hasSlot } from '@/edition'
 import { useCustomPropertyColumns } from '@/features/customproperties/useCustomPropertyColumns'
-import { FilterBar } from '@/features/filters/FilterBar'
+import { FilterBar, optionField } from '@/features/filters/FilterBar'
+import { ContextChip } from '@/features/filters/FilterChip'
 import { useEntityFilters } from '@/features/filters/useEntityFilters'
 import { useRequestFilters } from '@/features/filters/useRequestFilters'
 import { InvoicesTable } from '@/features/invoices'
-import { FilterDropdown } from '@/features/invoices/FilterDropdown'
 import { INVOICES_DEFAULT_HIDDEN } from '@/features/invoices/InvoicesTable'
-import { PaymentFilterDropdown } from '@/features/invoices/PaymentFilterDropdown'
 import { ViewsBar } from '@/features/listviews/ViewsBar'
 import { useSavedViews } from '@/features/listviews/useSavedViews'
 import { useDebounceValue } from '@/hooks/useDebounce'
@@ -44,6 +43,33 @@ const flagSerde = {
 const DEFAULT_SORTING: SortingState = [{ id: 'billing_period_start', desc: true }]
 // URL params captured by saved views as quick filters.
 const QUICK_KEYS = ['status', 'payment_status']
+
+const STATUS_FIELD = optionField(
+  'status',
+  'Status',
+  [
+    { label: 'Draft', value: String(InvoiceStatus.DRAFT) },
+    { label: 'Finalized', value: String(InvoiceStatus.FINALIZED) },
+    { label: 'Uncollectible', value: String(InvoiceStatus.UNCOLLECTIBLE) },
+    { label: 'Void', value: String(InvoiceStatus.VOID) },
+    { label: 'Closed', value: String(InvoiceStatus.CLOSED) },
+  ],
+  { multi: false }
+)
+
+const PAYMENT_FIELD = optionField(
+  'payment_status',
+  'Payment',
+  [
+    { label: 'Unpaid', value: String(InvoicePaymentStatus.UNPAID) },
+    { label: 'Processing', value: String(InvoicePaymentStatus.PROCESSING) },
+    { label: 'Partially paid', value: String(InvoicePaymentStatus.PARTIALLY_PAID) },
+    { label: 'Paid', value: String(InvoicePaymentStatus.PAID) },
+    { label: 'Errored', value: String(InvoicePaymentStatus.ERRORED) },
+    { label: 'Carried forward', value: String(InvoicePaymentStatus.CARRIED) },
+  ],
+  { multi: false }
+)
 
 export const Invoices = () => {
   const isExpress = useIsExpressOrganization()
@@ -127,11 +153,22 @@ export const Invoices = () => {
   const data = invoicesQuery.data?.invoices ?? []
   const count = invoicesQuery.data?.paginationMeta?.totalItems ?? 0
   const isLoading = invoicesQuery.isLoading || !queryEnabled
+  // No invoice at all gets the empty state; anything that narrows the list (search, a filter, a
+  // view, a subscription's or overdue context) keeps the table, so the filters stay reachable.
+  const isNarrowed =
+    !!debouncedText ||
+    status !== undefined ||
+    paymentStatus !== undefined ||
+    !!subscription ||
+    overdue ||
+    filters.length > 0 ||
+    !!savedViews.activeView
+  const isEmpty =
+    !isNarrowed && pagination.pageIndex === 0 && invoicesQuery.isSuccess && count === 0
 
   return (
     <ListPageLayout
       title="Invoices"
-      count={count}
       actions={
         isExpress ? undefined : (
           <>
@@ -141,7 +178,7 @@ export const Invoices = () => {
             <Gate perm="billing:invoices:manage">
               <Link to="create">
                 <Button variant="primary" size="sm" hasIcon>
-                  <PlusIcon size={10} fill="white" /> New invoice
+                  <AddIcon /> New invoice
                 </Button>
               </Link>
             </Gate>
@@ -151,65 +188,80 @@ export const Invoices = () => {
       footer={<ViewsBar views={savedViews} entityLabel="invoices" />}
       toolbar={
         <>
-          <ListToolbarSearch
-            value={text}
-            onChange={setText}
-            placeholder="Search invoices"
-            className="max-w-xs"
-          />
-          <FilterDropdown status={status} setStatus={setStatus} />
-          <PaymentFilterDropdown status={paymentStatus} setStatus={setPaymentStatus} />
-          {subscription && (
-            <Badge variant="secondary" className="gap-1">
-              Subscription {subscription}
-              <button
-                type="button"
-                aria-label="Show invoices of every subscription"
-                onClick={() => setSubscription(undefined)}
-              >
-                <X size={12} />
-              </button>
-            </Badge>
-          )}
-          {overdue && (
-            <Badge variant="secondary" className="gap-1">
-              Overdue
-              <button
-                type="button"
-                aria-label="Show invoices whether overdue or not"
-                onClick={() => setOverdue(false)}
-              >
-                <X size={12} />
-              </button>
-            </Badge>
-          )}
+          <ListToolbarSearch value={text} onChange={setText} placeholder="Search invoices" />
           <FilterBar
             entityType={CustomPropertyEntityType.INVOICE}
             filters={filters}
             onChange={setFilters}
+            local={[
+              {
+                field: STATUS_FIELD,
+                values: status !== undefined ? [String(status)] : [],
+                set: ([value]) => setStatus(value ? (Number(value) as InvoiceStatus) : undefined),
+              },
+              {
+                field: PAYMENT_FIELD,
+                values: paymentStatus !== undefined ? [String(paymentStatus)] : [],
+                set: ([value]) =>
+                  setPaymentStatus(value ? (Number(value) as InvoicePaymentStatus) : undefined),
+              },
+            ]}
+            entityGroup="Properties"
           />
+          {subscription && (
+            <ContextChip
+              label="Subscription"
+              value={subscription}
+              onRemove={() => setSubscription(undefined)}
+              removeLabel="Show invoices of every subscription"
+            />
+          )}
+          {overdue && (
+            <ContextChip
+              label="Overdue"
+              onRemove={() => setOverdue(false)}
+              removeLabel="Show invoices whether overdue or not"
+            />
+          )}
         </>
       }
       toolbarTrailing={
         <RefreshButton isLoading={isLoading} onClick={() => invoicesQuery.refetch()} />
       }
     >
-      <InvoicesTable
-        tableKey="invoices"
-        data={data}
-        totalCount={count}
-        pagination={pagination}
-        setPagination={setPagination}
-        isLoading={isLoading}
-        sorting={sorting}
-        onSortingChange={handleSortingChange}
-        chart={
-          hasSlot('listPage.metricStrip') ? (
-            <Slot name="listPage.metricStrip" metricKey="outstanding_ar" />
-          ) : undefined
-        }
-        columnState={savedViews.columnState}
-      />
+      {isEmpty ? (
+        <EmptyState
+          title="No invoices yet"
+          description="Invoices show up here once a subscription bills, first as drafts and then finalized."
+          scene="invoices"
+          actions={
+            isExpress ? undefined : (
+              <Gate perm="billing:invoices:manage">
+                <Button size="sm" variant="default" asChild>
+                  <Link to="create">New invoice</Link>
+                </Button>
+              </Gate>
+            )
+          }
+        />
+      ) : (
+        <InvoicesTable
+          tableKey="invoices"
+          data={data}
+          totalCount={count}
+          pagination={pagination}
+          setPagination={setPagination}
+          isLoading={isLoading}
+          sorting={sorting}
+          onSortingChange={handleSortingChange}
+          chart={
+            hasSlot('listPage.metricStrip') ? (
+              <Slot name="listPage.metricStrip" metricKey="outstanding_ar" />
+            ) : undefined
+          }
+          columnState={savedViews.columnState}
+        />
+      )}
     </ListPageLayout>
   )
 }

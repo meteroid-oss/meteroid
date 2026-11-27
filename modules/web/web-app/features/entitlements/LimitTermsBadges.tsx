@@ -30,7 +30,7 @@ export const LimitTermsBadges = ({ terms }: { terms?: LimitTerms }) => {
               {behavior}
             </Badge>
           </TooltipTrigger>
-          <TooltipContent className="max-w-56">{limitBehaviorHelp(terms)}</TooltipContent>
+          <TooltipContent multiline className="max-w-56">{limitBehaviorHelp(terms)}</TooltipContent>
         </Tooltip>
       )}
       {group && (

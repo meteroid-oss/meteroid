@@ -1,7 +1,7 @@
 import { json } from '@codemirror/lang-json'
 import {
   Button,
-  Label,
+  FieldLabel,
   Select,
   SelectContent,
   SelectGroup,
@@ -131,7 +131,7 @@ export const EndpointTesting = ({ endpoint, onOpenDelivery }: Props) => {
       </div>
 
       <div className="space-y-1.5">
-        <Label>Event type</Label>
+        <FieldLabel>Event type</FieldLabel>
         <Select value={eventType} onValueChange={setEventType}>
           <SelectTrigger className="w-[320px]">
             <SelectValue />
@@ -153,7 +153,7 @@ export const EndpointTesting = ({ endpoint, onOpenDelivery }: Props) => {
       </div>
 
       <div className="space-y-1.5">
-        <Label>Payload</Label>
+        <FieldLabel>Payload</FieldLabel>
         <div className="overflow-hidden rounded-lg border border-border">
           <CodeMirror
             value={example}

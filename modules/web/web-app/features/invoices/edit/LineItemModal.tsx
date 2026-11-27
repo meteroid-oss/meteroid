@@ -188,7 +188,7 @@ export const LineItemModal = ({
                         </div>
                       </TooltipTrigger>
                       {isUsageBased && (
-                        <TooltipContent>
+                        <TooltipContent multiline>
                           <p>
                             Date range is determined by the subscription period for usage-based
                             items

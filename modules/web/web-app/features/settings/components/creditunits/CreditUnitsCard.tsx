@@ -2,8 +2,6 @@ import { useMutation } from '@connectrpc/connect-query'
 import {
   Badge,
   Button,
-  Card,
-  Spinner,
   Table,
   TableBody,
   TableCell,
@@ -17,6 +15,8 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 
 import ConfirmationModal from '@/components/ConfirmationModal'
+import { ListSkeleton } from '@/components/Loading'
+import { SettingsEmptyState, SettingsSection } from '@/features/settings/components/SettingsSection'
 import { useQuery } from '@/lib/connectrpc'
 import { rpcErrorMessage } from '@/lib/rpcError'
 import { formatCurrencyNoRounding } from '@/lib/utils/numbers'
@@ -56,99 +56,98 @@ export const CreditUnitsCard = () => {
 
   return (
     <>
-      <Card className="px-8 py-6 max-w-[950px]">
-        <div className="space-y-4">
-          <div className="flex justify-end">
-            <Button size="sm" onClick={() => setShowAddModal(true)} className="gap-2">
-              <PlusIcon className="h-4 w-4" />
-              Add credit unit
-            </Button>
-          </div>
-
-          <div className="border rounded-lg">
-            {unitsQuery.isLoading ? (
-              <div className="p-8 text-center">
-                <Spinner />
-              </div>
-            ) : units.length === 0 ? (
-              <div className="p-8 text-center text-muted-foreground text-xs">
-                No credit units yet. Add one to price usage in credits instead of money.
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Code</TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Symbol</TableHead>
-                    <TableHead>Precision</TableHead>
-                    <TableHead>Value per credit</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {units.map(unit => (
-                    <TableRow key={unit.id}>
-                      <TableCell className="font-mono">{unit.code}</TableCell>
-                      <TableCell>
-                        {unit.name} / {unit.pluralName}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{unit.symbol || '-'}</TableCell>
-                      <TableCell>{unit.precision}</TableCell>
-                      <TableCell>
-                        <SellingSummary unit={unit} />
-                      </TableCell>
-                      <TableCell>
-                        {unit.archived ? (
-                          <Badge variant="outline" size="sm">
-                            Archived
-                          </Badge>
-                        ) : (
-                          <Badge variant="secondary" size="sm">
-                            Active
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
+      {/* A section like the others in the tab: the add action in its header, then the table. */}
+      <SettingsSection
+        title="Credit units"
+        description="Denominations to price or grant usage in, instead of money."
+        action={
+          <Button size="sm" variant="secondary" hasIcon onClick={() => setShowAddModal(true)}>
+            <PlusIcon size={14} />
+            Add credit unit
+          </Button>
+        }
+      >
+        <div className="overflow-hidden rounded-lg border border-border">
+          {unitsQuery.isLoading ? (
+            <ListSkeleton className="p-4" />
+          ) : units.length === 0 ? (
+            <SettingsEmptyState framed={false}>
+              No credit units yet. Add one to price usage in credits instead of money.
+            </SettingsEmptyState>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Code</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Symbol</TableHead>
+                  <TableHead>Precision</TableHead>
+                  <TableHead>Value per credit</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {units.map(unit => (
+                  <TableRow key={unit.id}>
+                    <TableCell className="font-mono">{unit.code}</TableCell>
+                    <TableCell>
+                      {unit.name} / {unit.pluralName}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{unit.symbol || '-'}</TableCell>
+                    <TableCell>{unit.precision}</TableCell>
+                    <TableCell>
+                      <SellingSummary unit={unit} />
+                    </TableCell>
+                    <TableCell>
+                      {unit.archived ? (
+                        <Badge variant="outline" size="sm">
+                          Archived
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary" size="sm">
+                          Active
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`Edit ${unit.pluralName}`}
+                        onClick={() => setEditingUnitId(unit.id)}
+                      >
+                        <PencilIcon className="h-4 w-4" />
+                      </Button>
+                      {!unit.archived && (
                         <Button
                           size="sm"
                           variant="ghost"
-                          aria-label={`Edit ${unit.pluralName}`}
-                          onClick={() => setEditingUnitId(unit.id)}
+                          aria-label={`Sell ${unit.pluralName}`}
+                          onClick={() => setSellingUnitId(unit.id)}
                         >
-                          <PencilIcon className="h-4 w-4" />
+                          <TagIcon className="h-4 w-4" />
                         </Button>
-                        {!unit.archived && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            aria-label={`Sell ${unit.pluralName}`}
-                            onClick={() => setSellingUnitId(unit.id)}
-                          >
-                            <TagIcon className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {!unit.archived && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            aria-label={`Archive ${unit.pluralName}`}
-                            onClick={() => setUnitToArchive(unit)}
-                            className="text-destructive hover:text-destructive"
-                          >
-                            <ArchiveIcon className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </div>
+                      )}
+                      {!unit.archived && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label={`Archive ${unit.pluralName}`}
+                          onClick={() => setUnitToArchive(unit)}
+                          className="text-destructive hover:text-destructive"
+                        >
+                          <ArchiveIcon className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </div>
-      </Card>
+      </SettingsSection>
 
       <AddCreditUnitModal
         open={showAddModal}

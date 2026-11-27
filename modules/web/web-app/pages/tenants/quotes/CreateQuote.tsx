@@ -1,10 +1,10 @@
 import { create } from '@bufbuild/protobuf'
 import { Code, ConnectError } from '@connectrpc/connect'
 import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query'
-import { Alert, Button, Form } from '@md/ui'
+import { Alert, Button, Form, cn } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { addDays, startOfDay } from 'date-fns'
-import { ArrowLeft, Save } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
@@ -17,18 +17,25 @@ import {
   DraftRestoreBanner,
   StaleQuoteBanner,
 } from '@/features/quotes/editor/AutosaveBanners'
+import { DetailsSection } from '@/features/quotes/editor/DetailsSection'
 import { DocumentSection } from '@/features/quotes/editor/DocumentSection'
 import { EntitlementsBlock } from '@/features/quotes/editor/EntitlementsBlock'
 import { InternalSection } from '@/features/quotes/editor/InternalSection'
 import { LinesSection } from '@/features/quotes/editor/LinesSection'
-import { PeopleSection } from '@/features/quotes/editor/PeopleSection'
 import { QuoteEditorHeader } from '@/features/quotes/editor/QuoteEditorHeader'
 import { QuoteEditorRail, QuoteFullPreview } from '@/features/quotes/editor/QuoteEditorRail'
-import { QuoteEditorOutline } from '@/features/quotes/editor/QuoteSectionNav'
+import {
+  IssueList,
+  scrollToSection,
+  useEditorIssues,
+} from '@/features/quotes/editor/QuoteSectionNav'
+import { SignersSection } from '@/features/quotes/editor/SignersSection'
 import { SubscribedForBlock } from '@/features/quotes/editor/SubscribedForBlock'
-import { TermsSection } from '@/features/quotes/editor/TermsSection'
+import { SummarySection } from '@/features/quotes/editor/SummarySection'
+import { PaymentSection, TermsSection } from '@/features/quotes/editor/TermsSection'
 import { buildCreateQuote, previewFormValues } from '@/features/quotes/editor/buildCreateQuote'
 import { fromTemplatePayload, toTemplatePayload } from '@/features/quotes/editor/draftPayload'
+import { QUOTE_STEPS, stepOfSection } from '@/features/quotes/editor/editorSections'
 import { createQuoteSchema } from '@/features/quotes/editor/quoteFormSchema'
 import { buildPreviewQuote, useQuotePreviewLines } from '@/features/quotes/editor/quotePreview'
 import {
@@ -92,7 +99,11 @@ import { CreateQuoteRequestSchema, UpdateQuoteRequestSchema } from '@/rpc/api/qu
 
 import type { GrantDraft } from '@/features/entitlements/rows/grantDraft'
 import type { EditorCrumb } from '@/features/quotes/editor/QuoteEditorHeader'
-import type { SectionIssue } from '@/features/quotes/editor/editorSections'
+import type {
+  QuoteSectionId,
+  QuoteStep,
+  SectionIssue,
+} from '@/features/quotes/editor/editorSections'
 import type { QuoteFormValues } from '@/features/quotes/editor/quoteFormSchema'
 import type { QuoteV2State } from '@/features/quotes/editor/quoteV2'
 import type { QuoteDraft } from '@/rpc/api/quotes/v1/models_pb'
@@ -237,11 +248,7 @@ export const CreateQuote = ({
   })
 
   const multipleSigners = useEntitlement(entitlementCodes.QUOTES_FULL)
-  const [customerId, planVersionId, quoteNumber] = methods.watch([
-    'customer_id',
-    'plan_version_id',
-    'quote_number',
-  ])
+  const [customerId, planVersionId] = methods.watch(['customer_id', 'plan_version_id'])
 
   // Component customizations reference the plan's components, so they don't survive a plan change.
   const [pricingPlanVersionId, setPricingPlanVersionId] = useState(planVersionId)
@@ -670,6 +677,26 @@ export const CreateQuote = ({
       : 'Save template'
     : submitLabel
 
+  // A new quote starts from its customer: the rest of the form appears once one is chosen.
+  const awaitingCustomer = !isTemplate && !customerId
+
+  // The editor's step; every step can be opened at any time, the form keeps all of them.
+  const [step, setStep] = useState<QuoteStep>(1)
+  const changeStep = (next: QuoteStep) => {
+    setStep(next)
+    document.getElementById(EDITOR_SHELL_ID)?.scrollTo({ top: 0 })
+  }
+  // Another step's section exists once that step renders: switch, then scroll to it.
+  const goToSection = (section: QuoteSectionId) => {
+    setStep(stepOfSection(section))
+    requestAnimationFrame(() => requestAnimationFrame(() => scrollToSection(section)))
+  }
+
+  // The live document beside the form; on narrow windows the form gets the room.
+  const [sidePreview, setSidePreview] = useState(
+    () => typeof window === 'undefined' || window.innerWidth >= 1280
+  )
+
   // The preview is a history entry, so the browser's Back returns to the form.
   const previewPushed = useRef(false)
   const previewMode = searchParams.get('preview') === '1' && canPreview
@@ -709,37 +736,35 @@ export const CreateQuote = ({
     const values = methods.getValues()
 
     return (
-      <div className="flex flex-col gap-6">
-        <header className="sticky top-0 z-20 -mx-6 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-background px-6 py-3">
-          <h1 className="text-2xl font-semibold">Preview</h1>
-          <div className="flex gap-2">
-            <Button variant="outline" hasIcon onClick={closePreview}>
-              <ArrowLeft className="h-4 w-4" />
-              Back to edit
-            </Button>
-            <Button hasIcon onClick={() => void save()} disabled={!canSave}>
-              <Save className="h-4 w-4" />
-              {saveLabel}
-            </Button>
-          </div>
+      <EditorShell>
+        <header className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-3">
+          <Button type="button" variant="ghost" size="sm" hasIcon onClick={closePreview}>
+            <ArrowLeft className="h-4 w-4" />
+            Back to edit
+          </Button>
+          <span aria-hidden className="h-4 w-px shrink-0 bg-border" />
+          <h1 className="flex-1 text-[13px] font-medium">Preview as customer</h1>
+          <Button type="button" size="sm" onClick={() => void save()} disabled={!canSave}>
+            {saveLabel}
+          </Button>
         </header>
-        <QuoteFullPreview
-          preview={buildPreview(values)}
-          totalsRequest={
-            totalsBlockedReason || totalsLoading ? undefined : buildTotalsRequest(values)
-          }
-          minimumCommitment={effectiveMinimum}
-        />
-      </div>
+        <div className="flex-1 bg-card px-6 py-10">
+          <div className="mx-auto max-w-[816px]">
+            <QuoteFullPreview
+              preview={buildPreview(values)}
+              totalsRequest={
+                totalsBlockedReason || totalsLoading ? undefined : buildTotalsRequest(values)
+              }
+              minimumCommitment={effectiveMinimum}
+            />
+          </div>
+        </div>
+      </EditorShell>
     )
   }
 
   const customerName = customerQuery.data?.customer?.name
   const planName = planQuery.data?.plan?.plan?.name
-  const title =
-    customerName && planName
-      ? `${customerName} · ${planName}`
-      : customerName || planName || (isEdit && quoteNumber) || 'New quote'
 
   const editorIssues: SectionIssue[] = [
     ...pricingErrors.map(message => ({ section: 'quote-lines' as const, message })),
@@ -777,184 +802,339 @@ export const CreateQuote = ({
   return (
     <Form {...methods}>
       {/* Saving is the header's explicit action only: an untyped button or Enter never submits. */}
-      <form onSubmit={e => e.preventDefault()} className="flex flex-col gap-5">
-        {templateEditing ? (
+      <form onSubmit={e => e.preventDefault()} className="contents">
+        <EditorShell>
           <QuoteEditorHeader
-            crumbs={templateEditing.crumbs}
-            title={templateEditing.title}
-            details={templateEditing.details}
-            onPreview={openPreview}
-            previewDisabled={!canPreview}
-            onSave={() => void save()}
-            saveDisabled={!canSave}
-            saveLabel={saveLabel}
-          />
-        ) : (
-          <QuoteEditorHeader
-            crumbs={[
-              { label: 'Quotes', to: `${basePath}/quotes` },
-              editQuoteId
-                ? { label: quoteNumber || 'Quote', to: `${basePath}/quotes/${editQuoteId}` }
-                : { label: 'New quote' },
-            ]}
-            title={title}
-            subtitle={template ? `Based on quote ${template.sourceQuoteNumber}` : undefined}
-            status={status}
-            autosaveStatus={autosave.status}
-            templates={
-              <Slot
-                name="quoteCreate.templates"
-                snapshot={() => toTemplatePayload(getSnapshot())}
-                apply={applyTemplate}
-                isEdit={isEdit}
-              />
+            crumbs={
+              templateEditing
+                ? templateEditing.crumbs
+                : [
+                    { label: 'Quotes', to: `${basePath}/quotes` },
+                    editQuoteId
+                      ? { label: 'Edit quote', to: `${basePath}/quotes/${editQuoteId}` }
+                      : { label: 'New quote' },
+                  ]
             }
+            title={templateEditing?.title}
+            status={templateEditing ? undefined : status}
+            autosaveStatus={templateEditing ? undefined : autosave.status}
+            templates={
+              templateEditing ? undefined : (
+                <Slot
+                  name="quoteCreate.templates"
+                  snapshot={() => toTemplatePayload(getSnapshot())}
+                  apply={applyTemplate}
+                  isEdit={isEdit}
+                />
+              )
+            }
+            previewOpen={sidePreview}
+            onTogglePreview={() => setSidePreview(open => !open)}
             onPreview={openPreview}
             previewDisabled={!canPreview}
-            onSave={() => void save()}
-            saveDisabled={!canSave}
-            saveLabel={saveLabel}
+            template={isTemplate}
+            editorIssues={editorIssues}
+            step={step}
+            onStepChange={changeStep}
+            stepsLocked={awaitingCustomer}
+            onGoToSection={goToSection}
           />
-        )}
 
-        {staleSave && editQuoteId && (
-          <StaleQuoteBanner
-            savedVersionHref={`${basePath}/quotes/${editQuoteId}`}
-            onOverwrite={() => {
-              forceSave.current = true
-              setStaleSave(false)
-              void save()
-            }}
-          />
-        )}
-        {autosave.conflict && (
-          <DraftConflictBanner
-            draft={autosave.conflict}
-            onLoadTheirs={loadTheirVersion}
-            onKeepMine={autosave.keepMine}
-          />
-        )}
-        {autosave.offer && (
-          <DraftRestoreBanner
-            offer={autosave.offer}
-            onRestore={restoreOffer}
-            onDiscard={() => void autosave.discardOffer()}
-          />
-        )}
-        {template?.planOutdated && (
-          <Alert variant="warning">
-            The plan of quote {template.sourceQuoteNumber} has a newer version, so its pricing could
-            not be reused. Select a plan to configure pricing.
-          </Alert>
-        )}
+          <div className="flex flex-1 items-start">
+            <div className="@container min-w-0 flex-1">
+              <div
+                className={cn(
+                  'mx-auto flex w-full flex-col px-6 pb-16 @3xl:px-10',
+                  sidePreview ? 'max-w-[640px]' : 'max-w-[960px]'
+                )}
+              >
+                {(templateEditing?.details ||
+                  template ||
+                  (staleSave && editQuoteId) ||
+                  autosave.conflict ||
+                  autosave.offer) && (
+                  <div className="flex flex-col gap-3 pt-6">
+                    {templateEditing?.details}
+                    {template && (
+                      <p className="text-xs text-muted-foreground">
+                        Based on quote {template.sourceQuoteNumber}
+                      </p>
+                    )}
+                    {staleSave && editQuoteId && (
+                      <StaleQuoteBanner
+                        savedVersionHref={`${basePath}/quotes/${editQuoteId}`}
+                        onOverwrite={() => {
+                          forceSave.current = true
+                          setStaleSave(false)
+                          void save()
+                        }}
+                      />
+                    )}
+                    {autosave.conflict && (
+                      <DraftConflictBanner
+                        draft={autosave.conflict}
+                        onLoadTheirs={loadTheirVersion}
+                        onKeepMine={autosave.keepMine}
+                      />
+                    )}
+                    {autosave.offer && (
+                      <DraftRestoreBanner
+                        offer={autosave.offer}
+                        onRestore={restoreOffer}
+                        onDiscard={() => void autosave.discardOffer()}
+                      />
+                    )}
+                    {template?.planOutdated && (
+                      <Alert variant="warning">
+                        The plan of quote {template.sourceQuoteNumber} has a newer version, so its
+                        pricing could not be reused. Select a plan to configure pricing.
+                      </Alert>
+                    )}
+                  </div>
+                )}
 
-        <div className="@container pb-4">
-          <div className="grid grid-cols-1 items-start gap-6 @4xl:grid-cols-[minmax(0,1fr)_320px] @6xl:grid-cols-[200px_minmax(0,1fr)_340px]">
-            <aside className="sticky top-28 hidden @6xl:block">
-              <QuoteEditorOutline editorIssues={editorIssues} template={isTemplate} />
-            </aside>
+                {step === 1 && (
+                  <>
+                    <DetailsSection
+                      currency={planCurrency}
+                      dealFields={!isTemplate}
+                      customerOnly={awaitingCustomer}
+                      planOptions={planOptions}
+                      planOption={planOption}
+                      onOptionChange={handle =>
+                        setPriceComponentsState(prev =>
+                          pricingTransitions.changeOption(prev, handle)
+                        )
+                      }
+                    />
+                    {!awaitingCustomer && (
+                      <>
+                        <LinesSection
+                          customerId={customerId}
+                          planVersionId={planVersionId}
+                          currency={planCurrency}
+                          planComponents={planComponents}
+                          pricing={priceComponentsState}
+                          setPricing={setPriceComponentsState}
+                          pricingErrors={pricingErrors}
+                          lines={orderedLines}
+                          addOns={selectedAddOns}
+                          setAddOns={setSelectedAddOns}
+                          availableAddOns={availableAddOns}
+                          coupons={selectedCoupons}
+                          setCoupons={setSelectedCoupons}
+                          availableCoupons={availableCoupons}
+                          exampleAmountByKey={exampleAmountByKey}
+                          v2={v2}
+                          setV2={setV2}
+                          lineEditing={v2Gates.lineEditing}
+                          minimumCommitment={minimumCommitmentField}
+                          requireCustomer={!isTemplate}
+                        />
 
-            <div className="flex min-w-0 flex-col gap-5">
-              <PeopleSection
-                v2={v2}
-                setV2={setV2}
-                allowMultipleRecipients={multipleSigners}
-                allowVerified={v2Gates.verified}
-                allowCountersigners={v2Gates.countersigners}
-                allowCustomerActions={v2Gates.customerActions}
-                onRecipientsChange={touch}
-                dealFields={!isTemplate}
-              />
+                        {planVersionId && customerId && !isEdit && hasTypes && (
+                          <div className="border-b border-border py-8">
+                            <SubscribedForBlock
+                              customerId={customerId}
+                              customerName={customerName ?? 'The customer'}
+                              planName={planName}
+                              soldForTypeId={planQuery.data?.plan?.plan?.soldForResourceTypeId}
+                              value={resourceId}
+                              onChange={setResourceId}
+                            />
+                          </div>
+                        )}
 
-              <LinesSection
-                customerId={customerId}
-                planVersionId={planVersionId}
-                currency={planCurrency}
-                planComponents={planComponents}
-                planOptions={planOptions}
-                planOption={planOption}
-                onOptionChange={handle =>
-                  setPriceComponentsState(prev => pricingTransitions.changeOption(prev, handle))
-                }
-                pricing={priceComponentsState}
-                setPricing={setPriceComponentsState}
-                pricingErrors={pricingErrors}
-                lines={orderedLines}
-                addOns={selectedAddOns}
-                setAddOns={setSelectedAddOns}
-                availableAddOns={availableAddOns}
-                coupons={selectedCoupons}
-                setCoupons={setSelectedCoupons}
-                availableCoupons={availableCoupons}
-                exampleAmountByKey={exampleAmountByKey}
-                v2={v2}
-                setV2={setV2}
-                lineEditing={v2Gates.lineEditing}
-                minimumCommitment={minimumCommitmentField}
-                requireCustomer={!isTemplate}
-              />
+                        {env.entitlementsEnabled && planVersionId && !isEdit && (
+                          <div className="border-b border-border py-8">
+                            <EntitlementsBlock
+                              selection={{
+                                planVersionId,
+                                addOnIds: selectedAddOns.map(a => a.addOnId),
+                                extraProductIds,
+                                removedProductIds,
+                              }}
+                              pending={pendingEntitlements}
+                              onChange={setPendingEntitlements}
+                            />
+                          </div>
+                        )}
 
-              {planVersionId && customerId && !isEdit && hasTypes && (
-                <SubscribedForBlock
-                  customerId={customerId}
-                  customerName={customerQuery.data?.customer?.name ?? 'The customer'}
-                  planName={planQuery.data?.plan?.plan?.name}
-                  soldForTypeId={planQuery.data?.plan?.plan?.soldForResourceTypeId}
-                  value={resourceId}
-                  onChange={setResourceId}
-                />
-              )}
+                        <TermsSection
+                          planVersionId={planVersionId}
+                          trialConfig={planTrialConfig}
+                          trialingPlanName={trialingPlanName}
+                          isFreePlan={isFreePlan}
+                          hasOnlinePaymentProvider={hasOnlinePaymentProvider}
+                          isLoadingProviders={isLoadingProviders}
+                          hideDates={isTemplate}
+                        />
+                      </>
+                    )}
+                  </>
+                )}
 
-              {env.entitlementsEnabled && planVersionId && !isEdit && (
-                <EntitlementsBlock
-                  selection={{
-                    planVersionId,
-                    addOnIds: selectedAddOns.map(a => a.addOnId),
-                    extraProductIds,
-                    removedProductIds,
-                  }}
-                  pending={pendingEntitlements}
-                  onChange={setPendingEntitlements}
-                />
-              )}
+                {step === 2 && (
+                  <>
+                    <DocumentSection
+                      sections={v2.sections}
+                      attachments={v2.attachments}
+                      setV2={setV2}
+                    />
+                    <PaymentSection
+                      netTermsDefault={netTermsDefault}
+                      hasOnlinePaymentProvider={hasOnlinePaymentProvider}
+                      isLoadingProviders={isLoadingProviders}
+                    />
+                    {!isTemplate && (
+                      <InternalSection
+                        hubspotDealId={v2.hubspotDealId}
+                        setV2={setV2}
+                        allowHubspot={v2Gates.hubspot}
+                      />
+                    )}
+                  </>
+                )}
 
-              <DocumentSection sections={v2.sections} attachments={v2.attachments} setV2={setV2} />
+                {step === 3 && (
+                  <>
+                    {!isTemplate && (
+                      <SummarySection
+                        customerName={customerName}
+                        planName={planName}
+                        currency={planCurrency}
+                        netTermsDefault={netTermsDefault}
+                        buildTotalsRequest={buildTotalsRequest}
+                        totalsBlockedReason={totalsBlockedReason}
+                        totalsLoading={totalsLoading}
+                      />
+                    )}
+                    <SignersSection
+                      v2={v2}
+                      setV2={setV2}
+                      allowMultipleRecipients={multipleSigners}
+                      allowVerified={v2Gates.verified}
+                      allowCountersigners={v2Gates.countersigners}
+                      allowCustomerActions={v2Gates.customerActions}
+                      onRecipientsChange={touch}
+                      dealFields={!isTemplate}
+                    />
+                    {!isTemplate && (
+                      <BeforeSaving editorIssues={editorIssues} onSelect={goToSection} />
+                    )}
+                  </>
+                )}
 
-              <TermsSection
-                planVersionId={planVersionId}
-                trialConfig={planTrialConfig}
-                trialingPlanName={trialingPlanName}
-                isFreePlan={isFreePlan}
-                netTermsDefault={netTermsDefault}
-                hasOnlinePaymentProvider={hasOnlinePaymentProvider}
-                isLoadingProviders={isLoadingProviders}
-                hideDates={isTemplate}
-              />
-
-              {!isTemplate && (
-                <InternalSection
-                  hubspotDealId={v2.hubspotDealId}
-                  setV2={setV2}
-                  allowHubspot={v2Gates.hubspot}
-                />
-              )}
+                {!awaitingCustomer && (
+                  <StepFooter
+                    step={step}
+                    onStepChange={changeStep}
+                    onSave={() => void save()}
+                    saveDisabled={!canSave}
+                    saveLabel={saveLabel}
+                  />
+                )}
+              </div>
             </div>
 
-            <aside aria-label="Live preview" className="min-w-0 @4xl:sticky @4xl:top-28">
-              <QuoteEditorRail
-                buildPreview={buildPreview}
-                buildTotalsRequest={buildTotalsRequest}
-                totalsBlockedReason={totalsBlockedReason}
-                totalsLoading={totalsLoading}
-                minimumCommitment={effectiveMinimum}
-                canOpenPreview={canPreview}
-                onOpenPreview={openPreview}
-                showSummary={!isTemplate}
-              />
-            </aside>
+            {sidePreview && (
+              <aside
+                aria-label="Live preview"
+                className="mt-dot-grid sticky top-12 hidden h-[calc(100dvh-3rem)] w-1/2 shrink-0 flex-col overflow-y-auto border-l border-border px-10 py-12 lg:flex"
+              >
+                <QuoteEditorRail
+                  buildPreview={buildPreview}
+                  buildTotalsRequest={buildTotalsRequest}
+                  totalsBlockedReason={totalsBlockedReason}
+                  totalsLoading={totalsLoading}
+                  minimumCommitment={effectiveMinimum}
+                  canOpenPreview={canPreview}
+                  onOpenPreview={openPreview}
+                  withTotals={!isTemplate}
+                />
+              </aside>
+            )}
           </div>
-        </div>
+        </EditorShell>
       </form>
     </Form>
+  )
+}
+
+/**
+ * The editor over the whole window, above the app's navigation, as a page of its own. The window
+ * scrolls as one; the top bar sticks, and so does the preview beside the form.
+ */
+const EditorShell = ({ children }: { children: ReactNode }) => (
+  <div
+    id={EDITOR_SHELL_ID}
+    className="fixed inset-0 z-40 flex flex-col overflow-y-auto bg-background"
+  >
+    {children}
+  </div>
+)
+
+const EDITOR_SHELL_ID = 'quote-editor'
+
+/** Under a step: back to the one before, on to the next; the last step saves the quote. */
+const StepFooter = ({
+  step,
+  onStepChange,
+  onSave,
+  saveDisabled,
+  saveLabel,
+}: {
+  step: QuoteStep
+  onStepChange: (step: QuoteStep) => void
+  onSave: () => void
+  saveDisabled: boolean
+  saveLabel: string
+}) => {
+  const index = QUOTE_STEPS.findIndex(s => s.id === step)
+  const previous = QUOTE_STEPS[index - 1]
+  const next = QUOTE_STEPS[index + 1]
+
+  return (
+    <div className="flex items-center justify-between gap-3 border-t border-border pt-6">
+      {previous ? (
+        <Button type="button" variant="secondary" onClick={() => onStepChange(previous.id)}>
+          Back
+        </Button>
+      ) : (
+        <span />
+      )}
+      {next ? (
+        <Button type="button" onClick={() => onStepChange(next.id)}>
+          Next
+        </Button>
+      ) : (
+        <Button type="button" onClick={onSave} disabled={saveDisabled}>
+          {saveLabel}
+        </Button>
+      )}
+    </div>
+  )
+}
+
+/** The last step's checklist: what still blocks saving, or that the quote is ready. */
+const BeforeSaving = ({
+  editorIssues,
+  onSelect,
+}: {
+  editorIssues: SectionIssue[]
+  onSelect: (section: QuoteSectionId) => void
+}) => {
+  const issues = useEditorIssues(editorIssues, false)
+  return (
+    <section aria-labelledby="quote-before-saving" className="flex flex-col gap-3 py-8">
+      <h2 id="quote-before-saving" className="text-[18px] font-medium leading-5">
+        Before saving
+      </h2>
+      {issues.length === 0 ? (
+        <p className="text-[13px] text-success">Everything is in place: ready to save.</p>
+      ) : (
+        <IssueList issues={issues} onSelect={onSelect} />
+      )}
+    </section>
   )
 }

@@ -34,7 +34,8 @@ export const MemberAvatar = ({
     <span
       aria-hidden
       className={cn(
-        'inline-flex shrink-0 items-center justify-center rounded-full border border-border bg-muted font-medium text-foreground',
+        // A light, see-through edge (white at 15%) lifts the circle off the row.
+        'inline-flex shrink-0 items-center justify-center rounded-full border border-foreground/15 bg-muted font-medium text-foreground',
         size === 'sm' ? 'h-5 w-5 text-[9.5px]' : 'h-6 w-6 text-xs'
       )}
     >
@@ -57,7 +58,7 @@ export const MemberAvatar = ({
   }
 
   return (
-    <TooltipProvider delayDuration={100}>
+    <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
           <span className={cn('inline-flex', className)} aria-label={name} role="img">

@@ -22,10 +22,11 @@ import {
   FolderSyncIcon,
   Trash2Icon,
 } from 'lucide-react'
-import { Fragment, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
+import { DetailPageLayout } from '@/components/layouts/ListPageLayout'
 import { CreditNoteStatusBadge } from '@/features/creditNotes/CreditNoteStatusBadge'
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
 import { CustomPropertyValue } from '@/features/customproperties/CustomPropertyValue'
@@ -81,20 +82,33 @@ export const CreditNote = () => {
 
   const data = creditNoteQuery.data?.creditNote
   const isLoading = creditNoteQuery.isLoading
+  const basePath = useBasePath()
 
   return (
-    <Fragment>
+    <DetailPageLayout
+      section={{ label: 'Credit notes', to: `${basePath}/credit-notes` }}
+      title={
+        data ? (
+          <span className="flex items-center gap-2">
+            <span className="truncate">{data.creditNoteNumber}</span>
+            <CreditNoteStatusBadge status={data.status} />
+          </span>
+        ) : (
+          'Credit note'
+        )
+      }
+    >
       <Flex direction="column" className="h-full">
         {isLoading || !data ? (
-          <>
+          <div className="flex flex-col gap-2">
             <Skeleton height={16} width={50} />
             <Skeleton height={44} />
-          </>
+          </div>
         ) : (
           <CreditNoteView creditNote={data} creditNoteId={creditNoteId ?? ''} />
         )}
       </Flex>
-    </Fragment>
+    </DetailPageLayout>
   )
 }
 

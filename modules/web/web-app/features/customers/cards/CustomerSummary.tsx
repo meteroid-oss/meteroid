@@ -1,16 +1,21 @@
 import { skipToken } from '@connectrpc/connect-query'
-import { Card, Skeleton, cn } from '@md/ui'
+import { Skeleton, cn } from '@md/ui'
 import { ReactNode } from 'react'
 import { Link } from 'react-router'
 
 import { creditUnitName, formatWalletAmount, walletTitle } from '@/features/credit/format'
 import { paymentMethodLabel } from '@/features/credit/paymentMethods'
+import {
+  DashboardCard,
+  DashboardCardTitle,
+  dashedLink,
+} from '@/features/dashboard/cards/DashboardCard'
 import { formatShortDay } from '@/features/subscriptions/utils/dates'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { usePermissions } from '@/hooks/usePermissions'
 import { useQuery } from '@/lib/connectrpc'
-import { formatMoney, parseInstant } from '@/lib/utils/format'
+import { formatMoney } from '@/lib/utils/format'
 import { getCustomerSummary } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { SubscriptionStatus } from '@/rpc/api/subscriptions/v1/models_pb'
 import {
@@ -19,7 +24,7 @@ import {
 } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 import { listCustomerWallets } from '@/rpc/api/wallets/v1/wallets-WalletsService_connectquery'
 
-import type { CustomerMoneyTotal, CustomerReceivables } from '@/rpc/api/customers/v1/customers_pb'
+import type { CustomerMoneyTotal } from '@/rpc/api/customers/v1/customers_pb'
 import type { Customer } from '@/rpc/api/customers/v1/models_pb'
 import type { UpcomingInvoice } from '@/rpc/api/subscriptions/v1/subscriptions_pb'
 import type { Wallet } from '@/rpc/api/wallets/v1/models_pb'
@@ -32,38 +37,73 @@ export const useCustomerSummary = (customerId: string) =>
 const sumText = (totals: CustomerMoneyTotal[]) =>
   totals.map(t => formatMoney(Number(t.amountCents), t.currency)).join(' + ')
 
-const tileCls = 'bg-card rounded-md p-4 flex flex-col gap-1 min-w-0'
+// An upcoming invoice is computed on request and may fail where usage can't be read: one retry
+// rather than the default three, so the tile settles in a second or two instead of pulsing.
+const PREVIEW_RETRIES = 1
 
+/** The value and its line below, while they load: still bars where they will appear. */
+const ValuePlaceholder = () => (
+  <div className="flex flex-col gap-2" aria-hidden>
+    <Skeleton width="55%" height={21} className="rounded-[4px]" />
+    <Skeleton width="35%" height={12} className="rounded-[4px]" />
+  </div>
+)
+
+/** A summary tile, styled as the Home page's stat cards. */
 const Tile = ({
   label,
   value,
   meta,
   href,
+  loading,
 }: {
-  label: string
-  value: ReactNode
+  label: ReactNode
+  value?: ReactNode
   meta?: ReactNode
   href?: string
-}) => {
-  const body = (
-    <>
-      <span className="text-[13px] text-muted-foreground">{label}</span>
-      <span className="break-words text-xl tabular-nums text-foreground">{value}</span>
-      {meta && <span className="line-clamp-2 text-xs text-muted-foreground">{meta}</span>}
-    </>
-  )
-  return href ? (
-    <Link to={href} className="contents">
-      <Card className={cn(tileCls, 'hover:border-foreground/20')}>{body}</Card>
-    </Link>
-  ) : (
-    <Card className={tileCls}>{body}</Card>
-  )
+  /** Keeps the tile's frame and title, with placeholders for the value. */
+  loading?: boolean
+}) => (
+  // A fixed height: the value and up to two lines below it always fit, so a tile never grows
+  // when its data arrives.
+  // Home's tile layout, raised as the subscriptions list: in dark a fill a step lighter than the
+  // surface (important: the themes set Home's tiles to --card), framed and rounded as the tables.
+  <DashboardCard className="flex h-[125px] min-w-0 flex-col justify-between gap-2 rounded-lg border border-border bg-card dark:!bg-foreground/[0.035]">
+    <DashboardCardTitle className="min-w-0 truncate leading-5">
+      {href ? (
+        // Where the tile leads: its title, with a fine dashed underline.
+        <Link to={href} className={cn('hover:text-foreground', dashedLink)}>
+          {label}
+        </Link>
+      ) : (
+        label
+      )}
+    </DashboardCardTitle>
+    {loading ? (
+      <ValuePlaceholder />
+    ) : (
+      <div className="flex min-w-0 flex-col gap-1.5">
+        <div className="truncate font-display text-[21px] leading-none tabular-nums text-foreground">
+          {value}
+        </div>
+        {meta && <div className="line-clamp-2 text-xs leading-4 text-muted-foreground">{meta}</div>}
+      </div>
+    )}
+  </DashboardCard>
+)
+
+// As many columns as tiles on a wide screen, so the row is always filled.
+const WIDE_COLUMNS: Record<number, string> = {
+  1: 'xl:grid-cols-1',
+  2: 'xl:grid-cols-2',
+  3: 'xl:grid-cols-3',
+  4: 'xl:grid-cols-4',
 }
 
 /**
- * What the account is worth, what credit it holds, what it is charged next and what it owes. A
- * tile the caller may not see is left out.
+ * What credit the account holds, what it is worth, what it is charged next and what it owes. A
+ * tile the caller may not see is left out. Which tiles show depends on permissions alone, never
+ * on the data, and each loads in its own frame: nothing moves while the strip fills in.
  */
 export const CustomerSummaryStrip = ({
   customerId,
@@ -76,55 +116,72 @@ export const CustomerSummaryStrip = ({
   const isExpress = useIsExpressOrganization()
   const canViewSubscriptions = permissions.has('billing:subscriptions:read')
   const canViewCredit = permissions.has('billing:invoices:read') && !isExpress
+  // The summary carries the receivables exactly when the caller may read invoices.
+  const canViewReceivables = permissions.has('billing:invoices:read')
   const summary = useCustomerSummary(customerId)
   const data = summary.data
+  const loading = summary.isLoading
 
-  if (summary.isLoading) {
-    return (
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        {Array.from({ length: 4 }, (_, i) => (
-          <Skeleton key={i} height={84} />
-        ))}
-      </div>
-    )
-  }
-  if (!data) return null
-
-  const receivables = data.receivables
+  const receivables = data?.receivables
   const overdue = receivables ? sumText(receivables.overdue) : ''
-  const converted = !!customer && customer.currency !== data.reportingCurrency
+  const converted = !!customer && !!data && customer.currency !== data.reportingCurrency
   const defaultMethod = customer?.paymentMethods.find(
     method => method.id === customer.currentPaymentMethodId
   )
+  const count =
+    1 + Number(canViewCredit) + Number(canViewSubscriptions) + Number(canViewReceivables)
 
   return (
-    <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+    <div className={cn('grid grid-cols-2 gap-3', WIDE_COLUMNS[count])}>
+      {canViewCredit && <CreditBalanceTile customerId={customerId} currency={customer?.currency} />}
       <Tile
         label={converted ? `Recurring · ${data.reportingCurrency}` : 'Recurring'}
+        loading={loading}
         value={
-          <>
-            {formatMoney(Number(data.mrrCents), data.reportingCurrency)}
-            <span className="text-sm text-muted-foreground"> / month</span>
-          </>
+          data ? (
+            <>
+              {formatMoney(Number(data.mrrCents), data.reportingCurrency)}
+              <span className="font-sans text-xs text-muted-foreground"> / month</span>
+            </>
+          ) : (
+            '—'
+          )
         }
         meta={
-          converted
-            ? `Converted to ${data.reportingCurrency}, the reporting currency`
-            : (data.term?.planName ?? 'Active subscriptions')
+          !data
+            ? undefined
+            : converted
+              ? `Converted to ${data.reportingCurrency}, the reporting currency`
+              : (data.term?.planName ?? 'Active subscriptions')
         }
       />
-      {canViewCredit && <CreditBalanceTile customerId={customerId} currency={customer?.currency} />}
       {canViewSubscriptions && (
         <NextChargeTile
           customerId={customerId}
           paymentMethod={defaultMethod ? paymentMethodLabel(defaultMethod) : undefined}
         />
       )}
-      {receivables && (
+      {canViewReceivables && (
         <Tile
           label="Outstanding"
-          value={receivables.open.length > 0 ? sumText(receivables.open) : 'Nothing due'}
-          meta={overdue ? `${overdue} overdue` : 'Nothing overdue'}
+          loading={loading}
+          value={
+            !receivables
+              ? '—'
+              : receivables.open.length > 0
+                ? sumText(receivables.open)
+                : 'Nothing due'
+          }
+          meta={
+            overdue ? (
+              <span className="flex items-center gap-1.5 text-tag-destructive">
+                <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-current" />
+                {overdue} overdue
+              </span>
+            ) : receivables ? (
+              'Nothing overdue'
+            ) : undefined
+          }
         />
       )}
     </div>
@@ -135,8 +192,9 @@ export const CustomerSummaryStrip = ({
 const CreditBalanceTile = ({ customerId, currency }: { customerId: string; currency?: string }) => {
   const query = useQuery(listCustomerWallets, { customerId }, { staleTime: SUMMARY_STALE_MS })
   const wallets = query.data?.wallets ?? []
-  if (query.isLoading) return <Skeleton height={84} />
-  if (wallets.length === 0) return null
+  if (query.isLoading) return <Tile label="Credit balance" loading />
+  if (wallets.length === 0)
+    return <Tile label="Credit balance" value="—" meta="No credit" href="?tab=wallets" />
   const primary =
     wallets.find(wallet => wallet.creditUnit) ??
     wallets.find(wallet => wallet.currency === currency) ??
@@ -155,7 +213,7 @@ const CreditBalanceTile = ({ customerId, currency }: { customerId: string; curre
         primary.creditUnit && !primary.live?.stale ? (
           <>
             {formatWalletAmount(available(primary), primary, { bare: true })}
-            <span className="text-sm text-muted-foreground">
+            <span className="font-sans text-xs text-muted-foreground">
               {' '}
               {creditUnitName(available(primary), primary.creditUnit)}
             </span>
@@ -165,19 +223,11 @@ const CreditBalanceTile = ({ customerId, currency }: { customerId: string; curre
         )
       }
       meta={
-        others.length > 0 ? (
-          <span className="flex flex-col">
-            {others.map(wallet => (
-              <span key={wallet.id}>
-                {walletTitle(wallet)}: {balance(wallet)}
-              </span>
-            ))}
-          </span>
-        ) : unbilled > 0n ? (
-          `after ${formatWalletAmount(unbilled, primary)} unbilled usage`
-        ) : (
-          walletTitle(primary)
-        )
+        others.length > 0
+          ? others.map(wallet => `${walletTitle(wallet)}: ${balance(wallet)}`).join(' · ')
+          : unbilled > 0n
+            ? `after ${formatWalletAmount(unbilled, primary)} unbilled usage`
+            : walletTitle(primary)
       }
       href="?tab=wallets"
     />
@@ -209,15 +259,17 @@ const NextChargeTile = ({
     .sort((a, b) => (a.currentPeriodEnd ?? '').localeCompare(b.currentPeriodEnd ?? ''))[0]
   const next = useQuery(getUpcomingInvoice, soonest ? { subscriptionId: soonest.id } : skipToken, {
     staleTime: SUMMARY_STALE_MS,
+    retry: PREVIEW_RETRIES,
   })
 
-  if (live.isLoading || (!!soonest && next.isLoading)) return <Skeleton height={84} />
-  if (!soonest) return null
+  if (live.isLoading) return <Tile label="Next charge" loading />
+  if (!soonest) return <Tile label="Next charge" value="—" meta="No active subscription" />
   const invoice = next.data?.invoice
   const href = `${basePath}/subscriptions/${soonest.id}`
 
   const charged = soonest.chargeAutomatically
   const label = charged ? 'Next charge' : 'Next invoice'
+  if (next.isLoading) return <Tile label={label} href={href} loading />
   return invoice ? (
     <Tile
       label={label}
@@ -235,48 +287,8 @@ const NextChargeTile = ({
     <Tile
       label={label}
       value="—"
-      meta="Preview takes longer than usual. Open the subscription."
+      meta="Couldn't compute the preview here. View it on the subscription."
       href={href}
     />
-  )
-}
-
-/** "€8,377.60 open · €8,377.60 overdue · last attempt failed 12 Sep · next retry 19 Sep". */
-export const ReceivablesLine = ({ receivables }: { receivables: CustomerReceivables }) => {
-  const basePath = useBasePath()
-  const failedAt = receivables.lastFailureAt ? parseInstant(receivables.lastFailureAt) : undefined
-  const retryAt = receivables.nextRetryAt ? parseInstant(receivables.nextRetryAt) : undefined
-  const day = (d?: Date) =>
-    d && !Number.isNaN(d.getTime())
-      ? d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
-      : undefined
-  const parts: ReactNode[] = [
-    receivables.open.length > 0 ? `${sumText(receivables.open)} open` : 'Nothing open',
-    receivables.overdue.length > 0 && `${sumText(receivables.overdue)} overdue`,
-    day(failedAt) &&
-      (receivables.lastFailureInvoiceId ? (
-        <Link
-          key="failure"
-          to={`${basePath}/invoices/${receivables.lastFailureInvoiceId}`}
-          className="hover:underline"
-        >
-          last attempt failed {day(failedAt)}
-          {receivables.lastFailureReason ? ` (${receivables.lastFailureReason})` : ''}
-        </Link>
-      ) : (
-        `last attempt failed ${day(failedAt)}`
-      )),
-    day(retryAt) && `next retry ${day(retryAt)}`,
-  ].filter(Boolean)
-
-  return (
-    <p className="text-[13px] text-muted-foreground">
-      {parts.map((p, i) => (
-        <span key={i}>
-          {i > 0 && ' · '}
-          {p}
-        </span>
-      ))}
-    </p>
   )
 }

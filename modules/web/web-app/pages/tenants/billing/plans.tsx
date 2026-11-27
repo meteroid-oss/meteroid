@@ -1,15 +1,16 @@
 import { skipToken } from '@connectrpc/connect-query'
-import { PlusIcon } from '@md/icons'
 import { Button } from '@md/ui'
 import { SortingState } from '@tanstack/react-table'
-import { FunctionComponent, useCallback, useMemo, useState } from 'react'
+import { FunctionComponent, ReactNode, useCallback, useMemo, useState } from 'react'
 import { Link, Outlet, useNavigate, useSearchParams } from 'react-router'
 
 import { Gate } from '@/components/Gate'
+import { EmptyState } from '@/components/empty-state/EmptyState'
+import { AddIcon } from '@/components/icons/AppIcons'
 import { ListToolbarSearch, RefreshButton, TableCard } from '@/components/layouts'
 import { ListPageHeader } from '@/components/layouts/ListPageLayout'
 import { Slot, useModule } from '@/edition'
-import { MultiFilter, SingleFilter } from '@/features/TablePage'
+import { FilterBar, optionField } from '@/features/filters/FilterBar'
 import { PlansTable } from '@/features/plans/PlansTable'
 import { LineSelect, PlansLadder, ProductLine } from '@/features/plans/ladder/PlansLadder'
 import { Switcher } from '@/features/plans/ladder/Switcher'
@@ -20,7 +21,7 @@ import { useBasePath } from '@/hooks/useBasePath'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { usePermissions } from '@/hooks/usePermissions'
-import { ARRAY_SERDE, SetQueryStateAction, useQueryState } from '@/hooks/useQueryState'
+import { ALL_OR_LIST_SERDE, SetQueryStateAction, useQueryState } from '@/hooks/useQueryState'
 import { useListPagination, useResetPageOnChange } from '@/hooks/useTablePreferences'
 import { useQuery } from '@/lib/connectrpc'
 import { sortingStateToOrderBy } from '@/lib/utils/sorting'
@@ -28,7 +29,8 @@ import { PlanStatus, PlanType } from '@/rpc/api/plans/v1/models_pb'
 import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { listProductFamilies } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
 
-const DEFAULT_STATUSES = ['active', 'draft']
+// Every plan but the archived ones: the list's baseline, shown without a filter chip.
+const DEFAULT_STATUSES = ['active', 'draft', 'inactive']
 const DEFAULT_TYPES = ['free', 'standard', 'custom']
 
 type PlansView = 'ladder' | 'pricing' | 'table'
@@ -42,6 +44,22 @@ const VIEW_SERDE = {
   deserialize: (value: string): PlansView =>
     VIEWS.some(view => view.value === value) ? (value as PlansView) : 'table',
 }
+
+const STATUS_FIELD = optionField('status', 'Status', [
+  { label: 'Active', value: 'active' },
+  { label: 'Draft', value: 'draft' },
+  { label: 'Inactive', value: 'inactive' },
+  { label: 'Archived', value: 'archived' },
+])
+
+const sameValues = (a: string[], b: string[]) =>
+  a.length === b.length && a.every(value => b.includes(value))
+
+const TYPE_FIELD = optionField('type', 'Type', [
+  { label: 'Free', value: 'free' },
+  { label: 'Standard', value: 'standard' },
+  { label: 'Custom', value: 'custom' },
+])
 
 export const Plans: FunctionComponent = () => {
   const navigate = useNavigate()
@@ -63,8 +81,7 @@ export const Plans: FunctionComponent = () => {
 
   const familiesQuery = useQuery(listProductFamilies)
   const lines: ProductLine[] = useMemo(
-    () =>
-      familiesQuery.data?.productFamilies.map(pf => ({ id: pf.localId, name: pf.name })) ?? [],
+    () => familiesQuery.data?.productFamilies.map(pf => ({ id: pf.localId, name: pf.name })) ?? [],
     [familiesQuery.data]
   )
   const familyId = line ?? lines[0]?.id
@@ -101,88 +118,107 @@ export const Plans: FunctionComponent = () => {
         } off it`
       : undefined
 
+  const newPlanButton = (label: string) =>
+    !isExpress && (
+      <Gate perm="catalog:manage">
+        <Button variant="primary" size="sm" hasIcon onClick={() => navigate('add-plan')}>
+          <AddIcon /> {label}
+        </Button>
+      </Gate>
+    )
+  const quoteTemplates = hasQuotes && !isExpress && !noPlan && view !== 'pricing'
+
   return (
-    <div className="flex flex-col gap-5">
-      <div className="space-y-1">
-        <ListPageHeader
-          title="Plans"
-          count={planCount}
-          tabs={
-            !noPlan && <Switcher label="View" value={view} items={VIEWS} onChange={setView} />
-          }
-          actions={
-            !isExpress && (
-              <Gate perm="catalog:manage">
-                <Slot name="plans.listActions" />
-                <Button variant="primary" size="sm" hasIcon onClick={() => navigate('add-plan')}>
-                  <PlusIcon className="w-4 h-4" /> New plan
-                </Button>
-              </Gate>
+    <div data-full-bleed className="flex min-h-0 flex-1 flex-col">
+      <ListPageHeader
+        title="Plans"
+        tabs={!noPlan && <Switcher label="View" value={view} items={VIEWS} onChange={setView} />}
+        actions={
+          !isExpress && (
+            <Gate perm="catalog:manage">
+              <Slot name="plans.listActions" />
+              <Button variant="primary" size="sm" hasIcon onClick={() => navigate('add-plan')}>
+                <AddIcon /> New plan
+              </Button>
+            </Gate>
+          )
+        }
+      />
+
+      {!noPlan && view === 'table' ? (
+        <PlansTableView
+          line={line}
+          setLine={setLine}
+          lines={lines}
+          footer={
+            quoteTemplates && (
+              <span className="text-[13px] text-muted-foreground">
+                Selling an enterprise deal?{' '}
+                <Link
+                  to={`${basePath}/quotes/templates`}
+                  className="text-foreground hover:underline"
+                >
+                  Quote templates
+                </Link>
+              </span>
             )
           }
         />
-        {subtitle && !noPlan && <p className="text-sm text-muted-foreground">{subtitle}</p>}
-      </div>
-
-      {noPlan ? (
-        <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border px-4 py-14 text-center">
-          <div className="text-sm font-medium">No plan yet</div>
-          <p className="max-w-sm text-sm text-muted-foreground">
-            A plan is what customers subscribe to: its products, prices and features.
-          </p>
-          {!isExpress && (
-            <Gate perm="catalog:manage">
-              <Button variant="primary" size="sm" hasIcon onClick={() => navigate('add-plan')}>
-                <PlusIcon className="w-4 h-4" /> Create a plan
-              </Button>
-            </Gate>
-          )}
-        </div>
-      ) : view === 'table' ? (
-        <PlansTableView line={line} setLine={setLine} lines={lines} />
-      ) : !familyId ? (
-        <div className="rounded-lg border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
-          {familiesQuery.isLoading ? 'Loading…' : 'No product line yet.'}
-        </div>
-      ) : view === 'pricing' ? (
-        <PricingPagePreview
-          familyId={familyId}
-          plans={linePlans}
-          canEdit={canEdit}
-          currency={currency}
-          option={option}
-          onCurrency={setCurrency}
-          onOption={setOption}
-          controls={
-            lines.length > 1 && <LineSelect lines={lines} value={familyId} onChange={onLine} />
-          }
-        />
       ) : (
-        <PlansLadder
-          familyId={familyId}
-          lines={lines}
-          onLine={onLine}
-          plans={linePlans}
-          isLoading={linePlansQuery.isLoading}
-          canEdit={canEdit}
-          currency={currency}
-          option={option}
-          onCurrency={setCurrency}
-          onOption={setOption}
-        />
-      )}
-
-      {hasQuotes && !isExpress && !noPlan && view !== 'pricing' && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-border px-4 py-3 text-sm">
-          <div>
-            <div className="font-medium">Selling an enterprise deal?</div>
-            <div className="text-muted-foreground">
-              Contracts are quoted from templates, with the terms negotiated.
+        <div className="flex flex-1 flex-col gap-5 px-3 pb-4">
+          {subtitle && !noPlan && <p className="text-sm text-muted-foreground">{subtitle}</p>}
+          {noPlan ? (
+            <EmptyState
+              title="No plans yet"
+              description="A plan is what customers subscribe to: its products, prices and features."
+              scene="plans"
+              actions={newPlanButton('Create a plan')}
+            />
+          ) : !familyId ? (
+            <div className="rounded-lg border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
+              {familiesQuery.isLoading ? 'Loading…' : 'No product line yet.'}
             </div>
-          </div>
-          <Button variant="outline" size="sm" asChild>
-            <Link to={`${basePath}/quotes/templates`}>Quote templates</Link>
-          </Button>
+          ) : view === 'pricing' ? (
+            <PricingPagePreview
+              familyId={familyId}
+              plans={linePlans}
+              canEdit={canEdit}
+              currency={currency}
+              option={option}
+              onCurrency={setCurrency}
+              onOption={setOption}
+              controls={
+                lines.length > 1 && <LineSelect lines={lines} value={familyId} onChange={onLine} />
+              }
+            />
+          ) : (
+            <PlansLadder
+              familyId={familyId}
+              lines={lines}
+              onLine={onLine}
+              plans={linePlans}
+              isLoading={linePlansQuery.isLoading}
+              canEdit={canEdit}
+              currency={currency}
+              option={option}
+              onCurrency={setCurrency}
+              onOption={setOption}
+            />
+          )}
+
+          {quoteTemplates && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-border px-4 py-3 text-sm">
+              <div>
+                <div className="font-medium">Selling an enterprise deal?</div>
+                <div className="text-muted-foreground">
+                  Contracts are quoted from templates, with the terms negotiated.
+                </div>
+              </div>
+              <Button variant="secondary" size="sm" asChild>
+                <Link to={`${basePath}/quotes/templates`}>Quote templates</Link>
+              </Button>
+            </div>
+          )}
         </div>
       )}
       <Outlet />
@@ -195,16 +231,18 @@ const PlansTableView = ({
   line,
   setLine,
   lines,
+  footer,
 }: {
   line: string | undefined
   setLine: (line: SetQueryStateAction<string | undefined>) => void
   lines: ProductLine[]
+  footer?: ReactNode
 }) => {
   const [search, setSearch] = useQueryState<string | undefined>('q', undefined)
   const [pagination, setPagination] = useListPagination()
 
-  const [status, setStatus] = useQueryState('status', DEFAULT_STATUSES, ARRAY_SERDE)
-  const [type, setType] = useQueryState('type', DEFAULT_TYPES, ARRAY_SERDE)
+  const [status, setStatus] = useQueryState('status', DEFAULT_STATUSES, ALL_OR_LIST_SERDE)
+  const [type, setType] = useQueryState('type', DEFAULT_TYPES, ALL_OR_LIST_SERDE)
 
   const productFamilyData = useMemo(() => lines.map(l => ({ label: l.name, value: l.id })), [lines])
 
@@ -240,31 +278,37 @@ const PlansTableView = ({
 
   return (
     <TableCard
+      footer={footer}
       toolbar={
         <>
-          <ListToolbarSearch
-            value={search ?? ''}
-            onChange={setSearch}
-            placeholder="Search plans"
-            className="max-w-[220px]"
+          <ListToolbarSearch value={search ?? ''} onChange={setSearch} placeholder="Search plans" />
+          <FilterBar
+            local={[
+              // The baseline (all but archived) is no filter: a chip only for another choice.
+              {
+                field: STATUS_FIELD,
+                values: sameValues(status, DEFAULT_STATUSES) ? [] : status,
+                set: values => setStatus(values.length > 0 ? values : DEFAULT_STATUSES),
+              },
+              // Every type is no filter: no chip.
+              {
+                field: TYPE_FIELD,
+                values: type.length === DEFAULT_TYPES.length ? [] : type,
+                set: values => setType(values.length > 0 ? values : DEFAULT_TYPES),
+              },
+              ...(lines.length > 1
+                ? [
+                    {
+                      field: optionField('line', 'Product line', productFamilyData, {
+                        multi: false,
+                      }),
+                      values: line ? [line] : [],
+                      set: ([value]: string[]) => setLine(value),
+                    },
+                  ]
+                : []),
+            ]}
           />
-          <MultiFilter
-            emptyLabel="All statuses"
-            entries={['active', 'draft', 'inactive', 'archived']}
-            hook={[status, setStatus]}
-          />
-          <MultiFilter
-            emptyLabel="All types"
-            entries={['free', 'standard', 'custom']}
-            hook={[type, setType]}
-          />
-          {lines.length > 1 && (
-            <SingleFilter
-              emptyLabel="All product lines"
-              entries={productFamilyData}
-              hook={[line, setLine]}
-            />
-          )}
         </>
       }
       toolbarTrailing={

@@ -12,6 +12,7 @@
       "@/features/*": ["./features/*"],
       "@/hooks/*": ["./hooks/*"],
       "@/containers/*": ["./containers/*"],
+      "@/assets/*": ["./assets/*"],
       "@/data/*": ["./data/*"],
       "@/lib/*": ["./lib/*"],
       "@/pages": ["./pages/"],

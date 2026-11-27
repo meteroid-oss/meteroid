@@ -293,7 +293,7 @@ const Currencies = ({ sold, unpriced }: { sold: string[]; unpriced: string[] }) 
             <HelpCircleIcon size={13} />
           </button>
         </TooltipTrigger>
-        <TooltipContent className="max-w-64 text-xs font-normal">
+        <TooltipContent multiline className="max-w-64 text-xs font-normal">
           Not priced in {listed(unpriced)}: the plan can&rsquo;t be sold in{' '}
           {unpriced.length === 1 ? 'it' : 'them'}, and the pricing page leaves it out there.
         </TooltipContent>

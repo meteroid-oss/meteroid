@@ -22,7 +22,7 @@ export const InvoiceStatusBadge = ({ status, consolidatedInto }: Props) =>
       .with(InvoiceStatus.VOID, () => <Badge variant="secondary">Void</Badge>)
       .with(InvoiceStatus.UNCOLLECTIBLE, () => <Badge variant="warning">Uncollectible</Badge>)
       .with(InvoiceStatus.FINALIZED, () => <Badge variant="success">Finalized</Badge>)
-      .with(InvoiceStatus.DRAFT, () => <Badge variant="ghost">Draft</Badge>)
+      .with(InvoiceStatus.DRAFT, () => <Badge variant="secondary">Draft</Badge>)
       .with(InvoiceStatus.CLOSED, () => <Badge variant="ghost">Closed</Badge>)
       .otherwise(() => <Badge variant="destructive">Unknown</Badge>)
   )
@@ -31,10 +31,10 @@ export const InvoiceStatusBadge = ({ status, consolidatedInto }: Props) =>
 export const InvoiceStateBadge = ({ invoice, now }: { invoice: Invoice; now: Date }) => {
   const state = invoiceRowState(invoice, now)
   if (state.kind === 'overdue') {
-    return <Badge variant="destructive">{overdueLabel(state.days)}</Badge>
+    return <Badge variant="warning">{overdueLabel(state.days)}</Badge>
   }
   if (state.kind === 'open') {
-    return <Badge variant="secondary">{openLabel(state.due)}</Badge>
+    return <Badge variant="info">{openLabel(state.due)}</Badge>
   }
   return invoice.status === InvoiceStatus.FINALIZED && !invoice.consolidatedIntoInvoiceId ? (
     <PaymentStatusBadge
@@ -53,7 +53,7 @@ export const InvoiceStateBadge = ({ invoice, now }: { invoice: Invoice; now: Dat
 export const InvoicePaymentBadge = ({ invoice, now }: { invoice: Invoice; now: Date }) => {
   const state = invoiceRowState(invoice, now)
   return state.kind === 'overdue' ? (
-    <Badge variant="destructive">{overdueLabel(state.days)}</Badge>
+    <Badge variant="warning">{overdueLabel(state.days)}</Badge>
   ) : (
     <PaymentStatusBadge
       status={invoice.paymentStatus}

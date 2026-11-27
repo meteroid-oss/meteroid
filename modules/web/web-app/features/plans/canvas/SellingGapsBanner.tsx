@@ -63,7 +63,7 @@ export const SellingGapsBanner = () => {
               <HelpCircleIcon size={13} />
             </button>
           </TooltipTrigger>
-          <TooltipContent className="max-w-64 text-xs font-normal">
+          <TooltipContent multiline className="max-w-64 text-xs font-normal">
             {plan.name} is sold in a currency and option once every charge with a price has one
             there.
           </TooltipContent>
@@ -152,7 +152,7 @@ const GapChip = ({
           </span>
         )}
       </TooltipTrigger>
-      <TooltipContent className="max-w-72 text-xs">
+      <TooltipContent multiline className="max-w-72 text-xs">
         {gapSentence(gap, planName)}
         {onPrice && ` Click to price ${first.name}.`}
       </TooltipContent>

@@ -1,14 +1,4 @@
-import { ChevronDownIcon, ChevronUpIcon } from '@md/icons'
-import {
-  Checkbox,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-  cn,
-} from '@md/ui'
+import { Checkbox, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, cn } from '@md/ui'
 import {
   ColumnDef,
   OnChangeFn,
@@ -29,14 +19,20 @@ import { ReactNode, useEffect, useMemo, useRef, useState, type JSX } from 'react
 import { createPortal } from 'react-dom'
 
 import { DataTableViewOptions } from '@/components/table/DataTableViewOptions'
+import { SelectionToolbar } from '@/components/table/SelectionToolbar'
 import {
   TableToolbarPortal,
   useTableFooterSlot,
   useTableToolbarSlot,
 } from '@/components/table/TableToolbarSlot'
+import { SELECT_COLUMN_ID, columnClassName } from '@/components/table/actionColumn'
 import { PAGE_SIZE_OPTIONS, TableDensity } from '@/hooks/useTablePreferences'
 
-import { SortableDefaultIndicator, SortableIndicatorContainer } from './CustomTable.styled'
+import {
+  SortableDefaultIndicator,
+  SortableIndicatorContainer,
+  SortedIndicator,
+} from './CustomTable.styled'
 import Pagination from './components/Pagination'
 
 interface CustomTableProps<A> {
@@ -113,7 +109,10 @@ export const CustomTable = <A extends object>({
         setPagination({ ...pagination, pageIndex: pageCount - 1 })
       }
     } else if (data?.length === 0) {
-      setPagination({ ...pagination, pageIndex: steppedBack.current ? 0 : pagination.pageIndex - 1 })
+      setPagination({
+        ...pagination,
+        pageIndex: steppedBack.current ? 0 : pagination.pageIndex - 1,
+      })
       steppedBack.current = true
     }
   }, [isLoading, pageCount, data?.length, pagination, setPagination])
@@ -122,6 +121,9 @@ export const CustomTable = <A extends object>({
 
   const [internalSorting, setInternalSorting] = useState<SortingState>([])
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
+  // Shift-select: the row last ticked or shift-clicked, which a shift-click extends a range from.
+  const selectionAnchor = useRef<string | null>(null)
+  const pickRef = useRef<(rowId: string, shiftKey: boolean) => boolean>(() => false)
 
   const isManualSorting = !!externalOnSortingChange
   const sorting = isManualSorting ? (externalSorting ?? []) : internalSorting
@@ -139,7 +141,7 @@ export const CustomTable = <A extends object>({
         )
     if (!enableSelection) return stubbed
     const selectionColumn: ColumnDef<A> = {
-      id: '__select__',
+      id: SELECT_COLUMN_ID,
       enableSorting: false,
       enableHiding: false,
       meta: { skipLink: true },
@@ -160,7 +162,11 @@ export const CustomTable = <A extends object>({
         <Checkbox
           checked={row.getIsSelected()}
           onCheckedChange={value => row.toggleSelected(!!value)}
-          onClick={e => e.stopPropagation()}
+          onClick={e => {
+            e.stopPropagation()
+            // With shift, every row from the last one ticked to this one takes this one's new state.
+            if (pickRef.current(row.id, e.shiftKey)) e.preventDefault()
+          }}
           aria-label="Select row"
         />
       ),
@@ -194,6 +200,54 @@ export const CustomTable = <A extends object>({
   })
 
   const rows = table.getRowModel().rows
+
+  /** Ticks or unticks a row by its id; with shift and an earlier row ticked, the whole range
+   *  between them, in the order shown, takes the clicked row's new state. Returns whether it
+   *  handled the range (the checkbox then skips its own toggle). */
+  pickRef.current = (rowId, shiftKey) => {
+    const anchor = selectionAnchor.current
+    selectionAnchor.current = rowId
+    const from = anchor === null ? -1 : rows.findIndex(r => r.id === anchor)
+    const to = rows.findIndex(r => r.id === rowId)
+    if (!shiftKey || from < 0 || to < 0 || from === to) return false
+    const value = !rows[to].getIsSelected()
+    const [start, end] = from < to ? [from, to] : [to, from]
+    setRowSelection(prev => {
+      const next = { ...prev }
+      for (const r of rows.slice(start, end + 1)) {
+        if (!r.getCanSelect()) continue
+        if (value) next[r.id] = true
+        else delete next[r.id]
+      }
+      return next
+    })
+    return true
+  }
+
+  // Shift-click anywhere on a row selects it (or the range up to it) instead of opening it.
+  // Buttons and fields in the row keep their own click.
+  const rowFromShiftClick = (e: React.MouseEvent) => {
+    if (!enableSelection || !e.shiftKey) return null
+    const target = e.target as HTMLElement
+    if (target.closest('button, input, select, textarea, [role="checkbox"], [role="menuitem"]'))
+      return null
+    return target.closest<HTMLElement>('tr[data-row-id]')?.dataset.rowId ?? null
+  }
+  const onBodyClickCapture = (e: React.MouseEvent) => {
+    const rowId = rowFromShiftClick(e)
+    if (!rowId) return
+    // Before the row's link sees it, so nothing opens.
+    e.preventDefault()
+    e.stopPropagation()
+    if (!pickRef.current(rowId, true)) {
+      const row = rows.find(r => r.id === rowId)
+      if (row?.getCanSelect()) row.toggleSelected()
+    }
+  }
+  // Shift-pressing would otherwise extend the page's text selection across the rows.
+  const onBodyMouseDown = (e: React.MouseEvent) => {
+    if (rowFromShiftClick(e)) e.preventDefault()
+  }
   const selectedRows = table.getSelectedRowModel().rows
   const toolbarSlot = useTableToolbarSlot()
   const footerSlot = useTableFooterSlot()
@@ -202,7 +256,9 @@ export const CustomTable = <A extends object>({
   const tableBody = (() => {
     if (isLoading) {
       // One animation per row, not per cell: each animated element costs style and compositing work.
-      const skeletonRowsArray = Array.from({ length: Math.min(pagination.pageSize, MAX_SKELETON_ROWS) })
+      const skeletonRowsArray = Array.from({
+        length: Math.min(pagination.pageSize, MAX_SKELETON_ROWS),
+      })
 
       return skeletonRowsArray.map((_, rowIndex) => (
         <TableRow key={rowIndex} className="animate-pulse">
@@ -227,7 +283,7 @@ export const CustomTable = <A extends object>({
         <TableRow>
           <TableCell
             colSpan={columns.length}
-            className="h-14 whitespace-nowrap border-t p-4 text-sm leading-5 text-muted-foreground"
+            className="h-14 whitespace-nowrap border-t-[0.5px] border-foreground/[0.102] p-4 text-sm leading-5 text-muted-foreground"
           >
             <div className="flex items-center space-x-3 opacity-75">
               <AlertCircleIcon size={16} strokeWidth={2} />
@@ -241,22 +297,18 @@ export const CustomTable = <A extends object>({
     return rows.map(rowRenderer)
   })()
 
+
   return (
     <>
-      {enableSelection && selectedRows.length > 0 && (
-        <div className="flex min-h-11 items-center gap-3 rounded-md border bg-muted/40 px-3 py-1.5 mb-1 text-sm">
-          <span className="font-medium">{selectedRows.length} selected</span>
-          <button
-            type="button"
-            className="text-xs text-muted-foreground hover:text-foreground"
-            onClick={() => table.resetRowSelection()}
-          >
-            Clear
-          </button>
-          <div className="ml-auto flex items-center gap-2">
-            {renderSelectionActions?.(selectedRows, () => table.resetRowSelection())}
-          </div>
-        </div>
+      {enableSelection && (
+        <SelectionToolbar
+          count={selectedRows.length}
+          footerSlot={footerSlot}
+          onClear={() => table.resetRowSelection()}
+        >
+          {selectedRows.length > 0 &&
+            renderSelectionActions?.(selectedRows, () => table.resetRowSelection())}
+        </SelectionToolbar>
       )}
       {showViewOptions &&
         (toolbarSlot ? (
@@ -284,29 +336,35 @@ export const CustomTable = <A extends object>({
             />
           </div>
         ))}
-      {/* Full-bleed (cancels the body's px-1) so the strip and its own bottom border
-          span the card edge-to-edge. The strip draws the border only when it has data,
+      {/* Spans the card edge-to-edge. The strip draws its bottom border only when it has data,
           so an empty/locked metric leaves no stray divider. */}
-      {chart && showChart && <div className="-mx-1">{chart}</div>}
+      {chart && showChart && <div className="shrink-0">{chart}</div>}
       <Table
-        containerClassName="flex-1 grow"
+        containerClassName="min-h-0 flex-1 grow"
         className={cn(
           // Uniform row height so cells with a stacked secondary line (e.g. a
           // date plus relative time) don't make some rows taller than others;
           // single-line content vertically centers to the same baseline.
           '[&_tbody_tr]:h-[52px]',
-          density === 'compact' &&
-            '[&_td]:!py-1 [&_th]:!h-8 [&_tbody_tr]:!h-10 [&_td]:!text-xs [&_th]:!text-xs'
+          // Rows run edge to edge with a 24px inset on the left; columns sit 20px apart.
+          '[&_td]:px-2.5 [&_th]:px-2.5 [&_td:first-child]:pl-6 [&_th:first-child]:pl-6 [&_td:last-child]:pr-4 [&_th:last-child]:pr-4',
+          // Column headers 32px in every density.
+          '[&_th]:!h-8 [&_th]:font-medium [&_th]:text-[13px] [&_th]:text-foreground/60 [&_td]:text-[13px]',
+          // Row dividers at white 10.2%, and a light tint on hovered and selected rows (a step more when
+          // both), all visible on the table card.
+          // Hairlines: 0.5px under the header and between rows (the last row keeps none). Drawn
+          // on the cells of a separated table: a collapsed one rounds row borders to whole pixels.
+          'border-separate border-spacing-0 [&_tr]:!border-b-0 [&_thead_th]:border-b-[0.5px] [&_tbody_tr:not(:last-child)>td]:border-b-[0.5px] [&_th]:border-foreground/[0.102] [&_td]:border-foreground/[0.102] [&_tbody_tr:hover]:bg-foreground/[0.04] [&_tbody_tr[data-state=selected]]:bg-foreground/[0.04] [&_tbody_tr[data-state=selected]:hover]:bg-foreground/[0.06]',
+          density === 'compact' && '[&_td]:!py-1 [&_tbody_tr]:!h-11'
         )}
       >
-        <TableHeader>
+        <TableHeader className="border-t-0 bg-transparent">
           <TableRow>
             {table.getFlatHeaders().map((header, headerIndex) => {
               const sortType = header.column.getIsSorted()
               const columnName = flexRender(header.column.columnDef.header, header.getContext())
               const isEmpty = typeof columnName === 'object'
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const className: string | undefined = (header.column.columnDef as any).className
+              const className = columnClassName(header.column.columnDef)
               const rowSortable = sortable && header.column.getCanSort()
               return (
                 <TableHead key={header.id} className={className}>
@@ -314,14 +372,14 @@ export const CustomTable = <A extends object>({
                     <div
                       tabIndex={headerIndex}
                       data-sort={sortType}
-                      className={rowSortable ? 'cursor-pointer select-none flex items-center' : ''}
+                      className={
+                        rowSortable ? 'cursor-pointer select-none flex items-center gap-1.5' : ''
+                      }
                       onClick={rowSortable ? header.column.getToggleSortingHandler() : undefined}
                     >
                       <SortableIndicatorContainer>
-                        {sortType === 'asc' ? (
-                          <ChevronUpIcon size={14} data-type="chevron" />
-                        ) : sortType === 'desc' ? (
-                          <ChevronDownIcon size={14} data-type="chevron" />
+                        {sortType ? (
+                          <SortedIndicator direction={sortType} />
                         ) : (
                           <SortableDefaultIndicator />
                         )}
@@ -330,14 +388,18 @@ export const CustomTable = <A extends object>({
                       {columnName}
                     </div>
                   ) : (
-                    columnName
+                    <>
+                      {columnName}
+                    </>
                   )}
                 </TableHead>
               )
             })}
           </TableRow>
         </TableHeader>
-        <TableBody>{tableBody}</TableBody>
+        <TableBody onClickCapture={onBodyClickCapture} onMouseDown={onBodyMouseDown}>
+          {tableBody}
+        </TableBody>
       </Table>
 
       {footerSlot ? (

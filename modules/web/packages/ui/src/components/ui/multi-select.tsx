@@ -197,7 +197,8 @@ const MultiSelectTrigger = forwardRef<MultiSelectTriggerElement, MultiSelectTrig
           data-disabled={disabled}
           {...props}
           className={cn(
-            'flex  min-h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-border bg-input px-3 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring [&>span]:line-clamp-1',
+            // Drawn as a text field (see Input), growing with its chips.
+            'flex min-h-8 w-full items-center justify-between whitespace-nowrap rounded-md border border-field-border bg-field px-3 text-[13px] text-field-foreground transition-[border-color,box-shadow] focus:outline-none focus-visible:border-foreground/25 focus-visible:ring-[3px] focus-visible:ring-foreground/8 [&>span]:line-clamp-1',
             disabled ? 'cursor-not-allowed opacity-50' : 'cursor-text',
             className
           )}
@@ -237,7 +238,7 @@ const MultiSelectValue = forwardRef<ElementRef<typeof Primitive.div>, MultiSelec
     }
 
     return (
-      <TooltipProvider delayDuration={300}>
+      <TooltipProvider>
         <div
           className={cn('flex flex-1 overflow-x-hidden flex-wrap items-center gap-1.5', className)}
           {...props}
@@ -255,9 +256,10 @@ const MultiSelectValue = forwardRef<ElementRef<typeof Primitive.div>, MultiSelec
 
             const el = (
               <Badge
-                variant="outline"
+                variant="secondary"
                 key={value}
-                className="px-2 py-0 leading-4 pr-1 group/multi-select-badge cursor-pointer rounded-full"
+                // A solid chip, set off from the field by a faint inner rim (0.5px, white 12% in dark).
+                className="px-2 py-0 leading-4 pr-1 group/multi-select-badge cursor-pointer rounded-full bg-secondary text-foreground shadow-[inset_0_0_0_0.5px_rgb(0_0_0/0.1)] dark:bg-[#3a3a3a] dark:shadow-[inset_0_0_0_0.5px_rgb(255_255_255/0.12)]"
                 onClick={e => {
                   e.preventDefault()
                   e.stopPropagation()
@@ -311,8 +313,9 @@ const MultiSelectList = forwardRef<
 
 MultiSelectList.displayName = 'MultiSelectList'
 
-interface MultiSelectContentProps
-  extends ComponentPropsWithoutRef<typeof PopoverPrimitive.Content> {}
+interface MultiSelectContentProps extends ComponentPropsWithoutRef<
+  typeof PopoverPrimitive.Content
+> {}
 
 const MultiSelectContent = forwardRef<
   ElementRef<typeof PopoverPrimitive.Content>,
@@ -326,44 +329,45 @@ const MultiSelectContent = forwardRef<
     fragmentRef.current = document.createDocumentFragment()
   }
 
-  if (!context.open) {
-    return fragmentRef.current
-      ? createPortal(<Command>{children}</Command>, fragmentRef.current)
-      : null
-  }
-
+  // While closed the items stay mounted off-screen so they keep registering their labels. The
+  // popover itself is left to Radix, which keeps it mounted until its close animation has ended.
   return (
-    <PopoverPrimitive.Portal forceMount>
-      <PopoverPrimitive.Content
-        ref={ref}
-        align="start"
-        sideOffset={4}
-        collisionPadding={10}
-        className={cn(
-          'z-50 w-full rounded-md border bg-popover p-0 text-popover-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2'
-        )}
-        style={
-          {
-            '--radix-select-content-transform-origin': 'var(--radix-popper-transform-origin)',
-            '--radix-select-content-available-width': 'var(--radix-popper-available-width)',
-            '--radix-select-content-available-height': 'var(--radix-popper-available-height)',
-            '--radix-select-trigger-width': 'var(--radix-popper-anchor-width)',
-            '--radix-select-trigger-height': 'var(--radix-popper-anchor-height)',
-          } as CSSProperties
-        }
-        {...props}
-      >
-        <Command
+    <>
+      {!context.open && fragmentRef.current
+        ? createPortal(<Command>{children}</Command>, fragmentRef.current)
+        : null}
+      <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Content
+          ref={ref}
+          align="start"
+          sideOffset={4}
+          collisionPadding={10}
           className={cn(
-            'px-1 max-h-96 w-full min-w-[var(--radix-select-trigger-width)]',
-            className
+            'mt-dropdown z-50 w-full rounded-md border bg-popover p-0 text-popover-foreground shadow-md outline-none'
           )}
-          shouldFilter={!context.onSearch}
+          style={
+            {
+              '--radix-select-content-transform-origin': 'var(--radix-popper-transform-origin)',
+              '--radix-select-content-available-width': 'var(--radix-popper-available-width)',
+              '--radix-select-content-available-height': 'var(--radix-popper-available-height)',
+              '--radix-select-trigger-width': 'var(--radix-popper-anchor-width)',
+              '--radix-select-trigger-height': 'var(--radix-popper-anchor-height)',
+            } as CSSProperties
+          }
+          {...props}
         >
-          {children}
-        </Command>
-      </PopoverPrimitive.Content>
-    </PopoverPrimitive.Portal>
+          <Command
+            className={cn(
+              'px-1 max-h-96 w-full min-w-[var(--radix-select-trigger-width)]',
+              className
+            )}
+            shouldFilter={!context.onSearch}
+          >
+            {children}
+          </Command>
+        </PopoverPrimitive.Content>
+      </PopoverPrimitive.Portal>
+    </>
   )
 })
 

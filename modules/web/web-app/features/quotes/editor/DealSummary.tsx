@@ -30,6 +30,7 @@ interface DealSummaryProps {
   isError: boolean
   /** Why no totals can be computed yet, when the editor can't send its state. */
   pendingReason?: string
+  className?: string
 }
 
 export const DealSummary = ({
@@ -38,6 +39,7 @@ export const DealSummary = ({
   isUpdating,
   isError,
   pendingReason,
+  className,
 }: DealSummaryProps) => {
   const money = (amount: string) =>
     totals ? formatCurrencyNoRounding(amount, totals.currency) : amount
@@ -90,7 +92,7 @@ export const DealSummary = ({
   }
 
   return (
-    <Card>
+    <Card className={className}>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 pb-3">
         <CardTitle className="text-sm">Deal summary</CardTitle>
         {isUpdating && totals && (

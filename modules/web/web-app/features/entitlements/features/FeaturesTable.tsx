@@ -119,7 +119,7 @@ export const FeaturesTable = ({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8"
+                    className="h-8 w-8 text-faint-foreground hover:text-foreground"
                     aria-label="Actions"
                     onClick={e => e.stopPropagation()}
                   >

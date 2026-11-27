@@ -14,9 +14,6 @@ import { PaymentRemindersSwitch } from './PaymentRemindersSwitch'
 import { SenderView } from './SenderView'
 import { SentEmailsView } from './SentEmailsView'
 
-const tabTriggerCls =
-  'rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none'
-
 const CORE_VIEWS = [
   { value: 'emails', label: 'Emails' },
   { value: 'general', label: 'General' },
@@ -38,9 +35,9 @@ export const CustomerEmailsTab = () => {
 
   const views = (
     <Tabs value={view} onValueChange={setView} className="w-full">
-      <TabsList className="h-auto w-full justify-start gap-6 rounded-none border-b border-border bg-transparent p-0">
+      <TabsList variant="underline" className="w-full">
         {tabList.map(v => (
-          <TabsTrigger key={v.value} value={v.value} className={tabTriggerCls}>
+          <TabsTrigger key={v.value} value={v.value}>
             {v.label}
           </TabsTrigger>
         ))}

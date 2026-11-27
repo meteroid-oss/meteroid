@@ -17,10 +17,10 @@ export const SparklineCard: React.FC<SparklineCardProp> = ({
   chart,
 }) => {
   return (
-    <div className={cn('relative h-[180px]  grow flex flex-col py-4 px-6', className)}>
-      <div className="text-sm font-semibold">{title}</div>
+    <div className={cn('relative h-[180px] grow flex flex-col p-5', className)}>
+      <div className="text-[13px] leading-none tracking-[-0.13px] text-foreground/60">{title}</div>
       <div className="min-h-[20px] flex flex-row pr-6 py-4 items-baseline w-full justify-between grow ">
-        <div className="text-md font-medium">{value}</div>
+        <div className="font-display text-[21px] leading-none">{value}</div>
         {secondaryValue}
       </div>
       <div>

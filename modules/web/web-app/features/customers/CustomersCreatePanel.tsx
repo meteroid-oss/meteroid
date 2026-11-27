@@ -165,19 +165,19 @@ export const CustomersCreatePanel = ({ visible, closePanel }: CustomersCreatePan
         <SheetContent size="medium" side="right" className="p-0">
           <Form {...methods}>
             <form onSubmit={methods.handleSubmit(onSubmit)} className="flex h-full w-full flex-col">
-              <SheetHeader className="ml-6 mt-4">
+              <SheetHeader className="pl-6 pr-14 pt-4 pb-2">
                 <SheetTitle>Create customer</SheetTitle>
               </SheetHeader>
 
               <div className="flex-1 overflow-y-auto">
-                <div className="space-y-6 p-6">
+                <div className="space-y-6 px-6 pt-2 pb-6">
                   {isLoading ? (
                     <InlineLoading />
                   ) : (
                     <>
                       {/* Invoicing Entity & Currency - only shown on create */}
                       <div className="space-y-4">
-                        <h3 className="font-semibold">Account settings</h3>
+                        <h3 className="text-base leading-5 font-medium">Account settings</h3>
                         <FormField
                           control={methods.control}
                           name="invoicingEntity"
@@ -249,11 +249,13 @@ export const CustomersCreatePanel = ({ visible, closePanel }: CustomersCreatePan
                 </div>
               </div>
 
-              <SheetFooter className="border-t border-border p-3">
-                <Button variant="outline" type="reset" onClick={safeClosePanel}>
+              <SheetFooter className="border-t border-foreground/10 px-4 py-3">
+                <Button variant="secondary" size="sm" type="reset" onClick={safeClosePanel}>
                   Cancel
                 </Button>
-                <Button type="submit">Create customer</Button>
+                <Button variant="primary" size="sm" type="submit">
+                  Create customer
+                </Button>
               </SheetFooter>
             </form>
           </Form>

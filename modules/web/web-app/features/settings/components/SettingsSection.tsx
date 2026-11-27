@@ -13,7 +13,8 @@ export const SettingsSection = ({
   className,
   divided = true,
 }: {
-  title: ReactNode
+  /** Left out when the page's own title already says it (API keys, Webhooks…). */
+  title?: ReactNode
   description?: ReactNode
   action?: ReactNode
   children?: ReactNode
@@ -23,12 +24,10 @@ export const SettingsSection = ({
   // consecutive sections live in separate <form> wrappers.
   divided?: boolean
 }) => (
-  <section
-    className={cn(divided ? 'border-t border-border pt-6' : 'pt-0', className)}
-  >
+  <section className={cn(divided ? 'border-t border-border pt-6' : 'pt-0', className)}>
     <div className="mb-4 flex items-start justify-between gap-3">
       <div className="space-y-0.5">
-        <h3 className="text-sm font-semibold tracking-tight">{title}</h3>
+        {title && <h3 className="text-sm font-semibold tracking-tight">{title}</h3>}
         {description && (
           <p className="max-w-xl text-[13px] leading-snug text-muted-foreground">{description}</p>
         )}
@@ -51,6 +50,16 @@ export const SettingsRowGroup = ({
   </div>
 )
 
+/**
+ * The tile leading a row's title (an integration, a payment method): white at 7.2% in dark, its
+ * icon a step quieter than the title. A logo with its own colours keeps them.
+ */
+export const SettingsRowIcon = ({ children }: { children: ReactNode }) => (
+  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground dark:bg-white/[0.072] [&_svg]:h-4 [&_svg]:w-4">
+    {children}
+  </span>
+)
+
 export const SettingsRow = ({
   title,
   description,
@@ -70,13 +79,18 @@ export const SettingsRow = ({
   >
     <div className="min-w-0 space-y-0.5">
       <div className="flex items-center gap-2 text-[13px] font-medium">{title}</div>
-      {description && <div className="text-xs leading-snug text-muted-foreground">{description}</div>}
+      {description && (
+        <div className="text-xs leading-snug text-muted-foreground">{description}</div>
+      )}
     </div>
     {children != null && (
       <div className="ml-auto flex shrink-0 items-center gap-2.5">{children}</div>
     )}
   </div>
 )
+
+// The empty state is shared with the detail pages; Settings keeps its name for it.
+export { SectionEmptyState as SettingsEmptyState } from '@/components/empty-state/SectionEmptyState'
 
 export const SettingsFieldGrid = ({
   children,
@@ -85,5 +99,7 @@ export const SettingsFieldGrid = ({
   children: ReactNode
   className?: string
 }) => (
-  <div className={cn('grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2', className)}>{children}</div>
+  <div className={cn('grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2', className)}>
+    {children}
+  </div>
 )

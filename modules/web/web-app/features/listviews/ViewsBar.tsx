@@ -33,12 +33,12 @@ import {
   MoreHorizontalIcon,
   PlusIcon,
   StarIcon,
-  Table2Icon,
   UsersIcon,
 } from 'lucide-react'
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
+import { ViewsIcon } from '@/components/icons/AppIcons'
 import { EntityListView } from '@/rpc/api/listviews/v1/models_pb'
 
 import { SavedViews } from './useSavedViews'
@@ -112,6 +112,7 @@ export const ViewsBar = ({ views: sv, entityLabel }: Props) => {
       <div
         ref={tabsRef}
         role="tablist"
+        data-scrollbar="none"
         className={cn(
           'flex items-center gap-0.5 min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
           // Once tabs no longer fit, fade the clipped edge so it reads as "scrolls", not "cut off".
@@ -240,7 +241,7 @@ export const ViewsBar = ({ views: sv, entityLabel }: Props) => {
       </Button>
 
       {modified && (
-        <div className="flex items-center gap-1 shrink-0 pl-2 ml-1 border-l border-border">
+        <div className="flex items-center gap-1 shrink-0 pl-2 ml-1 border-l border-foreground/[0.102]">
           <Button
             variant="ghost"
             size="sm"
@@ -346,7 +347,9 @@ const ViewTab = ({
       // starts scrolling; the active tab keeps its full name.
       'group relative flex items-center h-7 rounded-md transition-colors max-w-[14rem]',
       active ? 'shrink-0' : 'shrink min-w-[5.5rem]',
-      active ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60'
+      active
+        ? 'bg-foreground/[0.08] text-card-foreground'
+        : 'text-faint-foreground hover:bg-foreground/[0.04] hover:text-muted-foreground'
     )}
     onContextMenu={onContextMenu}
   >
@@ -357,11 +360,11 @@ const ViewTab = ({
       onClick={() => !active && onSelect()}
       onDoubleClick={onDoubleClick}
       className={cn(
-        'flex items-center gap-1.5 h-full min-w-0 text-xs font-medium',
-        menu && active ? 'pl-2 pr-1' : 'px-2'
+        'flex items-center gap-2 h-full min-w-0 text-[13px] font-medium tracking-[-0.13px]',
+        menu && active ? 'pl-2 pr-1' : 'pl-2 pr-2.5'
       )}
     >
-      <Table2Icon size={13} className="shrink-0 opacity-70" />
+      <ViewsIcon className="text-faint-foreground" />
       <span className="min-w-0 truncate" title={label}>
         {label}
       </span>

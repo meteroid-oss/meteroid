@@ -23,7 +23,8 @@ export interface ResolvedField {
   label: string
   widget: FieldWidget
   ops: FilterOp[]
-  options?: { value: string; label: string }[]
+  /** With a `group`, options are listed under it, and the group's row toggles them all. */
+  options?: { value: string; label: string; group?: string }[]
   /** The picker heading: 'Properties' / 'Custom' for entity fields, or a page's own group. */
   group: string
 }
@@ -64,17 +65,20 @@ export function useFilterFields(entityType: CustomPropertyEntityType): ResolvedF
 }
 
 /** {@link useFilterFields} plus whether the custom-property definitions have loaded. */
-export function useFilterFieldsQuery(entityType: CustomPropertyEntityType): {
+export function useFilterFieldsQuery(entityType?: CustomPropertyEntityType): {
   fields: ResolvedField[]
   isLoaded: boolean
 } {
-  const { data, isSuccess, isError } = useQuery(listCustomPropertyDefinitions, {
-    entityType,
-    includeArchived: false,
-  })
+  // No entity: a page with only its own fields, nothing to fetch.
+  const { data, isSuccess, isError } = useQuery(
+    listCustomPropertyDefinitions,
+    { entityType, includeArchived: false },
+    { enabled: entityType !== undefined }
+  )
 
   const fields = useMemo(() => {
     const definitions = data?.definitions ?? []
+    if (entityType === undefined) return []
     const natives: NativeField[] = NATIVE_FIELDS[ENTITY_KEY[entityType]] ?? []
     const nativeFields: ResolvedField[] = natives.map(f => ({
       field: f.id,
@@ -98,5 +102,5 @@ export function useFilterFieldsQuery(entityType: CustomPropertyEntityType): {
   }, [entityType, data])
 
   // On error, fall back to native fields only rather than blocking the list forever.
-  return { fields, isLoaded: isSuccess || isError }
+  return { fields, isLoaded: entityType === undefined || isSuccess || isError }
 }

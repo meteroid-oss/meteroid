@@ -294,7 +294,7 @@ const CardLines = ({ lines, size }: { lines: CardLine[]; size: 'md' | 'sm' }) =>
                   {more}
                 </button>
               </TooltipTrigger>
-              <TooltipContent className="max-w-72 space-y-0.5 text-xs">
+              <TooltipContent multiline className="max-w-72 space-y-0.5 text-xs">
                 {rest.map(line => (
                   <p key={line.text}>{line.text}</p>
                 ))}

@@ -9,8 +9,10 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  cn,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
+import { ArrowDownToLine, CreditCard, Landmark, type LucideIcon } from 'lucide-react'
 import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -19,7 +21,12 @@ import { InlineLoading } from '@/components/Loading'
 import { CredentialsErrorBadge, railStatus } from '@/features/payments/connectors'
 import { PaymentRail, paymentProvider } from '@/features/payments/providers'
 import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
-import { SettingsSection } from '@/features/settings/components/SettingsSection'
+import {
+  SettingsRow,
+  SettingsRowGroup,
+  SettingsRowIcon,
+  SettingsSection,
+} from '@/features/settings/components/SettingsSection'
 import { BankAccountsCard } from '@/features/settings/components/bankaccounts'
 import { useInvoicingEntity } from '@/features/settings/hooks/useInvoicingEntity'
 import { useZodForm } from '@/hooks/useZodForm'
@@ -68,6 +75,28 @@ const RAIL_NOUNS: Record<PaymentRail, string> = {
   card: "cards aren't",
   directDebit: "direct debit isn't",
 }
+
+// The controls on the right of each method's row line up at one width.
+const METHOD_CONTROL_WIDTH = 'w-64'
+
+/** A method's name behind its icon tile, as Integrations draws a connection; any detail in grey. */
+const MethodTitle = ({
+  icon: Icon,
+  detail,
+  children,
+}: {
+  icon: LucideIcon
+  detail?: string
+  children: string
+}) => (
+  <>
+    <SettingsRowIcon>
+      <Icon />
+    </SettingsRowIcon>
+    {children}
+    {detail && <span className="font-normal text-muted-foreground">({detail})</span>}
+  </>
+)
 
 const ProviderIcon = ({ connector }: { connector: Connector }) => {
   const Logo = paymentProvider(connector.provider)?.Logo
@@ -132,20 +161,7 @@ const PaymentMethodsForm = ({
         <SettingsSection
           divided={false}
           title="Payment method routing"
-          description={
-            <>
-              Customers linked to this invoicing entity will inherit from this configuration.{' '}
-              <Button
-                type="button"
-                variant="link"
-                size="sm"
-                className="h-fit px-0"
-                onClick={() => navigate('../integrations', { replace: true })}
-              >
-                Configure your payment integrations →
-              </Button>
-            </>
-          }
+          description="Customers linked to this invoicing entity will inherit from this configuration."
           action={
             <div className="flex items-center gap-2">
               <InvoicingEntitySelect />
@@ -158,80 +174,65 @@ const PaymentMethodsForm = ({
             </div>
           }
         >
-          <div className="overflow-hidden rounded-lg border border-border text-sm">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-2 px-3 font-medium text-muted-foreground">Method</th>
-                  <th className="text-left py-2 px-3 font-medium text-muted-foreground">
-                    Provided by
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="border-b">
-                  <td className="py-4 px-3 flex items-center">
-                    <span className="mr-2 inline-block">💳</span>
-                    <span className="mr-2">Credit card</span>
-                  </td>
-                  <td className="py-4 px-3">
-                    <ProviderSelect
-                      rail="card"
-                      options={cardOptions}
-                      value={methods.watch('cardProviderId')}
-                      onChange={value =>
-                        methods.setValue('cardProviderId', value, { shouldDirty: true })
-                      }
-                    />
-                  </td>
-                </tr>
-                <tr className="border-b">
-                  <td className="py-4 px-3 flex items-center">
-                    <span className="mr-2 inline-block">⬇️</span>
-                    <span className="mr-2">Direct Debit (SEPA, BACS, ACH)</span>
-                  </td>
-                  <td className="py-4 px-3">
-                    <ProviderSelect
-                      rail="directDebit"
-                      options={directDebitOptions}
-                      value={methods.watch('directDebitProviderId')}
-                      onChange={value =>
-                        methods.setValue('directDebitProviderId', value, { shouldDirty: true })
-                      }
-                    />
-                  </td>
-                </tr>
-
-                <tr className="border-b">
-                  <td className="py-4 px-3 flex items-center">
-                    <span className="mr-2 inline-block">🏦</span>
-                    <span className="">Bank transfer</span>
-                  </td>
-                  <td className="py-4 px-3">
-                    <Select
-                      value={methods.watch('bankAccountId')}
-                      onValueChange={value =>
-                        methods.setValue('bankAccountId', value, { shouldDirty: true })
-                      }
-                    >
-                      <SelectTrigger className="w-60">
-                        <SelectValue placeholder="Select a bank account" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {bankAccounts.length === 0 ? <SelectEmpty /> : null}
-                        <SelectItem value="none">None</SelectItem>
-                        {bankAccounts.map(account => (
-                          <SelectItem key={account.id} value={account.id}>
-                            {account.displayName}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          {/* One row per method, as Integrations lists its connections. */}
+          <SettingsRowGroup>
+            <SettingsRow title={<MethodTitle icon={CreditCard}>Credit card</MethodTitle>}>
+              <ProviderSelect
+                rail="card"
+                options={cardOptions}
+                value={methods.watch('cardProviderId')}
+                onChange={value =>
+                  methods.setValue('cardProviderId', value, { shouldDirty: true })
+                }
+              />
+            </SettingsRow>
+            <SettingsRow
+              title={
+                <MethodTitle icon={ArrowDownToLine} detail="SEPA, BACS, ACH">
+                  Direct Debit
+                </MethodTitle>
+              }
+            >
+              <ProviderSelect
+                rail="directDebit"
+                options={directDebitOptions}
+                value={methods.watch('directDebitProviderId')}
+                onChange={value =>
+                  methods.setValue('directDebitProviderId', value, { shouldDirty: true })
+                }
+              />
+            </SettingsRow>
+            <SettingsRow title={<MethodTitle icon={Landmark}>Bank transfer</MethodTitle>}>
+              <Select
+                value={methods.watch('bankAccountId')}
+                onValueChange={value =>
+                  methods.setValue('bankAccountId', value, { shouldDirty: true })
+                }
+              >
+                <SelectTrigger className={METHOD_CONTROL_WIDTH}>
+                  <SelectValue placeholder="Select a bank account" />
+                </SelectTrigger>
+                <SelectContent>
+                  {bankAccounts.length === 0 ? <SelectEmpty /> : null}
+                  <SelectItem value="none">None</SelectItem>
+                  {bankAccounts.map(account => (
+                    <SelectItem key={account.id} value={account.id}>
+                      {account.displayName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </SettingsRow>
+          </SettingsRowGroup>
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            className="mt-3 h-fit px-0"
+            onClick={() => navigate('../integrations', { replace: true })}
+          >
+            Configure your payment integrations →
+          </Button>
         </SettingsSection>
       </form>
     </Form>
@@ -254,9 +255,9 @@ const ProviderSelect = ({
   const selected = options.find(o => o.connector.id === value)?.connector
   const selectedDisabled = selected?.status === ConnectorStatusEnum.DISABLED
   return (
-    <div className="space-y-1">
+    <div className={cn('space-y-1', METHOD_CONTROL_WIDTH)}>
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="w-72">
+        <SelectTrigger>
           <SelectValue placeholder="Select a provider" />
         </SelectTrigger>
         <SelectContent>

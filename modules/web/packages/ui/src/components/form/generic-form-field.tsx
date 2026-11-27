@@ -13,6 +13,8 @@ import {
 import { Flex } from '@ui/components/ui'
 import { cn } from '@ui/lib'
 
+import { Label } from '../ui/label'
+
 import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from './form'
 
 const formFieldVariants = cva('', {
@@ -87,6 +89,68 @@ export interface GenericFormFieldProps<
   }) => React.ReactElement
 }
 
+/**
+ * A field's label row above its control, as every form field draws it: 12px and quiet, 8px over
+ * the control and 8px under whatever is above, so fields side by side line up.
+ *
+ * Inside a FormField pass `asFormLabel`: the label then points at the field and turns red on an
+ * error. Without it, it labels a control outside a form (a read-only select, a copy button); give
+ * it the control's id in `htmlFor`.
+ */
+export const FieldLabel = ({
+  children,
+  htmlFor,
+  required,
+  asFormLabel = false,
+  layout = 'vertical',
+  labelClassName,
+  tooltip,
+  rightLabel,
+}: {
+  children: ReactNode
+  htmlFor?: string
+  required?: boolean
+  asFormLabel?: boolean
+  layout?: 'vertical' | 'horizontal' | null
+  labelClassName?: string
+  tooltip?: ReactNode
+  rightLabel?: ReactNode
+}) => {
+  const labelProps = {
+    className: cn(
+      !asFormLabel && 'text-foreground/60',
+      formFieldLabelVariants({ layout }),
+      labelClassName
+    ),
+    // FormLabel sets its own htmlFor; an explicit undefined would clear it.
+    ...(htmlFor ? { htmlFor } : {}),
+  }
+  const content = (
+    <>
+      {children}
+      {required ? <span className="text-destructive text-xs pl-1">*</span> : null}
+    </>
+  )
+
+  return (
+    <Flex
+      align="center"
+      justify="between"
+      className={cn('my-2', formFieldLabelVariants({ layout }), labelClassName)}
+    >
+      <div className="flex items-center gap-1">
+        {asFormLabel ? (
+          <FormLabel {...labelProps}>{content}</FormLabel>
+        ) : (
+          <Label {...labelProps}>{content}</Label>
+        )}
+        {tooltip}
+      </div>
+      {rightLabel}
+    </Flex>
+  )
+}
+
 export const GenericFormField = <
   TFieldValues extends FieldValues = FieldValues,
   TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>,
@@ -109,20 +173,16 @@ export const GenericFormField = <
       render={fieldProps => (
         <FormItem className={cn(formFieldVariants({ layout }), containerClassName)}>
           {label && (
-            <Flex
-              align="center"
-              justify="between"
-              className={cn('my-2', formFieldLabelVariants({ layout }), labelClassName)}
+            <FieldLabel
+              asFormLabel
+              required={required}
+              layout={layout}
+              labelClassName={labelClassName}
+              tooltip={labelTooltip}
+              rightLabel={rightLabel}
             >
-              <div className="flex items-center gap-1">
-                <FormLabel className={cn(formFieldLabelVariants({ layout }), labelClassName)}>
-                  {label}
-                  {required ? <span className="text-destructive text-xs pl-1">*</span> : null}
-                </FormLabel>
-                {labelTooltip}
-              </div>
-              {rightLabel}
-            </Flex>
+              {label}
+            </FieldLabel>
           )}
           <FormControl>
             {render({ ...fieldProps, className: cn(inputVariants({ layout }), className) })}

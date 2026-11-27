@@ -1,20 +1,14 @@
-import {
-  Card,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Separator,
-} from '@md/ui'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@md/ui'
 import * as React from 'react'
 import { useMemo, useState } from 'react'
 
 import {
+  DASHBOARD_FILTER_TRIGGER,
   DatePresetSelect,
   DateRangePreset,
   getDateRangeFromPreset,
 } from '@/features/dashboard/DatePresetSelect'
+import { DashboardCard } from '@/features/dashboard/cards/DashboardCard'
 import { MrrBreakdownCard } from '@/features/dashboard/cards/MrrBreakdownCard'
 import { MrrLogsCard } from '@/features/dashboard/cards/MrrLogsCard'
 import { MrrChart } from '@/features/dashboard/charts/MrrChart'
@@ -37,30 +31,26 @@ export const MrrSection = () => {
   const selectedPlanIds = plan === ALL_PLANS ? [] : [plan]
 
   return (
-    <>
-      <div className="pt-2 pb-2">
-        <div className="flex justify-between items-center flex-wrap gap-2">
-          <h3 className="text-lg text-muted-foreground font-medium">Overview</h3>
-          <div className="flex flex-row gap-1">
-            <Select onValueChange={setPlan} value={plan}>
-              <SelectTrigger className="md:w-[180px]">
-                <SelectValue placeholder="All plans" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL_PLANS}>All plans</SelectItem>
-                {plans.data?.plans.map(p => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+    <div className="flex flex-col gap-4">
+      <DashboardCard>
+        {/* The chart draws its own title row; the filters sit on that row's right end. */}
+        <div className="absolute top-[14px] right-5 z-10 flex items-center gap-2">
+          <Select onValueChange={setPlan} value={plan}>
+            <SelectTrigger className={DASHBOARD_FILTER_TRIGGER}>
+              <SelectValue placeholder="All plans" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_PLANS}>All plans</SelectItem>
+              {plans.data?.plans.map(p => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-            <DatePresetSelect value={datePreset} onChange={setDatePreset} />
-          </div>
+          <DatePresetSelect value={datePreset} onChange={setDatePreset} />
         </div>
-      </div>
-      <Card className="p-6">
         {chartType === 'revenue' ? (
           <RevenueChart
             from={range.from}
@@ -78,13 +68,11 @@ export const MrrSection = () => {
             onChartTypeChange={setChartType}
           />
         )}
-        <Separator className="m-2" />
-        <div className="w-full flex flex-row h-[180px] relative">
-          <MrrBreakdownCard from={range.from} to={range.to} />
-          <Separator orientation="vertical" className="m-2" />
-          <MrrLogsCard />
-        </div>
-      </Card>
-    </>
+      </DashboardCard>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <MrrBreakdownCard from={range.from} to={range.to} />
+        <MrrLogsCard />
+      </div>
+    </div>
   )
 }

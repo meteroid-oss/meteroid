@@ -1,5 +1,5 @@
-import { timestampDate } from '@bufbuild/protobuf/wkt';
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
+import { timestampDate } from '@bufbuild/protobuf/wkt'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
   Button,
   Card,
@@ -20,16 +20,30 @@ import {
   ArchiveIcon,
   ArchiveRestoreIcon,
   ChevronDown,
-  ChevronLeftIcon,
   CopyIcon,
   EditIcon,
   EyeIcon,
+  Gauge,
 } from 'lucide-react'
 import { ReactNode, useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
 import { Gate } from '@/components/Gate'
+import { LocalId } from '@/components/LocalId'
+import {
+  DetailColumns,
+  DetailIcon,
+  DetailMain,
+  DetailPageFrame,
+  DetailRow,
+  DetailSection,
+  DetailSections,
+  DetailSidebar,
+  DetailTitle,
+  SidebarSection,
+  SidebarSeparator,
+} from '@/components/layouts/DetailLayout'
 import { EntityActivityTimeline } from '@/features/activity/EntityActivityTimeline'
 import { BillableMetricStatusBadge } from '@/features/productCatalog/metrics/BillableMetricStatusBadge'
 import { MetricCustomersCard } from '@/features/productCatalog/metrics/MetricCustomersCard'
@@ -70,30 +84,11 @@ const unitConversionRoundingMapper: Record<
   [Aggregation_UnitConversion_UnitConversionRounding.NEAREST]: 'nearest',
 }
 
-// Section Title Component
-const SectionTitle = ({ children }: { children: ReactNode }) => (
-  <h3 className="text-lg font-medium text-foreground mb-3">{children}</h3>
-)
-
-// Detail Row Component
-const DetailRow = ({ label, value, link }: { label: string; value: ReactNode; link?: string }) => (
-  <div className="text-[13px] flex justify-between py-2 border-b border-border last:border-0">
-    <div className="text-muted-foreground">{label}</div>
-    {link ? (
-      <Link to={link}>
-        <div className="font-medium text-brand hover:underline">{value}</div>
-      </Link>
-    ) : (
-      <div className="font-medium text-foreground">{value}</div>
-    )}
-  </div>
-)
-
-// Detail Section Component
-const DetailSection = ({ title, children }: { title: string; children: ReactNode }) => (
-  <div className="mb-6">
-    <SectionTitle>{title}</SectionTitle>
-    <div className="space-y-1">{children}</div>
+/** One fact of the overview: a compact tile, raised as the customer page's cards. */
+const OverviewFact = ({ label, children }: { label: string; children: ReactNode }) => (
+  <div className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-card p-4 dark:bg-foreground/[0.035]">
+    <dt className="text-[13px] leading-none tracking-[-0.13px] text-foreground/60">{label}</dt>
+    <dd className="truncate text-foreground">{children}</dd>
   </div>
 )
 
@@ -114,14 +109,18 @@ export const ProductMetricDetail = () => {
 
   const archiveMutation = useMutation(archiveBillableMetric, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: listBillableMetrics.parent,
-        cardinality: undefined
-      }) })
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: getBillableMetric.parent,
-        cardinality: undefined
-      }) })
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: listBillableMetrics.parent,
+          cardinality: undefined,
+        }),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: getBillableMetric.parent,
+          cardinality: undefined,
+        }),
+      })
       toast.success('Metric archived successfully')
     },
     onError: () => {
@@ -131,14 +130,18 @@ export const ProductMetricDetail = () => {
 
   const unarchiveMutation = useMutation(unarchiveBillableMetric, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: listBillableMetrics.parent,
-        cardinality: undefined
-      }) })
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: getBillableMetric.parent,
-        cardinality: undefined
-      }) })
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: listBillableMetrics.parent,
+          cardinality: undefined,
+        }),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: getBillableMetric.parent,
+          cardinality: undefined,
+        }),
+      })
       toast.success('Metric unarchived successfully')
     },
     onError: () => {
@@ -163,18 +166,12 @@ export const ProductMetricDetail = () => {
 
   if (isLoading || !data) {
     return (
-      <div className="p-6">
-        <Skeleton height={16} width={50} className="mb-4" />
-        <div className="flex gap-6">
-          <div className="flex-1">
-            <Skeleton height={100} className="mb-4" />
-            <Skeleton height={200} className="mb-4" />
-          </div>
-          <div className="w-80">
-            <Skeleton height={300} className="mb-4" />
-          </div>
+      <DetailPageFrame section={{ label: 'Metrics', to: `${basePath}/metrics` }} title="…">
+        <div className="flex flex-col gap-2 p-6">
+          <Skeleton height={16} width={50} />
+          <Skeleton height={44} />
         </div>
-      </div>
+      </DetailPageFrame>
     )
   }
 
@@ -182,300 +179,291 @@ export const ProductMetricDetail = () => {
   const aggregationType = data.aggregation?.aggregationType || Aggregation_AggregationType.SUM
   const aggregationKey = data.aggregation?.aggregationKey
 
+  const unitConversion = data.aggregation?.unitConversion
+
   return (
-    <div className="flex min-h-screen bg-background gap-2">
-      {/* Main content area */}
-      <div className="flex-1 p-6 pr-0">
-        <div className="flex items-center mb-6 w-full justify-between">
-          <div className="flex items-center">
-            <ChevronLeftIcon
-              className="cursor-pointer text-muted-foreground hover:text-foreground mr-2"
-              onClick={() => navigate(`${basePath}/metrics`)}
-              size={20}
-            />
-            <h2 className="text-xl font-semibold text-foreground">{data.name}</h2>
-            <div className="ml-2">
-              <BillableMetricStatusBadge isArchived={isArchived} />
-            </div>
+    <DetailPageFrame
+      section={{ label: 'Metrics', to: `${basePath}/metrics` }}
+      title={
+        <span className="flex items-center gap-2">
+          <span className="truncate">{data.name}</span>
+          <BillableMetricStatusBadge isArchived={isArchived} />
+        </span>
+      }
+      actions={
+        <Gate perm="catalog:manage">
+          <div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="secondary" className="gap-1.5 pr-2" size="sm">
+                  Actions <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {!isArchived && (
+                  <DropdownMenuItem onClick={() => navigate(`${basePath}/metrics/edit/${data.id}`)}>
+                    <EditIcon size={16} className="mr-2" />
+                    Edit Metric
+                  </DropdownMenuItem>
+                )}
+                {isArchived ? (
+                  <DropdownMenuItem onClick={handleUnarchive}>
+                    <ArchiveRestoreIcon size={16} className="mr-2" />
+                    Unarchive
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem onClick={handleArchive}>
+                    <ArchiveIcon size={16} className="mr-2" />
+                    Archive
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
-          <Gate perm="catalog:manage">
-            <div>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="primary" className="gap-2" size="sm" hasIcon>
-                    Actions <ChevronDown className="w-4 h-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {!isArchived && (
-                    <DropdownMenuItem onClick={() => navigate(`${basePath}/metrics/edit/${data.id}`)}>
-                      <EditIcon size={16} className="mr-2" />
-                      Edit Metric
-                    </DropdownMenuItem>
-                  )}
-                  {isArchived ? (
-                    <DropdownMenuItem onClick={handleUnarchive}>
-                      <ArchiveRestoreIcon size={16} className="mr-2" />
-                      Unarchive
-                    </DropdownMenuItem>
-                  ) : (
-                    <DropdownMenuItem onClick={handleArchive}>
-                      <ArchiveIcon size={16} className="mr-2" />
-                      Archive
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </Gate>
-        </div>
-
-        {/* Overview card */}
-        <div className="bg-card rounded-lg shadow-sm p-6 mb-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-md font-medium text-foreground">Overview</h3>
-          </div>
-          <div className="grid grid-cols-1 gap-6">
-            <div className="grid grid-cols-3 gap-6">
-              <div className="border-r border-border pr-4 last:border-0">
-                <div className="text-sm text-muted-foreground">Event Name</div>
-                <div className="text-md font-medium mt-1">
-                  <code className="bg-muted px-2 py-1 rounded text-sm">{data.code}</code>
-                </div>
-              </div>
-              <div className="border-r border-border pr-4 last:border-0">
-                <div className="text-sm text-muted-foreground">Aggregation</div>
-                <div className="text-md font-medium mt-1">
-                  <code className="bg-muted px-2 py-1 rounded text-sm">
-                    {aggregationTypeMapper[aggregationType]}
-                    {aggregationKey && <>({aggregationKey})</>}
-                  </code>
-                </div>
-              </div>
-              <div>
-                <div className="text-sm text-muted-foreground">Status</div>
-                <div className="text-md font-medium mt-1">
-                  <BillableMetricStatusBadge isArchived={isArchived} />
-                </div>
-              </div>
-            </div>
-            {data.description && (
-              <div className="border-t border-border pt-4">
-                <div className="text-sm text-muted-foreground">Description</div>
-                <div className="text-md font-medium mt-1 whitespace-pre-line text-foreground">
-                  {data.description}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Usage analytics - chart, period aggregate, and the raw events feeding it */}
-        <div className="bg-card rounded-lg shadow-sm p-6 mb-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-md font-medium text-foreground">Usage Analytics</h3>
-          </div>
-          <MetricPreview
-            code={data.code}
-            aggregation={data.aggregation}
-            segmentationMatrix={data.segmentationMatrix}
-            filters={data.filters}
-            usageGroupKey={data.usageGroupKey}
-            exploreLinkKey={`bm:${data.id}`}
-          />
-        </div>
-
-        <div className="bg-card rounded-lg shadow-sm p-6 mb-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-md font-medium text-foreground">Rate cards</h3>
-          </div>
-          <MetricRateCards
-            metricId={data.id}
-            blockedReason={
-              isArchived
-                ? "Archived metrics can't get new rate cards."
-                : data.segmentationMatrix?.matrix?.case ||
-                    (aggregationType !== Aggregation_AggregationType.SUM &&
-                      aggregationType !== Aggregation_AggregationType.COUNT)
-                  ? 'Only a sum or a count without a matrix can be rated by a card.'
-                  : undefined
+        </Gate>
+      }
+    >
+      <DetailColumns>
+        <DetailMain>
+          <DetailTitle
+            media={
+              <DetailIcon>
+                <Gauge />
+              </DetailIcon>
             }
+            title={data.name}
+            subtitle={<span className="font-mono">{data.code}</span>}
           />
-        </div>
+          {data.description && (
+            <p className="-mt-2 mb-2 max-w-3xl whitespace-pre-line text-[13px] leading-relaxed text-muted-foreground">
+              {data.description}
+            </p>
+          )}
+          {/* The overview: what the metric counts and how, and whether it is in use. */}
+          <dl aria-label="Metric overview" className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <OverviewFact label="Event name">
+              <code className="font-mono text-[13px]">{data.code}</code>
+            </OverviewFact>
+            <OverviewFact label="Aggregation">
+              <code className="font-mono text-[13px]">
+                {aggregationTypeMapper[aggregationType]}
+                {aggregationKey && <>({aggregationKey})</>}
+              </code>
+            </OverviewFact>
+            <OverviewFact label="Status">
+              <BillableMetricStatusBadge isArchived={isArchived} />
+            </OverviewFact>
+          </dl>
+          <DetailSections>
+            {/* Usage analytics: chart, period aggregate, and the raw events feeding it. */}
+            <DetailSection title="Usage">
+              <MetricPreview
+                code={data.code}
+                aggregation={data.aggregation}
+                segmentationMatrix={data.segmentationMatrix}
+                filters={data.filters}
+                usageGroupKey={data.usageGroupKey}
+                exploreLinkKey={`bm:${data.id}`}
+              />
+            </DetailSection>
+            <DetailSection title="Rate cards">
+              <MetricRateCards
+                metricId={data.id}
+                blockedReason={
+                  isArchived
+                    ? "Archived metrics can't get new rate cards."
+                    : data.segmentationMatrix?.matrix?.case ||
+                        (aggregationType !== Aggregation_AggregationType.SUM &&
+                          aggregationType !== Aggregation_AggregationType.COUNT)
+                      ? 'Only a sum or a count without a matrix can be rated by a card.'
+                      : undefined
+                }
+              />
+            </DetailSection>
+            {/* How customers are using this metric. */}
+            <DetailSection title="Customers">
+              <MetricCustomersCard metricId={data.id} aggregationType={aggregationType} />
+            </DetailSection>
+          </DetailSections>
+        </DetailMain>
 
-        {/* Customer usage - how customers are using this metric */}
-        <div className="bg-card rounded-lg shadow-sm p-6 mb-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-md font-medium text-foreground">Customer Usage</h3>
-          </div>
-          <MetricCustomersCard metricId={data.id} aggregationType={aggregationType} />
-        </div>
+        <DetailSidebar>
+          <SidebarSection
+            title="Details"
+            action={
+              !isArchived && (
+                <Gate perm="catalog:manage">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => navigate(`${basePath}/metrics/edit/${data.id}`)}
+                  >
+                    Edit
+                  </Button>
+                </Gate>
+              )
+            }
+          >
+            <DetailRow title="ID" value={<LocalId localId={data.id} />} />
+            <DetailRow title="Name" value={data.name} />
+            <DetailRow title="Event name" value={<span className="font-mono">{data.code}</span>} />
+            <DetailRow
+              title="Status"
+              value={<BillableMetricStatusBadge isArchived={isArchived} />}
+            />
+            <DetailRow
+              title="Created"
+              value={data.createdAt && timestampDate(data.createdAt).toLocaleString()}
+            />
+            {data.archivedAt && (
+              <DetailRow title="Archived" value={timestampDate(data.archivedAt).toLocaleString()} />
+            )}
+          </SidebarSection>
 
-        {/* Activity */}
-        <div className="bg-card rounded-lg shadow-sm mb-6">
-          <div className="p-4 border-b border-border">
-            <h3 className="text-md font-medium text-foreground">Activity</h3>
-          </div>
-          <div className="p-6">
+          <SidebarSeparator />
+          <SidebarSection title="Aggregation">
+            <DetailRow title="Type" value={aggregationTypeMapper[aggregationType]} />
+            {aggregationKey && (
+              <DetailRow title="Key" value={<span className="font-mono">{aggregationKey}</span>} />
+            )}
+            {unitConversion && (
+              <DetailRow
+                title="Unit conversion"
+                value={`${unitConversion.factor}x (${unitConversionRoundingMapper[unitConversion.rounding] || 'none'})`}
+              />
+            )}
+          </SidebarSection>
+
+          {(data.usageGroupKey || data.usageBreakdownKey) && (
+            <>
+              <SidebarSeparator />
+              <SidebarSection title="Grouping">
+                {data.usageGroupKey && (
+                  <DetailRow
+                    title="Group key"
+                    value={<span className="font-mono">{data.usageGroupKey}</span>}
+                  />
+                )}
+                {data.usageBreakdownKey && (
+                  <DetailRow
+                    title="Breakdown key"
+                    value={<span className="font-mono">{data.usageBreakdownKey}</span>}
+                  />
+                )}
+              </SidebarSection>
+            </>
+          )}
+
+          {data.segmentationMatrix && data.segmentationMatrix.matrix && (
+            <>
+              <SidebarSeparator />
+              <SidebarSection title="Segmentation">
+                <DetailRow
+                  title="Type"
+                  value={
+                    data.segmentationMatrix.matrix.case === 'single'
+                      ? 'Single dimension'
+                      : data.segmentationMatrix.matrix.case === 'double'
+                        ? 'Two dimensions (independent)'
+                        : data.segmentationMatrix.matrix.case === 'linked'
+                          ? 'Two dimensions (dependent)'
+                          : 'Unknown'
+                  }
+                />
+                {data.segmentationMatrix.matrix.case === 'single' &&
+                  data.segmentationMatrix.matrix.value && (
+                    <>
+                      <DetailRow
+                        title="Dimension"
+                        value={data.segmentationMatrix.matrix.value.dimension?.key || 'N/A'}
+                      />
+                      <DetailRow
+                        title="Values"
+                        value={
+                          data.segmentationMatrix.matrix.value.dimension?.values &&
+                          data.segmentationMatrix.matrix.value.dimension.values.length > 5
+                            ? `${data.segmentationMatrix.matrix.value.dimension.values.slice(0, 5).join(', ')}... (${data.segmentationMatrix.matrix.value.dimension.values.length} total)`
+                            : data.segmentationMatrix.matrix.value.dimension?.values?.join(', ') ||
+                              'N/A'
+                        }
+                      />
+                    </>
+                  )}
+                {data.segmentationMatrix.matrix.case === 'double' &&
+                  data.segmentationMatrix.matrix.value && (
+                    <>
+                      <DetailRow
+                        title="Dimension 1"
+                        value={data.segmentationMatrix.matrix.value.dimension1?.key || 'N/A'}
+                      />
+                      <DetailRow
+                        title="Dimension 1 Values"
+                        value={
+                          data.segmentationMatrix.matrix.value.dimension1?.values &&
+                          data.segmentationMatrix.matrix.value.dimension1.values.length > 5
+                            ? `${data.segmentationMatrix.matrix.value.dimension1.values.slice(0, 5).join(', ')}... (${data.segmentationMatrix.matrix.value.dimension1.values.length} total)`
+                            : data.segmentationMatrix.matrix.value.dimension1?.values?.join(', ') ||
+                              'N/A'
+                        }
+                      />
+                      <DetailRow
+                        title="Dimension 2"
+                        value={data.segmentationMatrix.matrix.value.dimension2?.key || 'N/A'}
+                      />
+                      <DetailRow
+                        title="Dimension 2 Values"
+                        value={
+                          data.segmentationMatrix.matrix.value.dimension2?.values &&
+                          data.segmentationMatrix.matrix.value.dimension2.values.length > 5
+                            ? `${data.segmentationMatrix.matrix.value.dimension2.values.slice(0, 5).join(', ')}... (${data.segmentationMatrix.matrix.value.dimension2.values.length} total)`
+                            : data.segmentationMatrix.matrix.value.dimension2?.values?.join(', ') ||
+                              'N/A'
+                        }
+                      />
+                    </>
+                  )}
+                {data.segmentationMatrix.matrix.case === 'linked' &&
+                  data.segmentationMatrix.matrix.value && (
+                    <>
+                      <DetailRow
+                        title="Primary Dimension"
+                        value={data.segmentationMatrix.matrix.value.dimensionKey || 'N/A'}
+                      />
+                      <DetailRow
+                        title="Linked Dimension"
+                        value={data.segmentationMatrix.matrix.value.linkedDimensionKey || 'N/A'}
+                      />
+
+                      <DetailRow
+                        title="Values"
+                        value={
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setShowSegmentationModal(true)}
+                            className="gap-2"
+                          >
+                            <EyeIcon className="h-4 w-4" />
+                          </Button>
+                        }
+                      />
+                    </>
+                  )}
+              </SidebarSection>
+            </>
+          )}
+
+          <SidebarSeparator />
+          <SidebarSection title="Activity">
             <EntityActivityTimeline
               entityType="billable_metric"
               entityId={data.id}
               emptyLabel="No activity yet for this metric"
+              timeline
             />
-          </div>
-        </div>
-      </div>
-
-      {/* Sidebar */}
-      <div className="w-80 p-6 border-l border-border">
-        <DetailSection title="Metric Details">
-          <DetailRow label="ID" value={data.id} />
-          <DetailRow label="Name" value={data.name} />
-          <DetailRow label="Event Name" value={data.code} />
-          <DetailRow label="Status" value={<BillableMetricStatusBadge isArchived={isArchived} />} />
-        </DetailSection>
-
-        <DetailSection title="Aggregation">
-          <DetailRow label="Type" value={aggregationTypeMapper[aggregationType]} />
-          {aggregationKey && <DetailRow label="Key" value={aggregationKey} />}
-          {data.aggregation?.unitConversion && (
-            <DetailRow
-              label="Unit Conversion"
-              value={`${data.aggregation.unitConversion.factor}x (${unitConversionRoundingMapper[data.aggregation.unitConversion.rounding] || 'none'})`}
-            />
-          )}
-        </DetailSection>
-
-        {data.usageGroupKey && (
-          <DetailSection title="Usage Grouping">
-            <DetailRow label="Group Key" value={data.usageGroupKey} />
-          </DetailSection>
-        )}
-
-        {data.usageBreakdownKey && (
-          <DetailSection title="Usage Breakdown">
-            <DetailRow label="Breakdown Key" value={data.usageBreakdownKey} />
-          </DetailSection>
-        )}
-
-        {data.segmentationMatrix && data.segmentationMatrix.matrix && (
-          <DetailSection title="Segmentation">
-            <DetailRow
-              label="Type"
-              value={
-                data.segmentationMatrix.matrix.case === 'single'
-                  ? 'Single dimension'
-                  : data.segmentationMatrix.matrix.case === 'double'
-                    ? 'Two dimensions (independent)'
-                    : data.segmentationMatrix.matrix.case === 'linked'
-                      ? 'Two dimensions (dependent)'
-                      : 'Unknown'
-              }
-            />
-            {data.segmentationMatrix.matrix.case === 'single' &&
-              data.segmentationMatrix.matrix.value && (
-                <>
-                  <DetailRow
-                    label="Dimension"
-                    value={data.segmentationMatrix.matrix.value.dimension?.key || 'N/A'}
-                  />
-                  <DetailRow
-                    label="Values"
-                    value={
-                      data.segmentationMatrix.matrix.value.dimension?.values &&
-                      data.segmentationMatrix.matrix.value.dimension.values.length > 5
-                        ? `${data.segmentationMatrix.matrix.value.dimension.values.slice(0, 5).join(', ')}... (${data.segmentationMatrix.matrix.value.dimension.values.length} total)`
-                        : data.segmentationMatrix.matrix.value.dimension?.values?.join(', ') ||
-                          'N/A'
-                    }
-                  />
-                </>
-              )}
-            {data.segmentationMatrix.matrix.case === 'double' &&
-              data.segmentationMatrix.matrix.value && (
-                <>
-                  <DetailRow
-                    label="Dimension 1"
-                    value={data.segmentationMatrix.matrix.value.dimension1?.key || 'N/A'}
-                  />
-                  <DetailRow
-                    label="Dimension 1 Values"
-                    value={
-                      data.segmentationMatrix.matrix.value.dimension1?.values &&
-                      data.segmentationMatrix.matrix.value.dimension1.values.length > 5
-                        ? `${data.segmentationMatrix.matrix.value.dimension1.values.slice(0, 5).join(', ')}... (${data.segmentationMatrix.matrix.value.dimension1.values.length} total)`
-                        : data.segmentationMatrix.matrix.value.dimension1?.values?.join(', ') ||
-                          'N/A'
-                    }
-                  />
-                  <DetailRow
-                    label="Dimension 2"
-                    value={data.segmentationMatrix.matrix.value.dimension2?.key || 'N/A'}
-                  />
-                  <DetailRow
-                    label="Dimension 2 Values"
-                    value={
-                      data.segmentationMatrix.matrix.value.dimension2?.values &&
-                      data.segmentationMatrix.matrix.value.dimension2.values.length > 5
-                        ? `${data.segmentationMatrix.matrix.value.dimension2.values.slice(0, 5).join(', ')}... (${data.segmentationMatrix.matrix.value.dimension2.values.length} total)`
-                        : data.segmentationMatrix.matrix.value.dimension2?.values?.join(', ') ||
-                          'N/A'
-                    }
-                  />
-                </>
-              )}
-            {data.segmentationMatrix.matrix.case === 'linked' &&
-              data.segmentationMatrix.matrix.value && (
-                <>
-                  <DetailRow
-                    label="Primary Dimension"
-                    value={data.segmentationMatrix.matrix.value.dimensionKey || 'N/A'}
-                  />
-                  <DetailRow
-                    label="Linked Dimension"
-                    value={data.segmentationMatrix.matrix.value.linkedDimensionKey || 'N/A'}
-                  />
-
-                  <DetailRow
-                    label="Values"
-                    value={
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setShowSegmentationModal(true)}
-                        className="gap-2"
-                      >
-                        <EyeIcon className="h-4 w-4" />
-                      </Button>
-                    }
-                  />
-                </>
-              )}
-          </DetailSection>
-        )}
-
-        <DetailSection title="Timeline">
-          <DetailRow
-            label="Created At"
-            value={
-              data.createdAt && timestampDate(data.createdAt).toLocaleString()
-            }
-          />
-          {data.archivedAt && (
-            <DetailRow
-              label="Archived At"
-              value={timestampDate(data.archivedAt).toLocaleString()}
-            />
-          )}
-        </DetailSection>
-
-        {/* Plans using this metric - Future implementation */}
-        {/* <DetailSection title="Used in Plans">
-          <div className="text-xs text-muted-foreground">
-            Plans using this metric will be shown here
-          </div>
-        </DetailSection> */}
-      </div>
+          </SidebarSection>
+        </DetailSidebar>
+      </DetailColumns>
 
       {/* Segmentation Values Modal */}
       <Dialog open={showSegmentationModal} onOpenChange={setShowSegmentationModal}>
@@ -563,6 +551,6 @@ export const ProductMetricDetail = () => {
             )}
         </DialogContent>
       </Dialog>
-    </div>
+    </DetailPageFrame>
   )
 }

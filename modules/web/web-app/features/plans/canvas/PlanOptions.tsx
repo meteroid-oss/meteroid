@@ -217,7 +217,7 @@ export const OptionBar = ({
           return option.hidden ? (
             <Tooltip key={option.id}>
               <TooltipTrigger asChild>{tab}</TooltipTrigger>
-              <TooltipContent className="max-w-64">{HIDDEN_HINT}</TooltipContent>
+              <TooltipContent multiline className="max-w-64">{HIDDEN_HINT}</TooltipContent>
             </Tooltip>
           ) : (
             tab

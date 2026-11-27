@@ -26,7 +26,8 @@ import { PlanVersionRedirect } from 'router/tenant/planVersionRedirect'
 export const tenantRoutes: RouteObject = {
   path: ':tenantSlug',
   element: (
-    <SidebarProvider>
+    // `--env-banner-height`: room for the environment bar while it shows (EnvironmentBanner).
+    <SidebarProvider className="mt-canvas [--env-banner-height:0px] has-[[data-env-banner]]:[--env-banner-height:42px]">
       <TenantLayoutOutlet />
     </SidebarProvider>
   ),

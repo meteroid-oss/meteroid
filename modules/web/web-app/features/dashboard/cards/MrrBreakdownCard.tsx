@@ -1,5 +1,6 @@
 import { cn, Separator } from '@md/ui'
 
+import { DashboardCard, DashboardCardTitle } from '@/features/dashboard/cards/DashboardCard'
 import { useCurrency } from '@/hooks/useCurrency'
 import { useQuery } from '@/lib/connectrpc'
 import { mapDate } from '@/lib/mapping'
@@ -19,8 +20,8 @@ export const MrrBreakdownCard = ({ from, to }: MrrBreakdownCardProps) => {
   const { formatAmount } = useCurrency()
 
   return (
-    <div className="max-w-[50%] relative h-[180px] w-[50%] py-4 px-2 ">
-      <div className="text-sm font-semibold leading-none tracking-tight">MRR Breakdown</div>
+    <DashboardCard className="h-[290px]">
+      <DashboardCardTitle>MRR Breakdown</DashboardCardTitle>
       <div className="pt-5">
         <div className="h-[90px]">
           <MrrBreakdownItem
@@ -59,7 +60,7 @@ export const MrrBreakdownCard = ({ from, to }: MrrBreakdownCardProps) => {
           />
         </div>
       </div>
-    </div>
+    </DashboardCard>
   )
 }
 
@@ -82,19 +83,19 @@ const MrrBreakdownItem = ({ title, count, valueCents, type }: MrrBreakdownItemPr
   )
 }
 
+// MRR movements in the tag palette: new green, expansion teal, reactivation neutral,
+// contraction orange, churn red (also used by the MRR chart's tooltip).
 const colors = {
-  new: 'bg-green-700',
-  expansion: 'bg-blue-700',
-  reactivation: 'bg-yellow-700',
-  churn: 'bg-red-700',
-  contraction: 'bg-purple-700',
+  new: 'bg-tag-success',
+  expansion: 'bg-tag-info',
+  reactivation: 'bg-tag-neutral',
+  churn: 'bg-tag-destructive',
+  contraction: 'bg-tag-warning',
 }
 
 // same in tailwind :
 const Circle = ({ colorClassName }: { colorClassName: string }) => (
-  <div
-    className={cn('w-[12px] h-[12px] rounded-full shadow-circle mr-2 opacity-60', colorClassName)}
-  ></div>
+  <div className={cn('w-2 h-2 rounded-full mr-1', colorClassName)}></div>
 )
 
 export const MrrColorCircle = ({ type }: { type: keyof typeof colors }) => (

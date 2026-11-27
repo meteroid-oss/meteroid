@@ -2,12 +2,24 @@ import { createQuoteSchema } from '@/features/quotes/editor/quoteFormSchema'
 
 import type { QuoteFormValues } from '@/features/quotes/editor/quoteFormSchema'
 
+/** The editor's steps: what the quote is, what goes with it, and who signs it. */
+export const QUOTE_STEPS = [
+  { id: 1, label: 'Quote details' },
+  { id: 2, label: 'Document & payment' },
+  { id: 3, label: 'Review & send' },
+] as const
+
+export type QuoteStep = (typeof QUOTE_STEPS)[number]['id']
+
 export const QUOTE_SECTIONS = [
-  { id: 'quote-people', label: 'Customer & people' },
-  { id: 'quote-lines', label: 'Plan & lines' },
-  { id: 'quote-document', label: 'Document' },
-  { id: 'quote-terms', label: 'Subscription terms' },
-  { id: 'quote-internal', label: 'Internal' },
+  { id: 'quote-details', label: 'Quote details', step: 1 },
+  { id: 'quote-lines', label: 'Line items', step: 1 },
+  { id: 'quote-terms', label: 'Subscription terms', step: 1 },
+  { id: 'quote-document', label: 'Document', step: 2 },
+  { id: 'quote-payment', label: 'Payment & invoicing', step: 2 },
+  { id: 'quote-internal', label: 'Internal', step: 2 },
+  { id: 'quote-summary', label: 'Summary', step: 3 },
+  { id: 'quote-signers', label: 'Who signs', step: 3 },
 ] as const
 
 export type QuoteSectionId = (typeof QUOTE_SECTIONS)[number]['id']
@@ -15,7 +27,11 @@ export type QuoteSectionId = (typeof QUOTE_SECTIONS)[number]['id']
 export interface QuoteSectionLink {
   id: QuoteSectionId
   label: string
+  step: QuoteStep
 }
+
+export const stepOfSection = (id: QuoteSectionId): QuoteStep =>
+  QUOTE_SECTIONS.find(section => section.id === id)?.step ?? 1
 
 /** What a template leaves out: everything specific to one deal. */
 export const DEAL_FIELDS: (keyof QuoteFormValues)[] = [
@@ -32,10 +48,12 @@ export const DEAL_FIELDS: (keyof QuoteFormValues)[] = [
 ]
 
 export const TEMPLATE_SECTIONS: QuoteSectionLink[] = [
-  { id: 'quote-people', label: 'Signing' },
-  { id: 'quote-lines', label: 'Plan & lines' },
-  { id: 'quote-document', label: 'Document' },
-  { id: 'quote-terms', label: 'Subscription terms' },
+  { id: 'quote-details', label: 'Plan', step: 1 },
+  { id: 'quote-lines', label: 'Line items', step: 1 },
+  { id: 'quote-terms', label: 'Subscription terms', step: 1 },
+  { id: 'quote-document', label: 'Document', step: 2 },
+  { id: 'quote-payment', label: 'Payment & invoicing', step: 2 },
+  { id: 'quote-signers', label: 'Signing', step: 3 },
 ]
 
 export interface SectionIssue {
@@ -44,26 +62,26 @@ export interface SectionIssue {
 }
 
 const FIELDS: Record<keyof QuoteFormValues, { section: QuoteSectionId; label: string }> = {
-  customer_id: { section: 'quote-people', label: 'Customer' },
-  recipients: { section: 'quote-people', label: 'Recipients' },
-  expires_at: { section: 'quote-people', label: 'Expiry date' },
-  valid_until: { section: 'quote-people', label: 'Valid until' },
-  plan_version_id: { section: 'quote-lines', label: 'Plan' },
+  customer_id: { section: 'quote-details', label: 'Customer' },
+  quote_number: { section: 'quote-details', label: 'Quote number' },
+  expires_at: { section: 'quote-details', label: 'Expiry date' },
+  valid_until: { section: 'quote-details', label: 'Valid until' },
+  plan_version_id: { section: 'quote-details', label: 'Plan' },
   start_date: { section: 'quote-terms', label: 'Start date' },
   billing_start_date: { section: 'quote-terms', label: 'Billing start date' },
   end_date: { section: 'quote-terms', label: 'End date' },
   trial_duration: { section: 'quote-terms', label: 'Trial' },
   billing_day_anchor: { section: 'quote-terms', label: 'Billing day' },
-  net_terms: { section: 'quote-terms', label: 'Net terms' },
   activation_condition: { section: 'quote-terms', label: 'Activation' },
-  payment_methods_type: { section: 'quote-terms', label: 'Payment methods' },
-  auto_advance_invoices: { section: 'quote-terms', label: 'Auto-advance invoices' },
-  charge_automatically: { section: 'quote-terms', label: 'Charge automatically' },
-  invoice_memo: { section: 'quote-terms', label: 'Invoice memo' },
   create_subscription_on_acceptance: { section: 'quote-terms', label: 'Subscription creation' },
-  quote_number: { section: 'quote-people', label: 'Quote number' },
+  net_terms: { section: 'quote-payment', label: 'Net terms' },
+  payment_methods_type: { section: 'quote-payment', label: 'Payment methods' },
+  auto_advance_invoices: { section: 'quote-payment', label: 'Auto-advance invoices' },
+  charge_automatically: { section: 'quote-payment', label: 'Charge automatically' },
+  invoice_memo: { section: 'quote-payment', label: 'Invoice memo' },
   internal_notes: { section: 'quote-internal', label: 'Internal notes' },
   customProperties: { section: 'quote-internal', label: 'Custom properties' },
+  recipients: { section: 'quote-signers', label: 'Recipients' },
 }
 
 // Their schema rules carry messages written for people; the others get the field's name.

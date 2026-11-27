@@ -5,6 +5,8 @@ import { useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 
+import { raisedList } from '@/components/RaisedList'
+import { SectionEmptyState } from '@/components/empty-state/SectionEmptyState'
 import { AddRow } from '@/features/plans/MoreForPlan'
 import { AddOnPicker } from '@/features/plans/addons/AddOnPicker'
 import { AddOnRow } from '@/features/plans/addons/AddOnRow'
@@ -63,7 +65,10 @@ export const AddOnSection = () => {
           .mutateAsync({ planVersionId: version.id, addOnId: addOn.id })
           .then(() =>
             queryClient.invalidateQueries({
-              queryKey: createConnectQueryKey({ schema: listAddOns.parent, cardinality: undefined }),
+              queryKey: createConnectQueryKey({
+                schema: listAddOns.parent,
+                cardinality: undefined,
+              }),
             })
           )
           .catch(error =>
@@ -91,7 +96,7 @@ export const AddOnSection = () => {
   return (
     <div className="space-y-3">
       {addOns?.length ? (
-        <div className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
+        <div className={raisedList}>
           {addOns.map(addOn => (
             <AddOnRow
               key={addOn.id}
@@ -104,14 +109,16 @@ export const AddOnSection = () => {
           ))}
         </div>
       ) : (
-        addOns && !open && <p className="text-sm text-muted-foreground">No add-on is offered yet.</p>
+        addOns && !open && <SectionEmptyState>No add-on is offered yet.</SectionEmptyState>
       )}
       {open ? (
         <AddOnPicker
           offered={new Set(addOns?.map(a => a.id))}
           currency={currency}
           // A new add-on starts on the plan's billing period.
-          cadence={components.flatMap(c => c.prices).find(hasTerm)?.cadence ?? BillingPeriod.MONTHLY}
+          cadence={
+            components.flatMap(c => c.prices).find(hasTerm)?.cadence ?? BillingPeriod.MONTHLY
+          }
           familyLocalId={overview?.productFamilyLocalId}
           onClose={() => setAdding(false)}
         />

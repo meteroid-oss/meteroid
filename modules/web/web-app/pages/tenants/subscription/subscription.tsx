@@ -16,11 +16,11 @@ import { parseISO } from 'date-fns'
 import {
   ArrowLeftRight,
   ChevronDown,
-  ChevronLeftIcon,
   Clock,
   ExternalLink,
   Pencil,
   Plus,
+  Repeat,
   SlidersHorizontal,
   TriangleAlert,
 } from 'lucide-react'
@@ -29,6 +29,20 @@ import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
+import { Fact, FactStrip } from '@/components/FactStrip'
+import { LocalId } from '@/components/LocalId'
+import {
+  DetailColumns,
+  DetailIcon,
+  DetailMain,
+  DetailPageFrame,
+  DetailRow as SharedDetailRow,
+  DetailSections,
+  DetailSidebar,
+  DetailTitle,
+  SidebarSection,
+  SidebarSeparator,
+} from '@/components/layouts/DetailLayout'
 import { Slot, slotItems, useVisibleItems } from '@/edition'
 import { EntityActivityTimeline } from '@/features/activity/EntityActivityTimeline'
 import { AddCreditDialog } from '@/features/credit/AddCreditDialog'
@@ -55,6 +69,7 @@ import { SubscriptionMinimumProgress } from '@/features/subscriptions/Subscripti
 import { SubscriptionNextInvoice } from '@/features/subscriptions/SubscriptionNextInvoice'
 import { SubscriptionPricingTerms } from '@/features/subscriptions/SubscriptionPricingTerms'
 import { SubscriptionSectionCard } from '@/features/subscriptions/SubscriptionSectionCard'
+import { SubscriptionStatusBadge } from '@/features/subscriptions/SubscriptionStatusBadge'
 import { useSubscriptionUsage } from '@/features/subscriptions/SubscriptionUsageSection'
 import { UpdateSlotModal } from '@/features/subscriptions/UpdateSlotModal'
 import { invalidateSubscriptionBilling } from '@/features/subscriptions/invalidateSubscriptionBilling'
@@ -117,62 +132,6 @@ import type { Wallet } from '@/rpc/api/wallets/v1/models_pb'
 
 const OTHERS_SHOWN = 3
 
-// Status Badge Component
-const StatusBadge = ({ status }: { status: SubscriptionStatus }) => {
-  const statusConfig = {
-    [SubscriptionStatus.PENDING]: {
-      bg: 'bg-warning/20',
-      text: 'text-warning',
-      render: 'pending',
-    },
-    [SubscriptionStatus.TRIALING]: {
-      bg: 'bg-brand/20',
-      text: 'text-brand',
-      render: 'trialing',
-    },
-    [SubscriptionStatus.ACTIVE]: {
-      bg: 'bg-success/20',
-      text: 'text-success',
-      render: 'active',
-    },
-    [SubscriptionStatus.CANCELED]: {
-      bg: 'bg-destructive/20',
-      text: 'text-destructive',
-      render: 'cancelled',
-    },
-    [SubscriptionStatus.ENDED]: {
-      bg: 'bg-muted/20',
-      text: 'text-muted-foreground',
-      render: 'ended',
-    },
-    [SubscriptionStatus.ABORTED]: {
-      bg: 'bg-muted/20',
-      text: 'text-muted-foreground',
-      render: 'aborted',
-    },
-    [SubscriptionStatus.TRIAL_EXPIRED]: {
-      bg: 'bg-warning/30',
-      text: 'text-warning',
-      render: 'trial expired',
-    },
-    [SubscriptionStatus.ERRORED]: {
-      bg: 'bg-destructive/20',
-      text: 'text-destructive',
-      render: 'errored',
-    },
-  }
-
-  const config = statusConfig[status]
-
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${config.bg} ${config.text}`}
-    >
-      {config.render}
-    </span>
-  )
-}
-
 const paymentChannel = (config?: PaymentMethodsConfig): string => {
   switch (config?.config.case) {
     case 'bankTransfer':
@@ -184,10 +143,7 @@ const paymentChannel = (config?: PaymentMethodsConfig): string => {
   }
 }
 
-const SectionTitle = ({ children }: { children: ReactNode }) => (
-  <h3 className="text-lg font-medium text-foreground mb-3">{children}</h3>
-)
-
+// The sidebar's rows and groups, shared with the other detail pages (`label` as before).
 const DetailRow = ({
   label,
   value,
@@ -198,30 +154,10 @@ const DetailRow = ({
   value: ReactNode
   link?: string
   externalLink?: string
-}) => (
-  <div className="text-[13px] flex justify-between gap-3 py-2 border-b border-border last:border-0">
-    <div className="text-muted-foreground">{label}</div>
-    {externalLink && (
-      <a href={externalLink} target="_blank" rel="noopener noreferrer">
-        <div className="font-medium text-brand hover:underline">{value ?? 'N/A'}</div>
-      </a>
-    )}
-    {link && (
-      <Link to={link}>
-        <div className="font-medium text-brand hover:underline">{value}</div>
-      </Link>
-    )}
-    {!link && !externalLink && (
-      <div className="text-right font-medium text-foreground">{value}</div>
-    )}
-  </div>
-)
+}) => <SharedDetailRow title={label} value={value} link={link} externalLink={externalLink} />
 
 const DetailSection = ({ title, children }: { title: string; children: ReactNode }) => (
-  <div className="mb-6">
-    <SectionTitle>{title}</SectionTitle>
-    <div className="space-y-1">{children}</div>
-  </div>
+  <SidebarSection title={title}>{children}</SidebarSection>
 )
 
 /** When the subscription started, changes, renews or ends, with the undo of a cancellation. */
@@ -304,13 +240,7 @@ const slotUnitsOf = (fee?: SubscriptionFee): { unit: string; quantityId?: string
 
 const LIVE_STATUSES = [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING]
 
-const Fact = ({ label, children }: { label: string; children: ReactNode }) => (
-  <div className="flex min-w-0 flex-col gap-1">
-    <dt className="text-xs text-muted-foreground">{label}</dt>
-    <dd className="text-sm font-medium text-foreground">{children}</dd>
-  </div>
-)
-
+/** One of the summary's facts: a compact tile, raised as the customer page's cards. */
 const OutstandingValue = ({
   fact,
   details,
@@ -337,7 +267,7 @@ const OutstandingValue = ({
   return (
     <Tooltip>
       <TooltipTrigger asChild>{value}</TooltipTrigger>
-      <TooltipContent className="flex max-w-xs flex-col gap-1">
+      <TooltipContent multiline className="flex max-w-xs flex-col gap-1">
         {details.map(line => (
           <span key={line}>{line}</span>
         ))}
@@ -481,18 +411,15 @@ export const Subscription = () => {
 
   if (isLoading || !data || !details) {
     return (
-      <div className="p-6">
-        <Skeleton height={16} width={50} className="mb-4" />
-        <div className="flex gap-6">
-          <div className="flex-1">
-            <Skeleton height={100} className="mb-4" />
-            <Skeleton height={200} className="mb-4" />
-          </div>
-          <div className="w-80">
-            <Skeleton height={300} className="mb-4" />
-          </div>
+      <DetailPageFrame
+        section={{ label: 'Subscriptions', to: `${basePath}/subscriptions` }}
+        title="…"
+      >
+        <div className="flex flex-col gap-2 p-6">
+          <Skeleton height={16} width={50} />
+          <Skeleton height={44} />
         </div>
-      </div>
+      </DetailPageFrame>
     )
   }
 
@@ -571,7 +498,7 @@ export const Subscription = () => {
             Automatic · no payment method
           </span>
         </TooltipTrigger>
-        <TooltipContent className="max-w-xs">
+        <TooltipContent multiline className="max-w-xs">
           Invoices are charged automatically, but this customer has no payment method on file, so
           they stay unpaid until one is added.
         </TooltipContent>
@@ -666,7 +593,114 @@ export const Subscription = () => {
   })()
 
   return (
-    <div className="flex min-h-screen bg-background gap-2">
+    <DetailPageFrame
+      section={{ label: 'Subscriptions', to: `${basePath}/subscriptions` }}
+      title={
+        <span className="flex items-center gap-2">
+          <span className="truncate">
+            {data.customerName} · {data.planName}
+          </span>
+          <SubscriptionStatusBadge status={data.status} />
+        </span>
+      }
+      actions={
+        // The primary action and the Actions menu, in the top bar as on the other detail pages.
+        canAct && (
+          <div className="flex items-center gap-2">
+            {primaryButton}
+            {canManageSubscriptions && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="secondary" className="gap-1.5 pr-2" size="sm">
+                    Actions <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {!data.activatedAt && (
+                    <DropdownMenuItem
+                      onClick={() =>
+                        activateSubscriptionMutation.mutate({ subscriptionId: data.id })
+                      }
+                      disabled={activateSubscriptionMutation.isPending}
+                    >
+                      <Clock size="16" className="mr-2" />
+                      {activateSubscriptionMutation.isPending
+                        ? 'Activating...'
+                        : 'Activate Subscription'}
+                    </DropdownMenuItem>
+                  )}
+                  {data.pendingCheckout && (
+                    <DropdownMenuItem
+                      onClick={() => checkoutTokenMutation.mutate({ subscriptionId: data.id })}
+                      disabled={checkoutTokenMutation.isPending}
+                    >
+                      <ExternalLink size="16" className="mr-2" />
+                      Open Checkout
+                    </DropdownMenuItem>
+                  )}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <DropdownMenuItem
+                          disabled={!isHubspotConnected}
+                          onClick={() => setShowSyncHubspotModal(true)}
+                        >
+                          Sync To Hubspot
+                        </DropdownMenuItem>
+                      </span>
+                    </TooltipTrigger>
+                    {!isHubspotConnected && (
+                      <TooltipContent>Hubspot integration not connected</TooltipContent>
+                    )}
+                  </Tooltip>
+                  <DropdownMenuItem onClick={() => setShowEditModal(true)}>
+                    <Pencil size="16" className="mr-2" />
+                    Edit Billing Settings
+                  </DropdownMenuItem>
+                  {moduleActions.map(action => (
+                    <DropdownMenuItem
+                      key={action.id}
+                      onClick={() => setOpenModuleAction(action.id)}
+                    >
+                      <action.icon size="16" className="mr-2" />
+                      {action.label}
+                    </DropdownMenuItem>
+                  ))}
+                  {live && (
+                    <DropdownMenuItem onClick={() => navigate('change-plan')}>
+                      <ArrowLeftRight size="16" className="mr-2" />
+                      Change Plan
+                    </DropdownMenuItem>
+                  )}
+                  {live && (
+                    <DropdownMenuItem onClick={() => navigate('amend')}>
+                      <SlidersHorizontal size="16" className="mr-2" />
+                      Amend subscription
+                    </DropdownMenuItem>
+                  )}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <DropdownMenuItem
+                          disabled={!canCancelSubscription}
+                          onClick={() => setShowCancelModal(true)}
+                          className="text-destructive focus:text-destructive"
+                        >
+                          Cancel Subscription
+                        </DropdownMenuItem>
+                      </span>
+                    </TooltipTrigger>
+                    {!canCancelSubscription && (
+                      <TooltipContent>Subscription is already cancelled or ended</TooltipContent>
+                    )}
+                  </Tooltip>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
+        )
+      }
+    >
       {showSyncHubspotModal && (
         <SyncSubscriptionModal
           customerName={data.customerName}
@@ -710,132 +744,52 @@ export const Subscription = () => {
           onClose={() => setWalletAction(null)}
         />
       )}
-      <div className="flex-1 min-w-0 p-6 pr-0">
-        <section
-          aria-label="Subscription summary"
-          className="mb-6 rounded-lg border border-border bg-card p-5 shadow-sm"
-        >
-          <div className="flex w-full flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0">
-              <div className="flex items-center">
-                <ChevronLeftIcon
-                  className="cursor-pointer text-muted-foreground hover:text-foreground mr-2"
-                  onClick={() => navigate('..')}
-                  size={20}
-                />
-                <Link
-                  to={`${basePath}/plans/${data.planId}/${data.version}`}
-                  className="text-xl font-semibold text-foreground hover:text-brand"
-                >
-                  {data.planName}
-                </Link>
-                <div className="ml-2">
-                  <StatusBadge status={data.status} />
-                </div>
-              </div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                <span className="font-semibold text-foreground">{priceSummary.headline}</span>
+      {slotUpdateData && (
+        <UpdateSlotModal
+          subscriptionId={data.id}
+          priceComponentId={slotUpdateData.priceComponentId}
+          addOnId={slotUpdateData.addOnId}
+          unit={slotUpdateData.unit}
+          currentSlots={slotUpdateData.currentSlots}
+          unitRate={slotUpdateData.unitRate}
+          currency={data.currency}
+          minSlots={slotUpdateData.minSlots}
+          maxSlots={slotUpdateData.maxSlots}
+          onClose={() => setSlotUpdateData(null)}
+          onSuccess={() => {
+            setSlotUpdateData(null)
+            refetchAll()
+          }}
+        />
+      )}
+      {slotTransactionsUnit && (
+        <SlotTransactionsModal
+          subscriptionId={data.id}
+          unit={slotTransactionsUnit.unit}
+          quantityId={slotTransactionsUnit.quantityId}
+          open={true}
+          onClose={() => setSlotTransactionsUnit(null)}
+        />
+      )}
+
+      <DetailColumns>
+        <DetailMain>
+          <DetailTitle
+            media={
+              <DetailIcon>
+                <Repeat />
+              </DetailIcon>
+            }
+            title={data.planName}
+            badge={<SubscriptionStatusBadge status={data.status} />}
+            subtitle={
+              <>
+                <span className="text-foreground">{priceSummary.headline}</span>
                 {priceSummary.details.map(detail => ` · ${detail}`).join('')}
-              </p>
-            </div>
-            {canAct && (
-              <div className="flex items-center gap-2">
-                {primaryButton}
-                {canManageSubscriptions && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" className="gap-2" size="sm" hasIcon>
-                        Actions <ChevronDown className="w-4 h-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      {!data.activatedAt && (
-                        <DropdownMenuItem
-                          onClick={() =>
-                            activateSubscriptionMutation.mutate({ subscriptionId: data.id })
-                          }
-                          disabled={activateSubscriptionMutation.isPending}
-                        >
-                          <Clock size="16" className="mr-2" />
-                          {activateSubscriptionMutation.isPending
-                            ? 'Activating...'
-                            : 'Activate Subscription'}
-                        </DropdownMenuItem>
-                      )}
-                      {data.pendingCheckout && (
-                        <DropdownMenuItem
-                          onClick={() => checkoutTokenMutation.mutate({ subscriptionId: data.id })}
-                          disabled={checkoutTokenMutation.isPending}
-                        >
-                          <ExternalLink size="16" className="mr-2" />
-                          Open Checkout
-                        </DropdownMenuItem>
-                      )}
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span>
-                            <DropdownMenuItem
-                              disabled={!isHubspotConnected}
-                              onClick={() => setShowSyncHubspotModal(true)}
-                            >
-                              Sync To Hubspot
-                            </DropdownMenuItem>
-                          </span>
-                        </TooltipTrigger>
-                        {!isHubspotConnected && (
-                          <TooltipContent>Hubspot integration not connected</TooltipContent>
-                        )}
-                      </Tooltip>
-                      <DropdownMenuItem onClick={() => setShowEditModal(true)}>
-                        <Pencil size="16" className="mr-2" />
-                        Edit Billing Settings
-                      </DropdownMenuItem>
-                      {moduleActions.map(action => (
-                        <DropdownMenuItem
-                          key={action.id}
-                          onClick={() => setOpenModuleAction(action.id)}
-                        >
-                          <action.icon size="16" className="mr-2" />
-                          {action.label}
-                        </DropdownMenuItem>
-                      ))}
-                      {live && (
-                        <DropdownMenuItem onClick={() => navigate('change-plan')}>
-                          <ArrowLeftRight size="16" className="mr-2" />
-                          Change Plan
-                        </DropdownMenuItem>
-                      )}
-                      {live && (
-                        <DropdownMenuItem onClick={() => navigate('amend')}>
-                          <SlidersHorizontal size="16" className="mr-2" />
-                          Amend subscription
-                        </DropdownMenuItem>
-                      )}
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span>
-                            <DropdownMenuItem
-                              disabled={!canCancelSubscription}
-                              onClick={() => setShowCancelModal(true)}
-                              className="text-destructive focus:text-destructive"
-                            >
-                              Cancel Subscription
-                            </DropdownMenuItem>
-                          </span>
-                        </TooltipTrigger>
-                        {!canCancelSubscription && (
-                          <TooltipContent>
-                            Subscription is already cancelled or ended
-                          </TooltipContent>
-                        )}
-                      </Tooltip>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-              </div>
-            )}
-          </div>
-          <dl className="mt-4 grid grid-cols-2 gap-4 border-t border-border pt-4 md:grid-cols-3 xl:grid-cols-5">
+              </>
+            }
+          />
+          <FactStrip label="Subscription summary">
             {currentPeriod && <Fact label="Current period">{currentPeriod}</Fact>}
             {nextInvoice !== undefined && <Fact label={nextInvoiceLabel}>{nextInvoice}</Fact>}
             <Fact label="Payment">{paymentTerms}</Fact>
@@ -853,265 +807,269 @@ export const Subscription = () => {
               </Fact>
             )}
             {pricing && <Fact label="Pricing">{pricing}</Fact>}
-          </dl>
-        </section>
+          </FactStrip>
 
-        <SubscriptionAttention
-          subscription={data}
-          pendingEvents={details.pendingEvents}
-          wallets={wallets}
-          firstInvoiceAmount={trialing ? upcoming?.amountDue : undefined}
-          hasPaymentMethod={Boolean(currentPaymentMethod)}
-          canManageSubscription={canManageSubscriptions && canAct}
-          canManageWallets={canManageWallets}
-          onAddCredit={wallet => setWalletAction({ action: 'add', wallet })}
-          onConfigureWallet={wallet => setWalletAction({ action: 'configure', wallet })}
-          onEditBilling={() => setShowEditModal(true)}
-          onRefetch={refetchAll}
-        />
-
-        <SubscriptionCreditSummary
-          subscription={data}
-          wallets={wallets}
-          fees={fees}
-          creditUnits={creditUnits}
-          pendingCredit={receivables?.pendingCredit ?? []}
-          others={others}
-          canAddCredit={canManageWallets}
-          onAddCredit={wallet => setWalletAction({ action: 'add', wallet })}
-        />
-
-        <SubscriptionPricingTerms
-          details={details}
-          isFreePlan={isFreePlan}
-          canManage={canManageSubscriptions && canAct}
-          contractTerm={data.endDate ? formatDateRange(data.startDate, data.endDate) : undefined}
-          paymentTerms={paymentTerms}
-          onAmend={canManageSubscriptions && canAct && live ? () => navigate('amend') : undefined}
-          onUpdateSlot={setSlotUpdateData}
-          onViewTransactions={setSlotTransactionsUnit}
-        />
-
-        {details.minimumCommitment && live && (
-          <SubscriptionMinimumProgress subscriptionId={data.id} />
-        )}
-
-        {live && data.currentPeriodStart && (
-          <SubscriptionNextInvoice
+          <SubscriptionAttention
             subscription={data}
-            components={details.priceComponents}
-            addOns={details.addOns}
-            paymentMethod={paymentMethod}
+            pendingEvents={details.pendingEvents}
             wallets={wallets}
-            hasMinimum={Boolean(details.minimumCommitment)}
-            hasMeteredFees={metricIds.length > 0}
-            hideWhenFree={isFreePlan}
-            units={usageUnits}
-            creditUnits={creditUnits}
+            firstInvoiceAmount={trialing ? upcoming?.amountDue : undefined}
+            hasPaymentMethod={Boolean(currentPaymentMethod)}
+            canManageSubscription={canManageSubscriptions && canAct}
+            canManageWallets={canManageWallets}
+            onAddCredit={wallet => setWalletAction({ action: 'add', wallet })}
+            onConfigureWallet={wallet => setWalletAction({ action: 'configure', wallet })}
+            onEditBilling={() => setShowEditModal(true)}
+            onRefetch={refetchAll}
           />
-        )}
 
-        {showUsageLimits && (
-          <SubscriptionSectionCard
-            title="Usage limits"
-            aside={<Slot name="subscriptionDetail.usageLimitsAside" {...moduleContext} />}
-          >
-            <div className="flex flex-col gap-4 p-4">
-              <FeatureUsageList
-                usage={planFeatures}
-                customerId={data.customerId}
-                elapsedPct={usageQuery.data?.cycle?.elapsedPct}
-                freeTrialEnd={freeTrialEnd}
-              />
-            </div>
-          </SubscriptionSectionCard>
-        )}
-
-        <SubscriptionInvoicesTable
-          subscriptionLocalId={data.localId}
-          chargeAutomatically={data.chargeAutomatically}
-          hasMinimum={Boolean(details.minimumCommitment)}
-          firstInvoiceDate={live ? (upcoming?.invoiceDate ?? data.currentPeriodEnd) : undefined}
-        />
-
-        {slotUpdateData && (
-          <UpdateSlotModal
-            subscriptionId={data.id}
-            priceComponentId={slotUpdateData.priceComponentId}
-            addOnId={slotUpdateData.addOnId}
-            unit={slotUpdateData.unit}
-            currentSlots={slotUpdateData.currentSlots}
-            unitRate={slotUpdateData.unitRate}
-            currency={data.currency}
-            minSlots={slotUpdateData.minSlots}
-            maxSlots={slotUpdateData.maxSlots}
-            onClose={() => setSlotUpdateData(null)}
-            onSuccess={() => {
-              setSlotUpdateData(null)
-              refetchAll()
-            }}
-          />
-        )}
-        {slotTransactionsUnit && (
-          <SlotTransactionsModal
-            subscriptionId={data.id}
-            unit={slotTransactionsUnit.unit}
-            quantityId={slotTransactionsUnit.quantityId}
-            open={true}
-            onClose={() => setSlotTransactionsUnit(null)}
-          />
-        )}
-
-        {env.entitlementsEnabled && (
-          <SubscriptionEntitlementsCard subscriptionId={data.id} canEdit={has('catalog:manage') && !ended} />
-        )}
-
-        {OpenModuleDialog && (
-          <OpenModuleDialog {...moduleContext} onClose={() => setOpenModuleAction(undefined)} />
-        )}
-        <Slot name="subscriptionDetail.sections" {...moduleContext} />
-      </div>
-
-      <div className="w-80 shrink-0 p-6 border-l border-border">
-        <DetailSection title="Customer">
-          <DetailRow
-            label="Customer"
-            value={data.customerName}
-            link={`${basePath}/customers/${data.customerId}`}
-          />
-          {data.customerAlias && <DetailRow label="Alias" value={data.customerAlias} />}
-          {others.length === 0 ? (
-            <DetailRow
-              label="Other subscriptions"
-              value={
-                <span className="text-muted-foreground">
-                  {othersQuery.isLoading ? '…' : 'None'}
-                </span>
-              }
+          <DetailSections className="mt-4">
+            <SubscriptionCreditSummary
+              subscription={data}
+              wallets={wallets}
+              fees={fees}
+              creditUnits={creditUnits}
+              pendingCredit={receivables?.pendingCredit ?? []}
+              others={others}
+              canAddCredit={canManageWallets}
+              onAddCredit={wallet => setWalletAction({ action: 'add', wallet })}
             />
-          ) : (
-            <>
-              {others.slice(0, OTHERS_SHOWN).map((other, i) => (
-                <DetailRow
-                  key={other.id}
-                  label={i === 0 ? 'Other subscriptions' : ''}
-                  value={
-                    <span className="inline-flex items-center gap-2">
-                      {other.planName}
-                      <StatusBadge status={other.status} />
-                    </span>
-                  }
-                  link={`${basePath}/subscriptions/${other.id}`}
-                />
-              ))}
-              {others.length > OTHERS_SHOWN && (
-                <DetailRow
-                  label=""
-                  value={`+${others.length - OTHERS_SHOWN} more`}
-                  link={`${basePath}/customers/${data.customerId}`}
-                />
-              )}
-            </>
-          )}
-        </DetailSection>
 
-        <TermSection
-          subscription={data}
-          pendingEvents={details.pendingEvents}
-          canManage={canManageSubscriptions && canAct}
-          onUndone={refetchAll}
-        />
+            <SubscriptionPricingTerms
+              details={details}
+              isFreePlan={isFreePlan}
+              canManage={canManageSubscriptions && canAct}
+              contractTerm={
+                data.endDate ? formatDateRange(data.startDate, data.endDate) : undefined
+              }
+              paymentTerms={paymentTerms}
+              onAmend={
+                canManageSubscriptions && canAct && live ? () => navigate('amend') : undefined
+              }
+              onUpdateSlot={setSlotUpdateData}
+              onViewTransactions={setSlotTransactionsUnit}
+            />
 
-        {data.trialDuration && (
-          <DetailSection title="Trial Information">
-            <DetailRow label="Trial Duration" value={`${data.trialDuration} days`} />
-            {(data.status === SubscriptionStatus.TRIALING ||
-              data.status === SubscriptionStatus.TRIAL_EXPIRED) && (
-              <DetailRow label="Trial Status" value={<StatusBadge status={data.status} />} />
+            {details.minimumCommitment && live && (
+              <SubscriptionMinimumProgress subscriptionId={data.id} />
             )}
-            {planTrialConfig && (
+
+            {live && data.currentPeriodStart && (
+              <SubscriptionNextInvoice
+                subscription={data}
+                components={details.priceComponents}
+                addOns={details.addOns}
+                paymentMethod={paymentMethod}
+                wallets={wallets}
+                hasMinimum={Boolean(details.minimumCommitment)}
+                hasMeteredFees={metricIds.length > 0}
+                hideWhenFree={isFreePlan}
+                units={usageUnits}
+                creditUnits={creditUnits}
+              />
+            )}
+
+            {showUsageLimits && (
+              <SubscriptionSectionCard
+                title="Usage limits"
+                aside={<Slot name="subscriptionDetail.usageLimitsAside" {...moduleContext} />}
+              >
+                <div className="flex flex-col gap-4 p-4">
+                  <FeatureUsageList
+                    usage={planFeatures}
+                    customerId={data.customerId}
+                    elapsedPct={usageQuery.data?.cycle?.elapsedPct}
+                    freeTrialEnd={freeTrialEnd}
+                  />
+                </div>
+              </SubscriptionSectionCard>
+            )}
+
+            <SubscriptionInvoicesTable
+              subscriptionLocalId={data.localId}
+              chargeAutomatically={data.chargeAutomatically}
+              hasMinimum={Boolean(details.minimumCommitment)}
+              firstInvoiceDate={live ? (upcoming?.invoiceDate ?? data.currentPeriodEnd) : undefined}
+            />
+
+            {env.entitlementsEnabled && (
+              <SubscriptionEntitlementsCard
+                subscriptionId={data.id}
+                canEdit={has('catalog:manage') && !ended}
+              />
+            )}
+          </DetailSections>
+
+          {OpenModuleDialog && (
+            <OpenModuleDialog {...moduleContext} onClose={() => setOpenModuleAction(undefined)} />
+          )}
+          <Slot name="subscriptionDetail.sections" {...moduleContext} />
+        </DetailMain>
+
+        <DetailSidebar>
+          <DetailSection title="Customer">
+            <DetailRow
+              label="Customer"
+              value={data.customerName}
+              link={`${basePath}/customers/${data.customerId}`}
+            />
+            {data.customerAlias && <DetailRow label="Alias" value={data.customerAlias} />}
+            {others.length === 0 ? (
+              <DetailRow
+                label="Other subscriptions"
+                value={
+                  <span className="text-muted-foreground">
+                    {othersQuery.isLoading ? '…' : 'None'}
+                  </span>
+                }
+              />
+            ) : (
               <>
-                <DetailRow
-                  label="Trial Type"
-                  value={
-                    isFreePlan
-                      ? 'Free plan'
-                      : planTrialConfig.trialIsFree
-                        ? 'Free trial'
-                        : 'Paid trial'
-                  }
-                />
-                {trialingPlanName && (
-                  <DetailRow label="Trial Features" value={`"${trialingPlanName}" features`} />
+                {others.slice(0, OTHERS_SHOWN).map((other, i) => (
+                  <DetailRow
+                    key={other.id}
+                    label={i === 0 ? 'Other subscriptions' : ''}
+                    value={
+                      <span className="inline-flex items-center gap-2">
+                        {other.planName}
+                        <SubscriptionStatusBadge status={other.status} />
+                      </span>
+                    }
+                    link={`${basePath}/subscriptions/${other.id}`}
+                  />
+                ))}
+                {others.length > OTHERS_SHOWN && (
+                  <DetailRow
+                    label=""
+                    value={`+${others.length - OTHERS_SHOWN} more`}
+                    link={`${basePath}/customers/${data.customerId}`}
+                  />
                 )}
               </>
             )}
           </DetailSection>
-        )}
 
-        <DetailSection title="Subscription Details">
-          <DetailRow label="ID" value={data.localId} />
-          <DetailRow label="Version" value={data.version} />
-          <DetailRow label="Currency" value={data.currency} />
-        </DetailSection>
-
-        <DetailSection title="Billing Information">
-          <DetailRow label="Billing Day" value={data.billingDayAnchor} />
-          <DetailRow
-            label="Auto-advance invoices"
-            value={data.autoAdvanceInvoices ? 'Yes' : 'No'}
+          <SidebarSeparator />
+          <TermSection
+            subscription={data}
+            pendingEvents={details.pendingEvents}
+            canManage={canManageSubscriptions && canAct}
+            onUndone={refetchAll}
           />
-          {data.invoiceMemo && <DetailRow label="Invoice Memo" value={data.invoiceMemo} />}
-          {data.invoiceThreshold && (
-            <DetailRow label="Invoice Threshold" value={data.invoiceThreshold} />
-          )}
-          {data.purchaseOrder && <DetailRow label="Purchase Order" value={data.purchaseOrder} />}
-          {(hasResourceTypes || data.resourceId) && (
-            <DetailRow label="Subscribed for" value={<SubscribedForDetail subscription={data} />} />
-          )}
-          {details && (
-            <SubscribedForWarnings
-              subscription={data}
-              warnings={details.warnings}
-              metricsNotAttributed={details.metricsNotAttributed}
-              plan={planVersionQuery.data?.plan?.plan}
-            />
-          )}
-        </DetailSection>
 
-        <DetailSection title="Integrations">
-          {hubspotConnMeta?.externalId ? (
+          {data.trialDuration && (
+            <>
+              <SidebarSeparator />
+              <DetailSection title="Trial">
+                <DetailRow label="Trial duration" value={`${data.trialDuration} days`} />
+                {(data.status === SubscriptionStatus.TRIALING ||
+                  data.status === SubscriptionStatus.TRIAL_EXPIRED) && (
+                  <DetailRow
+                    label="Trial status"
+                    value={<SubscriptionStatusBadge status={data.status} />}
+                  />
+                )}
+                {planTrialConfig && (
+                  <>
+                    <DetailRow
+                      label="Trial type"
+                      value={
+                        isFreePlan
+                          ? 'Free plan'
+                          : planTrialConfig.trialIsFree
+                            ? 'Free trial'
+                            : 'Paid trial'
+                      }
+                    />
+                    {trialingPlanName && (
+                      <DetailRow label="Trial features" value={`"${trialingPlanName}" features`} />
+                    )}
+                  </>
+                )}
+              </DetailSection>
+            </>
+          )}
+
+          <SidebarSeparator />
+          <DetailSection title="Details">
+            <DetailRow label="ID" value={<LocalId localId={data.localId} />} />
             <DetailRow
-              label="Hubspot ID"
-              value={hubspotConnMeta?.externalId}
-              externalLink={`https://app.hubspot.com/contacts/${hubspotConnMeta?.externalCompanyId}/deal/${hubspotConnMeta?.externalId}`}
+              label="Plan"
+              value={data.planName}
+              link={`${basePath}/plans/${data.planId}/${data.version}`}
             />
-          ) : (
-            <span className="text-xs font-medium text-muted-foreground">-</span>
-          )}
-        </DetailSection>
-
-        {customPropertyRows.length > 0 && (
-          <DetailSection title="Custom properties">
-            {customPropertyRows.map(row => (
-              <DetailRow
-                key={row.key}
-                label={row.label}
-                value={<CustomPropertyValue def={row.def} value={row.raw} />}
-              />
-            ))}
+            <DetailRow label="Version" value={data.version} />
+            <DetailRow label="Currency" value={data.currency} />
           </DetailSection>
-        )}
 
-        <DetailSection title="Activity">
-          <EntityActivityTimeline
-            entityType="subscription"
-            entityId={data.id}
-            emptyLabel="No activity yet for this subscription"
-          />
-        </DetailSection>
-      </div>
-    </div>
+          <SidebarSeparator />
+          <DetailSection title="Billing">
+            <DetailRow label="Billing day" value={data.billingDayAnchor} />
+            <DetailRow
+              label="Auto-advance invoices"
+              value={data.autoAdvanceInvoices ? 'Yes' : 'No'}
+            />
+            {data.invoiceMemo && <DetailRow label="Invoice memo" value={data.invoiceMemo} />}
+            {data.invoiceThreshold && (
+              <DetailRow label="Invoice threshold" value={data.invoiceThreshold} />
+            )}
+            {data.purchaseOrder && <DetailRow label="Purchase order" value={data.purchaseOrder} />}
+            {(hasResourceTypes || data.resourceId) && (
+              <DetailRow
+                label="Subscribed for"
+                value={<SubscribedForDetail subscription={data} />}
+              />
+            )}
+            {details && (
+              <SubscribedForWarnings
+                subscription={data}
+                warnings={details.warnings}
+                metricsNotAttributed={details.metricsNotAttributed}
+                plan={planVersionQuery.data?.plan?.plan}
+              />
+            )}
+          </DetailSection>
+
+          <SidebarSeparator />
+          <DetailSection title="Integrations">
+            {hubspotConnMeta?.externalId ? (
+              <DetailRow
+                label="Hubspot ID"
+                value={hubspotConnMeta?.externalId}
+                externalLink={`https://app.hubspot.com/contacts/${hubspotConnMeta?.externalCompanyId}/deal/${hubspotConnMeta?.externalId}`}
+              />
+            ) : (
+              <span className="text-[13px] text-muted-foreground">None</span>
+            )}
+          </DetailSection>
+
+          {customPropertyRows.length > 0 && (
+            <>
+              <SidebarSeparator />
+              <DetailSection title="Custom properties">
+                {customPropertyRows.map(row => (
+                  <DetailRow
+                    key={row.key}
+                    label={row.label}
+                    value={<CustomPropertyValue def={row.def} value={row.raw} />}
+                  />
+                ))}
+              </DetailSection>
+            </>
+          )}
+
+          <SidebarSeparator />
+          <DetailSection title="Activity">
+            <EntityActivityTimeline
+              entityType="subscription"
+              entityId={data.id}
+              emptyLabel="No activity yet for this subscription"
+              timeline
+            />
+          </DetailSection>
+        </DetailSidebar>
+      </DetailColumns>
+    </DetailPageFrame>
   )
 }
 

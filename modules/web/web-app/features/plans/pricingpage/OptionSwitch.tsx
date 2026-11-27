@@ -77,6 +77,6 @@ const SavingHelp = () => (
         <HelpCircleIcon size={11} aria-label={SAVING_HELP} />
       </span>
     </TooltipTrigger>
-    <TooltipContent className="max-w-56">{SAVING_HELP}</TooltipContent>
+    <TooltipContent multiline className="max-w-56">{SAVING_HELP}</TooltipContent>
   </Tooltip>
 )

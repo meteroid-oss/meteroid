@@ -50,7 +50,7 @@ const DirectionBadge = ({ direction }: { direction: string }) => {
   switch (direction) {
     case 'upgrade':
       return (
-        <Badge variant="default" size="sm" className="bg-brand text-brand-foreground">
+        <Badge variant="default" size="sm">
           Upgrade
         </Badge>
       )

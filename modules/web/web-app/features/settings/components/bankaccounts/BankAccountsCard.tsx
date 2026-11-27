@@ -1,12 +1,20 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
-import { Badge, Button, Card, Spinner } from '@md/ui'
+import { Badge, Button } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2 } from 'lucide-react'
+import { Landmark, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
 import ConfirmationModal from '@/components/ConfirmationModal'
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
+import { ListSkeleton } from '@/components/Loading'
+import {
+  SettingsEmptyState,
+  SettingsRow,
+  SettingsRowGroup,
+  SettingsRowIcon,
+  SettingsSection,
+} from '@/features/settings/components/SettingsSection'
 import { useQuery } from '@/lib/connectrpc'
 import {
   deleteBankAccount,
@@ -59,72 +67,63 @@ export const BankAccountsCard = () => {
 
   return (
     <>
-      <Card className="px-8 py-6 max-w-[950px]">
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="font-medium text-lg">Bank Accounts</h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                Manage bank accounts for receiving payments via bank transfer
-              </p>
-            </div>
-            <Button size="sm" onClick={() => setShowAddModal(true)} className="gap-2">
-              <Plus className="h-4 w-4"/>
-              Add Bank Account
-            </Button>
-          </div>
-
-          <div className="border rounded-lg">
-            {bankAccountsQuery.isLoading ? (
-              <div className="p-8 text-center">
-                <Spinner/>
-              </div>
-            ) : bankAccountsQuery.data?.accounts.length === 0 ? (
-              <div className="p-8 text-center text-muted-foreground text-xs">
-                No bank accounts configured. Add one to enable bank transfer payments.
-              </div>
-            ) : (
-              <div className="divide-y">
-                {bankAccountsQuery.data?.accounts.map(account => (
-                  <div key={account.id} className="p-4 flex items-center justify-between">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">
-                          {account.data?.bankName || 'Unknown Bank'}
-                        </span>
-                        <Badge variant="outline" size="sm">
-                          {account.data?.currency}
-                        </Badge>
-                        <span className="text-sm text-muted-foreground">
-                          {account.data?.country}
-                        </span>
-                      </div>
-                      <p className="text-sm text-muted-foreground font-mono">
-                        {formatBankAccount(account)}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span className="text-sm text-muted-foreground font-mono">ID:</span>
-                      <CopyToClipboardButton
-                        text={account.id}
-                        buttonClassName="h-5 text-sm text-muted-foreground font-mono"
-                      />
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setAccountToDelete(account)}
-                      className="text-destructive hover:text-destructive"
-                    >
-                      <Trash2 className="h-4 w-4"/>
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </Card>
+      {/* A section like the routing above it: its title, and one row per account. */}
+      <SettingsSection
+        title="Bank accounts"
+        description="Manage bank accounts for receiving payments via bank transfer."
+        action={
+          <Button size="sm" variant="secondary" hasIcon onClick={() => setShowAddModal(true)}>
+            <Plus size={14} />
+            Add bank account
+          </Button>
+        }
+      >
+        <SettingsRowGroup>
+          {bankAccountsQuery.isLoading ? (
+            <ListSkeleton className="p-4" />
+          ) : bankAccountsQuery.data?.accounts.length === 0 ? (
+            <SettingsEmptyState framed={false}>
+              No bank accounts configured. Add one to enable bank transfer payments.
+            </SettingsEmptyState>
+          ) : (
+            bankAccountsQuery.data?.accounts.map(account => (
+              <SettingsRow
+                key={account.id}
+                title={
+                  <>
+                    <SettingsRowIcon>
+                      <Landmark />
+                    </SettingsRowIcon>
+                    {account.data?.bankName || 'Unknown Bank'}
+                    <Badge variant="outline" size="sm">
+                      {account.data?.currency}
+                    </Badge>
+                    <span className="font-normal text-muted-foreground">
+                      {account.data?.country}
+                    </span>
+                  </>
+                }
+                description={<span className="font-mono">{formatBankAccount(account)}</span>}
+              >
+                <span className="text-xs text-muted-foreground font-mono">ID:</span>
+                <CopyToClipboardButton
+                  text={account.id}
+                  buttonClassName="h-5 text-xs text-muted-foreground font-mono"
+                />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setAccountToDelete(account)}
+                  className="text-destructive hover:text-destructive"
+                  aria-label="Delete bank account"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </SettingsRow>
+            ))
+          )}
+        </SettingsRowGroup>
+      </SettingsSection>
 
       <AddBankAccountModal open={showAddModal} onClose={() => setShowAddModal(false)}/>
 

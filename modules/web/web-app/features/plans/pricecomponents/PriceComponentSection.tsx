@@ -12,10 +12,13 @@ import {
   Skeleton,
 } from '@md/ui'
 import { useAtom } from 'jotai'
-import { MoreHorizontalIcon, PlusIcon, Settings2Icon, Trash2Icon } from 'lucide-react'
+import { CoinsIcon, MoreHorizontalIcon, PlusIcon, Settings2Icon, Trash2Icon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 
+import { SectionEmptyState } from '@/components/empty-state/SectionEmptyState'
+import { DetailSection } from '@/components/layouts/DetailLayout'
+import { SectionAddButton } from '@/features/customers/cards/ContainedTableSection'
 import { ChargeRow } from '@/features/plans/canvas/ChargeRow'
 import { OptionBar } from '@/features/plans/canvas/PlanOptions'
 import { ProductBlock, groupByProduct } from '@/features/plans/canvas/ProductBlock'
@@ -34,10 +37,7 @@ import {
 } from '@/features/plans/currencies/priceCells'
 import { useIsDraftVersion, usePlanWithVersion } from '@/features/plans/hooks/usePlan'
 import { ComponentRefsProvider } from '@/features/plans/pricecomponents/componentRefs'
-import {
-  editedComponentsAtom,
-  priceCellRequestAtom,
-} from '@/features/plans/pricecomponents/utils'
+import { editedComponentsAtom, priceCellRequestAtom } from '@/features/plans/pricecomponents/utils'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
 import { getResolvedEntitlementsForPlanVersion } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
@@ -254,22 +254,24 @@ export const PriceComponentSection = () => {
         .filter(Boolean)
         .join(' · ')
     : (() => {
-        const invoice = invoices[Math.max(0, options.findIndex(o => o.id === selected?.id))]
+        const invoice =
+          invoices[
+            Math.max(
+              0,
+              options.findIndex(o => o.id === selected?.id)
+            )
+          ]
         return invoice && [invoice.head, invoice.later].filter(Boolean).join(' · ')
       })()
 
   return (
-    <section aria-labelledby="plan-pricing" className="space-y-3 pb-8">
-      <div className="flex items-center justify-between gap-3">
-        <h2 id="plan-pricing" className="text-lg font-semibold">
-          Products &amp; pricing
-        </h2>
-        {isDraft && (
-          <Button variant="outline" size="sm" hasIcon onClick={() => setAdding(true)}>
-            <PlusIcon size={14} /> Add a product
-          </Button>
-        )}
-      </div>
+    <DetailSection
+      title="Products & pricing"
+      description="What subscribers on this plan pay, per option and currency."
+      actions={
+        isDraft && <SectionAddButton label="Add a product" onClick={() => setAdding(true)} />
+      }
+    >
       {loading || !selected ? (
         <div className="space-y-4" aria-busy="true" aria-label="Loading pricing">
           <Skeleton className="h-9 w-full" />
@@ -327,7 +329,12 @@ export const PriceComponentSection = () => {
                     features={featuresOf(charges[0].productId)}
                     actions={
                       <>
-                        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setPricesOf(key)}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => setPricesOf(key)}
+                        >
                           All prices
                         </Button>
                         {isDraft && (
@@ -367,7 +374,9 @@ export const PriceComponentSection = () => {
                               currency={currency}
                               option={option}
                               options={options}
-                              merged={open?.merged ?? sameInEveryOption(component, options, currency)}
+                              merged={
+                                open?.merged ?? sameInEveryOption(component, options, currency)
+                              }
                               mutations={mutations}
                               onClose={() => closeEditor(component)}
                             />
@@ -382,7 +391,9 @@ export const PriceComponentSection = () => {
                               sideBySide={sideBySide}
                               isDraft={isDraft}
                               onEdit={(cell, merged) => openEditor(component, cell, merged)}
-                              onEditElsewhere={(cellCurrency, cell) => editCell(component, cellCurrency, cell)}
+                              onEditElsewhere={(cellCurrency, cell) =>
+                                editCell(component, cellCurrency, cell)
+                              }
                               onRemove={() => removeCharge(component)}
                             />
                           )}
@@ -394,14 +405,22 @@ export const PriceComponentSection = () => {
               })}
 
               {list && components.length === 0 && (
-                <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-                  No products yet.{' '}
-                  {isDraft && (
-                    <Button variant="link" className="h-auto p-0" onClick={() => setAdding(true)}>
-                      Add the first one
-                    </Button>
-                  )}
-                </div>
+                <SectionEmptyState
+                  className="bg-card"
+                  icon={<CoinsIcon />}
+                  title="No pricing yet"
+                  action={
+                    isDraft && (
+                      <Button size="sm" variant="secondary" hasIcon onClick={() => setAdding(true)}>
+                        <PlusIcon size={14} /> Add a product
+                      </Button>
+                    )
+                  }
+                >
+                  {isDraft
+                    ? 'Add a product to set what subscribers on this plan pay: a flat fee, seats, usage or a one-off charge.'
+                    : 'This version has no products. Create a new version to add pricing.'}
+                </SectionEmptyState>
               )}
             </div>
 
@@ -410,8 +429,8 @@ export const PriceComponentSection = () => {
                 {isDraft && (
                   <p>
                     Click a price to edit it in the {several ? 'currency and option' : 'currency'}{' '}
-                    shown. “All prices” opens every {several ? 'currency and option' : 'currency'} of a
-                    product.
+                    shown. “All prices” opens every {several ? 'currency and option' : 'currency'}{' '}
+                    of a product.
                   </p>
                 )}
                 {invoiceLine && <p>First invoice: {invoiceLine}</p>}
@@ -454,7 +473,7 @@ export const PriceComponentSection = () => {
           </ComponentRefsProvider>
         </>
       )}
-    </section>
+    </DetailSection>
   )
 }
 
@@ -470,7 +489,12 @@ const ViewSettings = ({
 }) => (
   <Popover>
     <PopoverTrigger asChild>
-      <Button variant="ghost" size="icon" className="size-8 text-muted-foreground" aria-label="View settings">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-8 text-muted-foreground"
+        aria-label="View settings"
+      >
         <Settings2Icon size={14} />
       </Button>
     </PopoverTrigger>
@@ -485,7 +509,9 @@ const ViewSettings = ({
         <span>
           Show all options side by side
           {!several && (
-            <span className="block text-xs text-muted-foreground">Once the plan has two options.</span>
+            <span className="block text-xs text-muted-foreground">
+              Once the plan has two options.
+            </span>
           )}
         </span>
       </label>

@@ -619,7 +619,7 @@ export const AddCreditDialog = ({
                         <TooltipTrigger asChild>
                           <InfoIcon className="h-3.5 w-3.5 cursor-help text-muted-foreground" />
                         </TooltipTrigger>
-                        <TooltipContent className="max-w-80">
+                        <TooltipContent multiline className="max-w-80">
                           Narrowest credit goes first: a subscription&apos;s own, then selected
                           products, then usage-only. Then lower priority, sooner expiry, free before
                           paid.

@@ -14,20 +14,20 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  Input,
+  MenuSearch,
   Flex as NewFlex,
-  Separator,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronDown, ChevronRight } from 'lucide-react'
+import { Check, ChevronDown, ExternalLink } from 'lucide-react'
 import { FunctionComponent, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
-import { Loader } from '@/features/auth/components/Loader'
+import { ListSkeleton } from '@/components/Loading'
+import { ListPageHeader } from '@/components/layouts/ListPageLayout'
 import {
   IntegrationType,
   SyncCustomerModal,
@@ -55,6 +55,9 @@ interface CustomerHeaderProps {
   archivedAt?: Date
   lifecycleState?: string
   setShowEditCustomer: () => void
+  /** Opens the customer's portal in a new tab; the button is left out without it. */
+  onOpenPortal?: () => void
+  portalPending?: boolean
 }
 
 export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
@@ -63,6 +66,8 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
   archivedAt,
   lifecycleState,
   setShowEditCustomer,
+  onOpenPortal,
+  portalPending,
 }) => {
   const basePath = useBasePath()
   const navigate = useNavigate()
@@ -224,18 +229,13 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <div className="flex flex-col gap-2">
-        <div className="flex flex-row items-center justify-between">
-          <NewFlex align="center" className="gap-2">
-            <img src="/header/customer.svg" alt="customer logo" />
-            <div
-              className="text-[15px] font-medium text-muted-foreground cursor-pointer"
-              onClick={() => navigate('..')}
-            >
-              Customers
-            </div>
-            <ChevronRight size={14} className="text-muted-foreground" />
-            <div className="text-[15px] font-medium">{name}</div>
+      {/* The list pages' top bar: Customers, then this customer with its state and a switch to
+          another; the actions on the right. */}
+      <ListPageHeader
+        breadcrumbs={[{ label: 'Customers', to: `${basePath}/customers` }]}
+        title={
+          <span className="flex items-center gap-1.5">
+            <span className="truncate text-foreground">{name}</span>
             {lifecycleState && (
               <Badge size="sm" variant={lifecycleStateVariant(lifecycleState)}>
                 {lifecycleStateLabel(lifecycleState)}
@@ -252,16 +252,13 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
                 </NewFlex>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" alignOffset={-134} sideOffset={5} className="w-56">
-                <Input
+                <MenuSearch
                   value={search}
                   onChange={e => setSearch(e.target.value)}
-                  autoFocus
-                  placeholder="Search..."
-                  className="h-7 w-full bg-transparent focus-visible:shadow-none outline-none border-none"
+                  placeholder="Search customers…"
                 />
-                <DropdownMenuSeparator />
                 {isLoading ? (
-                  <Loader />
+                  <ListSkeleton rows={4} className="p-2" />
                 ) : (
                   data.map(customer => (
                     <DropdownMenuItem
@@ -278,8 +275,21 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
-          </NewFlex>
+          </span>
+        }
+        actions={
           <div className="flex flex-row items-center gap-2">
+            {onOpenPortal && (
+              <Button
+                hasIcon
+                size="sm"
+                variant="secondary"
+                onClick={onOpenPortal}
+                disabled={portalPending}
+              >
+                Customer portal <ExternalLink size={14} className="text-muted-foreground" />
+              </Button>
+            )}
             {showActions && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -385,11 +395,8 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
               </DropdownMenu>
             )}
           </div>
-        </div>
-        <div className="mx-[-16px]">
-          <Separator />
-        </div>
-      </div>
+        }
+      />
     </>
   )
 }

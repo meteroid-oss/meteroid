@@ -3,8 +3,6 @@ import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-  DateFormField,
-  GenericFormField,
   Input,
   InputFormField,
   Label,
@@ -19,7 +17,6 @@ import {
 import { ChevronRight, InfoIcon, Plus, Trash2 } from 'lucide-react'
 import { useFieldArray, useFormContext } from 'react-hook-form'
 
-import { CustomerSelect } from '@/features/customers/CustomerSelect'
 import { defaultConsentText } from '@/features/quotes/detail/signers'
 import { EditorSection } from '@/features/quotes/editor/EditorSection'
 import { QuoteSignatureLevel } from '@/rpc/api/quotes/v1/models_pb'
@@ -45,7 +42,7 @@ const CUSTOMER_ACTIONS: { key: keyof CustomerActionsState; label: string }[] = [
   { key: 'decline', label: 'Decline' },
 ]
 
-interface PeopleSectionProps {
+interface SignersSectionProps {
   v2: QuoteV2State
   setV2: Dispatch<SetStateAction<QuoteV2State>>
   allowMultipleRecipients: boolean
@@ -54,11 +51,12 @@ interface PeopleSectionProps {
   allowCustomerActions: boolean
   /** Adding or removing a recipient is no field change: the autosave is told directly. */
   onRecipientsChange: () => void
-  /** Customer, expiry and recipients; a template has none. */
+  /** The customer's recipients belong to one deal: a template has none. */
   dealFields?: boolean
 }
 
-export const PeopleSection = ({
+/** Who signs the quote, how, and what else the customer can do with it. */
+export const SignersSection = ({
   v2,
   setV2,
   allowMultipleRecipients,
@@ -67,7 +65,7 @@ export const PeopleSection = ({
   allowCustomerActions,
   onRecipientsChange,
   dealFields = true,
-}: PeopleSectionProps) => {
+}: SignersSectionProps) => {
   const { control } = useFormContext<QuoteFormValues>()
   const recipients = useFieldArray({ control, name: 'recipients' })
 
@@ -78,45 +76,17 @@ export const PeopleSection = ({
     setCountersigners(list => list.map((c, i) => (i === index ? { ...c, ...patch } : c)))
 
   return (
-    <EditorSection id="quote-people" title={dealFields ? 'Customer & people' : 'Signing'}>
+    <EditorSection id="quote-signers" title={dealFields ? 'Who signs' : 'Signing'}>
       <div className="flex flex-col divide-y divide-border">
-        {dealFields && (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3 py-4 first:pt-0 last:pb-0">
-            <GenericFormField
-              control={control}
-              layout="vertical"
-              label="Customer"
-              name="customer_id"
-              render={({ field }) => (
-                <CustomerSelect value={field.value} onChange={field.onChange} />
-              )}
-            />
-            <DateFormField
-              name="expires_at"
-              label="Expires on"
-              control={control}
-              layout="vertical"
-              clearable
-            />
-            <InputFormField
-              name="quote_number"
-              label="Quote number"
-              control={control}
-              placeholder="Q-12345"
-              layout="vertical"
-            />
-          </div>
-        )}
-
         {(dealFields || allowCountersigners) && (
           <div className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0">
             {dealFields && (
               <>
-                <h3 className="text-sm font-medium">Who signs</h3>
+                <h3 className="text-sm font-medium">Recipients</h3>
                 <div className="flex flex-col gap-2">
                   {recipients.fields.map((field, index) => (
                     <div key={field.id} className="flex items-start gap-2">
-                      <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-2">
+                      <div className="grid flex-1 grid-cols-1 gap-2 @md:grid-cols-2">
                         <InputFormField
                           name={`recipients.${index}.name`}
                           control={control}
@@ -176,7 +146,7 @@ export const PeopleSection = ({
                     key={index}
                     className="flex flex-wrap items-center gap-2 rounded-md border border-border p-2"
                   >
-                    <div className="grid min-w-0 flex-1 grid-cols-1 gap-2 sm:grid-cols-3">
+                    <div className="grid min-w-0 flex-1 grid-cols-1 gap-2 @lg:grid-cols-3">
                       <Input
                         value={signer.name}
                         onChange={e => updateCountersigner(index, { name: e.target.value })}
@@ -251,7 +221,7 @@ export const PeopleSection = ({
                 <span id="quoteSignatureLevel" className="text-sm font-medium">
                   Signature
                 </span>
-                <TooltipProvider delayDuration={100}>
+                <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <InfoIcon
@@ -259,7 +229,7 @@ export const PeopleSection = ({
                         aria-label="About signature levels"
                       />
                     </TooltipTrigger>
-                    <TooltipContent className="max-w-xs">
+                    <TooltipContent multiline className="max-w-xs">
                       Simple: {LEVEL_HELP[QuoteSignatureLevel.SIMPLE]}
                       <br />
                       Verified: {LEVEL_HELP[QuoteSignatureLevel.VERIFIED]}

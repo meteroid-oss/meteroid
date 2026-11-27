@@ -14,29 +14,16 @@ interface TopCardProp {
   className?: string
 }
 
-const colors = [
-  'bg-red-700',
-  'bg-purple-700',
-  'bg-slate-500',
-  'bg-indigo-700',
-  'bg-blue-700',
-  'bg-green-700',
-  'bg-yellow-700',
-]
-
-const getColor = (key: string) => {
-  // hash to get a proper random distribution
-  const hash = key.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
-  return colors[hash % colors.length]
-}
+// Neutral initial tiles, as in the Home reference (no per-customer colours).
+const AVATAR = 'bg-foreground/10 text-foreground/70'
 
 export const TopCard: React.FC<TopCardProp> = ({ title, values, className, loading }) => {
   return (
     <div className={cn(' overflow-y-auto h-[180px]  grow flex flex-col relative', className)}>
-      <div className="text-sm font-semibold flex flex-row px-6 py-4 items-baseline w-full justify-between grow">
+      <div className="text-[13px] leading-none tracking-[-0.13px] text-foreground/60 flex flex-row px-5 pt-5 pb-4 items-baseline w-full justify-between grow">
         {title}
       </div>
-      <div className="px-6 pb-4 space-y-3 relative">
+      <div className="px-5 pb-5 space-y-3 relative">
         {loading ? (
           [1, 2, 3].map((_, index) => (
             <div key={index} className="flex flex-row gap-4 items-baseline text-xs justify-between">
@@ -55,12 +42,7 @@ export const TopCard: React.FC<TopCardProp> = ({ title, values, className, loadi
                 {value.logo ? (
                   <img src={value.logo} alt={value.name} />
                 ) : (
-                  <div
-                    className={cn(
-                      'p-1.5 flex items-center justify-center rounded-sm text-primary-foreground',
-                      getColor(value.name)
-                    )}
-                  >
+                  <div className={cn('p-1.5 flex items-center justify-center rounded-sm', AVATAR)}>
                     <UserRoundIcon size={12} />
                   </div>
                 )}

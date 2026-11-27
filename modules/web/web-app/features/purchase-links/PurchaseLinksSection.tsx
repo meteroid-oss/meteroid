@@ -27,6 +27,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 import {
   ArchiveIcon,
+  Link2,
   MoreHorizontalIcon,
   PencilIcon,
   PlusIcon,
@@ -36,6 +37,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
+import { SectionEmptyState } from '@/components/empty-state/SectionEmptyState'
 import { AddRow } from '@/features/plans/MoreForPlan'
 import {
   useIsDraftVersion,
@@ -128,12 +130,18 @@ const PurchaseLinks = ({
   return (
     <div className="space-y-3">
       {query.isLoading ? null : links.length === 0 ? (
-        <p className="max-w-2xl text-sm text-muted-foreground">
-          {includeArchived
-            ? 'No purchase link, archived or not.'
-            : 'Share a link on your website or in an email: buyers enter their email and billing details, then pay at checkout. Each purchase creates a customer and a subscription to this plan.'}
-          {!planActive && ' Publish the plan to create one.'}
-        </p>
+        includeArchived ? (
+          <SectionEmptyState className="bg-card">
+            No purchase link, archived or not.
+          </SectionEmptyState>
+        ) : (
+          <SectionEmptyState className="bg-card" icon={<Link2 />} title="No purchase links yet">
+            Share a link on your website or in an email: buyers enter their email and billing
+            details, then pay at checkout. Each purchase creates a customer and a subscription to
+            this plan.
+            {!planActive && <span className="mt-2 block">Publish the plan to create one.</span>}
+          </SectionEmptyState>
+        )
       ) : (
         <div className="overflow-x-auto rounded-md border border-border">
           <Table>

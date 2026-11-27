@@ -1,16 +1,18 @@
 import { skipToken } from '@connectrpc/connect-query'
 import { InfoIcon } from '@md/icons'
-import { Alert, Button, Tabs, TabsContent, TabsList, TabsTrigger, cn } from '@md/ui'
+import { Button, Tabs, TabsContent, TabsList, TabsTrigger, cn } from '@md/ui'
 import { PaginationState } from '@tanstack/react-table'
 import { ScopeProvider } from 'jotai-scope'
 import {
   AlertTriangleIcon,
-  ExternalLinkIcon,
+  ArrowRight,
   InfoIcon as InfoLineIcon,
   LayoutTemplateIcon,
+  Layers,
   LinkIcon,
   Plus,
   PuzzleIcon,
+  Repeat,
   TicketIcon,
   TimerIcon,
   TrendingUpIcon,
@@ -20,16 +22,26 @@ import { ReactNode, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router'
 
 import { InlineLoading } from '@/components/Loading'
+import { SectionEmptyState } from '@/components/empty-state/SectionEmptyState'
+import {
+  DetailIcon,
+  DetailMain,
+  DetailPageFrame,
+  DetailSections,
+  DetailTitle,
+} from '@/components/layouts/DetailLayout'
 import { Slot, hasSlot, slotItems } from '@/edition'
+import { ContainedTableSection } from '@/features/customers/cards/ContainedTableSection'
 import { eligibilitySummary, isOpen } from '@/features/eligibility/eligibility'
 import { ListPlanVersionTab } from '@/features/plans/ListPlanVersion'
 import { AddRow, MoreForPlan } from '@/features/plans/MoreForPlan'
 import { PlanActions } from '@/features/plans/PlanActions'
 import { PlanEntitlementsSection } from '@/features/plans/PlanEntitlementsSection'
+import { PlanStatusBadge } from '@/features/plans/PlanStatusBadge'
 import { AddOnSection } from '@/features/plans/addons/AddOnSection'
 import { LockedPrices } from '@/features/plans/canvas/LockedPrices'
 import { SellingGapsBanner } from '@/features/plans/canvas/SellingGapsBanner'
-import { PlanOverview, PlanVersionFooter } from '@/features/plans/details/PlanDetails'
+import { PlanFacts, PlanIdentity } from '@/features/plans/details/PlanDetails'
 import { PlanEligibility } from '@/features/plans/eligibility/PlanEligibility'
 import {
   useIsDraftVersion,
@@ -38,10 +50,7 @@ import {
 } from '@/features/plans/hooks/usePlan'
 import { PlanMinimumCommitmentDisplay } from '@/features/plans/minimum/PlanMinimumCommitment'
 import { PriceComponentSection } from '@/features/plans/pricecomponents/PriceComponentSection'
-import {
-  editedComponentsAtom,
-  priceCellRequestAtom,
-} from '@/features/plans/pricecomponents/utils'
+import { editedComponentsAtom, priceCellRequestAtom } from '@/features/plans/pricecomponents/utils'
 import { PlanPricingPageForm } from '@/features/plans/pricingpage/PlanPricingPageForm'
 import { PlanTrial } from '@/features/plans/trial/PlanTrial'
 import { usePlanCoupons } from '@/features/plans/usePlanCoupons'
@@ -56,6 +65,8 @@ import { SubscriptionsTable } from '@/features/subscriptions'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { usePermissions } from '@/hooks/usePermissions'
+import { useQueryState } from '@/hooks/useQueryState'
+import { useScrollFade } from '@/hooks/useScrollFade'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
 import { formatCurrency } from '@/lib/utils/numbers'
@@ -74,12 +85,14 @@ interface Props {
 }
 
 export const PlanBuilder: React.FC<Props> = ({ children }) => {
+  const basePath = useBasePath()
   const { planVersion } = useParams<{ planVersion?: string }>()
 
   const isDraft = useIsDraftVersion()
   const overview = usePlanOverview()
-  const { version } = usePlanWithVersion()
-  const [tab, setTab] = useState('overview')
+  const planData = usePlanWithVersion()
+  const { version } = planData
+  const context = usePlanContext()
 
   // Only show the draft alert when:
   // 1. Not viewing the draft itself (!isDraft)
@@ -93,84 +106,130 @@ export const PlanBuilder: React.FC<Props> = ({ children }) => {
     !version?.creditExhaustedRule ||
     version.creditExhaustedRule.kind === CreditExhaustedRule_Kind.PAUSE
 
+  // The open tab, kept in the URL as on the customer page.
+  const [requestedTab, setTab] = useQueryState('tab', 'overview', { replace: true })
+  const tab = PLAN_TABS.some(t => t.id === requestedTab) ? requestedTab : 'overview'
+  const tabFade = useScrollFade<HTMLDivElement>()
+
   return (
     <ScopeProvider atoms={[editedComponentsAtom, priceCellRequestAtom]}>
       <CreditRateOptionalContext.Provider value={rateOptional}>
-        <div className="flex h-full w-full flex-col space-y-5">
-          <PlanHeader onHistory={isDraft ? undefined : () => setTab('versions')} />
-
-          {isDraft && version && !version.usesProductPricing && (
-            <div className="relative">
-              <div className="opacity-20 pointer-events-none select-none" aria-hidden>
-                <PlanBody />
-              </div>
-              <div className="absolute inset-0 flex items-start justify-center pt-16">
-                <OutdatedDraftAlert />
-              </div>
-            </div>
-          )}
-          {isDraft && (!version || version.usesProductPricing) && <PlanBody />}
-          {!isDraft && (
-            <>
-              {showDraftAlert && (
-                <>
-                  <Alert variant="brand" className="flex  gap-2 items-center">
-                    <div>
-                      <InfoIcon size={16} className="flex text-brand  " />
-                    </div>
-                    <span className="text-foreground text-xs grow flex gap-1">
-                      A{' '}
-                      <Link to={`../${overview.localId}/draft`} className="hover:underline">
-                        draft version
-                      </Link>{' '}
-                      has unpublished changes
-                    </span>
-                    <div className="text-xs">
-                      <Button size="sm" variant="link" className="h-fit" hasIcon asChild>
-                        <Link to={`../${overview.localId}/draft`}>
-                          Open draft <ExternalLinkIcon size="12" />
-                        </Link>
-                      </Button>
-                    </div>
-                  </Alert>
-                </>
+        <DetailPageFrame
+          section={{ label: 'Plans', to: `${basePath}/plans` }}
+          title={
+            <span className="flex items-center gap-2">
+              <span className="truncate">{overview?.name}</span>
+              {version?.isDraft ? (
+                <PlanStatusBadge status={PlanStatus.DRAFT} />
+              ) : (
+                overview && <PlanStatusBadge status={overview.planStatus} />
               )}
-              <Tabs value={tab} onValueChange={setTab} className="w-full">
-                <TabsList className="w-full justify-start">
-                  <TabsTrigger value="overview">Details</TabsTrigger>
-                  <TabsTrigger value="subscriptions">Subscriptions</TabsTrigger>
-                  <TabsTrigger value="alerts">Alerts</TabsTrigger>
-                  <TabsTrigger value="versions">History</TabsTrigger>
-                </TabsList>
-                <TabsContent value="overview">
+            </span>
+          }
+          actions={<PlanActions onHistory={isDraft ? undefined : () => setTab('versions')} />}
+        >
+          {/* No sidebar: the version's settings sit in a strip under the title. */}
+          <DetailMain sidebar={false}>
+            {/* A draft with unpublished changes exists: said first, above the plan, with the way in. */}
+            {showDraftAlert && (
+              <div className="mb-6 flex items-center gap-3 rounded-lg border border-brand/25 bg-brand/[0.08] py-2 pl-4 pr-2">
+                <InfoIcon size={16} className="shrink-0 text-brand" />
+                <span className="min-w-0 flex-1 text-[13px] text-foreground">
+                  A draft version of this plan has unpublished changes.
+                </span>
+                <Button size="sm" variant="secondary" hasIcon asChild>
+                  <Link to={`../${overview.localId}/draft`}>
+                    Open draft <ArrowRight size={14} className="text-muted-foreground" />
+                  </Link>
+                </Button>
+              </div>
+            )}
+            {overview && (
+              <DetailTitle
+                media={
+                  <DetailIcon>
+                    <Layers />
+                  </DetailIcon>
+                }
+                title={overview.name}
+                subtitle={
+                  planData.plan &&
+                  version && (
+                    <PlanIdentity plan={planData.plan} version={version} context={context} />
+                  )
+                }
+              />
+            )}
+            {planData.plan?.description?.trim() && (
+              <p className="-mt-2 mb-2 max-w-3xl text-[13px] leading-relaxed text-muted-foreground">
+                {planData.plan.description}
+              </p>
+            )}
+            {planData.plan && version && (
+              <div className="mb-4">
+                <PlanFacts plan={planData.plan} version={version} />
+              </div>
+            )}
+
+            {isDraft && version && !version.usesProductPricing && (
+              <div className="relative">
+                <div className="opacity-20 pointer-events-none select-none" aria-hidden>
                   <PlanBody />
-                </TabsContent>
-                <TabsContent value="subscriptions">
-                  <SubscriptionsTab />
-                </TabsContent>
-                <TabsContent value="alerts">
-                  <>Alerts are not implemented yet</>
-                </TabsContent>
-                <TabsContent value="versions">
-                  <ListPlanVersionTab />
-                </TabsContent>
-              </Tabs>
-            </>
-          )}
-        </div>
+                </div>
+                <div className="absolute inset-0 flex items-start justify-center pt-16">
+                  <OutdatedDraftAlert />
+                </div>
+              </div>
+            )}
+            {isDraft && (!version || version.usesProductPricing) && <PlanBody />}
+            {!isDraft && (
+              <>
+                <Tabs value={tab} onValueChange={setTab} className="w-full">
+                  <TabsList
+                    ref={tabFade.ref}
+                    variant="underline"
+                    className={cn(
+                      'w-full overflow-x-auto',
+                      tabFade.fadeLeft && 'scroll-fade-x-left',
+                      tabFade.fadeRight && 'scroll-fade-x-right'
+                    )}
+                  >
+                    {PLAN_TABS.map(t => (
+                      <TabsTrigger key={t.id} value={t.id}>
+                        {t.label}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                  <TabsContent value="overview" className="mt-6">
+                    <PlanBody />
+                  </TabsContent>
+                  <TabsContent value="subscriptions" className="mt-6">
+                    <SubscriptionsTab />
+                  </TabsContent>
+                  <TabsContent value="alerts" className="mt-6">
+                    <p className="text-sm text-muted-foreground">Alerts are not implemented yet</p>
+                  </TabsContent>
+                  <TabsContent value="versions" className="mt-6">
+                    <ContainedTableSection title="Versions">
+                      <ListPlanVersionTab />
+                    </ContainedTableSection>
+                  </TabsContent>
+                </Tabs>
+              </>
+            )}
+          </DetailMain>
+        </DetailPageFrame>
         {children}
       </CreditRateOptionalContext.Provider>
     </ScopeProvider>
   )
 }
 
-/** "Plans / Pro", the name, its version and where it stands, the version's actions. */
-const PlanHeader = ({ onHistory }: { onHistory?: () => void }) => {
-  const basePath = useBasePath()
+/** Where the version stands, beside its ID: its rank on the pricing page, or the published one. */
+const usePlanContext = () => {
   const overview = usePlanOverview()
   const { plan, version } = usePlanWithVersion()
   const isDraft = useIsDraftVersion()
-  const name = overview?.name ?? plan?.name
   const family = overview?.productFamilyLocalId
   const rank = overview?.selfServiceRank
   const ranked =
@@ -188,66 +247,31 @@ const PlanHeader = ({ onHistory }: { onHistory?: () => void }) => {
   const live = overview?.activeVersion
   const subscriptions = overview?.subscriptionCount ?? 0
   const isLive = !!version && live?.version === version.version
-  const archived = overview?.planStatus === PlanStatus.ARCHIVED
-  const context = !version
-    ? undefined
-    : isDraft
-      ? live
-        ? [
-            `from v${live.version}, published`,
-            subscriptions > 0 &&
-              `${subscriptions} ${subscriptions === 1 ? 'subscription stays' : 'subscriptions stay'} on v${live.version} until migrated`,
-          ]
-            .filter(Boolean)
-            .join(' · ')
-        : 'Never published'
-      : rank !== undefined
-        ? [
-            ranked > 0 ? `Rank ${rank} of ${Math.max(ranked, rank)}` : `Rank ${rank}`,
-            page?.popular && 'Popular',
-          ]
-            .filter(Boolean)
-            .join(' · ')
-        : !isLive && live
-          ? `v${live.version} is the published one`
-          : `${subscriptions} ${subscriptions === 1 ? 'subscription' : 'subscriptions'}`
-
-  return (
-    <header className="space-y-2">
-      <nav aria-label="Breadcrumb" className="text-xs text-muted-foreground">
-        <Link to={`${basePath}/plans`} className="hover:text-foreground hover:underline">
-          Plans
-        </Link>
-        <span className="px-1.5">/</span>
-        <span>{name}</span>
-      </nav>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h1 className="text-2xl font-semibold">{name}</h1>
-        {version &&
-          (isDraft ? (
-            <span className="rounded-md bg-warning/15 px-2 py-0.5 text-xs font-semibold text-warning">
-              Draft v{version.version}
-            </span>
-          ) : (
-            <span
-              className={cn(
-                'rounded-md px-2 py-0.5 text-xs font-semibold',
-                isLive && !archived
-                  ? 'bg-success/15 text-success'
-                  : 'bg-muted text-muted-foreground'
-              )}
-            >
-              v{version.version} · {archived ? 'Archived' : isLive ? 'Published' : 'Earlier version'}
-            </span>
-          ))}
-        {context && <span className="text-sm text-muted-foreground">{context}</span>}
-        <div className="ml-auto flex items-center gap-3">
-          <PlanActions onHistory={onHistory} />
-        </div>
-      </div>
-    </header>
-  )
+  if (!version) return undefined
+  if (isDraft) {
+    if (!live) return 'Never published'
+    return subscriptions > 0
+      ? `${subscriptions} ${subscriptions === 1 ? 'subscription stays' : 'subscriptions stay'} on v${live.version} until migrated`
+      : undefined
+  }
+  if (rank !== undefined) {
+    return [
+      ranked > 0 ? `Rank ${rank} of ${Math.max(ranked, rank)}` : `Rank ${rank}`,
+      page?.popular && 'Popular',
+    ]
+      .filter(Boolean)
+      .join(' · ')
+  }
+  return !isLive && live ? `v${live.version} is the published one` : undefined
 }
+
+// The tabs of a published version, as before: its details, its subscriptions, alerts, history.
+const PLAN_TABS = [
+  { id: 'overview', label: 'Details' },
+  { id: 'subscriptions', label: 'Subscriptions' },
+  { id: 'alerts', label: 'Alerts' },
+  { id: 'versions', label: 'History' },
+]
 
 const OutdatedDraftAlert = () => {
   return (
@@ -296,30 +320,51 @@ const SubscriptionsTab = () => {
   const isLoading = subscriptionsQuery.isLoading
 
   return (
-    <div>
-      {!isExpress && (
-        <div className="flex py-2 justify-end">
-          <Button
-            variant="secondary"
-            hasIcon
-            onClick={() =>
+    <ContainedTableSection
+      title="Subscriptions"
+      actionLabel="New subscription"
+      onAction={
+        !isExpress
+          ? () =>
               navigate(`${basePath}/subscriptions/create?planVersionId=${planData?.version?.id}`)
-            }
-          >
-            <Plus size={10} /> New subscription
-          </Button>
-        </div>
+          : undefined
+      }
+    >
+      {!isLoading && count === 0 ? (
+        <SectionEmptyState
+          framed={false}
+          icon={<Repeat />}
+          title="No subscriptions on this plan"
+          action={
+            !isExpress && (
+              <Button
+                size="sm"
+                variant="secondary"
+                hasIcon
+                onClick={() =>
+                  navigate(
+                    `${basePath}/subscriptions/create?planVersionId=${planData?.version?.id}`
+                  )
+                }
+              >
+                <Plus size={14} /> New subscription
+              </Button>
+            )
+          }
+        >
+          Customers subscribed to any version of this plan show here.
+        </SectionEmptyState>
+      ) : (
+        <SubscriptionsTable
+          data={data}
+          totalCount={count}
+          pagination={pagination}
+          setPagination={setPagination}
+          isLoading={isLoading}
+          hidePlan
+        />
       )}
-
-      <SubscriptionsTable
-        data={data}
-        totalCount={count}
-        pagination={pagination}
-        setPagination={setPagination}
-        isLoading={isLoading}
-        hidePlan
-      />
-    </div>
+    </ContainedTableSection>
   )
 }
 
@@ -340,25 +385,25 @@ const PlanBody = () => {
 
   const priced = plan.planType !== PlanType.FREE
   return (
-    <div className="space-y-5">
+    <div className="flex flex-col gap-4">
       {priced && <SellingGapsBanner />}
-      <PlanOverview plan={plan} version={current} />
-      {priced && !isDraft && <LockedPrices />}
-      {priced && isDraft && (
-        <div id="pricing">
-          <PriceComponentSection />
-        </div>
-      )}
+      {/* Sections 32px apart with a divider halfway, as on the customer page. */}
+      <DetailSections>
+        {priced && !isDraft && <LockedPrices />}
+        {priced && isDraft && (
+          <div id="pricing">
+            <PriceComponentSection />
+          </div>
+        )}
 
-      {env.entitlementsEnabled && (
-        <PlanEntitlementsSection plan={plan} planVersionId={current.id} isDraft={isDraft} />
-      )}
+        {env.entitlementsEnabled && (
+          <PlanEntitlementsSection plan={plan} planVersionId={current.id} isDraft={isDraft} />
+        )}
 
-      <MoreForPlan extras={extras} />
+        <MoreForPlan extras={extras} />
 
-      <Slot name="planDetail.sections" planVersionId={current.id} />
-
-      <PlanVersionFooter plan={plan} version={current} />
+        <Slot name="planDetail.sections" planVersionId={current.id} />
+      </DetailSections>
     </div>
   )
 }
@@ -420,7 +465,9 @@ const PlanCoupons = ({
           to={`${basePath}/coupons`}
           className="ml-auto text-xs text-muted-foreground hover:text-foreground hover:underline"
         >
-          {total > coupons.length ? `All coupons, ${total - coupons.length} more here` : 'All coupons'}
+          {total > coupons.length
+            ? `All coupons, ${total - coupons.length} more here`
+            : 'All coupons'}
         </Link>
       </div>
     </div>
@@ -531,7 +578,11 @@ const usePlanExtras = (): PlanExtra[] => {
       opens: 'panel',
       onAdd: () => navigate(newCouponPath),
       content: (
-        <PlanCoupons coupons={coupons.coupons} total={coupons.total} newCouponPath={newCouponPath} />
+        <PlanCoupons
+          coupons={coupons.coupons}
+          total={coupons.total}
+          newCouponPath={newCouponPath}
+        />
       ),
     },
     {

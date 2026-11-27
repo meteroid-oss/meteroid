@@ -1,4 +1,13 @@
-import { Button, Skeleton, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@md/ui'
+import {
+  Button,
+  Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@md/ui'
 import { AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
@@ -81,8 +90,8 @@ export const UnattributedUsageSection = ({ customerId }: { customerId: string })
 
   if (recentQuery.isError || monthQuery.isError) {
     return (
-      <section className="flex flex-col gap-2">
-        <h3 className="text-lg font-medium">Unattributed usage</h3>
+      <section className="flex flex-col gap-4">
+        <h3 className="text-base font-medium">Unattributed usage</h3>
         <p className="text-sm text-destructive">Unattributed usage could not be loaded.</p>
       </section>
     )
@@ -93,9 +102,9 @@ export const UnattributedUsageSection = ({ customerId }: { customerId: string })
   const usage = monthQuery.data?.usage ?? []
 
   return (
-    <section id="unattributed-usage" className="flex flex-col gap-2">
+    <section id="unattributed-usage" className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-lg font-medium">Unattributed usage</h3>
+        <h3 className="text-base font-medium">Unattributed usage</h3>
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
@@ -106,7 +115,9 @@ export const UnattributedUsageSection = ({ customerId }: { customerId: string })
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <span className="w-28 text-center text-xs text-muted-foreground">{monthLabel(month)}</span>
+          <span className="w-28 text-center text-xs text-muted-foreground">
+            {monthLabel(month)}
+          </span>
           <Button
             variant="ghost"
             size="icon"
@@ -156,14 +167,18 @@ export const UnattributedUsageSection = ({ customerId }: { customerId: string })
                               to={`${basePath}/subscriptions/${id}`}
                               className="font-medium text-brand hover:underline"
                             >
-                              {subscription ? subscriptionLabel(subscription, chips) : 'Subscription'}
+                              {subscription
+                                ? subscriptionLabel(subscription, chips)
+                                : 'Subscription'}
                             </Link>
                           )
                         })}
                       </div>
                     )}
                   </TableCell>
-                  <TableCell className="text-right text-[13px] tabular-nums">{quantityLabel(row)}</TableCell>
+                  <TableCell className="text-right text-[13px] tabular-nums">
+                    {quantityLabel(row)}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -178,7 +193,8 @@ export const UnattributedUsageSection = ({ customerId }: { customerId: string })
 export const UnattributedBanner = ({ customerId }: { customerId: string }) => {
   const now = useMemo(() => new Date(), [])
   const usage =
-    useQuery(listUnattributedUsage, { customerId, from: monthStart(now), to: monthStart(now, 1) }).data?.usage ?? []
+    useQuery(listUnattributedUsage, { customerId, from: monthStart(now), to: monthStart(now, 1) })
+      .data?.usage ?? []
   if (!usage.length) return null
   return (
     <a

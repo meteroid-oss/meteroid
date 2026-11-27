@@ -1,9 +1,8 @@
-import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@md/ui'
-import { CopyIcon, PencilIcon } from 'lucide-react'
 import { ReactNode } from 'react'
-import { Link, useNavigate } from 'react-router'
-import { toast } from 'sonner'
+import { Link } from 'react-router'
 
+import { Fact, FactStrip } from '@/components/FactStrip'
+import { LocalId } from '@/components/LocalId'
 import {
   creditRuleSummary,
   usageDenominations,
@@ -16,9 +15,7 @@ import { useCreditUnit, useCreditUnits } from '@/features/pricing/CreditUnitPric
 import { effectiveCreditRate } from '@/features/pricing/creditValue'
 import { useBasePath } from '@/hooks/useBasePath'
 import { entitlementCodes, useEntitlement } from '@/hooks/useEntitlement'
-import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { useQuery } from '@/lib/connectrpc'
-import { copyToClipboard } from '@/lib/helpers'
 import { Plan, PlanType, PlanVersion } from '@/rpc/api/plans/v1/models_pb'
 import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
 import { parseAndFormatDate } from '@/utils/date'
@@ -47,10 +44,12 @@ const planCreditUnit = (components: PriceComponent[]) => {
 const creditValueLabel = (rate: string | undefined, currency: string) =>
   rate ? ` · 1 credit = ${formatPrice(currency)(rate)}` : ' · No money value'
 
-export const PlanOverview: React.FC<{ plan: Plan; version: PlanVersion }> = ({ plan, version }) => {
-  const navigate = useNavigate()
+/**
+ * The version's facts in a strip: when created, its subscriptions, then its settings (currency,
+ * payment, prices, credit…). Editing them is in the top bar (see `PlanActions`).
+ */
+export const PlanFacts: React.FC<{ plan: Plan; version: PlanVersion }> = ({ plan, version }) => {
   const basePath = useBasePath()
-  const isExpress = useIsExpressOrganization()
   const licensingEnabled = useEntitlement(entitlementCodes.LICENSING)
   const isFree = plan.planType === PlanType.FREE
 
@@ -59,6 +58,9 @@ export const PlanOverview: React.FC<{ plan: Plan; version: PlanVersion }> = ({ p
   const creditUnitRef = isFree ? undefined : planCreditUnit(components)
   const creditUnit = useCreditUnit(creditUnitRef?.id)
   const units = useCreditUnits()
+
+  const overview = usePlanOverview()
+  const subscriptionCount = overview?.subscriptionCount
 
   const priced = orderCurrencies(
     [version.currency, ...pricedCurrencies(components)],
@@ -106,106 +108,73 @@ export const PlanOverview: React.FC<{ plan: Plan; version: PlanVersion }> = ({ p
     }
   }
   if (licensingEnabled || plan.issuesLicense) {
-    settings.push({ label: 'License', value: plan.issuesLicense ? 'Issued per subscription' : 'None' })
+    settings.push({
+      label: 'License',
+      value: plan.issuesLicense ? 'Issued per subscription' : 'None',
+    })
   }
 
   return (
-    <div className="flex flex-col gap-4 pb-6">
-      {plan.description?.trim() && (
-        <p className="text-sm text-muted-foreground max-w-3xl">{plan.description}</p>
-      )}
-      <div className="flex items-start gap-2">
-        <section
-          aria-label="Plan settings"
-          className="flex flex-1 flex-wrap rounded-lg border border-border bg-card divide-x divide-border"
-        >
-          {settings.map(setting => (
-            <div key={setting.label} className="flex min-w-40 flex-1 flex-col gap-1 px-4 py-3">
-              <span className="text-xs text-muted-foreground">{setting.label}</span>
-              <span className="text-sm text-foreground">{setting.value}</span>
-            </div>
-          ))}
-        </section>
-        {!isExpress && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Edit plan details"
-                className="text-muted-foreground hover:text-foreground"
-                onClick={() => navigate('edit-overview')}
-              >
-                <PencilIcon size={14} strokeWidth={2} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Edit plan details</TooltipContent>
-          </Tooltip>
+    <div className="flex">
+      <FactStrip label="Plan settings">
+        {!version.isDraft && version.createdAt && (
+          <Fact label="Created">{parseAndFormatDate(version.createdAt)}</Fact>
         )}
-      </div>
+        {/* A draft isn't live: the plan's subscriptions say nothing about it, so only a published
+            version shows them, as it shows when it was created. */}
+        {!version.isDraft && subscriptionCount !== undefined && (
+          <Fact label="Subscriptions">{subscriptionCount}</Fact>
+        )}
+        {settings.map(setting => (
+          <Fact key={setting.label} label={setting.label}>
+            {setting.value}
+          </Fact>
+        ))}
+      </FactStrip>
     </div>
   )
 }
 
-export const PlanVersionFooter: React.FC<{ plan: Plan; version: PlanVersion }> = ({
-  plan,
-  version,
-}) => {
+/**
+ * The line under the plan's name: its ID (shortened, copied whole) and the version shown, with
+ * the active version beside a draft.
+ */
+export const PlanIdentity: React.FC<{
+  plan: Plan
+  version: PlanVersion
+  /** Where the version stands, after it: its rank on the pricing page, the published one… */
+  context?: ReactNode
+}> = ({ plan, version, context }) => {
   const overview = usePlanOverview()
-  const subscriptionCount = overview?.subscriptionCount
   const activeVersion = overview?.activeVersion
-
-  const parts: ReactNode[] = version.isDraft
-    ? [`Draft of version ${version.version}`]
-    : [
-        `Version ${version.version}`,
-        ...(version.createdAt ? [`created ${parseAndFormatDate(version.createdAt)}`] : []),
-      ]
-  if (version.isDraft && activeVersion && overview) {
-    parts.push(
-      <>
-        active version{' '}
-        <Link
-          to={`../${overview.localId}/${activeVersion.version}`}
-          className="text-brand hover:underline"
-        >
-          {activeVersion.version}
-        </Link>
-      </>
-    )
-  }
-  if (subscriptionCount !== undefined) {
-    parts.push(`${subscriptionCount} ${subscriptionCount === 1 ? 'subscription' : 'subscriptions'}`)
-  }
-
   return (
-    <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4 text-xs text-muted-foreground">
+    <span className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+      <LocalId
+        localId={plan.localId}
+        className="max-w-[140px]"
+        buttonClassName="h-6 px-2 py-0 text-[11px]"
+      />
       <span>
-        {parts.map((part, index) => (
-          <span key={index}>
-            {index > 0 && ' · '}
-            {part}
-          </span>
-        ))}
+        {version.isDraft ? (
+          <>
+            Draft of version {version.version}
+            {activeVersion && overview && (
+              <>
+                {' · active '}
+                <Link
+                  to={`../${overview.localId}/${activeVersion.version}`}
+                  className="underline decoration-foreground/30 decoration-dashed underline-offset-[3px] hover:text-foreground"
+                >
+                  {activeVersion.version}
+                </Link>
+              </>
+            )}
+          </>
+        ) : (
+          `Version ${version.version}`
+        )}
       </span>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            hasIcon
-            aria-label="Copy plan ID"
-            className="mt-0 h-7 px-2 text-xs font-normal text-muted-foreground hover:text-foreground"
-            onClick={() =>
-              copyToClipboard(plan.localId, () => toast.success('Plan ID copied to clipboard'))
-            }
-          >
-            <span className="max-w-40 truncate">ID {plan.localId}</span>
-            <CopyIcon size={10} />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Copy plan ID</TooltipContent>
-      </Tooltip>
-    </footer>
+      {context && <span>{context}</span>}
+    </span>
   )
 }

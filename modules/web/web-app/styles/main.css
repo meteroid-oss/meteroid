@@ -9,8 +9,14 @@
     --foreground: 240 10% 3.9%;
     --card: 0 0% 100%;
     --card-foreground: 240 10% 3.9%;
+    /* The list pages' table card. */
+    --card-table: 0 0% 100%;
     --popover: 0 0% 100%;
     --popover-foreground: 240 10% 3.9%;
+    /* Dropdowns, selects, popovers: surface (drawn at 90→80%), text, hovered item (at 60%). */
+    --menu: 0 0% 100%;
+    --menu-foreground: 240 10% 3.9%;
+    --menu-accent: 240 5% 88%;
     --brand: 242 89.1% 71.2%;
     --brand-foreground: 242 88% 97%;
     --primary: 240 15% 5%;
@@ -19,6 +25,8 @@
     --secondary-foreground: 240 5.9% 10%;
     --muted: 20 20% 97%; /* 240 4.8% 95.9% */
     --muted-foreground: 240 3.8% 46.1%;
+    /* Quietest text: placeholders, inactive tabs, icons at rest. */
+    --faint-foreground: 240 3.8% 60%;
     --accent: 240 4.8% 95.9%;
     --accent-foreground: 240 5.9% 10%;
     --destructive: 0 84.2% 60.2%;
@@ -28,39 +36,72 @@
     --success-foreground: 0 0% 97%;
     --warning: 38 92% 50%;
     --warning-foreground: 240 10% 3.9%;
+    --info: 192 91% 36%;
+    --info-foreground: 0 0% 98%;
+
+    /* Tags (Badge), light: the dark theme's tones as deep text on a pale fill. */
+    --tag-info: 180 75% 27%;
+    --tag-info-bg: 180 60% 93%;
+    --tag-warning: 24 80% 40%;
+    --tag-warning-bg: 24 90% 94%;
+    --tag-success: 100 55% 30%;
+    --tag-success-bg: 100 50% 92%;
+    --tag-neutral: 0 0% 42%;
+    --tag-neutral-bg: 0 0% 94%;
+    --tag-destructive: 0 70% 45%;
+    --tag-destructive-bg: 0 85% 95%;
 
     --border: 240 5.9% 90%;
     --input: 0 0% 100%;
-    --ring: 142.1 76.2% 36.3%;
+    /* Form controls. Values may carry their own alpha (`h s l / a`). */
+    --field: 0 0% 100%;
+    --field-border: 240 5.9% 90%;
+    --field-foreground: 240 10% 3.9%;
+    --field-placeholder: 240 3.8% 46.1%;
+    --select: 0 0% 100%;
+    --select-border: 240 5.9% 90%;
+    --checkbox-checked: 214 100% 50%; /* #006fff */
+    --ring: 217 89% 76%; /* #8ab4f8 */
     --radius: 0.5rem;
 
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 240 5.3% 26.1%;
+    /* Nav icons at rest: between faint and muted foreground, solid so outline strokes don't double up. */
+    --sidebar-icon: 240 3.8% 53%;
     --sidebar-primary: 240 5.9% 10%;
     --sidebar-primary-foreground: 0 0% 98%;
     --sidebar-accent: 240 4.8% 95.9%;
+    /* The selected nav item: one step beyond the hover fill. */
+    --sidebar-active: 240 4.8% 93%;
     --sidebar-accent-foreground: 240 5.9% 10%;
     --sidebar-border: 220 13% 91%;
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
 
+  /* Neutral greys follow the Figma "base/neutral/grey" scale: page #141414, 870 #1b1b1b
+     (card), 850 #222 (selected nav), 800 #2e2e2e (accent), 300 #afafaf, 500 #737373, 50 #fafafa. */
   .dark {
-    --background: 0 0% 7%;
-    --foreground: 0 0% 100%;
-    --card: 0 0% 10%;
-    --card-foreground: 0 0% 95%;
+    --background: 0 0% 7.8%; /* #141414 */
+    --foreground: 0 0% 98%;
+    --card: 0 0% 11%;
+    --card-table: 0 0% 14.5%; /* #252525 */
+    --card-foreground: 0 0% 92%;
     --popover: 240 15% 5%;
     --popover-foreground: 0 0% 95%;
+    --menu: 0 0% 22.7%; /* #3a3a3a */
+    --menu-foreground: 0 0% 96.1%; /* #f5f5f5 */
+    --menu-accent: 0 0% 31.8%; /* #515151 */
     /* TODO rename primary into brand and alternative into primary */
     --brand: 211 95% 63%;
     --brand-foreground: 144 21% 9%;
-    --primary: 0 0% 90%;
-    --primary-foreground: 240 15% 5%;
-    --secondary: 233 11% 17%;
-    --secondary-foreground: 0 0% 98%;
+    --primary: 0 0% 98%; /* #fafafa */
+    --primary-foreground: 0 0% 3.9%; /* #0a0a0a */
+    --secondary: 0 0% 16.1%; /* #292929 */
+    --secondary-foreground: 0 0% 93.3%; /* #eee */
     --muted: 0 0% 15%;
-    --muted-foreground: 0 0% 64%;
-    --accent: 240 4% 19%;
+    --muted-foreground: 0 0% 69%;
+    --faint-foreground: 0 0% 45%;
+    --accent: 0 0% 18%;
     --accent-foreground: 0 0% 98%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 85.7% 97.3%;
@@ -69,18 +110,44 @@
     --success-foreground: 240 10% 3.9%;
     --warning: 38 92% 50%;
     --warning-foreground: 240 10% 3.9%;
+    --info: 188 86% 53%;
+    --info-foreground: 240 10% 3.9%;
 
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 211 95% 63%;
+    /* Tags (Badge): fill + text per tone. info/warning/success/neutral are the Figma tag colours
+       (info's fill is drawn at 70%), destructive is the Figma red tag. */
+    --tag-info: 180 65.8% 54.1%; /* #3dd7d7 */
+    --tag-info-bg: 195.3 56.7% 19%; /* #153e4c */
+    --tag-warning: 24.1 82.3% 57.8%; /* #ec823b */
+    --tag-warning-bg: 24 17.6% 16.7%; /* #322923 */
+    --tag-success: 99.2 57.7% 65.7%; /* #98da75 */
+    --tag-success-bg: 108 17.6% 16.7%; /* #263223 */
+    --tag-neutral: 0 0% 56.9%; /* #919191 */
+    --tag-neutral-bg: 0 0% 18%; /* #2e2e2e */
+    --tag-destructive: 346.2 100% 67.6%; /* #ff5a80 */
+    --tag-destructive-bg: 346.2 29.5% 17.3%; /* #391f25 */
 
-    --sidebar-background: 0 0% 7%;
-    --sidebar-foreground: 240 4.8% 95.9%;
+    /* white at 6% over the card */
+    --border: 0 0% 16%;
+    --input: 0 0% 16%;
+    --ring: 217 89% 76%; /* #8ab4f8 */
+    --field: 0 0% 100% / 0.07;
+    --field-border: 0 0% 100% / 0.1;
+    --field-foreground: 0 0% 83.1%; /* #d4d4d4 */
+    --field-placeholder: 0 0% 100% / 0.45;
+    --select: 0 0% 15.3%; /* #272727 */
+    --select-border: 0 0% 100% / 0.05;
+    --checkbox-checked: 214 100% 50%; /* #006fff */
+
+    --sidebar-background: 0 0% 7.8%; /* #141414, one surface with the page */
+    --sidebar-foreground: 0 0% 75%;
+    --sidebar-icon: 0 0% 52%; /* #858585 */
     --sidebar-primary: 224.3 76.3% 48%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 0 0% 10%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-accent: 0 0% 13%;
+    --sidebar-active: 0 0% 15.7%; /* #282828, a step lighter than hover */
+    --sidebar-accent-foreground: 0 0% 98%;
+    /* white at 6% over the page */
+    --sidebar-border: 0 0% 13.4%;
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
 
@@ -92,6 +159,23 @@
 @layer base {
   * {
     @apply border-border;
+  }
+  /* Everything clickable shows the hand (Tailwind's reset leaves buttons on the arrow). */
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  [role='tab'],
+  [role='menuitem'],
+  [role='menuitemcheckbox'],
+  [role='menuitemradio'],
+  [role='option'],
+  [role='checkbox'],
+  [role='radio'],
+  [role='switch'],
+  [role='combobox'],
+  label[for],
+  summary,
+  select {
+    cursor: pointer;
   }
   body {
     @apply bg-background text-foreground;
@@ -106,6 +190,11 @@ html.mtp-embed,
 html.mtp-embed body {
   background: transparent !important;
   color-scheme: normal !important;
+}
+
+/* Inter's display cut (optical size 32), for headings and large figures — "Inter Display" in Figma. */
+@utility font-display {
+  font-variation-settings: 'opsz' 32;
 }
 
 @utility btn-brand {
@@ -234,16 +323,63 @@ div[data-radix-portal]:not(.portal--toast) {
   z-index: 2147483646 !important;
 }
 
-::-webkit-scrollbar {
-  @apply w-2.5 h-2.5;
+/* Overlay scrollbars, as macOS draws them. Native scrollbars take room from the layout and
+   cannot fade, so they are hidden, and lib/scrollbars.ts draws .mt-scrollbar over the content
+   while it scrolls. The customer portal (.mtp-scroll) keeps its own styled native scrollbars. */
+:not(.mtp-scroll) {
+  scrollbar-width: none;
+}
+/* Safari before 18.2 has no scrollbar-width. */
+:not(.mtp-scroll)::-webkit-scrollbar {
+  display: none;
 }
 
-::-webkit-scrollbar-track {
-  @apply bg-transparent;
+/* The element is the hit area; the bar inside it is thinner, and widens under the pointer. */
+.mt-scrollbar {
+  position: fixed;
+  z-index: 2147483647;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 300ms ease;
 }
-
-::-webkit-scrollbar-thumb {
-  @apply rounded-full bg-border border-[1px] border-transparent border-solid bg-clip-padding;
+.mt-scrollbar[data-visible] {
+  opacity: 1;
+  pointer-events: auto;
+  transition-duration: 100ms;
+}
+.mt-scrollbar::after {
+  content: '';
+  position: absolute;
+  border-radius: 9999px;
+  background-color: hsl(var(--foreground) / 0.3);
+  transition:
+    width 120ms ease,
+    height 120ms ease,
+    background-color 120ms ease;
+}
+.mt-scrollbar[data-axis='y']::after {
+  top: 0;
+  bottom: 0;
+  right: 2px;
+  width: 6px;
+}
+.mt-scrollbar[data-axis='x']::after {
+  left: 0;
+  right: 0;
+  bottom: 2px;
+  height: 6px;
+}
+.mt-scrollbar[data-axis='y']:hover::after,
+.mt-scrollbar[data-axis='y'][data-dragging]::after {
+  width: 9px;
+}
+.mt-scrollbar[data-axis='x']:hover::after,
+.mt-scrollbar[data-axis='x'][data-dragging]::after {
+  height: 9px;
+}
+.mt-scrollbar:hover::after,
+.mt-scrollbar[data-dragging]::after {
+  background-color: hsl(var(--foreground) / 0.45);
 }
 
 /* Keyframe animations (previously from @md/foundation) */
@@ -308,9 +444,911 @@ div[data-radix-portal]:not(.portal--toast) {
   );
 }
 
+/* ------------------------------------------------------------------------------------------------
+   Motion and the controls that use it: modals, side panels, dropdowns, tooltips, tabs, checkbox,
+   switch and toasts. The shared components in packages/ui only add the `mt-*` classes below.
+   ------------------------------------------------------------------------------------------------ */
+
+:root {
+  /* Easing */
+  --motion-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-ease-spring: cubic-bezier(0.34, 1.35, 0.64, 1);
+  /* Backdrops: a gentler curve than ease-out, which would put most of the dimming in the first
+     frames. */
+  --motion-ease-fade: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Backdrop behind modals and side panels */
+  --motion-overlay-in: 350ms;
+
+  /* Modal */
+  --motion-modal-in: 250ms;
+  --motion-modal-out: 150ms;
+  --motion-modal-scale: 0.96;
+
+  /* Checkbox */
+  --motion-check-fill: 150ms;
+  --motion-check-draw: 350ms;
+  --motion-check-erase: 150ms;
+
+  /* Switch */
+  --motion-switch: 350ms;
+  --motion-switch-travel: 18px;
+
+  /* Toast. Sonner removes a closing toast from the DOM after 200ms, so closing can't take longer. */
+  --motion-toast-in: 350ms;
+  --motion-toast-out: 200ms;
+  --motion-toast-offset: 16px;
+  --motion-toast-scale: 0.97;
+  --motion-toast-blur: 2px;
+
+  /* Dropdown */
+  --motion-dropdown-in: 250ms;
+  --motion-dropdown-out: 150ms;
+  --motion-dropdown-scale-in: 0.97;
+  --motion-dropdown-scale-out: 0.99;
+
+  /* Side panel */
+  --motion-sheet-in: 400ms;
+  --motion-sheet-out: 350ms;
+  --motion-sheet-offset: 96px;
+  --motion-sheet-blur: 2px;
+
+  /* Tooltip */
+  --motion-tooltip-in: 150ms;
+  --motion-tooltip-out: 50ms;
+  --motion-tooltip-delay: 80ms;
+  --motion-tooltip-scale: 0.98;
+  --motion-tooltip-move: 160ms;
+
+  /* Tabs */
+  --motion-tabs: 250ms;
+
+  /* Nav groups in the sidebar */
+  --motion-nav-expand: 250ms;
+  --motion-nav-collapse: 250ms;
+  --motion-nav-blur: 2px;
+
+  /* Backdrop behind modals and side panels, lighter at the top. */
+  --overlay-bg: linear-gradient(180deg, rgba(0, 0, 0, 0.36) 0%, rgba(0, 0, 0, 0.8) 100%);
+
+  /* Colours used only by these controls. The light theme keeps the look they had before; the
+     dark values are set under `.dark` below. */
+  --tooltip-bg: hsl(var(--primary));
+  --tooltip-fg: hsl(var(--primary-foreground));
+  --tooltip-ring: rgba(0, 0, 0, 0.06);
+  --tabs-bg: hsl(var(--muted));
+  --tabs-pill: hsl(var(--background));
+  --tabs-fg: hsl(var(--muted-foreground));
+  --tabs-fg-active: hsl(var(--foreground));
+  --check-border: hsl(var(--foreground) / 0.16);
+  --check-bg: hsl(var(--foreground) / 0.03);
+  --check-on-border: hsl(var(--checkbox-checked));
+  --check-on-fill: hsl(var(--checkbox-checked));
+  --check-mark: #ffffff;
+  --switch-track: hsl(var(--muted-foreground));
+  --switch-track-on: hsl(var(--brand));
+  --switch-thumb: hsl(var(--background));
+  --switch-thumb-on: hsl(var(--background));
+  --switch-ring: rgba(0, 0, 0, 0.8);
+}
+
+.dark {
+  --tooltip-bg: hsl(0 0% 18.4%); /* #2f2f2f */
+  --tooltip-fg: hsl(var(--card-foreground)); /* #ebebeb */
+  /* A black ring disappears on the dark page; a light rim (as on the toggles) shows the edge. */
+  --tooltip-ring: rgba(255, 255, 255, 0.092);
+  --tabs-bg: hsl(var(--sidebar-accent)); /* #212121 */
+  --tabs-pill: #454545;
+  --tabs-fg: rgba(193, 193, 193, 0.8);
+  --tabs-fg-active: hsl(var(--foreground)); /* #fafafa */
+  /* 0.32 so the border reaches 3:1 contrast against the page. */
+  --check-border: rgba(255, 255, 255, 0.18);
+  --check-bg: linear-gradient(180deg, #262626, #1f1f1f);
+  --check-on-border: hsl(var(--foreground));
+  --check-on-fill: linear-gradient(180deg, #f6f6f6, #d9d9d9);
+  --check-mark: #111111;
+  --switch-track: hsl(var(--accent)); /* #2e2e2e */
+  --switch-track-on: linear-gradient(180deg, #f6f6f6, #d9d9d9);
+  --switch-thumb: #bdbdbd;
+  --switch-thumb-on: hsl(var(--background)); /* #141414 */
+  /* A 0.5px rim, white at 9.2%. */
+  --switch-ring: rgba(255, 255, 255, 0.092);
+}
+
+@keyframes mt-modal-in {
+  from {
+    opacity: 0;
+    scale: var(--motion-modal-scale);
+  }
+}
+@keyframes mt-modal-out {
+  to {
+    opacity: 0;
+    scale: var(--motion-modal-scale);
+  }
+}
+@keyframes mt-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes mt-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+/* Changes nothing; keeps a wrapper mounted while the element inside it animates out. */
+@keyframes mt-hold {
+  to {
+    visibility: visible;
+  }
+}
+@keyframes mt-sheet-in {
+  from {
+    opacity: 0;
+    translate: var(--motion-sheet-offset) 0;
+    filter: blur(var(--motion-sheet-blur));
+  }
+}
+@keyframes mt-sheet-out {
+  to {
+    opacity: 0;
+    translate: var(--motion-sheet-offset) 0;
+    filter: blur(var(--motion-sheet-blur));
+  }
+}
+@keyframes mt-dropdown-in {
+  from {
+    opacity: 0;
+    scale: var(--motion-dropdown-scale-in);
+  }
+}
+@keyframes mt-dropdown-out {
+  to {
+    opacity: 0;
+    scale: var(--motion-dropdown-scale-out);
+  }
+}
+@keyframes mt-tooltip-in {
+  from {
+    opacity: 0;
+    scale: var(--motion-tooltip-scale);
+  }
+}
+@keyframes mt-tooltip-out {
+  to {
+    opacity: 0;
+    scale: var(--motion-tooltip-scale);
+  }
+}
+
+/* In the components layer, so a utility class on a single use can still override a property. */
+@layer components {
+  /* Modals */
+  .mt-modal[data-state='open'] {
+    animation: mt-modal-in var(--motion-modal-in) var(--motion-ease-out);
+  }
+  .mt-modal[data-state='closed'] {
+    animation: mt-modal-out var(--motion-modal-out) var(--motion-ease-out) forwards;
+  }
+  .mt-overlay[data-state='open'] {
+    animation: mt-fade-in var(--motion-overlay-in) var(--motion-ease-fade);
+  }
+  .mt-overlay[data-state='closed'] {
+    animation: mt-fade-out var(--motion-modal-out) var(--motion-ease-fade) forwards;
+  }
+  .mt-backdrop {
+    background: var(--overlay-bg);
+  }
+  .mt-modal-holder[data-state='closed'] {
+    animation: mt-hold var(--motion-modal-out) linear forwards;
+  }
+
+  /* Side panels */
+  .mt-sheet[data-state='open'] {
+    animation: mt-sheet-in var(--motion-sheet-in) var(--motion-ease-out);
+  }
+  .mt-sheet[data-state='closed'] {
+    animation: mt-sheet-out var(--motion-sheet-out) var(--motion-ease-out) forwards;
+  }
+  .mt-sheet-overlay[data-state='open'] {
+    animation: mt-fade-in var(--motion-sheet-in) var(--motion-ease-fade);
+  }
+  .mt-sheet-overlay[data-state='closed'] {
+    animation: mt-fade-out var(--motion-sheet-out) var(--motion-ease-fade) forwards;
+  }
+
+  /* Dropdowns: menus, selects, popovers */
+  .mt-dropdown {
+    transform-origin: var(--radix-popper-transform-origin, top center);
+  }
+  .mt-dropdown[data-state='open'] {
+    animation: mt-dropdown-in var(--motion-dropdown-in) var(--motion-ease-out);
+  }
+  .mt-dropdown[data-state='closed'] {
+    animation: mt-dropdown-out var(--motion-dropdown-out) var(--motion-ease-out) forwards;
+  }
+
+  /* Tooltips */
+  .mt-tooltip {
+    font-weight: 500;
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    background: var(--tooltip-bg);
+    color: var(--tooltip-fg);
+    white-space: nowrap;
+    box-shadow:
+      inset 0 0 0 0.5px var(--tooltip-ring),
+      0 2px 6px 0 rgba(0, 0, 0, 0.05),
+      0 4px 42px 0 rgba(0, 0, 0, 0.06);
+    transform-origin: var(--radix-popper-transform-origin, 50% 100%);
+  }
+  .mt-tooltip[data-state='delayed-open'],
+  .mt-tooltip[data-state='instant-open'] {
+    animation: mt-tooltip-in var(--motion-tooltip-in) ease-out;
+  }
+  .mt-tooltip[data-state='closed'] {
+    animation: mt-tooltip-out var(--motion-tooltip-out) ease-out forwards;
+  }
+
+  /* One tooltip shared by a group of buttons (TooltipGroup). It sits in a portal with a fixed
+     position, so a parent with overflow: hidden can't clip it; script sets its width and place. */
+  .mt-tooltip.mt-tooltip-travel {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 100;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 0;
+    overflow: hidden;
+    translate: var(--tooltip-x, 0px) var(--tooltip-y, 0px);
+    scale: var(--motion-tooltip-scale);
+    transform-origin: 50% 100%;
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      opacity var(--motion-tooltip-out) ease-out,
+      scale var(--motion-tooltip-out) ease-out,
+      translate var(--motion-tooltip-move) var(--motion-ease-out),
+      width var(--motion-tooltip-move) var(--motion-ease-out);
+  }
+  .mt-tooltip.mt-tooltip-travel[data-visible='true'] {
+    opacity: 1;
+    scale: 1;
+    transition:
+      opacity var(--motion-tooltip-in) ease-out var(--motion-tooltip-delay),
+      scale var(--motion-tooltip-in) ease-out var(--motion-tooltip-delay),
+      translate var(--motion-tooltip-move) var(--motion-ease-out),
+      width var(--motion-tooltip-move) var(--motion-ease-out);
+  }
+
+  /* Tabs, contained style: a sliding pill behind the active tab. */
+  .mt-tabs {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px;
+    border-radius: 48px;
+    background: var(--tabs-bg);
+  }
+  .mt-tab {
+    position: relative;
+    z-index: 1;
+    appearance: none;
+    border: 0;
+    background: transparent;
+    height: 30px;
+    padding: 4px 12px;
+    border-radius: 48px;
+    color: var(--tabs-fg);
+    cursor: pointer;
+    transition: color var(--motion-tabs) var(--motion-ease-out);
+  }
+  .mt-tab:hover,
+  .mt-tab[data-state='active'],
+  .mt-tab[aria-selected='true'] {
+    color: var(--tabs-fg-active);
+  }
+  .mt-tab:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+  .mt-tabs-pill {
+    position: absolute;
+    top: 3px;
+    left: 0;
+    z-index: 0;
+    height: 30px;
+    width: var(--tabs-pill-w, 0px);
+    translate: var(--tabs-pill-x, 0px) 0;
+    border-radius: 48px;
+    background: var(--tabs-pill);
+    pointer-events: none;
+    transition:
+      translate var(--motion-tabs) var(--motion-ease-out),
+      width var(--motion-tabs) var(--motion-ease-out);
+  }
+  /* Tabs, underlined style: the same movement with a line under the active tab. */
+  .mt-tabs-line {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    z-index: 0;
+    height: 2px;
+    width: var(--tabs-pill-w, 0px);
+    translate: var(--tabs-pill-x, 0px) 0;
+    background: hsl(var(--primary));
+    pointer-events: none;
+    transition:
+      translate var(--motion-tabs) var(--motion-ease-out),
+      width var(--motion-tabs) var(--motion-ease-out);
+  }
+
+  /* Checkbox. The checked fill is a gradient, which can't animate, so it sits in ::before and
+     fades in. The marks are SVG paths with pathLength="1" that draw themselves. */
+  .mt-check {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border-radius: 4px;
+    border: 1px solid var(--check-border);
+    background: var(--check-bg);
+    cursor: pointer;
+    transition: border-color var(--motion-check-fill) var(--motion-ease-out);
+  }
+  .mt-check::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 3px;
+    background: var(--check-on-fill);
+    opacity: 0;
+    transition: opacity var(--motion-check-fill) var(--motion-ease-out);
+  }
+  .mt-check svg {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: 10px;
+    height: 10px;
+    color: var(--check-mark);
+  }
+  .mt-check svg path {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    /* hides the dot a round line cap would otherwise leave behind */
+    opacity: 0;
+    transition:
+      stroke-dashoffset var(--motion-check-erase) var(--motion-ease-out),
+      opacity 0s linear var(--motion-check-erase);
+  }
+  .mt-check[aria-checked='true'],
+  .mt-check[aria-checked='mixed'] {
+    border-color: var(--check-on-border);
+  }
+  .mt-check[aria-checked='true']::before,
+  .mt-check[aria-checked='mixed']::before {
+    opacity: 1;
+  }
+  .mt-check[aria-checked='true'] .mt-check-mark path,
+  .mt-check[aria-checked='mixed'] .mt-check-dash path {
+    stroke-dashoffset: 0;
+    opacity: 1;
+    transition:
+      stroke-dashoffset var(--motion-check-draw) var(--motion-ease-out),
+      opacity 0s;
+  }
+  .mt-check:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  /* Switch */
+  .mt-switch {
+    position: relative;
+    flex: none;
+    width: 40px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: var(--switch-track);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+      0 0 0 0.5px var(--switch-ring);
+    cursor: pointer;
+  }
+  .mt-switch-thumb {
+    position: absolute;
+    left: 3px;
+    top: 3px;
+    width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    background: var(--switch-thumb);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+    translate: 0 0;
+    transition: translate var(--motion-switch) var(--motion-ease-spring);
+  }
+  .mt-switch[aria-checked='true'] {
+    background: var(--switch-track-on);
+    box-shadow: 0 0 0 0.5px var(--switch-ring);
+  }
+  .mt-switch[aria-checked='true'] .mt-switch-thumb {
+    translate: var(--motion-switch-travel) 0;
+    background: var(--switch-thumb-on);
+  }
+  .mt-switch:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  /* Tables: the primary item (first column) of a row that leads somewhere underlines its label on
+     hover. A name with a description under it underlines the name only. Rows that open with a
+     button in that cell (rather than a row link) get the same. */
+  .mt-row-primary:not(:has(> div)):not(:has([data-avatar])):hover,
+  .mt-row-primary > div > span:first-child:hover,
+  td[data-primary] > button > span:first-child:hover,
+  /* With an avatar before the name (the customer's initial): the name alone, not the initial. */
+  .mt-row-primary:has([data-avatar]):hover [data-avatar] + * {
+    text-decoration-line: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+
+  /* Nav group in the sidebar (`data-open` on the group). The panel's grid row grows from 0 to the
+     content's height, so the motion reverses from wherever it is when clicked again. A closed
+     group's links are hidden (visibility) once it has folded, so Tab and screen readers skip them. */
+  .mt-nav-group-panel {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows var(--motion-nav-collapse) var(--motion-ease-out);
+  }
+  .mt-nav-group[data-open='true'] .mt-nav-group-panel {
+    grid-template-rows: 1fr;
+    transition: grid-template-rows var(--motion-nav-expand) var(--motion-ease-out);
+  }
+  .mt-nav-group-inner {
+    min-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    filter: blur(var(--motion-nav-blur));
+    visibility: hidden;
+    transition:
+      opacity var(--motion-nav-collapse) var(--motion-ease-out),
+      filter var(--motion-nav-collapse) var(--motion-ease-out),
+      visibility 0s linear var(--motion-nav-collapse);
+  }
+  .mt-nav-group[data-open='true'] .mt-nav-group-inner {
+    opacity: 1;
+    filter: blur(0);
+    visibility: visible;
+    transition:
+      opacity var(--motion-nav-expand) var(--motion-ease-out),
+      filter var(--motion-nav-expand) var(--motion-ease-out),
+      visibility 0s;
+  }
+  /* Space after an open group; it folds with the group, so the items below don't jump. */
+  .mt-nav-group-inner::after {
+    content: '';
+    display: block;
+    height: 10px;
+  }
+  .mt-nav-chevron {
+    display: inline-flex;
+    transform-origin: center;
+    transition: scale var(--motion-nav-expand) var(--motion-ease-out);
+  }
+  .mt-nav-chevron path {
+    vector-effect: non-scaling-stroke;
+  }
+  .mt-nav-group[data-open='true'] .mt-nav-chevron {
+    scale: 1 -1;
+  }
+
+  /* Bulk-action bar over a table's selected rows (SelectionToolbar). It comes in like a toast:
+     rising, growing and sharpening, and leaves the same way. Transitions rather than keyframes, so
+     selecting and clearing quickly reverses it from wherever it is. Once it has left it is hidden
+     (visibility), so Tab and screen readers skip it. */
+  .mt-selection-bar-surface {
+    opacity: 0;
+    translate: 0 var(--motion-toast-offset);
+    scale: var(--motion-toast-scale);
+    filter: blur(var(--motion-toast-blur));
+    visibility: hidden;
+    transition:
+      opacity var(--motion-toast-out) var(--motion-ease-out),
+      translate var(--motion-toast-out) var(--motion-ease-out),
+      scale var(--motion-toast-out) var(--motion-ease-out),
+      filter var(--motion-toast-out) var(--motion-ease-out),
+      visibility 0s linear var(--motion-toast-out);
+  }
+  .mt-selection-bar[data-open='true'] .mt-selection-bar-surface {
+    opacity: 1;
+    translate: 0 0;
+    scale: 1;
+    filter: blur(0);
+    visibility: visible;
+    transition:
+      opacity var(--motion-toast-in) var(--motion-ease-out),
+      translate var(--motion-toast-in) var(--motion-ease-out),
+      scale var(--motion-toast-in) var(--motion-ease-out),
+      filter var(--motion-toast-in) var(--motion-ease-out),
+      visibility 0s;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mt-modal,
+    .mt-overlay,
+    .mt-modal-holder,
+    .mt-sheet,
+    .mt-sheet-overlay,
+    .mt-dropdown,
+    .mt-tooltip {
+      animation: none !important;
+    }
+    .mt-tooltip.mt-tooltip-travel,
+    .mt-tabs-pill,
+    .mt-tabs-line,
+    .mt-tab,
+    .mt-check,
+    .mt-check::before,
+    .mt-check svg path,
+    .mt-switch-thumb,
+    .mt-nav-group-panel,
+    .mt-nav-group-inner,
+    .mt-nav-chevron,
+    .mt-selection-bar-surface {
+      transition: none !important;
+    }
+  }
+}
+
+/* Light theme canvas: the app layout (`mt-canvas`, the sidebar wrapper) carries the nav's own
+   background, and the nav and the page area let it show through, so they read as one surface.
+   Only inside the app layout, so the portal and checkout keep their own backgrounds. Outside any
+   layer, to win over the `bg-*` utilities. */
+.light .mt-canvas {
+  /* From the nav's colour (#fafafa) to two steps darker (#f5f5f5), on the design's 131deg. */
+  background: linear-gradient(131deg, hsl(var(--sidebar-background)) 9.47%, hsl(0 0% 96%) 97.08%);
+  background-attachment: fixed;
+}
+.light .mt-canvas [data-sidebar='sidebar'],
+.light .mt-canvas > main {
+  background: transparent;
+}
+/* The list pages' table card: a small, soft shadow lifting it off the canvas. The card runs to
+   the bottom of the window, so it only shows along the top and the sides. */
+.light .mt-table-card {
+  box-shadow:
+    0 -1px 1px rgba(0, 0, 0, 0.02),
+    0 0 6px rgba(0, 0, 0, 0.03);
+}
+
+/* Modals (Dialog, AlertDialog, Modal): the surface, and the footer's buttons. */
+:root {
+  --modal-bg: hsl(var(--background));
+  --modal-shadow:
+    0 0 0 1px hsl(var(--border)), 0 4px 6px -4px rgba(16, 24, 40, 0.1),
+    0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+.dark {
+  --modal-bg: hsl(var(--accent)); /* #2e2e2e, base/neutral/grey 800 */
+  /* A black hairline and soft drop outside; a faint light rim and top highlight inside. */
+  --modal-shadow:
+    0 0 0 1px #000, 0 4px 6px -4px rgba(16, 24, 40, 0.1), 0 10px 15px -3px rgba(0, 0, 0, 0.1),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+/* Dividers in a modal: white at 12% over the #2e2e2e surface, as a solid colour (#474747)
+   because the token is also used with its own alpha (`hsl(var(--border) / …)`). */
+.dark .mt-modal-surface:not(.mt-modal-workspace) {
+  --border: 0 0% 27.8%;
+}
+/* Settings: its surface a step above the page, its cards (the row groups of Integrations,
+   Payment methods…) a step above that, and every divider in its pages at white 10.2% over the
+   surface, solid for the same reason. The themes below tint all three. */
+.dark {
+  --workspace-surface: 0 0% 10.6%; /* #1b1b1b, base/neutral/grey 870 */
+}
+.dark .mt-modal-surface.mt-modal-workspace {
+  --border: 0 0% 19.7%; /* #323232 */
+  --card: 0 0% 13.3%; /* #222, base/neutral/grey 850 */
+}
+/* A detail page on the list pages' card surface (the customer page): the page's own --border sits
+   a hair above that surface (#292929 over #252525), so its dividers and table frames vanish. Here
+   it is white at ~11% over the surface, solid for the same reason as above. */
+.dark .mt-detail-surface {
+  --border: 0 0% 24.3%; /* #3e3e3e */
+}
+.dark.theme-horizon .mt-detail-surface {
+  --border: 40 3% 20%;
+}
+.dark.theme-moss .mt-detail-surface {
+  --border: 150 3% 20%;
+}
+@layer components {
+  .mt-modal-surface {
+    /* A size container: the footer below lays its buttons out by the modal's width. */
+    container-type: inline-size;
+    border-radius: 12px;
+    background: var(--modal-bg);
+    box-shadow: var(--modal-shadow);
+  }
+  /* A large page-like dialog with its own navigation (Settings): keeps the earlier surface. */
+  .mt-modal-surface.mt-modal-workspace {
+    background: hsl(var(--background));
+    border: 1px solid hsl(var(--border));
+    box-shadow:
+      0 10px 15px -3px rgba(0, 0, 0, 0.1),
+      0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  }
+  .dark .mt-modal-surface.mt-modal-workspace {
+    background: hsl(var(--workspace-surface));
+  }
+}
+/* Footer buttons are 30px. In a small modal (up to 448px) the actions share the width; wider
+   modals keep them at their own width, aligned right. Outside any layer, so they win over the
+   Button's own size classes. */
+.mt-modal-footer > button,
+.mt-modal-footer > a {
+  height: 30px;
+  padding-inline: 12px;
+}
+@container (max-width: 28rem) {
+  .mt-modal-footer > * {
+    flex: 1 1 0;
+  }
+}
+
+/* Toasts (Sonner). Sonner keeps its own stacking, swipe and live region; this only retunes its
+   enter/exit transition. Its rules sit in :where() and outside any layer, so these must too. */
+[data-sonner-toast][data-y-position='bottom'] {
+  --mt-toast-dir: 1;
+}
+[data-sonner-toast][data-y-position='top'] {
+  --mt-toast-dir: -1;
+}
+[data-sonner-toast] {
+  transition-property: transform, opacity, height, box-shadow, scale, filter;
+  transition-duration: var(--motion-toast-in);
+  transition-timing-function: var(--motion-ease-out);
+}
+[data-sonner-toast][data-mounted='false'] {
+  --y: translateY(calc(var(--mt-toast-dir, 1) * var(--motion-toast-offset)));
+  scale: var(--motion-toast-scale);
+  filter: blur(var(--motion-toast-blur));
+}
+[data-sonner-toast][data-removed='true'][data-swipe-out='false'] {
+  scale: var(--motion-toast-scale);
+  filter: blur(var(--motion-toast-blur));
+  transition-duration: var(--motion-toast-out);
+}
+[data-sonner-toast][data-removed='true'][data-front='true'][data-swipe-out='false'] {
+  --y: translateY(calc(var(--mt-toast-dir, 1) * var(--motion-toast-offset)));
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-sonner-toast] {
+    transition: none !important;
+  }
+}
+
+/* Dot grid behind a document preview (the quote editor's side pane): 1px dots every 7.5px. */
+.mt-dot-grid {
+  --dot-grid-bg: hsl(0 0% 97%);
+  --dot-grid-dot: rgba(0, 0, 0, 0.045);
+  background-color: var(--dot-grid-bg);
+  background-image: radial-gradient(circle, var(--dot-grid-dot) 0.75px, transparent 1px);
+  background-size: 7.5px 7.5px;
+}
+.dark .mt-dot-grid {
+  --dot-grid-bg: #1b1b1b;
+  --dot-grid-dot: rgba(255, 255, 255, 0.06);
+}
+
+/* A document drawn as a sheet in a preview (`mt-quote-paper`): one weight (medium) throughout,
+   13px body text and a large light title, labels a step quieter than values. Outside any layer,
+   to win over the document's own utilities; the document elsewhere keeps its look. */
+.mt-quote-paper {
+  font-size: 13px;
+  font-weight: 500;
+}
+.mt-quote-paper :is(.font-semibold, .font-bold, h2, h3, th) {
+  font-weight: 500;
+}
+.mt-quote-paper .text-sm {
+  font-size: 13px;
+}
+.mt-quote-paper h1 {
+  font-size: 34px;
+  line-height: 1.1;
+  margin-bottom: 16px;
+}
+.dark .mt-quote-paper {
+  --foreground: 0 0% 94.9%; /* #f2f2f2: values */
+  --muted-foreground: 0 0% 68.6%; /* #afafaf: labels */
+  --muted: 0 0% 18%; /* the sheet's own colour: tinted boxes sit flat on it */
+  /* Lines: white at 12% over the sheet, as a solid colour (#474747): the token has no alpha. */
+  --border: 0 0% 27.8%;
+}
+.dark .mt-quote-paper th {
+  color: #dcdcdc;
+}
+
 /* Chart dotted background */
 .chart-dotted-bg {
   mask-image: radial-gradient(rgb(0, 0, 0), transparent 62%);
   @apply absolute w-full h-full top-0 left-0 p-[70px] opacity-90;
   background: radial-gradient(hsl(var(--border)) 1px, transparent 0px) 10px 0px / 8px 8px transparent;
+}
+
+/* ── Experimental dark themes ─────────────────────────────────────────────────────────────
+   Classes on <body> beside `.dark` (ThemeProvider), refining its tokens; status colours are
+   unchanged. One recipe for each: the base carries the tint, everything above it (cards,
+   menus, hovers, text) is grey with only a hint of it. Outside any layer, to win over the dark
+   tokens and the components' own variables. */
+
+/* Horizon: from the pitch deck, a warm near-black (#100f0c) under nearly neutral greys. */
+.dark.theme-horizon {
+  --background: 45 14% 5.5%; /* the base: the one place the tint shows */
+  --foreground: 40 7% 94%;
+  --card: 40 4% 9.2%;
+  --card-table: 40 3.5% 10.5%;
+  --card-foreground: 40 4% 90%;
+  --popover: 40 8% 6.5%;
+  --popover-foreground: 40 5% 93%;
+  --menu: 40 3% 19%;
+  --menu-foreground: 40 6% 94%;
+  --menu-accent: 40 3% 27%;
+  --brand: 40 30% 70%;
+  --brand-foreground: 40 20% 8%;
+  --primary: 40 12% 91%;
+  --primary-foreground: 40 12% 6%;
+  --secondary: 40 2% 10.2%;
+  --secondary-foreground: 40 5% 92%;
+  --muted: 40 3% 12%;
+  --muted-foreground: 40 2% 59%;
+  --faint-foreground: 40 1% 45%;
+  --accent: 40 3% 14%;
+  --accent-foreground: 40 6% 95%;
+  --tag-neutral: 40 2% 60%;
+  --tag-neutral-bg: 40 3% 16%;
+  --border: 40 5% 11.8%;
+  --input: 40 5% 11.8%;
+  --ring: 40 30% 72%;
+  --field-foreground: 40 3% 84%;
+  --select: 40 2% 10.2%;
+  --checkbox-checked: 40 30% 70%;
+  --sidebar-background: 45 14% 5.5%;
+  --sidebar-foreground: 40 1% 74.5%;
+  --sidebar-icon: 40 1% 45%;
+  --sidebar-accent: 40 3% 10%;
+  --sidebar-active: 40 3% 13%;
+  --sidebar-accent-foreground: 40 6% 95%;
+  --sidebar-border: 40 5% 11.8%;
+
+  /* The components' own colours, on the same greys. */
+  --tooltip-bg: hsl(40 3% 18%);
+  --tabs-pill: hsl(40 3% 26%);
+  --tabs-fg: hsla(40, 3%, 78%, 0.8);
+  --check-bg: linear-gradient(180deg, #1f1e1c, #1a1918);
+  --check-on-fill: linear-gradient(180deg, #f2f1ee, #d7d5d0);
+  --check-mark: #12110e;
+  --switch-track-on: linear-gradient(180deg, #f2f1ee, #d7d5d0);
+  --switch-thumb: hsl(40 3% 74%);
+}
+.dark.theme-horizon .mt-dashboard-card {
+  /* --card with a little more of the theme's tint (7% rather than 4%): at --card's own 4% the
+     Home cards read cool, almost blue, against the more strongly tinted base. */
+  background-color: hsl(42 7% 9.2%);
+}
+.dark.theme-horizon .mt-dot-grid {
+  --dot-grid-bg: #141310;
+  --dot-grid-dot: rgba(241, 240, 239, 0.06);
+}
+.dark.theme-horizon .mt-modal-surface:not(.mt-modal-workspace) {
+  --border: 40 3% 26%;
+}
+/* Settings: as in the default dark, a step above the base, grey with a hint of the tint. */
+.dark.theme-horizon {
+  --workspace-surface: 40 4% 8.6%;
+}
+.dark.theme-horizon .mt-modal-surface.mt-modal-workspace {
+  --border: 40 3% 18%;
+  --card: 40 4% 11.3%;
+}
+
+/* Moss: the same recipe on a green near-black (#0c100e), with a sage accent. */
+.dark.theme-moss {
+  --background: 150 14% 5.5%; /* the base: the one place the tint shows */
+  --foreground: 150 7% 94%;
+  --card: 150 4% 9.2%;
+  --card-table: 150 3.5% 10.5%;
+  --card-foreground: 150 4% 90%;
+  --popover: 150 8% 6.5%;
+  --popover-foreground: 150 5% 93%;
+  --menu: 150 3% 19%;
+  --menu-foreground: 150 6% 94%;
+  --menu-accent: 150 3% 27%;
+  --brand: 150 30% 62%;
+  --brand-foreground: 150 25% 7%;
+  --primary: 140 14% 90%;
+  --primary-foreground: 150 12% 6%;
+  --secondary: 150 2% 10.2%;
+  --secondary-foreground: 150 5% 92%;
+  --muted: 150 3% 12%;
+  --muted-foreground: 150 2% 59%;
+  --faint-foreground: 150 1% 45%;
+  --accent: 150 3% 14%;
+  --accent-foreground: 150 6% 95%;
+  --tag-neutral: 150 2% 60%;
+  --tag-neutral-bg: 150 3% 16%;
+  --border: 150 5% 11.8%;
+  --input: 150 5% 11.8%;
+  --ring: 150 30% 66%;
+  --field-foreground: 150 3% 84%;
+  --select: 150 2% 10.2%;
+  --checkbox-checked: 150 30% 62%;
+  --sidebar-background: 150 14% 5.5%;
+  --sidebar-foreground: 150 1% 74.5%;
+  --sidebar-icon: 150 1% 45%;
+  --sidebar-accent: 150 3% 10%;
+  --sidebar-active: 150 3% 13%;
+  --sidebar-accent-foreground: 150 6% 95%;
+  --sidebar-border: 150 5% 11.8%;
+
+  /* The components' own colours, on the same greys. */
+  --tooltip-bg: hsl(150 3% 18%);
+  --tabs-pill: hsl(150 3% 26%);
+  --tabs-fg: hsla(150, 3%, 78%, 0.8);
+  --check-bg: linear-gradient(180deg, #1c1f1d, #181a19);
+  --check-on-fill: linear-gradient(180deg, #eff3f0, #d3dbd6);
+  --check-mark: #0d120f;
+  --switch-track-on: linear-gradient(180deg, #eff3f0, #d3dbd6);
+  --switch-thumb: hsl(150 3% 74%);
+}
+.dark.theme-moss .mt-dashboard-card {
+  /* --card with a little more of the theme's tint (7% rather than 4%): at --card's own 4% the
+     Home cards read cool, almost blue, against the more strongly tinted base. */
+  background-color: hsl(150 7% 9.2%);
+}
+.dark.theme-moss .mt-dot-grid {
+  --dot-grid-bg: #111412;
+  --dot-grid-dot: rgba(236, 242, 238, 0.06);
+}
+.dark.theme-moss .mt-modal-surface:not(.mt-modal-workspace) {
+  --border: 150 3% 26%;
+}
+.dark.theme-moss {
+  --workspace-surface: 150 4% 8.6%;
+}
+.dark.theme-moss .mt-modal-surface.mt-modal-workspace {
+  --border: 150 3% 18%;
+  --card: 150 4% 11.3%;
+}
+
+/* Browser autofill (a remembered email, a saved password) paints its own fill and text over a
+   field, which then looks like the old inputs. Keep the field's own: the fill change is put off
+   indefinitely, and the text keeps the field's colour. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: hsl(var(--field-foreground));
+  caret-color: hsl(var(--field-foreground));
+  transition: background-color 600000s 0s, color 600000s 0s;
 }

@@ -102,7 +102,7 @@ const Field = ({ label, tooltip, children }: { label: string; tooltip?: string; 
           <TooltipTrigger asChild>
             <InfoIcon className="h-3.5 w-3.5 cursor-help text-muted-foreground" />
           </TooltipTrigger>
-          <TooltipContent className="max-w-72">{tooltip}</TooltipContent>
+          <TooltipContent multiline className="max-w-72">{tooltip}</TooltipContent>
         </Tooltip>
       )}
     </div>

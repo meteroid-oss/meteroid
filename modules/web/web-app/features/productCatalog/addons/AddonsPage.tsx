@@ -1,10 +1,11 @@
-import { PlusIcon } from '@md/icons'
 import { Button } from '@md/ui'
 import { SortingState } from '@tanstack/react-table'
 import { FunctionComponent, useCallback, useState } from 'react'
 import { useMatch, useNavigate, useParams, useResolvedPath } from 'react-router'
 
 import { Gate } from '@/components/Gate'
+import { EmptyState } from '@/components/empty-state/EmptyState'
+import { AddIcon } from '@/components/icons/AppIcons'
 import { ListPageLayout, ListToolbarSearch, PanelHead, RefreshButton } from '@/components/layouts'
 import { AddonCreateForm } from '@/features/productCatalog/addons/AddonCreateForm'
 import { AddonDetailPanel } from '@/features/productCatalog/addons/AddonDetailPanel'
@@ -46,10 +47,16 @@ export const AddonsPage: FunctionComponent = () => {
     orderBy: sortingStateToOrderBy(sorting),
   })
 
+  // No add-on at all gets the empty state; a search that finds none keeps the table.
+  const isEmpty =
+    !debouncedSearch &&
+    pagination.pageIndex === 0 &&
+    addonsQuery.isSuccess &&
+    (addonsQuery.data?.paginationMeta?.totalItems ?? 0) === 0
+
   return (
     <ListPageLayout
       title="Add-ons"
-      count={addonsQuery.data?.paginationMeta?.totalItems}
       panel={
         creating ? (
           <div className="divide-y divide-border">
@@ -74,7 +81,7 @@ export const AddonsPage: FunctionComponent = () => {
       actions={
         <Gate perm="catalog:manage">
           <Button variant="primary" size="sm" hasIcon onClick={() => navigate('add-addon')}>
-            <PlusIcon className="w-4 h-4" /> New add-on
+            <AddIcon /> New add-on
           </Button>
         </Gate>
       }
@@ -83,22 +90,36 @@ export const AddonsPage: FunctionComponent = () => {
           value={search ?? ''}
           onChange={setSearch}
           placeholder="Search add-ons"
-          className="max-w-[220px]"
         />
       }
       toolbarTrailing={
         <RefreshButton isLoading={addonsQuery.isLoading} onClick={() => addonsQuery.refetch()} />
       }
     >
-      <AddonsTable
-        addonsQuery={addonsQuery}
-        pagination={pagination}
-        setPagination={setPagination}
-        sorting={sorting}
-        onSortingChange={handleSortingChange}
-        // Narrower beside "New add-on" too, no row marked.
-        selectedId={creating ? '' : addonId}
-      />
+      {isEmpty ? (
+        <EmptyState
+          title="No add-ons yet"
+          description="Add-ons are extras a customer can attach to their subscription."
+          scene="addons"
+          actions={
+            <Gate perm="catalog:manage">
+              <Button size="sm" variant="default" onClick={() => navigate('add-addon')}>
+                New add-on
+              </Button>
+            </Gate>
+          }
+        />
+      ) : (
+        <AddonsTable
+          addonsQuery={addonsQuery}
+          pagination={pagination}
+          setPagination={setPagination}
+          sorting={sorting}
+          onSortingChange={handleSortingChange}
+          // Narrower beside "New add-on" too, no row marked.
+          selectedId={creating ? '' : addonId}
+        />
+      )}
     </ListPageLayout>
   )
 }

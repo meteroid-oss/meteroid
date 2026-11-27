@@ -13,7 +13,6 @@ import {
   CheckCircle2,
   CreditCard,
   MoreVerticalIcon,
-  PlugIcon,
   PlusIcon,
   Users, UnplugIcon, Edit2Icon,
 } from 'lucide-react'
@@ -44,6 +43,7 @@ import {
 import {
   SettingsRow,
   SettingsRowGroup,
+  SettingsRowIcon,
   SettingsSection,
 } from '@/features/settings/components/SettingsSection'
 import { useQueryState } from "@/hooks/useQueryState";
@@ -228,13 +228,9 @@ export const IntegrationsTab = () => {
                   className={cn(integration.disabled && 'bg-secondary')}
                   title={
                     <>
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
-                        {integration.icon ? (
-                          <integration.icon className="h-4 w-4" />
-                        ) : (
-                          <section.icon className="h-4 w-4 text-foreground" />
-                        )}
-                      </span>
+                      <SettingsRowIcon>
+                        {integration.icon ? <integration.icon /> : <section.icon />}
+                      </SettingsRowIcon>
                       {integration.name}
                     </>
                   }
@@ -257,11 +253,8 @@ export const IntegrationsTab = () => {
                   {integration.disabled ? (
                     <span className="text-xs text-muted-foreground">Coming soon</span>
                   ) : connectorsQuery.isLoading ? null : !integration.data?.length ? (
-                    <Button size="sm" variant="brand" className="font-semibold" asChild>
-                      <Link to={integration.link ?? '#'}>
-                        Connect
-                        <PlugIcon className="ml-2 h-3 w-3" />
-                      </Link>
+                    <Button size="sm" variant="primary" asChild>
+                      <Link to={integration.link ?? '#'}>Connect</Link>
                     </Button>
                   ) : integration.paymentProvider ? (
                     <Button size="sm" variant="secondary" hasIcon asChild>
