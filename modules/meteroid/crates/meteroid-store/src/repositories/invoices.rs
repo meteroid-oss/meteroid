@@ -33,6 +33,7 @@ use diesel_models::enums::{MrrMovementType, SubscriptionEventType, SubscriptionS
 use diesel_models::extend::connection_metadata;
 use diesel_models::invoice_carry_forward::InvoiceCarryForwardRow;
 use diesel_models::invoices::{InvoiceRow, InvoiceRowNew};
+use diesel_models::slot_transactions::SlotTransactionRow;
 use diesel_models::stored_object::StoredObjectRowNew;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::{Report, bail};
@@ -964,6 +965,21 @@ impl InvoiceInterface for Store {
                         .internal
                         .record_outbox_batch_tx(conn, tenant_id, actor, vec![event])
                         .await;
+                }
+
+                // What it bills is in effect, its other side credited on notes now or later:
+                // deleting would forgive it unrecorded. Void it instead (R-124).
+                if invoice.invoice_type == InvoiceType::Adjustment
+                    && invoice.subscription_id.is_some()
+                    && !SlotTransactionRow::holds_pending_seats(conn, id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?
+                {
+                    bail!(StoreError::InvalidArgument(
+                        "This adjustment bills a subscription change already in effect: finalize \
+                         it, then void it to forgive what it bills"
+                            .into(),
+                    ));
                 }
 
                 // Snapshot before the row is gone — the event payload is the only record left.

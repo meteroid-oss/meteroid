@@ -50,6 +50,7 @@ mod test_billing;
 mod test_cadence_change;
 mod test_card_expiry_email;
 mod test_catalog_codes;
+mod test_change_draft_deletion;
 mod test_clock_travel;
 mod test_credit_business_time;
 mod test_credit_cost_basis;

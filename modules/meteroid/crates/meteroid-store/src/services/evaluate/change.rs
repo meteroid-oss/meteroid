@@ -60,6 +60,15 @@ pub(in crate::services) fn record_short(tenant: TenantId, change: &'static str, 
     );
 }
 
+/// When a change's adjustment invoice is finalized (R-166).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::services) enum AdjustmentIssue {
+    /// At the change when the subscription auto-advances its invoices, else left a draft.
+    AsSubscription,
+    /// At the change: the checkout it completes answered it.
+    Checkout,
+}
+
 /// How a change takes back what its fees billed beyond what the facts now owe them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::services) enum GiveBack {
@@ -1321,7 +1330,9 @@ impl Services {
         .await
     }
 
-    /// Writes and finalizes the adjustment invoice `bills` make, dated `on`; none without lines.
+    /// Writes the adjustment invoice `bills` make, dated `on`, finalized as `issue` says
+    /// (R-166); none without lines.
+    #[allow(clippy::too_many_arguments)]
     pub(in crate::services) async fn issue_change_adjustment_tx(
         &self,
         conn: &mut PgConn,
@@ -1330,6 +1341,7 @@ impl Services {
         customer: &Customer,
         on: NaiveDate,
         bills: &[LineItem],
+        issue: AdjustmentIssue,
     ) -> StoreResult<Option<Invoice>> {
         if bills.is_empty() {
             return Ok(None);
@@ -1344,7 +1356,11 @@ impl Services {
                 bills,
             )
             .await?;
-        if let Some(invoice) = &invoice {
+        let finalized = match issue {
+            AdjustmentIssue::AsSubscription => subscription.auto_advance_invoices,
+            AdjustmentIssue::Checkout => true,
+        };
+        if let Some(invoice) = invoice.as_ref().filter(|_| finalized) {
             self.finalize_invoice_tx(
                 conn,
                 actor,
@@ -1359,9 +1375,9 @@ impl Services {
     }
 
     /// Settles `change`, its facts written: what it owes back on notes against the finalized
-    /// invoices that billed it, dated at its instant, then what it owes on a finalized adjustment
-    /// invoice, which what the notes return to the balance pays. Returns the adjustment invoice
-    /// and the notes.
+    /// invoices that billed it, dated at its instant, then what it owes on an adjustment invoice,
+    /// finalized with what the notes return to the balance when the subscription auto-advances,
+    /// else a draft (R-078, R-166). Returns the adjustment invoice and the notes.
     #[allow(clippy::too_many_arguments)]
     pub(in crate::services) async fn settle_change_tx(
         &self,
@@ -1415,6 +1431,7 @@ impl Services {
                     customer,
                     change.on,
                     &documents.bills,
+                    AdjustmentIssue::AsSubscription,
                 )
                 .await?;
             Ok((

@@ -423,6 +423,7 @@ impl Services {
                     &details.customer,
                     on,
                     bills,
+                    crate::services::evaluate::change::AdjustmentIssue::AsSubscription,
                 )
                 .await?
             } else {

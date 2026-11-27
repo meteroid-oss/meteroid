@@ -258,6 +258,24 @@ pub struct FetchTransactionResult {
 }
 
 impl SlotTransactionRow {
+    /// Whether `invoice_id` bills seats that wait for its payment: deleted, they never start
+    /// (R-124).
+    pub async fn holds_pending_seats(conn: &mut PgConn, invoice_id: InvoiceId) -> DbResult<bool> {
+        use crate::schema::slot_transaction::dsl;
+        use diesel::{ExpressionMethods, QueryDsl};
+        use diesel_async::RunQueryDsl;
+
+        diesel::select(diesel::dsl::exists(
+            dsl::slot_transaction
+                .filter(dsl::invoice_id.eq(invoice_id))
+                .filter(dsl::status.eq(crate::enums::SlotTransactionStatusEnum::Pending)),
+        ))
+        .get_result(conn)
+        .await
+        .attach("Error while checking whether an invoice holds pending seats")
+        .into_db_result()
+    }
+
     pub async fn activate_pending_for_invoice(
         conn: &mut PgConn,
         lock: &CustomerLock,

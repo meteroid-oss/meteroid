@@ -3305,14 +3305,14 @@ async fn a_second_amendment_the_same_day_bills_back_what_the_first_gave_back() {
 }
 
 /// 49.99 a month in arrears from Jan 11, 2025, its invoices left drafts; a 15.00 one-time fee
-/// added on Feb 11, a renewal day after its draft was written, bills 1500 on an adjustment, which
-/// is voided. Finalizing the renewal's draft bills January's 4999: the void forgave the fee, so
-/// the facts owe nothing more of it, and none is reported unbilled.
-/// Rules: R-096
+/// added on Feb 11, a renewal day after its draft was written, bills 1500 on an adjustment left a
+/// draft, which the operator issues and voids. Finalizing the renewal's draft bills January's 4999:
+/// the void forgave the fee, so the facts owe nothing more of it, and none is reported unbilled.
+/// Rules: R-096, R-166
 #[tokio::test]
 async fn a_voided_one_time_fee_is_owed_no_more_when_its_renewal_is_finalized() {
     use meteroid_store::domain::BillingPeriodEnum;
-    use meteroid_store::domain::enums::{FeeTypeEnum, InvoiceStatusEnum};
+    use meteroid_store::domain::enums::{FeeTypeEnum, InvoiceStatusEnum, InvoiceType};
     use meteroid_store::domain::price_components::{PriceEntry, PriceInput, ProductRef};
     use meteroid_store::domain::prices::{FeeStructure, Pricing};
     use meteroid_store::domain::subscription_amendment::{
@@ -3384,15 +3384,31 @@ async fn a_voided_one_time_fee_is_owed_no_more_when_its_renewal_is_finalized() {
     let invoices = env.get_invoices(sub_id).await;
     let adjustment = invoices
         .iter()
-        .find(|invoice| invoice.status == InvoiceStatusEnum::Finalized)
+        .find(|invoice| invoice.invoice_type == InvoiceType::Adjustment)
         .expect("the adjustment");
+    assert_eq!(adjustment.status, InvoiceStatusEnum::Draft, "R-166");
+    env.services()
+        .finalize_invoice_at(
+            Actor::System,
+            adjustment.id,
+            TENANT_ID,
+            IssueAt::At(
+                day(2025, 2, 11)
+                    .and_hms_opt(16, 0, 0)
+                    .expect("an instant")
+                    .and_utc(),
+            ),
+            InvoiceDelivery::Suppressed,
+        )
+        .await
+        .expect("the adjustment issued");
     env.store()
         .void_invoice_at(Actor::System, adjustment.id, TENANT_ID, at(17))
         .await
         .expect("the void");
     let draft = invoices
         .iter()
-        .find(|invoice| invoice.status == InvoiceStatusEnum::Draft)
+        .find(|invoice| invoice.invoice_type == InvoiceType::Recurring)
         .expect("the renewal's draft");
     env.services()
         .finalize_invoice_at(

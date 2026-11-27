@@ -63,6 +63,71 @@ async fn test_slot_transactions_comprehensive() {
     test_min_max_limits(&services, &store, &mut conn).await;
 }
 
+/// Without auto-advance, seats bought leave a draft. Seats active at once are in effect, so their
+/// draft is refused deletion like a change's; seats waiting for its payment never start once it
+/// is deleted, so that draft is deleted (R-124).
+#[tokio::test]
+async fn test_only_a_seat_purchase_awaiting_payment_has_its_draft_deleted() {
+    use diesel::{ExpressionMethods, QueryDsl};
+    use diesel_async::RunQueryDsl;
+    use diesel_models::schema::subscription::dsl;
+
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
+    let setup = meteroid_it::container::start_meteroid_with_clients(
+        postgres_connection_string,
+        SeedLevel::PLANS,
+        Arc::new(MockUsageClient::noop()),
+        Arc::new(MockMailerService::new()),
+    )
+    .await;
+    let (services, store) = (setup.services.clone(), setup.store.clone());
+    for (mode, deleted) in [
+        (SlotUpgradeBillingMode::Optimistic, false),
+        (SlotUpgradeBillingMode::OnInvoicePaid, true),
+    ] {
+        let (subscription_id, slot_component_id) = create_subscription_with_slots(
+            &services,
+            Decimal::from_str("10.00").unwrap(),
+            Some(1),
+            Some(100),
+            10,
+        )
+        .await;
+        diesel::update(dsl::subscription.filter(dsl::id.eq(subscription_id)))
+            .set(dsl::auto_advance_invoices.eq(false))
+            .execute(&mut store.pool.get().await.unwrap())
+            .await
+            .unwrap();
+        let draft = services
+            .update_subscription_slots_for_test(
+                TENANT_ID,
+                subscription_id,
+                slot_component_id,
+                5,
+                mode,
+                NaiveDate::from_ymd_opt(2024, 1, 15).map(|t| t.and_time(NaiveTime::MIN)),
+            )
+            .await
+            .expect("seats bought")
+            .invoice_id
+            .expect("the purchase writes a draft");
+        assert_eq!(
+            store
+                .get_invoice_by_id(TENANT_ID, draft)
+                .await
+                .unwrap()
+                .status,
+            meteroid_store::domain::enums::InvoiceStatusEnum::Draft
+        );
+        let result = store
+            .delete_invoice(common_domain::actor::Actor::System, draft, TENANT_ID)
+            .await;
+        assert_eq!(result.is_ok(), deleted, "{mode:?}: {result:?}");
+    }
+}
+
 // separated to keep subscriptions below the batching threshold (cycle & event runners)
 #[tokio::test]
 async fn test_slot_transactions_comprehensive_next() {

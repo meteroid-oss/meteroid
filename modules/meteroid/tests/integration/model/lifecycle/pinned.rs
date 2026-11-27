@@ -8,15 +8,15 @@ use super::reference::{
 };
 use crate::model::harness;
 
-fn day(y: i32, m: u32, d: u32) -> NaiveDate {
+pub(super) fn day(y: i32, m: u32, d: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(y, m, d).expect("a day")
 }
 
-fn at(on: NaiveDate, hour: i64) -> DateTime<Utc> {
+pub(super) fn at(on: NaiveDate, hour: i64) -> DateTime<Utc> {
     midnight(on) + chrono::Duration::hours(hour)
 }
 
-fn plan(fee: i64, arrears: bool, months: u32, rate: i64, seat: i64) -> PlanSpec {
+pub(super) fn plan(fee: i64, arrears: bool, months: u32, rate: i64, seat: i64) -> PlanSpec {
     PlanSpec {
         fee,
         arrears,
@@ -26,7 +26,7 @@ fn plan(fee: i64, arrears: bool, months: u32, rate: i64, seat: i64) -> PlanSpec 
     }
 }
 
-fn catalog(plans: [PlanSpec; 2], seats: i64) -> Catalog {
+pub(super) fn catalog(plans: [PlanSpec; 2], seats: i64) -> Catalog {
     Catalog {
         plans,
         auto_advance: true,
@@ -47,7 +47,7 @@ fn catalog(plans: [PlanSpec; 2], seats: i64) -> Catalog {
 
 /// Runs `actions` on the engine and the model; returns the engine's documents and what the
 /// model's checks find wrong after the last one.
-async fn replay(actions: &[Action]) -> (Vec<String>, Vec<String>) {
+pub(super) async fn replay(actions: &[Action]) -> (Vec<String>, Vec<String>) {
     let mut engine = Engine::new().await;
     let mut model = Model::default();
     for action in actions {
@@ -538,7 +538,7 @@ fn each_seat_line_gives_back_its_own_unused_days_whatever_order_they_are_issued_
 /// at three, 10000 × 15/31 − 7500 × 15/31 = 4839 − 3629 = 1210, and the true-up counts the 1048
 /// it leaves, read at the counts the step was billed at: 51613 − 33016 = 18597, where the counts
 /// read back from its amount alone, two and one, rounded to 1209 and trued up 18596.
-/// Rules: R-022, R-079
+/// Rules: R-022, R-079, R-166
 #[test]
 fn a_seat_step_counts_what_its_note_leaves_at_the_counts_it_was_billed_at() {
     harness::on_large_stacks(|| async {
@@ -575,6 +575,9 @@ fn a_seat_step_counts_what_its_note_leaves_at_the_counts_it_was_billed_at() {
             Action::OneTime {
                 at: at(on(3, 21), 16),
                 price: 25_000,
+            },
+            Action::FinalizeLatest {
+                at: at(on(3, 21), 17),
             },
             Action::BuySeats {
                 at: at(on(3, 22), 15),
@@ -898,7 +901,7 @@ fn a_change_replacing_the_window_an_add_on_opened_that_day_is_no_change_of_caden
 
 /// A change ending a free trial on Jan 25 to a yearly plan keeping a 19.00 monthly add-on renews
 /// Jan 25 to Feb 25 and bills 1425 on Feb 25, where it renewed the year to Jan 25, 2026.
-/// Rules: R-011, R-084
+/// Rules: R-011, R-084, R-166
 #[test]
 fn a_change_ending_a_free_trial_renews_on_the_cadence_of_the_add_on_it_keeps() {
     harness::on_large_stacks(|| async {
@@ -958,6 +961,9 @@ fn a_change_ending_a_free_trial_renews_on_the_cadence_of_the_add_on_it_keeps() {
                 actions.push(Action::OneTime {
                     at: at(on(1, 26), 16),
                     price: 1_500,
+                });
+                actions.push(Action::FinalizeLatest {
+                    at: at(on(1, 26), 17),
                 });
             }
             actions.push(Action::Advance {
@@ -1517,7 +1523,7 @@ fn a_change_of_cadence_for_the_months_end_a_detach_moved_waits_for_the_renewal()
 /// billed on that day's adjustment, 10400, and renewed on Feb 5, 2026, 10400. The step stored the
 /// change back as made on Jan 22, the first plan's start, a second switch that cut the trial's
 /// end there for the readers of switches: the per-operation path billed nothing on Feb 5, 2026.
-/// Rules: R-084, R-100
+/// Rules: R-084, R-100, R-166
 #[test]
 fn a_yearly_plan_changed_back_to_on_the_day_its_scheduled_change_applied_renews_its_year() {
     harness::on_large_stacks(|| async {
@@ -1561,6 +1567,9 @@ fn a_yearly_plan_changed_back_to_on_the_day_its_scheduled_change_applied_renews_
             Action::ChangeNow {
                 at: at(on(2, 5), 15),
                 to: 0,
+            },
+            Action::FinalizeLatest {
+                at: at(on(2, 5), 16),
             },
             Action::Advance {
                 at: midnight(day(2026, 2, 5)),
@@ -2130,7 +2139,7 @@ fn an_add_on_set_to_fewer_after_a_change_of_cadence_bills_no_new_year_at_the_ren
 
 /// Drafts issued together on Mar 1: Jan 1's, first, gives back 27178 of a 29700 yearly add-on a
 /// change ended Feb 1, so Feb 1's trues January up at 100000 − 5499 − 2522 = 91979, where the
-/// reference read that note as written after the close and owed 64801. Rules: R-022, R-077
+/// reference read that note as written after the close and owed 64801. Rules: R-022, R-077, R-166
 #[test]
 fn a_note_a_late_draft_writes_before_the_closing_draft_counts_in_its_true_up() {
     harness::on_large_stacks(|| async {
@@ -2155,6 +2164,9 @@ fn a_note_a_late_draft_writes_before_the_closing_draft_counts_in_its_true_up() {
             Action::AttachAddOn {
                 at: at(on(1, 1), 15),
                 quantity: 3,
+            },
+            Action::FinalizeLatest {
+                at: at(on(1, 1), 16),
             },
         ];
         actions.extend((2..=12).map(|m| Action::Advance {
@@ -2258,7 +2270,7 @@ fn a_note_a_late_draft_writes_before_the_closing_draft_counts_in_its_true_up() {
 
 /// Cancelled from Mar 1, Feb 1's draft issued before Jan 1's: January counts the add-on whole, 64801,
 /// and the final invoice bills the 24899 its note leaves missing, 89700 in all; January is never
-/// cut at its own end as if the subscription had ended then. Rules: R-022, R-016
+/// cut at its own end as if the subscription had ended then. Rules: R-022, R-016, R-166
 #[test]
 fn a_true_up_issued_before_the_note_of_a_later_ending_counts_the_days_to_that_ending() {
     harness::on_large_stacks(|| async {
@@ -2283,6 +2295,9 @@ fn a_true_up_issued_before_the_note_of_a_later_ending_counts_the_days_to_that_en
             Action::AttachAddOn {
                 at: at(on(1, 1), 15),
                 quantity: 3,
+            },
+            Action::FinalizeLatest {
+                at: at(on(1, 1), 16),
             },
         ];
         actions.extend((2..=12).map(|m| Action::Advance {
@@ -2559,7 +2574,7 @@ fn a_cancellation_at_the_period_end_reopening_a_true_up_issues_its_invoice_of_th
 /// on, on its Jan 10 grid (R-084), billed 2000 on Jan 10, 2027 and 2000 on Jan 10, 2028, of
 /// which a cancellation at once on Feb 14 gives back 2000 × 331/366 = 1809: the seats owe 2191
 /// from Jan 10, 2027, where the reference opened a lineage on Feb 10 and owed 2192.
-/// Rules: R-084, R-108, R-079
+/// Rules: R-084, R-108, R-079, R-166
 #[test]
 fn seats_carried_into_a_plan_of_another_cadence_keep_their_run_on_its_grid() {
     harness::on_large_stacks(|| async {
@@ -2614,6 +2629,9 @@ fn seats_carried_into_a_plan_of_another_cadence_keep_their_run_on_its_grid() {
             Action::ChangeNow {
                 at: at(on(2027, 2, 10), 15),
                 to: 0,
+            },
+            Action::FinalizeLatest {
+                at: at(on(2027, 2, 10), 16),
             },
             Action::Advance {
                 at: midnight(on(2028, 2, 10)),

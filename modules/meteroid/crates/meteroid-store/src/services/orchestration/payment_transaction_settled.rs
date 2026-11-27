@@ -1180,6 +1180,7 @@ impl Services {
                                                     &prepared,
                                                     new_plan_version_id,
                                                     today,
+                                                    crate::services::evaluate::change::AdjustmentIssue::Checkout,
                                                 )
                                                 .await?;
                                             Ok(Some(invoice.map(|invoice| invoice.id)))

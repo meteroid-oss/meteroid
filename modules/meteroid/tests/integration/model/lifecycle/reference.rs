@@ -357,6 +357,10 @@ pub enum Action {
     FinalizeAll {
         at: At,
     },
+    /// The latest draft, the adjustment a change just wrote, finalized by the operator (R-166).
+    FinalizeLatest {
+        at: At,
+    },
 }
 
 impl Action {
@@ -382,7 +386,8 @@ impl Action {
             | Self::Void { at, .. }
             | Self::Pay { at, .. }
             | Self::Finalize { at, .. }
-            | Self::FinalizeAll { at } => *at,
+            | Self::FinalizeAll { at }
+            | Self::FinalizeLatest { at } => *at,
         }
     }
 
@@ -1039,7 +1044,8 @@ impl Model {
             Action::Void { .. }
             | Action::Pay { .. }
             | Action::Finalize { .. }
-            | Action::FinalizeAll { .. } => {}
+            | Action::FinalizeAll { .. }
+            | Action::FinalizeLatest { .. } => {}
         }
         self.now = Some(action.done());
         Ok(())

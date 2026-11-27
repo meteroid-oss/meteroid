@@ -1763,8 +1763,8 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
         let actor = common_domain::actor::Actor::Customer { id: customer_id };
 
         if target > current {
-            // Increase: apply immediately, prorated. The adjustment invoice is
-            // auto-collected per the subscription's payment config.
+            // Increase: apply immediately, prorated. The adjustment invoice is issued and
+            // collected now only if the subscription auto-advances its invoices (R-166).
             let amendment = SubscriptionAmendment {
                 apply_mode: PlanChangeMode::Immediate,
                 component_changes: ComponentChanges::default(),

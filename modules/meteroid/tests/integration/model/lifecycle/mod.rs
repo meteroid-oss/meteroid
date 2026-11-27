@@ -1,5 +1,6 @@
 //! The lifecycle model in the harness, checked after each step against what the previews said,
 //! the period the model places, and, once ended, what the reference owes over the life.
+mod change_drafts;
 mod engine;
 mod generator;
 mod pinned;
@@ -142,6 +143,7 @@ impl harness::Reference for Model {
             Action::Pay { .. } => "Pay",
             Action::Finalize { .. } => "Finalize",
             Action::FinalizeAll { .. } => "FinalizeAll",
+            Action::FinalizeLatest { .. } => "FinalizeLatest",
         }
     }
 
@@ -216,6 +218,7 @@ impl harness::Reference for Model {
             Action::Pay { at, pick } => format!("{}  pay an invoice owing ({pick})", when(*at)),
             Action::Finalize { at, pick } => format!("{}  finalize a draft ({pick})", when(*at)),
             Action::FinalizeAll { at } => format!("{}  finalize every draft", when(*at)),
+            Action::FinalizeLatest { at } => format!("{}  finalize the latest draft", when(*at)),
         }
     }
 

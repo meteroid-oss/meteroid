@@ -4747,6 +4747,7 @@ impl ServicesEdge {
                         &prepared,
                         new_plan_version_id,
                         change_date,
+                        crate::services::evaluate::change::AdjustmentIssue::Checkout,
                     )
                     .await?;
                 if let Some(invoice) = invoice {
@@ -4810,6 +4811,7 @@ impl ServicesEdge {
                     &prepared,
                     new_plan_version_id,
                     change_date,
+                    crate::services::evaluate::change::AdjustmentIssue::Checkout,
                 )
                 .await?
                 .0

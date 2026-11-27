@@ -1266,6 +1266,7 @@ impl Services {
                         &prepared,
                         new_plan_version_id,
                         change_date,
+                        crate::services::evaluate::change::AdjustmentIssue::AsSubscription,
                     )
                     .await?;
                 let adjustment_invoice_id = adjustment.map(|invoice| invoice.id);
@@ -1317,7 +1318,7 @@ impl Services {
 
     /// Applies the change: the old plan settled first (unused fees credited on notes, its packs'
     /// period credit removed), so that credit never pays the new plan's charges, then what the
-    /// facts owe invoiced and finalized. Returns the adjustment invoice.
+    /// facts owe invoiced, finalized as `issue` says (R-166). Returns the adjustment invoice.
     pub(crate) async fn apply_and_invoice_plan_change_tx(
         &self,
         conn: &mut PgConn,
@@ -1325,6 +1326,7 @@ impl Services {
         prepared: &PreparedPlanChange,
         new_plan_version_id: PlanVersionId,
         change_date: NaiveDate,
+        issue: crate::services::evaluate::change::AdjustmentIssue,
     ) -> StoreResult<(Option<crate::domain::Invoice>, Vec<CreditNoteId>)> {
         let subscription = &prepared.subscription_details.subscription;
         let notes = self
@@ -1352,6 +1354,7 @@ impl Services {
                 &prepared.subscription_details.customer,
                 change_date,
                 &bills,
+                issue,
             )
             .await?;
         Ok((invoice, notes))

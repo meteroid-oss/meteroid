@@ -576,9 +576,23 @@ impl Engine {
                         .map_err(err)?;
                 }
             }
-            Action::Finalize { at, pick } => {
+            Action::Finalize { .. } | Action::FinalizeLatest { .. } => {
                 let drafts = self.with_status(InvoiceStatusEnum::Draft).await;
-                if let Some(invoice) = pick_of(&drafts, *pick) {
+                let (at, picked) = match action {
+                    Action::Finalize { at, pick } => (at, pick_of(&drafts, *pick)),
+                    Action::FinalizeLatest { at } => {
+                        let latest = drafts.last();
+                        assert!(
+                            latest.is_some_and(
+                                |invoice| invoice.invoice_type == InvoiceType::Adjustment
+                            ),
+                            "FinalizeLatest follows a change that bills: the latest draft is {latest:?}"
+                        );
+                        (at, latest)
+                    }
+                    _ => unreachable!(),
+                };
+                if let Some(invoice) = picked {
                     self.issuing
                         .insert(invoice.id, common_clock::now().naive_utc());
                     self.h
