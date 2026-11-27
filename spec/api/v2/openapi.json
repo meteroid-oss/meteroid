@@ -13940,7 +13940,7 @@
           "Plans"
         ],
         "summary": "Update a plan",
-        "description": "A JSON merge patch of its live fields: name, description, what it is sold for and listing,\nwritten together or not at all. Versions are written through the draft, the status by `…/archive` and `…/unarchive`.",
+        "description": "A JSON merge patch of its live fields: name, description, what it is sold for, listing and\ntrial, written together or not at all. Versions are written through the draft, the status by `…/archive` and `…/unarchive`.",
         "operationId": "update_plan",
         "parameters": [
           {
@@ -25868,6 +25868,16 @@
             "type": "string",
             "description": "The plan moved to, by code or id."
           },
+          "prices": {
+            "type": "object",
+            "description": "Prices on the new plan, by product code: a charge priced by one amount (a rate, a seat,\na capacity) at its own price, a decimal in the subscription's currency, over the list\nprice.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
           "quantities": {
             "type": "object",
             "description": "Seat counts on the new plan, by managed quantity code; the counts held when left out.",
@@ -25942,6 +25952,17 @@
           "subscription_after": {
             "$ref": "#/components/schemas/Subscription",
             "description": "The subscription as it would read once the change is in force: its plan and option,\ncharges, add-ons, quantities, levels, minimum and MRR."
+          },
+          "timeline": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TimelineEffect"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the change does to the subscription's timeline (its phases, dated add-ons and\ndiscounts, renewal), when one follows it: each written again over the change."
           },
           "when": {
             "$ref": "#/components/schemas/WhenType",
@@ -26461,6 +26482,35 @@
           }
         }
       },
+      "CheckoutCustomTrial": {
+        "type": "object",
+        "description": "A trial of its own days.",
+        "required": [
+          "days",
+          "type"
+        ],
+        "properties": {
+          "days": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "free": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Nothing billed during it; the plan's trial's freeness when absent, else free."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "custom"
+            ],
+            "description": "`custom`: names this variant of `CheckoutTrial`."
+          }
+        }
+      },
       "CheckoutInvoicing": {
         "type": "object",
         "description": "The invoicing terms of the subscription the checkout creates.",
@@ -26510,6 +26560,42 @@
           "plan_change",
           "add_on_purchase"
         ]
+      },
+      "CheckoutNoTrial": {
+        "type": "object",
+        "description": "No trial.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "none"
+            ],
+            "description": "`none`: names this variant of `CheckoutTrial`."
+          }
+        }
+      },
+      "CheckoutOfferTrial": {
+        "type": "object",
+        "description": "A trial offer, by id.",
+        "required": [
+          "offer",
+          "type"
+        ],
+        "properties": {
+          "offer": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "offer"
+            ],
+            "description": "`offer`: names this variant of `CheckoutTrial`."
+          }
+        }
       },
       "CheckoutPaymentKeptAsCreditEvent": {
         "type": "object",
@@ -26603,6 +26689,22 @@
           }
         }
       },
+      "CheckoutPlanTrial": {
+        "type": "object",
+        "description": "The plan's trial.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "plan"
+            ],
+            "description": "`plan`: names this variant of `CheckoutTrial`."
+          }
+        }
+      },
       "CheckoutSession": {
         "type": "object",
         "description": "A hosted checkout: the customer pays on `url`, which creates (or changes) the subscription.\nThe quantities, levels and charges asked are the page's and the subscription's, not read back\nhere; a list item carries no `url` (read it on the session).",
@@ -26614,6 +26716,7 @@
           "plan",
           "add_ons",
           "coupons",
+          "trial",
           "invoicing",
           "created_at"
         ],
@@ -26751,13 +26854,9 @@
             ],
             "description": "Where the customer is sent once paid, `checkout_session_id` appended."
           },
-          "trial_days": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "The plan's trial when absent."
+          "trial": {
+            "$ref": "#/components/schemas/CheckoutTrial",
+            "description": "The trial the subscription it creates asks for."
           },
           "type": {
             "$ref": "#/components/schemas/CheckoutKind",
@@ -26825,6 +26924,32 @@
           "expired",
           "cancelled"
         ]
+      },
+      "CheckoutTrial": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/CheckoutPlanTrial"
+          },
+          {
+            "$ref": "#/components/schemas/CheckoutNoTrial"
+          },
+          {
+            "$ref": "#/components/schemas/CheckoutOfferTrial"
+          },
+          {
+            "$ref": "#/components/schemas/CheckoutCustomTrial"
+          }
+        ],
+        "description": "The trial a session asks for its subscription: the plan's, none, an offer, or its own days.",
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "custom": "#/components/schemas/CheckoutCustomTrial",
+            "none": "#/components/schemas/CheckoutNoTrial",
+            "offer": "#/components/schemas/CheckoutOfferTrial",
+            "plan": "#/components/schemas/CheckoutPlanTrial"
+          }
+        }
       },
       "ConnectedAccountId": {
         "type": "string",
@@ -27565,14 +27690,16 @@
             ],
             "description": "Absolute http(s) URL the customer is sent to once paid, `checkout_session_id` appended."
           },
-          "trial_days": {
-            "type": [
-              "integer",
-              "null"
+          "trial": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionTrialInput"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "format": "int32",
-            "description": "The trial's length in days, 0 to 3650; the plan's trial when left out.",
-            "minimum": 0
+            "description": "The trial the subscription it creates starts with; the plan's when left out."
           },
           "version": {
             "type": [
@@ -28689,14 +28816,16 @@
             "format": "date",
             "description": "The day it starts; today when left out. A past date bills the periods since."
           },
-          "trial_days": {
-            "type": [
-              "integer",
-              "null"
+          "trial": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionTrialInput"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "format": "int32",
-            "description": "The trial's length in days, 0 to 3650; the plan's trial when left out.",
-            "minimum": 0
+            "description": "The plan's default offer, else its own trial, when left out."
           },
           "version": {
             "type": [
@@ -29764,6 +29893,54 @@
           "tax_code": {
             "type": "string",
             "description": "The tax's accounting code, kept on the invoice's tax breakdown."
+          }
+        },
+        "additionalProperties": false
+      },
+      "CustomTrial": {
+        "type": "object",
+        "description": "A trial of its own terms: `days` or an end date `until` (exclusive), one of them.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "1 to 3,650.",
+            "minimum": 0
+          },
+          "free": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Nothing billed during it; the plan's trial's freeness when left out, else free."
+          },
+          "plan": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The plan whose features it gives, by code or id; the plan's trial's when left out."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "custom"
+            ],
+            "description": "`custom`: names this variant of `SubscriptionTrialInput`."
+          },
+          "until": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "After the billing start, 3,650 days at most."
           }
         },
         "additionalProperties": false
@@ -32050,7 +32227,10 @@
           "budget.exceeded",
           "checkout.payment_kept_as_credit",
           "retention.session_completed",
-          "retention.renewal_upcoming"
+          "subscription.renewal_upcoming",
+          "entitlement.override_ending_soon",
+          "entitlement.override_ended",
+          "subscription.trial_ending_soon"
         ]
       },
       "Expiry": {
@@ -34875,6 +35055,23 @@
           "finalized"
         ]
       },
+      "NoTrial": {
+        "type": "object",
+        "description": "No trial.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "none"
+            ],
+            "description": "`none`: names this variant of `SubscriptionTrialInput`."
+          }
+        },
+        "additionalProperties": false
+      },
       "NumberValue": {
         "type": "object",
         "required": [
@@ -34918,6 +35115,27 @@
               "off"
             ],
             "description": "`off`: names this variant of `EntitlementValue`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "OfferTrial": {
+        "type": "object",
+        "description": "A trial offer, by its id or its code: its days, and what follows it. Refused when the\ncustomer already had it.",
+        "required": [
+          "offer",
+          "type"
+        ],
+        "properties": {
+          "offer": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "offer"
+            ],
+            "description": "`offer`: names this variant of `SubscriptionTrialInput`."
           }
         },
         "additionalProperties": false
@@ -35009,6 +35227,87 @@
           },
           "owner": {
             "$ref": "#/components/schemas/EntitlementOwner"
+          }
+        }
+      },
+      "OverrideEndingEvent": {
+        "type": "object",
+        "description": "An event's payload in API v2's shape, sent to an endpoint whose `api_version` is `2026-12-15` or later; `data` is a `OverrideEndingEventData`.",
+        "required": [
+          "id",
+          "type",
+          "created_at",
+          "api_version",
+          "data"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/EventId",
+            "description": "The event's id, also its `webhook-id` header: the same on every retry and to every endpoint."
+          },
+          "type": {
+            "$ref": "#/components/schemas/EventType"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the event was recorded."
+          },
+          "api_version": {
+            "type": "string",
+            "description": "The version the payload is rendered at: the endpoint's `api_version` when the event was processed.",
+            "example": "2026-12-15"
+          },
+          "data": {
+            "$ref": "#/components/schemas/OverrideEndingEventData"
+          }
+        }
+      },
+      "OverrideEndingEventData": {
+        "type": "object",
+        "description": "A customer or resource override with an end ends within a week\n(`entitlement.override_ending_soon`) or has ended (`entitlement.override_ended`), once per end.",
+        "required": [
+          "customer",
+          "feature",
+          "entitlement_override",
+          "effect",
+          "value",
+          "valid_until"
+        ],
+        "properties": {
+          "customer": {
+            "$ref": "#/components/schemas/CustomerRef"
+          },
+          "effect": {
+            "type": "string"
+          },
+          "entitlement_override": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The override, as `/customers/{id}/entitlement-overrides/{id}` names it across its edits."
+          },
+          "feature": {
+            "$ref": "#/components/schemas/FeatureRef"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resource": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The stored resource it overrides; absent for the whole customer."
+          },
+          "valid_until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "value": {
+            "type": "object"
           }
         }
       },
@@ -35352,6 +35651,17 @@
             "$ref": "#/components/schemas/PlanStatus",
             "description": "Draft, active, inactive or archived."
           },
+          "trial": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PlanTrial"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its trial, the same on every version; none: no trial."
+          },
           "type": {
             "$ref": "#/components/schemas/PlanType",
             "description": "Standard, free or custom."
@@ -35459,17 +35769,6 @@
           "tax_inclusive": {
             "type": "boolean",
             "description": "Its prices include tax; `false` when left out."
-          },
-          "trial": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/Trial"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "None: no trial."
           }
         },
         "additionalProperties": false
@@ -35615,6 +35914,77 @@
           "archived"
         ]
       },
+      "PlanTrial": {
+        "type": "object",
+        "description": "A plan's trial: the trial offer it names, the same on every version. A subscription\ncreated on the plan asking no trial gets it.",
+        "required": [
+          "days",
+          "free",
+          "offer"
+        ],
+        "properties": {
+          "days": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Its length in days.",
+            "minimum": 0
+          },
+          "free": {
+            "type": "boolean",
+            "description": "Nothing is billed during it."
+          },
+          "offer": {
+            "$ref": "#/components/schemas/TrialOfferSummary",
+            "description": "The trial offer it is; several plans may share one."
+          },
+          "plan": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The plan whose features it gives, by code; none: this plan."
+          }
+        }
+      },
+      "PlanTrialInput": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Trial"
+          },
+          {
+            "$ref": "#/components/schemas/PlanTrialOffer"
+          }
+        ],
+        "description": "A plan's trial written: its own terms, or a trial offer of the catalog by id or code.",
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "offer": "#/components/schemas/PlanTrialOffer",
+            "terms": "#/components/schemas/Trial"
+          }
+        }
+      },
+      "PlanTrialOffer": {
+        "type": "object",
+        "description": "A trial offer as a plan's trial.",
+        "required": [
+          "offer",
+          "type"
+        ],
+        "properties": {
+          "offer": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "offer"
+            ],
+            "description": "`offer`: names this variant of `PlanTrialInput`."
+          }
+        },
+        "additionalProperties": false
+      },
       "PlanType": {
         "type": "string",
         "description": "What kind of plan it is: `standard`, sold to anyone; `free`, subscribed without a payment\nmethod; `custom`, negotiated for one customer.",
@@ -35707,17 +36077,6 @@
           "tax_inclusive": {
             "type": "boolean",
             "description": "Its prices include tax."
-          },
-          "trial": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/Trial"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The trial a subscription starts with; none: no trial."
           }
         }
       },
@@ -37536,7 +37895,8 @@
         "x-extensible-enum": [
           "plan_change",
           "cancellation",
-          "amendment"
+          "amendment",
+          "phase"
         ]
       },
       "ScheduledEventId": {
@@ -38348,6 +38708,41 @@
           "completed"
         ]
       },
+      "SubscriptionTrialEndAction": {
+        "type": "string",
+        "description": "What a trial's end does: the subscription goes on, ends, or switches plan.",
+        "x-extensible-enum": [
+          "convert",
+          "cancel",
+          "fallback"
+        ]
+      },
+      "SubscriptionTrialInput": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/TrialOfThePlan"
+          },
+          {
+            "$ref": "#/components/schemas/NoTrial"
+          },
+          {
+            "$ref": "#/components/schemas/OfferTrial"
+          },
+          {
+            "$ref": "#/components/schemas/CustomTrial"
+          }
+        ],
+        "description": "The trial a new subscription starts with: the plan's (when left out), none, an offer, or one\nof its own terms.",
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "custom": "#/components/schemas/CustomTrial",
+            "none": "#/components/schemas/NoTrial",
+            "offer": "#/components/schemas/OfferTrial",
+            "plan": "#/components/schemas/TrialOfThePlan"
+          }
+        }
+      },
       "TaxExemption": {
         "type": "string",
         "description": "Why a tax applies at no rate: `reverse_charge`, the tax is due by the customer;\n`tax_exempt`, the customer is exempt; `not_registered`, no tax applied and no reason is known\n(no country, tax resolved outside Meteroid…); `export`, sold outside the seller's territory;\n`no_vat_territory`, taxable where VAT does not apply in the seller's own territory.",
@@ -38452,6 +38847,120 @@
         "x-extensible-enum": [
           "graduated",
           "volume"
+        ]
+      },
+      "TimelineChangeEffect": {
+        "type": "string",
+        "x-extensible-enum": [
+          "kept",
+          "inactive",
+          "prorated",
+          "dropped",
+          "switch_replaced"
+        ]
+      },
+      "TimelineEffect": {
+        "type": "object",
+        "description": "A subscription's timeline written again over a change.",
+        "required": [
+          "entries",
+          "invoices_before",
+          "invoices_after",
+          "total_before",
+          "total_after"
+        ],
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TimelineEntry"
+            }
+          },
+          "invoices_after": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TimelineInvoice"
+            },
+            "description": "The same with the change."
+          },
+          "invoices_before": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TimelineInvoice"
+            },
+            "description": "The invoices ahead without the change, fixed fees before tax and credits."
+          },
+          "total_after": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_before": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "TimelineEntry": {
+        "type": "object",
+        "required": [
+          "owner_type",
+          "label",
+          "date",
+          "effect"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "details": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The inactive terms, or why it was dropped."
+          },
+          "effect": {
+            "$ref": "#/components/schemas/TimelineChangeEffect"
+          },
+          "label": {
+            "type": "string"
+          },
+          "owner_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "owner_type": {
+            "$ref": "#/components/schemas/TimelineOwnerType"
+          }
+        }
+      },
+      "TimelineInvoice": {
+        "type": "object",
+        "required": [
+          "date",
+          "total"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Minor units."
+          }
+        }
+      },
+      "TimelineOwnerType": {
+        "type": "string",
+        "x-extensible-enum": [
+          "phase",
+          "item",
+          "renewal"
         ]
       },
       "Timing": {
@@ -38565,9 +39074,10 @@
       },
       "Trial": {
         "type": "object",
-        "description": "A trial a subscription to the version starts with.",
+        "description": "What a plan's trial gives.",
         "required": [
-          "days"
+          "days",
+          "type"
         ],
         "properties": {
           "days": {
@@ -38586,13 +39096,119 @@
               "null"
             ],
             "description": "The plan the trial gives access to, by code (id or code on input); none: this plan."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "terms"
+            ],
+            "description": "`terms`: names this variant of `PlanTrialInput`."
           }
         },
         "additionalProperties": false
       },
+      "TrialEndingEvent": {
+        "type": "object",
+        "description": "An event's payload in API v2's shape, sent to an endpoint whose `api_version` is `2026-12-15` or later; `data` is a `TrialEndingEventData`.",
+        "required": [
+          "id",
+          "type",
+          "created_at",
+          "api_version",
+          "data"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/EventId",
+            "description": "The event's id, also its `webhook-id` header: the same on every retry and to every endpoint."
+          },
+          "type": {
+            "$ref": "#/components/schemas/EventType"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the event was recorded."
+          },
+          "api_version": {
+            "type": "string",
+            "description": "The version the payload is rendered at: the endpoint's `api_version` when the event was processed.",
+            "example": "2026-12-15"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TrialEndingEventData"
+          }
+        }
+      },
+      "TrialEndingEventData": {
+        "type": "object",
+        "description": "A subscription's trial ends in 3 days, once per trial end.",
+        "required": [
+          "customer",
+          "subscription",
+          "trial_end",
+          "free"
+        ],
+        "properties": {
+          "customer": {
+            "$ref": "#/components/schemas/CustomerRef"
+          },
+          "free": {
+            "type": "boolean"
+          },
+          "subscription": {
+            "$ref": "#/components/schemas/Subscription",
+            "description": "The subscription, as `GET /subscriptions/{id}` reads it."
+          },
+          "trial_end": {
+            "type": "string",
+            "format": "date",
+            "description": "The trial's end, exclusive: billing starts on it."
+          }
+        }
+      },
+      "TrialOfThePlan": {
+        "type": "object",
+        "description": "The plan's trial, as when the trial is left out.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "plan"
+            ],
+            "description": "`plan`: names this variant of `SubscriptionTrialInput`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "TrialOfferSummary": {
+        "type": "object",
+        "description": "A trial offer, as a subscription names it.",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "TrialState": {
         "type": "object",
-        "description": "The subscription's trial; absent when it has none.",
+        "description": "The subscription's trial, as recorded at its start; absent when it has none.",
         "required": [
           "days"
         ],
@@ -38600,8 +39216,19 @@
           "days": {
             "type": "integer",
             "format": "int32",
-            "description": "Its length in days, from the start date.",
+            "description": "Its length in days, from its start.",
             "minimum": 0
+          },
+          "end_action": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionTrialEndAction"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What its end does; read on a single subscription."
           },
           "ends_on": {
             "type": [
@@ -38617,6 +39244,32 @@
               "null"
             ],
             "description": "Nothing is billed during it; read on a single subscription."
+          },
+          "offer": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TrialOfferSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The trial offer it came from; read on a single subscription."
+          },
+          "plan": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The plan whose features it gives, by code; read on a single subscription."
+          },
+          "starts_on": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "Its first day, the billing start; read on a single subscription."
           }
         }
       },
@@ -39484,6 +40137,17 @@
               "null"
             ],
             "description": "The resource type its subscriptions are for, by code or id; `null`: the customer. A plan\nsold for a type carries no rows across all resources."
+          },
+          "trial": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PlanTrialInput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its trial, on every version at once: its terms, or a trial offer; `null` removes it."
           }
         },
         "additionalProperties": false
@@ -41605,6 +42269,56 @@
         }
       }
     },
+    "entitlement.override_ended": {
+      "post": {
+        "summary": "entitlement.override_ended webhook",
+        "description": "A customer or resource override reached its end: the feature resolves as the plans and add-ons give it\n\n`data` is what the notification observed.",
+        "operationId": "webhook_entitlement_override_ended",
+        "tags": [
+          "Webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OverrideEndingEvent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Received: any 2xx answer acknowledges it"
+          }
+        }
+      }
+    },
+    "entitlement.override_ending_soon": {
+      "post": {
+        "summary": "entitlement.override_ending_soon webhook",
+        "description": "A customer or resource override with an end ends within a week: sent once per end\n\n`data` is what the notification observed.",
+        "operationId": "webhook_entitlement_override_ending_soon",
+        "tags": [
+          "Webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OverrideEndingEvent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Received: any 2xx answer acknowledges it"
+          }
+        }
+      }
+    },
     "invoice.accounting_pdf_generated": {
       "post": {
         "summary": "invoice.accounting_pdf_generated webhook",
@@ -42294,6 +43008,31 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/SubscriptionEvent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Received: any 2xx answer acknowledges it"
+          }
+        }
+      }
+    },
+    "subscription.trial_ending_soon": {
+      "post": {
+        "summary": "subscription.trial_ending_soon webhook",
+        "description": "A subscription's trial ends in 3 days: sent once per trial end\n\n`data` is what the notification observed.",
+        "operationId": "webhook_subscription_trial_ending_soon",
+        "tags": [
+          "Webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrialEndingEvent"
               }
             }
           }

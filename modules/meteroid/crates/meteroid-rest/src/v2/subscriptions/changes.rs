@@ -340,6 +340,18 @@ async fn plan_change_ask(
             });
         }
     }
+    let mut prices = Vec::with_capacity(body.prices.len());
+    for (code, raw) in &body.prices {
+        let path = format!("/prices/{code}");
+        let component = plan_charge(&fp, &cells, code, &path)?;
+        let price: Decimal = raw.trim().parse().map_err(|_| {
+            Problem::field(&path, "invalid", format!("'{raw}' is not a decimal price"))
+        })?;
+        prices.push(meteroid_store::domain::subscription_changes::TargetPrice {
+            component_id: component.id,
+            price,
+        });
+    }
     let mut chosen = Vec::with_capacity(body.levels.len());
     for (code, raw) in &body.levels {
         let path = format!("/levels/{code}");
@@ -356,6 +368,7 @@ async fn plan_change_ask(
     let target = PlanTarget {
         version: fp.version.id,
         option: read_in.map(|option| PlanOptionRef::Id(option.id)),
+        prices,
     };
     let option_alias = read_in.map(|option| option.alias.clone());
     let level_products = cells
@@ -491,6 +504,18 @@ pub async fn preview_plan_change(
             (timing == Timing::Immediate).then_some(PlanChangeMode::Immediate),
         )
         .await?;
+    let timeline = state
+        .services
+        .plan_change_timeline_effect(
+            auth.as_actor(),
+            ask.id,
+            tenant_id,
+            ask.target.clone(),
+            ask.params.clone(),
+            timing == Timing::Immediate,
+        )
+        .await?
+        .map(Into::into);
     let preview = &full.preview;
     let currency = ask.details.subscription.currency.clone();
     let documents =
@@ -527,6 +552,7 @@ pub async fn preview_plan_change(
         incomplete: !missing.is_empty(),
         missing,
         subscription_after,
+        timeline,
     }))
 }
 
@@ -767,6 +793,7 @@ pub async fn preview_quantity_change(
             Vec::new()
         },
         subscription_after,
+        timeline: None,
     }))
 }
 
@@ -1034,6 +1061,7 @@ pub async fn preview_level_change(
         incomplete: !missing.is_empty(),
         missing,
         subscription_after,
+        timeline: None,
     }))
 }
 
@@ -1350,8 +1378,13 @@ pub async fn preview_amendment(
     ensure_credit_allowed(&state, &auth, introduces_credit(&amendment)).await?;
     let preview = state
         .services
-        .preview_amendment(id, tenant_id, amendment)
+        .preview_amendment(id, tenant_id, amendment.clone())
         .await?;
+    let timeline = state
+        .services
+        .amendment_timeline_effect(auth.as_actor(), id, tenant_id, amendment)
+        .await?
+        .map(Into::into);
     let currency = details.subscription.currency.clone();
     let subscription_after = render::after_change(
         &state,
@@ -1374,6 +1407,7 @@ pub async fn preview_amendment(
         incomplete: !missing.is_empty(),
         missing,
         subscription_after,
+        timeline,
     }))
 }
 
@@ -1535,6 +1569,7 @@ pub async fn preview_cancel(
         incomplete: !missing.is_empty(),
         missing,
         subscription_after,
+        timeline: None,
     }))
 }
 

@@ -120,7 +120,9 @@ const ScheduledEventBanner = ({
         </span>
       }
       actions={
-        canManage && (
+        canManage &&
+        // A phase's or dated item's change goes with it: it is edited in the subscription's timeline.
+        !event.timeline && (
           <Button
             size="sm"
             variant="outline"

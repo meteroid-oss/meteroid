@@ -1289,12 +1289,17 @@ async fn test_rest_v2_references_stay_in_their_tenant() {
         refused.body
     );
     assert_eq!(refused.body["errors"][0]["path"], "/draft/add_ons/0/add_on");
-    let mut with_their_trial = pro_version("49");
-    with_their_trial["trial"] = json!({"days": 7, "plan": plan_id});
-    let refused = f
+    let trialed = f
         .post(
             "/api/v2/plans",
-            json!({"code": "borrower", "name": "Borrower", "draft": with_their_trial}),
+            json!({"code": "trialed", "name": "Trialed", "draft": pro_version("49")}),
+        )
+        .await;
+    assert_eq!(trialed.status, StatusCode::CREATED, "{:#}", trialed.body);
+    let refused = f
+        .patch(
+            "/api/v2/plans/trialed",
+            json!({"trial": {"type": "terms", "days": 7, "plan": plan_id}}),
         )
         .await;
     assert!(

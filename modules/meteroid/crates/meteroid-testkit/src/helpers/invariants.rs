@@ -2,11 +2,11 @@
 //! settlements and usage filters agree with each other. Every check is named after its ID in the
 //! billing rule registry. Every test's database is checked when it is dropped (`TestDatabase`), so
 //! a test gets them without asking; `assert_credit_invariants` checks one tenant mid-test.
-use common_domain::ids::{BaseId, TenantId};
+use common_domain::ids::{BaseId, SubscriptionId, TenantId};
 use diesel::sql_types::{Array, Text};
 use diesel_async::{RunQueryDsl, SimpleAsyncConnection};
-use meteroid_store::Store;
 use meteroid_store::store::PgConn;
+use meteroid_store::{Services, Store};
 use uuid::Uuid;
 
 #[derive(diesel::QueryableByName)]
@@ -616,15 +616,32 @@ const CHECKS: &[(&str, &str)] = &[
                            WHERE n.subscription_id = w.subscription_id AND n.from_date = w.to_date)",
     ),
     (
-        "I29 a subscription has a trial exactly when it has a trial length",
-        "SELECT format('subscription %s: trial length %s, trial %s', s.id, s.trial_duration,
-                       coalesce(t.from_date::text || '..' || t.until_date::text, 'none')) AS message
+        "I29 a trial written at a subscription's creation has its record of the trial given",
+        "SELECT format('subscription %s: trial %s..%s without its record', s.id, t.from_date,
+                       t.until_date) AS message
          FROM subscription s
-         LEFT JOIN subscription_trial t ON t.subscription_id = s.id
+         JOIN subscription_trial t ON t.subscription_id = s.id
          WHERE s.tenant_id = $1
            AND EXISTS (SELECT 1 FROM subscription_event e
                        WHERE e.subscription_id = s.id AND e.event_type = 'CREATED')
-           AND (coalesce(s.trial_duration, 0) > 0) <> (t.subscription_id IS NOT NULL)",
+           AND NOT EXISTS (SELECT 1 FROM trial_redemption r
+                           WHERE r.subscription_id = s.id AND r.customer_id = s.customer_id)",
+    ),
+    (
+        "I36 a plan's trial is a live offer, a trial's plan never its subscription's own",
+        "SELECT format('plan %s: its trial offer %s is archived', p.id, o.id) AS message
+         FROM plan p
+         JOIN trial_offer o ON o.id = p.trial_offer_id
+         WHERE p.tenant_id = $1 AND o.archived_at IS NOT NULL
+         UNION ALL
+         SELECT format('subscription %s: its trial gives its own plan %s', s.id, t.trial_plan_id)
+         FROM subscription s
+         JOIN subscription_trial t ON t.subscription_id = s.id
+         JOIN subscription_plan_window w ON w.subscription_id = s.id
+         JOIN plan_version pv ON pv.id = w.plan_version_id
+         WHERE s.tenant_id = $1 AND pv.plan_id = t.trial_plan_id
+           AND w.from_date = (SELECT min(f.from_date) FROM subscription_plan_window f
+                              WHERE f.subscription_id = s.id)",
     ),
     (
         "I32 a seat transaction counts the managed quantity of its unit, in its tenant",
@@ -635,6 +652,70 @@ const CHECKS: &[(&str, &str)] = &[
          JOIN managed_quantity q ON q.id = st.managed_quantity_id
          WHERE s.tenant_id = $1
            AND (q.tenant_id <> s.tenant_id OR q.code <> st.unit)",
+    ),
+    (
+        "I34 a term's end is its COMPLETE ending, or its renewal phase when it renews with uplift",
+        "SELECT format('subscription %s: term ending %s (renews %s), complete ending %s',
+                       t.subscription_id, t.term_end, t.auto_renew, coalesce(e.at::date::text, 'none'))
+                       AS message
+         FROM subscription_term t
+         LEFT JOIN subscription_ending e
+           ON e.subscription_id = t.subscription_id AND e.kind = 'COMPLETE'
+         WHERE t.tenant_id = $1
+           AND ((NOT t.auto_renew AND (e.at IS NULL OR e.at::date <> t.term_end))
+                OR (t.auto_renew AND e.at IS NOT NULL))
+         UNION ALL
+         SELECT format('subscription %s: renewal phase %s not live on the term end %s',
+                       t.subscription_id, t.renewal_phase_id, t.term_end)
+         FROM subscription_term t
+         LEFT JOIN subscription_phase p ON p.id = t.renewal_phase_id
+         WHERE t.tenant_id = $1 AND t.renewal_phase_id IS NOT NULL
+           AND (p.id IS NULL OR p.withdrawn_at IS NOT NULL OR p.start_date <> t.term_end)
+           AND NOT EXISTS (SELECT 1 FROM subscription s
+                           WHERE s.id = t.subscription_id AND s.status IN ('CANCELLED', 'COMPLETED'))",
+    ),
+    (
+        "I33 a live phase or timeline item has its live changes, in seq order, and back",
+        "SELECT format('subscription %s: phase %s starting %s, its change %s', p.subscription_id,
+                       p.id, p.start_date, coalesce(c.id::text, 'missing')) AS message
+         FROM subscription_phase p
+         LEFT JOIN subscription_change c ON c.id = p.change_id
+         WHERE p.tenant_id = $1 AND p.withdrawn_at IS NULL
+           AND (c.id IS NULL OR c.withdrawn_at IS NOT NULL
+                OR c.kind NOT IN ('PHASE', 'PLAN_CHANGE')
+                OR c.effective_at::date <> p.start_date)
+         UNION ALL
+         SELECT format('subscription %s: phase change %s on %s has no live phase',
+                       c.subscription_id, c.id, c.effective_at::date)
+         FROM subscription_change c
+         WHERE c.tenant_id = $1 AND c.kind = 'PHASE' AND c.withdrawn_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM subscription_phase p
+                           WHERE p.change_id = c.id AND p.withdrawn_at IS NULL)
+           AND NOT EXISTS (SELECT 1 FROM subscription_timeline_item i
+                           WHERE i.withdrawn_at IS NULL
+                             AND (i.end_change_id = c.id OR i.start_change_id = c.id))
+           -- An applied change is history: its owner may be withdrawn since, never missing.
+           AND (NOT EXISTS (SELECT 1 FROM subscription_event ev
+                            WHERE ev.subscription_id = c.subscription_id
+                              AND ev.event_type = 'SWITCH'
+                              AND ev.details ->> 'event' = c.id::text)
+                OR NOT EXISTS (SELECT 1 FROM subscription_phase p WHERE p.change_id = c.id)
+                   AND NOT EXISTS (SELECT 1 FROM subscription_timeline_item i
+                                   WHERE i.end_change_id = c.id OR i.start_change_id = c.id))
+         UNION ALL
+         SELECT format('subscription %s: timeline item %s, its change %s withdrawn or missing',
+                       i.subscription_id, i.id, c.id)
+         FROM subscription_timeline_item i
+         LEFT JOIN subscription_change c ON c.id IN (i.end_change_id, i.start_change_id)
+         WHERE i.tenant_id = $1 AND i.withdrawn_at IS NULL
+           AND (c.id IS NULL OR c.withdrawn_at IS NOT NULL OR c.kind <> 'PHASE')
+         UNION ALL
+         SELECT format('subscription %s: phase %s (seq %s) starts %s, not after phase %s (seq %s)',
+                       b.subscription_id, b.id, b.seq, b.start_date, a.id, a.seq)
+         FROM subscription_phase a
+         JOIN subscription_phase b ON b.subscription_id = a.subscription_id AND b.seq > a.seq
+         WHERE a.tenant_id = $1 AND a.withdrawn_at IS NULL AND b.withdrawn_at IS NULL
+           AND b.start_date <= a.start_date",
     ),
 ];
 
@@ -669,7 +750,9 @@ fn check_id(check: &str) -> &str {
 
 /// Whether `id` names a check, so an exemption cannot silently match nothing.
 pub fn is_check_id(id: &str) -> bool {
-    CHECKS.iter().any(|(check, _)| check_id(check) == id) || check_id(I30) == id
+    CHECKS.iter().any(|(check, _)| check_id(check) == id)
+        || check_id(I30) == id
+        || check_id(I35) == id
 }
 
 /// Every invariant violated by `tenant_id`, as "invariant: detail" lines. Reads one snapshot.
@@ -873,6 +956,23 @@ pub async fn assert_invoice_accounts(store: &Store, tenant_id: TenantId) {
     let mut conn = store.get_conn().await.expect("billing connection");
     let violations = invoice_account_violations(&mut conn, tenant_id).await;
     assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+/// I35, folded in Rust by replaying the subscription's phases and items over its facts
+/// (`timeline_rewrite::timeline_drift`), in a transaction rolled back.
+pub const I35: &str = "I35 a timeline is what replaying its phases and items writes";
+
+/// Fails the test when the timeline of `subscription_id` drifts from its phases and items (I35).
+pub async fn assert_timeline_replays(
+    services: &Services,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+) {
+    let drift = services
+        .timeline_drift(tenant_id, subscription_id)
+        .await
+        .expect("a drift check");
+    assert!(drift.is_empty(), "{I35}: {drift:#?}");
 }
 
 /// Fails the test when `tenant_id` breaks a credit invariant.

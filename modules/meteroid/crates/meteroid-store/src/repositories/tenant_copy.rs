@@ -86,12 +86,20 @@ const CATALOG: &[CopiedTable] = &[
     CopiedTable {
         mapped: &["product_family_id", "sold_for_resource_type_id"],
         mapped_arrays: &["pricing_product_order", "pricing_hidden_product_ids"],
-        deferred: &["active_version_id", "draft_version_id"],
+        deferred: &["active_version_id", "draft_version_id", "trial_offer_id"],
         ..table("plan", OF_TENANT)
     },
     CopiedTable {
-        mapped: &["plan_id", "trialing_plan_id"],
+        mapped: &["plan_id"],
         ..table("plan_version", OF_TENANT)
+    },
+    CopiedTable {
+        mapped: &["trial_plan_id", "fallback_plan_version_id"],
+        ..table("trial_offer", OF_TENANT)
+    },
+    CopiedTable {
+        mapped: &["plan_version_id"],
+        ..table("plan_version_phase", OF_TENANT)
     },
     CopiedTable {
         mapped: &["plan_version_id"],
@@ -108,10 +116,6 @@ const CATALOG: &[CopiedTable] = &[
             "s.plan_component_id IN (SELECT pc.id FROM price_component pc \
              JOIN plan_version pv ON pv.id = pc.plan_version_id WHERE pv.tenant_id = $1)",
         )
-    },
-    CopiedTable {
-        mapped: &["plan_version_id"],
-        ..table("schedule", OF_PLAN_VERSIONS)
     },
     CopiedTable {
         mapped: &["plan_version_id"],
@@ -227,6 +231,7 @@ const INVOICING: &[CopiedTable] = &[
         builtin: &[("tax_category_id", "tax_category")],
         ..table("custom_tax", OF_TENANT)
     },
+    table("renewal_settings", OF_TENANT),
 ];
 
 const OF_INVOICING_ENTITIES: &str =
@@ -296,9 +301,18 @@ pub const NOT_COPIED: &[&str] = &[
     "quote_signature_certificate",
     "quote_signature_otp",
     "quote_view",
+    "quote_phase",
+    "quote_contract_value",
     "slot_transaction",
     "subscription",
     "subscription_add_on",
+    "subscription_phase",
+    "subscription_renewal_notice",
+    "subscription_term",
+    "subscription_timeline_item",
+    "subscription_trial_notice",
+    "trial_redemption",
+    "entitlement_override_notice",
     "subscription_change",
     "subscription_component",
     "subscription_ending",

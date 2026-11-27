@@ -1,6 +1,7 @@
 use crate::schema::customer;
 use crate::schema::plan;
 use crate::schema::plan_version;
+use crate::schema::subscription_trial;
 use chrono::NaiveDate;
 use chrono::NaiveDateTime;
 
@@ -13,6 +14,27 @@ use common_domain::ids::{
 };
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 use rust_decimal::Decimal;
+
+/// A column of the subscription's trial fact, as a subselect of a query on `subscription`.
+pub type TrialColumn<C> = diesel::dsl::SingleValue<
+    diesel::dsl::Select<
+        diesel::dsl::Filter<
+            subscription_trial::table,
+            diesel::dsl::Eq<subscription_trial::subscription_id, crate::schema::subscription::id>,
+        >,
+        C,
+    >,
+>;
+
+macro_rules! trial_column {
+    ($column:ident) => {{
+        use diesel::{ExpressionMethods, QueryDsl};
+        subscription_trial::table
+            .filter(subscription_trial::subscription_id.eq(crate::schema::subscription::id))
+            .select(subscription_trial::$column)
+            .single_value()
+    }};
+}
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::subscription)]
@@ -34,7 +56,6 @@ pub struct SubscriptionRow {
     pub period: BillingPeriodEnum,
     pub pending_checkout: bool,
     pub end_date: Option<NaiveDate>,
-    pub trial_duration: Option<i32>,
     pub activation_condition: SubscriptionActivationConditionEnum,
     pub billing_start_date: Option<NaiveDate>,
     pub conn_meta: Option<serde_json::Value>,
@@ -103,7 +124,6 @@ pub struct SubscriptionRowNew {
     pub period: BillingPeriodEnum,
     pub pending_checkout: bool,
     pub end_date: Option<NaiveDate>,
-    pub trial_duration: Option<i32>,
     pub activation_condition: SubscriptionActivationConditionEnum,
     pub billing_start_date: Option<NaiveDate>,
     pub status: SubscriptionStatusEnum,
@@ -166,6 +186,13 @@ pub struct SubscriptionForDisplayRow {
     #[diesel(select_expression = plan::id)]
     #[diesel(select_expression_type = plan::id)]
     pub plan_id: PlanId,
+    /// Its trial fact's days, `[from, until)`: the one record of its trial (I29).
+    #[diesel(select_expression = trial_column!(from_date))]
+    #[diesel(select_expression_type = TrialColumn<subscription_trial::from_date>)]
+    pub trial_from: Option<NaiveDate>,
+    #[diesel(select_expression = trial_column!(until_date))]
+    #[diesel(select_expression_type = TrialColumn<subscription_trial::until_date>)]
+    pub trial_until: Option<NaiveDate>,
 }
 
 #[derive(AsChangeset)]

@@ -33,7 +33,7 @@ async fn test_rest_v2_checkout_sessions() {
         "quantities": {"users": "4"},
         "add_ons": [{"add_on": "support"}],
         "coupons": ["launch10"],
-        "trial_days": 14,
+        "trial": {"type": "custom", "days": 14},
         "invoicing": {"net_terms": 30, "memo": "Thanks"},
         "success_url": "https://acme.example/billing/done",
         "cancel_url": "https://acme.example/pricing",
@@ -80,7 +80,7 @@ async fn test_rest_v2_checkout_sessions() {
             .unwrap()
             .starts_with("cou_")
     );
-    assert_eq!(session["trial_days"], 14);
+    assert_eq!(session["trial"], json!({"type": "custom", "days": 14}));
     assert_eq!(session["invoicing"]["net_terms"], 30);
     assert_eq!(session["invoicing"]["memo"], "Thanks");
     assert_eq!(session["invoicing"]["auto_finalize"], true);

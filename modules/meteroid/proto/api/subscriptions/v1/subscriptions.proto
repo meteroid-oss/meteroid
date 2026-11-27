@@ -236,6 +236,13 @@ message PlanChangeComponentParameterization {
   optional uint64 committed_capacity = 4;
 }
 
+// A charge of the plan changed to at its own price, one amount (a rate, a seat, a capacity): an
+// override of the catalog's.
+message PlanChangeTargetPrice {
+  string component_id = 1;
+  string price = 2;
+}
+
 message SchedulePlanChangeRequest {
   string subscription_id = 1;
   string new_plan_version_id = 2;
@@ -244,6 +251,7 @@ message SchedulePlanChangeRequest {
   // The option of the new version, by alias or id; unset: the subscription's own when the new
   // version has it, else its default.
   optional string option = 5;
+  repeated PlanChangeTargetPrice prices = 6;
 }
 
 message SchedulePlanChangeResponse {
@@ -260,6 +268,7 @@ message PreviewPlanChangeRequest {
   // The option of the new version, by alias or id; unset: the subscription's own when the new
   // version has it, else its default.
   optional string option = 5;
+  repeated PlanChangeTargetPrice prices = 6;
 }
 
 message PreviewPlanChangeResponse {
@@ -271,6 +280,8 @@ message PreviewPlanChangeResponse {
   string change_direction = 6;
   // False when a minimum commitment (held or targeted) keeps the change to the period's end.
   bool immediate_allowed = 7;
+  // Set when the subscription has a timeline after the change: what the change does to it.
+  optional TimelineEffect timeline = 8;
 }
 
 message ProrationSummary {
@@ -300,12 +311,16 @@ message PlanChangeMatchedComponent {
   SubscriptionFeeBillingPeriod current_period = 5;
   SubscriptionFee new_fee = 6;
   SubscriptionFeeBillingPeriod new_period = 7;
+  // The target plan's component it maps to.
+  optional string price_component_id = 8;
 }
 
 message PlanChangeAddedComponent {
   string name = 1;
   SubscriptionFee fee = 2;
   SubscriptionFeeBillingPeriod period = 3;
+  // The target plan's component it maps to (plan changes only).
+  optional string price_component_id = 4;
 }
 
 message PlanChangeRemovedComponent {
@@ -402,6 +417,8 @@ message PreviewAmendmentResponse {
   // The credit note issued now for the credit side (downgrades/removals).
   // Line amounts are negative.
   optional UpcomingInvoice credit_note = 11;
+  // Set when the subscription has a timeline after the amendment: what it does to it.
+  optional TimelineEffect timeline = 12;
 }
 
 message ApplyAmendmentRequest {

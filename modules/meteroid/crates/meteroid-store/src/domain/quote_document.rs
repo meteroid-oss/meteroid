@@ -1,7 +1,7 @@
 //! The content a quote's signers see, in a canonical form whose SHA-256 identifies it. A signature
 //! records the hash it was given; a quote edited since then no longer matches.
 
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::{Months, NaiveDate, NaiveDateTime};
 use common_domain::ids::{CouponId, ProductId};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -15,6 +15,8 @@ use crate::domain::quotes::{
     DetailedQuote, QuoteAttachment, QuoteCountersigner, QuoteDisplayOptions, QuoteSection,
     RecipientDetails,
 };
+use crate::domain::subscription_phases::PhaseMinimum;
+use crate::domain::trial_offers::PlanPhaseTemplate;
 use crate::domain::{SubscriptionFee, SubscriptionFeeBillingPeriod};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,6 +29,12 @@ pub struct QuoteDocument {
     pub billing_start_date: Option<NaiveDate>,
     pub billing_end_date: Option<NaiveDate>,
     pub trial_duration_days: Option<i32>,
+    // The trial's freeness and trial plan, signed with it; skipped when unset so a document
+    // recorded before keeps its hash (R-155).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trial_free: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trial_plan_id: Option<common_domain::ids::PlanId>,
     pub billing_day_anchor: Option<i32>,
     pub expires_at: Option<NaiveDateTime>,
     pub net_terms: i32,
@@ -41,11 +49,55 @@ pub struct QuoteDocument {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub coupons: Vec<QuoteDocumentCoupon>,
     pub minimum: Option<QuoteDocumentMinimum>,
+    // A quote's ramp is part of what is signed; skipped when empty so a document without phases
+    // keeps the hash it had (R-155).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub phases: Vec<PlanPhaseTemplate>,
     pub recipients: Vec<RecipientDetails>,
     pub countersigners: Vec<QuoteCountersigner>,
     /// Their content's hash is part of the document's: a signature covers the files it was given.
     pub attachments: Vec<QuoteAttachment>,
     pub consent_text: Option<String>,
+}
+
+/// A phase of a quote's price schedule, as its signers read it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PriceStep {
+    pub offset_months: u32,
+    pub starts_on: Option<NaiveDate>,
+    pub label: Option<String>,
+    pub prices: Vec<PriceStepLine>,
+    /// The least seats billed, by quantity code.
+    pub seats: Vec<(String, u32)>,
+    pub minimum: PhaseMinimum,
+    /// The plan switched to from this phase on, by name.
+    pub plan: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PriceStepLine {
+    pub name: String,
+    pub price: Decimal,
+    pub period: Option<SubscriptionFeeBillingPeriod>,
+    /// Set when the price is per seat of this unit.
+    pub unit: Option<String>,
+}
+
+/// The quote's phases with each fee named as the document's lines name it: what is signed reads
+/// on its own.
+fn named_phases(quote: &DetailedQuote) -> Vec<PlanPhaseTemplate> {
+    let mut phases = quote.phases.clone();
+    for component in phases
+        .iter_mut()
+        .flat_map(|p| p.terms.components.iter_mut())
+    {
+        if let Some(found) = quote.components.iter().find(|c| {
+            c.price_component_id.is_some() && c.price_component_id == component.plan_component
+        }) {
+            component.name = Some(found.name.clone());
+        }
+    }
+    phases
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,6 +154,8 @@ pub struct QuoteDocumentMinimum {
 
 impl QuoteDocument {
     pub fn from_detailed(quote: &DetailedQuote) -> Self {
+        let started = quote.at_start();
+        let quote = &started;
         let q = &quote.quote;
         let entity = &quote.invoicing_entity;
 
@@ -156,6 +210,12 @@ impl QuoteDocument {
             billing_start_date: q.billing_start_date,
             billing_end_date: q.billing_end_date,
             trial_duration_days: q.trial_duration_days,
+            trial_free: q
+                .trial_free
+                .filter(|_| q.trial_duration_days.unwrap_or(0) > 0),
+            trial_plan_id: q
+                .trial_plan_id
+                .filter(|_| q.trial_duration_days.unwrap_or(0) > 0),
             billing_day_anchor: q.billing_day_anchor,
             expires_at: q.expires_at,
             net_terms: q.net_terms,
@@ -166,6 +226,7 @@ impl QuoteDocument {
             lines,
             coupon_ids: quote.coupons.iter().map(|c| c.coupon_id).collect(),
             coupons: quote.coupon_terms(),
+            phases: named_phases(quote),
             minimum: quote.minimum.as_ref().map(|m| QuoteDocumentMinimum {
                 amount_subunit: m.amount_subunit,
                 product_ids: match &m.scope {
@@ -179,6 +240,61 @@ impl QuoteDocument {
             attachments: q.attachments.clone(),
             consent_text: q.consent_text.clone(),
         }
+    }
+
+    /// The ramp as signed: each phase from its day, or its offset when the quote has no start.
+    pub fn price_schedule(&self) -> Vec<PriceStep> {
+        self.phases
+            .iter()
+            .map(|phase| {
+                PriceStep {
+                    offset_months: phase.offset_months,
+                    // A free trial may move the billing start the months count from: no date then.
+                    starts_on: self
+                        .billing_start_date
+                        .filter(|_| {
+                            self.trial_duration_days.unwrap_or(0) == 0
+                                || self.trial_free == Some(false)
+                        })
+                        .and_then(|start| {
+                            start.checked_add_months(Months::new(phase.offset_months))
+                        }),
+                    label: phase.label.clone(),
+                    prices: phase
+                        .terms
+                        .components
+                        .iter()
+                        .map(|component| {
+                            let name = component.name.clone().unwrap_or_default();
+                            let line = self.lines.iter().find(|line| line.name == name);
+                            PriceStepLine {
+                                price: component.price,
+                                period: line.map(|line| line.period),
+                                unit: line.and_then(|line| match &line.fee {
+                                    SubscriptionFee::Slot { unit, .. } => Some(unit.clone()),
+                                    _ => None,
+                                }),
+                                name,
+                            }
+                        })
+                        .collect(),
+                    seats: phase
+                        .terms
+                        .min_seats
+                        .iter()
+                        .map(|seats| (seats.code.clone(), seats.slots))
+                        .collect(),
+                    minimum: phase.terms.minimum.clone(),
+                    plan: phase.terms.plan.as_ref().map(|plan| {
+                        let name = plan.name.clone().unwrap_or_default();
+                        match &plan.option {
+                            Some(option) => format!("{name} ({option})"),
+                            None => name,
+                        }
+                    }),
+                }
+            })
+            .collect()
     }
 
     pub fn hash(&self) -> String {
@@ -294,6 +410,8 @@ mod tests {
             billing_start_date: None,
             billing_end_date: None,
             trial_duration_days: None,
+            trial_free: None,
+            trial_plan_id: None,
             billing_day_anchor: None,
             expires_at: None,
             net_terms: 30,
@@ -305,11 +423,81 @@ mod tests {
             coupon_ids: vec![CouponId::default()],
             coupons,
             minimum: None,
+            phases: vec![],
             recipients: vec![],
             countersigners: vec![],
             attachments: vec![],
             consent_text: None,
         }
+    }
+
+    #[test]
+    fn a_ramp_reads_from_its_days_with_its_fees_periods_and_seats() {
+        use crate::domain::price_components::RatingModel;
+        use crate::domain::scheduled_events::PhaseSeats;
+        use crate::domain::subscription_phases::{PhaseComponent, PhaseTerms};
+        let phase = |offset_months, price, slots, minimum| PlanPhaseTemplate {
+            offset_months,
+            label: None,
+            terms: PhaseTerms {
+                components: vec![PhaseComponent {
+                    lineage: None,
+                    plan_component: None,
+                    price,
+                    list_rate: None,
+                    name: Some("Seats".to_string()),
+                }],
+                min_seats: vec![PhaseSeats {
+                    quantity_id: Default::default(),
+                    code: "seat".to_string(),
+                    slots,
+                }],
+                minimum,
+                ..Default::default()
+            },
+        };
+        let mut doc = document(vec![]);
+        doc.billing_start_date = NaiveDate::from_ymd_opt(2026, 12, 1);
+        doc.lines = vec![QuoteDocumentLine {
+            name: "Seats".to_string(),
+            description: None,
+            period: SubscriptionFeeBillingPeriod::Monthly,
+            fee: SubscriptionFee::Slot {
+                unit: "seat".to_string(),
+                quantity_id: None,
+                model: RatingModel::PerUnit { rate: dec!(10) },
+                min_slots: None,
+                max_slots: None,
+                initial_slots: 100,
+            },
+            list_fee: None,
+            discount_percent: None,
+            quantity: None,
+        }];
+        doc.phases = vec![
+            phase(0, dec!(10), 100, PhaseMinimum::Kept),
+            phase(12, dec!(10.70), 150, PhaseMinimum::Ended),
+        ];
+
+        let schedule = doc.price_schedule();
+        assert_eq!(schedule.len(), 2);
+        assert_eq!(schedule[1].starts_on, NaiveDate::from_ymd_opt(2027, 12, 1));
+        assert_eq!(
+            schedule[1].prices,
+            vec![PriceStepLine {
+                name: "Seats".to_string(),
+                price: dec!(10.70),
+                period: Some(SubscriptionFeeBillingPeriod::Monthly),
+                unit: Some("seat".to_string()),
+            }]
+        );
+        assert_eq!(schedule[1].seats, vec![("seat".to_string(), 150)]);
+        assert_eq!(schedule[1].minimum, PhaseMinimum::Ended);
+        doc.trial_duration_days = Some(14);
+        assert_eq!(doc.price_schedule()[1].starts_on, None);
+        doc.trial_duration_days = None;
+        doc.billing_start_date = None;
+        assert_eq!(doc.price_schedule()[1].starts_on, None);
     }
 
     #[test]

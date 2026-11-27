@@ -117,6 +117,15 @@ export const EMAIL_KIND_META: EmailKindMeta[] = [
     attachesDocument: false,
   },
   {
+    kind: EmailKind.RENEWAL_REMINDER,
+    label: 'Renewal reminder',
+    description:
+      'Sent once before a subscription renews or ends, with its opt-out deadline. Its lead is set in Settings → Renewals.',
+    editableCopy: false,
+    attachesDocument: false,
+    sentByModule: true,
+  },
+  {
     kind: EmailKind.WALLET_BALANCE_LOW,
     label: 'Low balance',
     description: "Sent when a customer's prepaid balance falls below its alert threshold.",
@@ -184,9 +193,10 @@ const GROUPS: KindGroup[] = [
   {
     title: 'Subscriptions',
     kinds: [
-      byKind(EmailKind.SUBSCRIPTION_CANCELLED)!,
-      byKind(EmailKind.PAYMENT_METHOD_EXPIRING)!,
-    ],
+      EmailKind.SUBSCRIPTION_CANCELLED,
+      EmailKind.PAYMENT_METHOD_EXPIRING,
+      EmailKind.RENEWAL_REMINDER,
+    ].map(k => byKind(k)!),
   },
   {
     title: 'Prepaid balance',

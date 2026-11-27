@@ -247,6 +247,8 @@ export function buildPreviewQuote({
     billingStartDate: data.billing_start_date ? mapDatev2(data.billing_start_date) : undefined,
     endDate: data.end_date ? mapDatev2(data.end_date) : undefined,
     trialDuration: typeof data.trial_duration === 'number' ? data.trial_duration : undefined,
+    trialFree: data.trial_duration ? (data.trial_free ?? true) : undefined,
+    trialPlanId: data.trial_duration ? data.trial_plan_id : undefined,
     billingDayAnchor:
       typeof data.billing_day_anchor === 'number' ? data.billing_day_anchor : undefined,
     expiresAt: data.expires_at ? mapDatev2(data.expires_at) : undefined,

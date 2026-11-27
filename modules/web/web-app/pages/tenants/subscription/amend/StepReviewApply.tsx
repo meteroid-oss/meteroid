@@ -35,6 +35,7 @@ import { protoFeeTypeToComponentFeeType } from '@/features/pricing/formData'
 import { InvoicePreviewCard } from '@/features/subscriptions/UpcomingInvoiceCard'
 import { levelAppliesNow, levelMove } from '@/features/subscriptions/capacityLevels'
 import { invalidateSubscriptionBilling } from '@/features/subscriptions/invalidateSubscriptionBilling'
+import { TimelineEffectView } from '@/features/subscriptions/planChange/TimelineEffect'
 import { useLevelUnit } from '@/features/subscriptions/useLevelUnit'
 import { formatSubscriptionFeeBillingPeriod } from '@/features/subscriptions/utils/fees'
 import { useQuery } from '@/lib/connectrpc'
@@ -472,6 +473,17 @@ export const StepReviewApply = () => {
               )}
             </CardContent>
           </Card>
+
+          {preview?.timeline && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Phases and dated changes</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <TimelineEffectView effect={preview.timeline} currency={state.currency} />
+              </CardContent>
+            </Card>
+          )}
 
           {/* Changes — placed above the proration so the user sees what changed first.
               Driven by the user's edits; MRR is folded in as a small footer. */}

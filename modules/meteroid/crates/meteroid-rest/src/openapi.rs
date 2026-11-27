@@ -10,15 +10,16 @@ use crate::webhooks::out_model::{
     WebhookOutCheckoutPaymentKeptAsCreditEvent, WebhookOutCheckoutPaymentKeptAsCreditEventData,
     WebhookOutCreditGrantExpiredEvent, WebhookOutCreditGrantExpiredEventData,
     WebhookOutEntitlementAlertEvent, WebhookOutEntitlementAlertEventData,
-    WebhookOutEntitlementAlertLevel, WebhookOutEntitlementAlertResource, WebhookOutRenewalMode,
-    WebhookOutRenewalUpcomingEvent, WebhookOutRenewalUpcomingEventData,
+    WebhookOutEntitlementAlertLevel, WebhookOutEntitlementAlertResource,
+    WebhookOutOverrideEndingEvent, WebhookOutOverrideEndingEventData, WebhookOutRenewalMode,
+    WebhookOutRenewalSource, WebhookOutRenewalUpcomingEvent, WebhookOutRenewalUpcomingEventData,
     WebhookOutRetentionOfferKind, WebhookOutRetentionOutcome, WebhookOutRetentionSessionEvent,
     WebhookOutRetentionSessionEventData, WebhookOutTooManyGroupsEvent,
-    WebhookOutTooManyGroupsEventData, WebhookOutWalletBalanceLowEvent,
-    WebhookOutWalletBalanceLowEventData, WebhookOutWalletCreditRecoveredEvent,
-    WebhookOutWalletCreditRecoveredEventData, WebhookOutWalletCreditUnrecoveredEvent,
-    WebhookOutWalletCreditUnrecoveredEventData, WebhookOutWalletDebitedEvent,
-    WebhookOutWalletDebitedEventData, WebhookOutWalletDepletedEvent,
+    WebhookOutTooManyGroupsEventData, WebhookOutTrialEndingEvent, WebhookOutTrialEndingEventData,
+    WebhookOutWalletBalanceLowEvent, WebhookOutWalletBalanceLowEventData,
+    WebhookOutWalletCreditRecoveredEvent, WebhookOutWalletCreditRecoveredEventData,
+    WebhookOutWalletCreditUnrecoveredEvent, WebhookOutWalletCreditUnrecoveredEventData,
+    WebhookOutWalletDebitedEvent, WebhookOutWalletDebitedEventData, WebhookOutWalletDepletedEvent,
     WebhookOutWalletDepletedEventData, WebhookOutWalletFundedEvent,
     WebhookOutWalletFundedEventData, WebhookOutWalletRecoveredEvent,
     WebhookOutWalletRecoveredEventData,
@@ -255,6 +256,8 @@ pub fn generate_spec(edition: EditionSpec, dir: &str) {
         WebhookOutCheckoutPaymentKeptAsCreditEvent,
         WebhookOutRetentionSessionEvent,
         WebhookOutRenewalUpcomingEvent,
+        WebhookOutOverrideEndingEvent,
+        WebhookOutTrialEndingEvent,
       )
     ),
     tags(
@@ -772,6 +775,53 @@ impl Modify for WebhooksAddon {
                     };
                     serde_json::to_value(&event).expect("Failed to serialize webhook example")
                 }
+                WebhookOutEventGroupEnum::Subscription
+                    if event == WebhookOutEventTypeEnum::SubscriptionTrialEndingSoon =>
+                {
+                    serde_json::to_value(WebhookOutTrialEndingEvent {
+                        id: EventId::default(),
+                        event_type: event,
+                        data: WebhookOutTrialEndingEventData {
+                            subscription_id: SubscriptionId::default(),
+                            customer_id: CustomerId::default(),
+                            trial_end: chrono::NaiveDate::from_ymd_opt(2027, 1, 15)
+                                .unwrap_or_default(),
+                            free: true,
+                            trial_offer_id: Some(
+                                "0195f1c2-0000-7000-8000-000000000000".to_string(),
+                            ),
+                        },
+                        timestamp: Default::default(),
+                    })
+                    .expect("Failed to serialize webhook example")
+                }
+                WebhookOutEventGroupEnum::Subscription
+                    if event == WebhookOutEventTypeEnum::SubscriptionRenewalUpcoming =>
+                {
+                    serde_json::to_value(WebhookOutRenewalUpcomingEvent {
+                        id: EventId::default(),
+                        event_type: event,
+                        data: WebhookOutRenewalUpcomingEventData {
+                            customer_id: CustomerId::default(),
+                            subscription_id: SubscriptionId::default(),
+                            renewal_date: chrono::NaiveDate::from_ymd_opt(2027, 1, 1)
+                                .unwrap_or_default(),
+                            mode: WebhookOutRenewalMode::Renewing,
+                            source: WebhookOutRenewalSource::Term,
+                            days_before: 30,
+                            opt_out_deadline: chrono::NaiveDate::from_ymd_opt(2026, 12, 2),
+                            auto_renew: Some(true),
+                            renewal_months: Some(12),
+                            uplift_percent: Some("5".to_string()),
+                            notice_days: Some(30),
+                            plan_name: "Enterprise".to_string(),
+                            currency: "EUR".to_string(),
+                            mrr_cents: 250_000,
+                        },
+                        timestamp: Default::default(),
+                    })
+                    .expect("Failed to serialize webhook example")
+                }
                 WebhookOutEventGroupEnum::Subscription => {
                     let event = WebhookOutSubscriptionEvent {
                         id: EventId::default(),
@@ -1065,26 +1115,6 @@ impl Modify for WebhooksAddon {
                 }
                 WebhookOutEventGroupEnum::Entitlement | WebhookOutEventGroupEnum::Budget => {
                     alert_example(event)
-                }
-                WebhookOutEventGroupEnum::Retention
-                    if event == WebhookOutEventTypeEnum::RetentionRenewalUpcoming =>
-                {
-                    serde_json::to_value(WebhookOutRenewalUpcomingEvent {
-                        id: EventId::default(),
-                        event_type: event,
-                        data: WebhookOutRenewalUpcomingEventData {
-                            customer_id: CustomerId::default(),
-                            subscription_id: SubscriptionId::default(),
-                            renewal_date: Default::default(),
-                            mode: WebhookOutRenewalMode::Renewing,
-                            days_before: 60,
-                            plan_name: "Enterprise".to_string(),
-                            currency: "EUR".to_string(),
-                            mrr_cents: 250_000,
-                        },
-                        timestamp: Default::default(),
-                    })
-                    .expect("Failed to serialize webhook example")
                 }
                 WebhookOutEventGroupEnum::Retention => {
                     serde_json::to_value(WebhookOutRetentionSessionEvent {
@@ -1394,6 +1424,29 @@ fn alert_example(event: WebhookOutEventTypeEnum) -> serde_json::Value {
         event,
         WebhookOutEventTypeEnum::EntitlementLimitReached | WebhookOutEventTypeEnum::BudgetExceeded
     );
+    if matches!(
+        event,
+        WebhookOutEventTypeEnum::EntitlementOverrideEndingSoon
+            | WebhookOutEventTypeEnum::EntitlementOverrideEnded
+    ) {
+        return serde_json::to_value(WebhookOutOverrideEndingEvent {
+            id: EventId::default(),
+            event_type: event,
+            data: WebhookOutOverrideEndingEventData {
+                customer_id: CustomerId::default(),
+                feature_id: FeatureId::default(),
+                feature_code: "api_calls".to_string(),
+                override_id: "0195f1c2-0000-7000-8000-000000000000".to_string(),
+                resource_id: None,
+                value: serde_json::json!({ "limit": "2000000" }),
+                effect: "raise_to".to_string(),
+                valid_until: as_of,
+                reason: Some("Pilot extension".to_string()),
+            },
+            timestamp: Default::default(),
+        })
+        .expect("Failed to serialize webhook example");
+    }
     if event == WebhookOutEventTypeEnum::EntitlementTooManyGroups {
         return serde_json::to_value(WebhookOutTooManyGroupsEvent {
             id: EventId::default(),

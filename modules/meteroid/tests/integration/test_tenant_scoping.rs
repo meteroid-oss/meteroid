@@ -198,6 +198,8 @@ fn quote_new(tenant_id: TenantId, customer_id: CustomerId) -> QuoteNew {
         currency: "EUR".to_string(),
         quote_number: "Q-CROSS-0001".to_string(),
         trial_duration_days: None,
+        trial_free: None,
+        trial_plan_id: None,
         billing_start_date: None,
         billing_end_date: None,
         billing_day_anchor: None,

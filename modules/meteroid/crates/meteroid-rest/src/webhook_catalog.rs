@@ -573,14 +573,18 @@ mod tests {
             find("checkout.payment_kept_as_credit").example["data"]["checkout_session"]["status"]
                 .is_string()
         );
-        // A retention notice carries its subscription as the document shows one.
-        for name in ["retention.session_completed", "retention.renewal_upcoming"] {
+        // A retention or renewal notice carries its subscription as the document shows one.
+        for name in [
+            "retention.session_completed",
+            "subscription.renewal_upcoming",
+        ] {
             let data = &find(name).example["data"];
             assert!(data["subscription"]["plan"].is_object(), "{name}: {data:#}");
         }
-        let renewal = &find("retention.renewal_upcoming").example["data"];
+        let renewal = &find("subscription.renewal_upcoming").example["data"];
         assert!(renewal["mrr"]["amount"].is_i64(), "{renewal:#}");
         assert_eq!(renewal["mode"], "renewing");
+        assert!(renewal["source"].is_string(), "{renewal:#}");
         assert_eq!(
             find("retention.session_completed").example["data"]["outcome"],
             "saved"

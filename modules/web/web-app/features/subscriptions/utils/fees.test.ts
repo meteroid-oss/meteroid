@@ -1,12 +1,15 @@
 import { create } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'vitest'
 
+
 import {
   SubscriptionFeeBillingPeriod,
   SubscriptionFeeSchema,
 } from '@/rpc/api/subscriptions/v1/models_pb'
 
-import { feeBillingPeriod, formatSubscriptionFee, slotFeeTotal } from './fees'
+import { feeBillingPeriod, formatSubscriptionFee, oneAmountPrice, slotFeeTotal } from './fees'
+
+import type { MessageInitShape } from '@bufbuild/protobuf'
 
 const studioPack = (names?: { name: string; pluralName: string }) =>
   create(SubscriptionFeeSchema, {
@@ -123,5 +126,42 @@ describe('formatSubscriptionFee reads usage tiers as billing prices them', () =>
 
   it('volume tiers by the total they price, the next tier taking its start', () => {
     expect(ranges('volume')).toEqual(['0-99', '100-∞'])
+  })
+})
+
+describe('oneAmountPrice', () => {
+  const fee = (value: MessageInitShape<typeof SubscriptionFeeSchema>) =>
+    create(SubscriptionFeeSchema, value)
+
+  it('reads the one amount a rate, a capacity or a seat is priced by', () => {
+    expect(oneAmountPrice(fee({ fee: { case: 'rate', value: { rate: '29.00' } } }))).toBe('29.00')
+    expect(
+      oneAmountPrice(
+        fee({ fee: { case: 'slot', value: { unit: 'seat', unitRate: '10.00', initialSlots: 1 } } })
+      )
+    ).toBe('10.00')
+    expect(
+      oneAmountPrice(
+        fee({
+          fee: {
+            case: 'slot',
+            value: { unit: 'seat', unitRate: '', model: { model: { case: 'perUnit', value: '12' } } },
+          },
+        })
+      )
+    ).toBe('12')
+  })
+
+  it('has none for tiers', () => {
+    expect(
+      oneAmountPrice(
+        fee({
+          fee: {
+            case: 'slot',
+            value: { unit: 'seat', model: { model: { case: 'tiered', value: { rows: [] } } } },
+          },
+        })
+      )
+    ).toBeUndefined()
   })
 })

@@ -96,7 +96,7 @@ async fn product(env: &TestEnv, name: &str) -> ProductId {
     id
 }
 
-async fn on_starter(env: &TestEnv) -> SubscriptionId {
+pub(super) async fn on_starter(env: &TestEnv) -> SubscriptionId {
     subscription()
         .plan_version(PLAN_VERSION_STARTER_ID)
         .start_date(day(1, 1))
@@ -106,7 +106,7 @@ async fn on_starter(env: &TestEnv) -> SubscriptionId {
         .await
 }
 
-async fn change_seats(
+pub(super) async fn change_seats(
     env: &TestEnv,
     sub_id: SubscriptionId,
     charge: impl Into<meteroid_store::domain::SeatCharge>,
@@ -143,7 +143,7 @@ async fn seats_of(
         .expect("seats")
 }
 
-async fn renewal_on(env: &TestEnv, sub_id: SubscriptionId, on: NaiveDate) -> Invoice {
+pub(super) async fn renewal_on(env: &TestEnv, sub_id: SubscriptionId, on: NaiveDate) -> Invoice {
     env.get_invoices(sub_id)
         .await
         .into_iter()
@@ -153,7 +153,7 @@ async fn renewal_on(env: &TestEnv, sub_id: SubscriptionId, on: NaiveDate) -> Inv
         .unwrap_or_else(|| panic!("the renewal of {on}"))
 }
 
-async fn adjustments(env: &TestEnv, sub_id: SubscriptionId) -> Vec<Invoice> {
+pub(super) async fn adjustments(env: &TestEnv, sub_id: SubscriptionId) -> Vec<Invoice> {
     env.get_invoices(sub_id)
         .await
         .into_iter()
@@ -296,7 +296,7 @@ async fn seat_charges_of_one_label_count_their_own_quantities(#[future] test_env
 }
 
 /// "Seat support", 2.00 a seat of the catalog's seats, an add-on charging per seat.
-async fn seat_support(env: &TestEnv, max_instances: Option<i32>) -> AddOnId {
+pub(super) async fn seat_support(env: &TestEnv, max_instances: Option<i32>) -> AddOnId {
     seat_add_on(
         env,
         "Seat support",
@@ -349,7 +349,7 @@ async fn seat_add_on(
 }
 
 /// A seat change that may be refused, its refusal as text.
-async fn try_change_seats(
+pub(super) async fn try_change_seats(
     env: &TestEnv,
     sub_id: SubscriptionId,
     charge: impl Into<meteroid_store::domain::SeatCharge>,
@@ -371,7 +371,12 @@ async fn try_change_seats(
 }
 
 /// The add-on added on `on`, at once.
-async fn add_on_at(env: &TestEnv, sub_id: SubscriptionId, add_on_id: AddOnId, on: NaiveDate) {
+pub(super) async fn add_on_at(
+    env: &TestEnv,
+    sub_id: SubscriptionId,
+    add_on_id: AddOnId,
+    on: NaiveDate,
+) {
     env.services()
         .apply_amendment_immediate_at(Actor::System, sub_id, TENANT_ID, add(add_on_id, 1), on)
         .await

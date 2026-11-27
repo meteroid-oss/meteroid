@@ -1011,7 +1011,10 @@ async fn create_subscription(services: &Services, params: SubscriptionParams) ->
                     end_date: params.end_date,
                     billing_start_date: params.billing_start_date,
                     activation_condition: params.activation_condition,
-                    trial_duration: params.trial_duration,
+                    trial: meteroid_store::domain::trials::TrialRequest::from_days(
+                        params.trial_duration,
+                        None,
+                    ),
                     billing_day_anchor: params.billing_day_anchor,
                     payment_methods_config: params.payment_methods_config,
                     auto_advance_invoices: true,

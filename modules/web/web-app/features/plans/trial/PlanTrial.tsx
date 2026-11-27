@@ -14,22 +14,23 @@ import { useId, useState } from 'react'
 import { toast } from 'sonner'
 
 import { AdvancedSection } from '@/components/form'
+import { Slot } from '@/edition'
 import { ExtraActions } from '@/features/plans/MoreForPlan'
-import { useIsDraftVersion } from '@/features/plans/hooks/usePlan'
 import { useQuery } from '@/lib/connectrpc'
 import { rpcErrorMessage } from '@/lib/rpcError'
-import { PlanType, TrialConfig } from '@/rpc/api/plans/v1/models_pb'
+import { PlanTrial as PlanTrialModel, PlanType } from '@/rpc/api/plans/v1/models_pb'
 import {
   getPlanOverview,
+  getPlanWithVersion,
   listPlans,
-  updatePlanTrial,
+  setPlanTrial,
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 
 interface TrialProps {
-  config?: TrialConfig
+  trial?: PlanTrialModel
   currentPlanId: string
-  currentPlanVersionId: string
   planType: PlanType
+  readOnly: boolean
   onDone: () => void
 }
 
@@ -43,50 +44,42 @@ interface Draft {
   featuresOf: string
 }
 
-/** The version's trial: read on a published version, a small form on a draft. */
-export const PlanTrial = ({
-  config,
-  currentPlanId,
-  currentPlanVersionId,
-  planType,
-  onDone,
-}: TrialProps) => {
-  const isDraft = useIsDraftVersion()
+/** The plan's trial, the same on every version: saved at once, for subscriptions to come. */
+export const PlanTrial = ({ trial, currentPlanId, planType, readOnly, onDone }: TrialProps) => {
   const planName = usePlanName()
-  const isFree = planType === PlanType.FREE
-
-  if (!isDraft) {
-    return (
-      <div className="space-y-3 text-sm">
-        {config && config.durationDays > 0 ? (
-          <TrialSentence
-            days={config.durationDays}
-            free={config.trialIsFree}
-            featuresOf={
-              config.trialingPlanId && config.trialingPlanId !== currentPlanId
-                ? planName(config.trialingPlanId)
-                : undefined
-            }
-            isFreePlan={isFree}
-          />
-        ) : (
-          <p className="text-muted-foreground">No trial.</p>
-        )}
-        <p className="text-xs text-muted-foreground">
-          The trial is part of the version: change it in a draft.
-        </p>
-      </div>
-    )
-  }
-
+  const terms = trial?.terms
   return (
-    <TrialForm
-      config={config}
-      currentPlanId={currentPlanId}
-      currentPlanVersionId={currentPlanVersionId}
-      planType={planType}
-      onDone={onDone}
-    />
+    <div className="space-y-4">
+      {readOnly ? (
+        <div className="space-y-3 text-sm">
+          {terms ? (
+            <TrialSentence
+              days={terms.durationDays}
+              free={terms.free}
+              featuresOf={terms.trialPlanId ? planName(terms.trialPlanId) : undefined}
+              isFreePlan={planType === PlanType.FREE}
+            />
+          ) : (
+            <p className="text-muted-foreground">No trial.</p>
+          )}
+        </div>
+      ) : (
+        <TrialForm
+          trial={trial}
+          currentPlanId={currentPlanId}
+          planType={planType}
+          readOnly={readOnly}
+          onDone={onDone}
+        />
+      )}
+      <Slot
+        name="planDetail.trial"
+        planId={currentPlanId}
+        trial={trial}
+        readOnly={readOnly}
+        onDone={onDone}
+      />
+    </div>
   )
 }
 
@@ -95,24 +88,32 @@ const usePlanName = () => {
   return (id: string) => plans?.find(plan => plan.id === id)?.name ?? 'another plan'
 }
 
-const TrialForm = ({
-  config,
-  currentPlanId,
-  currentPlanVersionId,
-  planType,
-  onDone,
-}: TrialProps) => {
-  const id = useId()
+/** Refreshes what reads a plan's trial once it is saved. */
+export const useRefreshPlanTrial = () => {
   const queryClient = useQueryClient()
+  return () =>
+    Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({ schema: getPlanOverview.parent, cardinality: undefined }),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({ schema: getPlanWithVersion, cardinality: undefined }),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({ schema: listPlans, cardinality: undefined }),
+      }),
+    ])
+}
+
+const TrialForm = ({ trial, currentPlanId, planType, onDone }: TrialProps) => {
+  const id = useId()
+  const refresh = useRefreshPlanTrial()
   const isFreePlan = planType === PlanType.FREE
-  const existing = !!config && config.durationDays > 0
+  const terms = trial?.terms
   const [draft, setDraft] = useState<Draft>(() => ({
-    days: String(config && config.durationDays > 0 ? config.durationDays : 14),
-    free: config?.trialIsFree ?? true,
-    featuresOf:
-      config?.trialingPlanId && config.trialingPlanId !== currentPlanId
-        ? config.trialingPlanId
-        : THIS_PLAN,
+    days: String(terms?.durationDays ?? 14),
+    free: terms?.free ?? true,
+    featuresOf: terms?.trialPlanId ?? THIS_PLAN,
   }))
   const set = (patch: Partial<Draft>) => setDraft(prev => ({ ...prev, ...patch }))
 
@@ -122,13 +123,12 @@ const TrialForm = ({
   const planName = (planId: string) => plans.find(p => p.id === planId)?.name ?? 'another plan'
 
   const days = Number(draft.days)
-  const valid = Number.isInteger(days) && days >= 1 && days <= 9999
+  const valid = Number.isInteger(days) && days >= 1 && days <= 3650
+  const shared = (trial?.plansSharing ?? 0) > 1
 
-  const mutation = useMutation(updatePlanTrial, {
+  const mutation = useMutation(setPlanTrial, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey({ schema: getPlanOverview.parent, cardinality: undefined }),
-      })
+      await refresh()
       onDone()
     },
     onError: error => toast.error(rpcErrorMessage(error, 'The trial could not be saved')),
@@ -137,16 +137,14 @@ const TrialForm = ({
   const save = () =>
     mutation.mutate({
       planId: currentPlanId,
-      planVersionId: currentPlanVersionId,
       trial: {
         durationDays: days,
-        trialingPlanId: draft.featuresOf === THIS_PLAN ? undefined : draft.featuresOf,
+        trialPlanId: draft.featuresOf === THIS_PLAN ? undefined : draft.featuresOf,
         // A free plan's trial never bills.
-        trialIsFree: isFreePlan || draft.free,
+        free: isFreePlan || draft.free,
       },
     })
-  const remove = () =>
-    mutation.mutate({ planId: currentPlanId, planVersionId: currentPlanVersionId, trial: undefined })
+  const remove = () => mutation.mutate({ planId: currentPlanId, trial: undefined })
 
   const featuresSelect = (
     <Select value={draft.featuresOf} onValueChange={featuresOf => set({ featuresOf })}>
@@ -172,6 +170,14 @@ const TrialForm = ({
       }}
       className="space-y-4 text-sm"
     >
+      {shared && (
+        <p className="rounded-md border border-border bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground">
+          This trial is the offer <strong className="font-medium">{trial?.name}</strong>, shared
+          with {(trial?.plansSharing ?? 1) - 1} other{' '}
+          {(trial?.plansSharing ?? 1) === 2 ? 'plan' : 'plans'}: saving gives this plan a trial of
+          its own.
+        </p>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label htmlFor={`${id}-days`} className="text-xs font-normal text-muted-foreground">
@@ -183,7 +189,7 @@ const TrialForm = ({
               type="number"
               inputMode="numeric"
               min={1}
-              max={9999}
+              max={3650}
               step={1}
               autoFocus
               value={draft.days}
@@ -247,13 +253,16 @@ const TrialForm = ({
             isFreePlan={isFreePlan}
           />
         ) : (
-          <p className="text-xs text-destructive">Enter a whole number of days, from 1 to 9999.</p>
+          <p className="text-xs text-destructive">Enter a whole number of days, from 1 to 3650.</p>
         )}
+        <p className="mt-1 text-xs text-muted-foreground/80">
+          The same on every version: running trials keep theirs.
+        </p>
       </div>
 
       <ExtraActions
         start={
-          existing && (
+          trial && (
             <Button
               type="button"
               variant="ghost"
@@ -271,7 +280,7 @@ const TrialForm = ({
           Cancel
         </Button>
         <Button type="submit" variant="primary" size="sm" disabled={!valid || mutation.isPending}>
-          {existing ? 'Save' : 'Add trial'}
+          {trial ? 'Save' : 'Add trial'}
         </Button>
       </ExtraActions>
     </form>
@@ -279,7 +288,7 @@ const TrialForm = ({
 }
 
 /** The trial in plain words, then what checkout asks for. */
-const TrialSentence = ({
+export const TrialSentence = ({
   days,
   free,
   featuresOf,
@@ -309,14 +318,16 @@ const TrialSentence = ({
     : free
       ? [
           <>
-            New subscribers get <strong className="font-medium text-foreground">{length} free</strong>
+            New subscribers get{' '}
+            <strong className="font-medium text-foreground">{length} free</strong>
             {withFeatures}, then billing starts.
           </>,
           'Checkout collects a payment method; the first charge is when the trial ends.',
         ]
       : [
           <>
-            New subscribers are <strong className="font-medium text-foreground">billed from day one</strong>
+            New subscribers are{' '}
+            <strong className="font-medium text-foreground">billed from day one</strong>
             {featuresOf ? (
               <>
                 {' '}

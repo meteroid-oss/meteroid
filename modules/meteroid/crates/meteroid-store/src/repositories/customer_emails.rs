@@ -1319,7 +1319,8 @@ impl CustomerEmailsInterface for Store {
                     | EmailContext::BudgetAlert { customer_id, .. }
                     | EmailContext::SubscriptionCancelled { customer_id, .. }
                     | EmailContext::PaymentMethodExpiring { customer_id, .. }
-                    | EmailContext::PaymentMethodRequested { customer_id, .. } => {
+                    | EmailContext::PaymentMethodRequested { customer_id, .. }
+                    | EmailContext::RenewalReminder { customer_id, .. } => {
                         let customer = CustomerRow::find_by_id(conn, customer_id, &tenant_id)
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?;
@@ -1488,7 +1489,8 @@ impl CustomerEmailsInterface for Store {
                     | EmailContext::BudgetAlert { customer_id, .. }
                     | EmailContext::SubscriptionCancelled { customer_id, .. }
                     | EmailContext::PaymentMethodExpiring { customer_id, .. }
-                    | EmailContext::PaymentMethodRequested { customer_id, .. } => {
+                    | EmailContext::PaymentMethodRequested { customer_id, .. }
+                    | EmailContext::RenewalReminder { customer_id, .. } => {
                         CustomerRow::find_by_id(conn, customer_id, &tenant_id)
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?

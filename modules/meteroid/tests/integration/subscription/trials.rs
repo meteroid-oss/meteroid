@@ -166,10 +166,8 @@ async fn test_onstart_free_trial_ends_becomes_active_with_invoice(#[future] test
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert()
-        .is_active()
-        .has_pending_checkout(false)
-        .has_trial_duration(Some(14));
+    sub.assert().is_active().has_pending_checkout(false);
+    assert_eq!(env.trial_days(sub_id).await, Some(14));
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(1);
@@ -280,8 +278,8 @@ async fn test_onstart_paid_trial_billing_cycle(#[future] test_env: TestEnv) {
     sub.assert()
         .with_context("Initial state")
         .is_trial_active()
-        .has_trial_duration(Some(7))
         .has_cycle_index(0);
+    assert_eq!(env.trial_days(sub_id).await, Some(7));
 
     // First invoice: covers the first billing period (Jan 1 - Feb 1)
     let invoices = env.get_invoices(sub_id).await;
@@ -303,11 +301,11 @@ async fn test_onstart_paid_trial_billing_cycle(#[future] test_env: TestEnv) {
     sub.assert()
         .with_context("After process_cycles")
         .is_active() // Trial ended via scheduled event
-        .has_trial_duration(Some(7))
         .has_cycle_index(1); // Cycle advanced due to renewal
 
     // Two invoices: creation + renewal at month-end
     let invoices = env.get_invoices(sub_id).await;
+    assert_eq!(env.trial_days(sub_id).await, Some(7));
     invoices.assert().has_count(2);
 
     // Invoice 1: still the original at Jan 1
@@ -372,9 +370,8 @@ async fn test_free_plan_with_trial_never_bills(#[future] test_env: TestEnv) {
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert()
-        .is_active() // NOT TrialExpired!
-        .has_trial_duration(Some(7));
+    sub.assert().is_active(); // NOT TrialExpired!
+    assert_eq!(env.trial_days(sub_id).await, Some(7));
 
     // Still no invoices (free plan)
     let invoices = env.get_invoices(sub_id).await;
@@ -632,8 +629,8 @@ async fn test_paid_trial_90_days_generates_all_invoices(#[future] test_env: Test
     sub.assert()
         .with_context("Initial state")
         .has_status(SubscriptionStatusEnum::TrialActive)
-        .has_trial_duration(Some(90))
         .has_cycle_index(0);
+    assert_eq!(env.trial_days(sub_id).await, Some(90));
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(1);
@@ -731,10 +728,8 @@ async fn test_paid_free_trial_90_days_generates_all_invoices(#[future] test_env:
     // === Initial state: TrialActive with NO invoice ===
     // Free trial = no billing until trial ends
     let sub = env.get_subscription(sub_id).await;
-    sub.assert()
-        .with_context("Initial state")
-        .is_trial_active() // a free trial bills nothing until its end
-        .has_trial_duration(Some(90));
+    sub.assert().with_context("Initial state").is_trial_active(); // a free trial bills nothing until its end
+    assert_eq!(env.trial_days(sub_id).await, Some(90));
     assert_eq!(env.billed_cycle(sub_id).await, 0);
 
     let invoices = env.get_invoices(sub_id).await;
@@ -818,9 +813,8 @@ async fn test_free_plan_with_trial_generates_no_invoices(#[future] test_env: Tes
 
     // === Initial state ===
     let sub = env.get_subscription(sub_id).await;
-    sub.assert()
-        .with_context("Initial state")
-        .has_trial_duration(Some(90));
+    sub.assert().with_context("Initial state");
+    assert_eq!(env.trial_days(sub_id).await, Some(90));
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(0); // No invoice - free plan
@@ -1006,8 +1000,8 @@ async fn a_free_trial_set_on_the_subscription_cancelled_records_no_credit(
     env.get_subscription(sub_id)
         .await
         .assert()
-        .is_trial_active()
-        .has_trial_duration(Some(45));
+        .is_trial_active();
+    assert_eq!(env.trial_days(sub_id).await, Some(45));
     env.get_invoices(sub_id).await.assert().has_count(0);
 
     env.services()
@@ -1053,8 +1047,8 @@ async fn a_trial_keeps_the_freeness_it_started_with(#[future] test_env: TestEnv)
     use common_domain::actor::Actor;
     use common_domain::ids::{BaseId, PlanId, PlanVersionId, PriceComponentId, PriceId};
     use diesel_models::enums::BillingPeriodEnum;
-    use meteroid_store::domain::{PlanTrial, TrialPatch};
     use meteroid_store::repositories::PlansInterface;
+    use meteroid_store::repositories::plans::PlansInterfaceAuto;
     use meteroid_store::repositories::subscriptions::{
         CancellationEffectiveAt, SubscriptionInterfaceAuto,
     };
@@ -1074,17 +1068,22 @@ async fn a_trial_keeps_the_freeness_it_started_with(#[future] test_env: TestEnv)
         .seed(&mut env.conn().await)
         .await
         .expect("plan");
-    let trial = |trial_is_free| TrialPatch {
-        plan_version_id: version,
-        tenant_id: TENANT_ID,
-        trial: Some(PlanTrial {
+    let plan_id = env
+        .store()
+        .get_plan_by_version_id(version, TENANT_ID)
+        .await
+        .expect("plan")
+        .plan
+        .id;
+    let trial = |free| {
+        Some(meteroid_store::domain::trials::TrialTerms {
             duration_days: 45,
-            trialing_plan_id: None,
-            trial_is_free,
-        }),
+            free,
+            trial_plan_id: None,
+        })
     };
     env.store()
-        .patch_trial(Actor::System, trial(true))
+        .set_plan_trial(Actor::System, TENANT_ID, plan_id, trial(true))
         .await
         .expect("a free trial");
     let sub_id = subscription()
@@ -1096,9 +1095,9 @@ async fn a_trial_keeps_the_freeness_it_started_with(#[future] test_env: TestEnv)
         .create(env.services())
         .await;
     env.store()
-        .patch_trial(Actor::System, trial(false))
+        .set_plan_trial(Actor::System, TENANT_ID, plan_id, trial(false))
         .await
-        .expect("the version's trial made paid");
+        .expect("the plan's trial made paid");
 
     let details = env
         .store()

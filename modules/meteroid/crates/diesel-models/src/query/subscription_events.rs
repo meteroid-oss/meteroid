@@ -321,6 +321,31 @@ impl SubscriptionEventRow {
         Ok(recorded)
     }
 
+    /// The subscription's cancellation events not booked yet removed, when its cancellation is
+    /// withdrawn: their churn would otherwise be booked on the ending's day. Returns how many.
+    pub async fn delete_unbooked_cancellations(
+        conn: &mut PgConn,
+        subscription_uid: SubscriptionId,
+    ) -> DbResult<usize> {
+        use crate::schema::subscription_event::dsl::{
+            bi_mrr_movement_log_id, event_type, subscription_event, subscription_id,
+        };
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::delete(subscription_event)
+            .filter(subscription_id.eq(subscription_uid))
+            .filter(event_type.eq(SubscriptionEventType::Cancelled))
+            .filter(bi_mrr_movement_log_id.is_null());
+
+        crate::debug_sql(&query);
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while removing a withdrawn cancellation's events")
+            .into_db_result()
+    }
+
     pub async fn fetch_by_subscription_id_and_event_type(
         conn: &mut PgConn,
         subscription_uid: SubscriptionId,

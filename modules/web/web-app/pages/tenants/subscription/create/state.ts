@@ -106,7 +106,14 @@ export interface CreateSubscriptionState {
   endDate?: Date
   billingDayAnchor?: number
   billingDay: 'FIRST' | 'SUB_START_DAY'
+  /** The plan's trial, none, or one of its own (days or an end date). */
+  trialMode: 'plan' | 'none' | 'custom'
   trialDuration?: number
+  trialUntil?: Date
+  /** Unset: the plan's trial's freeness, else free. */
+  trialFree?: boolean
+  /** A catalog offer (Enterprise), over `trialMode`. */
+  trialOfferId?: string
 
   // Advanced settings
   activationCondition: ActivationCondition
@@ -155,7 +162,11 @@ export const createSubscriptionAtom = atomWithReset<CreateSubscriptionState>({
   endDate: undefined,
   billingDayAnchor: undefined,
   billingDay: 'SUB_START_DAY',
+  trialMode: 'plan',
   trialDuration: undefined,
+  trialUntil: undefined,
+  trialFree: undefined,
+  trialOfferId: undefined,
 
   activationCondition: ActivationCondition.ON_START,
   paymentMethodsType: 'online',

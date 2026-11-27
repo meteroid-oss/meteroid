@@ -134,7 +134,10 @@ export const QuoteSettingsTab = ({ quote, minimumCommitment, planName }: Props) 
           />
           {q.endDate && <Detail label="End date" value={parseAndFormatDate(q.endDate)} />}
           {q.trialDuration !== undefined && q.trialDuration > 0 && (
-            <Detail label="Trial" value={`${q.trialDuration} days`} />
+            <Detail
+              label="Trial"
+              value={`${q.trialDuration} days${q.trialFree === false ? ', billed' : q.trialFree ? ', free' : ''}`}
+            />
           )}
           <Detail
             label="Billing day"

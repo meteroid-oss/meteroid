@@ -23,6 +23,8 @@ enum EmailKind {
   // Billing moved from another provider: the customer adds a payment method.
   PAYMENT_METHOD_REQUESTED = 14;
   PAYMENT_METHOD_EXPIRING = 15;
+  // A subscription renews or ends soon, sent when the tenant's renewal settings set a lead.
+  RENEWAL_REMINDER = 16;
 }
 
 enum EmailAudienceMode {

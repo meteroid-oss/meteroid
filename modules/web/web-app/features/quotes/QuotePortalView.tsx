@@ -325,6 +325,7 @@ const QuotePortalView: FC<QuotePortalViewProps> = ({ quoteData, preview = false 
                 components: quoteData.components,
                 addOns: quoteData.addOns,
                 couponTerms: quoteData.couponTerms,
+                priceSchedule: quoteData.priceSchedule,
                 quote,
                 customer,
                 invoicingEntity: quoteData.entity,

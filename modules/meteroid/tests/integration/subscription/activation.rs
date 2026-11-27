@@ -60,10 +60,8 @@ async fn test_onstart_free_trial_starts_trial(#[future] test_env: TestEnv) {
         .await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert()
-        .is_trial_active()
-        .has_pending_checkout(false)
-        .has_trial_duration(Some(14));
+    sub.assert().is_trial_active().has_pending_checkout(false);
+    assert_eq!(env.trial_days(sub_id).await, Some(14));
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().assert_empty();
@@ -83,10 +81,8 @@ async fn test_onstart_paid_trial_bills_immediately(#[future] test_env: TestEnv) 
         .await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert()
-        .is_trial_active()
-        .has_pending_checkout(false)
-        .has_trial_duration(Some(7));
+    sub.assert().is_trial_active().has_pending_checkout(false);
+    assert_eq!(env.trial_days(sub_id).await, Some(7));
 
     // Paid trial creates FULL invoice immediately (NOT prorated)
     let invoices = env.get_invoices(sub_id).await;
@@ -213,10 +209,8 @@ async fn test_oncheckout_free_trial_starts_trial_with_pending_checkout(
         .await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert()
-        .is_trial_active()
-        .has_pending_checkout(true) // OnCheckout sets pending_checkout even during trial
-        .has_trial_duration(Some(14));
+    sub.assert().is_trial_active().has_pending_checkout(true); // OnCheckout sets pending_checkout even during trial
+    assert_eq!(env.trial_days(sub_id).await, Some(14));
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().assert_empty();
@@ -240,8 +234,8 @@ async fn test_oncheckout_paid_trial_starts_pending(#[future] test_env: TestEnv) 
     let sub = env.get_subscription(sub_id).await;
     sub.assert()
         .is_pending_activation()
-        .has_pending_checkout(true)
-        .has_trial_duration(Some(7));
+        .has_pending_checkout(true);
+    assert_eq!(env.trial_days(sub_id).await, Some(7));
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().assert_empty();
@@ -591,8 +585,8 @@ async fn test_manual_no_trial(#[future] test_env: TestEnv) {
     let sub = env.get_subscription(sub_id).await;
     sub.assert()
         .is_pending_activation()
-        .has_pending_checkout(false) // Manual doesn't use pending_checkout
-        .has_trial_duration(None);
+        .has_pending_checkout(false); // Manual doesn't use pending_checkout
+    assert_eq!(env.trial_days(sub_id).await, None);
 
     // No invoices before manual activation
     let invoices = env.get_invoices(sub_id).await;

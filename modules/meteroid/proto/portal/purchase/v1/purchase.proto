@@ -62,6 +62,8 @@ message PurchaseOffer {
   optional string coupon_code = 22;
   // The name of the plan option bought ("Annual"), when the plan has several.
   optional string option_name = 23;
+  // With `trial_days`: nothing is billed until the trial ends.
+  bool trial_free = 24;
 }
 
 message GetPurchaseOfferRequest {

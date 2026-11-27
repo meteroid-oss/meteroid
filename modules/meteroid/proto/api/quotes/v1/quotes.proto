@@ -96,10 +96,14 @@ message PreviewQuotePortalResponse {
 // Totals of an unsaved quote, as the editor holds it.
 message PreviewQuoteTotalsRequest {
   CreateQuote quote = 1;
+  // The draft edited, whose saved phases the preview prices.
+  optional string quote_id = 2;
 }
 
 message PreviewQuoteTotalsResponse {
   QuoteTotals totals = 1;
+  // The draft's saved phases with the prices it is edited with.
+  repeated QuotePriceStep price_schedule = 2;
 }
 
 

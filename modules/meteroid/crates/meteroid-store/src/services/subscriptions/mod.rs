@@ -13,34 +13,23 @@ pub(in crate::services) mod insert;
 mod late_pack;
 pub(in crate::services) mod levels;
 pub mod payment_resolution;
+pub(crate) mod phases;
 pub(in crate::services) mod plan_change;
 pub(in crate::services) mod plan_change_credit;
 pub mod proration;
 pub(crate) mod slots;
 pub(crate) mod start;
 pub(in crate::services) mod terminate;
+pub(crate) mod terms;
+pub(crate) mod timeline_batch;
+pub(crate) mod timeline_items;
+pub(crate) mod timeline_rewrite;
 pub mod utils;
 
 pub use activate::PaymentActivationParams;
 
-/// The plan version the subscription's trial was on: the one it started on, which its first plan
-/// switch left (a plan change ends a trial), else its own.
-pub(crate) async fn trial_plan_version_tx(
-    conn: &mut crate::store::PgConn,
-    subscription: &crate::domain::Subscription,
-) -> crate::StoreResult<common_domain::ids::PlanVersionId> {
-    Ok(
-        diesel_models::subscription_events::SubscriptionEventRow::starting_plan_version(
-            conn,
-            subscription.id,
-        )
-        .await?
-        .unwrap_or(subscription.plan_version_id),
-    )
-}
-
 /// Where the subscription's fees start billing (R-084): its billing start, or the end of its free
-/// trial, which a plan change ending it earlier moves to that change; as its trial config reads it.
+/// trial as its fact records it (a plan change ending it earlier moved it).
 pub(crate) async fn billing_from_tx(
     conn: &mut crate::store::PgConn,
     subscription: &crate::domain::Subscription,
@@ -48,21 +37,12 @@ pub(crate) async fn billing_from_tx(
     let billing_start = subscription
         .billing_start_date
         .unwrap_or(subscription.current_period_start);
-    let Some(days) = subscription.trial_duration.filter(|days| *days > 0) else {
-        return Ok(billing_start);
-    };
-    if !trial_is_free_tx(conn, subscription).await? {
-        return Ok(billing_start);
-    }
-    let first_switch = diesel_models::subscription_events::SubscriptionEventRow::first_plan_switch(
-        conn,
-        subscription.id,
+    Ok(
+        match crate::services::trials::trial_of_tx(conn, subscription.id).await? {
+            Some(trial) if trial.free => trial.until.max(billing_start),
+            _ => billing_start,
+        },
     )
-    .await?;
-    Ok(billing_start
-        .checked_add_signed(chrono::Duration::days(i64::from(days)))
-        .map(|end| first_switch.map_or(end, |(_, switched_on)| end.min(switched_on)))
-        .map_or(billing_start, |end| end.max(billing_start)))
 }
 
 /// The first paid period's start of a subscription billing from `billing_from` (a free trial's
@@ -105,8 +85,7 @@ pub(crate) async fn coupon_months_from_id_tx(
     coupon_months_from_tx(conn, &subscription).await
 }
 
-/// Whether the subscription's trial is free as its trial fact records it, from the plan version
-/// in force at its start: a later edit of the version never reaches it (R-100).
+/// Whether the subscription's trial is free as its trial fact records it at its start (R-100).
 pub(crate) async fn recorded_trial_free_tx(
     conn: &mut crate::store::PgConn,
     subscription_id: common_domain::ids::SubscriptionId,
@@ -133,20 +112,12 @@ pub(crate) async fn in_free_trial_period_tx(
     )
 }
 
-/// Whether the subscription's trial is free: its trial fact (R-100); with none, as activation
-/// decided it, by the plan version it started on, free when the version is gone.
+/// Whether the subscription's trial is free, as its trial fact records it (I29).
 pub(crate) async fn trial_is_free_tx(
     conn: &mut crate::store::PgConn,
     subscription: &crate::domain::Subscription,
 ) -> crate::StoreResult<bool> {
-    if let Some(free) = recorded_trial_free_tx(conn, subscription.id).await? {
-        return Ok(free);
-    }
-    let version = trial_plan_version_tx(conn, subscription).await?;
-    Ok(
-        diesel_models::plans::PlanRow::get_with_version(conn, version, subscription.tenant_id)
-            .await?
-            .version
-            .is_none_or(|version| version.trial_is_free),
-    )
+    Ok(recorded_trial_free_tx(conn, subscription.id)
+        .await?
+        .unwrap_or(false))
 }

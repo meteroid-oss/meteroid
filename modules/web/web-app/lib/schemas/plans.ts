@@ -265,11 +265,3 @@ export const publishedPlanOverviewSchema = z.object({
   description: z.string().optional(),
 })
 
-export const trialConfigSchema = z.object({
-  durationDays: z.number().int(),
-  downgradePlanId: z.string().optional(),
-  trialingPlanId: z.string().optional(),
-  requiresPreAuthorization: z.boolean().optional(),
-  actionAfterTrial: z.enum(['BLOCK', 'CHARGE', 'DOWNGRADE']).optional(),
-})
-export type TrialConfigSchema = z.infer<typeof trialConfigSchema>

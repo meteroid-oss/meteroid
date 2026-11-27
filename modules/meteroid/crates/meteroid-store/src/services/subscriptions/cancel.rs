@@ -196,9 +196,12 @@ impl Services {
                         )));
                     }
 
-                    // A cancellation replaces the changes still to come.
-                    crate::services::facts::pending::withdraw_pending_of_tx(
+                    // A cancellation replaces the changes made alone still to come; the timeline
+                    // stays, written again over what they leave, its ending cutting it (R-146, R-162).
+                    crate::services::subscriptions::timeline_rewrite::withdraw_one_offs_under_timeline_tx(
+                        self,
                         conn,
+                        actor,
                         tenant_id,
                         subscription_id,
                         crate::services::facts::pending::CHANGES,

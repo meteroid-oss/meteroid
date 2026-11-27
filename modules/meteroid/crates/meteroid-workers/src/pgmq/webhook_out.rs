@@ -21,11 +21,11 @@ use meteroid_rest::webhooks::out_model::{
     WebhookOutAutoTopUpCapReachedEvent, WebhookOutAutoTopUpConsentChangedEvent,
     WebhookOutAutoTopUpEvent, WebhookOutBudgetAlertEvent,
     WebhookOutCheckoutPaymentKeptAsCreditEvent, WebhookOutCreditGrantExpiredEvent,
-    WebhookOutEntitlementAlertEvent, WebhookOutRenewalUpcomingEvent,
-    WebhookOutRetentionSessionEvent, WebhookOutTooManyGroupsEvent, WebhookOutWalletBalanceLowEvent,
-    WebhookOutWalletCreditRecoveredEvent, WebhookOutWalletCreditUnrecoveredEvent,
-    WebhookOutWalletDebitedEvent, WebhookOutWalletDepletedEvent, WebhookOutWalletFundedEvent,
-    WebhookOutWalletRecoveredEvent,
+    WebhookOutEntitlementAlertEvent, WebhookOutOverrideEndingEvent, WebhookOutRenewalUpcomingEvent,
+    WebhookOutRetentionSessionEvent, WebhookOutTooManyGroupsEvent, WebhookOutTrialEndingEvent,
+    WebhookOutWalletBalanceLowEvent, WebhookOutWalletCreditRecoveredEvent,
+    WebhookOutWalletCreditUnrecoveredEvent, WebhookOutWalletDebitedEvent,
+    WebhookOutWalletDepletedEvent, WebhookOutWalletFundedEvent, WebhookOutWalletRecoveredEvent,
 };
 use meteroid_rest_common::api_versions::receives_v2_payloads;
 use meteroid_rest_common::datetime::ApiDateTime;
@@ -366,8 +366,23 @@ pub(crate) fn to_webhook_message(
             WebhookOutRetentionSessionEvent,
             e
         ),
-        OutboxEvent::RetentionRenewalUpcoming(e) => {
-            typed!(RetentionRenewalUpcoming, WebhookOutRenewalUpcomingEvent, e)
+        OutboxEvent::SubscriptionRenewalUpcoming(e) => {
+            typed!(
+                SubscriptionRenewalUpcoming,
+                WebhookOutRenewalUpcomingEvent,
+                e
+            )
+        }
+        OutboxEvent::EntitlementOverrideEndingSoon(e) => typed!(
+            EntitlementOverrideEndingSoon,
+            WebhookOutOverrideEndingEvent,
+            e
+        ),
+        OutboxEvent::EntitlementOverrideEnded(e) => {
+            typed!(EntitlementOverrideEnded, WebhookOutOverrideEndingEvent, e)
+        }
+        OutboxEvent::SubscriptionTrialEndingSoon(e) => {
+            typed!(SubscriptionTrialEndingSoon, WebhookOutTrialEndingEvent, e)
         }
         OutboxEvent::WalletBalanceLow(e) => {
             typed!(WalletBalanceLow, WebhookOutWalletBalanceLowEvent, e)

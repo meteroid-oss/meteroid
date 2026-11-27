@@ -51,7 +51,6 @@ const TRANSITIVE_TABLES: &[&str] = &[
     "plan_version_adjustment",
     "plan_version_adjustment_component",
     "plan_version_annex_template",
-    "schedule",
     "coupon_plan",
     "coupon_add_on",
     "customer_connection",

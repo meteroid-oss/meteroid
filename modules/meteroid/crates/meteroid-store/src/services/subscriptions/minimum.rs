@@ -108,6 +108,12 @@ impl Services {
                 async move {
                     let lock = SubscriptionRow::lock_customer_of(conn, subscription_id).await?;
                     diesel_models::query::credit_inputs::bump_customer(conn, &lock).await?;
+                    crate::services::subscriptions::phases::refuse_minimum_edit_while_phased_tx(
+                        conn,
+                        tenant_id,
+                        subscription_id,
+                    )
+                    .await?;
                     SubscriptionAdjustmentRow::end_current(conn, &subscription_id, today)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;

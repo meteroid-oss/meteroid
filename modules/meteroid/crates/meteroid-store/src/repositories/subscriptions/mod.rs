@@ -9,8 +9,8 @@ use crate::domain::prices::{
 use crate::domain::subscriptions::{AmendmentSummary, PaymentMethodsConfig, PendingScheduledEvent};
 use crate::domain::{
     BillableMetric, ConnectorProviderEnum, Customer, InvoicingEntity, PaginatedVec,
-    PaginationRequest, Schedule, Subscription, SubscriptionComponent, SubscriptionDetails,
-    SubscriptionPatch, TrialConfig,
+    PaginationRequest, Subscription, SubscriptionComponent, SubscriptionDetails, SubscriptionPatch,
+    TrialConfig,
 };
 use crate::repositories::credit_units::load_credit_units;
 use chrono::NaiveDate;
@@ -32,7 +32,7 @@ use diesel_models::applied_coupons::AppliedCouponDetailedRow;
 use diesel_models::billable_metrics::BillableMetricRow;
 use diesel_models::entitlements::EntitlementRow;
 use diesel_models::prices::PriceRow;
-use diesel_models::schedules::ScheduleRow;
+
 use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
 use diesel_models::subscription_components::SubscriptionComponentRow;
 use diesel_models::subscriptions::{SubscriptionRow, SubscriptionRowPatch};
@@ -207,7 +207,6 @@ impl SubscriptionInterface for Store {
             subscription,
             customer,
             invoicing_entity,
-            schedules: vec![],
             price_components: vec![],
             add_ons: vec![],
             applied_coupons: vec![],
@@ -713,14 +712,6 @@ impl Store {
 
         let subscription: Subscription = db_subscription.try_into()?;
 
-        let schedules: Vec<Schedule> =
-            ScheduleRow::list_schedules_by_subscription(conn, &tenant_id, &subscription.id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .into_iter()
-                .map(std::convert::TryInto::try_into)
-                .collect::<Result<Vec<_>, Report<_>>>()?;
-
         // The components and add-ons in force on `as_of`: a change dated later shows from its date.
         let day = as_of;
         let as_of = Some(as_of);
@@ -934,76 +925,39 @@ impl Store {
             .map_err(Into::<Report<StoreError>>::into)?
             .into();
 
-        // The trial of the plan version the subscription started on: a plan change ends it. Its
-        // freeness is its fact's, recorded at the start (R-100).
-        let recorded_free =
-            diesel_models::subscription_facts::SubscriptionTrialRow::find(conn, subscription.id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .map(|trial| trial.free);
-        let trial_config = {
-            let first_switch =
-                diesel_models::subscription_events::SubscriptionEventRow::first_plan_switch(
-                    conn,
-                    subscription.id,
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-            let trial_version = first_switch
-                .map(|(version, _)| version)
-                .unwrap_or(subscription.plan_version_id);
-            let plan_with_version = PlanRow::get_with_version(conn, trial_version, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-
-            if let Some(version) = plan_with_version.version {
-                // The subscription's own trial length, else its plan's.
-                if let Some(duration_days) = subscription
-                    .trial_duration
-                    .filter(|days| *days > 0)
-                    .and_then(|days| i32::try_from(days).ok())
-                    .or(version.trial_duration_days)
-                {
-                    if duration_days > 0 {
-                        // If there's a trialing_plan_id, fetch its name
-                        let trialing_plan_name =
-                            if let Some(trialing_plan_id) = &version.trialing_plan_id {
-                                PlanRow::get_overview_by_id(conn, *trialing_plan_id, tenant_id)
-                                    .await
-                                    .ok()
-                                    .map(|p| p.name)
-                            } else {
-                                None
-                            };
-
-                        let ends_on = subscription
-                            .trial_duration
-                            .filter(|days| *days > 0)
-                            .and_then(|days| {
-                                subscription
-                                    .billing_start_date
-                                    .unwrap_or(subscription.start_date)
-                                    .checked_add_signed(chrono::Duration::days(i64::from(days)))
-                            })
-                            .map(|end| {
-                                first_switch.map_or(end, |(_, switched_on)| end.min(switched_on))
-                            });
-                        Some(TrialConfig {
-                            duration_days: duration_days as u32,
-                            is_free: recorded_free.unwrap_or(version.trial_is_free),
-                            ends_on,
-                            trialing_plan_id: version.trialing_plan_id,
-                            trialing_plan_name,
-                        })
-                    } else {
-                        None
+        // Its trial fact, the one record of its trial (I29).
+        let trial_config = match crate::services::trials::trial_of_tx(conn, subscription.id).await?
+        {
+            Some(trial) => {
+                let trialing_plan_name = match trial.trial_plan_id {
+                    Some(id) => PlanRow::get_overview_by_id(conn, id, tenant_id)
+                        .await
+                        .ok()
+                        .map(|p| p.name),
+                    None => None,
+                };
+                let offer = match trial.offer_id {
+                    Some(id) => {
+                        diesel_models::trial_offers::TrialOfferRow::find(conn, &tenant_id, id)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?
+                            .map(crate::domain::trials::TrialOffer::try_from)
+                            .transpose()?
                     }
-                } else {
-                    None
-                }
-            } else {
-                None
+                    None => None,
+                };
+                Some(TrialConfig {
+                    duration_days: trial.days(),
+                    is_free: trial.free,
+                    starts_on: trial.from,
+                    ends_on: Some(trial.until),
+                    trialing_plan_id: trial.trial_plan_id,
+                    trialing_plan_name,
+                    offer,
+                    end_action: trial.end_action,
+                })
             }
+            None => None,
         };
 
         // The changes written ahead and the cancellation still to apply.
@@ -1032,9 +986,11 @@ impl Store {
                     customer_initiated: cancellation.actor_type
                         == diesel_models::enums::ActorTypeEnum::Customer,
                     amendment_summary: None,
+                    timeline: false,
                 });
             }
             for row in event_rows {
+                let timeline = crate::services::subscriptions::phases::is_timeline_change(&row);
                 let event: ScheduledEvent = row.try_into()?;
                 let mut pending = PendingScheduledEvent {
                     id: event.id,
@@ -1045,6 +1001,7 @@ impl Store {
                     cancel_reason: None,
                     customer_initiated: event.created_by_customer,
                     amendment_summary: None,
+                    timeline,
                 };
 
                 match &event.event_data {
@@ -1058,6 +1015,29 @@ impl Store {
                                 .map_err(Into::<Report<StoreError>>::into)?;
                         pending.new_plan_name = Some(plan_with_version.plan.name);
                         pending.new_plan_version_id = Some(*new_plan_version_id);
+                    }
+                    ScheduledEventData::ApplyPhase {
+                        component_close,
+                        component_insert,
+                        ..
+                    } => {
+                        pending.amendment_summary = Some(AmendmentSummary {
+                            added_component_names: component_insert
+                                .iter()
+                                .map(|c| c.name.clone())
+                                .collect(),
+                            removed_component_names: component_close
+                                .iter()
+                                .filter_map(|id| {
+                                    subscription_components
+                                        .iter()
+                                        .find(|c| &c.id == id)
+                                        .map(|c| c.name.clone())
+                                })
+                                .collect(),
+                            added_add_on_names: vec![],
+                            removed_add_on_names: vec![],
+                        });
                     }
                     ScheduledEventData::ApplyAmendment {
                         component_close,
@@ -1129,7 +1109,6 @@ impl Store {
             applied_coupons,
             metrics: billable_metrics,
             usage_scopes,
-            schedules,
             checkout_url,
             customer,
             invoicing_entity,

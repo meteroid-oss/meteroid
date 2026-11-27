@@ -1022,6 +1022,7 @@ async fn a_quote_totals_its_discounted_lines() {
         .clone()
         .preview_quote_totals(api::quotes::v1::PreviewQuoteTotalsRequest {
             quote: Some(payload),
+            quote_id: None,
         })
         .await
         .unwrap()
@@ -1205,6 +1206,7 @@ async fn a_quote_is_in_its_plan_s_currency() {
     let previewed = quotes
         .preview_quote_totals(api::quotes::v1::PreviewQuoteTotalsRequest {
             quote: Some(in_dollars.clone()),
+            quote_id: None,
         })
         .await
         .unwrap_err();

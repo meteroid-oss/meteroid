@@ -22,6 +22,7 @@ import { toast } from 'sonner'
 import { PageSection } from '@/components/layouts/shared/PageSection'
 import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
 import { invalidateSubscriptionBilling } from '@/features/subscriptions/invalidateSubscriptionBilling'
+import { TimelineEffectView } from '@/features/subscriptions/planChange/TimelineEffect'
 import { formatPackLineCredit, packLineView } from '@/features/subscriptions/planChangePackLines'
 import {
   PricingComponent,
@@ -98,7 +99,7 @@ export const StepConfirm = () => {
 
   const scheduleMut = useMutation(schedulePlanChange)
   const previewMut = useMutation(previewPlanChange)
-  const { parameterizedComponents, ready } = usePlanChangeParameters()
+  const { parameterizedComponents, prices, ready } = usePlanChangeParameters()
 
   // Re-fetch preview when apply mode changes to get correct effective_date and proration
   useEffect(() => {
@@ -110,6 +111,7 @@ export const StepConfirm = () => {
           applyMode: state.applyMode,
           parameterizedComponents,
           option: state.option,
+          prices,
         },
         {
           onSuccess: data => {
@@ -132,8 +134,9 @@ export const StepConfirm = () => {
     { subscriptionId: state.subscriptionId },
     { enabled: Boolean(state.subscriptionId) }
   )
+  // The timeline's own changes are written again over the plan change, never cancelled by it.
   const pendingEvents = (subscriptionQuery.data?.pendingEvents ?? []).filter(
-    e => e.eventType !== ScheduledEventType.END_TRIAL
+    e => e.eventType !== ScheduledEventType.END_TRIAL && !e.timeline
   )
 
   const preview = state.preview
@@ -192,6 +195,7 @@ export const StepConfirm = () => {
         applyMode: state.applyMode,
         parameterizedComponents,
         option: state.option,
+        prices,
       })
 
       if (isImmediate) {
@@ -384,6 +388,17 @@ export const StepConfirm = () => {
             currency={currency}
             labelClassName="px-4 py-3"
           />
+
+          {preview?.timeline && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Phases and dated changes</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <TimelineEffectView effect={preview.timeline} currency={currency} />
+              </CardContent>
+            </Card>
+          )}
 
           {pendingEvents.length > 0 && (
             <Alert variant="warning">

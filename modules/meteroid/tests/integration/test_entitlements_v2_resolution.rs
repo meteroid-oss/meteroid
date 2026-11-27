@@ -10,7 +10,8 @@ use crate::meteroid_it::container::{MeteroidSetup, SeedLevel};
 use chrono::{Duration, NaiveDate, Utc};
 use common_domain::actor::Actor;
 use common_domain::ids::{
-    AliasOr, BaseId, CustomerId, EntitlementEntityId, PlanVersionId, ResourceId, SubscriptionId,
+    AliasOr, BaseId, CustomerId, EntitlementEntityId, PlanId, PlanVersionId, ResourceId,
+    SubscriptionId,
 };
 use diesel_async::RunQueryDsl;
 use diesel_models::plans::PlanRow;
@@ -1346,7 +1347,13 @@ async fn a_trial_reads_its_trialing_plans_limits() {
         "no trialing plan: its own plan"
     );
 
-    sql("UPDATE plan_version SET trialing_plan_id = $2 WHERE id = $3 AND $1 = $1").await;
+    sql(
+        "INSERT INTO subscription_trial (subscription_id, tenant_id, from_date, until_date, free,
+             created_at, trial_plan_id)
+         SELECT id, tenant_id, start_date, start_date + 14, true, now(), $2 FROM subscription
+         WHERE id = $1 AND $3 = $3",
+    )
+    .await;
     sql("DELETE FROM credit_recompute_mark WHERE $1 = $1 AND $2 = $2 AND $3 = $3").await;
     env.row(pro, None, spec(&seats, limit(20))).await.unwrap();
     assert_eq!(value().await, Some(limit(20)), "the trialing plan's limit");
@@ -1518,24 +1525,24 @@ async fn several_trials_each_read_their_own_trialing_plan() {
         ))
         .await;
     }
-    sql(format!(
-        "UPDATE plan_version SET trialing_plan_id = '{}' WHERE id = '{}'",
-        crate::data::ids::PLAN_NOTION_ID.as_uuid(),
-        crate::data::ids::PLAN_VERSION_1_LEETCODE_ID.as_uuid()
-    ))
-    .await;
+    let trial_of = |sub: SubscriptionId, plan: PlanId| {
+        format!(
+            "INSERT INTO subscription_trial (subscription_id, tenant_id, from_date, until_date,
+                 free, created_at, trial_plan_id)
+             SELECT id, tenant_id, start_date, start_date + 14, true, now(), '{}'
+             FROM subscription WHERE id = '{}'",
+            plan.as_uuid(),
+            sub.as_uuid()
+        )
+    };
+    sql(trial_of(leetcode, crate::data::ids::PLAN_NOTION_ID)).await;
     assert_eq!(
         value().await,
         Some(limit(20)),
         "leetcode's trial reads notion"
     );
 
-    sql(format!(
-        "UPDATE plan_version SET trialing_plan_id = '{}' WHERE id = '{}'",
-        crate::data::ids::PLAN_PRO_ID.as_uuid(),
-        crate::data::ids::PLAN_VERSION_STARTER_ID.as_uuid()
-    ))
-    .await;
+    sql(trial_of(starter, crate::data::ids::PLAN_PRO_ID)).await;
     assert_eq!(value().await, Some(limit(50)), "starter's trial reads pro");
 
     sql(format!(

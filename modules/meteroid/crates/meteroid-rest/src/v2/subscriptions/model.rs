@@ -131,17 +131,97 @@ pub struct CurrentPeriod {
     pub end: Option<NaiveDate>,
 }
 
-/// The subscription's trial; absent when it has none.
+/// The subscription's trial, as recorded at its start; absent when it has none.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct TrialState {
-    /// Its length in days, from the start date.
+    /// Its length in days, from its start.
     pub days: u32,
+    /// Its first day, the billing start; read on a single subscription.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub starts_on: Option<NaiveDate>,
     /// Nothing is billed during it; read on a single subscription.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub free: Option<bool>,
     /// When it ended or ends; read on a single subscription.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ends_on: Option<NaiveDate>,
+    /// The plan whose features it gives, by code; read on a single subscription.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan: Option<String>,
+    /// The trial offer it came from; read on a single subscription.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offer: Option<TrialOfferSummary>,
+    /// What its end does; read on a single subscription.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_action: Option<TrialEndAction>,
+}
+
+/// What a trial's end does: the subscription goes on, ends, or switches plan.
+#[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[schema(as = SubscriptionTrialEndAction)]
+pub enum TrialEndAction {
+    Convert,
+    Cancel,
+    Fallback,
+}
+
+/// A trial offer, as a subscription names it.
+#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+pub struct TrialOfferSummary {
+    #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
+    #[schema(value_type = String)]
+    pub id: common_domain::ids::TrialOfferId,
+    pub code: Option<String>,
+    pub name: String,
+}
+
+/// A trial offer, by its id or its code: its days, and what follows it. Refused when the
+/// customer already had it.
+#[derive(Deserialize, ToSchema, Debug, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct OfferTrial {
+    pub offer: String,
+}
+
+/// A trial of its own terms: `days` or an end date `until` (exclusive), one of them.
+#[derive(Deserialize, ToSchema, Debug, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CustomTrial {
+    /// 1 to 3,650.
+    #[serde(default)]
+    pub days: Option<u32>,
+    /// After the billing start, 3,650 days at most.
+    #[serde(default)]
+    pub until: Option<NaiveDate>,
+    /// Nothing billed during it; the plan's trial's freeness when left out, else free.
+    #[serde(default)]
+    pub free: Option<bool>,
+    /// The plan whose features it gives, by code or id; the plan's trial's when left out.
+    #[serde(default)]
+    pub plan: Option<String>,
+}
+
+/// No trial.
+#[derive(Deserialize, ToSchema, Debug, Clone, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct NoTrial {}
+
+/// The plan's trial, as when the trial is left out.
+#[derive(Deserialize, ToSchema, Debug, Clone, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct TrialOfThePlan {}
+
+/// The trial a new subscription starts with: the plan's (when left out), none, an offer, or one
+/// of its own terms.
+#[derive(Deserialize, ToSchema, Debug, Clone, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[schema(as = SubscriptionTrialInput)]
+pub enum TrialInput {
+    Plan(TrialOfThePlan),
+    None(NoTrial),
+    Offer(OfferTrial),
+    Custom(CustomTrial),
 }
 
 /// A count to come: a decrease waiting for the period's end, an increase waiting for its payment
@@ -223,6 +303,8 @@ pub enum ScheduledChangeType {
     PlanChange,
     Cancellation,
     Amendment,
+    /// A phase's start (Enterprise): its terms apply from that day.
+    Phase,
 }
 
 /// The names of what a scheduled amendment adds and removes.
@@ -535,9 +617,9 @@ pub struct CreateSubscription {
     /// The day it stops renewing and completes; it renews until cancelled when left out.
     #[serde(default)]
     pub end_date: Option<NaiveDate>,
-    /// The trial's length in days, 0 to 3650; the plan's trial when left out.
+    /// The plan's default offer, else its own trial, when left out.
     #[serde(default)]
-    pub trial_days: Option<u32>,
+    pub trial: Option<TrialInput>,
     /// The day of the month periods start on, 1 to 31; the start date's when left out.
     #[serde(default)]
     pub billing_day_anchor: Option<u16>,
@@ -617,6 +699,11 @@ pub struct PlanChangeInput {
     /// Levels on the new plan, by product code; the level held when the new plan sells it.
     #[serde(default)]
     pub levels: BTreeMap<String, String>,
+    /// Prices on the new plan, by product code: a charge priced by one amount (a rate, a seat,
+    /// a capacity) at its own price, a decimal in the subscription's currency, over the list
+    /// price.
+    #[serde(default)]
+    pub prices: BTreeMap<String, String>,
     /// Required: `immediate` or `period_end`; a downgrade at the period's end only.
     #[serde(default)]
     pub when: Option<When>,
@@ -836,6 +923,118 @@ pub struct ChangePreview {
     /// The subscription as it would read once the change is in force: its plan and option,
     /// charges, add-ons, quantities, levels, minimum and MRR.
     pub subscription_after: Subscription,
+    /// What the change does to the subscription's timeline (its phases, dated add-ons and
+    /// discounts, renewal), when one follows it: each written again over the change.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeline: Option<TimelineEffect>,
+}
+
+/// A subscription's timeline written again over a change.
+#[derive(Serialize, ToSchema, Debug, Clone)]
+pub struct TimelineEffect {
+    pub entries: Vec<TimelineEntry>,
+    /// The invoices ahead without the change, fixed fees before tax and credits.
+    pub invoices_before: Vec<TimelineInvoice>,
+    /// The same with the change.
+    pub invoices_after: Vec<TimelineInvoice>,
+    pub total_before: i64,
+    pub total_after: i64,
+}
+
+#[derive(Serialize, ToSchema, Debug, Clone)]
+pub struct TimelineInvoice {
+    pub date: NaiveDate,
+    /// Minor units.
+    pub total: i64,
+}
+
+#[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TimelineOwnerType {
+    Phase,
+    /// A dated add-on or discount.
+    Item,
+    Renewal,
+}
+
+#[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TimelineChangeEffect {
+    /// Written again as it was.
+    Kept,
+    /// Some of its terms name nothing on the subscription from its start: kept, billing nothing.
+    Inactive,
+    /// Its start is no longer a renewal: settled on its day.
+    Prorated,
+    /// Withdrawn: what it changes is no longer on the subscription.
+    Dropped,
+    /// Its switch is replaced by this plan change.
+    SwitchReplaced,
+}
+
+#[derive(Serialize, ToSchema, Debug, Clone)]
+pub struct TimelineEntry {
+    pub owner_type: TimelineOwnerType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_id: Option<String>,
+    pub label: String,
+    pub date: NaiveDate,
+    pub effect: TimelineChangeEffect,
+    /// The inactive terms, or why it was dropped.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub details: Vec<String>,
+}
+
+impl From<meteroid_store::domain::subscription_phases::TimelineEffect> for TimelineEffect {
+    fn from(effect: meteroid_store::domain::subscription_phases::TimelineEffect) -> Self {
+        use meteroid_store::domain::subscription_phases::{RewriteEffect, TimelineOwner};
+        let totals = |projection: &meteroid_store::services::timeline::Projection| {
+            projection
+                .invoices
+                .iter()
+                .map(|invoice| TimelineInvoice {
+                    date: invoice.on,
+                    total: invoice.total,
+                })
+                .collect()
+        };
+        TimelineEffect {
+            invoices_before: totals(&effect.before),
+            invoices_after: totals(&effect.after),
+            total_before: effect.before.total,
+            total_after: effect.after.total,
+            entries: effect
+                .entries
+                .into_iter()
+                .map(|entry| {
+                    let (owner_type, owner_id) = match entry.owner {
+                        TimelineOwner::Phase(id) => {
+                            (TimelineOwnerType::Phase, Some(id.to_string()))
+                        }
+                        TimelineOwner::Item(id) => (TimelineOwnerType::Item, Some(id.to_string())),
+                        TimelineOwner::Renewal => (TimelineOwnerType::Renewal, None),
+                    };
+                    let (effect, details) = match entry.effect {
+                        RewriteEffect::Kept => (TimelineChangeEffect::Kept, Vec::new()),
+                        RewriteEffect::Inactive(terms) => (TimelineChangeEffect::Inactive, terms),
+                        RewriteEffect::Prorated => (TimelineChangeEffect::Prorated, Vec::new()),
+                        RewriteEffect::Dropped(why) => (TimelineChangeEffect::Dropped, vec![why]),
+                        RewriteEffect::SwitchReplaced => {
+                            (TimelineChangeEffect::SwitchReplaced, Vec::new())
+                        }
+                    };
+                    TimelineEntry {
+                        owner_type,
+                        owner_id,
+                        label: entry.label,
+                        date: entry.on,
+                        effect,
+                        details,
+                    }
+                })
+                .collect(),
+        }
+    }
 }
 
 /// Where a change made stands: `applied` in force; `scheduled` waiting for `effective_date` (see

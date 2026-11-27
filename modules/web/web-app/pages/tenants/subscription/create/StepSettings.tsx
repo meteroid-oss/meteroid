@@ -143,10 +143,11 @@ export const StepSettings = () => {
   // Fetch all plans for resolving trialing plan name
   const plansQuery = useQuery(listPlans, {})
 
-  const planTrialConfig = planQuery.data?.plan?.version?.trialConfig
+  const planTrial = planQuery.data?.plan?.trial?.terms
   const planType = planQuery.data?.plan?.plan?.planType
   const isFreePlan = planType === PlanType.FREE
   const planCurrency = planQuery.data?.plan?.version?.currency
+  const planId = planQuery.data?.plan?.plan?.id
 
   // Plan components for the minimum-commitment scope picker (same query key as elsewhere → cache hit).
   const minimumComponentsQuery = useQuery(
@@ -160,8 +161,8 @@ export const StepSettings = () => {
     effectivePrices && defaultNetTerms(effectivePrices.prices, effectivePrices.planNetTerms)
 
   // Resolve trialing plan name
-  const trialingPlanName = planTrialConfig?.trialingPlanId
-    ? plansQuery.data?.plans.find(p => p.id === planTrialConfig.trialingPlanId)?.name
+  const trialingPlanName = planTrial?.trialPlanId
+    ? plansQuery.data?.plans.find(p => p.id === planTrial.trialPlanId)?.name
     : undefined
 
   const invoicingEntityId = customerQuery.data?.customer?.invoicingEntityId
@@ -185,7 +186,11 @@ export const StepSettings = () => {
       fromDate: state.startDate,
       toDate: state.endDate,
       billingDay: state.billingDay,
+      trialMode: state.trialMode,
       trialDuration: state.trialDuration,
+      trialUntil: state.trialUntil,
+      trialFree:
+        state.trialFree === undefined ? 'plan' : state.trialFree ? 'free' : 'billed',
       activationCondition:
         state.activationCondition !== undefined
           ? activationConditionToString(state.activationCondition)
@@ -203,6 +208,7 @@ export const StepSettings = () => {
   })
 
   // Watch activation condition, payment methods type, charge automatically, and fromDate for cross-validation
+  const [trialMode, trialUntil] = methods.watch(['trialMode', 'trialUntil'])
   const [activationCondition, paymentMethodsType, chargeAutomatically, fromDate] = methods.watch([
     'activationCondition',
     'paymentMethodsType',
@@ -264,7 +270,13 @@ export const StepSettings = () => {
       startDate: data.fromDate,
       endDate: data.toDate,
       billingDay: data.billingDay,
-      trialDuration: data.trialDuration,
+      trialMode: data.trialMode,
+      trialDuration: data.trialMode === 'custom' && !data.trialUntil ? data.trialDuration : undefined,
+      trialUntil: data.trialMode === 'custom' ? data.trialUntil : undefined,
+      trialFree:
+        data.trialMode !== 'custom' || data.trialFree === 'plan'
+          ? undefined
+          : data.trialFree === 'free',
       activationCondition: activationConditionFromString(data.activationCondition),
       paymentMethodsType: data.paymentMethodsType,
       netTerms: data.netTerms,
@@ -401,44 +413,92 @@ export const StepSettings = () => {
                 <CardTitle className="text-base">Trial Configuration</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {planTrialConfig?.durationDays ? (
-                  <>
-                    <Alert variant="default" className="text-sm">
-                      <div className="space-y-1">
-                        <p>
-                          Plan default:{' '}
-                          <span className="font-medium">{planTrialConfig.durationDays} days</span>
-                          {trialingPlanName && (
-                            <>
-                              {' '}
-                              with{' '}
-                              <span className="font-medium">
-                                &quot;{trialingPlanName}&quot;
-                              </span>{' '}
-                              features
-                            </>
-                          )}
-                        </p>
-                        <p className="text-muted-foreground text-xs">
-                          {isFreePlan
-                            ? 'Free plan - no payment required.'
-                            : planTrialConfig.trialIsFree
-                              ? 'Free trial - payment method collected at checkout, billing starts after trial.'
-                              : 'Paid trial - billing starts immediately.'}
-                        </p>
-                      </div>
-                    </Alert>
-                    <InputFormField
-                      name="trialDuration"
-                      label="Trial Duration (days)"
-                      type="number"
-                      placeholder={String(planTrialConfig.durationDays)}
-                      control={methods.control}
-                      description="Leave empty to use plan default, or set to 0 to skip trial"
-                    />
-                  </>
+                {planTrial ? (
+                  <Alert variant="default" className="text-sm">
+                    <div className="space-y-1">
+                      <p>
+                        The plan&apos;s trial:{' '}
+                        <span className="font-medium">{planTrial.durationDays} days</span>
+                        {trialingPlanName && (
+                          <>
+                            {' '}
+                            with <span className="font-medium">&quot;{trialingPlanName}&quot;</span>{' '}
+                            features
+                          </>
+                        )}
+                      </p>
+                      <p className="text-muted-foreground text-xs">
+                        {isFreePlan
+                          ? 'Free plan - no payment required.'
+                          : planTrial.free
+                            ? 'Free trial - billing starts after the trial.'
+                            : 'Paid trial - billing starts immediately.'}
+                      </p>
+                    </div>
+                  </Alert>
                 ) : (
-                  <p className="text-sm text-muted-foreground">No trial configured on this plan.</p>
+                  <p className="text-sm text-muted-foreground">The plan has no trial.</p>
+                )}
+                {!state.trialOfferId && (
+                  <>
+                    <SelectFormField
+                      name="trialMode"
+                      label="Trial"
+                      control={methods.control}
+                    >
+                      <SelectItem value="plan">
+                        {planTrial ? "The plan's trial" : 'No trial (the plan has none)'}
+                      </SelectItem>
+                      <SelectItem value="none">No trial</SelectItem>
+                      <SelectItem value="custom">A trial of its own</SelectItem>
+                    </SelectFormField>
+                    {trialMode === 'custom' && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <InputFormField
+                          name="trialDuration"
+                          label="Days"
+                          type="number"
+                          placeholder={String(planTrial?.durationDays ?? 14)}
+                          control={methods.control}
+                          disabled={!!trialUntil}
+                        />
+                        <GenericFormField
+                          control={methods.control}
+                          layout="vertical"
+                          label="Or ends on"
+                          name="trialUntil"
+                          render={({ field }) => (
+                            <DatePicker
+                              mode="single"
+                              captionLayout="dropdown"
+                              placeholder="Counted in days"
+                              date={field.value}
+                              onSelect={field.onChange}
+                            />
+                          )}
+                        />
+                        {!isFreePlan && (
+                          <SelectFormField
+                            name="trialFree"
+                            label="During the trial"
+                            control={methods.control}
+                          >
+                            <SelectItem value="plan">As the plan&apos;s trial</SelectItem>
+                            <SelectItem value="free">Nothing is billed</SelectItem>
+                            <SelectItem value="billed">Billed as usual</SelectItem>
+                          </SelectFormField>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+                {planId && hasSlot('subscriptionCreate.trialOffer') && (
+                  <Slot
+                    name="subscriptionCreate.trialOffer"
+                    planId={planId}
+                    value={state.trialOfferId}
+                    onChange={trialOfferId => setState({ ...state, trialOfferId })}
+                  />
                 )}
               </CardContent>
             </Card>
@@ -759,7 +819,10 @@ const schema = z
     fromDate: z.date(),
     toDate: z.date().optional(),
     billingDay: z.enum(['FIRST', 'SUB_START_DAY']).default('SUB_START_DAY'),
-    trialDuration: z.number().min(0).optional(),
+    trialMode: z.enum(['plan', 'none', 'custom']).default('plan'),
+    trialDuration: z.number().int().min(1).max(3650).optional(),
+    trialUntil: z.date().optional(),
+    trialFree: z.enum(['plan', 'free', 'billed']).default('plan'),
     activationCondition: z.enum(['ON_START', 'ON_CHECKOUT', 'MANUAL']),
     paymentMethodsType: z.enum(['online', 'bankTransfer', 'external']).default('online'),
     netTerms: z.preprocess(
@@ -773,6 +836,10 @@ const schema = z
     chargeAutomatically: z.boolean().default(true),
     skipPastInvoices: z.boolean().default(false),
     customProperties: z.record(z.string(), z.unknown()).optional(),
+  })
+  .refine(data => data.trialMode !== 'custom' || !!data.trialDuration || !!data.trialUntil, {
+    message: 'A trial of its own lasts some days or ends on a date',
+    path: ['trialDuration'],
   })
   .refine(data => !data.toDate || data.toDate > data.fromDate, {
     message: 'Must be greater than the start date',

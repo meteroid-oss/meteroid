@@ -139,6 +139,8 @@ pub struct SubscriptionCreationContext {
     pub tax_inclusive_rates: Vec<Option<Decimal>>,
     /// The currency and plan option each subscription is sold in, by batch position.
     pub currencies: Vec<SubscriptionCurrency>,
+    /// The trial each subscription gets, resolved once (R-153), by batch position.
+    pub trials: Vec<Option<crate::domain::trials::ResolvedTrial>>,
 }
 
 impl SubscriptionCreationContext {
@@ -243,6 +245,10 @@ impl Services {
         let tax_inclusive_rates = self
             .resolve_tax_inclusive_rates(conn, tenant_id, &quoted)
             .await?;
+        let mut trials = Vec::with_capacity(batch.len());
+        for create in batch {
+            trials.push(resolve_trial(conn, tenant_id, &plans, &create.subscription).await?);
+        }
 
         Ok(SubscriptionCreationContext {
             customers,
@@ -257,6 +263,7 @@ impl Services {
             minimums_by_plan_version,
             tax_inclusive_rates,
             currencies,
+            trials,
         })
     }
 
@@ -725,6 +732,8 @@ impl Services {
             .resolve_tax_inclusive_rates(conn, tenant_id, std::slice::from_ref(&quoted))
             .await?;
 
+        let trial = resolve_trial(conn, tenant_id, &plans, &params.subscription).await?;
+
         Ok(SubscriptionCreationContext {
             customers,
             plans,
@@ -741,6 +750,7 @@ impl Services {
             minimums_by_plan_version,
             tax_inclusive_rates,
             currencies: vec![currency],
+            trials: vec![trial],
         })
     }
 
@@ -1304,6 +1314,34 @@ fn currencies_of(
             )
         })
         .collect()
+}
+
+/// The trial a subscription about to be created gets, resolved once for every entry point (R-153).
+async fn resolve_trial(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    plans: &[PlanForSubscription],
+    subscription: &crate::domain::SubscriptionNew,
+) -> StoreResult<Option<crate::domain::trials::ResolvedTrial>> {
+    let plan = plans
+        .iter()
+        .find(|p| p.version_id == subscription.plan_version_id)
+        .ok_or_else(|| Report::new(StoreError::ValueNotFound("Plan id not found".to_string())))?;
+    crate::services::trials::resolve_trial_tx(
+        conn,
+        tenant_id,
+        &crate::services::trials::PlanRef {
+            plan_id: plan.plan_id,
+            product_family_id: plan.product_family_id,
+            trial_offer_id: plan.trial_offer_id,
+        },
+        subscription
+            .billing_start_date
+            .unwrap_or(subscription.start_date),
+        Some(subscription.customer_id),
+        &subscription.trial,
+    )
+    .await
 }
 
 #[cfg(test)]

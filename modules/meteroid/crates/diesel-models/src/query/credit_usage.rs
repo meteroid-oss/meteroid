@@ -381,23 +381,25 @@ impl CreditRecomputeMarkRow {
     ) -> DbResult<usize> {
         use crate::enums::EntitlementEntityTypeEnum as Owner;
         const ACTIVE: &str = "s.status IN ('ACTIVE', 'TRIAL_ACTIVE')";
+        const TIERS: &str = crate::query::trial_plans::TRIALING_PLAN_TIERS;
         let selection = match entity_type {
             Owner::Customer => {
                 return Self::mark_one(conn, tenant_id, CustomerId::from(entity_id)).await;
             }
             Owner::Quote => return Ok(0),
             Owner::Subscription => "FROM subscription s WHERE s.tenant_id = $1 AND s.id = $2".to_owned(),
-            // A trial reads its trialing plan's active version as its plan tier.
+            // A trial reads its trial plan's active version as its plan tier.
             Owner::PlanVersion => format!(
-                "FROM subscription s JOIN plan_version pv ON pv.id = s.plan_version_id
-                 LEFT JOIN plan tp ON tp.id = pv.trialing_plan_id AND s.status = 'TRIAL_ACTIVE'
+                "FROM subscription s LEFT JOIN ({TIERS}) tier ON tier.subscription_id = s.id
                  WHERE s.tenant_id = $1 AND {ACTIVE}
-                   AND (s.plan_version_id = $2 OR tp.active_version_id = $2)"
+                   AND (s.plan_version_id = $2 OR tier.plan_version_id = $2)"
             ),
             Owner::Plan => format!(
                 "FROM subscription s JOIN plan_version pv ON pv.id = s.plan_version_id
+                 LEFT JOIN ({TIERS}) tier ON tier.subscription_id = s.id
+                 LEFT JOIN plan_version tpv ON tpv.id = tier.plan_version_id
                  WHERE s.tenant_id = $1 AND {ACTIVE}
-                   AND (pv.plan_id = $2 OR (s.status = 'TRIAL_ACTIVE' AND pv.trialing_plan_id = $2))"
+                   AND (pv.plan_id = $2 OR tpv.plan_id = $2)"
             ),
             Owner::AddOn => format!(
                 "FROM subscription s

@@ -174,6 +174,8 @@ pub struct ProductsScope {
     pub product_ids: Vec<String>,
 }
 
+/// The plan's trial, the same on every version: a create or replace sets it at once (a replace
+/// sent without one removes it), a read shows the plan's trial whatever version it reads.
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 pub struct TrialConfig {
     pub duration_days: u32,

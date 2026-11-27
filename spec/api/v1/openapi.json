@@ -20505,7 +20505,8 @@
           "wallet.credit_unrecovered",
           "wallet.credit_recovered",
           "credit_grant.expired",
-          "checkout.payment_kept_as_credit"
+          "checkout.payment_kept_as_credit",
+          "subscription.trial_ending_soon"
         ]
       },
       "ExistingPriceRef": {
@@ -28145,6 +28146,7 @@
       },
       "TrialConfig": {
         "type": "object",
+        "description": "The plan's trial, the same on every version: a create or replace sets it at once (a replace\nsent without one removes it), a read shows the plan's trial whatever version it reads.",
         "required": [
           "duration_days",
           "is_free"
@@ -28169,6 +28171,67 @@
             ]
           }
         }
+      },
+      "TrialEndingEventData": {
+        "type": "object",
+        "description": "A subscription's trial ends soon.",
+        "required": [
+          "subscription_id",
+          "customer_id",
+          "trial_end",
+          "free"
+        ],
+        "properties": {
+          "customer_id": {
+            "$ref": "#/components/schemas/CustomerId"
+          },
+          "free": {
+            "type": "boolean",
+            "description": "Whether the trial billed nothing."
+          },
+          "subscription_id": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "trial_end": {
+            "type": "string",
+            "format": "date",
+            "description": "The trial's end: billing starts on it."
+          },
+          "trial_offer_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The trial offer it was redeemed from."
+          }
+        }
+      },
+      "TrialEndingWebhookEvent": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/TrialEndingEventData"
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "type",
+              "timestamp"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/EventId"
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "type": {
+                "$ref": "#/components/schemas/EventType"
+              }
+            }
+          }
+        ]
       },
       "UnattributedMetricUsage": {
         "type": "object",
@@ -31766,6 +31829,41 @@
                 "custom_properties": {
                   "pdp_external_status": "approved"
                 },
+                "timestamp": "1970-01-01T00:00:00.000Z"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        }
+      }
+    },
+    "subscription.trial_ending_soon": {
+      "post": {
+        "summary": "subscription.trial_ending_soon webhook",
+        "description": "A subscription's trial ends in 3 days: sent once per trial end",
+        "operationId": "webhook_subscription_trial_ending_soon",
+        "tags": [
+          "webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrialEndingWebhookEvent"
+              },
+              "example": {
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "type": "subscription.trial_ending_soon",
+                "subscription_id": "sub_7n42DGM5Tflk9n8mt7Fhc7",
+                "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
+                "trial_end": "2027-01-15",
+                "free": true,
+                "trial_offer_id": "0195f1c2-0000-7000-8000-000000000000",
                 "timestamp": "1970-01-01T00:00:00.000Z"
               }
             }

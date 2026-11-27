@@ -63,6 +63,7 @@ fn added_component_to_grpc(
             a.period.as_billing_period_opt().unwrap_or_default(),
         )),
         period: mapping::price_components::subscription_fee_billing_period_to_grpc(a.period).into(),
+        price_component_id: None,
     }
 }
 
@@ -723,6 +724,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let target = PlanTarget {
             version: PlanVersionId::from_proto(inner.new_plan_version_id)?,
             option: crate::plans::mapping::plans::option_ref_from_proto(inner.option),
+            prices: mapping::plan_change::map_target_prices(inner.prices)?,
         };
         let component_params =
             mapping::plan_change::map_component_parameterizations(inner.parameterized_components)?;
@@ -776,12 +778,14 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         request: Request<PreviewPlanChangeRequest>,
     ) -> Result<Response<PreviewPlanChangeResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
         let inner = request.into_inner();
 
         let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
         let target = PlanTarget {
             version: PlanVersionId::from_proto(inner.new_plan_version_id)?,
             option: crate::plans::mapping::plans::option_ref_from_proto(inner.option),
+            prices: mapping::plan_change::map_target_prices(inner.prices)?,
         };
         let component_params =
             mapping::plan_change::map_component_parameterizations(inner.parameterized_components)?;
@@ -792,12 +796,25 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .preview_plan_change(
                 subscription_id,
                 tenant_id,
-                target,
-                component_params,
+                target.clone(),
+                component_params.clone(),
                 Some(mode),
             )
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
+        let timeline = self
+            .services
+            .plan_change_timeline_effect(
+                actor,
+                subscription_id,
+                tenant_id,
+                target,
+                component_params,
+                mode == meteroid_store::domain::subscription_changes::PlanChangeMode::Immediate,
+            )
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?
+            .map(mapping::timeline::effect_to_proto);
 
         let preview = result.preview;
 
@@ -828,6 +845,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                                 m.new_period,
                             )
                             .into(),
+                        price_component_id: m.price_component_id.map(|id| id.as_proto()),
                     }
                 })
                 .collect(),
@@ -845,6 +863,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                             a.period,
                         )
                         .into(),
+                        price_component_id: a.price_component_id.map(|id| id.as_proto()),
                     }
                 })
                 .collect(),
@@ -875,6 +894,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 result.change_direction,
             ),
             immediate_allowed: result.immediate_allowed,
+            timeline,
         }))
     }
 
@@ -925,6 +945,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
     ) -> Result<Response<PreviewAmendmentResponse>, Status> {
         let tenant_id = request.tenant()?;
         let request_organization = request.organization()?;
+        let actor = request.actor_typed()?;
         let inner = request.into_inner();
 
         let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
@@ -938,9 +959,15 @@ impl SubscriptionsService for SubscriptionServiceComponents {
 
         let result = self
             .services
-            .preview_amendment(subscription_id, tenant_id, amendment)
+            .preview_amendment(subscription_id, tenant_id, amendment.clone())
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
+        let timeline = self
+            .services
+            .amendment_timeline_effect(actor, subscription_id, tenant_id, amendment)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?
+            .map(mapping::timeline::effect_to_proto);
 
         // Needed to render the invoice previews (currency, period, plan name, net terms).
         let details = self
@@ -1011,6 +1038,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 after_cents: result.mrr_after_cents,
                 delta_cents: result.mrr_after_cents - result.mrr_before_cents,
             }),
+            timeline,
         }))
     }
 

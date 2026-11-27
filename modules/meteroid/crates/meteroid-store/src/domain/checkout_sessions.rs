@@ -49,7 +49,11 @@ pub struct CheckoutSession {
     pub billing_start_date: Option<NaiveDate>,
     pub billing_day_anchor: Option<i16>,
     pub net_terms: Option<i32>,
+    /// The trial it asks: none the plan's, 0 none, else its days (`trial_free` freeness).
     pub trial_duration_days: Option<i32>,
+    pub trial_free: Option<bool>,
+    /// A trial offer it gives, over `trial_duration_days`.
+    pub trial_offer_id: Option<common_domain::ids::TrialOfferId>,
     pub end_date: Option<NaiveDate>,
 
     // Billing options
@@ -107,6 +111,7 @@ impl CheckoutSession {
         Ok(crate::domain::subscription_changes::PlanTarget {
             version: self.subscription_plan_version_id()?,
             option: self.option_ref(),
+            prices: Vec::new(),
         })
     }
 
@@ -144,6 +149,18 @@ impl CheckoutSession {
             && !self.is_expired()
     }
 
+    /// The trial the subscription it creates asks for (R-153).
+    pub fn trial_request(&self) -> crate::domain::trials::TrialRequest {
+        match self.trial_offer_id {
+            Some(offer) => crate::domain::trials::TrialRequest::Offer(offer),
+            None => crate::domain::trials::TrialRequest::from_days(
+                self.trial_duration_days
+                    .map(|days| u32::try_from(days).unwrap_or(0)),
+                self.trial_free,
+            ),
+        }
+    }
+
     pub fn to_subscription_new(
         &self,
         start_date: NaiveDate,
@@ -160,7 +177,7 @@ impl CheckoutSession {
             // Use OnCheckout activation for proper period setup, but skip_checkout_session
             // prevents creating another checkout session (we're already completing one)
             activation_condition: SubscriptionActivationCondition::OnCheckout,
-            trial_duration: self.trial_duration_days.map(|d| d as u32),
+            trial: self.trial_request(),
             billing_day_anchor: self.billing_day_anchor.map(|a| a as u16),
             payment_methods_config: self.payment_methods_config.clone(),
             auto_advance_invoices: self.auto_advance_invoices,
@@ -251,6 +268,8 @@ impl From<CheckoutSessionRow> for CheckoutSession {
             billing_day_anchor: row.billing_day_anchor,
             net_terms: row.net_terms,
             trial_duration_days: row.trial_duration_days,
+            trial_free: row.trial_free,
+            trial_offer_id: row.trial_offer_id,
             end_date: row.end_date,
             auto_advance_invoices: row.auto_advance_invoices,
             charge_automatically: row.charge_automatically,
@@ -291,7 +310,8 @@ pub struct CreateCheckoutSession {
     pub billing_start_date: Option<NaiveDate>,
     pub billing_day_anchor: Option<i16>,
     pub net_terms: Option<i32>,
-    pub trial_duration_days: Option<i32>,
+    /// Days or an end date counted from the billing start, else today.
+    pub trial: crate::domain::trials::TrialRequest,
     pub end_date: Option<NaiveDate>,
 
     // Billing options
@@ -358,6 +378,11 @@ impl CreateCheckoutSession {
                 crate::errors::StoreError::SerdeError("payment_methods_config".to_string(), e)
             })?;
 
+        let (trial_duration_days, trial_free, trial_offer_id) = trial_columns(
+            &self.trial,
+            self.billing_start_date
+                .unwrap_or_else(|| common_clock::now().date_naive()),
+        );
         Ok(CheckoutSessionRowNew {
             id: CheckoutSessionId::new(),
             tenant_id: self.tenant_id,
@@ -367,7 +392,7 @@ impl CreateCheckoutSession {
             billing_start_date: self.billing_start_date,
             billing_day_anchor: self.billing_day_anchor,
             net_terms: self.net_terms,
-            trial_duration_days: self.trial_duration_days,
+            trial_duration_days,
             end_date: self.end_date,
             auto_advance_invoices: self.auto_advance_invoices,
             charge_automatically: self.charge_automatically,
@@ -387,7 +412,33 @@ impl CreateCheckoutSession {
             success_url: self.success_url,
             cancel_url: self.cancel_url,
             resource_id: self.resource_id,
+            trial_free,
+            trial_offer_id,
         })
+    }
+}
+
+/// A trial request as a session stores it: its days, freeness and offer.
+fn trial_columns(
+    trial: &crate::domain::trials::TrialRequest,
+    billing_start: NaiveDate,
+) -> (
+    Option<i32>,
+    Option<bool>,
+    Option<common_domain::ids::TrialOfferId>,
+) {
+    use crate::domain::trials::{TrialLength, TrialRequest};
+    match trial {
+        TrialRequest::Plan => (None, None, None),
+        TrialRequest::None => (Some(0), None, None),
+        TrialRequest::Offer(offer) => (None, None, Some(*offer)),
+        TrialRequest::Custom { length, free, .. } => {
+            let days = match length {
+                TrialLength::Days(days) => i64::from(*days),
+                TrialLength::Until(until) => (*until - billing_start).num_days().max(0),
+            };
+            (Some(i32::try_from(days).unwrap_or(i32::MAX)), *free, None)
+        }
     }
 }
 

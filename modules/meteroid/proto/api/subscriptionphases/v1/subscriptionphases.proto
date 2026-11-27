@@ -1,0 +1,383 @@
+syntax = "proto3";
+
+package meteroid.api.subscriptionphases.v1;
+
+// What a phase bills from its start, absolute: the fees it prices differently, the least seats it
+// bills and its minimum commitment.
+message PhaseTerms {
+  repeated PhaseComponent components = 1;
+  // A floor on the seats billed; the seats held stay as bought.
+  repeated PhaseSeats min_seats = 2;
+  PhaseMinimum minimum = 3;
+  // The plan switched to from the phase's start, its cadence with it. Its fees are mapped as a
+  // scheduled plan change maps them, then priced by `components` (by plan component) and seats.
+  optional PhasePlan plan = 4;
+  // Starts inside a period: settled on its day as an immediate amendment would be. Fees and
+  // seats only; plans and minimums change on renewals.
+  bool prorated = 5;
+}
+
+message PhasePlan {
+  string plan_version_id = 1;
+  repeated PhaseComponentParams component_params = 2;
+  // The option switched to, by alias; unset: the subscription's alias, else the default.
+  optional string option = 3;
+}
+
+// What a scheduled plan change asks of a target component: its seats, period or capacity.
+message PhaseComponentParams {
+  string component_id = 1;
+  optional uint32 initial_slot_count = 2;
+  // MONTHLY, QUARTERLY, SEMIANNUAL or ANNUAL.
+  optional string billing_period = 3;
+  optional uint64 committed_capacity = 4;
+}
+
+message PhaseMinimum {
+  enum Mode {
+    // The minimum in force goes on.
+    KEPT = 0;
+    ENDED = 1;
+    AMOUNT = 2;
+  }
+  Mode mode = 1;
+  // With AMOUNT: a period's minimum, in minor units.
+  int64 amount_subunit = 2;
+  // With AMOUNT: the products it covers; every component when empty.
+  repeated string product_ids = 3;
+}
+
+// A fee priced by one amount: a rate, a seat's rate or a capacity's base rate.
+message PhaseComponent {
+  // The lineage of the subscription component it prices (its first row's id); or empty, with
+  // `plan_component_id` naming the fee a switch opens.
+  string lineage_id = 1;
+  // Decimal, in the subscription's currency.
+  string price = 2;
+  // Output only: the fee's name when the phase was set.
+  optional string name = 3;
+  // The plan component of a fee a switch (this phase's or an earlier one's) opens.
+  optional string plan_component_id = 4;
+  // A template's price as a share of the fee's list price in the subscription's currency
+  // (decimal: 1 is the list price, 0 free), in place of `price`. Required for a plan sold in
+  // several currencies.
+  optional string list_rate = 5;
+}
+
+// The least seats of a managed quantity a phase bills, over every fee counting it.
+message PhaseSeats {
+  string quantity_id = 1;
+  uint32 slots = 2;
+  // The quantity's code; read only.
+  string code = 3;
+}
+
+message SubscriptionPhase {
+  string id = 1;
+  uint32 seq = 2;
+  // On one of the subscription's renewals (YYYY-MM-DD).
+  string start_date = 3;
+  // The next phase's start; unset for the last.
+  optional string end_date = 4;
+  optional string label = 5;
+  PhaseTerms terms = 6;
+}
+
+message SubscriptionPhaseInput {
+  string start_date = 1;
+  optional string label = 2;
+  PhaseTerms terms = 3;
+}
+
+message ListSubscriptionPhasesRequest {
+  string subscription_id = 1;
+}
+message ListSubscriptionPhasesResponse {
+  repeated SubscriptionPhase phases = 1;
+}
+
+// The phases starting after today, in order: unchanged ones are kept, the rest written again.
+// An empty list withdraws every phase still to start.
+message SetSubscriptionPhasesRequest {
+  string subscription_id = 1;
+  repeated SubscriptionPhaseInput phases = 2;
+}
+message SetSubscriptionPhasesResponse {
+  repeated SubscriptionPhase phases = 1;
+}
+
+// A dated add-on: new from its start, or one already on the subscription given an end.
+message TimelineItem {
+  string id = 1;
+  string add_on_id = 2;
+  // The subscription add-on it starts or ends.
+  string subscription_add_on_id = 3;
+  string start_date = 4;
+  // Its end, on a renewal.
+  string until = 5;
+  bool free = 6;
+  ItemEnd end = 7;
+  optional string label = 8;
+  optional string reason = 9;
+  // Its start and end may fall inside a period, each settled on its day.
+  bool prorated = 10;
+}
+
+message ItemEnd {
+  // Converting: paid from its end, at `price` when set, else the catalog price.
+  bool convert = 1;
+  optional string price = 2;
+}
+
+message ListTimelineItemsRequest {
+  string subscription_id = 1;
+}
+message ListTimelineItemsResponse {
+  repeated TimelineItem items = 1;
+  repeated DatedDiscount discounts = 2;
+}
+
+// A fee billed `percent` off from its start to its end, both on renewals; its price in force
+// before comes back at the end. Nothing else changes the fee meanwhile.
+message DatedDiscount {
+  string id = 1;
+  // The lineage of the subscription component it discounts.
+  string component_lineage_id = 2;
+  // Decimal, more than 0 and at most 100.
+  string percent = 3;
+  string start_date = 4;
+  string until = 5;
+  // The fee's name when the discount was set.
+  optional string name = 6;
+  optional string label = 7;
+  optional string reason = 8;
+  bool prorated = 9;
+}
+
+message AddDatedDiscountRequest {
+  string subscription_id = 1;
+  // Any row of the fee's lineage.
+  string component_id = 2;
+  string percent = 3;
+  string start_date = 4;
+  string until = 5;
+  optional string label = 6;
+  optional string reason = 7;
+  // Its start and end may fall inside a period, each settled on its day.
+  bool prorated = 8;
+}
+message AddDatedDiscountResponse {
+  DatedDiscount discount = 1;
+}
+
+message AddTimelineItemRequest {
+  string subscription_id = 1;
+  string add_on_id = 2;
+  // An add-on already on the subscription to give an end, instead of a new one.
+  optional string existing_subscription_add_on_id = 3;
+  uint32 quantity = 4;
+  // Today when free, else a renewal.
+  string start_date = 5;
+  string until = 6;
+  bool free = 7;
+  ItemEnd end = 8;
+  optional string label = 9;
+  optional string reason = 10;
+  // Its start and end may fall inside a period, each settled on its day.
+  bool prorated = 11;
+}
+message AddTimelineItemResponse {
+  TimelineItem item = 1;
+}
+
+// Withdraws what of the item or discount is still to come; once started, an add-on stays with
+// no end, and a discount cannot be removed.
+message RemoveTimelineItemRequest {
+  string subscription_id = 1;
+  string id = 2;
+}
+message RemoveTimelineItemResponse {}
+
+// A subscription's contract term. Not renewing, the subscription completes on its end; renewing,
+// it rolls on, with a renewal phase on its end when prices rise by an uplift.
+message SubscriptionTerm {
+  string term_end = 1;
+  bool auto_renew = 2;
+  uint32 renewal_months = 3;
+  // Decimal percent added at each renewal to each fee priced by one amount.
+  optional string uplift_percent = 4;
+  uint32 notice_days = 5;
+  // Output only: the last day an opt-out of the renewal is taken.
+  string notice_cutoff = 6;
+  // Output only: the phase renewing the term on its end.
+  optional string renewal_phase_id = 7;
+  // Input only: turning renewal off after the notice cutoff waives the notice, for this reason;
+  // refused when nothing needs waiving (R-152).
+  optional string waive_notice_reason = 8;
+}
+
+message GetSubscriptionTermRequest {
+  string subscription_id = 1;
+}
+message GetSubscriptionTermResponse {
+  optional SubscriptionTerm term = 1;
+}
+
+// Turning renewal off is an opt-out, refused once the notice period has started unless the
+// term's `waive_notice_reason` waives the notice.
+message SetSubscriptionTermRequest {
+  string subscription_id = 1;
+  SubscriptionTerm term = 2;
+}
+message SetSubscriptionTermResponse {
+  SubscriptionTerm term = 1;
+}
+
+// One edit of a batch; the subscription_id inside it is ignored for the batch's.
+message TimelineOp {
+  oneof op {
+    SetSubscriptionPhasesRequest set_phases = 1;
+    AddTimelineItemRequest add_item = 2;
+    AddDatedDiscountRequest add_discount = 3;
+    string remove_item_id = 4;
+    SubscriptionTerm set_term = 5;
+  }
+}
+// Applies the edits in order in one transaction: all of them or none.
+message ApplyTimelineRequest {
+  string subscription_id = 1;
+  repeated TimelineOp ops = 2;
+}
+message ApplyTimelineResponse {}
+
+// What the subscription would bill with the edits applied, read in a transaction rolled back:
+// nothing is written. Refused as ApplyTimeline would be.
+message PreviewTimelineRequest {
+  string subscription_id = 1;
+  repeated TimelineOp ops = 2;
+  // Months to project, 1 to 60; 12 when unset.
+  optional uint32 months = 3;
+}
+
+// The invoices a subscription's facts bill ahead, phases and dated items included: fixed fees,
+// before tax and credits; usage to come is not projected.
+message ProjectedLine {
+  string name = 1;
+  string from = 2;
+  string until = 3;
+  int64 amount = 4;
+}
+message ProjectedInvoice {
+  string on = 1;
+  repeated ProjectedLine lines = 2;
+  int64 total = 3;
+}
+
+message PreviewTimelineResponse {
+  repeated ProjectedInvoice projection = 1;
+  string projected_until = 2;
+  int64 projected_total = 3;
+}
+
+// Everything dated on a subscription, and what it bills ahead.
+message GetSubscriptionTimelineRequest {
+  string subscription_id = 1;
+  // Months to project, 1 to 60; 12 when unset.
+  optional uint32 months = 2;
+}
+message GetSubscriptionTimelineResponse {
+  repeated SubscriptionPhase phases = 1;
+  repeated TimelineItem items = 2;
+  repeated DatedDiscount discounts = 3;
+  optional SubscriptionTerm term = 4;
+  repeated ProjectedInvoice projection = 5;
+  string projected_until = 6;
+  // The projection's total, a contract value up to `projected_until`.
+  int64 projected_total = 7;
+}
+
+// A phase of a plan version's template, `offset_months` from a subscription's billing start; its
+// fees named by plan component. The phase at offset 0 prices the fees a subscription starts with,
+// and every later phase restates what it prices.
+message PlanPhaseTemplate {
+  uint32 offset_months = 1;
+  optional string label = 2;
+  PhaseTerms terms = 3;
+}
+message ListPlanVersionPhasesRequest {
+  string plan_version_id = 1;
+}
+message ListPlanVersionPhasesResponse {
+  repeated PlanPhaseTemplate phases = 1;
+}
+// Replaces the template; subscriptions created before keep their phases.
+message SetPlanVersionPhasesRequest {
+  string plan_version_id = 1;
+  repeated PlanPhaseTemplate phases = 2;
+}
+message SetPlanVersionPhasesResponse {
+  repeated PlanPhaseTemplate phases = 1;
+}
+
+// A quote's phases at offsets, written on the subscription it converts to. Unlike a plan's
+// template, a later phase may switch plan (a pilot, then the plan).
+message ListQuotePhasesRequest {
+  string quote_id = 1;
+}
+message ListQuotePhasesResponse {
+  repeated PlanPhaseTemplate phases = 1;
+}
+message SetQuotePhasesRequest {
+  string quote_id = 1;
+  repeated PlanPhaseTemplate phases = 2;
+}
+message SetQuotePhasesResponse {
+  repeated PlanPhaseTemplate phases = 1;
+}
+
+// Phases for a common shape, to review and set: nothing is stored.
+message GeneratePhasesRequest {
+  message Price {
+    string plan_component_id = 1;
+    string price = 2;
+  }
+  message Escalator {
+    // Decimal percent, compounded.
+    string percent = 1;
+    uint32 every_months = 2;
+    uint32 steps = 3;
+  }
+  message FreeMonths {
+    uint32 months = 1;
+  }
+  repeated Price prices = 1;
+  oneof shape {
+    Escalator escalator = 2;
+    FreeMonths free_months = 3;
+  }
+  // Phases priced as shares of each fee's list price (`list_rate`), whatever `prices` say: for a
+  // plan sold in several currencies.
+  bool list_rates = 4;
+}
+message GeneratePhasesResponse {
+  repeated PlanPhaseTemplate phases = 1;
+}
+
+service SubscriptionPhasesService {
+  rpc ListSubscriptionPhases(ListSubscriptionPhasesRequest) returns (ListSubscriptionPhasesResponse) {}
+  rpc SetSubscriptionPhases(SetSubscriptionPhasesRequest) returns (SetSubscriptionPhasesResponse) {}
+  rpc ListTimelineItems(ListTimelineItemsRequest) returns (ListTimelineItemsResponse) {}
+  rpc AddTimelineItem(AddTimelineItemRequest) returns (AddTimelineItemResponse) {}
+  rpc AddDatedDiscount(AddDatedDiscountRequest) returns (AddDatedDiscountResponse) {}
+  rpc RemoveTimelineItem(RemoveTimelineItemRequest) returns (RemoveTimelineItemResponse) {}
+  rpc GetSubscriptionTerm(GetSubscriptionTermRequest) returns (GetSubscriptionTermResponse) {}
+  rpc SetSubscriptionTerm(SetSubscriptionTermRequest) returns (SetSubscriptionTermResponse) {}
+  rpc ApplyTimeline(ApplyTimelineRequest) returns (ApplyTimelineResponse) {}
+  rpc PreviewTimeline(PreviewTimelineRequest) returns (PreviewTimelineResponse) {}
+  rpc GetSubscriptionTimeline(GetSubscriptionTimelineRequest) returns (GetSubscriptionTimelineResponse) {}
+  rpc ListPlanVersionPhases(ListPlanVersionPhasesRequest) returns (ListPlanVersionPhasesResponse) {}
+  rpc SetPlanVersionPhases(SetPlanVersionPhasesRequest) returns (SetPlanVersionPhasesResponse) {}
+  rpc ListQuotePhases(ListQuotePhasesRequest) returns (ListQuotePhasesResponse) {}
+  rpc SetQuotePhases(SetQuotePhasesRequest) returns (SetQuotePhasesResponse) {}
+  rpc GeneratePhases(GeneratePhasesRequest) returns (GeneratePhasesResponse) {}
+}

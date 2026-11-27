@@ -7,10 +7,12 @@ use crate::domain::enums::{CreditNoteStatus, DeclineKind};
 use crate::domain::invoice_lines::LineItem;
 use crate::domain::invoices::TaxBreakdownItem;
 use crate::domain::pgmq::{PgmqMessage, PgmqMessageNew};
-pub use crate::domain::retention_events::{RenewalUpcomingEvent, RetentionSessionEvent};
+pub use crate::domain::renewals::RenewalUpcomingEvent;
+pub use crate::domain::retention_events::RetentionSessionEvent;
 use crate::domain::usage_alert_events::is_limit_pct;
 pub use crate::domain::usage_alert_events::{
-    BudgetAlertEvent, EntitlementAlertEvent, TooManyGroupsEvent,
+    BudgetAlertEvent, EntitlementAlertEvent, OverrideEndingEvent, TooManyGroupsEvent,
+    TrialEndingEvent,
 };
 pub use crate::domain::wallet_events::{
     CreditGrantExpiredEvent, TopUpCapPeriod, WalletAutoTopUpCapReachedEvent,
@@ -112,10 +114,15 @@ pub enum OutboxEvent {
     BudgetExceeded(Box<BudgetAlertEvent>),
     EntitlementTooManyGroups(Box<TooManyGroupsEvent>),
     RetentionSessionCompleted(Box<RetentionSessionEvent>),
-    RetentionRenewalUpcoming(Box<RenewalUpcomingEvent>),
     /// A paid self-serve checkout whose subscription its resource refused for good: the payment
     /// was kept as customer credit and the session cancelled.
     CheckoutPaymentKeptAsCredit(Box<CheckoutPaymentKeptAsCreditEvent>),
+    /// Queued as `RetentionRenewalUpcoming` before renewals merged into one event.
+    #[serde(alias = "RetentionRenewalUpcoming")]
+    SubscriptionRenewalUpcoming(Box<RenewalUpcomingEvent>),
+    EntitlementOverrideEndingSoon(Box<OverrideEndingEvent>),
+    EntitlementOverrideEnded(Box<OverrideEndingEvent>),
+    SubscriptionTrialEndingSoon(Box<TrialEndingEvent>),
 }
 
 #[derive(Display, Debug, Serialize, Deserialize, PartialEq, Clone, Copy, strum::EnumIter)]
@@ -178,8 +185,12 @@ pub enum EventType {
     BudgetExceeded,
     EntitlementTooManyGroups,
     RetentionSessionCompleted,
-    RetentionRenewalUpcoming,
     CheckoutPaymentKeptAsCredit,
+    #[serde(alias = "RetentionRenewalUpcoming")]
+    SubscriptionRenewalUpcoming,
+    EntitlementOverrideEndingSoon,
+    EntitlementOverrideEnded,
+    SubscriptionTrialEndingSoon,
 }
 
 json_value_serde!(OutboxEvent);
@@ -246,8 +257,11 @@ impl OutboxEvent {
             }
             OutboxEvent::EntitlementTooManyGroups(event) => event.id,
             OutboxEvent::RetentionSessionCompleted(event) => event.id,
-            OutboxEvent::RetentionRenewalUpcoming(event) => event.id,
             OutboxEvent::CheckoutPaymentKeptAsCredit(event) => event.id,
+            OutboxEvent::SubscriptionRenewalUpcoming(event) => event.id,
+            OutboxEvent::EntitlementOverrideEndingSoon(event)
+            | OutboxEvent::EntitlementOverrideEnded(event) => event.id,
+            OutboxEvent::SubscriptionTrialEndingSoon(event) => event.id,
         }
     }
 
@@ -312,8 +326,11 @@ impl OutboxEvent {
             }
             OutboxEvent::EntitlementTooManyGroups(event) => event.tenant_id,
             OutboxEvent::RetentionSessionCompleted(event) => event.tenant_id,
-            OutboxEvent::RetentionRenewalUpcoming(event) => event.tenant_id,
             OutboxEvent::CheckoutPaymentKeptAsCredit(event) => event.tenant_id,
+            OutboxEvent::SubscriptionRenewalUpcoming(event) => event.tenant_id,
+            OutboxEvent::EntitlementOverrideEndingSoon(event)
+            | OutboxEvent::EntitlementOverrideEnded(event) => event.tenant_id,
+            OutboxEvent::SubscriptionTrialEndingSoon(event) => event.tenant_id,
         }
     }
 
@@ -381,10 +398,13 @@ impl OutboxEvent {
             | OutboxEvent::BudgetExceeded(_)
             | OutboxEvent::EntitlementTooManyGroups(_)
             // The subscription change an offer makes carries its own event.
-            | OutboxEvent::RetentionSessionCompleted(_)
-            | OutboxEvent::RetentionRenewalUpcoming(_) => None,
+            | OutboxEvent::RetentionSessionCompleted(_) => None,
             // Its credit is funded by the ledger, which reports it.
-            | OutboxEvent::CheckoutPaymentKeptAsCredit(_) => None,
+            | OutboxEvent::CheckoutPaymentKeptAsCredit(_)
+            | OutboxEvent::SubscriptionRenewalUpcoming(_)
+            | OutboxEvent::EntitlementOverrideEndingSoon(_)
+            | OutboxEvent::EntitlementOverrideEnded(_)
+            | OutboxEvent::SubscriptionTrialEndingSoon(_) => None,
         }
     }
 
@@ -402,6 +422,8 @@ impl OutboxEvent {
             | OutboxEvent::SubscriptionUpdated(event)
             | OutboxEvent::SubscriptionCancelled(event)
             | OutboxEvent::SubscriptionEnded(event) => Some(event.subscription_id),
+            OutboxEvent::SubscriptionRenewalUpcoming(event) => Some(event.subscription_id),
+            OutboxEvent::SubscriptionTrialEndingSoon(event) => Some(event.subscription_id),
             _ => None,
         }
     }
@@ -490,8 +512,11 @@ impl OutboxEvent {
                 .feature_id
                 .map_or_else(|| event.customer_id.as_uuid(), |id| id.as_uuid()),
             OutboxEvent::RetentionSessionCompleted(event) => event.session_id.as_uuid(),
-            OutboxEvent::RetentionRenewalUpcoming(event) => event.subscription_id.as_uuid(),
             OutboxEvent::CheckoutPaymentKeptAsCredit(event) => event.checkout_session_id.as_uuid(),
+            OutboxEvent::SubscriptionRenewalUpcoming(event) => event.subscription_id.as_uuid(),
+            OutboxEvent::EntitlementOverrideEndingSoon(event)
+            | OutboxEvent::EntitlementOverrideEnded(event) => event.feature_id.as_uuid(),
+            OutboxEvent::SubscriptionTrialEndingSoon(event) => event.subscription_id.as_uuid(),
         }
     }
 
@@ -556,8 +581,11 @@ impl OutboxEvent {
             }
             OutboxEvent::EntitlementTooManyGroups(_) => "Feature".to_string(),
             OutboxEvent::RetentionSessionCompleted(_) => "RetentionSession".to_string(),
-            OutboxEvent::RetentionRenewalUpcoming(_) => "Subscription".to_string(),
             OutboxEvent::CheckoutPaymentKeptAsCredit(_) => "CheckoutSession".to_string(),
+            OutboxEvent::SubscriptionRenewalUpcoming(_)
+            | OutboxEvent::SubscriptionTrialEndingSoon(_) => "Subscription".to_string(),
+            OutboxEvent::EntitlementOverrideEndingSoon(_)
+            | OutboxEvent::EntitlementOverrideEnded(_) => "Feature".to_string(),
         }
     }
 
@@ -627,8 +655,13 @@ impl OutboxEvent {
             OutboxEvent::BudgetExceeded(_) => EventType::BudgetExceeded,
             OutboxEvent::EntitlementTooManyGroups(_) => EventType::EntitlementTooManyGroups,
             OutboxEvent::RetentionSessionCompleted(_) => EventType::RetentionSessionCompleted,
-            OutboxEvent::RetentionRenewalUpcoming(_) => EventType::RetentionRenewalUpcoming,
             OutboxEvent::CheckoutPaymentKeptAsCredit(_) => EventType::CheckoutPaymentKeptAsCredit,
+            OutboxEvent::SubscriptionRenewalUpcoming(_) => EventType::SubscriptionRenewalUpcoming,
+            OutboxEvent::EntitlementOverrideEndingSoon(_) => {
+                EventType::EntitlementOverrideEndingSoon
+            }
+            OutboxEvent::EntitlementOverrideEnded(_) => EventType::EntitlementOverrideEnded,
+            OutboxEvent::SubscriptionTrialEndingSoon(_) => EventType::SubscriptionTrialEndingSoon,
         }
     }
 
@@ -825,8 +858,8 @@ impl OutboxEvent {
         OutboxEvent::RetentionSessionCompleted(Box::new(event))
     }
 
-    pub fn retention_renewal_upcoming(event: RenewalUpcomingEvent) -> OutboxEvent {
-        OutboxEvent::RetentionRenewalUpcoming(Box::new(event))
+    pub fn renewal_upcoming(event: RenewalUpcomingEvent) -> OutboxEvent {
+        OutboxEvent::SubscriptionRenewalUpcoming(Box::new(event))
     }
 
     pub fn entitlement_too_many_groups(event: TooManyGroupsEvent) -> OutboxEvent {
@@ -976,6 +1009,8 @@ pub enum SubscriptionUpdateType {
     UnitsChanged,
     Paused,
     CancellationScheduled,
+    /// Its running trial was extended or ended early (R-153).
+    TrialChanged,
 }
 
 #[skip_serializing_none]
@@ -1534,7 +1569,10 @@ impl EventType {
             | EventType::BudgetExceeded
             | EventType::EntitlementTooManyGroups
             | EventType::RetentionSessionCompleted
-            | EventType::RetentionRenewalUpcoming => false,
+            | EventType::SubscriptionRenewalUpcoming
+            | EventType::EntitlementOverrideEndingSoon
+            | EventType::EntitlementOverrideEnded
+            | EventType::SubscriptionTrialEndingSoon => false,
             EventType::CheckoutPaymentKeptAsCredit => false,
         }
     }
@@ -1608,8 +1646,13 @@ impl EventType {
             EventType::BudgetExceeded => BudgetAlertEvent::EXCEEDED_ROUTING_KEY,
             EventType::EntitlementTooManyGroups => TooManyGroupsEvent::ENTITLEMENT_ROUTING_KEY,
             EventType::RetentionSessionCompleted => RetentionSessionEvent::ROUTING_KEY,
-            EventType::RetentionRenewalUpcoming => RenewalUpcomingEvent::ROUTING_KEY,
             EventType::CheckoutPaymentKeptAsCredit => CheckoutPaymentKeptAsCreditEvent::ROUTING_KEY,
+            EventType::SubscriptionRenewalUpcoming => RenewalUpcomingEvent::ROUTING_KEY,
+            EventType::EntitlementOverrideEndingSoon => {
+                OverrideEndingEvent::ENDING_SOON_ROUTING_KEY
+            }
+            EventType::EntitlementOverrideEnded => OverrideEndingEvent::ENDED_ROUTING_KEY,
+            EventType::SubscriptionTrialEndingSoon => TrialEndingEvent::ROUTING_KEY,
         }
     }
 }
@@ -1846,14 +1889,29 @@ mod credit_inputs_tests {
             "the offer's own subscription event carries any change",
         ),
         (
-            EventType::RetentionRenewalUpcoming,
+            EventType::CheckoutPaymentKeptAsCredit,
+            false,
+            "money movement: the credit grant writes the ledger feed row",
+        ),
+        (
+            EventType::SubscriptionRenewalUpcoming,
             false,
             "a notice, changing nothing",
         ),
         (
-            EventType::CheckoutPaymentKeptAsCredit,
+            EventType::EntitlementOverrideEndingSoon,
             false,
-            "money movement: the credit grant writes the ledger feed row",
+            "override notice",
+        ),
+        (
+            EventType::EntitlementOverrideEnded,
+            false,
+            "override notice",
+        ),
+        (
+            EventType::SubscriptionTrialEndingSoon,
+            false,
+            "trial notice",
         ),
     ];
 

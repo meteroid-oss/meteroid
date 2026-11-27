@@ -63,20 +63,22 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
         "quotes",
         "quotetemplates",
         "rbac",
+        "renewals",
         "resources",
         "retention",
         "savedviews",
-        "schedules",
         "security",
         "segments",
         "signals",
         "sso",
         "stats",
         "subscriptions",
+        "subscriptionphases",
         "targets",
         "taxes",
         "taxreports",
         "tenants",
+        "trials",
         "users",
         "walletcontrols",
         "wallets",
@@ -101,6 +103,8 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
     // Services of a package beside its main file
     proto_files.push(root.join("proto/api/quotes/v1/documents.proto"));
     // Internal service-to-service protos
+    // Imported by no service since the ramp schedules went; its mappings remain.
+    proto_files.push(root.join("proto/api/shared/v1/adjustments.proto"));
     proto_files.push(root.join("proto/internal/v1/internal.proto"));
     proto_files.push(root.join("proto/portal/checkout/v1/checkout.proto"));
     proto_files.push(root.join("proto/portal/purchase/v1/purchase.proto"));
@@ -158,7 +162,6 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
         ".meteroid.api.components.v1",
         ".meteroid.api.shared.v1",
         ".meteroid.api.adjustments.v1",
-        ".meteroid.api.schedules.v1.PlanRamps",
         ".meteroid.api.customers.v1.CustomerBillingConfig",
         ".meteroid.api.customers.v1.Address",
         ".meteroid.api.customers.v1.ShippingAddress",

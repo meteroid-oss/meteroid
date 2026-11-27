@@ -20,15 +20,27 @@ use crate::repositories::customers::CustomersInterface;
 use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::repositories::plans::PlansInterface;
 use crate::services::ServicesEdge;
-use crate::services::quotes::build_subscription_from_quote;
 use crate::services::subscriptions::utils::{fee_period_total_cents, scale_fee};
 
 impl ServicesEdge {
+    /// A stored quote's totals, with the contract value kept since its last write (R-165).
     pub async fn quote_totals(
         &self,
         tenant_id: TenantId,
         quote: &DetailedQuote,
     ) -> StoreResult<QuoteTotals> {
+        self.totals(tenant_id, quote, false).await
+    }
+
+    async fn totals(
+        &self,
+        tenant_id: TenantId,
+        quote: &DetailedQuote,
+        live: bool,
+    ) -> StoreResult<QuoteTotals> {
+        let original = quote;
+        let started = quote.at_start();
+        let quote = &started;
         let mut conn = self.store.get_conn().await?;
         // The subscription bills in its plan's currency.
         let currency = self
@@ -49,23 +61,29 @@ impl ServicesEdge {
         })?;
         let (recurring, has_usage) = recurring_totals(&totals_lines(quote), precision);
 
-        let first_invoice_subtotal = match build_subscription_from_quote(quote) {
-            Ok(conversion) => self
-                .services
-                .preview_subscription_from_quote(&mut conn, &conversion, tenant_id)
-                .await
-                .map(|(content, _)| content.total - content.tax_amount),
-            Err(error) => Err(error),
+        let stored = if live {
+            None
+        } else {
+            crate::services::quote_value::stored_contract_value(
+                &mut conn,
+                tenant_id,
+                quote.quote.id,
+            )
+            .await?
         };
-        let first_invoice_subtotal = match first_invoice_subtotal {
-            Ok(cents) => Some(major(cents, precision)),
-            Err(error) => {
-                log::warn!(
-                    "no first invoice preview for quote {:?}: {error:?}",
-                    quote.quote.id
-                );
-                None
-            }
+        drop(conn);
+        let contract = match stored {
+            Some(contract) => Some(contract),
+            None => match self.quote_contract_value(tenant_id, original).await {
+                Ok(contract) => Some(contract),
+                Err(error) => {
+                    log::warn!(
+                        "no contract value for quote {:?}: {error:?}",
+                        quote.quote.id
+                    );
+                    None
+                }
+            },
         };
 
         Ok(QuoteTotals {
@@ -79,18 +97,27 @@ impl ServicesEdge {
                 })
                 .collect(),
             has_usage,
-            first_invoice_subtotal,
+            first_invoice_subtotal: contract.as_ref().and_then(|c| c.first_invoice),
+            contract,
         })
     }
 
-    /// The totals of an editor's quote, as they would read once it is stored. Writes nothing.
+    /// The totals of an editor's quote, as they would read once it is stored, and the quote they
+    /// value. Writes nothing.
     pub async fn unsaved_quote_totals(
         &self,
         tenant_id: TenantId,
         unsaved: UnsavedQuote,
-    ) -> StoreResult<QuoteTotals> {
-        let (customer, invoicing_entity) = {
+    ) -> StoreResult<(QuoteTotals, DetailedQuote)> {
+        let (customer, invoicing_entity, phases) = {
             let mut conn = self.store.get_conn().await?;
+            // A draft edited keeps the phases saved with it; a new quote has none yet.
+            let phases = crate::services::plan_phases::quote_phases_tx(
+                &mut conn,
+                tenant_id,
+                unsaved.quote.id,
+            )
+            .await?;
             let customer = self
                 .store
                 .find_customer_by_id_with_conn(&mut conn, unsaved.quote.customer_id, tenant_id)
@@ -103,7 +130,7 @@ impl ServicesEdge {
                     Some(customer.invoicing_entity_id),
                 )
                 .await?;
-            (customer, invoicing_entity)
+            (customer, invoicing_entity, phases)
         };
         let quote_id = unsaved.quote.id;
         let quote = DetailedQuote {
@@ -137,8 +164,10 @@ impl ServicesEdge {
                     scope,
                 })
             }),
+            phases,
         };
-        self.quote_totals(tenant_id, &quote).await
+        let totals = self.totals(tenant_id, &quote, true).await?;
+        Ok((totals, quote))
     }
 }
 

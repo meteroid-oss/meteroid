@@ -1,8 +1,9 @@
-import { Button, Card, Skeleton, cn } from '@md/ui'
-import { useState } from 'react'
+import { Badge, Button, Card, Skeleton, cn } from '@md/ui'
+import { useEffect, useState } from 'react'
 
 import { PanelEmptyState } from '@/components/empty-state/PanelEmptyState'
 import { useMembers } from '@/features/accounts/hooks/useMembers'
+import { overrideStatus } from '@/features/entitlements/customer/overrideStatus'
 import { displayValue } from '@/features/entitlements/explain/display'
 import {
   EFFECT,
@@ -17,13 +18,14 @@ import { productSections } from '@/features/entitlements/productGroups'
 import { RowSheet } from '@/features/entitlements/rows/RowSheet'
 import { useResourceTypes } from '@/features/resources/hooks'
 import { usePermissions } from '@/hooks/usePermissions'
+import { useQueryState } from '@/hooks/useQueryState'
 import { useQuery } from '@/lib/connectrpc'
 import { listEntitlementsByEntity } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import { parseUtc } from '@/utils/date'
 
 import type { Actor, Entitlement, Feature } from '@/rpc/api/entitlements/v1/models_pb'
 
-type Editing = { existing?: Entitlement; feature?: Feature } | undefined
+type Editing = { existing?: Entitlement; feature?: Feature; temporary?: boolean } | undefined
 
 /** The customer-wide overrides; resource overrides live on each resource. */
 export const OverridesCard = ({ customerId }: { customerId: string }) => {
@@ -32,13 +34,22 @@ export const OverridesCard = ({ customerId }: { customerId: string }) => {
   const query = useQuery(listEntitlementsByEntity, { entity: { EntityId: owner } })
   const [editing, setEditing] = useState<Editing>()
   const [showEnded, setShowEnded] = useState(false)
+  // `?override=temporary` opens a temporary override, as links from the customer's overview do.
+  const [requested, setRequested] = useQueryState('override', '', { replace: true })
+  useEffect(() => {
+    if (requested !== 'temporary' || !canEdit) return
+    setEditing({ temporary: true })
+    setRequested('')
+  }, [requested, canEdit, setRequested])
 
   const features = new Map((query.data?.features ?? []).map(f => [f.id, f]))
   const now = Date.now()
   const rows = (query.data?.entitlements ?? [])
     .filter(e => !e.resourceId)
-    .sort((a, b) => (features.get(a.featureId)?.name ?? '').localeCompare(features.get(b.featureId)?.name ?? ''))
-  const ended = rows.filter(e => e.validUntil && parseUtc(e.validUntil).getTime() <= now)
+    .sort((a, b) =>
+      (features.get(a.featureId)?.name ?? '').localeCompare(features.get(b.featureId)?.name ?? '')
+    )
+  const ended = rows.filter(e => overrideStatus(e, now) === 'ended')
   const active = rows.filter(e => !ended.includes(e))
 
   const card = (e: Entitlement) => (
@@ -47,7 +58,9 @@ export const OverridesCard = ({ customerId }: { customerId: string }) => {
       row={e}
       feature={features.get(e.featureId)}
       now={now}
-      onOpen={canEdit ? () => setEditing({ existing: e, feature: features.get(e.featureId) }) : undefined}
+      onOpen={
+        canEdit ? () => setEditing({ existing: e, feature: features.get(e.featureId) }) : undefined
+      }
     />
   )
   const list = (items: Entitlement[]) => {
@@ -71,9 +84,20 @@ export const OverridesCard = ({ customerId }: { customerId: string }) => {
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">Overrides</h3>
         {canEdit && (
-          <Button size="sm" variant="outline" className="mt-0" onClick={() => setEditing({})}>
-            Add override
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="mt-0"
+              title="Add an override that ends on a date"
+              onClick={() => setEditing({ temporary: true })}
+            >
+              Temporary
+            </Button>
+            <Button size="sm" variant="outline" className="mt-0" onClick={() => setEditing({})}>
+              Add override
+            </Button>
+          </div>
         )}
       </div>
 
@@ -131,7 +155,8 @@ const OverrideItem = ({
   ].filter(Boolean)
   const author = actorName(row.createdBy, id => members.get(id)?.displayName)
   const meta = [author, row.reason && `“${row.reason}”`].filter(Boolean).join(' · ')
-  const ended = !!row.validUntil && parseUtc(row.validUntil).getTime() <= now
+  const status = overrideStatus(row, now)
+  const ended = status === 'ended'
 
   return (
     <button
@@ -144,8 +169,17 @@ const OverrideItem = ({
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="min-w-0 truncate text-[13px] font-medium">{feature?.name ?? row.featureId}</span>
-        <span className="shrink-0 text-xs text-muted-foreground">{validity(row, now)}</span>
+        <span className="min-w-0 truncate text-[13px] font-medium">
+          {feature?.name ?? row.featureId}
+        </span>
+        <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+          {status === 'endsSoon' && (
+            <Badge variant="warning" size="sm">
+              Ends soon
+            </Badge>
+          )}
+          {validity(row, now)}
+        </span>
       </div>
       <div className="flex items-baseline gap-1.5 text-[13px]">
         <span className="text-xs font-medium">{EFFECT[effectOf(row)].label}</span>
@@ -167,9 +201,12 @@ const shortDate = (value: string) => {
 }
 
 const validity = (row: Entitlement, now: number) => {
-  if (row.validFrom && parseUtc(row.validFrom).getTime() > now) return `Starts ${shortDate(row.validFrom)}`
+  if (row.validFrom && parseUtc(row.validFrom).getTime() > now)
+    return `Starts ${shortDate(row.validFrom)}`
   if (!row.validUntil) return 'No end'
-  return parseUtc(row.validUntil).getTime() <= now ? `Ended ${shortDate(row.validUntil)}` : `Ends ${shortDate(row.validUntil)}`
+  return parseUtc(row.validUntil).getTime() <= now
+    ? `Ended ${shortDate(row.validUntil)}`
+    : `Ends ${shortDate(row.validUntil)}`
 }
 
 const actorName = (actor: Actor | undefined, memberName: (id: string) => string | undefined) => {

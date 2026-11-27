@@ -78,6 +78,12 @@ const ENTERPRISE_FEATURES: EnterpriseArea[] = [
         availability: 'licensed',
       },
       {
+        name: 'Subscription phases',
+        description:
+          'Ramp a subscription over its term: new prices and seat counts from the renewals you choose.',
+        availability: 'licensed',
+      },
+      {
         name: 'Multiple invoicing entities',
         description:
           'Invoice from several legal entities, each with its own details and numbering.',

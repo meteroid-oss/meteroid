@@ -3,7 +3,6 @@ syntax = "proto3";
 import "api/shared/v1/shared.proto";
 
 import "api/entitlements/v1/models.proto";
-import "api/schedules/v1/models.proto";
 import "api/pricecomponents/v1/models.proto";
 import "api/prices/v1/models.proto";
 import "api/coupons/v1/models.proto";
@@ -81,17 +80,47 @@ message Subscription {
   optional string resource_id = 49;
 }
 
-// Trial configuration resolved from the plan version
+// The subscription's trial, as its fact records it from its start (R-153).
 message TrialConfig {
   uint32 duration_days = 1;
   bool is_free = 2;
   optional string trialing_plan_id = 3;
   optional string trialing_plan_name = 4; // resolved name for display
+  string starts_on = 5;
+  // Its end, exclusive: billing starts on it when it is free.
+  optional string ends_on = 6;
+  optional string trial_offer_id = 7;
+  optional string trial_offer_name = 8;
+  // CONVERT, CANCEL or FALLBACK.
+  string end_action = 9;
+}
+
+// The trial a subscription is created with; unset: its plan's (R-153).
+message TrialRequest {
+  message Custom {
+    oneof length {
+      uint32 days = 1;
+      // Its end, exclusive.
+      string until = 2;
+    }
+    // Unset: the plan's trial's freeness, else free.
+    optional bool free = 3;
+    // Unset: the plan's trial's, unless `own_features`.
+    optional string trial_plan_id = 4;
+    bool own_features = 5;
+  }
+  oneof trial {
+    bool none = 1;
+    // A catalog offer (Enterprise); refused when the customer already had it.
+    string offer_id = 2;
+    Custom custom = 3;
+  }
 }
 
 message SubscriptionDetails {
   Subscription subscription = 1;
-  repeated meteroid.api.schedules.v1.Schedule schedules = 2;
+  reserved 2;
+  reserved "schedules";
   repeated SubscriptionComponent price_components = 3;
   repeated BillableMetric metrics = 4;
   repeated SubscriptionAddOn add_ons = 5;
@@ -125,6 +154,8 @@ enum ScheduledEventType {
   CANCEL = 1;
   END_TRIAL = 3;
   AMENDMENT = 4;
+  // A phase's boundary: edited from the subscription's phases, never cancelled alone.
+  PHASE = 5;
 }
 
 // Human-readable summary of what a scheduled amendment will change, for the
@@ -148,6 +179,51 @@ message PendingScheduledEvent {
   // false when scheduled by an admin/API actor.
   bool customer_initiated = 7;
   optional AmendmentSummary amendment_summary = 8;
+  // A change of the subscription's timeline (a phase, a dated add-on or discount): edited there,
+  // never cancelled alone.
+  bool timeline = 9;
+}
+
+// What a change does to a subscription's timeline: each phase, dated add-on or discount and
+// renewal written again over it, and the invoices ahead without and with it (R-162).
+message TimelineEffect {
+  repeated TimelineEntry entries = 1;
+  repeated TimelineInvoiceTotal before = 2;
+  repeated TimelineInvoiceTotal after = 3;
+  string until = 4;
+  int64 before_total = 5;
+  int64 after_total = 6;
+}
+
+message TimelineEntry {
+  enum Effect {
+    EFFECT_KEPT = 0;
+    // Its listed terms name nothing on the subscription from its start: kept, billing nothing.
+    EFFECT_INACTIVE = 1;
+    // Its start is no longer a renewal: settled on its day.
+    EFFECT_PRORATED = 2;
+    // Withdrawn: what it changes is no longer on the subscription.
+    EFFECT_DROPPED = 3;
+    // Its switch is replaced by this plan change.
+    EFFECT_SWITCH_REPLACED = 4;
+  }
+  enum OwnerType {
+    OWNER_TYPE_PHASE = 0;
+    OWNER_TYPE_ITEM = 1;
+    OWNER_TYPE_RENEWAL = 2;
+  }
+  OwnerType owner_type = 1;
+  optional string owner_id = 2;
+  string label = 3;
+  string on = 4;
+  Effect effect = 5;
+  // The inactive terms, or why it was dropped.
+  repeated string details = 6;
+}
+
+message TimelineInvoiceTotal {
+  string on = 1;
+  int64 total = 2;
 }
 
 // TODO replace by subscription or even subscription details
@@ -181,7 +257,8 @@ message CreatedSubscription {
 message CreateSubscription {
   string plan_version_id = 2;
   string customer_id = 3;
-  optional uint32 trial_duration = 5;
+  reserved 5, 32;
+  reserved "trial_duration", "trial_offer_id";
   string start_date = 6;
   optional string end_date = 7;
   optional uint32 billing_day_anchor = 8;
@@ -215,6 +292,7 @@ message CreateSubscription {
   optional string option = 30;
   // A stored resource of the customer; absent for the whole customer.
   optional string resource_id = 31;
+  optional TrialRequest trial = 33;
 }
 
 enum ActivationCondition {

@@ -1,6 +1,7 @@
 use chrono::{DateTime, NaiveDate, Utc};
 use common_domain::ids::{
     CheckoutSessionId, CouponId, CustomerId, PlanVersionId, ResourceId, SubscriptionId, TenantId,
+    TrialOfferId,
 };
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 use rust_decimal::Decimal;
@@ -57,6 +58,10 @@ pub struct CheckoutSessionRow {
     pub plan_option: Option<String>,
     /// The stored resource the subscription it creates is for.
     pub resource_id: Option<ResourceId>,
+    /// With `trial_duration_days`: whether that trial is free; `None`: as the plan's trial.
+    pub trial_free: Option<bool>,
+    /// The trial offer it gives, over `trial_duration_days`.
+    pub trial_offer_id: Option<TrialOfferId>,
 }
 
 #[derive(Debug, Insertable)]
@@ -102,4 +107,8 @@ pub struct CheckoutSessionRowNew {
     pub cancel_url: Option<String>,
     pub plan_option: Option<String>,
     pub resource_id: Option<ResourceId>,
+    /// With `trial_duration_days`: whether that trial is free; `None`: as the plan's trial.
+    pub trial_free: Option<bool>,
+    /// The trial offer it gives, over `trial_duration_days`.
+    pub trial_offer_id: Option<TrialOfferId>,
 }

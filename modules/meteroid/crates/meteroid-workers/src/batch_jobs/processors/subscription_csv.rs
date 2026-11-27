@@ -283,7 +283,7 @@ fn map_to_domain(
             end_date: csv.end_date,
             billing_start_date: None,
             activation_condition: csv.activation_condition.into(),
-            trial_duration: None,
+            trial: Default::default(),
             billing_day_anchor: csv.billing_day_anchor,
             payment_methods_config: csv.payment_method.map(Into::into),
             auto_advance_invoices: csv.auto_advance_invoices,

@@ -17,9 +17,9 @@ use std::sync::Arc;
 const BATCH: i64 = 5_000;
 
 /// Rows crossing a bound in `($1, $2]`, and every customer they reach: their own (customer,
-/// subscription, resource), or each live one of a plan (a trial's trialing plan included), plan
+/// subscription, resource), or each live one of a plan (a trial's trial plan included), plan
 /// version, add-on or feature default.
-const MARK_CROSSED: &str = "
+const MARK_CROSSED_TEMPLATE: &str = "
 WITH crossed AS (
     SELECT tenant_id, entity_type, entity_id, resource_id
     FROM entitlement
@@ -29,9 +29,7 @@ WITH crossed AS (
     SELECT id, tenant_id, customer_id, plan_version_id FROM subscription
     WHERE status IN ('ACTIVE', 'TRIAL_ACTIVE')
     UNION ALL
-    SELECT s.id, s.tenant_id, s.customer_id, tp.active_version_id FROM subscription s
-    JOIN plan_version pv ON pv.id = s.plan_version_id JOIN plan tp ON tp.id = pv.trialing_plan_id
-    WHERE s.status = 'TRIAL_ACTIVE' AND tp.active_version_id IS NOT NULL
+    SELECT subscription_id, tenant_id, customer_id, plan_version_id FROM (TRIALING_PLAN_TIERS) t
 ), reached AS (
     SELECT c.tenant_id, c.entity_id AS customer_id FROM crossed c WHERE c.entity_type = 'CUSTOMER'
     UNION
@@ -64,6 +62,13 @@ ORDER BY tenant_id, customer_id
 LIMIT $5
 ON CONFLICT (tenant_id, customer_id) DO UPDATE SET marked_at = clock_timestamp()
 RETURNING tenant_id, customer_id";
+
+static MARK_CROSSED: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    MARK_CROSSED_TEMPLATE.replace(
+        "TRIALING_PLAN_TIERS",
+        diesel_models::query::trial_plans::TRIALING_PLAN_TIERS,
+    )
+});
 
 #[derive(QueryableByName)]
 struct Marked {
@@ -124,7 +129,7 @@ pub async fn scan(store: &Store, now: DateTime<Utc>) -> StoreResult<usize> {
                 let mut marked = 0;
                 let mut after: Option<(TenantId, CustomerId)> = None;
                 loop {
-                    let batch: Vec<Marked> = diesel::sql_query(MARK_CROSSED)
+                    let batch: Vec<Marked> = diesel::sql_query(MARK_CROSSED.as_str())
                         .bind::<Timestamptz, _>(from)
                         .bind::<Timestamptz, _>(now)
                         .bind::<Nullable<SqlUuid>, _>(after.map(|(t, _)| t))

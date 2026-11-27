@@ -343,6 +343,8 @@ impl Services {
                 new_plan_version_id,
                 new_plan_option_id: prepared.target_option.as_ref().map(|o| o.id),
                 component_mappings: prepared.component_mappings().to_vec(),
+                addon_close: Vec::new(),
+                addon_insert: Vec::new(),
             },
         );
         let mut overlay = self.overlay_of_change(conn, &event).await?;

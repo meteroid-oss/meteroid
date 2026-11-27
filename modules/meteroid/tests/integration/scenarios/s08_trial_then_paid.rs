@@ -3,10 +3,10 @@
 //! first period runs from the trial's end, and trial usage is never billed nor settled.
 use common_domain::actor::Actor;
 use meteroid_store::domain::coupons::{CouponDiscount, CouponNew};
-use meteroid_store::domain::{
-    CreateSubscriptionCoupon, CreateSubscriptionCoupons, PlanTrial, TrialPatch,
-};
+use meteroid_store::domain::trials::{TrialRequest, TrialTerms};
+use meteroid_store::domain::{CreateSubscriptionCoupon, CreateSubscriptionCoupons};
 use meteroid_store::repositories::PlansInterface;
+use meteroid_store::repositories::plans::PlansInterfaceAuto;
 use meteroid_store::services::sandbox_replay::SandboxReplayInterface;
 use rust_decimal_macros::dec;
 
@@ -16,18 +16,23 @@ use super::kit::{Halyard, LITE, M, Tax, at, at_time, day, expiring, grant, money
 async fn s08_free_trial_then_paid_with_a_promo_code_at_signup() {
     let h = Halyard::new().await;
     let customer = h.customer("Untaxed", Tax::Untaxed).await;
+    let scale = h
+        .store()
+        .get_plan_by_version_id(h.scale, h.tenant)
+        .await
+        .expect("Scale")
+        .plan
+        .id;
     h.store()
-        .patch_trial(
+        .set_plan_trial(
             Actor::System,
-            TrialPatch {
-                plan_version_id: h.scale,
-                tenant_id: h.tenant,
-                trial: Some(PlanTrial {
-                    duration_days: 14,
-                    trialing_plan_id: None,
-                    trial_is_free: true,
-                }),
-            },
+            h.tenant,
+            scale,
+            Some(TrialTerms {
+                duration_days: 14,
+                free: true,
+                trial_plan_id: None,
+            }),
         )
         .await
         .expect("Scale offers a free trial");
@@ -57,7 +62,7 @@ async fn s08_free_trial_then_paid_with_a_promo_code_at_signup() {
         .expect("the catalog's promo code");
 
     let mut request = h.request(customer, h.scale, day(9, 1));
-    request.subscription.trial_duration = Some(14);
+    request.subscription.trial = TrialRequest::from_days(Some(14), None);
     request.coupons = Some(CreateSubscriptionCoupons {
         coupons: vec![CreateSubscriptionCoupon {
             coupon_id: launch.id,

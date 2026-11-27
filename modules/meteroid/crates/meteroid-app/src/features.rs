@@ -164,6 +164,9 @@ pub mod gates {
     /// Per-kind settings, audiences, sender settings and test sends of customer emails, and the
     /// copy of payment reminder steps.
     pub const EMAIL_CUSTOMIZATION: FeatureCode = FeatureCode::new("email_customization");
+    /// The portal cancel flow, and renewal notices of periods, end dates and cancellations
+    /// (term renewals are noticed without it).
+    pub const RETENTION: FeatureCode = FeatureCode::new("retention");
 }
 
 pub const ALERT_DEFINITIONS_CODE: &str = "alert_definitions";

@@ -41,12 +41,16 @@ pub(crate) mod invoices;
 mod lifecycle;
 pub mod minimum_progress;
 pub(crate) mod orchestration;
+pub mod override_notices;
 mod payment;
+pub(crate) mod plan_phases;
 pub(crate) mod portal_credit;
 mod prices;
 pub mod promo_code_attempts;
 pub mod quote_totals;
+pub mod quote_value;
 mod quotes;
+pub mod renewals;
 pub mod sandbox_replay;
 pub(crate) mod served_usage;
 pub mod signup;
@@ -54,6 +58,9 @@ pub mod signup;
 pub mod step_faults;
 pub mod subscription_receivables;
 pub(crate) mod subscriptions;
+pub mod timeline;
+pub mod trial_notices;
+pub(crate) mod trials;
 pub(crate) use subscriptions::effective_plan::effective_plan_versions;
 mod unattributed_usage;
 mod usage_attribution;
@@ -379,10 +386,7 @@ impl ServicesEdge {
 
     /// Resolves the effective plan for a subscription based on its trial status.
     ///
-    /// Returns information about which plan should be "in effect" for billing/features:
-    /// - During active trial with trialing_plan_id: returns the trialing plan
-    /// - After trial expired with DOWNGRADE action: returns the downgrade plan
-    /// - Otherwise: returns the subscription's original plan
+    /// During an active trial giving another plan, that plan's active version; else its own.
     pub async fn get_subscription_effective_plan(
         &self,
         conn: &mut crate::store::PgConn,

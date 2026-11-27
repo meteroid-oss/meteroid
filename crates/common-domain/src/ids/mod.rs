@@ -72,6 +72,8 @@ id_type!(PurchaseLinkSessionId, "pls_");
 id_type!(PlanVersionAddOnId, "pva_");
 id_type!(PriceId, "pri_");
 id_type!(ScheduledEventId, "sev_");
+id_type!(SubscriptionPhaseId, "sph_");
+id_type!(TrialOfferId, "tro_");
 id_type!(ConnectedAccountId, "cacc_");
 id_type!(OAuthAppId, "app_");
 id_type!(BatchJobId, "bjob_");

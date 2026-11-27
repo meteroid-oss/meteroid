@@ -80,7 +80,8 @@ pub(super) fn build_subscription_from_quote(
         end_date: quote.billing_end_date,
         billing_start_date: Some(start_date),
         activation_condition: quote.activation_condition.clone(),
-        trial_duration: quote.trial_duration_days.map(|d| d as u32),
+        // The trial it states, signed with it; none when it states none (R-155).
+        trial: quote.trial_request(),
         billing_day_anchor: quote.billing_day_anchor.map(|d| d as u16),
         // Pass through the quote's payment methods config to the subscription
         payment_methods_config: quote.payment_methods_config.clone(),

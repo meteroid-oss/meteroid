@@ -46,6 +46,7 @@ import { ManageConnectionsModal } from '@/features/customers/modals/ManageConnec
 import { CustomPropertyValue } from '@/features/customproperties/CustomPropertyValue'
 import { useCustomPropertyRows } from '@/features/customproperties/useCustomPropertyRows'
 import { CustomerEntitlementsTab } from '@/features/entitlements/customer/CustomerEntitlementsTab'
+import { OverridesEndingSoon } from '@/features/entitlements/customer/OverridesEndingSoon'
 import { connectorDisplayName, paymentProvider } from '@/features/payments/providers'
 import { ResourcesTab } from '@/features/resources/ResourcesTab'
 import { useResourceTypes } from '@/features/resources/hooks'
@@ -283,7 +284,15 @@ export const Customer = () => {
                   >
                     <CustomerSummaryStrip customerId={data.id} customer={data} />
                     <Slot name="customerDetail.attention" customerId={data.id} />
-                    {!isExpress && canViewSubscriptions && <UnattributedBanner customerId={data.id} />}
+                    {tabs.includes('entitlements') && (
+                      <OverridesEndingSoon
+                        customerId={data.id}
+                        onReview={() => setTab('entitlements')}
+                      />
+                    )}
+                    {!isExpress && canViewSubscriptions && (
+                      <UnattributedBanner customerId={data.id} />
+                    )}
                     {!isExpress && canViewSubscriptions && (
                       // Follows the cards without a divider, 32px below them.
                       <section className="flex flex-col gap-4 !border-t-0 !pt-0">
@@ -366,7 +375,9 @@ export const Customer = () => {
                       <CustomerEntitlementsTab
                         customerId={data.id}
                         customerName={data.name}
-                        onViewCredit={tabs.includes('wallets') ? () => setTab('wallets') : undefined}
+                        onViewCredit={
+                          tabs.includes('wallets') ? () => setTab('wallets') : undefined
+                        }
                       />
                     </TabsContent>
                   )}

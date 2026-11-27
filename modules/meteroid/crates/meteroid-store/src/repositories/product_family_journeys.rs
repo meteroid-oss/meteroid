@@ -85,7 +85,17 @@ impl ProductFamilyJourneysInterface for Store {
             let components = self
                 .list_price_components_with_conn(&mut conn, version.id, tenant_id)
                 .await?;
-            signup_ready(plan.plan.plan_type, &version, &components).map_err(invalid)?;
+            signup_ready(
+                plan.plan.plan_type,
+                crate::services::trials::resolve::starts_free_tx(
+                    &mut conn,
+                    tenant_id,
+                    version.plan_id,
+                )
+                .await?,
+                &components,
+            )
+            .map_err(invalid)?;
             if let Some(alias) = signup_option.as_deref() {
                 let options = crate::services::subscriptions::currency::plan_options_of(
                     &mut conn,
@@ -128,10 +138,9 @@ impl ProductFamilyJourneysInterface for Store {
 /// nothing), or on a trial billed nothing until it ends.
 pub(crate) fn signup_ready(
     plan_type: PlanTypeEnum,
-    version: &diesel_models::plan_versions::PlanVersionRow,
+    free_trial: bool,
     components: &[PriceComponent],
 ) -> Result<(), &'static str> {
-    let free_trial = version.trial_duration_days.unwrap_or(0) > 0 && version.trial_is_free;
     if plan_type == PlanTypeEnum::Free || charges_nothing(components) || free_trial {
         Ok(())
     } else {

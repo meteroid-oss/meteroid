@@ -6,7 +6,7 @@ use chrono::{NaiveDate, NaiveDateTime};
 
 use crate::customers::CustomerRow;
 use common_domain::ids::{
-    CustomerId, InvoiceId, PlanVersionId, PriceComponentId, PriceId, ProductId, QuoteId,
+    CustomerId, InvoiceId, PlanId, PlanVersionId, PriceComponentId, PriceId, ProductId, QuoteId,
     QuotePriceComponentId, QuoteSignatureId, QuoteTemplateId, ResourceId, StoredDocumentId,
     SubscriptionId, TenantId, UserId,
 };
@@ -81,6 +81,9 @@ pub struct QuoteRow {
     /// The plan option sold, by alias.
     pub plan_option: Option<String>,
     pub resource_id: Option<ResourceId>,
+    /// With `trial_duration_days`: whether the trial is free; `None` on a quote saved before.
+    pub trial_free: Option<bool>,
+    pub trial_plan_id: Option<PlanId>,
 }
 
 #[derive(Insertable, Debug)]
@@ -134,6 +137,9 @@ pub struct QuoteRowNew {
     pub allow_decline: bool,
     pub plan_option: Option<String>,
     pub resource_id: Option<ResourceId>,
+    /// With `trial_duration_days`: whether the trial is free; `None` on a quote saved before.
+    pub trial_free: Option<bool>,
+    pub trial_plan_id: Option<PlanId>,
 }
 
 #[derive(Debug, AsChangeset, Default)]
@@ -229,6 +235,9 @@ pub struct QuoteRowReplace {
     pub allow_decline: bool,
     pub plan_option: Option<String>,
     pub resource_id: Option<ResourceId>,
+    /// With `trial_duration_days`: whether the trial is free; `None` on a quote saved before.
+    pub trial_free: Option<bool>,
+    pub trial_plan_id: Option<PlanId>,
 }
 
 impl From<QuoteRowNew> for QuoteRowReplace {
@@ -274,6 +283,8 @@ impl From<QuoteRowNew> for QuoteRowReplace {
             allow_decline: row.allow_decline,
             plan_option: row.plan_option,
             resource_id: row.resource_id,
+            trial_free: row.trial_free,
+            trial_plan_id: row.trial_plan_id,
         }
     }
 }

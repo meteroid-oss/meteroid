@@ -53,7 +53,7 @@ async fn due_charges(
 }
 
 /// Refuses an end date the rule refuses (R-140), with the subscription as it stands.
-async fn check_end_date(
+pub(in crate::services) async fn check_end_date(
     conn: &mut PgConn,
     details: &SubscriptionDetails,
     asked: Option<NaiveDate>,
@@ -191,6 +191,13 @@ impl Services {
             }
             let now = common_clock::now();
             check_end_date(conn, &details, end_date, now).await?;
+            crate::services::subscriptions::phases::refuse_end_date_over_timeline_tx(
+                conn,
+                tenant_id,
+                subscription_id,
+                end_date,
+            )
+            .await?;
             // The subscription's life bounds the credit scoped to it.
             credit_inputs::bump_customer(conn, &lock).await?;
 

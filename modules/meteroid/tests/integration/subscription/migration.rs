@@ -257,7 +257,7 @@ async fn test_migration_rejects_future_start_date(#[future] test_env: TestEnv) {
                     billing_start_date: None,
                     activation_condition:
                         meteroid_store::domain::SubscriptionActivationCondition::OnStart,
-                    trial_duration: None,
+                    trial: Default::default(),
                     billing_day_anchor: None,
                     payment_methods_config: None,
                     auto_advance_invoices: true,
@@ -310,7 +310,7 @@ async fn test_migration_rejects_manual_activation(#[future] test_env: TestEnv) {
                     billing_start_date: None,
                     activation_condition:
                         meteroid_store::domain::SubscriptionActivationCondition::Manual,
-                    trial_duration: None,
+                    trial: Default::default(),
                     billing_day_anchor: None,
                     payment_methods_config: None,
                     auto_advance_invoices: true,
@@ -363,7 +363,7 @@ async fn test_migration_rejects_on_checkout_activation(#[future] test_env: TestE
                     billing_start_date: None,
                     activation_condition:
                         meteroid_store::domain::SubscriptionActivationCondition::OnCheckout,
-                    trial_duration: None,
+                    trial: Default::default(),
                     billing_day_anchor: None,
                     payment_methods_config: None,
                     auto_advance_invoices: true,
@@ -416,10 +416,8 @@ async fn test_migration_free_trial_already_ended(#[future] test_env: TestEnv) {
     let sub = env.get_subscription(sub_id).await;
 
     // Trial ended long ago, subscription should be Active
-    sub.assert()
-        .is_active()
-        .is_imported()
-        .has_trial_duration(Some(14));
+    sub.assert().is_active().is_imported();
+    assert_eq!(env.trial_days(sub_id).await, Some(14));
 
     // cycle_index > 0 (months since trial ended on 2024-01-15)
     assert!(
@@ -459,10 +457,8 @@ async fn test_migration_free_trial_still_active(#[future] test_env: TestEnv) {
     let sub = env.get_subscription(sub_id).await;
 
     // Trial is still active
-    sub.assert()
-        .is_trial_active()
-        .is_imported()
-        .has_trial_duration(Some(30));
+    sub.assert().is_trial_active().is_imported();
+    assert_eq!(env.trial_days(sub_id).await, Some(30));
 
     // cycle_index should be 0 during trial
     assert_eq!(
@@ -512,10 +508,8 @@ async fn test_migration_paid_trial_already_ended(#[future] test_env: TestEnv) {
     let sub = env.get_subscription(sub_id).await;
 
     // Trial ended, subscription should be Active
-    sub.assert()
-        .is_active()
-        .is_imported()
-        .has_trial_duration(Some(14));
+    sub.assert().is_active().is_imported();
+    assert_eq!(env.trial_days(sub_id).await, Some(14));
 
     // For paid trials, billing starts immediately (start_date=2024-01-01).
     // cycle_index should be calculated from start_date, not trial end.
@@ -679,10 +673,8 @@ async fn test_migration_paid_trial_still_active(#[future] test_env: TestEnv) {
     let sub = env.get_subscription(sub_id).await;
 
     // Trial is still active, but for paid trial billing happens immediately
-    sub.assert()
-        .is_trial_active()
-        .is_imported()
-        .has_trial_duration(Some(30));
+    sub.assert().is_trial_active().is_imported();
+    assert_eq!(env.trial_days(sub_id).await, Some(30));
 
     // cycle_index should be 0 (we're in the first billing period)
     assert_eq!(

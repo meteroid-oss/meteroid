@@ -85,21 +85,14 @@ pub struct PlanVersionNewInternal {
     pub net_terms: i32,
     pub currency: Option<String>,
     pub billing_cycles: Option<i32>,
-    pub trial: Option<PlanTrial>,
+    /// The plan's trial, live on every version, set with it: `None` leaves it, `Some(None)`
+    /// removes it (R-153).
+    pub trial: Option<Option<crate::domain::trials::TrialTerms>>,
     pub entitlements: Vec<crate::domain::entitlements::EntitlementSpec>,
     /// The version's amounts are quoted tax-included. See `PlanVersion::tax_inclusive`.
     pub tax_inclusive: bool,
     /// Unset leaves a draft to the default its components give when it is published.
     pub credit_exhausted_rule: Option<CreditExhaustedRule>,
-}
-
-#[derive(Debug, Clone)]
-pub struct PlanTrial {
-    pub duration_days: u32,
-    // which plan is resolved during trial (if different from the current plan)
-    pub trialing_plan_id: Option<PlanId>,
-    // if true, the trial is free (no charges). If false, normal plan price applies.
-    pub trial_is_free: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -123,17 +116,6 @@ impl PlanVersionNew {
             version: self.version,
             tenant_id: self.tenant_id,
             is_draft_version: self.internal.is_draft_version,
-            trial_duration_days: self.internal.trial.as_ref().map(|v| v.duration_days as i32),
-            trialing_plan_id: self
-                .internal
-                .trial
-                .as_ref()
-                .and_then(|v| v.trialing_plan_id),
-            trial_is_free: self
-                .internal
-                .trial
-                .as_ref()
-                .is_some_and(|v| v.trial_is_free),
             period_start_day: self.internal.period_start_day,
             net_terms: self.internal.net_terms,
             currency: self.internal.currency.unwrap_or(tenant_currency),
@@ -172,6 +154,8 @@ pub struct Plan {
     pub pricing_sales_led: bool,
     /// Filters the subscription wizard and drives warnings, never a block (§3.5).
     pub sold_for_resource_type_id: Option<ResourceTypeId>,
+    /// Its trial: the offer it names, live on every version (R-153).
+    pub trial_offer_id: Option<common_domain::ids::TrialOfferId>,
 }
 
 #[derive(Debug, Clone, PartialEq, o2o)]
@@ -187,9 +171,6 @@ pub struct PlanVersion {
     pub currency: String,
     pub billing_cycles: Option<i32>,
     pub created_at: NaiveDateTime,
-    pub trialing_plan_id: Option<PlanId>,
-    pub trial_is_free: bool,
-    pub trial_duration_days: Option<i32>,
     pub uses_product_pricing: bool,
     /// How this version's amounts read: tax-included ("9.99 incl. VAT") rather than net.
     /// It belongs with `currency` — both say what a number on the plan means. Subscriptions
@@ -249,6 +230,9 @@ pub struct PlanOverview {
     /// Typed free, or its active version charges nothing; filled by `list_plans`.
     #[ghost({false})]
     pub free: bool,
+    /// The plan's trial; filled by `list_plans`.
+    #[ghost({None})]
+    pub trial: Option<crate::domain::trials::PlanTrial>,
 }
 
 /// A currency an option is sold in, with its headline price as a pricing page card reads it.
@@ -281,9 +265,6 @@ pub struct PlanVersionOverview {
     pub currency: String,
     pub product_family_id: ProductFamilyId,
     pub product_family_name: String,
-    pub trialing_plan_id: Option<PlanId>,
-    pub trial_is_free: bool,
-    pub trial_duration_days: Option<i32>,
 }
 
 #[derive(Clone, Debug, o2o)]
@@ -291,8 +272,6 @@ pub struct PlanVersionOverview {
 pub struct PlanVersionInfo {
     pub id: PlanVersionId,
     pub version: i32,
-    pub trial_duration_days: Option<i32>,
-    // add currency(-ies) ?
 }
 
 #[derive(Clone, Debug, o2o)]
@@ -304,8 +283,8 @@ pub struct PlanForSubscription {
     pub currency: String,
     #[from(~.into())]
     pub plan_type: PlanTypeEnum,
-    pub trial_duration_days: Option<i32>,
-    pub trial_is_free: bool,
+    pub plan_id: PlanId,
+    pub trial_offer_id: Option<common_domain::ids::TrialOfferId>,
     pub product_family_id: ProductFamilyId,
     pub tax_inclusive: bool,
 }
@@ -373,12 +352,6 @@ pub struct FullPlan {
     pub price_components: Vec<PriceComponent>,
     pub product_family: ProductFamilyOverview,
     pub products: HashMap<ProductId, Product>,
-}
-
-pub struct TrialPatch {
-    pub plan_version_id: PlanVersionId,
-    pub tenant_id: TenantId,
-    pub trial: Option<PlanTrial>,
 }
 
 #[derive(Debug, Clone)]

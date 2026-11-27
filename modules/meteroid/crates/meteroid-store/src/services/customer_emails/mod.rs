@@ -495,7 +495,8 @@ impl Services {
             | EmailContext::BudgetAlert { customer_id, .. }
             | EmailContext::SubscriptionCancelled { customer_id, .. }
             | EmailContext::PaymentMethodExpiring { customer_id, .. }
-            | EmailContext::PaymentMethodRequested { customer_id, .. } => {
+            | EmailContext::PaymentMethodRequested { customer_id, .. }
+            | EmailContext::RenewalReminder { customer_id, .. } => {
                 Ok(customer_target(*customer_id))
             }
             other => {
@@ -1182,6 +1183,25 @@ impl Services {
                         .await?,
                 ),
             },
+            (
+                EmailKind::RenewalReminder,
+                EmailContext::RenewalReminder {
+                    plan_name,
+                    date,
+                    renews,
+                    opt_out_deadline,
+                    renewal_months,
+                    uplift_percent,
+                    ..
+                },
+            ) => Body::RenewalReminder {
+                plan_name: plan_name.clone(),
+                date: *date,
+                renews: *renews,
+                opt_out_deadline: *opt_out_deadline,
+                renewal_months: *renewal_months,
+                uplift_percent: uplift_percent.map(|p| p.normalize().to_string()),
+            },
             (kind, context) => {
                 return Err(Report::new(StoreError::InvalidArgument(format!(
                     "{kind} cannot be rendered from a {} context",
@@ -1464,6 +1484,18 @@ impl Services {
                 },
                 vec![],
             ),
+            EmailKind::RenewalReminder => (
+                Subject::Fixed,
+                Body::RenewalReminder {
+                    plan_name: "Starter".to_string(),
+                    date: today + chrono::Months::new(2),
+                    renews: true,
+                    opt_out_deadline: Some(today + chrono::Months::new(1)),
+                    renewal_months: Some(12),
+                    uplift_percent: None,
+                },
+                vec![],
+            ),
             EmailKind::SubscriptionCancelled => (
                 Subject::Fixed,
                 Body::SubscriptionCancelled {
@@ -1619,6 +1651,7 @@ fn context_name(context: &EmailContext) -> &'static str {
         EmailContext::SubscriptionCancelled { .. } => "subscription_cancelled",
         EmailContext::PaymentMethodExpiring { .. } => "payment_method_expiring",
         EmailContext::PaymentMethodRequested { .. } => "payment_method_requested",
+        EmailContext::RenewalReminder { .. } => "renewal_reminder",
     }
 }
 

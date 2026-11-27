@@ -774,7 +774,7 @@ async fn test_plan_restricted_coupon_rejected(#[future] test_env: TestEnv) {
                     billing_start_date: None,
                     activation_condition:
                         meteroid_store::domain::SubscriptionActivationCondition::OnStart,
-                    trial_duration: Some(0),
+                    trial: meteroid_store::domain::trials::TrialRequest::None,
                     billing_day_anchor: None,
                     payment_methods_config: None,
                     auto_advance_invoices: true,
@@ -992,7 +992,7 @@ async fn test_expired_coupon_rejected(#[future] test_env: TestEnv) {
                     billing_start_date: None,
                     activation_condition:
                         meteroid_store::domain::SubscriptionActivationCondition::OnStart,
-                    trial_duration: Some(0),
+                    trial: meteroid_store::domain::trials::TrialRequest::None,
                     billing_day_anchor: None,
                     payment_methods_config: None,
                     auto_advance_invoices: true,
@@ -1060,7 +1060,7 @@ async fn test_disabled_coupon_rejected(#[future] test_env: TestEnv) {
                     billing_start_date: None,
                     activation_condition:
                         meteroid_store::domain::SubscriptionActivationCondition::OnStart,
-                    trial_duration: Some(0),
+                    trial: meteroid_store::domain::trials::TrialRequest::None,
                     billing_day_anchor: None,
                     payment_methods_config: None,
                     auto_advance_invoices: true,
@@ -1123,7 +1123,7 @@ async fn test_archived_coupon_rejected(#[future] test_env: TestEnv) {
                     billing_start_date: None,
                     activation_condition:
                         meteroid_store::domain::SubscriptionActivationCondition::OnStart,
-                    trial_duration: Some(0),
+                    trial: meteroid_store::domain::trials::TrialRequest::None,
                     billing_day_anchor: None,
                     payment_methods_config: None,
                     auto_advance_invoices: true,
@@ -1199,7 +1199,7 @@ async fn test_non_reusable_coupon_same_customer_rejected(#[future] test_env: Tes
                     billing_start_date: None,
                     activation_condition:
                         meteroid_store::domain::SubscriptionActivationCondition::OnStart,
-                    trial_duration: Some(0),
+                    trial: meteroid_store::domain::trials::TrialRequest::None,
                     billing_day_anchor: None,
                     payment_methods_config: None,
                     auto_advance_invoices: true,
@@ -1375,7 +1375,7 @@ async fn test_redemption_limit_reached(#[future] test_env: TestEnv) {
                     billing_start_date: None,
                     activation_condition:
                         meteroid_store::domain::SubscriptionActivationCondition::OnStart,
-                    trial_duration: Some(0),
+                    trial: meteroid_store::domain::trials::TrialRequest::None,
                     billing_day_anchor: None,
                     payment_methods_config: None,
                     auto_advance_invoices: true,
@@ -1445,7 +1445,7 @@ async fn test_currency_mismatch_rejected(#[future] test_env: TestEnv) {
                     billing_start_date: None,
                     activation_condition:
                         meteroid_store::domain::SubscriptionActivationCondition::OnStart,
-                    trial_duration: Some(0),
+                    trial: meteroid_store::domain::trials::TrialRequest::None,
                     billing_day_anchor: None,
                     payment_methods_config: None,
                     auto_advance_invoices: true,
@@ -1649,7 +1649,7 @@ async fn test_multiple_coupons_one_fails_plan_restriction(#[future] test_env: Te
                     billing_start_date: None,
                     activation_condition:
                         meteroid_store::domain::SubscriptionActivationCondition::OnStart,
-                    trial_duration: Some(0),
+                    trial: meteroid_store::domain::trials::TrialRequest::None,
                     billing_day_anchor: None,
                     payment_methods_config: None,
                     auto_advance_invoices: true,
@@ -1850,9 +1850,9 @@ async fn test_100_percent_coupon_with_paid_trial_checkout(#[future] test_env: Te
     sub.assert()
         .is_trial_active()
         .has_pending_checkout(false)
-        .has_trial_duration(Some(7))
         .has_resolved_payment_method(&env, true)
         .await;
+    assert_eq!(env.trial_days(sub_id).await, Some(7));
 
     // Invoice with 0 total
     let invoices = env.get_invoices(sub_id).await;
@@ -1990,9 +1990,9 @@ async fn test_100_percent_coupon_with_free_trial_checkout(#[future] test_env: Te
     sub.assert()
         .is_trial_active()
         .has_pending_checkout(false)
-        .has_trial_duration(Some(14))
         .has_resolved_payment_method(&env, true)
         .await;
+    assert_eq!(env.trial_days(sub_id).await, Some(14));
 
     // Still no invoices during trial
     let invoices = env.get_invoices(sub_id).await;

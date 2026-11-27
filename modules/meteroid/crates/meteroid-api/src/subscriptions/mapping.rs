@@ -202,7 +202,7 @@ pub mod subscriptions {
             invoice_threshold: rust_decimal::Decimal::from_proto_opt(param.invoice_threshold)?,
             start_date: NaiveDate::from_proto(param.start_date)?,
             end_date: NaiveDate::from_proto_opt(param.end_date)?,
-            trial_duration: param.trial_duration,
+            trial: trial_request_from_proto(param.trial)?,
             payment_methods_config: proto_payment_methods_config_to_domain(
                 param.payment_methods_config,
             )?,
@@ -258,6 +258,34 @@ pub mod subscriptions {
         };
 
         Ok(res)
+    }
+
+    /// The trial a creation asks for; unset: its plan's (R-153).
+    pub(crate) fn trial_request_from_proto(
+        trial: Option<proto2::TrialRequest>,
+    ) -> Result<domain::trials::TrialRequest, Status> {
+        use domain::trials::{TrialLength, TrialRequest};
+        use proto2::trial_request::{Trial, custom::Length};
+        Ok(match trial.and_then(|trial| trial.trial) {
+            None => TrialRequest::Plan,
+            Some(Trial::None(_)) => TrialRequest::None,
+            Some(Trial::OfferId(id)) => {
+                TrialRequest::Offer(common_domain::ids::TrialOfferId::from_proto(id)?)
+            }
+            Some(Trial::Custom(custom)) => TrialRequest::Custom {
+                length: match custom.length {
+                    Some(Length::Days(days)) => TrialLength::Days(days),
+                    Some(Length::Until(until)) => TrialLength::Until(NaiveDate::from_proto(until)?),
+                    None => return Err(Status::invalid_argument("a custom trial has a length")),
+                },
+                free: custom.free,
+                trial_plan: match custom.trial_plan_id {
+                    Some(id) => Some(Some(common_domain::ids::PlanId::from_proto(id)?)),
+                    None if custom.own_features => Some(None),
+                    None => None,
+                },
+            },
+        })
     }
 
     pub(crate) fn created_domain_to_proto(
@@ -345,7 +373,6 @@ pub mod subscriptions {
                 plan_option_id: sub.plan_option_id.map(|id| id.as_proto()),
                 resource_id: sub.resource_id.map(|id| id.as_proto()),
             }),
-            schedules: vec![], // TODO
             price_components: details
                 .price_components
                 .iter()
@@ -380,6 +407,11 @@ pub mod subscriptions {
                 is_free: tc.is_free,
                 trialing_plan_id: tc.trialing_plan_id.map(|id| id.as_proto()),
                 trialing_plan_name: tc.trialing_plan_name,
+                starts_on: tc.starts_on.as_proto(),
+                ends_on: tc.ends_on.as_proto(),
+                trial_offer_id: tc.offer.as_ref().map(|offer| offer.id.as_proto()),
+                trial_offer_name: tc.offer.map(|offer| offer.name),
+                end_action: tc.end_action.as_str().to_string(),
             }),
             pending_events: details
                 .pending_events
@@ -410,6 +442,7 @@ pub mod subscriptions {
             ScheduledEventTypeEnum::ApplyPlanChange => proto2::ScheduledEventType::PlanChange,
             ScheduledEventTypeEnum::CancelSubscription => proto2::ScheduledEventType::Cancel,
             ScheduledEventTypeEnum::ApplyAmendment => proto2::ScheduledEventType::Amendment,
+            ScheduledEventTypeEnum::ApplyPhase => proto2::ScheduledEventType::Phase,
         };
 
         proto2::PendingScheduledEvent {
@@ -426,6 +459,7 @@ pub mod subscriptions {
                 added_add_on_names: s.added_add_on_names,
                 removed_add_on_names: s.removed_add_on_names,
             }),
+            timeline: event.timeline,
         }
     }
 
@@ -986,18 +1020,92 @@ pub mod ext {
     };
 }
 
+pub mod timeline {
+    use meteroid_grpc::meteroid::api::subscriptions::v1 as api;
+    use meteroid_store::domain::subscription_phases::{
+        RewriteEffect, RewriteEntry, TimelineEffect, TimelineOwner,
+    };
+    use meteroid_store::services::timeline::Projection;
+
+    fn entry_to_proto(entry: RewriteEntry) -> api::TimelineEntry {
+        let (owner_type, owner_id) = match entry.owner {
+            TimelineOwner::Phase(id) => {
+                (api::timeline_entry::OwnerType::Phase, Some(id.as_proto()))
+            }
+            TimelineOwner::Item(id) => (api::timeline_entry::OwnerType::Item, Some(id.to_string())),
+            TimelineOwner::Renewal => (api::timeline_entry::OwnerType::Renewal, None),
+        };
+        let (effect, details) = match entry.effect {
+            RewriteEffect::Kept => (api::timeline_entry::Effect::Kept, Vec::new()),
+            RewriteEffect::Inactive(terms) => (api::timeline_entry::Effect::Inactive, terms),
+            RewriteEffect::Prorated => (api::timeline_entry::Effect::Prorated, Vec::new()),
+            RewriteEffect::Dropped(why) => (api::timeline_entry::Effect::Dropped, vec![why]),
+            RewriteEffect::SwitchReplaced => {
+                (api::timeline_entry::Effect::SwitchReplaced, Vec::new())
+            }
+        };
+        api::TimelineEntry {
+            owner_type: owner_type.into(),
+            owner_id,
+            label: entry.label,
+            on: entry.on.to_string(),
+            effect: effect.into(),
+            details,
+        }
+    }
+
+    fn totals(projection: &Projection) -> Vec<api::TimelineInvoiceTotal> {
+        projection
+            .invoices
+            .iter()
+            .map(|invoice| api::TimelineInvoiceTotal {
+                on: invoice.on.to_string(),
+                total: invoice.total,
+            })
+            .collect()
+    }
+
+    pub fn effect_to_proto(effect: TimelineEffect) -> api::TimelineEffect {
+        api::TimelineEffect {
+            before: totals(&effect.before),
+            after: totals(&effect.after),
+            until: effect.after.until.to_string(),
+            before_total: effect.before.total,
+            after_total: effect.after.total,
+            entries: effect.entries.into_iter().map(entry_to_proto).collect(),
+        }
+    }
+}
+
 pub mod plan_change {
     use super::price_components::map_billing_period_from_grpc;
     use common_domain::ids::PriceComponentId;
     use meteroid_grpc::meteroid::api::shared::v1 as api_shared;
     use meteroid_grpc::meteroid::api::subscriptions::v1 as api;
     use meteroid_store::domain::subscription_changes::{
-        ChangeDirection, PlanChangeMode, ProrationSummary,
+        ChangeDirection, PlanChangeMode, ProrationSummary, TargetPrice,
     };
     use meteroid_store::domain::subscription_components::{
         ComponentParameterization, ComponentParameters,
     };
     use tonic::Status;
+
+    /// The prices a plan change sets on the target's charges (R-163).
+    pub fn map_target_prices(
+        protos: Vec<api::PlanChangeTargetPrice>,
+    ) -> Result<Vec<TargetPrice>, Status> {
+        protos
+            .into_iter()
+            .map(|p| {
+                Ok(TargetPrice {
+                    component_id: PriceComponentId::from_proto(&p.component_id)?,
+                    price: p.price.parse().map_err(|_| {
+                        Status::invalid_argument(format!("{} is not a price", p.price))
+                    })?,
+                })
+            })
+            .collect()
+    }
 
     pub fn map_component_parameterizations(
         protos: Vec<api::PlanChangeComponentParameterization>,

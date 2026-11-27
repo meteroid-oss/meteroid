@@ -638,7 +638,7 @@ impl<'r, 'a> Replayer<'r, 'a> {
                 end_date: ends.map(|when| clock.resolve(when).date()),
                 billing_start_date: None,
                 activation_condition: SubscriptionActivationCondition::OnStart,
-                trial_duration: None,
+                trial: Default::default(),
                 billing_day_anchor,
                 payment_methods_config,
                 auto_advance_invoices: true,

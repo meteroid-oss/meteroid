@@ -117,7 +117,8 @@ impl ServicesEdge {
             .await?;
         crate::repositories::product_family_journeys::signup_ready(
             plan.plan.plan_type,
-            &version,
+            crate::services::trials::resolve::starts_free_tx(&mut conn, tenant_id, version.plan_id)
+                .await?,
             &components,
         )
         .map_err(|message| invalid(message.to_owned()))?;
@@ -300,7 +301,7 @@ impl ServicesEdge {
                 end_date: None,
                 billing_start_date: None,
                 activation_condition: SubscriptionActivationCondition::OnStart,
-                trial_duration: None,
+                trial: Default::default(),
                 billing_day_anchor: None,
                 payment_methods_config: (!online).then_some(PaymentMethodsConfig::External),
                 auto_advance_invoices: true,

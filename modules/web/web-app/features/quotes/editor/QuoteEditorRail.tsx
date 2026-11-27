@@ -29,16 +29,18 @@ type QuotePreview = { quote: DetailedQuote; lines: QuoteLine[] }
 export const QuoteFullPreview = ({
   preview,
   totalsRequest,
+  quoteId,
   minimumCommitment,
 }: {
   preview: QuotePreview
   totalsRequest?: CreateQuote
+  quoteId?: string
   minimumCommitment?: MinimumCommitment
 }) => {
-  const { totals } = useQuoteTotals(totalsRequest)
+  const { totals, priceSchedule } = useQuoteTotals(totalsRequest, quoteId)
   return (
     <QuoteView
-      quote={preview.quote}
+      quote={{ ...preview.quote, priceSchedule }}
       mode="preview"
       subscriptionComponents={preview.lines}
       minimumCommitment={minimumCommitment}
@@ -83,6 +85,8 @@ interface QuoteEditorRailProps {
   onOpenPreview: () => void
   /** Totals need a customer: a template has none to price for. */
   withTotals?: boolean
+  /** The draft edited, whose saved phases the totals price. */
+  quoteId?: string
 }
 
 /** The editor's side pane: the document as it stands, live, with its totals. */
@@ -95,6 +99,7 @@ export const QuoteEditorRail = ({
   canOpenPreview,
   onOpenPreview,
   withTotals = true,
+  quoteId,
 }: QuoteEditorRailProps) => {
   const { control } = useFormContext<QuoteFormValues>()
   const values = useWatch({ control }) as Partial<QuoteFormValues>
@@ -103,7 +108,7 @@ export const QuoteEditorRail = ({
   const preview = buildPreview(deferredValues)
   const request =
     !withTotals || totalsBlockedReason || totalsLoading ? undefined : buildTotalsRequest(values)
-  const totals = useQuoteTotals(request)
+  const totals = useQuoteTotals(request, quoteId)
   const { frame, paper, scale, height } = useFitToWidth()
 
   return (
@@ -120,7 +125,7 @@ export const QuoteEditorRail = ({
           style={{ width: PAPER_WIDTH, transform: `scale(${scale})` }}
         >
           <QuoteView
-            quote={preview.quote}
+            quote={{ ...preview.quote, priceSchedule: totals.priceSchedule }}
             mode="preview"
             subscriptionComponents={preview.lines}
             minimumCommitment={minimumCommitment}

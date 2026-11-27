@@ -141,6 +141,62 @@ pub struct CheckoutInvoicing {
     pub charge_automatically: bool,
 }
 
+/// The trial a session asks for its subscription: the plan's, none, an offer, or its own days.
+#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[schema(as = CheckoutTrial)]
+pub enum CheckoutTrial {
+    Plan(CheckoutPlanTrial),
+    None(CheckoutNoTrial),
+    Offer(CheckoutOfferTrial),
+    Custom(CheckoutCustomTrial),
+}
+
+/// The plan's trial.
+#[derive(Serialize, ToSchema, Debug, Clone, PartialEq, Default)]
+pub struct CheckoutPlanTrial {}
+
+/// No trial.
+#[derive(Serialize, ToSchema, Debug, Clone, PartialEq, Default)]
+pub struct CheckoutNoTrial {}
+
+/// A trial offer, by id.
+#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+pub struct CheckoutOfferTrial {
+    #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
+    #[schema(value_type = String)]
+    pub offer: common_domain::ids::TrialOfferId,
+}
+
+/// A trial of its own days.
+#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+pub struct CheckoutCustomTrial {
+    pub days: u32,
+    /// Nothing billed during it; the plan's trial's freeness when absent, else free.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub free: Option<bool>,
+}
+
+impl CheckoutTrial {
+    fn of(session: &meteroid_store::domain::checkout_sessions::CheckoutSession) -> Self {
+        use meteroid_store::domain::trials::{TrialLength, TrialRequest};
+        match session.trial_request() {
+            TrialRequest::Plan => CheckoutTrial::Plan(CheckoutPlanTrial {}),
+            TrialRequest::None => CheckoutTrial::None(CheckoutNoTrial {}),
+            TrialRequest::Offer(offer) => CheckoutTrial::Offer(CheckoutOfferTrial { offer }),
+            TrialRequest::Custom { length, free, .. } => {
+                CheckoutTrial::Custom(CheckoutCustomTrial {
+                    days: match length {
+                        TrialLength::Days(days) => days,
+                        TrialLength::Until(_) => 0,
+                    },
+                    free,
+                })
+            }
+        }
+    }
+}
+
 /// A hosted checkout: the customer pays on `url`, which creates (or changes) the subscription.
 /// The quantities, levels and charges asked are the page's and the subscription's, not read back
 /// here; a list item carries no `url` (read it on the session).
@@ -180,9 +236,8 @@ pub struct CheckoutSession {
     /// The day the subscription stops renewing; it renews until cancelled when absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_date: Option<NaiveDate>,
-    /// The plan's trial when absent.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub trial_days: Option<i32>,
+    /// The trial the subscription it creates asks for.
+    pub trial: CheckoutTrial,
     /// The day of the month periods start on; the start date's when absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub billing_day_anchor: Option<i16>,
@@ -260,9 +315,9 @@ pub struct CreateCheckoutSessionBody {
     /// The day the subscription stops renewing; it renews until cancelled when left out.
     #[serde(default)]
     pub end_date: Option<NaiveDate>,
-    /// The trial's length in days, 0 to 3650; the plan's trial when left out.
+    /// The trial the subscription it creates starts with; the plan's when left out.
     #[serde(default)]
-    pub trial_days: Option<u32>,
+    pub trial: Option<crate::v2::subscriptions::model::TrialInput>,
     /// The day of the month periods start on, 1 to 31; the start date's when left out.
     #[serde(default)]
     pub billing_day_anchor: Option<u16>,
@@ -451,6 +506,7 @@ impl<'a, R: Reader> Names<'a, R> {
         {
             coupons.push(coupon.clone());
         }
+        let trial = CheckoutTrial::of(&session);
         Ok(Some(CheckoutSession {
             id: session.id,
             kind,
@@ -468,7 +524,7 @@ impl<'a, R: Reader> Names<'a, R> {
             coupons,
             start_date: session.billing_start_date,
             end_date: session.end_date,
-            trial_days: session.trial_duration_days,
+            trial,
             billing_day_anchor: session.billing_day_anchor,
             invoicing: CheckoutInvoicing {
                 net_terms: session.net_terms,
@@ -584,8 +640,14 @@ pub async fn create_checkout_session(
     let tenant_id = auth.tenant_id;
     redirect("success_url", body.success_url.as_deref())?;
     redirect("cancel_url", body.cancel_url.as_deref())?;
+    let trial = crate::v2::subscriptions::create::trial_request(
+        &state,
+        tenant_id,
+        body.trial.as_ref(),
+        "/trial",
+    )
+    .await?;
     check_terms(Terms {
-        trial_days: body.trial_days,
         billing_day_anchor: body.billing_day_anchor,
         net_terms: body.invoicing.net_terms,
     })?;
@@ -658,10 +720,7 @@ pub async fn create_checkout_session(
                 .net_terms
                 .map(|days| to_i32(days, "/invoicing/net_terms"))
                 .transpose()?,
-            trial_duration_days: body
-                .trial_days
-                .map(|days| to_i32(days, "/trial_days"))
-                .transpose()?,
+            trial,
             end_date: body.end_date,
             auto_advance_invoices: invoicing.auto_finalize.unwrap_or(true),
             charge_automatically: invoicing.charge_automatically.unwrap_or(true),

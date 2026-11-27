@@ -25,7 +25,7 @@ import { EditorSection } from '@/features/quotes/editor/EditorSection'
 import { formatDefaultNetTerms } from '@/lib/mapping/priceToSubscriptionFee'
 
 import type { QuoteFormValues } from '@/features/quotes/editor/quoteFormSchema'
-import type { TrialConfig } from '@/rpc/api/plans/v1/models_pb'
+import type { TrialTerms } from '@/rpc/api/plans/v1/models_pb'
 import type { ReactNode } from 'react'
 
 const Hint = ({ children }: { children: ReactNode }) => (
@@ -49,7 +49,8 @@ export const PAYMENT_LABELS: Record<QuoteFormValues['payment_methods_type'], str
 
 interface TermsSectionProps {
   planVersionId?: string
-  trialConfig?: TrialConfig
+  /** The plan's trial, copied into the quote when asked: a quote signs the trial it states. */
+  trial?: TrialTerms
   trialingPlanName?: string
   isFreePlan: boolean
   hasOnlinePaymentProvider: boolean
@@ -77,7 +78,7 @@ const ChoiceRow = ({ label, children }: { label: string; children: ReactNode }) 
  */
 export const TermsSection = ({
   planVersionId,
-  trialConfig,
+  trial,
   trialingPlanName,
   isFreePlan,
   hasOnlinePaymentProvider,
@@ -85,6 +86,7 @@ export const TermsSection = ({
   hideDates = false,
 }: TermsSectionProps) => {
   const { control, setValue } = useFormContext<QuoteFormValues>()
+  const [trialDays, trialFree] = useWatch({ control, name: ['trial_duration', 'trial_free'] })
   const [createOnAcceptance, startDate, endDate] = useWatch({
     control,
     name: ['create_subscription_on_acceptance', 'start_date', 'end_date'],
@@ -109,15 +111,11 @@ export const TermsSection = ({
       }))
     : undefined
 
-  const trialDescription = trialConfig?.durationDays
-    ? `Plan default: ${trialConfig.durationDays} days${trialingPlanName ? ` with "${trialingPlanName}" features` : ''}. ${
-        isFreePlan
-          ? 'Free plan, no payment required.'
-          : trialConfig.trialIsFree
-            ? 'Free trial: payment method collected at checkout, billing starts after the trial.'
-            : 'Paid trial: billing starts immediately.'
-      } Empty uses the plan default, 0 skips the trial.`
-    : undefined
+  const trialDescription = trial
+    ? `The plan's trial: ${trial.durationDays} days${trialingPlanName ? ` with "${trialingPlanName}" features` : ''}, ${
+        isFreePlan ? 'free plan' : trial.free ? 'free' : 'billed as usual'
+      }. The quote signs the trial it states, none when empty.`
+    : 'The quote signs the trial it states, none when empty.'
 
   return (
     <EditorSection id="quote-terms" title="Subscription terms">
@@ -213,25 +211,40 @@ export const TermsSection = ({
           </>
         )}
 
-        {planVersionId && trialConfig?.durationDays ? (
+        <div className="flex flex-col gap-1">
           <InputFormField
             name="trial_duration"
             label="Trial (days)"
             type="number"
             min={0}
-            placeholder={String(trialConfig.durationDays)}
+            placeholder="None"
             control={control}
-            labelTooltip={trialDescription ? <Hint>{trialDescription}</Hint> : undefined}
+            labelTooltip={<Hint>{trialDescription}</Hint>}
             layout="vertical"
           />
-        ) : (
-          <div className="flex flex-col">
-            <span className="my-2 text-xs text-muted-foreground">Trial</span>
-            <span className="flex h-9 items-center text-sm text-muted-foreground">
-              {planVersionId ? 'None' : '—'}
-            </span>
-          </div>
-        )}
+          {planVersionId && trial && !trialDays && (
+            <button
+              type="button"
+              className="self-start text-xs text-muted-foreground underline"
+              onClick={() => {
+                setValue('trial_duration', trial.durationDays, { shouldDirty: true })
+                setValue('trial_free', trial.free, { shouldDirty: true })
+                setValue('trial_plan_id', trial.trialPlanId, { shouldDirty: true })
+              }}
+            >
+              Use the plan&apos;s trial
+            </button>
+          )}
+          {!!trialDays && !isFreePlan && (
+            <button
+              type="button"
+              className="self-start text-xs text-muted-foreground underline"
+              onClick={() => setValue('trial_free', trialFree === false, { shouldDirty: true })}
+            >
+              {trialFree === false ? 'Billed as usual' : 'Nothing billed'} · change
+            </button>
+          )}
+        </div>
         <InputFormField
           name="billing_day_anchor"
           label="Billing day"

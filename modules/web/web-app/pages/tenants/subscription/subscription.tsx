@@ -100,10 +100,7 @@ import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
 import { PlanType } from '@/rpc/api/plans/v1/models_pb'
-import {
-  getPlanWithVersionByVersionId,
-  listPlans,
-} from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+import { getPlanWithVersionByVersionId } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import {
   PaymentMethodsConfig,
   PendingScheduledEvent,
@@ -320,16 +317,10 @@ export const Subscription = () => {
     { localId: data?.planVersionId ?? '' },
     { enabled: Boolean(data?.planVersionId) }
   )
-  const plansQuery = useQuery(listPlans, {})
   const queryClient = useQueryClient()
 
-  const planTrialConfig = planVersionQuery.data?.plan?.version?.trialConfig
   const planType = planVersionQuery.data?.plan?.plan?.planType
   const isFreePlan = planType === PlanType.FREE
-
-  const trialingPlanName = planTrialConfig?.trialingPlanId
-    ? plansQuery.data?.plans.find(p => p.id === planTrialConfig.trialingPlanId)?.name
-    : undefined
 
   const connectorsQuery = useQuery(listConnectors, {})
   const isHubspotConnected = (connectorsQuery.data?.connectors ?? []).some(
@@ -443,8 +434,7 @@ export const Subscription = () => {
   // A free trial ends on its EndTrial event, else with the period it runs as.
   const freeTrialEndDate =
     trialing && details.trialConfig?.isFree
-      ? (details.pendingEvents.find(e => e.eventType === ScheduledEventType.END_TRIAL)
-          ?.scheduledDate ?? data.currentPeriodEnd)
+      ? (details.trialConfig.endsOn ?? data.currentPeriodEnd)
       : undefined
   const freeTrialEnd = freeTrialEndDate ? parseISO(freeTrialEndDate) : undefined
   const ended =
@@ -957,11 +947,14 @@ export const Subscription = () => {
             onUndone={refetchAll}
           />
 
-          {data.trialDuration && (
+          {details.trialConfig && (
             <>
               <SidebarSeparator />
               <DetailSection title="Trial">
-                <DetailRow label="Trial duration" value={`${data.trialDuration} days`} />
+                <DetailRow
+                  label="Trial"
+                  value={`${details.trialConfig.startsOn} – ${details.trialConfig.endsOn ?? ''} (${details.trialConfig.durationDays} days)`}
+                />
                 {(data.status === SubscriptionStatus.TRIALING ||
                   data.status === SubscriptionStatus.TRIAL_EXPIRED) && (
                   <DetailRow
@@ -969,22 +962,41 @@ export const Subscription = () => {
                     value={<SubscriptionStatusBadge status={data.status} />}
                   />
                 )}
-                {planTrialConfig && (
-                  <>
-                    <DetailRow
-                      label="Trial type"
-                      value={
-                        isFreePlan
-                          ? 'Free plan'
-                          : planTrialConfig.trialIsFree
-                            ? 'Free trial'
-                            : 'Paid trial'
-                      }
-                    />
-                    {trialingPlanName && (
-                      <DetailRow label="Trial features" value={`"${trialingPlanName}" features`} />
-                    )}
-                  </>
+                <DetailRow
+                  label="Trial type"
+                  value={
+                    isFreePlan
+                      ? 'Free plan'
+                      : details.trialConfig.isFree
+                        ? 'Free trial'
+                        : 'Paid trial'
+                  }
+                />
+                {details.trialConfig.trialingPlanName && (
+                  <DetailRow
+                    label="Trial features"
+                    value={`"${details.trialConfig.trialingPlanName}" features`}
+                  />
+                )}
+                {details.trialConfig.trialOfferName && (
+                  <DetailRow label="Trial offer" value={details.trialConfig.trialOfferName} />
+                )}
+                {details.trialConfig.endAction !== 'CONVERT' && (
+                  <DetailRow
+                    label="At its end"
+                    value={
+                      details.trialConfig.endAction === 'CANCEL'
+                        ? 'The subscription ends'
+                        : 'The subscription switches plan'
+                    }
+                  />
+                )}
+                {trialing && (
+                  <Slot
+                    name="subscriptionDetail.trialActions"
+                    subscriptionId={data.id}
+                    trial={details.trialConfig}
+                  />
                 )}
               </DetailSection>
             </>

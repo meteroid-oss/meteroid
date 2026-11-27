@@ -126,9 +126,10 @@ export const PlansTable: FunctionComponent<PlansTableProps> = ({
         cell: ({ row }) => (
           <div className={box}>
             <SoldIn priced={row.original.pricedOptions} />
-            {!!row.original.activeVersion?.trialDurationDays && (
+            {!!row.original.trial?.terms && (
               <div className="text-xs text-muted-foreground">
-                {row.original.activeVersion.trialDurationDays}-day trial
+                {row.original.trial.terms.durationDays}-day{' '}
+                {row.original.trial.terms.free ? 'free trial' : 'trial'}
               </div>
             )}
           </div>

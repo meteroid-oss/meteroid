@@ -831,8 +831,11 @@ impl From<&OutboxEvent> for Option<Activity> {
             | OutboxEvent::BudgetThresholdReached(_)
             | OutboxEvent::BudgetExceeded(_)
             | OutboxEvent::EntitlementTooManyGroups(_)
-            | OutboxEvent::RetentionSessionCompleted(_)
-            | OutboxEvent::RetentionRenewalUpcoming(_) => return None,
+            | OutboxEvent::SubscriptionRenewalUpcoming(_)
+            | OutboxEvent::EntitlementOverrideEndingSoon(_)
+            | OutboxEvent::EntitlementOverrideEnded(_)
+            | OutboxEvent::SubscriptionTrialEndingSoon(_)
+            | OutboxEvent::RetentionSessionCompleted(_) => return None,
         };
         Some(activity)
     }

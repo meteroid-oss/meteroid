@@ -23,7 +23,6 @@ use common_domain::ids::{BaseId, PriceId, SubscriptionId, SubscriptionPriceCompo
 use diesel_models::enums::SubscriptionChangeKindEnum;
 use diesel_models::plan_component_prices::PlanComponentPriceRow;
 use diesel_models::prices::PriceRow;
-use diesel_models::subscription_changes::SubscriptionChangeRow;
 use error_stack::Report;
 
 pub(crate) const LOWER_LEVEL_AT_PERIOD_END: &str =
@@ -140,17 +139,16 @@ pub(in crate::services) async fn refuse_while_a_change_is_pending(
     tenant_id: TenantId,
     subscription_id: SubscriptionId,
 ) -> StoreResult<()> {
-    let pending = SubscriptionChangeRow::list_pending(
+    let pending = crate::services::subscriptions::phases::pending_one_offs_tx(
         conn,
-        &tenant_id,
+        tenant_id,
         subscription_id,
         &[
             SubscriptionChangeKindEnum::Amendment,
             SubscriptionChangeKindEnum::PlanChange,
         ],
     )
-    .await
-    .map_err(Into::<Report<StoreError>>::into)?;
+    .await?;
     if !pending.is_empty() {
         return Err(Report::new(StoreError::FailedPrecondition(
             "A change is already scheduled for this subscription: cancel it to change level"

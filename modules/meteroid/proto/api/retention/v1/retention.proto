@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package meteroid.api.retention.v1;
 
+import "api/renewals/v1/models.proto";
 import "api/retention/v1/models.proto";
 import "common/v1/pagination.proto";
 
@@ -29,7 +30,7 @@ service RetentionService {
   // Takes a contact request off the ones to answer; marking it again keeps the first time.
   rpc MarkContactRequestHandled(MarkContactRequestHandledRequest) returns (MarkContactRequestHandledResponse);
   rpc GetRetentionStats(GetRetentionStatsRequest) returns (GetRetentionStatsResponse);
-  // Running subscriptions renewing, ending or cancelling soon, soonest first.
+  // Running subscriptions renewing, ending or cancelling soon, soonest first (R-160).
   rpc ListUpcomingRenewals(ListUpcomingRenewalsRequest) returns (ListUpcomingRenewalsResponse);
 }
 
@@ -40,13 +41,12 @@ message GetRetentionSettingsResponse {
   bool editable = 2;
 }
 
-message RenewalCheckpoints { repeated uint32 days = 1; }
-
 message UpdateRetentionSettingsRequest {
   optional bool enabled = 1;
   optional uint32 offer_cooldown_days = 2;
-  // At most 6, each 1 to 365 days; unset leaves them unchanged.
-  optional RenewalCheckpoints renewal_checkpoints = 3;
+  // Renewal checkpoints moved to the renewals service's settings.
+  reserved 3;
+  reserved "renewal_checkpoints";
 }
 message UpdateRetentionSettingsResponse { RetentionSettings settings = 1; }
 
@@ -129,4 +129,5 @@ message ListUpcomingRenewalsRequest {
   // Up to 365 days ahead; 0 for 90.
   uint32 within_days = 1;
 }
-message ListUpcomingRenewalsResponse { repeated UpcomingRenewal renewals = 1; }
+// Term renewals always; the others while the tenant has retention.
+message ListUpcomingRenewalsResponse { repeated meteroid.api.renewals.v1.Renewal renewals = 1; }

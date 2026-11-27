@@ -49,7 +49,12 @@ async fn create_activation_session(
             billing_start_date: sub.billing_start_date,
             billing_day_anchor: Some(sub.billing_day_anchor),
             net_terms: Some(sub.net_terms),
-            trial_duration_days: sub.trial_duration,
+            trial: meteroid_store::domain::trials::TrialRequest::from_days(
+                env.trial_days(subscription_id)
+                    .await
+                    .map(|days| u32::try_from(days).unwrap_or(0)),
+                None,
+            ),
             end_date: sub.end_date,
             auto_advance_invoices: true,
             charge_automatically: true,

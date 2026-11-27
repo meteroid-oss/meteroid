@@ -55,6 +55,8 @@ pub enum EmailKind {
     PaymentMethodExpiring,
     /// Billing moved from another provider: the customer adds a payment method Meteroid charges.
     PaymentMethodRequested,
+    /// A subscription renews or ends soon (R-161), sent when the tenant sets a reminder lead.
+    RenewalReminder,
 }
 
 impl EmailKind {
@@ -99,6 +101,7 @@ impl EmailKind {
                 | Self::SubscriptionCancelled
                 | Self::PaymentMethodExpiring
                 | Self::PaymentMethodRequested
+                | Self::RenewalReminder
         )
     }
 
@@ -400,6 +403,18 @@ pub enum EmailContext {
         #[serde(default)]
         stop_url: Option<String>,
     },
+    /// The renewal as noticed: renewing (else ending) on `date`, its opt-out taken until the
+    /// deadline when the term has one.
+    RenewalReminder {
+        customer_id: CustomerId,
+        subscription_id: SubscriptionId,
+        plan_name: String,
+        date: chrono::NaiveDate,
+        renews: bool,
+        opt_out_deadline: Option<chrono::NaiveDate>,
+        renewal_months: Option<u32>,
+        uplift_percent: Option<rust_decimal::Decimal>,
+    },
 }
 
 /// How the customer paid the previous provider: says why a new payment method is needed.
@@ -448,7 +463,8 @@ impl EmailContext {
             | Self::BudgetAlert { .. }
             | Self::SubscriptionCancelled { .. }
             | Self::PaymentMethodExpiring { .. }
-            | Self::PaymentMethodRequested { .. } => None,
+            | Self::PaymentMethodRequested { .. }
+            | Self::RenewalReminder { .. } => None,
         }
     }
 
@@ -460,7 +476,8 @@ impl EmailContext {
             | Self::BudgetAlert { customer_id, .. }
             | Self::SubscriptionCancelled { customer_id, .. }
             | Self::PaymentMethodExpiring { customer_id, .. }
-            | Self::PaymentMethodRequested { customer_id, .. } => Some(*customer_id),
+            | Self::PaymentMethodRequested { customer_id, .. }
+            | Self::RenewalReminder { customer_id, .. } => Some(*customer_id),
             _ => None,
         }
     }

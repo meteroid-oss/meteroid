@@ -627,6 +627,7 @@ async fn an_option_asked_moves_the_subscription_to_it() {
         PlanTarget {
             version,
             option: Some(PlanOptionRef::Id(options[1].id)),
+            prices: Vec::new(),
         },
     )
     .await
@@ -1201,6 +1202,7 @@ async fn an_option_on_the_same_cadence_applies_at_once() {
         PlanTarget {
             version,
             option: Some(PlanOptionRef::Id(options[1].id)),
+            prices: Vec::new(),
         },
     )
     .await
@@ -1235,6 +1237,7 @@ async fn an_option_on_the_same_cadence_applies_at_the_period_end() {
             PlanTarget {
                 version,
                 option: Some(PlanOptionRef::Id(options[1].id)),
+                prices: Vec::new(),
             },
             vec![],
         )
@@ -1246,6 +1249,96 @@ async fn an_option_on_the_same_cadence_applies_at_the_period_end() {
     env.process_cycles().await;
     assert_eq!(fee_of(&env, sub, "Platform").await.0, dec!(15));
     assert_eq!(option_of(&env, sub).await.as_deref(), Some("startup"));
+}
+
+fn template_phase(
+    offset_months: u32,
+    component: PriceComponentId,
+    price: Decimal,
+    list_rate: Option<Decimal>,
+) -> meteroid_store::domain::trial_offers::PlanPhaseTemplate {
+    use meteroid_store::domain::subscription_phases::{PhaseComponent, PhaseTerms};
+    meteroid_store::domain::trial_offers::PlanPhaseTemplate {
+        offset_months,
+        label: None,
+        terms: PhaseTerms {
+            components: vec![PhaseComponent {
+                lineage: None,
+                plan_component: Some(component),
+                price,
+                list_rate,
+                name: None,
+            }],
+            ..PhaseTerms::default()
+        },
+    }
+}
+
+/// A template on a plan sold in EUR and USD names no currency: an amount would bill 10 EUR and
+/// 10 USD alike, so it is refused; a share of the list price bills each currency's own.
+/// Rules: R-154
+#[tokio::test]
+async fn a_template_prices_each_currency_by_its_list_price() {
+    let env = test_env().await;
+    let (version, platform) = plan(
+        &env,
+        vec![
+            rate("EUR", Monthly, dec!(20)),
+            rate("USD", Monthly, dec!(22)),
+        ],
+    )
+    .await;
+    customer_in(&env, CUST_SPOTIFY_ID, "USD").await;
+
+    let amounts = env
+        .services()
+        .set_plan_version_phases(
+            TENANT_ID,
+            version,
+            vec![
+                template_phase(0, platform, dec!(10), None),
+                template_phase(3, platform, dec!(20), None),
+            ],
+        )
+        .await;
+    assert!(
+        refused(&amounts.expect_err("amounts in two currencies"), "share of"),
+        "an amount names no currency"
+    );
+
+    env.services()
+        .set_plan_version_phases(
+            TENANT_ID,
+            version,
+            vec![
+                template_phase(0, platform, Decimal::ZERO, Some(dec!(0.5))),
+                template_phase(3, platform, Decimal::ZERO, Some(Decimal::ONE)),
+            ],
+        )
+        .await
+        .expect("half the list price for three months");
+
+    let eur = subscribe(&env, CUST_UBER_ID, version, None, None, None)
+        .await
+        .expect("in EUR");
+    let usd = subscribe(&env, CUST_SPOTIFY_ID, version, None, None, None)
+        .await
+        .expect("in USD");
+    assert_eq!(fee_of(&env, eur, "Platform").await.0, dec!(10));
+    assert_eq!(fee_of(&env, usd, "Platform").await.0, dec!(11));
+    assert_eq!(later_prices(&env, eur).await, vec![(dec!(20), None)]);
+    assert_eq!(later_prices(&env, usd).await, vec![(dec!(22), None)]);
+}
+
+async fn later_prices(env: &TestEnv, sub: SubscriptionId) -> Vec<(Decimal, Option<Decimal>)> {
+    env.services()
+        .list_subscription_phases(TENANT_ID, sub)
+        .await
+        .expect("phases")
+        .into_iter()
+        .flat_map(|phase| phase.terms.components)
+        .map(|component| (component.price, component.list_rate))
+        .collect()
 }
 
 /// The plans list prices a v1 charge from its legacy fee: €49 a month, not free.

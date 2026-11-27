@@ -357,6 +357,12 @@ impl QuoteSigningInterface for Store {
         let document = self.refresh_quote_document(tenant_id, quote_id).await?;
         let hash = document.hash();
         let mut conn = self.get_conn().await?;
+        let contract_value = diesel_models::quote_contract_values::QuoteContractValueRow::find(
+            &mut conn, tenant_id, quote_id,
+        )
+        .await
+        .map_err(db_err)?
+        .map(|row| row.value);
         QuoteRevisionRowNew {
             id: QuoteRevisionId::new(),
             tenant_id,
@@ -367,6 +373,7 @@ impl QuoteSigningInterface for Store {
             })?,
             document_hash: hash,
             created_by,
+            contract_value,
         }
         .insert_if_absent(&mut conn)
         .await

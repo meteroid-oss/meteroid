@@ -1,4 +1,4 @@
-//! Outbox payloads of entitlement and budget alerts. Ids are derived from the
+//! Outbox payloads of entitlement and budget alerts and of dated notices. Ids are derived from the
 //! crossing they report, so a producer replayed after a failover never notifies twice.
 use crate::domain::entitlement_fold::EvalLevel;
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -197,6 +197,62 @@ pub struct TooManyGroupsEvent {
 
 impl TooManyGroupsEvent {
     pub const ENTITLEMENT_ROUTING_KEY: &'static str = "entitlement.too_many_groups";
+}
+
+/// A customer or resource override with an end (ADR 0011 §3.2) ends soon
+/// (`entitlement.override_ending_soon`) or has ended (`entitlement.override_ended`), once per end of
+/// its lineage (R-148).
+#[skip_serializing_none]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OverrideEndingEvent {
+    pub id: EventId,
+    pub tenant_id: TenantId,
+    pub customer_id: CustomerId,
+    pub feature_id: FeatureId,
+    pub feature_code: String,
+    /// The override's lineage: its id across edits.
+    pub override_id: Uuid,
+    pub resource_id: Option<ResourceId>,
+    /// The override's value, as entitlements serve it.
+    pub value: serde_json::Value,
+    pub effect: String,
+    pub valid_until: DateTime<Utc>,
+    pub reason: Option<String>,
+}
+
+impl OverrideEndingEvent {
+    pub const ENDING_SOON_ROUTING_KEY: &'static str = "entitlement.override_ending_soon";
+    pub const ENDED_ROUTING_KEY: &'static str = "entitlement.override_ended";
+
+    /// One id per lineage, end and kind: a replayed pass publishes the same event.
+    pub fn event_id(lineage_id: Uuid, valid_until: DateTime<Utc>, ended: bool) -> EventId {
+        let kind = if ended { "ended" } else { "ending" };
+        let identity = format!("override|{kind}|{lineage_id}|{}", valid_until.timestamp());
+        Uuid::new_v5(&EVENT_NAMESPACE, identity.as_bytes()).into()
+    }
+}
+
+/// A subscription's trial ends soon (`subscription.trial_ending_soon`), once per trial end (R-158).
+#[skip_serializing_none]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrialEndingEvent {
+    pub id: EventId,
+    pub tenant_id: TenantId,
+    pub customer_id: CustomerId,
+    pub subscription_id: SubscriptionId,
+    /// The trial's end, exclusive: billing starts on it.
+    pub trial_end: chrono::NaiveDate,
+    pub free: bool,
+    pub trial_offer_id: Option<Uuid>,
+}
+
+impl TrialEndingEvent {
+    pub const ROUTING_KEY: &'static str = "subscription.trial_ending_soon";
+
+    pub fn event_id(subscription_id: SubscriptionId, trial_end: chrono::NaiveDate) -> EventId {
+        let identity = format!("trial_ending|{subscription_id}|{trial_end}");
+        Uuid::new_v5(&EVENT_NAMESPACE, identity.as_bytes()).into()
+    }
 }
 
 /// A customer budget's spend reached one of its thresholds, or the budget

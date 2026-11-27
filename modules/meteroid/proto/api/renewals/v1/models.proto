@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+package meteroid.api.renewals.v1;
+
+import "google/protobuf/timestamp.proto";
+
+enum RenewalMode {
+  RENEWAL_MODE_UNSPECIFIED = 0;
+  // The subscription renews on the date: its term auto-renews, or an annual or semiannual period ends.
+  RENEWAL_MODE_RENEWING = 1;
+  // The subscription ends on the date: a term not renewing, or an end date.
+  RENEWAL_MODE_ENDING = 2;
+  RENEWAL_MODE_CANCELLING = 3;
+}
+
+// What dates the renewal.
+enum RenewalSource {
+  RENEWAL_SOURCE_UNSPECIFIED = 0;
+  RENEWAL_SOURCE_TERM = 1;
+  RENEWAL_SOURCE_PERIOD = 2;
+  RENEWAL_SOURCE_END_DATE = 3;
+  RENEWAL_SOURCE_CANCELLATION = 4;
+}
+
+// A subscription's next renewal, ending or cancellation (R-160).
+message Renewal {
+  string subscription_id = 1;
+  string customer_id = 2;
+  string customer_name = 3;
+  string plan_name = 4;
+  string currency = 5;
+  int64 mrr_cents = 6;
+  // As YYYY-MM-DD.
+  string date = 7;
+  RenewalMode mode = 8;
+  RenewalSource source = 9;
+  // Days from today to the date.
+  uint32 days_left = 10;
+  // As YYYY-MM-DD: the last day the renewal can be opted out of, for a term renewing with notice.
+  optional string opt_out_deadline = 11;
+}
+
+enum NoticeAudience {
+  NOTICE_AUDIENCE_UNSPECIFIED = 0;
+  // `subscription.renewal_upcoming`, at a checkpoint.
+  NOTICE_AUDIENCE_TEAM = 1;
+  // The customer's reminder email.
+  NOTICE_AUDIENCE_CUSTOMER = 2;
+}
+
+message RenewalNotice {
+  // As YYYY-MM-DD.
+  string renewal_date = 1;
+  RenewalMode mode = 2;
+  NoticeAudience audience = 3;
+  uint32 days_before = 4;
+  google.protobuf.Timestamp notified_at = 5;
+}
+
+// One notice policy per tenant, for every renewal (R-157, R-161).
+message RenewalSettings {
+  // Days before the opt-out deadline of a term with notice, else before the date, when
+  // `subscription.renewal_upcoming` is sent; at most 6, each 1 to 365; empty sends none.
+  repeated uint32 checkpoints = 1;
+  // Days before the same day the customer is emailed; unset emails no one.
+  optional uint32 customer_reminder_days = 2;
+}

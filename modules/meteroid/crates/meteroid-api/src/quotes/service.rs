@@ -489,6 +489,10 @@ impl QuotesService for QuoteServiceComponents {
             .map_err(Into::<QuoteApiError>::into)?;
         // A revision held for approval is recorded when it is published.
         if revisions && replaced.status == meteroid_store::domain::enums::QuoteStatusEnum::Pending {
+            self.services
+                .refresh_quote_contract_value(tenant_id, quote_id)
+                .await
+                .map_err(Into::<QuoteApiError>::into)?;
             self.store
                 .record_quote_revision(tenant_id, quote_id, Some(actor_label(&actor)))
                 .await
@@ -575,16 +579,20 @@ impl QuotesService for QuoteServiceComponents {
         request: Request<PreviewQuoteTotalsRequest>,
     ) -> Result<Response<PreviewQuoteTotalsResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let request = request.into_inner();
+        let quote_id = match request.quote_id.as_deref() {
+            Some(id) => QuoteId::from_proto(id)?,
+            None => QuoteId::new(),
+        };
         let quote = request
-            .into_inner()
             .quote
             .ok_or_else(|| Status::invalid_argument("quote is required"))?;
 
         // Prepared like a create, so the totals match what saving it would store.
         let prepared = self
-            .prepare_quote(tenant_id, QuoteId::new(), quote, String::new())
+            .prepare_quote(tenant_id, quote_id, quote, String::new())
             .await?;
-        let totals = self
+        let (totals, valued) = self
             .services
             .unsaved_quote_totals(
                 tenant_id,
@@ -601,6 +609,7 @@ impl QuotesService for QuoteServiceComponents {
 
         Ok(Response::new(PreviewQuoteTotalsResponse {
             totals: Some(mapping::quotes::totals_to_proto(&totals)),
+            price_schedule: mapping::quotes::price_schedule_to_proto(&valued),
         }))
     }
 
@@ -1071,6 +1080,10 @@ impl QuoteServiceComponents {
             .refresh_quote_document(tenant_id, quote_id)
             .await
             .map_err(Into::<QuoteApiError>::into)?;
+        self.services
+            .refresh_quote_contract_value(tenant_id, quote_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
         self.store
             .quote_approval_requirement(tenant_id, quote_id)
             .await
@@ -1090,6 +1103,10 @@ impl QuoteServiceComponents {
         actor: &common_domain::actor::Actor,
     ) -> Result<(), Status> {
         if self.gate_open(organization_id, gates::QUOTES_FULL).await {
+            self.services
+                .refresh_quote_contract_value(tenant_id, quote_id)
+                .await
+                .map_err(Into::<QuoteApiError>::into)?;
             self.store
                 .record_quote_revision(tenant_id, quote_id, Some(actor_label(actor)))
                 .await
@@ -1259,6 +1276,13 @@ impl QuoteServiceComponents {
             quote_number: quote.quote_number.unwrap_or(default_quote_number),
             // Subscription-like fields
             trial_duration_days: quote.trial_duration.map(|d| d as i32),
+            trial_free: quote
+                .trial_free
+                .filter(|_| quote.trial_duration.unwrap_or(0) > 0),
+            trial_plan_id: common_domain::ids::PlanId::from_proto_opt(
+                quote.trial_plan_id.as_ref(),
+            )?
+            .filter(|_| quote.trial_duration.unwrap_or(0) > 0),
             billing_start_date,
             billing_end_date: quote
                 .end_date

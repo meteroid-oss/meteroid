@@ -3,7 +3,7 @@
 //! seat counts, levels, price overrides, own charges, add-ons and coupons. A checkout session
 //! resolves its purchase the same way (`resolve_purchase`).
 use super::changes::require_key;
-use super::model::{AddOnPurchase, CreateCharges, CreateSubscription, Subscription};
+use super::model::{AddOnPurchase, CreateCharges, CreateSubscription, Subscription, TrialInput};
 use super::render;
 use super::resolve::{
     cells, count, counts, not_found_at, option_named, override_price, own_charge, plan_charge,
@@ -171,10 +171,10 @@ pub async fn create_subscription(
     require_key(&headers, "A subscription")?;
     let tenant_id = auth.tenant_id;
     check_terms(Terms {
-        trial_days: body.trial_days,
         billing_day_anchor: body.billing_day_anchor,
         net_terms: body.invoicing.net_terms,
     })?;
+    let trial = trial_request(&state, tenant_id, body.trial.as_ref(), "/trial").await?;
     let external_id = external_id(&state, &auth, body.external_id.as_deref()).await?;
     let customer = ids::customer(&state, tenant_id, &body.customer)
         .await
@@ -227,7 +227,7 @@ pub async fn create_subscription(
             end_date: body.end_date,
             billing_start_date: None,
             activation_condition: body.activation.into(),
-            trial_duration: body.trial_days,
+            trial,
             billing_day_anchor: body.billing_day_anchor,
             payment_methods_config: None,
             auto_advance_invoices: invoicing.auto_finalize.unwrap_or(true),
@@ -304,20 +304,86 @@ pub async fn create_subscription(
     ))
 }
 
+/// The trial asked at `pointer`, as the store resolves it (R-153): the plan's when left out.
+pub(crate) async fn trial_request(
+    state: &AppState,
+    tenant_id: common_domain::ids::TenantId,
+    input: Option<&TrialInput>,
+    pointer: &str,
+) -> Result<meteroid_store::domain::trials::TrialRequest, Problem> {
+    use meteroid_store::domain::trials::{TrialLength, TrialRequest};
+    Ok(match input {
+        None | Some(TrialInput::Plan(_)) => TrialRequest::Plan,
+        Some(TrialInput::None(_)) => TrialRequest::None,
+        Some(TrialInput::Offer(trial)) => {
+            let raw = trial.offer.trim();
+            let named = match ids::parse_id::<common_domain::ids::TrialOfferId>(raw) {
+                Some(id) => common_domain::ids::AliasOr::Id(id),
+                None => common_domain::ids::AliasOr::Alias(raw.to_owned()),
+            };
+            let offer = state
+                .services
+                .find_trial_offer(tenant_id, named)
+                .await
+                .map_err(|_| {
+                    Problem::field(
+                        format!("{pointer}/offer"),
+                        "not_found",
+                        format!("trial offer {raw}"),
+                    )
+                })?;
+            TrialRequest::Offer(offer.id)
+        }
+        Some(TrialInput::Custom(trial)) => {
+            let length = match (trial.days, trial.until) {
+                (Some(days), None) => {
+                    bounds::trial_days(days, &format!("{pointer}/days"))?;
+                    TrialLength::Days(days)
+                }
+                (None, Some(until)) => TrialLength::Until(until),
+                _ => {
+                    return Err(Problem::field(
+                        pointer.to_owned(),
+                        "invalid",
+                        "A trial of its own lasts `days` or ends `until`, one of them",
+                    ));
+                }
+            };
+            let trial_plan = match trial.plan.as_deref() {
+                None => None,
+                Some(plan) => Some(Some(ids::plan_id(state, tenant_id, plan).await.map_err(
+                    |problem| {
+                        if problem.status == 404 {
+                            Problem::field(
+                                format!("{pointer}/plan"),
+                                "not_found",
+                                format!("plan {plan} not found"),
+                            )
+                        } else {
+                            problem
+                        }
+                    },
+                )?)),
+            };
+            TrialRequest::Custom {
+                length,
+                free: trial.free,
+                trial_plan,
+            }
+        }
+    })
+}
+
 /// The terms a new subscription is sold on beside its purchase, as `POST /subscriptions` and
 /// `POST /checkout-sessions` send them.
 pub(crate) struct Terms {
-    pub trial_days: Option<u32>,
     pub billing_day_anchor: Option<u16>,
     pub net_terms: Option<u32>,
 }
 
-/// Refuses terms out of their bounds, each at its pointer: a trial of 0 to 3650 days, a billing
-/// day of 1 to 31, net terms of 0 to 365 days.
+/// Refuses terms out of their bounds, each at its pointer: a billing day of 1 to 31, net terms of
+/// 0 to 365 days.
 pub(crate) fn check_terms(terms: Terms) -> Result<(), Problem> {
-    if let Some(days) = terms.trial_days {
-        bounds::trial_days(days, "/trial_days")?;
-    }
     if let Some(day) = terms.billing_day_anchor {
         bounds::billing_day_anchor(day, "/billing_day_anchor")?;
     }

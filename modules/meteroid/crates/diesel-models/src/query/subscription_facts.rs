@@ -291,6 +291,38 @@ impl SubscriptionTrialRow {
             .into_db_result()
     }
 
+    /// The trial ends on `until` instead, moved by an operator while it runs; false when it had
+    /// ended already.
+    pub async fn move_end(
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+        until: NaiveDate,
+    ) -> DbResult<bool> {
+        diesel::sql_query(
+            "UPDATE subscription_trial SET until_date = GREATEST(from_date, $2) \
+             WHERE subscription_id = $1",
+        )
+        .bind::<SqlUuid, _>(subscription_id)
+        .bind::<Date, _>(until)
+        .execute(conn)
+        .await
+        .attach("Error while moving a trial's end")
+        .map(|moved| moved > 0)
+        .into_db_result()
+    }
+
+    /// The trial withdrawn: ended on the day it started, it never ran.
+    pub async fn remove(conn: &mut PgConn, subscription_id: SubscriptionId) -> DbResult<()> {
+        use crate::schema::subscription_trial::dsl as t;
+
+        diesel::delete(t::subscription_trial.filter(t::subscription_id.eq(subscription_id)))
+            .execute(conn)
+            .await
+            .attach("Error while removing a trial")
+            .map(|_| ())
+            .into_db_result()
+    }
+
     /// A plan change on `on` ends the trial there, if it had not ended yet.
     pub async fn end_by(
         conn: &mut PgConn,
@@ -679,6 +711,23 @@ impl crate::subscriptions::SubscriptionRow {
 }
 
 impl crate::subscriptions::SubscriptionRow {
+    /// The day its periods start on, moved with a free trial's end.
+    pub async fn set_billing_day_anchor(
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+        billing_day_anchor: i16,
+    ) -> DbResult<()> {
+        use crate::schema::subscription::dsl as s;
+
+        diesel::update(s::subscription.filter(s::id.eq(subscription_id)))
+            .set(s::billing_day_anchor.eq(billing_day_anchor))
+            .execute(conn)
+            .await
+            .attach("Error while setting a billing day anchor")
+            .into_db_result()
+            .map(|_| ())
+    }
+
     /// When the facts next change the subscription's derived state, as the writer read them.
     pub async fn set_next_wake_at(
         conn: &mut PgConn,

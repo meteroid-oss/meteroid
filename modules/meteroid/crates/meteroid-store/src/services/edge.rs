@@ -42,7 +42,6 @@ use diesel_models::checkout_sessions::CheckoutSessionRow;
 use diesel_models::customers::CustomerRow;
 use diesel_models::enums::SubscriptionStatusEnum as DbSubscriptionStatusEnum;
 use diesel_models::invoicing_entities::InvoicingEntityRow;
-use diesel_models::plans::PlanRow;
 use diesel_models::quotes::QuoteRow;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::{Report, ResultExt};
@@ -829,19 +828,11 @@ impl ServicesEdge {
 
             let subscription = &subscription_row.subscription;
 
-            let plan_with_version =
-                PlanRow::get_with_version(conn, subscription.plan_version_id, tenant_id).await?;
-
-            let plan_version = plan_with_version.version.ok_or(StoreError::ValueNotFound(
-                "Plan version not found".to_string(),
-            ))?;
-
             let trial_is_free =
                 crate::services::subscriptions::recorded_trial_free_tx(conn, subscription.id)
-                    .await?
-                    .unwrap_or(plan_version.trial_is_free);
-            let is_free_trial = subscription.trial_duration.is_some() && trial_is_free;
-            let is_paid_trial = subscription.trial_duration.is_some() && !trial_is_free;
+                    .await?;
+            let is_free_trial = trial_is_free == Some(true);
+            let is_paid_trial = trial_is_free == Some(false);
 
             // Handle coupon if provided - lock and validate before any charging
             if let Some(code) = coupon_code.filter(|code| !code.trim().is_empty()) {
@@ -1304,84 +1295,11 @@ impl ServicesEdge {
     ) -> StoreResult<CreatedSubscription> {
         let mut conn = self.get_conn().await?;
         let quote_id = params.quote_id;
-
-        let context = self
-            .services
-            .gather_subscription_context_from_quote(
-                &mut conn,
-                &params,
-                tenant_id,
-                &self.store.settings.crypt_key,
-            )
+        let phases =
+            crate::services::plan_phases::quote_phases_tx(&mut conn, tenant_id, quote_id).await?;
+        let processed = self
+            .processed_from_quote(&mut conn, &params, phases, tenant_id)
             .await?;
-
-        let mut sub = self
-            .services
-            .build_subscription_details_from_quote(&params, &context)?;
-
-        // For quote conversions, gracefully handle charge_automatically when the configuration
-        // is invalid. This allows quotes to be converted even if misconfigured.
-        // We validate and adjust values to be consistent rather than failing.
-        if sub.subscription.charge_automatically {
-            // Check 1: payment_methods_config must be Online (or None which defaults to Online)
-            let is_online_config = match &sub.subscription.payment_methods_config {
-                None => true,
-                Some(PaymentMethodsConfig::Online { .. }) => true,
-                Some(PaymentMethodsConfig::BankTransfer { .. }) => false,
-                Some(PaymentMethodsConfig::External) => false,
-            };
-
-            if !is_online_config {
-                log::warn!(
-                    "Quote conversion: charge_automatically was set to true but payment_methods_config is not Online. Falling back to charge_automatically=false for quote_id={}",
-                    quote_id.as_base62()
-                );
-                sub.subscription.charge_automatically = false;
-            } else if let Some(invoicing_entity_providers) =
-                context.get_invoicing_entity_providers_for_customer(&sub.customer)
-            {
-                // Check 2: Invoicing entity must have an online provider
-                let has_online_provider = invoicing_entity_providers.card_provider.is_some()
-                    || invoicing_entity_providers.direct_debit_provider.is_some();
-
-                if !has_online_provider {
-                    log::warn!(
-                        "Quote conversion: charge_automatically was set to true but no payment provider is configured. Falling back to charge_automatically=false for quote_id={}",
-                        quote_id.as_base62()
-                    );
-                    sub.subscription.charge_automatically = false;
-                }
-            }
-        }
-
-        // For quote conversions, gracefully handle payment_methods_config when
-        // online payment is configured but no payment provider exists.
-        if let Some(ref config) = sub.subscription.payment_methods_config
-            && config.is_online()
-            && let Some(invoicing_entity_providers) =
-                context.get_invoicing_entity_providers_for_customer(&sub.customer)
-        {
-            let has_online_provider = invoicing_entity_providers.card_provider.is_some()
-                || invoicing_entity_providers.direct_debit_provider.is_some();
-
-            if !has_online_provider {
-                log::warn!(
-                    "Quote conversion: payment_methods_config was set to Online but no payment provider is configured. Falling back to External for quote_id={}",
-                    quote_id.as_base62()
-                );
-                sub.subscription.payment_methods_config = Some(PaymentMethodsConfig::External);
-            }
-        }
-
-        let payment_result = self.services.setup_payment_provider(&sub, &context)?;
-
-        let processed = self.services.process_subscription(
-            &sub,
-            &payment_result,
-            &context,
-            tenant_id,
-            Some(params.quote_id),
-        )?;
 
         let inserted = self
             .store
@@ -1452,6 +1370,98 @@ impl ServicesEdge {
         Ok(inserted)
     }
 
+    /// The subscription a quote converts to, ready to persist: [`Self::insert_subscription_from_quote`]
+    /// and the quote's contract value share it.
+    pub(crate) async fn processed_from_quote(
+        &self,
+        conn: &mut PgConn,
+        params: &CreateSubscriptionFromQuote,
+        phases: Vec<crate::domain::trial_offers::PlanPhaseTemplate>,
+        tenant_id: TenantId,
+    ) -> StoreResult<crate::services::subscriptions::insert::process::ProcessedSubscription> {
+        let quote_id = params.quote_id;
+        let context = self
+            .services
+            .gather_subscription_context_from_quote(
+                conn,
+                params,
+                tenant_id,
+                &self.store.settings.crypt_key,
+            )
+            .await?;
+
+        let mut sub = self
+            .services
+            .build_subscription_details_from_quote(params, &context)?;
+        if !phases.is_empty() {
+            sub.with_phases(phases)?;
+        }
+
+        // For quote conversions, gracefully handle charge_automatically when the configuration
+        // is invalid. This allows quotes to be converted even if misconfigured.
+        // We validate and adjust values to be consistent rather than failing.
+        if sub.subscription.charge_automatically {
+            // Check 1: payment_methods_config must be Online (or None which defaults to Online)
+            let is_online_config = match &sub.subscription.payment_methods_config {
+                None => true,
+                Some(PaymentMethodsConfig::Online { .. }) => true,
+                Some(PaymentMethodsConfig::BankTransfer { .. }) => false,
+                Some(PaymentMethodsConfig::External) => false,
+            };
+
+            if !is_online_config {
+                log::warn!(
+                    "Quote conversion: charge_automatically was set to true but payment_methods_config is not Online. Falling back to charge_automatically=false for quote_id={}",
+                    quote_id.as_base62()
+                );
+                sub.subscription.charge_automatically = false;
+            } else if let Some(invoicing_entity_providers) =
+                context.get_invoicing_entity_providers_for_customer(&sub.customer)
+            {
+                // Check 2: Invoicing entity must have an online provider
+                let has_online_provider = invoicing_entity_providers.card_provider.is_some()
+                    || invoicing_entity_providers.direct_debit_provider.is_some();
+
+                if !has_online_provider {
+                    log::warn!(
+                        "Quote conversion: charge_automatically was set to true but no payment provider is configured. Falling back to charge_automatically=false for quote_id={}",
+                        quote_id.as_base62()
+                    );
+                    sub.subscription.charge_automatically = false;
+                }
+            }
+        }
+
+        // For quote conversions, gracefully handle payment_methods_config when
+        // online payment is configured but no payment provider exists.
+        if let Some(ref config) = sub.subscription.payment_methods_config
+            && config.is_online()
+            && let Some(invoicing_entity_providers) =
+                context.get_invoicing_entity_providers_for_customer(&sub.customer)
+        {
+            let has_online_provider = invoicing_entity_providers.card_provider.is_some()
+                || invoicing_entity_providers.direct_debit_provider.is_some();
+
+            if !has_online_provider {
+                log::warn!(
+                    "Quote conversion: payment_methods_config was set to Online but no payment provider is configured. Falling back to External for quote_id={}",
+                    quote_id.as_base62()
+                );
+                sub.subscription.payment_methods_config = Some(PaymentMethodsConfig::External);
+            }
+        }
+
+        let payment_result = self.services.setup_payment_provider(&sub, &context)?;
+
+        self.services.process_subscription(
+            &sub,
+            &payment_result,
+            &context,
+            tenant_id,
+            Some(params.quote_id),
+        )
+    }
+
     pub async fn insert_subscription_batch(
         &self,
         actor: Actor,
@@ -1476,7 +1486,18 @@ impl ServicesEdge {
             .gather_subscription_context(conn, &batch, tenant_id, &self.store.settings.crypt_key)
             .await?;
 
-        let subscriptions = self.services.build_subscription_details(&batch, &context)?;
+        let mut subscriptions = self.services.build_subscription_details(&batch, &context)?;
+        for sub in &mut subscriptions {
+            let template = crate::services::plan_phases::template_tx(
+                conn,
+                tenant_id,
+                sub.subscription.plan_version_id,
+            )
+            .await?;
+            if !template.is_empty() {
+                sub.with_phases(template)?;
+            }
+        }
 
         let mut results = Vec::new();
         for sub in subscriptions {
@@ -1667,6 +1688,203 @@ impl ServicesEdge {
                 effective_at,
                 requested_at,
             )
+            .await
+    }
+
+    pub async fn list_subscription_phases(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+    ) -> StoreResult<Vec<crate::domain::subscription_phases::SubscriptionPhase>> {
+        self.services
+            .list_subscription_phases(tenant_id, subscription_id)
+            .await
+    }
+
+    pub async fn set_subscription_phases(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        phases: Vec<crate::domain::subscription_phases::SubscriptionPhaseInput>,
+    ) -> StoreResult<Vec<crate::domain::subscription_phases::SubscriptionPhase>> {
+        self.services
+            .set_subscription_phases(actor, tenant_id, subscription_id, phases)
+            .await
+    }
+
+    /// The invoices the subscription would bill over `months` with `ops` applied; nothing is
+    /// written (R-156).
+    pub async fn preview_subscription_timeline(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        ops: Vec<crate::domain::subscription_phases::TimelineOp>,
+        months: u32,
+    ) -> StoreResult<crate::services::timeline::Projection> {
+        self.services
+            .preview_timeline(actor, tenant_id, subscription_id, ops, months)
+            .await
+    }
+
+    /// Applies the edits in order in one transaction: all of them or none (R-156).
+    pub async fn apply_subscription_timeline(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        ops: Vec<crate::domain::subscription_phases::TimelineOp>,
+    ) -> StoreResult<()> {
+        self.services
+            .apply_timeline(actor, tenant_id, subscription_id, ops)
+            .await
+    }
+
+    pub async fn list_timeline_items(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+    ) -> StoreResult<Vec<crate::domain::subscription_phases::TimelineItem>> {
+        self.services
+            .list_timeline_items(tenant_id, subscription_id)
+            .await
+    }
+
+    pub async fn add_timeline_item(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        input: crate::domain::subscription_phases::TimelineItemInput,
+    ) -> StoreResult<crate::domain::subscription_phases::TimelineItem> {
+        self.services
+            .add_timeline_item(actor, tenant_id, subscription_id, input)
+            .await
+    }
+
+    pub async fn project_subscription(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        months: u32,
+    ) -> StoreResult<crate::services::timeline::Projection> {
+        self.services
+            .project_subscription(tenant_id, subscription_id, months)
+            .await
+    }
+
+    pub async fn set_quote_phases(
+        &self,
+        tenant_id: TenantId,
+        quote_id: common_domain::ids::QuoteId,
+        phases: Vec<crate::domain::trial_offers::PlanPhaseTemplate>,
+    ) -> StoreResult<Vec<crate::domain::trial_offers::PlanPhaseTemplate>> {
+        let phases = self
+            .services
+            .set_quote_phases(tenant_id, quote_id, phases)
+            .await?;
+        self.refresh_quote_contract_value(tenant_id, quote_id)
+            .await?;
+        Ok(phases)
+    }
+
+    pub async fn list_quote_phases(
+        &self,
+        tenant_id: TenantId,
+        quote_id: common_domain::ids::QuoteId,
+    ) -> StoreResult<Vec<crate::domain::trial_offers::PlanPhaseTemplate>> {
+        self.services.list_quote_phases(tenant_id, quote_id).await
+    }
+
+    pub async fn set_plan_version_phases(
+        &self,
+        tenant_id: TenantId,
+        plan_version_id: PlanVersionId,
+        phases: Vec<crate::domain::trial_offers::PlanPhaseTemplate>,
+    ) -> StoreResult<Vec<crate::domain::trial_offers::PlanPhaseTemplate>> {
+        self.services
+            .set_plan_version_phases(tenant_id, plan_version_id, phases)
+            .await
+    }
+
+    pub async fn list_plan_version_phases(
+        &self,
+        tenant_id: TenantId,
+        plan_version_id: PlanVersionId,
+    ) -> StoreResult<Vec<crate::domain::trial_offers::PlanPhaseTemplate>> {
+        self.services
+            .list_plan_version_phases(tenant_id, plan_version_id)
+            .await
+    }
+
+    pub async fn get_subscription_term(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+    ) -> StoreResult<Option<crate::domain::subscription_phases::SubscriptionTerm>> {
+        self.services
+            .get_subscription_term(tenant_id, subscription_id)
+            .await
+    }
+
+    pub async fn set_subscription_term(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        input: crate::domain::subscription_phases::SubscriptionTermInput,
+    ) -> StoreResult<crate::domain::subscription_phases::SubscriptionTerm> {
+        self.services
+            .set_subscription_term(actor, tenant_id, subscription_id, input, None)
+            .await
+    }
+
+    /// An opt-out after the notice cutoff, the operator waiving the notice with a reason (R-152).
+    pub async fn set_subscription_term_waiving_notice(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        input: crate::domain::subscription_phases::SubscriptionTermInput,
+        waiver: crate::domain::renewals::NoticeWaiver,
+    ) -> StoreResult<crate::domain::subscription_phases::SubscriptionTerm> {
+        self.services
+            .set_subscription_term(actor, tenant_id, subscription_id, input, Some(waiver))
+            .await
+    }
+
+    pub async fn list_dated_discounts(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+    ) -> StoreResult<Vec<crate::domain::subscription_phases::DatedDiscount>> {
+        self.services
+            .list_dated_discounts(tenant_id, subscription_id)
+            .await
+    }
+
+    pub async fn add_dated_discount(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        input: crate::domain::subscription_phases::DatedDiscountInput,
+    ) -> StoreResult<crate::domain::subscription_phases::DatedDiscount> {
+        self.services
+            .add_dated_discount(actor, tenant_id, subscription_id, input)
+            .await
+    }
+
+    pub async fn remove_timeline_item(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        item_id: uuid::Uuid,
+    ) -> StoreResult<()> {
+        self.services
+            .remove_timeline_item(actor, tenant_id, subscription_id, item_id)
             .await
     }
 
@@ -1956,6 +2174,64 @@ impl ServicesEdge {
     ) -> StoreResult<crate::domain::subscription_amendment::AmendmentPreviewExtended> {
         self.services
             .preview_amendment(subscription_id, tenant_id, amendment)
+            .await
+    }
+
+    /// What an amendment does to the subscription's timeline, nothing written (R-162).
+    pub async fn amendment_timeline_effect(
+        &self,
+        actor: Actor,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        amendment: crate::domain::subscription_amendment::SubscriptionAmendment,
+    ) -> StoreResult<Option<crate::domain::subscription_phases::TimelineEffect>> {
+        self.services
+            .amendment_timeline_effect(actor, subscription_id, tenant_id, amendment)
+            .await
+    }
+
+    /// What a plan change does to the subscription's timeline, nothing written (R-162).
+    pub async fn plan_change_timeline_effect(
+        &self,
+        actor: Actor,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        target: PlanTarget,
+        component_params: Vec<crate::domain::subscription_components::ComponentParameterization>,
+        immediate: bool,
+    ) -> StoreResult<Option<crate::domain::subscription_phases::TimelineEffect>> {
+        self.services
+            .plan_change_timeline_effect(
+                actor,
+                tenant_id,
+                subscription_id,
+                target,
+                component_params,
+                immediate,
+            )
+            .await
+    }
+
+    /// [`Self::schedule_plan_change`], with what it did to the subscription's timeline.
+    pub async fn schedule_plan_change_reporting(
+        &self,
+        actor: Actor,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        target: PlanTarget,
+        component_params: Vec<crate::domain::subscription_components::ComponentParameterization>,
+    ) -> StoreResult<(
+        crate::domain::scheduled_events::ScheduledEvent,
+        Vec<crate::domain::subscription_phases::RewriteEntry>,
+    )> {
+        self.services
+            .schedule_plan_change_reporting(
+                actor,
+                subscription_id,
+                tenant_id,
+                target,
+                component_params,
+            )
             .await
     }
 
@@ -2360,7 +2636,7 @@ impl ServicesEdge {
             billing_start_date: None,
             billing_day_anchor: None,
             net_terms: None,
-            trial_duration_days: None,
+            trial: Default::default(),
             end_date: None,
             auto_advance_invoices: true,
             charge_automatically: true,
@@ -2848,6 +3124,7 @@ impl ServicesEdge {
                         PlanTarget {
                             version: plan_version_id,
                             option: session.option_ref(),
+                            prices: Vec::new(),
                         },
                         &session.component_params(),
                         at,
@@ -3932,7 +4209,7 @@ impl ServicesEdge {
             billing_start_date: None,
             billing_day_anchor: None,
             net_terms: None,
-            trial_duration_days: None,
+            trial: Default::default(),
             end_date: None,
             auto_advance_invoices: true,
             charge_automatically: true,

@@ -189,3 +189,18 @@ payment-method-expiring-intro = Je { $method } verloopt op { $date }. Werk hem b
 payment-method-label = Betaalmethode
 payment-method-expires = Verloopt
 update-card = Betaalmethode bijwerken
+
+## Renewal reminder (kind renewal_reminder). $plan is the plan name, $date a long localized date.
+renewal-reminder-renewing-subject = Je { $company }-abonnement wordt binnenkort verlengd
+renewal-reminder-renewing-heading = Je abonnement wordt binnenkort verlengd
+renewal-reminder-renewing-intro = Je abonnement { $plan } wordt op { $date } automatisch verlengd.
+renewal-reminder-ending-subject = Je { $company }-abonnement loopt binnenkort af
+renewal-reminder-ending-heading = Je abonnement loopt binnenkort af
+renewal-reminder-ending-intro = Je abonnement { $plan } loopt af op { $date }. Neem contact met ons op om het voort te zetten.
+renewal-reminder-renews-on = Verlenging op
+renewal-reminder-ends-on = Loopt af op
+renewal-reminder-next-term-ends = Volgende termijn loopt af
+renewal-reminder-price-change = Prijswijziging
+# $percent = the uplift, as a decimal.
+renewal-reminder-uplift = +{ $percent } %
+renewal-reminder-opt-out-by = Opzeggen kan tot

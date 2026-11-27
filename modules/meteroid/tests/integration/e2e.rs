@@ -456,7 +456,7 @@ async fn test_metering_e2e() {
                         invoice_threshold: None,
                         billing_day_anchor: Some(billing_day),
                         customer_id: customer_1.to_string(),
-                        trial_duration: None,
+                        trial: None,
                         components: Some(api::subscriptions::v1::CreateSubscriptionComponents {
                             parameterized_components: vec![
                                 api::subscriptions::v1::create_subscription_components::ComponentParameterization {

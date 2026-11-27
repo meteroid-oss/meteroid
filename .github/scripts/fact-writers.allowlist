@@ -8,10 +8,12 @@
 modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionPlanWindowRow::open | primitive | opens a plan window from its date, through open_replacing
 modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionPlanWindowRow::open_replacing | primitive | opens a plan window, closing or replacing the open one, and returns the one it replaced
 modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionPlanWindowRow::insert_batch | primitive | first plan windows of inserted subscriptions
-modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionPlanWindowRow::set_origin | primitive | a window's cadence origin decided after the migration
+modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionPlanWindowRow::set_origin | primitive | a window's cadence origin decided after the migration, or moved with a free trial's end
 modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::record_window_origin | primitive | the origin a renewal records late on the switch opening a window
 modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionTrialRow::insert_batch | primitive | trials of inserted subscriptions
 modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionTrialRow::end_by | primitive | a plan change ends the trial on its date
+modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionTrialRow::move_end | primitive | an operator extends a running trial or ends it today
+modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionTrialRow::remove | primitive | a trial ended on the day it started never ran
 modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionStartSettledRow::insert_batch | primitive | settled starts, the first one kept
 modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionEndingRow::insert_batch | primitive | endings: a fixed term at insert
 modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionEndingRow::withdraw_cancellation | primitive | a cancellation withdrawn before it applied

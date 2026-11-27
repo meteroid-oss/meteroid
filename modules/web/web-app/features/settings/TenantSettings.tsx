@@ -4,6 +4,7 @@ import {
   Boxes,
   Briefcase,
   Building2,
+  CalendarClock,
   Coins,
   CreditCard,
   FileText,
@@ -43,6 +44,7 @@ import { GeneralTab } from '@/features/settings/tabs/GeneralTab'
 import { IntegrationsTab } from '@/features/settings/tabs/IntegrationsTab'
 import { InvoiceTab } from '@/features/settings/tabs/InvoiceTab'
 import { PaymentMethodsTab } from '@/features/settings/tabs/PaymentsTab'
+import { RenewalsTab } from '@/features/settings/tabs/RenewalsTab'
 import { ResourceTypesTab } from '@/features/settings/tabs/ResourceTypesTab'
 import { TaxesTab } from '@/features/settings/tabs/TaxesTab'
 import { UsersTab } from '@/features/settings/tabs/UsersTab'
@@ -143,6 +145,7 @@ export const TenantSettings: FunctionComponent = () => {
         { value: 'taxes', label: 'Taxes', icon: Landmark, show: true, content: <TaxesTab /> },
         { value: 'payments', label: 'Payment methods', icon: CreditCard, show: true, content: <PaymentMethodsTab /> },
         { value: 'emails', label: 'Customer emails', icon: Mail, show: true, content: <CustomerEmailsTab />, badge: emailsBadge },
+        { value: 'renewals', label: 'Renewals', icon: CalendarClock, show: editionId !== 'oss', content: <RenewalsTab /> },
       ],
     },
     {

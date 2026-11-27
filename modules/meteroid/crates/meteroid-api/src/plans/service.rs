@@ -22,16 +22,16 @@ use meteroid_grpc::meteroid::api::plans::v1::{
     RemovePlanOptionResponse, ReorderPlanOptionsRequest, ReorderPlanOptionsResponse,
     SetPlanEligibilityRequest, SetPlanEligibilityResponse, SetPlanMinimumCommitmentRequest,
     SetPlanMinimumCommitmentResponse, SetPlanSoldForRequest, SetPlanSoldForResponse,
-    SetSelfServeLadderRequest, SetSelfServeLadderResponse, UnarchivePlanRequest,
-    UnarchivePlanResponse, UpdateDraftPlanOverviewRequest, UpdateDraftPlanOverviewResponse,
-    UpdatePlanOptionRequest, UpdatePlanOptionResponse, UpdatePlanTrialRequest,
-    UpdatePlanTrialResponse, UpdatePublishedPlanOverviewRequest,
+    SetPlanTrialRequest, SetPlanTrialResponse, SetSelfServeLadderRequest,
+    SetSelfServeLadderResponse, UnarchivePlanRequest, UnarchivePlanResponse,
+    UpdateDraftPlanOverviewRequest, UpdateDraftPlanOverviewResponse, UpdatePlanOptionRequest,
+    UpdatePlanOptionResponse, UpdatePublishedPlanOverviewRequest,
     UpdatePublishedPlanOverviewResponse, plans_service_server::PlansService,
 };
 use meteroid_grpc_mapping::utils::PaginationExt;
 use meteroid_store::domain;
 use meteroid_store::domain::{
-    PlanAndVersionPatch, PlanFilters, PlanPatch, PlanVersionFilter, PlanVersionPatch, TrialPatch,
+    PlanAndVersionPatch, PlanFilters, PlanPatch, PlanVersionFilter, PlanVersionPatch,
 };
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::PlanOptionInterface;
@@ -372,40 +372,25 @@ impl PlansService for PlanServiceComponents {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn update_plan_trial(
+    async fn set_plan_trial(
         &self,
-        request: Request<UpdatePlanTrialRequest>,
-    ) -> Result<Response<UpdatePlanTrialResponse>, Status> {
+        request: Request<SetPlanTrialRequest>,
+    ) -> Result<Response<SetPlanTrialResponse>, Status> {
         let tenant_id = request.tenant()?;
         let actor = request.actor_typed()?;
         let req = request.into_inner();
-
-        let plan_version_id = PlanVersionId::from_proto(&req.plan_version_id)?;
-
-        let res = self
+        let terms = req
+            .trial
+            .map(crate::plans::mapping::plans::trial_terms_from_proto)
+            .transpose()?;
+        let trial = self
             .store
-            .patch_trial(
-                actor,
-                TrialPatch {
-                    tenant_id,
-                    plan_version_id,
-                    trial: req
-                        .trial
-                        .map(|t| {
-                            Ok::<domain::PlanTrial, Status>(domain::PlanTrial {
-                                duration_days: t.duration_days,
-                                trialing_plan_id: PlanId::from_proto_opt(t.trialing_plan_id)?,
-                                trial_is_free: t.trial_is_free,
-                            })
-                        })
-                        .transpose()?,
-                },
-            )
+            .set_plan_trial(actor, tenant_id, PlanId::from_proto(&req.plan_id)?, terms)
             .await
-            .map(|x| PlanWithVersionWrapper::from(x).0)
             .map_err(Into::<PlanApiError>::into)?;
-
-        Ok(Response::new(UpdatePlanTrialResponse { plan: Some(res) }))
+        Ok(Response::new(SetPlanTrialResponse {
+            trial: trial.map(crate::plans::mapping::plans::plan_trial_to_proto),
+        }))
     }
 
     #[tracing::instrument(skip_all)]
@@ -447,7 +432,7 @@ impl PlansService for PlanServiceComponents {
             },
         };
 
-        let res = match self.store.get_plan(plan_id, tenant_id, filter).await {
+        let plan = match self.store.get_plan(plan_id, tenant_id, filter).await {
             Err(err)
                 if fallback_to_draft
                     && matches!(err.current_context(), StoreError::ValueNotFound(_)) =>
@@ -458,8 +443,8 @@ impl PlansService for PlanServiceComponents {
             }
             other => other,
         }
-        .map(|x| PlanWithVersionWrapper::from(x).0)
         .map_err(Into::<PlanApiError>::into)?;
+        let res = self.with_effective_trial(tenant_id, plan).await?;
 
         Ok(Response::new(GetPlanWithVersionResponse {
             plan: Some(res),
@@ -474,12 +459,12 @@ impl PlansService for PlanServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let res = self
+        let plan = self
             .store
             .get_plan_by_version_id(PlanVersionId::from_proto(&req.local_id)?, tenant_id)
             .await
-            .map(|x| PlanWithVersionWrapper::from(x).0)
             .map_err(Into::<PlanApiError>::into)?;
+        let res = self.with_effective_trial(tenant_id, plan).await?;
 
         Ok(Response::new(GetPlanWithVersionByVersionIdResponse {
             plan: Some(res),

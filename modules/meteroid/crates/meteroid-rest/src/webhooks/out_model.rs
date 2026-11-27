@@ -29,14 +29,16 @@ use meteroid_rest_common::model::BillingPeriodEnum;
 use meteroid_store::domain::outbox_event::{
     AddOnEvent, BillableMetricEvent, BudgetAlertEvent, CheckoutPaymentKeptAsCreditEvent,
     CouponEvent, CreditGrantExpiredEvent, CreditNoteEvent, CustomerEvent, EntitlementAlertEvent,
-    InvoiceEvent, InvoicePdfGeneratedEvent, PaymentTransactionEvent, PlanEvent, ProductEvent,
-    QuoteAcceptedEvent, QuoteConvertedEvent, SubscriptionEvent, TooManyGroupsEvent,
-    WalletAutoTopUpCapReachedEvent, WalletAutoTopUpConsentChangedEvent, WalletAutoTopUpEvent,
-    WalletBalanceLowEvent, WalletCreditRecoveredEvent, WalletCreditUnrecoveredEvent,
-    WalletDebitedEvent, WalletDepletedEvent, WalletFundedEvent, WalletRecoveredEvent,
+    InvoiceEvent, InvoicePdfGeneratedEvent, OverrideEndingEvent, PaymentTransactionEvent,
+    PlanEvent, ProductEvent, QuoteAcceptedEvent, QuoteConvertedEvent, SubscriptionEvent,
+    TooManyGroupsEvent, TrialEndingEvent, WalletAutoTopUpCapReachedEvent,
+    WalletAutoTopUpConsentChangedEvent, WalletAutoTopUpEvent, WalletBalanceLowEvent,
+    WalletCreditRecoveredEvent, WalletCreditUnrecoveredEvent, WalletDebitedEvent,
+    WalletDepletedEvent, WalletFundedEvent, WalletRecoveredEvent,
 };
+use meteroid_store::domain::renewals::{RenewalMode, RenewalSource, RenewalUpcomingEvent};
 use meteroid_store::domain::retention_events::{
-    RenewalMode, RenewalUpcomingEvent, RetentionOfferKind, RetentionOutcome, RetentionSessionEvent,
+    RetentionOfferKind, RetentionOutcome, RetentionSessionEvent,
 };
 use meteroid_store::domain::usage_alert_events::{AlertLevel, AlertResource};
 use meteroid_store::domain::wallet_events::GrantLapseReason;
@@ -98,8 +100,7 @@ pub struct WebhookOutInvoiceEventData {
 }
 
 /// Identifies which mutation triggered a `subscription.updated` webhook.
-#[derive(Clone, Copy, Debug, Serialize, o2o, utoipa::ToSchema)]
-#[from_owned(meteroid_store::domain::outbox_event::SubscriptionUpdateType)]
+#[derive(Clone, Copy, Debug, Serialize, utoipa::ToSchema)]
 #[schema(as = SubscriptionUpdateType)]
 #[serde(rename_all = "snake_case")]
 pub enum SubscriptionUpdateType {
@@ -111,6 +112,25 @@ pub enum SubscriptionUpdateType {
     UnitsChanged,
     Paused,
     CancellationScheduled,
+}
+
+impl From<meteroid_store::domain::outbox_event::SubscriptionUpdateType> for SubscriptionUpdateType {
+    fn from(value: meteroid_store::domain::outbox_event::SubscriptionUpdateType) -> Self {
+        use meteroid_store::domain::outbox_event::SubscriptionUpdateType as Domain;
+        match value {
+            Domain::Activated => Self::Activated,
+            Domain::TrialEnded => Self::TrialEnded,
+            // v1's published values: a moved trial reads as a billing configuration change.
+            Domain::BillingConfigurationUpdated | Domain::TrialChanged => {
+                Self::BillingConfigurationUpdated
+            }
+            Domain::PlanChanged => Self::PlanChanged,
+            Domain::Amended => Self::Amended,
+            Domain::UnitsChanged => Self::UnitsChanged,
+            Domain::Paused => Self::Paused,
+            Domain::CancellationScheduled => Self::CancellationScheduled,
+        }
+    }
 }
 
 #[skip_serializing_none]
@@ -1380,14 +1400,39 @@ impl From<RetentionSessionEvent> for WebhookOutRetentionSessionEventData {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[schema(as = RenewalMode)]
 pub enum WebhookOutRenewalMode {
-    /// An annual or semiannual subscription renews on the date.
+    /// The subscription renews on the date: its term auto-renews, or an annual or semiannual
+    /// period ends.
     Renewing,
-    /// A fixed term ends on the date.
+    /// The subscription ends on the date: a term not renewing, or an end date.
     Ending,
     /// The subscription is set to cancel on the date.
     Cancelling,
 }
 
+/// What dates the renewal: the contract term, an annual or semiannual period, an end date, or a
+/// scheduled cancellation.
+#[derive(Clone, Copy, Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[schema(as = RenewalSource)]
+pub enum WebhookOutRenewalSource {
+    Term,
+    Period,
+    EndDate,
+    Cancellation,
+}
+
+impl From<RenewalSource> for WebhookOutRenewalSource {
+    fn from(source: RenewalSource) -> Self {
+        match source {
+            RenewalSource::Term => WebhookOutRenewalSource::Term,
+            RenewalSource::Period => WebhookOutRenewalSource::Period,
+            RenewalSource::EndDate => WebhookOutRenewalSource::EndDate,
+            RenewalSource::Cancellation => WebhookOutRenewalSource::Cancellation,
+        }
+    }
+}
+
+#[skip_serializing_none]
 #[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
 #[schema(as = RenewalUpcomingEventData)]
 pub struct WebhookOutRenewalUpcomingEventData {
@@ -1395,10 +1440,20 @@ pub struct WebhookOutRenewalUpcomingEventData {
     pub customer_id: CustomerId,
     #[serde(serialize_with = "string_serde::serialize")]
     pub subscription_id: SubscriptionId,
+    /// The day the subscription renews, ends or cancels.
     pub renewal_date: NaiveDate,
     pub mode: WebhookOutRenewalMode,
-    /// The checkpoint reached: how many days before the date this notice is.
+    pub source: WebhookOutRenewalSource,
+    /// The checkpoint reached: how many days before the opt-out deadline, else the date.
     pub days_before: u32,
+    /// The last day the renewal can be opted out of, for a term renewing with notice.
+    pub opt_out_deadline: Option<NaiveDate>,
+    /// The term's renewal, for a subscription under a contract term.
+    pub auto_renew: Option<bool>,
+    pub renewal_months: Option<u32>,
+    /// Percent added at the renewal to each fee priced by one amount, as a decimal string.
+    pub uplift_percent: Option<String>,
+    pub notice_days: Option<u32>,
     pub plan_name: String,
     pub currency: String,
     pub mrr_cents: i64,
@@ -1406,6 +1461,7 @@ pub struct WebhookOutRenewalUpcomingEventData {
 
 impl From<RenewalUpcomingEvent> for WebhookOutRenewalUpcomingEventData {
     fn from(event: RenewalUpcomingEvent) -> Self {
+        let term = event.term.as_ref();
         Self {
             customer_id: event.customer_id,
             subscription_id: event.subscription_id,
@@ -1415,7 +1471,15 @@ impl From<RenewalUpcomingEvent> for WebhookOutRenewalUpcomingEventData {
                 RenewalMode::Ending => WebhookOutRenewalMode::Ending,
                 RenewalMode::Cancelling => WebhookOutRenewalMode::Cancelling,
             },
+            source: event.source.into(),
             days_before: event.days_before,
+            opt_out_deadline: event.opt_out_deadline,
+            auto_renew: term.map(|t| t.auto_renew),
+            renewal_months: term.map(|t| t.renewal_months),
+            uplift_percent: term
+                .and_then(|t| t.uplift_percent)
+                .map(|percent| percent.normalize().to_string()),
+            notice_days: term.map(|t| t.notice_days),
             plan_name: event.plan_name,
             currency: event.currency,
             mrr_cents: event.mrr_cents,
@@ -1465,6 +1529,76 @@ impl From<CheckoutPaymentKeptAsCreditEvent> for WebhookOutCheckoutPaymentKeptAsC
     }
 }
 
+/// A customer or resource override with an end ends soon, or has ended: the feature then resolves
+/// as the customer's plans and add-ons give it.
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = OverrideEndingEventData)]
+pub struct WebhookOutOverrideEndingEventData {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub customer_id: CustomerId,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub feature_id: FeatureId,
+    pub feature_code: String,
+    /// The override, as `/customers/{id}/entitlement-overrides/{id}` names it.
+    pub override_id: String,
+    /// Set on a resource override.
+    #[serde(serialize_with = "string_serde_opt::serialize")]
+    pub resource_id: Option<ResourceId>,
+    /// Its value, as the override carries it.
+    #[schema(value_type = Object)]
+    pub value: serde_json::Value,
+    /// `set_to`, `raise_to` or `cap_at`.
+    pub effect: String,
+    pub valid_until: ApiDateTime,
+    pub reason: Option<String>,
+}
+
+impl From<OverrideEndingEvent> for WebhookOutOverrideEndingEventData {
+    fn from(event: OverrideEndingEvent) -> Self {
+        Self {
+            customer_id: event.customer_id,
+            feature_id: event.feature_id,
+            feature_code: event.feature_code,
+            override_id: event.override_id.to_string(),
+            resource_id: event.resource_id,
+            value: event.value,
+            effect: event.effect,
+            valid_until: event.valid_until.into(),
+            reason: event.reason,
+        }
+    }
+}
+
+/// A subscription's trial ends soon.
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = TrialEndingEventData)]
+pub struct WebhookOutTrialEndingEventData {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub subscription_id: SubscriptionId,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub customer_id: CustomerId,
+    /// The trial's end: billing starts on it.
+    pub trial_end: chrono::NaiveDate,
+    /// Whether the trial billed nothing.
+    pub free: bool,
+    /// The trial offer it was redeemed from.
+    pub trial_offer_id: Option<String>,
+}
+
+impl From<TrialEndingEvent> for WebhookOutTrialEndingEventData {
+    fn from(event: TrialEndingEvent) -> Self {
+        Self {
+            subscription_id: event.subscription_id,
+            customer_id: event.customer_id,
+            trial_end: event.trial_end,
+            free: event.free,
+            trial_offer_id: event.trial_offer_id.map(|id| id.to_string()),
+        }
+    }
+}
+
 macro_rules! wallet_webhook_event {
     ($($event:ident($data:ty) as $schema:ident),+ $(,)?) => {$(
         #[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
@@ -1509,6 +1643,8 @@ wallet_webhook_event!(
         as RetentionSessionWebhookEvent,
     WebhookOutRenewalUpcomingEvent(WebhookOutRenewalUpcomingEventData)
         as RenewalUpcomingWebhookEvent,
+    WebhookOutOverrideEndingEvent(WebhookOutOverrideEndingEventData) as OverrideEndingWebhookEvent,
+    WebhookOutTrialEndingEvent(WebhookOutTrialEndingEventData) as TrialEndingWebhookEvent,
 );
 
 /// Event-specific webhook schemas for type-safe webhook payloads
@@ -1912,9 +2048,18 @@ pub enum WebhookOutEventTypeEnum {
     #[strum(serialize = "retention.session_completed")]
     #[serde(rename = "retention.session_completed")]
     RetentionSessionCompleted,
-    #[strum(serialize = "retention.renewal_upcoming")]
-    #[serde(rename = "retention.renewal_upcoming")]
-    RetentionRenewalUpcoming,
+    #[strum(serialize = "subscription.renewal_upcoming")]
+    #[serde(rename = "subscription.renewal_upcoming")]
+    SubscriptionRenewalUpcoming,
+    #[strum(serialize = "entitlement.override_ending_soon")]
+    #[serde(rename = "entitlement.override_ending_soon")]
+    EntitlementOverrideEndingSoon,
+    #[strum(serialize = "entitlement.override_ended")]
+    #[serde(rename = "entitlement.override_ended")]
+    EntitlementOverrideEnded,
+    #[strum(serialize = "subscription.trial_ending_soon")]
+    #[serde(rename = "subscription.trial_ending_soon")]
+    SubscriptionTrialEndingSoon,
 }
 
 #[derive(Debug, Display, EnumIter, EnumString, Copy, Clone)]
@@ -2014,10 +2159,10 @@ impl WebhookOutEventTypeEnum {
                 | WebhookOutEventTypeEnum::EntitlementUsageThresholdReached
                 | WebhookOutEventTypeEnum::EntitlementLimitReached
                 | WebhookOutEventTypeEnum::EntitlementTooManyGroups
+                | WebhookOutEventTypeEnum::SubscriptionRenewalUpcoming
                 | WebhookOutEventTypeEnum::BudgetThresholdReached
                 | WebhookOutEventTypeEnum::BudgetExceeded
                 | WebhookOutEventTypeEnum::RetentionSessionCompleted
-                | WebhookOutEventTypeEnum::RetentionRenewalUpcoming
         )
     }
 
@@ -2029,7 +2174,11 @@ impl WebhookOutEventTypeEnum {
             WebhookOutEventTypeEnum::SubscriptionCancelled => {
                 WebhookOutEventGroupEnum::Subscription
             }
-            WebhookOutEventTypeEnum::SubscriptionEnded => WebhookOutEventGroupEnum::Subscription,
+            WebhookOutEventTypeEnum::SubscriptionEnded
+            | WebhookOutEventTypeEnum::SubscriptionRenewalUpcoming
+            | WebhookOutEventTypeEnum::SubscriptionTrialEndingSoon => {
+                WebhookOutEventGroupEnum::Subscription
+            }
             WebhookOutEventTypeEnum::InvoiceCreated => WebhookOutEventGroupEnum::Invoice,
             WebhookOutEventTypeEnum::InvoiceFinalized => WebhookOutEventGroupEnum::Invoice,
             WebhookOutEventTypeEnum::InvoicePaid => WebhookOutEventGroupEnum::Invoice,
@@ -2086,13 +2235,14 @@ impl WebhookOutEventTypeEnum {
             WebhookOutEventTypeEnum::CreditGrantExpired => WebhookOutEventGroupEnum::CreditGrant,
             WebhookOutEventTypeEnum::EntitlementUsageThresholdReached
             | WebhookOutEventTypeEnum::EntitlementLimitReached
-            | WebhookOutEventTypeEnum::EntitlementTooManyGroups => {
+            | WebhookOutEventTypeEnum::EntitlementTooManyGroups
+            | WebhookOutEventTypeEnum::EntitlementOverrideEndingSoon
+            | WebhookOutEventTypeEnum::EntitlementOverrideEnded => {
                 WebhookOutEventGroupEnum::Entitlement
             }
             WebhookOutEventTypeEnum::BudgetThresholdReached
             | WebhookOutEventTypeEnum::BudgetExceeded => WebhookOutEventGroupEnum::Budget,
-            WebhookOutEventTypeEnum::RetentionSessionCompleted
-            | WebhookOutEventTypeEnum::RetentionRenewalUpcoming => {
+            WebhookOutEventTypeEnum::RetentionSessionCompleted => {
                 WebhookOutEventGroupEnum::Retention
             }
             WebhookOutEventTypeEnum::CheckoutPaymentKeptAsCredit => {
@@ -2116,7 +2266,10 @@ impl WebhookOutEventTypeEnum {
             WebhookOutEventTypeEnum::AutoTopUpConsentChanged => "AutoTopUpConsentChangedEvent",
             WebhookOutEventTypeEnum::AutoTopUpCapReached => "AutoTopUpCapReachedEvent",
             WebhookOutEventTypeEnum::EntitlementTooManyGroups => "TooManyGroupsWebhookEvent",
-            WebhookOutEventTypeEnum::RetentionRenewalUpcoming => "RenewalUpcomingWebhookEvent",
+            WebhookOutEventTypeEnum::SubscriptionRenewalUpcoming => "RenewalUpcomingWebhookEvent",
+            WebhookOutEventTypeEnum::EntitlementOverrideEndingSoon
+            | WebhookOutEventTypeEnum::EntitlementOverrideEnded => "OverrideEndingWebhookEvent",
+            WebhookOutEventTypeEnum::SubscriptionTrialEndingSoon => "TrialEndingWebhookEvent",
             other => other.group().schema_name(),
         }
     }
@@ -2289,9 +2442,20 @@ impl WebhookOutEventTypeEnum {
                 "A customer finished the portal cancel flow: kept by an offer, asking to be contacted, or cancelled"
                     .to_string()
             }
-            WebhookOutEventTypeEnum::RetentionRenewalUpcoming => {
-                "A subscription reached a checkpoint before its renewal, the end of its term or its scheduled cancellation"
+            WebhookOutEventTypeEnum::SubscriptionRenewalUpcoming => {
+                "A subscription reached a notice checkpoint before it renews, its term ends or it cancels: counted to the opt-out deadline of a term with notice, else to the date"
                     .to_string()
+            }
+            WebhookOutEventTypeEnum::EntitlementOverrideEndingSoon => {
+                "A customer or resource override with an end ends within a week: sent once per end"
+                    .to_string()
+            }
+            WebhookOutEventTypeEnum::EntitlementOverrideEnded => {
+                "A customer or resource override reached its end: the feature resolves as the plans and add-ons give it"
+                    .to_string()
+            }
+            WebhookOutEventTypeEnum::SubscriptionTrialEndingSoon => {
+                "A subscription's trial ends in 3 days: sent once per trial end".to_string()
             }
         }
     }

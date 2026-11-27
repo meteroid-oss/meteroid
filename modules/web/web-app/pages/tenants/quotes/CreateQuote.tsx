@@ -299,12 +299,12 @@ export const CreateQuote = ({
   const plansQuery = useQuery(listPlans, {})
 
   const planCurrency = planQuery.data?.plan?.version?.currency
-  const planTrialConfig = planQuery.data?.plan?.version?.trialConfig
+  const planTrial = planQuery.data?.plan?.trial?.terms
   const isFreePlan = planQuery.data?.plan?.plan?.planType === PlanType.FREE
   const planDefaultMinimum = planQuery.data?.plan?.version?.minimumCommitment
 
-  const trialingPlanName = planTrialConfig?.trialingPlanId
-    ? plansQuery.data?.plans.find(p => p.id === planTrialConfig.trialingPlanId)?.name
+  const trialingPlanName = planTrial?.trialPlanId
+    ? plansQuery.data?.plans.find(p => p.id === planTrial.trialPlanId)?.name
     : undefined
 
   const invoicingEntityQuery = useQuery(
@@ -755,6 +755,7 @@ export const CreateQuote = ({
               totalsRequest={
                 totalsBlockedReason || totalsLoading ? undefined : buildTotalsRequest(values)
               }
+              quoteId={editQuoteId}
               minimumCommitment={effectiveMinimum}
             />
           </div>
@@ -962,13 +963,22 @@ export const CreateQuote = ({
 
                         <TermsSection
                           planVersionId={planVersionId}
-                          trialConfig={planTrialConfig}
+                          trial={planTrial}
                           trialingPlanName={trialingPlanName}
                           isFreePlan={isFreePlan}
                           hasOnlinePaymentProvider={hasOnlinePaymentProvider}
                           isLoadingProviders={isLoadingProviders}
                           hideDates={isTemplate}
                         />
+
+                        {!isTemplate && hasSlot('quoteCreate.phases') && (
+                          <Slot
+                            name="quoteCreate.phases"
+                            quoteId={editQuoteId}
+                            planVersionId={planVersionId}
+                            currency={planCurrency}
+                          />
+                        )}
                       </>
                     )}
                   </>
@@ -1051,6 +1061,7 @@ export const CreateQuote = ({
                   canOpenPreview={canPreview}
                   onOpenPreview={openPreview}
                   withTotals={!isTemplate}
+                  quoteId={editQuoteId}
                 />
               </aside>
             )}

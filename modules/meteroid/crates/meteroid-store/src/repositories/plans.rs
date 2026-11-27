@@ -10,7 +10,7 @@ use crate::domain::{
     FullPlan, FullPlanNew, PaginatedVec, PaginationRequest, Plan, PlanAndVersionPatch, PlanFilters,
     PlanOverview, PlanPatch, PlanStatusEnum, PlanVersion, PlanVersionFilter, PlanVersionNew,
     PlanVersionNewInternal, PlanWithVersion, PriceComponent, PriceComponentNew, Product,
-    ProductFamilyOverview, SelfServicePlan, TrialPatch,
+    ProductFamilyOverview, SelfServicePlan,
 };
 use crate::errors::StoreError;
 use crate::hooks::USAGE_CONTROLS_UNAVAILABLE;
@@ -28,9 +28,7 @@ use common_domain::ids::{
 use common_eventbus::Event;
 use diesel_models::entitlements::EntitlementRow;
 use diesel_models::plan_component_prices::{PlanComponentPriceRow, PlanComponentPriceRowNew};
-use diesel_models::plan_versions::{
-    PlanVersionRow, PlanVersionRowNew, PlanVersionRowPatch, PlanVersionTrialRowPatch,
-};
+use diesel_models::plan_versions::{PlanVersionRow, PlanVersionRowNew, PlanVersionRowPatch};
 use diesel_models::plans::{
     FullPlanRow, PlanRow, PlanRowNew, PlanRowOverview, PlanRowPatch, SelfServicePlanRow,
 };
@@ -81,6 +79,22 @@ pub trait PlansInterface {
         id: PlanId,
         auth_tenant_id: TenantId,
     ) -> StoreResult<PlanOverview>;
+
+    /// The plan's trial, the one a subscription created on it asking none gets (R-153).
+    async fn plan_trial(
+        &self,
+        tenant_id: TenantId,
+        plan_id: PlanId,
+    ) -> StoreResult<Option<crate::domain::trials::PlanTrial>>;
+
+    /// The plan's trial set to `terms` on every version at once, or removed (R-153).
+    async fn set_plan_trial(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        plan_id: PlanId,
+        terms: Option<crate::domain::trials::TrialTerms>,
+    ) -> StoreResult<Option<crate::domain::trials::PlanTrial>>;
 
     async fn get_full_plan(
         &self,
@@ -171,7 +185,6 @@ pub trait PlansInterface {
         patch: PlanAndVersionPatch,
     ) -> StoreResult<PlanWithVersion>;
 
-    async fn patch_trial(&self, actor: Actor, patch: TrialPatch) -> StoreResult<PlanWithVersion>;
     async fn archive_plan(
         &self,
         actor: Actor,
@@ -574,6 +587,7 @@ impl PlansInterface for Store {
             price_components,
         } = full_plan;
         let version_entitlements = version.entitlements.clone();
+        let trial = version.trial;
         let sold_for = plan.sold_for_resource_type_id;
 
         let product_family_row =
@@ -599,6 +613,17 @@ impl PlansInterface for Store {
                         .map_err(Into::<Report<StoreError>>::into)?;
                     if sold_for.is_some() {
                         set_sold_for(conn, inserted.tenant_id, inserted.id, sold_for).await?;
+                    }
+                    if let Some(Some(terms)) = trial {
+                        crate::services::trials::catalog::set_plan_trial_tx(
+                            &self.internal,
+                            conn,
+                            actor,
+                            inserted.tenant_id,
+                            inserted.id,
+                            Some(terms),
+                        )
+                        .await?;
                     }
 
                     let plan_version_to_insert: PlanVersionRowNew = PlanVersionNew {
@@ -794,6 +819,49 @@ impl PlansInterface for Store {
         }
 
         Ok(plan)
+    }
+
+    async fn plan_trial(
+        &self,
+        tenant_id: TenantId,
+        plan_id: PlanId,
+    ) -> StoreResult<Option<crate::domain::trials::PlanTrial>> {
+        let mut conn = self.get_conn().await?;
+        Ok(
+            crate::services::trials::catalog::plan_trials_tx(&mut conn, tenant_id, &[plan_id])
+                .await?
+                .remove(&plan_id),
+        )
+    }
+
+    async fn set_plan_trial(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        plan_id: PlanId,
+        terms: Option<crate::domain::trials::TrialTerms>,
+    ) -> StoreResult<Option<crate::domain::trials::PlanTrial>> {
+        self.transaction_bumping_tenant(tenant_id, |conn| {
+            let actor = &actor;
+            async move {
+                crate::services::trials::catalog::set_plan_trial_tx(
+                    &self.internal,
+                    conn,
+                    actor,
+                    tenant_id,
+                    plan_id,
+                    terms,
+                )
+                .await?;
+                Ok(
+                    crate::services::trials::catalog::plan_trials_tx(conn, tenant_id, &[plan_id])
+                        .await?
+                        .remove(&plan_id),
+                )
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn get_plan_overview(
@@ -1027,9 +1095,6 @@ impl PlansInterface for Store {
                     is_draft_version: true,
                     plan_id: original.plan_id,
                     version: original.version + 1,
-                    trial_duration_days: original.trial_duration_days,
-                    trialing_plan_id: original.trialing_plan_id,
-                    trial_is_free: original.trial_is_free,
                     tenant_id: original.tenant_id,
                     period_start_day: original.period_start_day,
                     net_terms: original.net_terms,
@@ -1119,10 +1184,6 @@ impl PlansInterface for Store {
                     )
                     .await?;
                 }
-
-                diesel_models::schedules::ScheduleRow::clone_all(conn, original.id, new.id)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
 
                 diesel_models::plan_version_add_ons::PlanVersionAddOnRow::clone_all(
                     conn,
@@ -1502,65 +1563,6 @@ impl PlansInterface for Store {
         .await
     }
 
-    async fn patch_trial(&self, actor: Actor, patch: TrialPatch) -> StoreResult<PlanWithVersion> {
-        self.transaction_bumping_tenant(patch.tenant_id, |conn| {
-            let actor = &actor;
-            async move {
-                let trial_patch: PlanVersionTrialRowPatch = match patch.trial {
-                    None => PlanVersionTrialRowPatch {
-                        id: patch.plan_version_id,
-                        tenant_id: patch.tenant_id,
-                        trialing_plan_id: Some(None),
-                        trial_is_free: Some(false),
-                        trial_duration_days: Some(None),
-                    },
-                    Some(trial) => PlanVersionTrialRowPatch {
-                        id: patch.plan_version_id,
-                        tenant_id: patch.tenant_id,
-                        trialing_plan_id: Some(trial.trialing_plan_id),
-                        trial_is_free: Some(trial.trial_is_free),
-                        trial_duration_days: Some(Some(trial.duration_days as i32)),
-                    },
-                };
-
-                let patched_version = trial_patch
-                    .update_trial(conn)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-
-                let mut result: PlanWithVersion =
-                    PlanRow::get_with_version(conn, patched_version.id, patched_version.tenant_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)
-                        .map(Into::into)?;
-                if let Some(version) = result.version.as_mut() {
-                    load_options(conn, version).await?;
-                }
-
-                let activity = Activity::new(
-                    ActivityType::EntityUpdated,
-                    EntityType::Plan,
-                    patched_version.plan_id.as_uuid(),
-                )
-                .with_metadata(serde_json::json!({
-                    "changes": [{ "field": "trial" }],
-                }));
-                self.internal
-                    .record_audit_tx(
-                        conn,
-                        patched_version.tenant_id,
-                        actor,
-                        AuditInput::Activity(activity),
-                    )
-                    .await?;
-
-                Ok(result)
-            }
-            .scope_boxed()
-        })
-        .await
-    }
-
     async fn archive_plan(
         &self,
         actor: Actor,
@@ -1788,6 +1790,7 @@ impl PlansInterface for Store {
     ) -> StoreResult<FullPlan> {
         let mut conn = self.get_conn().await?;
         let version_entitlements = version.entitlements.clone();
+        let trial = version.trial;
 
         // Load plan metadata (version-agnostic) to get draft_version_id and product_family_id
         let plan_overview: PlanOverview =
@@ -1834,6 +1837,17 @@ impl PlansInterface for Store {
             .transaction_bumping_tenants(|conn| {
                 let typed_actor = &typed_actor;
                 async move {
+                    if let Some(terms) = trial {
+                        crate::services::trials::catalog::set_plan_trial_tx(
+                            &self.internal,
+                            conn,
+                            typed_actor,
+                            tenant_id,
+                            plan_id,
+                            terms,
+                        )
+                        .await?;
+                    }
                     // Update plan name/description
                     PlanRowPatch {
                         id: plan_id,
@@ -2412,6 +2426,12 @@ async fn fill_offers(
     tenant_id: TenantId,
     plans: &mut [PlanOverview],
 ) -> StoreResult<()> {
+    let plan_ids: Vec<PlanId> = plans.iter().map(|plan| plan.id).collect();
+    let mut trials =
+        crate::services::trials::catalog::plan_trials_tx(conn, tenant_id, &plan_ids).await?;
+    for plan in plans.iter_mut() {
+        plan.trial = trials.remove(&plan.id);
+    }
     let versions: Vec<PlanVersionId> = plans
         .iter()
         .filter_map(|plan| plan.active_version.as_ref().map(|v| v.id))

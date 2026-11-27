@@ -566,6 +566,7 @@ async fn only_reminders_and_expiring_cards_ship_disabled(#[future] test_env: Tes
         api::EmailKind::BudgetExceeded,
         api::EmailKind::SubscriptionCancelled,
         api::EmailKind::PaymentMethodRequested,
+        api::EmailKind::RenewalReminder,
     ] {
         assert!(kind_enabled(&settings, kind), "{kind:?} must ship enabled");
     }
@@ -577,7 +578,7 @@ async fn only_reminders_and_expiring_cards_ship_disabled(#[future] test_env: Tes
         !kind_enabled(&settings, api::EmailKind::PaymentMethodExpiring),
         "a new email to every customer: off until enabled"
     );
-    assert_eq!(settings.kinds.len(), 15, "{:?}", enabled_kinds(&settings));
+    assert_eq!(settings.kinds.len(), 16, "{:?}", enabled_kinds(&settings));
 
     // An entity created after the migration gets the disabled set written explicitly.
     let created = create_entity(&env, "Fresh").await;
@@ -3100,6 +3101,8 @@ async fn create_quote_for(env: &TestEnv, customer: CustomerId) -> QuoteId {
                 currency: "EUR".to_string(),
                 quote_number: None,
                 trial_duration: None,
+                trial_free: None,
+                trial_plan_id: None,
                 start_date: Some(Utc::now().date_naive().to_string()),
                 billing_start_date: None,
                 end_date: None,

@@ -24,6 +24,7 @@ pub fn plan_to_rest(
     version: domain::PlanVersion,
     price_components: Vec<domain::price_components::PriceComponent>,
     product_family_name: String,
+    trial: Option<&domain::trials::PlanTrial>,
 ) -> Result<Plan, RestApiError> {
     let rest_components: Vec<PriceComponent> = price_components
         .iter()
@@ -32,10 +33,10 @@ pub fn plan_to_rest(
 
     let available_parameters = extract_available_parameters(&price_components);
 
-    let trial = version.trial_duration_days.map(|d| TrialConfig {
-        duration_days: d as u32,
-        is_free: version.trial_is_free,
-        trialing_plan_id: version.trialing_plan_id,
+    let trial = trial.map(|trial| TrialConfig {
+        duration_days: trial.offer.duration_days,
+        is_free: trial.offer.free,
+        trialing_plan_id: trial.offer.trial_plan_id,
     });
 
     let minimum_commitment = version

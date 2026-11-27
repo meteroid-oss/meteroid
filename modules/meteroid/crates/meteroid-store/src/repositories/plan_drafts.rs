@@ -375,19 +375,6 @@ async fn insert_draft_tx(
     let entitlements = std::mem::take(&mut terms.entitlements);
     // Every id the draft names is the tenant's: a reference to another tenant's row reads as
     // not found, and nothing is written.
-    if let Some(trialing) = terms
-        .trial
-        .as_ref()
-        .and_then(|trial| trial.trialing_plan_id)
-    {
-        PlanRow::find_by_id(conn, trialing, tenant_id)
-            .await
-            .map_err(|_| {
-                Report::new(StoreError::ValueNotFound(format!(
-                    "plan {trialing} (the trial's)"
-                )))
-            })?;
-    }
     for add_on in &add_ons {
         diesel_models::add_ons::AddOnRow::get_by_id(conn, tenant_id, add_on.add_on_id)
             .await

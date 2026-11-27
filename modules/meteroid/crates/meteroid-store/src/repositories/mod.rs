@@ -106,7 +106,6 @@ pub mod resources;
 pub mod revenue_stats;
 pub mod roles;
 pub mod sandbox;
-pub mod schedules;
 pub mod secrets_reencryption;
 pub mod stats;
 pub mod stored_object;

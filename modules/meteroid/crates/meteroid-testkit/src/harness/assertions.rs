@@ -99,20 +99,6 @@ impl<'a> SubscriptionAssert<'a> {
         self
     }
 
-    /// Assert trial duration days.
-    pub fn has_trial_duration(self, expected: Option<i32>) -> Self {
-        assert_eq!(
-            self.sub.trial_duration,
-            expected,
-            "{}",
-            self.format_msg(&format!(
-                "Expected trial_duration={:?}, got {:?}",
-                expected, self.sub.trial_duration
-            ))
-        );
-        self
-    }
-
     /// Assert the cycle the subscription is in (see [`derived_cycle_index`]).
     pub fn has_cycle_index(self, expected: i32) -> Self {
         let cycle = derived_cycle_index(self.sub);

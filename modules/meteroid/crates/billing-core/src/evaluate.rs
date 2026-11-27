@@ -256,6 +256,22 @@ pub fn renewal_on_or_after<F>(
         .find(|boundary| *boundary >= day)
 }
 
+/// Whether a period of a fee billed every `months` months starts on `day`, on the grid of the
+/// plan window in force then (R-084): a timeline change repricing it there needs no adjustment.
+pub fn starts_fee_period<F>(facts: &Facts<F>, day: NaiveDate, months: u32) -> bool {
+    let run = Run::new(
+        facts,
+        day.and_time(chrono::NaiveTime::MIN).and_utc(),
+        None,
+        &Unpriced,
+    );
+    if run.spans.is_empty() {
+        return false;
+    }
+    run.grid(run.span_on(day), months.max(1))
+        .is_some_and(|grid| grid.is_boundary(day))
+}
+
 /// Prices nothing: for the questions on the facts' periods alone.
 struct Unpriced;
 

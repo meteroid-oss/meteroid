@@ -56,7 +56,6 @@ types:
     - meteroid.api.resources.v1.ResourcesService
     - meteroid.api.savedviews.v1.SavedViewsService
     - meteroid.api.listviews.v1.ListViewsService
-    - meteroid.api.schedules.v1.SchedulesService
     - meteroid.api.segments.v1.SegmentsService
     - meteroid.api.signals.v1.SignalsService
     - meteroid.api.notifications.v1.NotificationChannelsService
@@ -64,7 +63,9 @@ types:
     - meteroid.api.sso.v1.SsoService
     - meteroid.api.stats.v1.StatsService
     - meteroid.api.subscriptions.v1.SubscriptionsService
+    - meteroid.api.subscriptionphases.v1.SubscriptionPhasesService
     - meteroid.api.targets.v1.TargetsService
+    - meteroid.api.trials.v1.TrialsService
     - meteroid.api.tenants.v1.TenantsService
     - meteroid.api.users.v1.UsersService
     - meteroid.api.budgets.v1.BudgetsService
@@ -77,6 +78,7 @@ types:
     - meteroid.api.paymentreminders.v1.InvoiceReminderStepStatus
     - meteroid.api.paymentreminders.v1.NotEligibleReason
     - meteroid.api.rbac.v1.RbacService
+    - meteroid.api.renewals.v1.RenewalsService
     - meteroid.api.retention.v1.RetentionService
     - meteroid.api.rbac.v1.CustomRolesService
     - meteroid.api.invoicingentities.v1.InvoicingEntitiesService

@@ -12,9 +12,9 @@ import type { EmailKind } from '@/rpc/api/customeremails/v1/models_pb'
 import type { CustomerBrief, CustomerPaymentMethod } from '@/rpc/api/customers/v1/models_pb'
 import type { EventSummary } from '@/rpc/api/events/v1/events_pb'
 import type { InvoiceAnnex } from '@/rpc/api/invoices/v1/models_pb'
-import type { MinimumCommitment, PlanVersion } from '@/rpc/api/plans/v1/models_pb'
+import type { MinimumCommitment, PlanTrial, PlanVersion } from '@/rpc/api/plans/v1/models_pb'
 import type { DetailedQuote, QuoteAttachment } from '@/rpc/api/quotes/v1/models_pb'
-import type { Subscription } from '@/rpc/api/subscriptions/v1/models_pb'
+import type { Subscription, TrialConfig } from '@/rpc/api/subscriptions/v1/models_pb'
 import type { PendingInvoiceCredit } from '@/rpc/api/subscriptions/v1/subscriptions_pb'
 import type { Wallet, WalletStatus, WalletSummary } from '@/rpc/api/wallets/v1/models_pb'
 import type { Wallet as PortalWallet } from '@/rpc/portal/wallets/v1/models_pb'
@@ -49,12 +49,42 @@ export interface EventDetailActionsContext {
 }
 
 export interface PlanVersionContext {
+  planId: string
   planVersionId: string
 }
 
 /** One of the plan's optional sections, as a card of "More for this plan"; none when it doesn't apply. */
 export interface PlanDetailExtra {
   useExtra: (ctx: { planVersionId?: string }) => PlanExtra | undefined
+}
+
+/** A quote's ramp in its editor: set once the draft is saved, by its id. */
+export interface QuotePhasesFieldContext {
+  quoteId?: string
+  planVersionId?: string
+  /** The quote's currency: list prices and generated phases are read in it. */
+  currency?: string
+}
+
+/** A catalog offer a subscription being created is given; none takes what the core card asks. */
+export interface TrialOfferFieldContext {
+  planId: string
+  value?: string
+  onChange: (trialOfferId?: string) => void
+}
+
+/** The plan's trial in its editor: the catalog's part of it, after the core fields. */
+export interface PlanTrialContext {
+  planId: string
+  trial?: PlanTrial
+  readOnly: boolean
+  onDone: () => void
+}
+
+/** A running trial's actions on the subscription page. */
+export interface SubscriptionTrialActionsContext {
+  subscriptionId: string
+  trial: TrialConfig
 }
 
 export interface InvoicingEntityCreateContext {
@@ -511,12 +541,20 @@ export interface ComponentSlots {
   'planEdit.creditRule': PlanCreditRuleContext
   /** The plan version's minimum, in its Contract terms; without one, a stored minimum shows read-only. */
   'planDetail.minimumCommitment': PlanMinimumCommitmentContext
+  /** In the subscription creation's Trial card, after the plan's trial. */
+  'subscriptionCreate.trialOffer': TrialOfferFieldContext
+  /** In the plan's Trial card, after its own fields. */
+  'planDetail.trial': PlanTrialContext
+  /** On the subscription's Trial card: extend it, end it now. */
+  'subscriptionDetail.trialActions': SubscriptionTrialActionsContext
   /** The Contract terms of the subscription creation; without one, the subscription takes the plan's minimum. */
   'subscriptionCreate.minimumCommitment': MinimumCommitmentFieldContext
   /** The Contract terms of the quote form; without one, an edited quote keeps its minimum and a new one takes the plan's. */
   'quoteCreate.minimumCommitment': MinimumCommitmentFieldContext
   /** In the Document section of the quote form, after the sections; without one, an edited quote keeps its files. */
   'quoteCreate.attachments': QuoteAttachmentsFieldContext
+  /** In the quote editor, after its subscription terms; not in a template. */
+  'quoteCreate.phases': QuotePhasesFieldContext
   /** In the quote's document, before the signatures: the files signed with it. */
   'quoteView.attachments': QuoteViewAttachmentsContext
   /** Header of the quote form: starting from a template, saving the quote as one. */

@@ -71,32 +71,38 @@ fn all_closed<T: Eq + std::hash::Hash + std::fmt::Debug>(
     ))))
 }
 
-/// The facts of subscriptions just inserted: their first plan window, trial, a start that needs no
-/// checkout, a fixed term. `trial_is_free` is the plan version's, in force at the start.
+/// The facts of subscriptions just inserted: their first plan window, trial (as resolved, R-153), a
+/// start that needs no checkout, a fixed term.
 pub(crate) async fn record_inserted_tx(
     conn: &mut PgConn,
     actor: &Actor,
-    inserted: &[(&SubscriptionRowNew, bool)],
+    inserted: &[(
+        &SubscriptionRowNew,
+        Option<&crate::domain::trials::ResolvedTrial>,
+    )],
 ) -> StoreResult<()> {
     let now = common_clock::now().naive_utc();
     let mut windows = Vec::new();
     let mut trials = Vec::new();
     let mut starts = Vec::new();
     let mut endings = Vec::new();
-    for (row, trial_is_free) in inserted {
+    for (row, trial) in inserted {
         let billing_start = row.billing_start_date.unwrap_or(row.start_date);
-        let trial = match row
-            .trial_duration
-            .and_then(|days| u64::try_from(days).ok())
-            .filter(|days| *days > 0)
-        {
-            Some(days) => Some(billing_start.checked_add_days(Days::new(days)).ok_or_else(
-                || StoreError::InvalidArgument(format!("a trial of {days} days is out of range")),
-            )?),
+        let until = match trial {
+            Some(trial) => Some(
+                billing_start
+                    .checked_add_days(Days::new(u64::from(trial.days)))
+                    .ok_or_else(|| {
+                        StoreError::InvalidArgument(format!(
+                            "a trial of {} days is out of range",
+                            trial.days
+                        ))
+                    })?,
+            ),
             None => None,
         };
-        let billing_from = match trial {
-            Some(until) if *trial_is_free => until,
+        let billing_from = match (trial, until) {
+            (Some(trial), Some(until)) if trial.free => until,
             _ => billing_start,
         };
         windows.push(SubscriptionPlanWindowRowNew {
@@ -108,14 +114,17 @@ pub(crate) async fn record_inserted_tx(
             cadence: row.period.clone(),
             cadence_origin: billing_from,
         });
-        if let Some(until) = trial {
+        if let (Some(trial), Some(until)) = (trial, until) {
             trials.push(SubscriptionTrialRow {
                 subscription_id: row.id,
                 tenant_id: row.tenant_id,
                 from_date: billing_start,
                 until_date: until,
-                free: *trial_is_free,
+                free: trial.free,
                 created_at: now,
+                trial_plan_id: trial.trial_plan_id,
+                trial_offer_id: trial.offer,
+                end_action: trial.end_action.as_str().to_owned(),
             });
         }
         // An On Start subscription's billing starts on its start date, known at insert even when
@@ -355,6 +364,40 @@ pub(crate) async fn settle_start_tx(
         }],
     )
     .await)
+}
+
+/// A running trial moved to end on `until`: its end, and a free trial's billing origin with it,
+/// on the one plan window it started with (a plan change since ended the trial already).
+pub(crate) async fn record_trial_end_tx(
+    conn: &mut PgConn,
+    subscription_id: SubscriptionId,
+    trial: &SubscriptionTrialRow,
+    until: NaiveDate,
+) -> StoreResult<()> {
+    if trial.free {
+        let windows =
+            db(SubscriptionPlanWindowRow::list_by_subscription(conn, subscription_id).await)?;
+        let [window] = windows.as_slice() else {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "the subscription changed plan since its trial started".to_string(),
+            )));
+        };
+        if window.cadence_origin != trial.until_date {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "the subscription's billing no longer starts on its trial's end".to_string(),
+            )));
+        }
+        db(
+            SubscriptionPlanWindowRow::set_origin(conn, window.id, until.max(trial.from_date))
+                .await,
+        )?;
+    }
+    if until <= trial.from_date {
+        db(SubscriptionTrialRow::remove(conn, subscription_id).await)?;
+    } else {
+        db(SubscriptionTrialRow::move_end(conn, subscription_id, until).await)?;
+    }
+    Ok(())
 }
 
 /// A plan change applied on `on` to `plan_version_id` on `cadence`: its plan window from then, and

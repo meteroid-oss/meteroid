@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+package meteroid.api.trials.v1;
+
+import "api/plans/v1/models.proto";
+
+// A trial in the catalog: a plan's trial, or given at a subscription's creation by name, once per
+// customer and scope when its eligibility says so (R-153, R-159). Writes are Enterprise.
+message TrialOffer {
+  enum EndAction {
+    // The subscription goes on, billed from the trial's end.
+    CONVERT = 0;
+    // It ends with the trial: its end date is the trial's.
+    CANCEL = 1;
+    // It switches to `fallback_plan_version_id` at the trial's end (free trials only).
+    FALLBACK = 2;
+  }
+  enum Eligibility {
+    // Given without limit.
+    NONE = 0;
+    OFFER = 1;
+    PLAN = 2;
+    PRODUCT_FAMILY = 3;
+  }
+  string id = 1;
+  string name = 2;
+  // How the API names it beside its id, unique in the tenant.
+  optional string code = 3;
+  meteroid.api.plans.v1.TrialTerms terms = 4;
+  EndAction end_action = 5;
+  optional string fallback_plan_version_id = 6;
+  Eligibility eligibility = 7;
+  bool archived = 8;
+  // The plans it is the trial of; read only.
+  repeated string plan_ids = 9;
+}
+
+message ListTrialOffersRequest {
+  bool include_archived = 1;
+}
+message ListTrialOffersResponse {
+  repeated TrialOffer offers = 1;
+}
+
+message CreateTrialOfferRequest {
+  TrialOffer offer = 1;
+}
+message CreateTrialOfferResponse {
+  TrialOffer offer = 1;
+}
+
+// The offer's terms replaced by `offer`'s, its id naming it: trials to come take them, trials it
+// started keep theirs.
+message UpdateTrialOfferRequest {
+  TrialOffer offer = 1;
+}
+message UpdateTrialOfferResponse {
+  TrialOffer offer = 1;
+}
+
+// Archived, an offer is given no more and is no plan's trial.
+message ArchiveTrialOfferRequest {
+  string id = 1;
+}
+message ArchiveTrialOfferResponse {
+  // The plans it was the trial of, now without one.
+  repeated string plan_ids = 1;
+}
+
+// The plan's trial set to a catalog offer, or removed when unset.
+message SetPlanTrialOfferRequest {
+  string plan_id = 1;
+  optional string trial_offer_id = 2;
+}
+message SetPlanTrialOfferResponse {
+  optional meteroid.api.plans.v1.PlanTrial trial = 1;
+}
+
+// A running trial extended, or ended today (a converting trial only), its end action moving with
+// it.
+message MoveTrialRequest {
+  string subscription_id = 1;
+  oneof to {
+    // The new end, exclusive.
+    string until_date = 2;
+    uint32 days = 3;
+    // Today: billing starts now.
+    bool now = 4;
+  }
+}
+message MoveTrialResponse {
+  // The trial's new end, exclusive.
+  string until_date = 1;
+}
+
+service TrialsService {
+  rpc ListTrialOffers(ListTrialOffersRequest) returns (ListTrialOffersResponse) {}
+  rpc CreateTrialOffer(CreateTrialOfferRequest) returns (CreateTrialOfferResponse) {}
+  rpc UpdateTrialOffer(UpdateTrialOfferRequest) returns (UpdateTrialOfferResponse) {}
+  rpc ArchiveTrialOffer(ArchiveTrialOfferRequest) returns (ArchiveTrialOfferResponse) {}
+  rpc SetPlanTrialOffer(SetPlanTrialOfferRequest) returns (SetPlanTrialOfferResponse) {}
+  rpc MoveTrial(MoveTrialRequest) returns (MoveTrialResponse) {}
+}

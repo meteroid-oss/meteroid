@@ -189,7 +189,8 @@ impl Services {
                 } => UpcomingChange::PlanChange {
                     plan_version_id: *new_plan_version_id,
                 },
-                ScheduledEventData::ApplyAmendment { .. } => UpcomingChange::Amendment,
+                ScheduledEventData::ApplyAmendment { .. }
+                | ScheduledEventData::ApplyPhase { .. } => UpcomingChange::Amendment,
             };
             // Written as facts, the renewal reads its rows.
             let changed = self.details_on(conn, details, on).await?;

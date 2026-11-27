@@ -57,7 +57,6 @@ INSERT INTO invoice_annex_template(id,tenant_id,name,kind,definition) VALUES ('1
 INSERT INTO plan_version_annex_template(plan_version_id,annex_template_id,tenant_id) VALUES ('10000000-0000-0000-0000-000000000009','10000000-0000-0000-0000-00000000001c','10000000-0000-0000-0000-000000000002');
 INSERT INTO plan_version_adjustment(plan_version_id,kind,amount_subunit) VALUES ('10000000-0000-0000-0000-000000000009','MINIMUM',1);
 INSERT INTO plan_version_adjustment_component(plan_version_id,kind,product_id) VALUES ('10000000-0000-0000-0000-000000000009','MINIMUM','10000000-0000-0000-0000-000000000006');
-INSERT INTO schedule(id,billing_period,plan_version_id,ramps) VALUES (gen_random_uuid(),'MONTHLY','10000000-0000-0000-0000-000000000009','{}');
 
 -- features/entitlements
 INSERT INTO feature(id,tenant_id,product_id,name,code,metric_id,kind) VALUES ('10000000-0000-0000-0000-000000000016','10000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-000000000006','F','fc','10000000-0000-0000-0000-000000000015','BOOLEAN');
@@ -72,6 +71,10 @@ INSERT INTO subscription_adjustment_component(subscription_id,kind,product_id) V
 INSERT INTO subscription_change(id,tenant_id,subscription_id,kind,effective_at,change,source,created_at,updated_at) VALUES (gen_random_uuid(),'10000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-00000000000a','AMENDMENT',now(),'{}','x',now(),now());
 INSERT INTO managed_quantity(id,tenant_id,code,name) VALUES ('10000000-0000-0000-0000-0000000000f3','10000000-0000-0000-0000-000000000002','seats','seats');
 INSERT INTO slot_transaction(id,subscription_id,delta,prev_active_slots,effective_at,managed_quantity_id) VALUES (gen_random_uuid(),'10000000-0000-0000-0000-00000000000a',1,0,now(),'10000000-0000-0000-0000-0000000000f3');
+INSERT INTO subscription_change(id,tenant_id,subscription_id,kind,effective_at,change,source,created_at,updated_at) VALUES ('10000000-0000-0000-0000-0000000000f4','10000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-00000000000a','PHASE',now(),'{}','x',now(),now());
+INSERT INTO subscription_phase(id,tenant_id,subscription_id,seq,start_date,terms,change_id,created_at) VALUES (gen_random_uuid(),'10000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-00000000000a',0,CURRENT_DATE,'{}','10000000-0000-0000-0000-0000000000f4',now());
+INSERT INTO subscription_term(subscription_id,tenant_id,term_end,auto_renew,renewal_months,notice_days,updated_at) VALUES ('10000000-0000-0000-0000-00000000000a','10000000-0000-0000-0000-000000000002',CURRENT_DATE + 30,true,12,0,now());
+INSERT INTO subscription_timeline_item(id,tenant_id,subscription_id,kind,add_on_id,lineage_id,start_date,until_date,terms,end_change_id,created_at) VALUES (gen_random_uuid(),'10000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-00000000000a','ADD_ON','10000000-0000-0000-0000-000000000011',gen_random_uuid(),CURRENT_DATE,CURRENT_DATE + 1,'{}','10000000-0000-0000-0000-0000000000f4',now());
 INSERT INTO subscription_plan_window(id,tenant_id,subscription_id,plan_version_id,from_date,cadence,cadence_origin,created_at) VALUES ('10000000-0000-0000-0000-0000000000f2','10000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-00000000000a','10000000-0000-0000-0000-000000000009',CURRENT_DATE,'MONTHLY',CURRENT_DATE,now());
 INSERT INTO subscription_plan_window_origin_pending(window_id) VALUES ('10000000-0000-0000-0000-0000000000f2');
 INSERT INTO subscription_trial(subscription_id,tenant_id,from_date,until_date,free,created_at) VALUES ('10000000-0000-0000-0000-00000000000a','10000000-0000-0000-0000-000000000002',CURRENT_DATE,CURRENT_DATE,true,now());

@@ -43,7 +43,7 @@ use http::StatusCode;
 use meteroid_app::rest::denomination::{Denomination, Denominations};
 use meteroid_rest_common::datetime::ApiDateTime;
 use meteroid_store::domain::outbox_event::{OutboxEvent, PaymentTransactionEvent};
-use meteroid_store::domain::retention_events;
+use meteroid_store::domain::{renewals, retention_events};
 use meteroid_store::repositories::CreditNoteInterface;
 use meteroid_store::repositories::CustomerCreditWalletsInterface;
 use meteroid_store::repositories::PlansInterface;
@@ -533,19 +533,54 @@ pub async fn data(reader: &impl Reader, event: &OutboxEvent) -> Result<Value, Pr
                 completed_at: e.completed_at.into(),
             })
         }
-        OutboxEvent::RetentionRenewalUpcoming(e) => {
+        OutboxEvent::SubscriptionRenewalUpcoming(e) => {
             let refs = refs(reader, tenant_id, |ids| ids.customers.push(e.customer_id)).await?;
             to_value(&RenewalUpcomingEventData {
                 customer: refs.customer(e.customer_id),
                 subscription: subscription(reader, tenant_id, e.subscription_id).await?,
                 renewal_date: e.renewal_date,
                 mode: e.mode.into(),
+                source: e.source.into(),
                 days_before: e.days_before,
+                opt_out_deadline: e.opt_out_deadline,
+                term: e.term.clone().map(|term| RenewalTerm {
+                    auto_renew: term.auto_renew,
+                    renewal_months: term.renewal_months,
+                    uplift_percent: term.uplift_percent,
+                    notice_days: term.notice_days,
+                }),
                 mrr: Money {
                     amount: e.mrr_cents,
                     currency: e.currency.clone(),
                 },
                 notified_at: e.notified_at.into(),
+            })
+        }
+        OutboxEvent::EntitlementOverrideEndingSoon(e)
+        | OutboxEvent::EntitlementOverrideEnded(e) => {
+            let refs = refs(reader, tenant_id, |ids| {
+                ids.customers.push(e.customer_id);
+                ids.features.push(e.feature_id);
+            })
+            .await?;
+            to_value(&OverrideEndingEventData {
+                customer: refs.customer(e.customer_id),
+                feature: refs.feature(e.feature_id),
+                entitlement_override: e.override_id,
+                resource: e.resource_id,
+                effect: e.effect.to_ascii_lowercase(),
+                value: e.value.clone(),
+                valid_until: e.valid_until.into(),
+                reason: e.reason.clone(),
+            })
+        }
+        OutboxEvent::SubscriptionTrialEndingSoon(e) => {
+            let refs = refs(reader, tenant_id, |ids| ids.customers.push(e.customer_id)).await?;
+            to_value(&TrialEndingEventData {
+                customer: refs.customer(e.customer_id),
+                subscription: subscription(reader, tenant_id, e.subscription_id).await?,
+                trial_end: e.trial_end,
+                free: e.free,
             })
         }
         OutboxEvent::BudgetThresholdReached(e) | OutboxEvent::BudgetExceeded(e) => {
@@ -1225,39 +1260,121 @@ pub struct RetentionSessionCompletedEventData {
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RenewalMode {
-    /// An annual or semiannual subscription renews on the date.
+    /// The subscription renews on the date: its term auto-renews, or an annual or semiannual
+    /// period ends.
     Renewing,
-    /// A fixed term ends on the date.
+    /// The subscription ends on the date: a term not renewing, or an end date.
     Ending,
     /// The subscription is set to cancel on the date.
     Cancelling,
 }
 
-impl From<retention_events::RenewalMode> for RenewalMode {
-    fn from(mode: retention_events::RenewalMode) -> Self {
+impl From<renewals::RenewalMode> for RenewalMode {
+    fn from(mode: renewals::RenewalMode) -> Self {
         match mode {
-            retention_events::RenewalMode::Renewing => RenewalMode::Renewing,
-            retention_events::RenewalMode::Ending => RenewalMode::Ending,
-            retention_events::RenewalMode::Cancelling => RenewalMode::Cancelling,
+            renewals::RenewalMode::Renewing => RenewalMode::Renewing,
+            renewals::RenewalMode::Ending => RenewalMode::Ending,
+            renewals::RenewalMode::Cancelling => RenewalMode::Cancelling,
         }
     }
 }
 
-/// A subscription reached a checkpoint before its renewal, the end of its term or its scheduled
-/// cancellation.
+/// What dates a renewal: the contract term, an annual or semiannual period, an end date, or a
+/// scheduled cancellation.
+#[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RenewalSource {
+    Term,
+    Period,
+    EndDate,
+    Cancellation,
+}
+
+impl From<renewals::RenewalSource> for RenewalSource {
+    fn from(source: renewals::RenewalSource) -> Self {
+        match source {
+            renewals::RenewalSource::Term => RenewalSource::Term,
+            renewals::RenewalSource::Period => RenewalSource::Period,
+            renewals::RenewalSource::EndDate => RenewalSource::EndDate,
+            renewals::RenewalSource::Cancellation => RenewalSource::Cancellation,
+        }
+    }
+}
+
+/// How the contract term renews.
+#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+pub struct RenewalTerm {
+    pub auto_renew: bool,
+    pub renewal_months: u32,
+    /// Percent added at the renewal to each fee priced by one amount.
+    #[serde(
+        with = "rust_decimal::serde::str_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(value_type = Option<String>, format = "decimal")]
+    pub uplift_percent: Option<rust_decimal::Decimal>,
+    /// Days before the term's end an opt-out is still taken.
+    pub notice_days: u32,
+}
+
+/// A subscription reached a notice checkpoint before it renews, its term ends or it cancels
+/// (`subscription.renewal_upcoming`, R-157).
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct RenewalUpcomingEventData {
     pub customer: CustomerRef,
     /// The subscription, as `GET /subscriptions/{id}` reads it.
     #[schema(value_type = Subscription)]
     pub subscription: Value,
+    /// The day the subscription renews, ends or cancels.
     pub renewal_date: NaiveDate,
     pub mode: RenewalMode,
-    /// The checkpoint reached: how many days before the date this notice is.
+    pub source: RenewalSource,
+    /// The checkpoint reached: how many days before the opt-out deadline, else the date.
     pub days_before: u32,
+    /// The last day the renewal can be opted out of, for a term renewing with notice.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opt_out_deadline: Option<NaiveDate>,
+    /// The contract term, for a subscription under one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub term: Option<RenewalTerm>,
     /// The subscription's monthly recurring revenue when the notice was made, tax excluded.
     pub mrr: Money,
     pub notified_at: ApiDateTime,
+}
+
+/// A customer or resource override with an end ends within a week
+/// (`entitlement.override_ending_soon`) or has ended (`entitlement.override_ended`), once per end.
+#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+pub struct OverrideEndingEventData {
+    pub customer: CustomerRef,
+    pub feature: FeatureRef,
+    /// The override, as `/customers/{id}/entitlement-overrides/{id}` names it across its edits.
+    pub entitlement_override: uuid::Uuid,
+    /// The stored resource it overrides; absent for the whole customer.
+    #[serde(
+        serialize_with = "common_domain::ids::string_serde_opt::serialize",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(value_type = Option<String>)]
+    pub resource: Option<common_domain::ids::ResourceId>,
+    pub effect: String,
+    #[schema(value_type = Object)]
+    pub value: Value,
+    pub valid_until: ApiDateTime,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// A subscription's trial ends in 3 days, once per trial end.
+#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+pub struct TrialEndingEventData {
+    pub customer: CustomerRef,
+    /// The subscription, as `GET /subscriptions/{id}` reads it.
+    #[schema(value_type = Subscription)]
+    pub subscription: Value,
+    /// The trial's end, exclusive: billing starts on it.
+    pub trial_end: NaiveDate,
+    pub free: bool,
 }
 
 /// A budget's spend reached a percentage of it (`budget.threshold_reached`), or the budget
@@ -1330,7 +1447,9 @@ pub fn data_schema(event: WebhookOutEventTypeEnum) -> &'static str {
         E::CheckoutPaymentKeptAsCredit => "CheckoutPaymentKeptAsCreditEventData",
         E::BudgetThresholdReached | E::BudgetExceeded => "BudgetAlertEventData",
         E::RetentionSessionCompleted => "RetentionSessionCompletedEventData",
-        E::RetentionRenewalUpcoming => "RenewalUpcomingEventData",
+        E::SubscriptionRenewalUpcoming => "RenewalUpcomingEventData",
+        E::EntitlementOverrideEndingSoon | E::EntitlementOverrideEnded => "OverrideEndingEventData",
+        E::SubscriptionTrialEndingSoon => "TrialEndingEventData",
     }
 }
 
@@ -1399,6 +1518,8 @@ pub fn envelope_schema(event: WebhookOutEventTypeEnum) -> String {
     CheckoutPaymentKeptAsCreditEventData,
     RetentionSessionCompletedEventData,
     RenewalUpcomingEventData,
+    OverrideEndingEventData,
+    TrialEndingEventData,
 )))]
 pub struct WebhookPayloadsDoc;
 

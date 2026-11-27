@@ -335,10 +335,10 @@ async fn test_renewal_after_paid_trial(#[future] test_env: TestEnv) {
         .with_context("Phase 3: After first process_cycles")
         .is_active()
         .has_pending_checkout(false)
-        .has_trial_duration(Some(7))
         .has_cycle_index(1) // Cycle advanced due to renewal
         .has_resolved_payment_method(&env, true)
         .await;
+    assert_eq!(env.trial_days(sub_id).await, Some(7));
 
     // 2 invoices: checkout + first renewal
     let invoices = env.get_invoices(sub_id).await;
@@ -608,10 +608,8 @@ async fn test_onstart_no_trial_no_auto_charge(#[future] test_env: TestEnv) {
 
     // Verify subscription state
     let sub = env.get_subscription(sub_id).await;
-    sub.assert()
-        .is_active()
-        .has_pending_checkout(false)
-        .has_trial_duration(None);
+    sub.assert().is_active().has_pending_checkout(false);
+    assert_eq!(env.trial_days(sub_id).await, None);
 
     // Verify invoice created
     let invoices = env.get_invoices(sub_id).await;
@@ -645,9 +643,9 @@ async fn test_onstart_no_trial_auto_charge_with_payment_method(#[future] test_en
     sub.assert()
         .is_active()
         .has_pending_checkout(false)
-        .has_trial_duration(None)
         .has_resolved_payment_method(&env, true)
         .await;
+    assert_eq!(env.trial_days(sub_id).await, None);
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(1);
@@ -700,10 +698,8 @@ async fn test_onstart_no_trial_auto_charge_without_payment_method(#[future] test
 
     // Verify subscription state
     let sub = env.get_subscription(sub_id).await;
-    sub.assert()
-        .is_active()
-        .has_pending_checkout(false)
-        .has_trial_duration(None);
+    sub.assert().is_active().has_pending_checkout(false);
+    assert_eq!(env.trial_days(sub_id).await, None);
 
     env.run_outbox_and_orchestration().await;
 
@@ -735,10 +731,8 @@ async fn test_onstart_free_trial_no_auto_charge(#[future] test_env: TestEnv) {
 
     // === Phase 1: Trial Active ===
     let sub = env.get_subscription(sub_id).await;
-    sub.assert()
-        .is_trial_active()
-        .has_pending_checkout(false)
-        .has_trial_duration(Some(14));
+    sub.assert().is_trial_active().has_pending_checkout(false);
+    assert_eq!(env.trial_days(sub_id).await, Some(14));
 
     // No invoices during free trial
     let invoices = env.get_invoices(sub_id).await;
@@ -748,10 +742,8 @@ async fn test_onstart_free_trial_no_auto_charge(#[future] test_env: TestEnv) {
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert()
-        .is_active()
-        .has_pending_checkout(false)
-        .has_trial_duration(Some(14));
+    sub.assert().is_active().has_pending_checkout(false);
+    assert_eq!(env.trial_days(sub_id).await, Some(14));
 
     // Invoice created after trial ends (trust-based billing)
     let invoices = env.get_invoices(sub_id).await;
@@ -797,8 +789,8 @@ async fn test_onstart_paid_trial(#[future] test_env: TestEnv) {
         .with_context("Initial state")
         .is_trial_active()
         .has_pending_checkout(false)
-        .has_trial_duration(Some(7))
         .has_cycle_index(0);
+    assert_eq!(env.trial_days(sub_id).await, Some(7));
 
     // Paid trial creates FULL invoice immediately (NOT prorated)
     let invoices = env.get_invoices(sub_id).await;
@@ -821,8 +813,8 @@ async fn test_onstart_paid_trial(#[future] test_env: TestEnv) {
         .with_context("After process_cycles")
         .is_active()
         .has_pending_checkout(false)
-        .has_trial_duration(Some(7))
         .has_cycle_index(1); // Cycle advanced
+    assert_eq!(env.trial_days(sub_id).await, Some(7));
 
     // Two invoices: creation + renewal at month end
     let invoices = env.get_invoices(sub_id).await;
@@ -864,9 +856,9 @@ async fn test_oncheckout_no_trial_full_flow(#[future] test_env: TestEnv) {
     sub.assert()
         .is_pending_activation()
         .has_pending_checkout(true)
-        .has_trial_duration(None)
         .has_resolved_payment_method(&env, true)
         .await;
+    assert_eq!(env.trial_days(sub_id).await, None);
 
     // No invoice before checkout
     let invoices = env.get_invoices(sub_id).await;
@@ -906,9 +898,9 @@ async fn test_oncheckout_no_trial_full_flow(#[future] test_env: TestEnv) {
     sub.assert()
         .is_active()
         .has_pending_checkout(false)
-        .has_trial_duration(None)
         .has_resolved_payment_method(&env, true)
         .await;
+    assert_eq!(env.trial_days(sub_id).await, None);
 
     // Invoice should exist - payment_status remains Unpaid until webhook processes it
     let invoices = env.get_invoices(sub_id).await;

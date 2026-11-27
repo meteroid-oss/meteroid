@@ -210,15 +210,20 @@ async fn test_rest_v2_prices_and_bounds_are_checked_at_their_pointer() {
         &f.post("/api/v2/plans", late_terms).await,
         "/draft/net_terms",
     );
-    let mut long_trial = plan_of(
+    let trialed = plan_of(
         "trial",
         &[],
         flat(json!({"currency": "EUR", "model": {"type": "flat", "amount": "49"}})),
     );
-    long_trial["draft"]["trial"] = json!({"days": 100000});
+    let created = f.post("/api/v2/plans", trialed).await;
+    assert_eq!(created.status, StatusCode::CREATED, "{:#}", created.body);
     refused_at(
-        &f.post("/api/v2/plans", long_trial).await,
-        "/draft/trial/days",
+        &f.patch(
+            "/api/v2/plans/trial",
+            json!({"trial": {"type": "terms", "days": 100000}}),
+        )
+        .await,
+        "/trial/days",
     );
     let many_charges: Vec<Value> = (0..101)
         .map(|index| json!({"product": "platform", "name": format!("Fee {index}")}))
@@ -256,8 +261,13 @@ async fn test_rest_v2_prices_and_bounds_are_checked_at_their_pointer() {
         "/billing_day_anchor",
     );
     refused_at(
-        &subscribe(&f, "trial", json!({"trial_days": 100000})).await,
-        "/trial_days",
+        &subscribe(
+            &f,
+            "trial",
+            json!({"trial": {"type": "custom", "days": 100000}}),
+        )
+        .await,
+        "/trial/days",
     );
     // Never wrapped: 4294967295 days of net terms would be stored as -1.
     refused_at(

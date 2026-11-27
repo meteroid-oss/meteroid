@@ -15,7 +15,6 @@ use meteroid_store::domain::enums::{
 use meteroid_store::domain::invoicing_entities::InvoicingEntityPatch;
 use meteroid_store::domain::plan_minimums::CreateMinimumScope;
 use meteroid_store::domain::plan_version_add_ons::PlanVersionAddOnNew;
-use meteroid_store::domain::plans::PlanTrial;
 use meteroid_store::domain::price_components::{
     CapacityThreshold, DowngradePolicy, FeeType, PriceComponentNewInternal, PriceEntry, PriceInput,
     ProductRef, TermRate, UpgradePolicy, UsagePricingModel,
@@ -858,11 +857,13 @@ impl Engine {
                             billing_cycles: None,
                             // A free trial is the plan version's: a trial the request alone
                             // asks for is a paid one.
-                            trial: catalog.trial.filter(|_| p == 0).map(|trial| PlanTrial {
-                                duration_days: u32::try_from((trial.end - day).num_days())
-                                    .unwrap_or(0),
-                                trialing_plan_id: None,
-                                trial_is_free: true,
+                            trial: catalog.trial.filter(|_| p == 0).map(|trial| {
+                                Some(meteroid_store::domain::trials::TrialTerms {
+                                    duration_days: u32::try_from((trial.end - day).num_days())
+                                        .unwrap_or(0),
+                                    free: true,
+                                    trial_plan_id: None,
+                                })
                             }),
                             entitlements: vec![],
                             tax_inclusive: false,
@@ -1000,8 +1001,10 @@ impl Engine {
         request.subscription.auto_advance_invoices = catalog.auto_advance;
         request.subscription.end_date = catalog.term_end;
         if let Some(trial) = catalog.trial {
-            request.subscription.trial_duration =
-                Some(u32::try_from((trial.end - day).num_days()).map_err(err)?);
+            request.subscription.trial = meteroid_store::domain::trials::TrialRequest::from_days(
+                Some(u32::try_from((trial.end - day).num_days()).map_err(err)?),
+                None,
+            );
             request.subscription.billing_day_anchor =
                 trial.anchor.map(|d| u16::try_from(d).unwrap_or(1));
             if !trial.card {

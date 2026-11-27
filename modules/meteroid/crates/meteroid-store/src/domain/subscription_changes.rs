@@ -14,6 +14,16 @@ pub struct PlanTarget {
     pub version: PlanVersionId,
     /// None: the subscription's option alias when the target version has it, else the default.
     pub option: Option<crate::domain::plan_options::PlanOptionRef>,
+    /// Prices the change sets on the target's charges priced by one amount, over the catalog's
+    /// (R-163).
+    pub prices: Vec<TargetPrice>,
+}
+
+/// A charge of the plan changed to, at its own price: an override row, never carried.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TargetPrice {
+    pub component_id: PriceComponentId,
+    pub price: rust_decimal::Decimal,
 }
 
 impl From<PlanVersionId> for PlanTarget {
@@ -21,6 +31,7 @@ impl From<PlanVersionId> for PlanTarget {
         PlanTarget {
             version,
             option: None,
+            prices: Vec::new(),
         }
     }
 }

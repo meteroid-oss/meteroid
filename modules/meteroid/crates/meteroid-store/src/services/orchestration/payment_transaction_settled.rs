@@ -436,12 +436,15 @@ impl Services {
                         let current_period_end;
                         let status;
 
-                        if let Some(trial_duration) = subscription.subscription.trial_duration {
+                        if let Some(trial) =
+                            crate::services::trials::trial_of_tx(conn, subscription.subscription.id)
+                                .await?
+                        {
                             status = SubscriptionStatusEnum::TrialActive;
                             current_period_start = billing_start_date;
                             current_period_end = Some(
                                 current_period_start
-                                    + chrono::Duration::days(i64::from(trial_duration)),
+                                    + chrono::Duration::days(i64::from(trial.days())),
                             );
                         } else {
                             let range = calculate_advance_period_range(
@@ -909,14 +912,8 @@ impl Services {
                                         .map(|a| a as u32)
                                         .unwrap_or_else(|| billing_start_date.day());
 
-                                    let is_paid_trial_flag = is_paid_trial(
-                                        conn,
-                                        subscription.subscription.id,
-                                        subscription.subscription.plan_version_id,
-                                        event.tenant_id,
-                                        session.trial_duration_days.is_some(),
-                                    )
-                                    .await?;
+                                    let is_paid_trial_flag =
+                                        is_paid_trial(conn, subscription.subscription.id).await?;
 
                                     services.activate_subscription_after_payment(
                                         conn,
@@ -924,7 +921,7 @@ impl Services {
                                         &event.tenant_id,
                                         PaymentActivationParams {
                                             billing_start_date,
-                                            trial_duration: session.trial_duration_days,
+                                            trial_duration: created_subscription.trial_duration,
                                             is_paid_trial: is_paid_trial_flag,
                                             billing_day_anchor,
                                             period: subscription.subscription.period.into(),
@@ -1063,14 +1060,8 @@ impl Services {
                                     .billing_start_date
                                     .unwrap_or_else(|| common_clock::now().date_naive());
 
-                                let is_paid_trial_flag = is_paid_trial(
-                                    conn,
-                                    subscription.subscription.id,
-                                    subscription.subscription.plan_version_id,
-                                    event.tenant_id,
-                                    subscription.subscription.trial_duration.is_some(),
-                                )
-                                .await?;
+                                let is_paid_trial_flag =
+                                    is_paid_trial(conn, subscription.subscription.id).await?;
 
                                 services.activate_subscription_after_payment(
                                     conn,

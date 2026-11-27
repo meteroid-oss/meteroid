@@ -699,7 +699,7 @@ impl PurchaseLinks {
                 billing_start_date: None,
                 billing_day_anchor: None,
                 net_terms: None,
-                trial_duration_days: link.version.trial_duration_days,
+                trial: Default::default(),
                 end_date: None,
                 auto_advance_invoices: true,
                 charge_automatically: true,

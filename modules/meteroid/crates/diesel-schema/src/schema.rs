@@ -812,6 +812,8 @@ diesel::table! {
         coupon_ids_before_payment -> Nullable<Array<Nullable<Uuid>>>,
         plan_option -> Nullable<Text>,
         resource_id -> Nullable<Uuid>,
+        trial_free -> Nullable<Bool>,
+        trial_offer_id -> Nullable<Uuid>,
     }
 }
 
@@ -1682,6 +1684,16 @@ diesel::table! {
         result_count -> Numeric,
         request_hash -> Text,
         created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    entitlement_override_notice (lineage_id, valid_until, ended) {
+        lineage_id -> Uuid,
+        valid_until -> Timestamptz,
+        ended -> Bool,
+        tenant_id -> Uuid,
+        noticed_at -> Timestamptz,
     }
 }
 
@@ -2788,6 +2800,7 @@ diesel::table! {
         pricing_hidden_product_ids -> Array<Nullable<Uuid>>,
         code -> Text,
         sold_for_resource_type_id -> Nullable<Uuid>,
+        trial_offer_id -> Nullable<Uuid>,
     }
 }
 
@@ -2808,15 +2821,12 @@ diesel::table! {
         is_draft_version -> Bool,
         plan_id -> Uuid,
         version -> Int4,
-        trial_duration_days -> Nullable<Int4>,
         tenant_id -> Uuid,
         period_start_day -> Nullable<Int2>,
         net_terms -> Int4,
         currency -> Text,
         billing_cycles -> Nullable<Int4>,
         created_at -> Timestamp,
-        trialing_plan_id -> Nullable<Uuid>,
-        trial_is_free -> Bool,
         uses_product_pricing -> Bool,
         tax_inclusive -> Bool,
         credit_exhausted_rule -> Nullable<CreditExhaustedRuleEnum>,
@@ -2880,6 +2890,19 @@ diesel::table! {
         position -> Int4,
         created_at -> Timestamp,
         hidden -> Bool,
+    }
+}
+
+diesel::table! {
+    plan_version_phase (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        plan_version_id -> Uuid,
+        seq -> Int4,
+        offset_months -> Int4,
+        label -> Nullable<Text>,
+        terms -> Jsonb,
+        created_at -> Timestamp,
     }
 }
 
@@ -3128,6 +3151,8 @@ diesel::table! {
         last_sent_at -> Nullable<Timestamptz>,
         plan_option -> Nullable<Text>,
         resource_id -> Nullable<Uuid>,
+        trial_free -> Nullable<Bool>,
+        trial_plan_id -> Nullable<Uuid>,
     }
 }
 
@@ -3249,6 +3274,17 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+
+    quote_contract_value (quote_id) {
+        quote_id -> Uuid,
+        tenant_id -> Uuid,
+        value -> Jsonb,
+        computed_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::SubscriptionFeeBillingPeriod;
 
     quote_component (id) {
@@ -3313,6 +3349,19 @@ diesel::table! {
 }
 
 diesel::table! {
+    quote_phase (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        quote_id -> Uuid,
+        seq -> Int4,
+        offset_months -> Int4,
+        label -> Nullable<Text>,
+        terms -> Jsonb,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     quote_recipient_engagement (id) {
         id -> Uuid,
         tenant_id -> Uuid,
@@ -3337,6 +3386,7 @@ diesel::table! {
         created_at -> Timestamptz,
         superseded_at -> Nullable<Timestamptz>,
         pdf_document_id -> Nullable<Uuid>,
+        contract_value -> Nullable<Jsonb>,
     }
 }
 
@@ -3462,6 +3512,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    renewal_settings (tenant_id) {
+        tenant_id -> Uuid,
+        checkpoints -> Array<Nullable<Int4>>,
+        customer_reminder_days -> Nullable<Int4>,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     resource (id) {
         id -> Uuid,
         tenant_id -> Uuid,
@@ -3532,17 +3591,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    retention_renewal_notice (subscription_id, renewal_date, days_before, mode) {
-        subscription_id -> Uuid,
-        tenant_id -> Uuid,
-        renewal_date -> Date,
-        days_before -> Int4,
-        mode -> Text,
-        notified_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::RetentionOfferKindEnum;
     use super::sql_types::RetentionOutcomeEnum;
@@ -3571,7 +3619,6 @@ diesel::table! {
         tenant_id -> Uuid,
         enabled -> Bool,
         offer_cooldown_days -> Int4,
-        renewal_checkpoints -> Array<Nullable<Int4>>,
         updated_at -> Timestamptz,
     }
 }
@@ -3611,18 +3658,6 @@ diesel::table! {
         failure_reason -> Nullable<Text>,
         started_at -> Timestamp,
         finished_at -> Nullable<Timestamp>,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::BillingPeriodEnum;
-
-    schedule (id) {
-        id -> Uuid,
-        billing_period -> BillingPeriodEnum,
-        plan_version_id -> Uuid,
-        ramps -> Jsonb,
     }
 }
 
@@ -3715,7 +3750,6 @@ diesel::table! {
         period -> BillingPeriodEnum,
         pending_checkout -> Bool,
         end_date -> Nullable<Date>,
-        trial_duration -> Nullable<Int4>,
         activation_condition -> SubscriptionActivationConditionEnum,
         billing_start_date -> Nullable<Date>,
         conn_meta -> Nullable<Jsonb>,
@@ -3901,6 +3935,22 @@ diesel::table! {
 }
 
 diesel::table! {
+    subscription_phase (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        subscription_id -> Uuid,
+        seq -> Int4,
+        start_date -> Date,
+        label -> Nullable<Text>,
+        terms -> Jsonb,
+        change_id -> Uuid,
+        created_by -> Nullable<Uuid>,
+        created_at -> Timestamp,
+        withdrawn_at -> Nullable<Timestamp>,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::BillingPeriodEnum;
 
@@ -3920,6 +3970,18 @@ diesel::table! {
 diesel::table! {
     subscription_plan_window_origin_pending (window_id) {
         window_id -> Uuid,
+    }
+}
+
+diesel::table! {
+    subscription_renewal_notice (subscription_id, renewal_date, mode, audience, days_before) {
+        subscription_id -> Uuid,
+        tenant_id -> Uuid,
+        renewal_date -> Date,
+        days_before -> Int4,
+        mode -> Text,
+        notified_at -> Timestamptz,
+        audience -> Text,
     }
 }
 
@@ -3947,6 +4009,42 @@ diesel::table! {
 }
 
 diesel::table! {
+    subscription_term (subscription_id) {
+        subscription_id -> Uuid,
+        tenant_id -> Uuid,
+        term_end -> Date,
+        auto_renew -> Bool,
+        renewal_months -> Int4,
+        uplift_percent -> Nullable<Numeric>,
+        notice_days -> Int4,
+        renewal_phase_id -> Nullable<Uuid>,
+        created_by -> Nullable<Uuid>,
+        updated_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    subscription_timeline_item (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        subscription_id -> Uuid,
+        kind -> Text,
+        add_on_id -> Nullable<Uuid>,
+        lineage_id -> Uuid,
+        start_date -> Date,
+        until_date -> Date,
+        terms -> Jsonb,
+        label -> Nullable<Text>,
+        reason -> Nullable<Text>,
+        start_change_id -> Nullable<Uuid>,
+        end_change_id -> Uuid,
+        created_by -> Nullable<Uuid>,
+        created_at -> Timestamp,
+        withdrawn_at -> Nullable<Timestamp>,
+    }
+}
+
+diesel::table! {
     subscription_trial (subscription_id) {
         subscription_id -> Uuid,
         tenant_id -> Uuid,
@@ -3954,6 +4052,18 @@ diesel::table! {
         until_date -> Date,
         free -> Bool,
         created_at -> Timestamp,
+        trial_plan_id -> Nullable<Uuid>,
+        trial_offer_id -> Nullable<Uuid>,
+        end_action -> Text,
+    }
+}
+
+diesel::table! {
+    subscription_trial_notice (subscription_id, trial_end) {
+        subscription_id -> Uuid,
+        trial_end -> Date,
+        tenant_id -> Uuid,
+        noticed_at -> Timestamptz,
     }
 }
 
@@ -4010,6 +4120,36 @@ diesel::table! {
         max_resources_per_customer_type -> Int4,
         entitlement_op_retention_days -> Int4,
         entitlement_op_log_complete_from -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    trial_offer (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        name -> Text,
+        code -> Nullable<Text>,
+        duration_days -> Int4,
+        free -> Bool,
+        trial_plan_id -> Nullable<Uuid>,
+        end_action -> Text,
+        fallback_plan_version_id -> Nullable<Uuid>,
+        eligibility_scope -> Text,
+        archived_at -> Nullable<Timestamp>,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    trial_redemption (subscription_id) {
+        subscription_id -> Uuid,
+        tenant_id -> Uuid,
+        customer_id -> Uuid,
+        trial_offer_id -> Nullable<Uuid>,
+        plan_id -> Uuid,
+        product_family_id -> Uuid,
+        created_at -> Timestamp,
     }
 }
 
@@ -4242,6 +4382,7 @@ diesel::joinable!(checkout_session -> customer (customer_id));
 diesel::joinable!(checkout_session -> plan_version (plan_version_id));
 diesel::joinable!(checkout_session -> subscription (subscription_id));
 diesel::joinable!(checkout_session -> tenant (tenant_id));
+diesel::joinable!(checkout_session -> trial_offer (trial_offer_id));
 diesel::joinable!(connect_access_token -> connect_oauth_app (oauth_app_id));
 diesel::joinable!(connect_access_token -> organization (connected_organization_id));
 diesel::joinable!(connect_authorization_code -> connect_oauth_app (oauth_app_id));
@@ -4338,6 +4479,7 @@ diesel::joinable!(entitlement -> feature (feature_id));
 diesel::joinable!(entitlement -> resource (resource_id));
 diesel::joinable!(entitlement -> resource_type (level_type_id));
 diesel::joinable!(entitlement -> tenant (tenant_id));
+diesel::joinable!(entitlement_override_notice -> tenant (tenant_id));
 diesel::joinable!(entitlement_app_count -> customer (customer_id));
 diesel::joinable!(entitlement_app_count -> feature (feature_id));
 diesel::joinable!(entitlement_app_count -> resource (resource_id));
@@ -4474,6 +4616,8 @@ diesel::joinable!(plan_version_annex_template -> plan_version (plan_version_id))
 diesel::joinable!(plan_version_annex_template -> tenant (tenant_id));
 diesel::joinable!(plan_version_option -> plan_version (plan_version_id));
 diesel::joinable!(plan_version_option -> tenant (tenant_id));
+diesel::joinable!(plan_version_phase -> plan_version (plan_version_id));
+diesel::joinable!(plan_version_phase -> tenant (tenant_id));
 diesel::joinable!(portal_token -> tenant (tenant_id));
 diesel::joinable!(price -> product (product_id));
 diesel::joinable!(price -> tenant (tenant_id));
@@ -4502,6 +4646,7 @@ diesel::joinable!(purchase_link_session -> purchase_link (purchase_link_id));
 diesel::joinable!(purchase_link_session -> tenant (tenant_id));
 diesel::joinable!(quote -> customer (customer_id));
 diesel::joinable!(quote -> invoice (converted_to_invoice_id));
+diesel::joinable!(quote -> plan (trial_plan_id));
 diesel::joinable!(quote -> plan_version (plan_version_id));
 diesel::joinable!(quote -> quote_template (template_id));
 diesel::joinable!(quote -> tenant (tenant_id));
@@ -4516,6 +4661,8 @@ diesel::joinable!(quote_approval_rule -> tenant (tenant_id));
 diesel::joinable!(quote_attachment -> tenant (tenant_id));
 diesel::joinable!(quote_comment -> quote (quote_id));
 diesel::joinable!(quote_comment -> tenant (tenant_id));
+diesel::joinable!(quote_contract_value -> quote (quote_id));
+diesel::joinable!(quote_contract_value -> tenant (tenant_id));
 diesel::joinable!(quote_component -> price (price_id));
 diesel::joinable!(quote_component -> price_component (price_component_id));
 diesel::joinable!(quote_component -> product (product_id));
@@ -4526,6 +4673,8 @@ diesel::joinable!(quote_draft -> quote (quote_id));
 diesel::joinable!(quote_draft -> tenant (tenant_id));
 diesel::joinable!(quote_evidence_event -> quote (quote_id));
 diesel::joinable!(quote_evidence_event -> tenant (tenant_id));
+diesel::joinable!(quote_phase -> quote (quote_id));
+diesel::joinable!(quote_phase -> tenant (tenant_id));
 diesel::joinable!(quote_recipient_engagement -> quote (quote_id));
 diesel::joinable!(quote_recipient_engagement -> tenant (tenant_id));
 diesel::joinable!(quote_revision -> quote (quote_id));
@@ -4541,6 +4690,7 @@ diesel::joinable!(quote_view -> tenant (tenant_id));
 diesel::joinable!(rate_card -> billable_metric (metric_id));
 diesel::joinable!(rate_card -> credit_unit (credit_unit_id));
 diesel::joinable!(rate_card -> tenant (tenant_id));
+diesel::joinable!(renewal_settings -> tenant (tenant_id));
 diesel::joinable!(resource -> customer (customer_id));
 diesel::joinable!(resource -> resource_type (resource_type_id));
 diesel::joinable!(resource -> tenant (tenant_id));
@@ -4552,8 +4702,6 @@ diesel::joinable!(retention_offer -> plan (plan_id));
 diesel::joinable!(retention_offer -> tenant (tenant_id));
 diesel::joinable!(retention_reason -> retention_offer (offer_id));
 diesel::joinable!(retention_reason -> tenant (tenant_id));
-diesel::joinable!(retention_renewal_notice -> subscription (subscription_id));
-diesel::joinable!(retention_renewal_notice -> tenant (tenant_id));
 diesel::joinable!(retention_session -> customer (customer_id));
 diesel::joinable!(retention_session -> retention_offer (offer_id));
 diesel::joinable!(retention_session -> retention_reason (reason_id));
@@ -4563,7 +4711,6 @@ diesel::joinable!(retention_settings -> tenant (tenant_id));
 diesel::joinable!(role -> organization (organization_id));
 diesel::joinable!(sandbox_pool_tenant -> tenant (tenant_id));
 diesel::joinable!(sandbox_seed -> tenant (tenant_id));
-diesel::joinable!(schedule -> plan_version (plan_version_id));
 diesel::joinable!(segment -> tenant (tenant_id));
 diesel::joinable!(sent_email -> entity_activity (id));
 diesel::joinable!(sent_email -> invoicing_entity (invoicing_entity_id));
@@ -4593,19 +4740,42 @@ diesel::joinable!(subscription_event -> bi_mrr_movement_log (bi_mrr_movement_log
 diesel::joinable!(subscription_event -> subscription (subscription_id));
 diesel::joinable!(subscription_excluded_component -> price_component (price_component_id));
 diesel::joinable!(subscription_excluded_component -> subscription (subscription_id));
+diesel::joinable!(subscription_phase -> subscription (subscription_id));
+diesel::joinable!(subscription_phase -> subscription_change (change_id));
+diesel::joinable!(subscription_phase -> tenant (tenant_id));
 diesel::joinable!(subscription_plan_window -> subscription (subscription_id));
 diesel::joinable!(subscription_plan_window -> tenant (tenant_id));
 diesel::joinable!(subscription_plan_window_origin_pending -> subscription_plan_window (window_id));
+diesel::joinable!(subscription_renewal_notice -> subscription (subscription_id));
+diesel::joinable!(subscription_renewal_notice -> tenant (tenant_id));
 diesel::joinable!(subscription_settlement_due -> subscription (subscription_id));
 diesel::joinable!(subscription_settlement_due -> tenant (tenant_id));
 diesel::joinable!(subscription_start_settled -> subscription (subscription_id));
 diesel::joinable!(subscription_start_settled -> tenant (tenant_id));
+diesel::joinable!(subscription_term -> subscription (subscription_id));
+diesel::joinable!(subscription_term -> subscription_phase (renewal_phase_id));
+diesel::joinable!(subscription_term -> tenant (tenant_id));
+diesel::joinable!(subscription_timeline_item -> add_on (add_on_id));
+diesel::joinable!(subscription_timeline_item -> subscription (subscription_id));
+diesel::joinable!(subscription_timeline_item -> tenant (tenant_id));
+diesel::joinable!(subscription_trial -> plan (trial_plan_id));
 diesel::joinable!(subscription_trial -> subscription (subscription_id));
+diesel::joinable!(subscription_trial_notice -> subscription (subscription_id));
+diesel::joinable!(subscription_trial_notice -> tenant (tenant_id));
 diesel::joinable!(subscription_trial -> tenant (tenant_id));
+diesel::joinable!(subscription_trial -> trial_offer (trial_offer_id));
 diesel::joinable!(subscription_usage_filter -> subscription (subscription_id));
 diesel::joinable!(subscription_usage_filter -> tenant (tenant_id));
 diesel::joinable!(tax_category -> tenant (tenant_id));
 diesel::joinable!(tenant -> organization (organization_id));
+diesel::joinable!(trial_offer -> plan_version (fallback_plan_version_id));
+diesel::joinable!(trial_offer -> tenant (tenant_id));
+diesel::joinable!(trial_redemption -> customer (customer_id));
+diesel::joinable!(trial_redemption -> plan (plan_id));
+diesel::joinable!(trial_redemption -> product_family (product_family_id));
+diesel::joinable!(trial_redemption -> subscription (subscription_id));
+diesel::joinable!(trial_redemption -> tenant (tenant_id));
+diesel::joinable!(trial_redemption -> trial_offer (trial_offer_id));
 diesel::joinable!(usage_alert_state -> tenant (tenant_id));
 diesel::joinable!(usage_fold -> billable_metric (billable_metric_id));
 diesel::joinable!(usage_fold -> customer (customer_id));

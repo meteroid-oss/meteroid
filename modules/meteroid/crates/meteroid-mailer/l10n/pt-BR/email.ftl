@@ -189,3 +189,18 @@ payment-method-expiring-intro = Seu { $method } expira em { $date }. Atualize-o 
 payment-method-label = Método de pagamento
 payment-method-expires = Expira em
 update-card = Atualizar método de pagamento
+
+## Renewal reminder (kind renewal_reminder). $plan is the plan name, $date a long localized date.
+renewal-reminder-renewing-subject = Sua assinatura { $company } será renovada em breve
+renewal-reminder-renewing-heading = Sua assinatura será renovada em breve
+renewal-reminder-renewing-intro = Sua assinatura { $plan } será renovada automaticamente em { $date }.
+renewal-reminder-ending-subject = Sua assinatura { $company } termina em breve
+renewal-reminder-ending-heading = Sua assinatura termina em breve
+renewal-reminder-ending-intro = Sua assinatura { $plan } termina em { $date }. Fale conosco para mantê-la.
+renewal-reminder-renews-on = Renova em
+renewal-reminder-ends-on = Termina em
+renewal-reminder-next-term-ends = Fim do próximo período
+renewal-reminder-price-change = Alteração de preço
+# $percent = the uplift, as a decimal.
+renewal-reminder-uplift = +{ $percent } %
+renewal-reminder-opt-out-by = Cancelamento possível até

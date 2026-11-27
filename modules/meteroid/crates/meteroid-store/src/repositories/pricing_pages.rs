@@ -82,6 +82,7 @@ pub trait PricingPagesInterface {
         patch: crate::domain::PlanPatch,
         sold_for: Option<Option<common_domain::ids::ResourceTypeId>>,
         page: Option<PlanPricingPage>,
+        trial: Option<crate::domain::trials::PlanTrialChange>,
     ) -> StoreResult<()>;
 
     /// The product line's active ladder priced in one currency in one option (see
@@ -703,6 +704,7 @@ impl PricingPagesInterface for Store {
         patch: crate::domain::PlanPatch,
         sold_for: Option<Option<common_domain::ids::ResourceTypeId>>,
         page: Option<PlanPricingPage>,
+        trial: Option<crate::domain::trials::PlanTrialChange>,
     ) -> StoreResult<()> {
         use crate::domain::entity_activity::{Activity, ActivityType, AuditInput, EntityType};
         use common_domain::ids::BaseId;
@@ -758,6 +760,31 @@ impl PricingPagesInterface for Store {
                     }
                     self.write_plan_pricing_page_tx(conn, tenant_id, page)
                         .await?;
+                }
+                match trial {
+                    None => {}
+                    Some(crate::domain::trials::PlanTrialChange::Terms(terms)) => {
+                        crate::services::trials::catalog::set_plan_trial_tx(
+                            &self.internal,
+                            conn,
+                            actor,
+                            tenant_id,
+                            plan_id,
+                            terms,
+                        )
+                        .await?;
+                    }
+                    Some(crate::domain::trials::PlanTrialChange::Offer(offer)) => {
+                        crate::services::trials::catalog::set_plan_trial_offer_tx(
+                            &self.internal,
+                            conn,
+                            actor,
+                            tenant_id,
+                            plan_id,
+                            Some(offer),
+                        )
+                        .await?;
+                    }
                 }
                 Ok(())
             }
@@ -871,6 +898,10 @@ impl PricingPagesInterface for Store {
                 contact_url: plan.plan.pricing_contact_url.as_deref(),
             })
             .collect();
+        let plan_ids: Vec<PlanId> = plans.iter().map(|plan| plan.plan.id).collect();
+        let trials =
+            crate::services::trials::catalog::plan_trials_tx(&mut conn, tenant_id, &plan_ids)
+                .await?;
         let mut cards: Vec<PricingCard> = Vec::with_capacity(plans.len());
         let mut not_sold = Vec::new();
         for (at, (plan, sold)) in plans.iter().zip(plan_options).enumerate() {
@@ -944,11 +975,9 @@ impl PricingPagesInterface for Store {
                     .iter()
                     .filter_map(|h| render_highlight(h, &resolved))
                     .collect(),
-                trial_days: plan
-                    .version
-                    .trial_duration_days
-                    .filter(|days| *days > 0)
-                    .map(|days| days as u32),
+                trial_days: trials
+                    .get(&plan.plan.id)
+                    .map(|trial| trial.offer.duration_days),
                 sales_led: plan.plan.pricing_sales_led,
                 hide_price,
                 contact_url: plan

@@ -47,6 +47,17 @@ impl TestEnv {
             .subscription
     }
 
+    /// The length in days of the subscription's trial fact, if it has one.
+    pub async fn trial_days(&self, id: SubscriptionId) -> Option<i32> {
+        let mut conn = self.conn().await;
+        let row = SubscriptionRow::get_subscription_by_id(&mut conn, &TENANT_ID, id)
+            .await
+            .expect("Failed to get subscription");
+        row.trial_from
+            .zip(row.trial_until)
+            .map(|(from, until)| i32::try_from((until - from).num_days()).unwrap_or(i32::MAX))
+    }
+
     /// The component rows of a subscription in force in its stored period: a change written for
     /// the period's end shows once the renewal applies it.
     pub async fn get_subscription_components(

@@ -164,6 +164,8 @@ pub mod quotes {
             net_terms: quote.net_terms,
             // Subscription-like fields
             trial_duration: quote.trial_duration_days.map(|d| d as u32),
+            trial_free: quote.trial_free,
+            trial_plan_id: quote.trial_plan_id.map(|id| id.as_proto()),
             start_date: quote.billing_start_date.as_proto(),
             billing_start_date: quote.billing_start_date.as_proto(),
             end_date: quote.billing_end_date.as_proto(),
@@ -399,6 +401,12 @@ pub mod quotes {
             created_by: revision.created_by.clone(),
             created_at: revision.created_at.as_proto(),
             superseded_at: revision.superseded_at.as_proto(),
+            price_schedule: revision
+                .document
+                .as_ref()
+                .map(document_schedule_to_proto)
+                .unwrap_or_default(),
+            contract_value: revision.contract_value.as_ref().map(contract_to_proto),
         }
     }
 
@@ -490,6 +498,7 @@ pub mod quotes {
                 .iter()
                 .map(coupon_terms_to_proto)
                 .collect(),
+            price_schedule: price_schedule_to_proto(detailed_quote),
             signatures: signatures.iter().map(quote_signature_to_proto).collect(),
             minimum_commitment: detailed_quote
                 .minimum
@@ -517,6 +526,26 @@ pub mod quotes {
                 .collect(),
             has_usage: totals.has_usage,
             first_invoice_subtotal: totals.first_invoice_subtotal.map(|d| d.to_string()),
+            contract: totals.contract.as_ref().map(contract_to_proto),
+        }
+    }
+
+    pub fn contract_to_proto(value: &domain::quotes::QuoteContractValue) -> v1::QuoteContractValue {
+        let decimal = |d: &rust_decimal::Decimal| d.normalize().to_string();
+        v1::QuoteContractValue {
+            term_months: value.term_months,
+            months: value.months,
+            total: decimal(&value.total),
+            committed_total: decimal(&value.committed_total),
+            annual: decimal(&value.annual),
+            years: value.years.iter().map(decimal).collect(),
+            phases: value
+                .phases
+                .iter()
+                .map(|total| v1::QuotePhaseValue {
+                    total: total.as_ref().map(decimal),
+                })
+                .collect(),
         }
     }
 
@@ -593,6 +622,62 @@ pub mod quotes {
             quote_id: coupon.quote_id.as_proto(),
             coupon_id: coupon.coupon_id.as_proto(),
         }
+    }
+
+    pub fn price_schedule_to_proto(
+        detailed_quote: &domain::quotes::DetailedQuote,
+    ) -> Vec<v1::QuotePriceStep> {
+        if detailed_quote.phases.is_empty() {
+            return vec![];
+        }
+        document_schedule_to_proto(&domain::quote_document::QuoteDocument::from_detailed(
+            detailed_quote,
+        ))
+    }
+
+    pub fn document_schedule_to_proto(
+        document: &domain::quote_document::QuoteDocument,
+    ) -> Vec<v1::QuotePriceStep> {
+        document
+            .price_schedule()
+            .into_iter()
+            .map(|step| v1::QuotePriceStep {
+                offset_months: step.offset_months,
+                starts_on: step.starts_on.map(|day| day.to_string()),
+                label: step.label,
+                prices: step
+                    .prices
+                    .into_iter()
+                    .map(|line| v1::QuotePriceStepLine {
+                        name: line.name,
+                        price: line.price.normalize().to_string(),
+                        period: line
+                            .period
+                            .map(|period| subscription_fee_billing_period_to_grpc(period) as i32),
+                        unit: line.unit,
+                    })
+                    .collect(),
+                seats: step
+                    .seats
+                    .into_iter()
+                    .map(|(code, slots)| v1::QuotePriceStepSeats { code, slots })
+                    .collect(),
+                plan: step.plan,
+                minimum: match step.minimum {
+                    domain::subscription_phases::PhaseMinimum::Kept => None,
+                    domain::subscription_phases::PhaseMinimum::Ended => {
+                        Some(v1::QuotePriceStepMinimum {
+                            amount_subunit: None,
+                        })
+                    }
+                    domain::subscription_phases::PhaseMinimum::Amount {
+                        amount_subunit, ..
+                    } => Some(v1::QuotePriceStepMinimum {
+                        amount_subunit: Some(amount_subunit),
+                    }),
+                },
+            })
+            .collect()
     }
 
     pub fn coupon_terms_to_proto(

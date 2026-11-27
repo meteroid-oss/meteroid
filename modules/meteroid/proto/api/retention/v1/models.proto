@@ -28,29 +28,9 @@ message RetentionSettings {
   bool enabled = 1;
   // A subscription saved by an offer gets no other offer for this many days.
   uint32 offer_cooldown_days = 2;
-  // Days before an annual or semiannual renewal, a term end or a cancellation when the
-  // retention.renewal_upcoming webhook is sent; empty sends none.
-  repeated uint32 renewal_checkpoints = 3;
-}
-
-enum RenewalMode {
-  RENEWAL_MODE_UNSPECIFIED = 0;
-  RENEWAL_MODE_RENEWING = 1;
-  RENEWAL_MODE_ENDING = 2;
-  RENEWAL_MODE_CANCELLING = 3;
-}
-
-message UpcomingRenewal {
-  string subscription_id = 1;
-  string customer_id = 2;
-  string customer_name = 3;
-  string plan_name = 4;
-  string currency = 5;
-  int64 mrr_cents = 6;
-  // As YYYY-MM-DD.
-  string date = 7;
-  RenewalMode mode = 8;
-  uint32 days_left = 9;
+  // Renewal checkpoints moved to the renewals service's settings.
+  reserved 3;
+  reserved "renewal_checkpoints";
 }
 
 message RetentionOffer {

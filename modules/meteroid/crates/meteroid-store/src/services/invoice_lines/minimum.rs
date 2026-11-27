@@ -308,14 +308,13 @@ fn paid_trial(
     details: &SubscriptionDetails,
     billing_start: NaiveDate,
 ) -> Option<(NaiveDate, NaiveDate)> {
-    let days = details.subscription.trial_duration?;
-    details
+    let trial = details
         .trial_config
         .as_ref()
         .filter(|trial| !trial.is_free)?;
     Some((
         billing_start,
-        billing_start + chrono::Duration::days(i64::from(days)),
+        billing_start + chrono::Duration::days(i64::from(trial.duration_days)),
     ))
 }
 
@@ -361,7 +360,17 @@ pub(in crate::services) async fn load_period_true_up_priced(
         return Ok(None);
     }
     let (minimum, cadence) = match outgoing_terms(conn, details, invoice_date).await? {
-        Terms::Current => (details.minimum.clone(), sub.period),
+        // A phase that set the minimum on this renewal starts after the period it closes.
+        Terms::Current => match invoice_date.pred_opt() {
+            Some(last) if phase_sets_minimum_on(conn, details, invoice_date).await? => (
+                crate::repositories::subscriptions::load_subscription_minimum_on(
+                    conn, sub.id, last,
+                )
+                .await?,
+                sub.period,
+            ),
+            _ => (details.minimum.clone(), sub.period),
+        },
         Terms::Outgoing(minimum, cadence) => (minimum, cadence),
         Terms::Unknown => {
             log::warn!(
@@ -967,6 +976,31 @@ enum Terms {
 
 /// The terms a period ran under when a plan change applied at its end replaced them: as the
 /// change recorded them, else rebuilt from the plan version it left and the components it closed.
+/// Whether a phase's boundary on `on`, not withdrawn, wrote the minimum (R-146).
+async fn phase_sets_minimum_on(
+    conn: &mut PgConn,
+    details: &SubscriptionDetails,
+    on: NaiveDate,
+) -> StoreResult<bool> {
+    let sub = &details.subscription;
+    let changes = diesel_models::subscription_changes::SubscriptionChangeRow::list_in_force(
+        conn,
+        &sub.tenant_id,
+        sub.id,
+        diesel_models::enums::SubscriptionChangeKindEnum::Phase,
+        on.and_time(chrono::NaiveTime::MIN),
+    )
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?;
+    Ok(changes.into_iter().any(|change| {
+        change.effective_at.date() == on
+            && change
+                .written_facts
+                .and_then(|written| written.get("minimum").and_then(serde_json::Value::as_bool))
+                .unwrap_or(false)
+    }))
+}
+
 async fn outgoing_terms(
     conn: &mut PgConn,
     details: &SubscriptionDetails,

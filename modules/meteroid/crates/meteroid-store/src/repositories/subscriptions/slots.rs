@@ -300,8 +300,9 @@ pub fn validate_slot_limits(
 ) -> StoreResult<()> {
     let new_slot_count = active_slots + delta;
 
-    // Check minimum slots and positive (min is u32)
+    // A reduction never goes below the minimum; held below a phase's floor, seats may still grow.
     if let Some(min) = slot.min_slots
+        && delta < 0
         && new_slot_count < min as i32
     {
         return Err(StoreError::InvalidArgument(format!(

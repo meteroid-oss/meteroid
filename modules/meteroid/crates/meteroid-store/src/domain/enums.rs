@@ -756,6 +756,7 @@ pub enum ScheduledEventTypeEnum {
     ApplyPlanChange,
     CancelSubscription,
     ApplyAmendment,
+    ApplyPhase,
 }
 
 impl From<diesel_enums::SubscriptionChangeKindEnum> for ScheduledEventTypeEnum {
@@ -763,6 +764,7 @@ impl From<diesel_enums::SubscriptionChangeKindEnum> for ScheduledEventTypeEnum {
         match kind {
             diesel_enums::SubscriptionChangeKindEnum::PlanChange => Self::ApplyPlanChange,
             diesel_enums::SubscriptionChangeKindEnum::Amendment => Self::ApplyAmendment,
+            diesel_enums::SubscriptionChangeKindEnum::Phase => Self::ApplyPhase,
         }
     }
 }

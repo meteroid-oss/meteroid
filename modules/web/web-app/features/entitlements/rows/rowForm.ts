@@ -1,4 +1,4 @@
-import { addDays, startOfDay } from 'date-fns'
+import { addMonths, startOfDay } from 'date-fns'
 import { z } from 'zod'
 
 import {
@@ -27,20 +27,24 @@ import type { MessageInitShape } from '@bufbuild/protobuf'
 
 export const ENDS_OPTIONS = [
   ['never', 'Never'],
-  ['30d', 'After 30 days'],
-  ['90d', 'After 90 days'],
+  ['1m', 'After a month'],
+  ['3m', 'After a quarter'],
+  ['12m', 'After a year'],
   ['date', 'On a date…'],
 ] as const
 
 export type Ends = (typeof ENDS_OPTIONS)[number][0]
 
-const ENDS_DAYS: Partial<Record<Ends, number>> = { '30d': 30, '90d': 90 }
+const ENDS_MONTHS: Partial<Record<Ends, number>> = { '1m': 1, '3m': 3, '12m': 12 }
 
-/** The end the form stands for, at the start of its calendar day. */
-export function untilOf(d: { ends: Ends; validUntil?: Date }, today = new Date()): Date | undefined {
+/** The end the form stands for, at the start of its calendar day; shortcuts count from its start. */
+export function untilOf(
+  d: { ends: Ends; validUntil?: Date; validFrom?: Date },
+  today = new Date()
+): Date | undefined {
   if (d.ends === 'date') return d.validUntil && startOfDay(d.validUntil)
-  const days = ENDS_DAYS[d.ends]
-  return days === undefined ? undefined : addDays(startOfDay(today), days)
+  const months = ENDS_MONTHS[d.ends]
+  return months === undefined ? undefined : addMonths(startOfDay(d.validFrom ?? today), months)
 }
 
 export const rowSchema = z
@@ -54,7 +58,7 @@ export const rowSchema = z
     applies: z.enum(['always', 'when']),
     clauses: z.record(z.string(), z.array(z.string())),
     validFrom: z.date().optional(),
-    ends: z.enum(['never', '30d', '90d', 'date']),
+    ends: z.enum(['never', '1m', '3m', '12m', 'date']),
     validUntil: z.date().optional(),
     reason: z.string().optional(),
     overridePolicy: z.boolean(),
@@ -95,14 +99,20 @@ export function valueIssue(f: Feature, d: RowForm): string | undefined {
   return undefined
 }
 
-export function valueFromForm(f: Feature, d: RowForm): MessageInitShape<typeof EntitlementValueSchema> {
+export function valueFromForm(
+  f: Feature,
+  d: RowForm
+): MessageInitShape<typeof EntitlementValueSchema> {
   if (f.kind === FeatureKind.BOOLEAN)
     return { value: { case: 'booleanValue', value: { enabled: d.mode !== 'off' } } }
   if (f.kind === FeatureKind.LIMIT)
     return {
       value: {
         case: 'meteredValue',
-        value: { limit: d.mode === 'amount' ? d.amount?.trim() : undefined, enabled: d.mode !== 'off' },
+        value: {
+          limit: d.mode === 'amount' ? d.amount?.trim() : undefined,
+          enabled: d.mode !== 'off',
+        },
       },
     }
   const raw = d.amount ?? ''
@@ -142,7 +152,9 @@ const dayOf = (rfc?: string) => {
   return new Date(y, m - 1, d)
 }
 const rfcOf = (date?: Date) =>
-  date ? new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())).toISOString() : undefined
+  date
+    ? new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())).toISOString()
+    : undefined
 
 export const rowToForm = (
   f: Feature | undefined,
@@ -158,7 +170,10 @@ export const rowToForm = (
       ? valueToForm(e.value)
       : f?.kind === FeatureKind.LIMIT
         ? { mode: 'amount' as const, amount: '' }
-        : { mode: 'on' as const, amount: f?.value?.type === FeatureValueType.SELECT ? f.value.options[0] : '' }),
+        : {
+            mode: 'on' as const,
+            amount: f?.value?.type === FeatureValueType.SELECT ? f.value.options[0] : '',
+          }),
     applies: Object.keys(clauses).length ? 'when' : 'always',
     clauses,
     validFrom: dayOf(e?.validFrom),

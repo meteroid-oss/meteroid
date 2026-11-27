@@ -42,7 +42,6 @@ use crate::utils::periods::calculate_advance_period_range;
 use common_domain::ids::{
     AddOnId, AppliedCouponId, BaseId, CouponId, PlanVersionId, SubscriptionId, TenantId,
 };
-use diesel_models::plans::PlanRow;
 
 /// A product/price that needs to be created inside the persist transaction.
 #[derive(Debug, Clone)]
@@ -772,21 +771,19 @@ pub(crate) fn check_add_on_price(
     Ok(())
 }
 
-/// The coupons a subscription is created with; `trial_is_free` its plan version's, so a free
-/// trial counts none of a coupon's months.
+/// The coupons a subscription is created with: a free trial of `free_trial_days`, as its trial was
+/// resolved, counts none of a coupon's months.
 pub fn process_create_subscription_coupons(
     subscription: &SubscriptionRowNew,
-    trial_is_free: bool,
+    free_trial_days: Option<u32>,
     coupons: &[Coupon],
 ) -> Result<Vec<AppliedCouponRowNew>, Report<StoreError>> {
     let billing_start = subscription
         .billing_start_date
         .unwrap_or(subscription.start_date);
-    let billing_from = subscription
-        .trial_duration
-        .and_then(|days| u64::try_from(days).ok())
-        .filter(|days| trial_is_free && *days > 0)
-        .and_then(|days| billing_start.checked_add_days(chrono::Days::new(days)))
+    let billing_from = free_trial_days
+        .filter(|days| *days > 0)
+        .and_then(|days| billing_start.checked_add_days(chrono::Days::new(u64::from(days))))
         .unwrap_or(billing_start);
     let effective_from = crate::services::subscriptions::coupon_months_from(
         billing_from,
@@ -1495,26 +1492,14 @@ impl SubscriptionDetails {
     }
 }
 
-/// Whether the subscription's trial bills: its trial fact (R-100), else its plan version's.
+/// Whether the subscription's trial bills, as its trial fact records it (I29).
 pub async fn is_paid_trial(
     conn: &mut PgConn,
     subscription_id: SubscriptionId,
-    plan_version_id: PlanVersionId,
-    tenant_id: TenantId,
-    has_trial: bool,
 ) -> StoreResult<bool> {
-    if !has_trial {
-        return Ok(false);
-    }
-    if let Some(free) = super::recorded_trial_free_tx(conn, subscription_id).await? {
-        return Ok(!free);
-    }
-
-    let plan_with_version = PlanRow::get_with_version(conn, plan_version_id, tenant_id).await?;
-    Ok(plan_with_version
-        .version
-        .map(|v| !v.trial_is_free)
-        .unwrap_or(false))
+    Ok(super::recorded_trial_free_tx(conn, subscription_id)
+        .await?
+        .is_some_and(|free| !free))
 }
 
 impl Services {

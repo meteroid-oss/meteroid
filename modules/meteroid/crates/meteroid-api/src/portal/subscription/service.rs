@@ -613,7 +613,9 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                 let event_type = match e.event_type {
                     ScheduledEventTypeEnum::ApplyPlanChange => PendingEventType::PlanChange,
                     ScheduledEventTypeEnum::CancelSubscription => PendingEventType::Cancel,
-                    ScheduledEventTypeEnum::ApplyAmendment => PendingEventType::Amendment,
+                    ScheduledEventTypeEnum::ApplyAmendment | ScheduledEventTypeEnum::ApplyPhase => {
+                        PendingEventType::Amendment
+                    }
                 };
                 let customer_cancellable = e.customer_initiated;
                 let amendment_summary = e.amendment_summary.map(|s| sub_proto::AmendmentSummary {
@@ -2622,6 +2624,7 @@ impl PortalSubscriptionServiceComponents {
                 version: new_plan_version_id,
                 // By alias: a plan-change checkout keeps it as text.
                 option: Some(PlanOptionRef::Alias(option.alias.clone())),
+                prices: Vec::new(),
             },
             offer,
             cells,
@@ -2758,12 +2761,13 @@ impl PortalSubscriptionServiceComponents {
             return Ok(Err(SelfServiceRefusal::Status));
         }
 
-        // A pending cancellation or plan change blocks further self-service edits.
+        // A pending cancellation, plan change or phase blocks further self-service edits.
         let has_blocking_event = details.pending_events.iter().any(|e| {
             matches!(
                 e.event_type,
                 ScheduledEventTypeEnum::CancelSubscription
                     | ScheduledEventTypeEnum::ApplyPlanChange
+                    | ScheduledEventTypeEnum::ApplyPhase
             )
         });
         if has_blocking_event {
@@ -2815,7 +2819,7 @@ impl PortalSubscriptionServiceComponents {
             billing_start_date: None,
             billing_day_anchor: None,
             net_terms: None,
-            trial_duration_days: None,
+            trial: Default::default(),
             end_date: None,
             auto_advance_invoices: true,
             charge_automatically: true,

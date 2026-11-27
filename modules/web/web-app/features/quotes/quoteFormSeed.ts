@@ -284,6 +284,8 @@ export function quoteToFormValues(detailed: DetailedQuote): Partial<QuoteFormVal
     start_date: parseDate(quote?.startDate),
     end_date: parseDate(quote?.endDate),
     trial_duration: quote?.trialDuration,
+    trial_free: quote?.trialFree,
+    trial_plan_id: quote?.trialPlanId,
     billing_day_anchor: quote?.billingDayAnchor,
     expires_at: parseDate(quote?.expiresAt),
     valid_until: parseDate(quote?.validUntil),

@@ -38,6 +38,7 @@ pub fn kind_to_proto(kind: EmailKind) -> server::EmailKind {
         EmailKind::SubscriptionCancelled => server::EmailKind::SubscriptionCancelled,
         EmailKind::PaymentMethodExpiring => server::EmailKind::PaymentMethodExpiring,
         EmailKind::PaymentMethodRequested => server::EmailKind::PaymentMethodRequested,
+        EmailKind::RenewalReminder => server::EmailKind::RenewalReminder,
     }
 }
 
@@ -61,6 +62,7 @@ pub fn kind_from_proto(raw: i32) -> Result<EmailKind, Status> {
         server::EmailKind::SubscriptionCancelled => Ok(EmailKind::SubscriptionCancelled),
         server::EmailKind::PaymentMethodExpiring => Ok(EmailKind::PaymentMethodExpiring),
         server::EmailKind::PaymentMethodRequested => Ok(EmailKind::PaymentMethodRequested),
+        server::EmailKind::RenewalReminder => Ok(EmailKind::RenewalReminder),
     }
 }
 

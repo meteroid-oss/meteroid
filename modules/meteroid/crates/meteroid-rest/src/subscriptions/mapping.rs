@@ -152,6 +152,8 @@ pub fn pending_events_to_rest(
                 ScheduledEventTypeEnum::ApplyPlanChange => ScheduledEventType::PlanChange,
                 ScheduledEventTypeEnum::CancelSubscription => ScheduledEventType::Cancel,
                 ScheduledEventTypeEnum::ApplyAmendment => ScheduledEventType::Amendment,
+                // v1 names a phase's dated terms as the amendment they are (v2: `phase`).
+                ScheduledEventTypeEnum::ApplyPhase => ScheduledEventType::Amendment,
             },
             scheduled_date: e.scheduled_date,
             cancel_reason: e.cancel_reason,
@@ -232,7 +234,9 @@ pub fn rest_to_domain_create_request(
         subscription: SubscriptionNew {
             plan_version_id: resolved_plan_version_id,
             customer_id: resolved_customer_id,
-            trial_duration: sub.trial_days,
+            // v1's days: the plan's trial when absent, none at 0, else its days with the plan's
+            // trial's freeness and features.
+            trial: meteroid_store::domain::trials::TrialRequest::from_days(sub.trial_days, None),
             start_date: sub.start_date,
             end_date: sub.end_date,
             billing_day_anchor: sub.billing_day_anchor,

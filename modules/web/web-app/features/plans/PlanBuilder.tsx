@@ -402,7 +402,7 @@ const PlanBody = () => {
 
         <MoreForPlan extras={extras} />
 
-        <Slot name="planDetail.sections" planVersionId={current.id} />
+        <Slot name="planDetail.sections" planId={plan.id} planVersionId={current.id} />
       </DetailSections>
     </div>
   )
@@ -482,7 +482,7 @@ const couponTermsLabel = (coupon: Coupon) =>
 
 /** The plan's other sections, each with whether it is set up and what it holds. */
 const usePlanExtras = (): PlanExtra[] => {
-  const { plan, version } = usePlanWithVersion()
+  const { plan, version, trial } = usePlanWithVersion()
   const isDraft = useIsDraftVersion()
   const navigate = useNavigate()
   const basePath = useBasePath()
@@ -505,7 +505,7 @@ const usePlanExtras = (): PlanExtra[] => {
   if (!plan || !version) return []
 
   const free = plan.planType === PlanType.FREE
-  const trialDays = version.trialConfig?.durationDays ?? 0
+  const trialTerms = trial?.terms
   const highlights = page?.highlights.length ?? 0
   const newCouponPath = `${basePath}/coupons/add-coupon?planId=${plan.id}&returnTo=${encodeURIComponent(
     location.pathname
@@ -516,24 +516,27 @@ const usePlanExtras = (): PlanExtra[] => {
       title: 'Free trial',
       subtitle: free
         ? 'Days with a paid plan’s features before continuing on this free plan.'
-        : 'Days new subscribers get before billing starts. Part of the version.',
+        : 'Days new subscribers get before billing starts. Live on every version.',
       icon: TimerIcon,
-      configured: trialDays > 0,
-      summary: [
-        `${trialDays} ${trialDays === 1 ? 'day' : 'days'}`,
-        !free && version.trialConfig?.trialIsFree === false && 'billed from day one',
-      ]
-        .filter(Boolean)
-        .join(' · '),
+      configured: !!trialTerms,
+      summary: trialTerms
+        ? [
+            `${trialTerms.durationDays} ${trialTerms.durationDays === 1 ? 'day' : 'days'}`,
+            !free && !trialTerms.free && 'billed from day one',
+            (trial?.plansSharing ?? 0) > 1 && `offer ${trial?.name}`,
+          ]
+            .filter(Boolean)
+            .join(' · ')
+        : undefined,
       pitch: 'Let new subscribers try it first',
       opens: 'popover',
-      readOnly: !isDraft,
+      readOnly: !canManage,
       content: close => (
         <PlanTrial
-          config={version.trialConfig}
+          trial={trial}
           currentPlanId={plan.id}
-          currentPlanVersionId={version.id}
           planType={plan.planType}
+          readOnly={!canManage}
           onDone={close}
         />
       ),
@@ -660,7 +663,7 @@ const usePlanExtras = (): PlanExtra[] => {
     })
   }
   // A published version is read: what it doesn't have is added in a draft.
-  const versioned = new Set(['trial', 'addons', 'minimum'])
+  const versioned = new Set(['addons', 'minimum'])
   return [...extras, ...moduleExtras.filter(extra => extra !== undefined)].filter(
     extra => isDraft || extra.configured || !versioned.has(extra.id)
   )

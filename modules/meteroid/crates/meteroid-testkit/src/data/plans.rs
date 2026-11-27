@@ -544,24 +544,45 @@ impl PlanSeed {
         .insert(tx)
         .await?;
 
-        let (trial_days, trialing_plan_id, trial_is_free) = match self.trial {
-            Some((d, p, f)) => (Some(d), Some(p), f),
-            None => (None, None, true),
-        };
+        if let Some((days, trial_plan_id, free)) = self.trial {
+            // The plan's trial: an offer of its own, as the plan editor writes it (R-153).
+            let now = common_clock::now().naive_utc();
+            let offer = diesel_models::trial_offers::TrialOfferRow {
+                id: common_domain::ids::TrialOfferId::from(self.plan_id.as_uuid()),
+                tenant_id: ids::TENANT_ID,
+                name: format!("{} trial", self.name),
+                code: None,
+                duration_days: days,
+                free,
+                trial_plan_id: Some(trial_plan_id).filter(|id| *id != self.plan_id),
+                end_action: "CONVERT".to_string(),
+                fallback_plan_version_id: None,
+                eligibility_scope: "NONE".to_string(),
+                archived_at: None,
+                created_at: now,
+                updated_at: now,
+            }
+            .insert(tx)
+            .await?;
+            diesel_models::trial_offers::TrialOfferRow::set_for_plan(
+                tx,
+                &ids::TENANT_ID,
+                self.plan_id,
+                Some(offer.id),
+            )
+            .await?;
+        }
 
         PlanVersionRowNew {
             id: self.version_id,
             is_draft_version: false,
             plan_id: self.plan_id,
             version: self.ver,
-            trial_duration_days: trial_days,
             tenant_id: ids::TENANT_ID,
             period_start_day: None,
             net_terms: 0,
             currency: self.currency.to_string(),
             billing_cycles: None,
-            trialing_plan_id,
-            trial_is_free,
             uses_product_pricing: true,
             tax_inclusive: false,
             credit_exhausted_rule: None,
@@ -578,14 +599,11 @@ impl PlanSeed {
                 is_draft_version: true,
                 plan_id: self.plan_id,
                 version: draft_ver,
-                trial_duration_days: trial_days,
                 tenant_id: ids::TENANT_ID,
                 period_start_day: None,
                 net_terms: 0,
                 currency: self.currency.to_string(),
                 billing_cycles: None,
-                trialing_plan_id,
-                trial_is_free,
                 uses_product_pricing: true,
                 tax_inclusive: false,
                 credit_exhausted_rule: None,
@@ -635,14 +653,11 @@ impl PlanSeed {
             is_draft_version: false,
             plan_id,
             version,
-            trial_duration_days: None,
             tenant_id: ids::TENANT_ID,
             period_start_day: None,
             net_terms: 0,
             currency: currency.to_string(),
             billing_cycles: None,
-            trialing_plan_id: None,
-            trial_is_free: true,
             uses_product_pricing: true,
             tax_inclusive: false,
             credit_exhausted_rule: None,

@@ -322,6 +322,7 @@ pub(crate) async fn quote_portal_details(
         }
     };
 
+    let price_schedule = crate::quotes::mapping::quotes::price_schedule_to_proto(&detailed_quote);
     let coupon_terms = detailed_quote
         .coupon_terms()
         .iter()
@@ -506,6 +507,7 @@ pub(crate) async fn quote_portal_details(
         totals,
         comments,
         coupon_terms,
+        price_schedule,
         current_signer_role: crate::quotes::mapping::quotes::signer_role_to_proto(
             current_signer_role,
         ) as i32,

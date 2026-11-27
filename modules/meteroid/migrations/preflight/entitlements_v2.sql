@@ -244,7 +244,8 @@ WITH RECURSIVE applied AS (SELECT EXISTS (SELECT 1 FROM __diesel_schema_migratio
             FROM subscription s
                      JOIN plan_version pv ON pv.id = s.plan_version_id
                      JOIN plan sp ON sp.id = pv.plan_id
-                     JOIN plan tp ON tp.id = pv.trialing_plan_id AND tp.tenant_id = s.tenant_id
+                     JOIN plan tp ON tp.id = (to_jsonb(pv) ->> 'trialing_plan_id')::uuid
+                         AND tp.tenant_id = s.tenant_id
             WHERE s.status::text = 'TRIAL_ACTIVE'
               AND tp.active_version_id IS NOT NULL
               AND tp.active_version_id <> s.plan_version_id),

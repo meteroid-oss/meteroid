@@ -118,7 +118,12 @@ pub async fn create_checkout_session(
         billing_start_date: request.billing_start_date,
         billing_day_anchor: request.billing_day_anchor.map(|a| a as i16),
         net_terms: request.net_terms,
-        trial_duration_days: request.trial_duration_days,
+        trial: meteroid_store::domain::trials::TrialRequest::from_days(
+            request
+                .trial_duration_days
+                .map(|days| u32::try_from(days).unwrap_or(0)),
+            None,
+        ),
         end_date: request.end_date,
         auto_advance_invoices: request.auto_advance_invoices.unwrap_or(true),
         charge_automatically: request.charge_automatically.unwrap_or(true),

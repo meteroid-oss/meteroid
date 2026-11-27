@@ -483,9 +483,8 @@ async fn a_manually_activated_paid_trial_bills_its_first_period() {
     sql(
         &env,
         &format!(
-            "UPDATE plan_version SET trial_duration_days = NULL, trial_is_free = false
-             WHERE id = '{}'",
-            PLAN_VERSION_PAID_TRIAL_ID.as_uuid()
+            "UPDATE plan SET trial_offer_id = NULL WHERE id = '{}'",
+            PLAN_PAID_TRIAL_ID.as_uuid()
         ),
     )
     .await;
@@ -493,7 +492,11 @@ async fn a_manually_activated_paid_trial_bills_its_first_period() {
         .plan_version(PLAN_VERSION_PAID_TRIAL_ID)
         .start_date(day(2024, 1, 1))
         .manual()
-        .trial_days(7)
+        .trial(meteroid_store::domain::trials::TrialRequest::Custom {
+            length: meteroid_store::domain::trials::TrialLength::Days(7),
+            free: Some(false),
+            trial_plan: None,
+        })
         .no_auto_charge()
         .create(env.services())
         .await;
@@ -560,7 +563,7 @@ async fn replay_entry_points_refuse_a_tenant_that_is_not_a_sandbox() {
             end_date: None,
             billing_start_date: None,
             activation_condition: SubscriptionActivationCondition::OnStart,
-            trial_duration: None,
+            trial: Default::default(),
             billing_day_anchor: None,
             payment_methods_config: None,
             auto_advance_invoices: true,

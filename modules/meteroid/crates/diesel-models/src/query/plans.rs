@@ -14,6 +14,7 @@ use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::price_components::PriceComponentRow;
 use common_domain::ids::{
     PlanId, PlanVersionId, PriceId, ProductFamilyId, ProductId, ResourceTypeId, TenantId,
+    TrialOfferId,
 };
 use diesel::NullableExpressionMethods;
 use diesel::{
@@ -424,7 +425,7 @@ impl PlanRow {
                 pf_dsl::name,
                 pf_dsl::id,
                 active_version_alias
-                    .fields((pv_dsl::id, pv_dsl::version, pv_dsl::trial_duration_days))
+                    .fields((pv_dsl::id, pv_dsl::version))
                     .nullable(),
                 draft_version_alias.field(pv_dsl::id).nullable(),
                 active_subscriptions_count_subselect,
@@ -851,7 +852,7 @@ impl PlanRowOverview {
                 pf_dsl::name,
                 pf_dsl::id,
                 active_version_alias
-                    .fields((pv_dsl::id, pv_dsl::version, pv_dsl::trial_duration_days))
+                    .fields((pv_dsl::id, pv_dsl::version))
                     .nullable(),
                 draft_version_alias.field(pv_dsl::id).nullable(),
                 active_subscriptions_count_subselect,
@@ -943,7 +944,7 @@ impl PlanRowOverview {
                 pf_dsl::name,
                 pf_dsl::id,
                 active_version_alias
-                    .fields((pv_dsl::id, pv_dsl::version, pv_dsl::trial_duration_days))
+                    .fields((pv_dsl::id, pv_dsl::version))
                     .nullable(),
                 draft_version_alias.field(pv_dsl::id).nullable(),
                 active_subscriptions_count_subselect,
@@ -1137,8 +1138,8 @@ impl PlanRowForSubscription {
                 p_dsl::name,
                 pv_dsl::currency,
                 p_dsl::plan_type,
-                pv_dsl::trial_duration_days,
-                pv_dsl::trial_is_free,
+                p_dsl::id,
+                p_dsl::trial_offer_id,
                 p_dsl::product_family_id,
                 pv_dsl::tax_inclusive,
             ));
@@ -1157,8 +1158,8 @@ impl PlanRowForSubscription {
                     String,
                     String,
                     PlanTypeEnum,
-                    Option<i32>,
-                    bool,
+                    PlanId,
+                    Option<TrialOfferId>,
                     ProductFamilyId,
                     bool,
                 )>| {
@@ -1170,8 +1171,8 @@ impl PlanRowForSubscription {
                                 name,
                                 currency,
                                 plan_type,
-                                trial_duration_days,
-                                trial_is_free,
+                                plan_id,
+                                trial_offer_id,
                                 product_family_id,
                                 tax_inclusive,
                             )| {
@@ -1181,8 +1182,8 @@ impl PlanRowForSubscription {
                                     name,
                                     currency,
                                     plan_type,
-                                    trial_duration_days,
-                                    trial_is_free,
+                                    plan_id,
+                                    trial_offer_id,
                                     product_family_id,
                                     tax_inclusive,
                                 }

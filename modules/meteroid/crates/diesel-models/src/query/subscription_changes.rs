@@ -160,6 +160,38 @@ impl SubscriptionChangeRow {
             .into_db_result()
     }
 
+    /// The changes of `kinds` taking effect by `at` that the derived state has not applied yet.
+    pub async fn list_in_force_unapplied(
+        conn: &mut PgConn,
+        tenant_id_param: &TenantId,
+        subscription_id_param: SubscriptionId,
+        kinds: &[SubscriptionChangeKindEnum],
+        at: NaiveDateTime,
+    ) -> DbResult<Vec<SubscriptionChangeRow>> {
+        use crate::schema::subscription_change::dsl::{
+            created_at, effective_at, kind, subscription_change, subscription_id, tenant_id,
+            withdrawn_at,
+        };
+
+        let query = subscription_change
+            .filter(subscription_id.eq(subscription_id_param))
+            .filter(tenant_id.eq(tenant_id_param))
+            .filter(withdrawn_at.is_null())
+            .filter(effective_at.le(at))
+            .filter(kind.eq_any(kinds))
+            .filter(not_applied())
+            .order_by((effective_at.asc(), created_at.asc()))
+            .select(SubscriptionChangeRow::as_select());
+
+        crate::debug_sql(&query);
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while listing the scheduled changes in force")
+            .into_db_result()
+    }
+
     /// Moves a change still to take effect to `effective_at_param`, with the rows it now writes;
     /// returns whether it had not taken effect, nor was withdrawn.
     pub async fn defer(
@@ -250,6 +282,31 @@ impl SubscriptionChangeRow {
         .map(|_| ())
     }
 
+    /// Marks the timeline change of `kind` dated `on`, its facts written ahead, as left for the
+    /// billing controller to settle on its day, whichever period it falls in.
+    pub async fn mark_settlement_due_on(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        on: chrono::NaiveDate,
+        kind: SubscriptionChangeKindEnum,
+    ) -> DbResult<()> {
+        diesel::sql_query(
+            "INSERT INTO subscription_settlement_due (subscription_id, effective_on, tenant_id, kind)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (subscription_id, effective_on) DO NOTHING",
+        )
+        .bind::<diesel::sql_types::Uuid, _>(subscription_id)
+        .bind::<diesel::sql_types::Date, _>(on)
+        .bind::<diesel::sql_types::Uuid, _>(tenant_id)
+        .bind::<crate::schema::sql_types::SubscriptionChangeKindEnum, _>(kind)
+        .execute(conn)
+        .await
+        .attach("Error while marking a timeline change's settlement due")
+        .into_db_result()
+        .map(|_| ())
+    }
+
     /// Drops the settlement left to the controller for a scheduled amendment dated `on`, which no
     /// longer takes effect that day; an immediate amendment's of that day stays.
     pub async fn drop_amendment_settlement_due(
@@ -269,6 +326,29 @@ impl SubscriptionChangeRow {
         .execute(conn)
         .await
         .attach("Error while dropping an amendment's settlement due")
+        .into_db_result()
+        .map(|_| ())
+    }
+
+    /// Drops the settlement left to the controller for a timeline change inside a period on `on`,
+    /// once no other timeline change of that day is live.
+    pub async fn drop_phase_settlement_due(
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+        on: chrono::NaiveDate,
+    ) -> DbResult<()> {
+        diesel::sql_query(
+            "DELETE FROM subscription_settlement_due
+             WHERE subscription_id = $1 AND effective_on = $2 AND kind = 'PHASE'
+               AND NOT EXISTS (SELECT 1 FROM subscription_change c
+                               WHERE c.subscription_id = $1 AND c.kind = 'PHASE'
+                                 AND c.withdrawn_at IS NULL AND c.effective_at::date = $2)",
+        )
+        .bind::<diesel::sql_types::Uuid, _>(subscription_id)
+        .bind::<diesel::sql_types::Date, _>(on)
+        .execute(conn)
+        .await
+        .attach("Error while dropping a phase's settlement due")
         .into_db_result()
         .map(|_| ())
     }

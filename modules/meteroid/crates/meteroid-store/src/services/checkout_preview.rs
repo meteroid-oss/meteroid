@@ -4,10 +4,9 @@ use crate::domain::subscription_add_ons::SubscriptionAddOn;
 use crate::domain::subscription_coupons::AppliedCoupon;
 use crate::domain::{
     AppliedCouponDetailed, CheckoutSession, CheckoutType, CreateSubscription,
-    CreateSubscriptionAddOns, CreateSubscriptionComponents, CreateSubscriptionFromQuote,
-    InvoicingEntity, PlanVersion, PriceComponent, Subscription, SubscriptionActivationCondition,
-    SubscriptionComponent, SubscriptionDetails, SubscriptionMinimum, SubscriptionNew,
-    SubscriptionStatusEnum, TrialConfig,
+    CreateSubscriptionAddOns, CreateSubscriptionComponents, InvoicingEntity, PriceComponent,
+    Subscription, SubscriptionActivationCondition, SubscriptionComponent, SubscriptionDetails,
+    SubscriptionMinimum, SubscriptionNew, SubscriptionStatusEnum, TrialConfig,
 };
 use crate::errors::StoreError;
 use crate::repositories::add_ons::AddOnInterface;
@@ -22,7 +21,6 @@ use crate::services::subscriptions::currency::{
 use crate::services::subscriptions::utils::billing_period_of;
 use crate::store::PgConn;
 use crate::utils::periods::calculate_advance_period_range;
-use chrono::Duration;
 use chrono::{Datelike, NaiveDate};
 use common_domain::ids::{
     AddOnId, AppliedCouponId, BaseId, CouponId, SubscriptionAddOnId, SubscriptionId,
@@ -152,26 +150,32 @@ impl Services {
             .billing_start_date
             .unwrap_or_else(|| common_clock::now().date_naive());
 
-        let plan_trial_days = plan_version.trial_duration_days.map(|d| d as u32);
-
-        let effective_trial_duration: Option<u32> = session
-            .trial_duration_days
-            .map(|d| d as u32)
-            .or(plan_trial_days)
-            .filter(|&d| d > 0);
+        // As creation resolves it (R-153).
+        let plan =
+            crate::services::trials::PlanRef::of_version_tx(conn, tenant_id, plan_version.id)
+                .await?;
+        let trial = crate::services::trials::resolve_trial_tx(
+            conn,
+            tenant_id,
+            &plan,
+            billing_start_date,
+            Some(session.customer_id),
+            &session.trial_request(),
+        )
+        .await?;
+        let trial_is_free = trial.as_ref().is_some_and(|trial| trial.free);
+        let trialing_plan_id = trial.as_ref().and_then(|trial| trial.trial_plan_id);
+        let effective_trial_duration: Option<u32> = trial.as_ref().map(|trial| trial.days);
 
         let billing_day_anchor =
             session
                 .billing_day_anchor
                 .map(|a| a as u16)
-                .unwrap_or_else(|| {
-                    if let Some(trial_days) = effective_trial_duration {
-                        let trial_end =
-                            billing_start_date + chrono::Duration::days(i64::from(trial_days));
-                        trial_end.day() as u16
-                    } else {
-                        billing_start_date.day() as u16
+                .unwrap_or_else(|| match effective_trial_duration {
+                    Some(days) if trial_is_free => {
+                        (billing_start_date + chrono::Duration::days(i64::from(days))).day() as u16
                     }
+                    _ => billing_start_date.day() as u16,
                 });
 
         let net_terms = session
@@ -180,8 +184,7 @@ impl Services {
             .unwrap_or(plan_version.net_terms as u32);
 
         let trial_config = if let Some(trial_days) = effective_trial_duration {
-            let trialing_plan_name = if let Some(trialing_plan_id) = &plan_version.trialing_plan_id
-            {
+            let trialing_plan_name = if let Some(trialing_plan_id) = &trialing_plan_id {
                 diesel_models::plans::PlanRow::get_overview_by_id(
                     conn,
                     *trialing_plan_id,
@@ -196,11 +199,18 @@ impl Services {
 
             Some(TrialConfig {
                 duration_days: trial_days,
-                is_free: plan_version.trial_is_free,
+                is_free: trial_is_free,
+                starts_on: billing_start_date,
                 // The preview prices the plan from the billing start, as it bills after the trial.
                 ends_on: None,
-                trialing_plan_id: plan_version.trialing_plan_id,
+                trialing_plan_id,
                 trialing_plan_name,
+                offer: None,
+                end_action: trial
+                    .as_ref()
+                    .map_or(crate::domain::trials::TrialEnd::Convert, |trial| {
+                        trial.end_action.kind()
+                    }),
             })
         } else {
             None
@@ -308,7 +318,6 @@ impl Services {
                 subscription: virtual_subscription,
                 invoicing_entity,
                 customer,
-                schedules: Vec::new(),
                 price_components: subscription_components,
                 add_ons: subscription_add_ons,
                 applied_coupons,
@@ -426,10 +435,13 @@ impl Services {
             )
             .await?;
 
+        let start =
+            crate::services::plan_phases::template_tx(conn, tenant_id, sub.plan_version_id).await?;
         self.previewed_details(
             conn,
             tenant_id,
             PreviewedSubscription {
+                start,
                 subscription: sub,
                 offer_currency,
                 plan_option,
@@ -447,83 +459,6 @@ impl Services {
         .await
     }
 
-    /// The first invoice of the subscription a quote converts to, as `preview_create_subscription`
-    /// computes it, from the lines the conversion creates.
-    pub(crate) async fn preview_subscription_from_quote(
-        &self,
-        conn: &mut PgConn,
-        create: &CreateSubscriptionFromQuote,
-        tenant_id: TenantId,
-    ) -> StoreResult<(ComputedInvoiceContent, SubscriptionDetails)> {
-        let components = create
-            .components
-            .iter()
-            .map(|c| SubscriptionComponent {
-                id: SubscriptionPriceComponentId::new(),
-                name: c.name.clone(),
-                subscription_id: SubscriptionId::new(),
-                price_component_id: c.price_component_id,
-                product_id: c.product_id,
-                fee: c.fee.clone(),
-                period: c.period,
-                price_id: c.price_id,
-                effective_from: c.effective_from,
-                effective_to: None,
-                lineage_id: None,
-                added_by_amendment: false,
-            })
-            .collect();
-        let add_ons = create
-            .add_ons
-            .iter()
-            .map(|a| SubscriptionAddOn {
-                id: SubscriptionAddOnId::new(),
-                subscription_id: SubscriptionId::new(),
-                add_on_id: a.add_on_id,
-                name: a.name.clone(),
-                period: a.period,
-                fee: a.fee.clone(),
-                product_id: a.product_id,
-                price_id: a.price_id,
-                created_at: common_clock::now().naive_utc(),
-                quantity: a.quantity,
-                effective_from: a.effective_from,
-                effective_to: None,
-                lineage_id: None,
-                added_by_amendment: false,
-            })
-            .collect();
-
-        self.preview_first_invoice(
-            conn,
-            tenant_id,
-            PreviewedSubscription {
-                subscription: &create.subscription,
-                offer_currency: None,
-                plan_option: None,
-                components,
-                add_ons,
-                minimum_override: create.minimum_override.as_ref(),
-                drop_minimum: false,
-                coupon_ids: create.coupon_ids.clone(),
-            },
-        )
-        .await
-    }
-
-    async fn preview_first_invoice(
-        &self,
-        conn: &mut PgConn,
-        tenant_id: TenantId,
-        preview: PreviewedSubscription<'_>,
-    ) -> StoreResult<(ComputedInvoiceContent, SubscriptionDetails)> {
-        let details = self.previewed_details(conn, tenant_id, preview).await?;
-        let content = self
-            .preview_new_subscription_invoice(conn, &details)
-            .await?;
-        Ok((content, details))
-    }
-
     async fn previewed_details(
         &self,
         conn: &mut PgConn,
@@ -531,16 +466,16 @@ impl Services {
         preview: PreviewedSubscription<'_>,
     ) -> StoreResult<SubscriptionDetails> {
         let PreviewedSubscription {
+            start,
             subscription: sub,
             offer_currency,
             plan_option,
-            components: subscription_components,
+            components: mut subscription_components,
             add_ons: subscription_add_ons,
             minimum_override,
             drop_minimum,
             coupon_ids,
         } = preview;
-
         let plan_with_version = self
             .store
             .get_plan_by_version_id_with_conn(conn, sub.plan_version_id, tenant_id)
@@ -551,6 +486,24 @@ impl Services {
                 "Plan version not found".to_string(),
             ))
         })?;
+
+        // Priced as creation prices them: the phase at offset 0 of the plan's template or quote.
+        let fees: Vec<_> = subscription_components
+            .iter()
+            .map(|component| (component.price_component_id, &component.fee))
+            .collect();
+        let precision = crate::domain::subscription_phases::precision_of(
+            offer_currency
+                .as_deref()
+                .unwrap_or(plan_version.currency.as_str()),
+        );
+        let priced = crate::services::plan_phases::priced_at_start(&start, &fees, precision)?;
+        for (component, fee) in subscription_components.iter_mut().zip(priced) {
+            if let Some(fee) = fee {
+                component.fee = fee;
+                component.price_id = None;
+            }
+        }
 
         let customer = self
             .store
@@ -578,8 +531,20 @@ impl Services {
         // Mirror process_subscription's first-period derivation. The summary always shows the
         // first *billable* period: for a free trial that is the post-trial period (the in-trial
         // invoice is zero), so billing starts after the trial. Paid/no trial bill immediately.
+        let plan =
+            crate::services::trials::PlanRef::of_version_tx(conn, tenant_id, plan_version.id)
+                .await?;
+        let trial = crate::services::trials::resolve_trial_tx(
+            conn,
+            tenant_id,
+            &plan,
+            sub.billing_start_date.unwrap_or(sub.start_date),
+            Some(sub.customer_id),
+            &sub.trial,
+        )
+        .await?;
         let (effective_trial_duration, billing_start_date) =
-            trial_and_billing_start(sub, plan_version);
+            trial_and_billing_start(sub, trial.as_ref());
         let contract_start = sub.start_date;
 
         let billing_day_anchor = sub
@@ -697,7 +662,6 @@ impl Services {
                 subscription: virtual_subscription,
                 invoicing_entity,
                 customer,
-                schedules: Vec::new(),
                 price_components: subscription_components,
                 add_ons: subscription_add_ons,
                 applied_coupons,
@@ -1205,26 +1169,24 @@ async fn ensure_not_redeemed_by(
     )))
 }
 
-/// The trial a new subscription gets, and when its billing starts: after the trial when it is free.
+/// The trial a new subscription gets, and when its billing starts: after the trial when it is
+/// free, counted from its billing start as creation counts it.
 fn trial_and_billing_start(
     sub: &SubscriptionNew,
-    plan_version: &PlanVersion,
+    resolved: Option<&crate::domain::trials::ResolvedTrial>,
 ) -> (Option<u32>, NaiveDate) {
-    let trial = sub
-        .trial_duration
-        .or(plan_version.trial_duration_days.map(|d| d as u32))
-        .filter(|&d| d > 0);
-    let billing_start = match trial {
-        Some(days) if plan_version.trial_is_free => {
-            sub.start_date + Duration::days(i64::from(days))
-        }
-        _ => sub.billing_start_date.unwrap_or(sub.start_date),
+    let billing_start = sub.billing_start_date.unwrap_or(sub.start_date);
+    let start = match resolved {
+        Some(trial) if trial.free => trial.until(billing_start),
+        _ => billing_start,
     };
-    (trial, billing_start)
+    (resolved.map(|trial| trial.days), start)
 }
 
 /// A subscription about to be created, its lines resolved.
 struct PreviewedSubscription<'a> {
+    /// The phases of the plan's template or the quote: the one at offset 0 prices the start.
+    start: Vec<crate::domain::trial_offers::PlanPhaseTemplate>,
     subscription: &'a SubscriptionNew,
     /// The customer's; none: its plan version's.
     offer_currency: Option<String>,

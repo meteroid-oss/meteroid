@@ -1,6 +1,7 @@
 import { useAtom } from 'jotai'
 import { useMemo } from 'react'
 
+import { pricesKey, targetPrices } from '@/features/subscriptions/planChange/TargetChargesTable'
 import { findOption, inOption } from '@/features/subscriptions/pricecomponents/planOption'
 import { useQuery } from '@/lib/connectrpc'
 import {
@@ -83,15 +84,20 @@ export const usePlanChangeParameters = () => {
       },
     }))
 
+  const setPrice = (componentId: string, price: string) =>
+    setState(prev => ({ ...prev, prices: { ...prev.prices, [componentId]: price } }))
+
   return {
     addedTargets,
     configurable,
     matchedConfigurable,
     parameterizedComponents,
+    prices: targetPrices(state.prices),
     // The option is sent with the parameters: a change of option re-runs the preview.
     option: state.option,
-    parametersKey: `${state.option ?? ''}|${parametersKey(parameterizedComponents)}`,
+    parametersKey: `${state.option ?? ''}|${parametersKey(parameterizedComponents)}|${pricesKey(state.prices)}`,
     choose,
+    setPrice,
     // A failed lookup still lets the preview run, without parameters, to surface the server's error.
     ready: !targetQuery.isLoading && !versionQuery.isLoading && !subscriptionQuery.isLoading,
   }

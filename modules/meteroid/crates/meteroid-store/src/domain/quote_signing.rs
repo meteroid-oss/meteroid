@@ -235,6 +235,8 @@ pub struct QuoteRevision {
     pub created_at: NaiveDateTime,
     pub superseded_at: Option<NaiveDateTime>,
     pub pdf_document_id: Option<StoredDocumentId>,
+    /// What it was worth when published (R-165).
+    pub contract_value: Option<crate::domain::quotes::QuoteContractValue>,
 }
 
 impl From<QuoteRevisionRow> for QuoteRevision {
@@ -248,6 +250,9 @@ impl From<QuoteRevisionRow> for QuoteRevision {
             created_at: r.created_at,
             superseded_at: r.superseded_at,
             pdf_document_id: r.pdf_document_id,
+            contract_value: r
+                .contract_value
+                .and_then(|v| serde_json::from_value(v).ok()),
         }
     }
 }

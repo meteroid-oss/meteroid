@@ -65,7 +65,6 @@ async fn test_plans_basic() {
     assert_eq!(created_version.version, 1);
     assert_eq!(created_version.currency.as_str(), "EUR");
     assert!(created_version.is_draft);
-    assert_eq!(created_version.trial_config, None);
 
     // get plan by local_id
     let plan_details = clients

@@ -5,7 +5,8 @@ use super::model::{
     AddOnRef, AmendmentSummary, AppliedCoupon, Cancellation, ChargeOrigin, CouponRef,
     CurrentPeriod, CustomerRef, Dates, Document, DocumentType, Invoicing, Money, PendingQuantity,
     PlanRef, QuantityState, ResourceRef, ScheduledChange, ScheduledChangeType, SubscribedAddOn,
-    Subscription, SubscriptionCharge, SubscriptionStatus, TrialState,
+    Subscription, SubscriptionCharge, SubscriptionStatus, TrialEndAction, TrialOfferSummary,
+    TrialState,
 };
 use crate::AppState;
 use crate::v2::Reader;
@@ -417,8 +418,12 @@ pub fn base(
             .filter(|days| *days > 0)
             .map(|days| TrialState {
                 days,
+                starts_on: None,
                 free: None,
                 ends_on: None,
+                plan: None,
+                offer: None,
+                end_action: None,
             }),
         quantities: None,
         levels: None,
@@ -693,10 +698,27 @@ async fn read_whole(
     let mut out = base(sub, listed.external_id, listed.updated_at, plan, resource);
     out.entitlement_overrides = Some(entitlement_overrides(state, tenant_id, sub.id).await?);
     if let Some(trial) = &details.trial_config {
+        let plan = match trial.trialing_plan_id {
+            Some(plan_id) => Some(plan_code(state, tenant_id, plan_id).await?),
+            None => None,
+        };
+        let offer = trial.offer.as_ref().map(|offer| TrialOfferSummary {
+            id: offer.id,
+            code: offer.code.clone(),
+            name: offer.name.clone(),
+        });
         out.trial = Some(TrialState {
             days: trial.duration_days,
+            starts_on: Some(trial.starts_on),
             free: Some(trial.is_free),
             ends_on: trial.ends_on,
+            plan,
+            offer,
+            end_action: Some(match trial.end_action {
+                meteroid_store::domain::trials::TrialEnd::Convert => TrialEndAction::Convert,
+                meteroid_store::domain::trials::TrialEnd::Cancel => TrialEndAction::Cancel,
+                meteroid_store::domain::trials::TrialEnd::Fallback => TrialEndAction::Fallback,
+            }),
         });
     }
 
@@ -847,6 +869,7 @@ pub async fn schedule(
             ScheduledEventTypeEnum::CancelSubscription => {
                 (ScheduledChangeType::Cancellation, None, None)
             }
+            ScheduledEventTypeEnum::ApplyPhase => (ScheduledChangeType::Phase, None, None),
             ScheduledEventTypeEnum::ApplyAmendment => (
                 ScheduledChangeType::Amendment,
                 None,

@@ -17,9 +17,9 @@ use meteroid_app::features::ensure_credit_pricing_allowed;
 use meteroid_app::features::minimum_commitments_open;
 use meteroid_rest_common::error::RestErrorResponse;
 use meteroid_rest_common::model::{PaginationExt, validate_order_by};
+use meteroid_store::domain::trials::TrialTerms;
 use meteroid_store::domain::{
-    FullPlanNew, PlanFilters, PlanNew, PlanPatch, PlanTrial, PlanVersionFilter,
-    PlanVersionNewInternal,
+    FullPlanNew, PlanFilters, PlanNew, PlanPatch, PlanVersionFilter, PlanVersionNewInternal,
 };
 use meteroid_store::repositories::PlansInterface;
 use meteroid_store::repositories::credit_units::CreditUnitsInterface;
@@ -74,15 +74,26 @@ pub async fn list_plans(
             RestApiError::StoreError
         })?;
 
+    let plan_ids: Vec<_> = res.items.iter().map(|fp| fp.plan.id).collect();
+    let mut trials = app_state
+        .services
+        .plan_trials(authorized_state.tenant_id, &plan_ids)
+        .await
+        .map_err(|e| {
+            log::error!("Error handling list_plans: {e}");
+            RestApiError::StoreError
+        })?;
     let rest_models: Vec<Plan> = res
         .items
         .into_iter()
         .map(|fp| {
+            let trial = trials.remove(&fp.plan.id);
             mapping::plan_to_rest(
                 fp.plan,
                 fp.version,
                 fp.price_components,
                 fp.product_family.name,
+                trial.as_ref(),
             )
         })
         .collect::<Result<_, _>>()?;
@@ -134,12 +145,9 @@ pub async fn get_plan_details(
             RestApiError::from(e)
         })?;
 
-    Ok(Json(mapping::plan_to_rest(
-        fp.plan,
-        fp.version,
-        fp.price_components,
-        fp.product_family.name,
-    )?))
+    Ok(Json(
+        rest_plan(&app_state, authorized_state.tenant_id, fp).await?,
+    ))
 }
 
 // ── Create plan ────────────────────────────────────────────────
@@ -189,11 +197,12 @@ pub async fn create_plan(
         period_start_day: None,
     });
 
-    let trial = payload.trial.map(|t| PlanTrial {
+    // The plan's trial, live on every version: set by the call, cleared when it names none.
+    let trial = Some(payload.trial.map(|t| TrialTerms {
         duration_days: t.duration_days,
-        trialing_plan_id: t.trialing_plan_id,
-        trial_is_free: t.is_free,
-    });
+        free: t.is_free,
+        trial_plan_id: t.trialing_plan_id,
+    }));
 
     let entitlements =
         plan_entitlement_specs(&app_state, authorized_state.tenant_id, payload.entitlements)
@@ -302,12 +311,7 @@ pub async fn create_plan(
 
     Ok((
         StatusCode::CREATED,
-        Json(mapping::plan_to_rest(
-            fp.plan,
-            fp.version,
-            fp.price_components,
-            fp.product_family.name,
-        )?),
+        Json(rest_plan(&app_state, authorized_state.tenant_id, fp).await?),
     ))
 }
 
@@ -382,11 +386,12 @@ pub async fn replace_plan(
         period_start_day: None,
     });
 
-    let trial = payload.trial.map(|t| PlanTrial {
+    // The plan's trial, live on every version: set by the call, cleared when it names none.
+    let trial = Some(payload.trial.map(|t| TrialTerms {
         duration_days: t.duration_days,
-        trialing_plan_id: t.trialing_plan_id,
-        trial_is_free: t.is_free,
-    });
+        free: t.is_free,
+        trial_plan_id: t.trialing_plan_id,
+    }));
 
     let add_ons = payload
         .add_ons
@@ -475,12 +480,9 @@ pub async fn replace_plan(
             RestApiError::from(e)
         })?;
 
-    Ok(Json(mapping::plan_to_rest(
-        fp.plan,
-        fp.version,
-        fp.price_components,
-        fp.product_family.name,
-    )?))
+    Ok(Json(
+        rest_plan(&app_state, authorized_state.tenant_id, fp).await?,
+    ))
 }
 
 /// Refuses a replacement that would reprice a credit-unit component in money: generated SDKs
@@ -702,12 +704,9 @@ pub async fn patch_plan(
         }
     };
 
-    Ok(Json(mapping::plan_to_rest(
-        fp.plan,
-        fp.version,
-        fp.price_components,
-        fp.product_family.name,
-    )?))
+    Ok(Json(
+        rest_plan(&app_state, authorized_state.tenant_id, fp).await?,
+    ))
 }
 
 // ── Publish plan ───────────────────────────────────────────────
@@ -775,12 +774,9 @@ pub async fn publish_plan(
             RestApiError::from(e)
         })?;
 
-    Ok(Json(mapping::plan_to_rest(
-        fp.plan,
-        fp.version,
-        fp.price_components,
-        fp.product_family.name,
-    )?))
+    Ok(Json(
+        rest_plan(&app_state, authorized_state.tenant_id, fp).await?,
+    ))
 }
 
 // ── Archive / Unarchive ────────────────────────────────────────
@@ -1126,4 +1122,25 @@ async fn plan_entitlement_specs(
         specs,
     )
     .await
+}
+
+/// The plan as v1 reads it, with its trial: the plan's, the same on every version.
+async fn rest_plan(
+    app_state: &AppState,
+    tenant_id: common_domain::ids::TenantId,
+    fp: meteroid_store::domain::FullPlan,
+) -> Result<Plan, RestApiError> {
+    use meteroid_store::repositories::PlansInterface;
+    let trial = app_state
+        .store
+        .plan_trial(tenant_id, fp.plan.id)
+        .await
+        .map_err(RestApiError::from)?;
+    mapping::plan_to_rest(
+        fp.plan,
+        fp.version,
+        fp.price_components,
+        fp.product_family.name,
+        trial.as_ref(),
+    )
 }

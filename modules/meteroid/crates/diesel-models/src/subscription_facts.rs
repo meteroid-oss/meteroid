@@ -45,6 +45,11 @@ pub struct SubscriptionTrialRow {
     pub until_date: NaiveDate,
     pub free: bool,
     pub created_at: NaiveDateTime,
+    /// The plan whose features it gives, fixed at its start (ADR 0011 §3.9).
+    pub trial_plan_id: Option<common_domain::ids::PlanId>,
+    pub trial_offer_id: Option<common_domain::ids::TrialOfferId>,
+    /// CONVERT, CANCEL or FALLBACK, as given at its start.
+    pub end_action: String,
 }
 
 /// Who settled a subscription's start.

@@ -65,19 +65,13 @@ impl Services {
                         .subscription
                         .trial_duration
                         .filter(|days| *days > 0);
-                    // As creation and the lifecycle: the plan version says whether a trial is free.
-                    let trial_is_free = match trial_days {
-                        Some(_) => diesel_models::plans::PlanRow::get_with_version(
+                    let trial_is_free = trial_days.is_some()
+                        && crate::services::subscriptions::recorded_trial_free_tx(
                             conn,
-                            subscription.subscription.plan_version_id,
-                            tenant_id,
+                            subscription.subscription.id,
                         )
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?
-                        .version
-                        .is_none_or(|version| version.trial_is_free),
-                        None => false,
-                    };
+                        .await?
+                        .unwrap_or(false);
                     let free_trial_days = trial_days.filter(|_| trial_is_free);
                     let paid_trial_days = trial_days.filter(|_| free_trial_days.is_none());
 

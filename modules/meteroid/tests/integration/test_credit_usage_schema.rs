@@ -39,7 +39,7 @@ async fn subscription(setup: &MeteroidSetup) -> SubscriptionId {
                     end_date: None,
                     billing_start_date: Some(today),
                     activation_condition: SubscriptionActivationCondition::OnStart,
-                    trial_duration: None,
+                    trial: Default::default(),
                     billing_day_anchor: None,
                     payment_methods_config: None,
                     auto_advance_invoices: true,

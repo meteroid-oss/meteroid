@@ -31,6 +31,8 @@ pub struct SubscriptionBuilder {
     auto_advance_invoices: bool,
     billing_day_anchor: Option<u16>,
     option: Option<PlanOptionRef>,
+    trial_offer_id: Option<common_domain::ids::TrialOfferId>,
+    trial: Option<meteroid_store::domain::trials::TrialRequest>,
 }
 
 impl Default for SubscriptionBuilder {
@@ -51,6 +53,8 @@ impl Default for SubscriptionBuilder {
             auto_advance_invoices: true,
             billing_day_anchor: None,
             option: None,
+            trial_offer_id: None,
+            trial: None,
         }
     }
 }
@@ -103,6 +107,18 @@ impl SubscriptionBuilder {
     /// Set trial duration in days.
     pub fn trial_days(mut self, days: u32) -> Self {
         self.trial_duration = Some(days);
+        self
+    }
+
+    /// Redeem a trial offer at creation: it sets the trial.
+    pub fn trial_offer(mut self, offer: common_domain::ids::TrialOfferId) -> Self {
+        self.trial_offer_id = Some(offer);
+        self
+    }
+
+    /// The trial asked, as a creation asks it (R-153).
+    pub fn trial(mut self, request: meteroid_store::domain::trials::TrialRequest) -> Self {
+        self.trial = Some(request);
         self
     }
 
@@ -229,7 +245,16 @@ impl SubscriptionBuilder {
                 end_date: self.end_date,
                 billing_start_date: None,
                 activation_condition: self.activation_condition,
-                trial_duration: self.trial_duration,
+                trial: match (self.trial, self.trial_offer_id) {
+                    (Some(request), _) => request,
+                    (None, Some(offer)) => {
+                        meteroid_store::domain::trials::TrialRequest::Offer(offer)
+                    }
+                    (None, None) => meteroid_store::domain::trials::TrialRequest::from_days(
+                        self.trial_duration,
+                        None,
+                    ),
+                },
                 billing_day_anchor: self.billing_day_anchor,
                 payment_methods_config: self.payment_methods_config,
                 auto_advance_invoices: self.auto_advance_invoices,

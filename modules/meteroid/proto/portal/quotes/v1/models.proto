@@ -44,6 +44,8 @@ message QuotePortalDetails {
   // The quote's PDF, signed once accepted (Enterprise, quote-documents module).
   optional string pdf_url = 28;
   repeated api.quotes.v1.QuoteCouponTerms coupon_terms = 29;
+  repeated api.quotes.v1.QuotePriceStep price_schedule = 30;
+  reserved 31;
 }
 
 message QuoteCountersignerStatus {

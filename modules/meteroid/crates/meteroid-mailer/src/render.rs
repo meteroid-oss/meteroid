@@ -210,6 +210,15 @@ pub enum Body {
         stop_url: Option<String>,
         cta: Cta,
     },
+    /// A subscription renewing (else ending) on `date`; fixed copy, the deadline stated as is.
+    RenewalReminder {
+        plan_name: String,
+        date: NaiveDate,
+        renews: bool,
+        opt_out_deadline: Option<NaiveDate>,
+        renewal_months: Option<u32>,
+        uplift_percent: Option<String>,
+    },
     /// `html_fragment` comes from `copy::to_html` only; it is inserted unescaped.
     Custom {
         html_fragment: String,
@@ -916,6 +925,66 @@ pub fn render(
                 render_layout(lang, subject, None, header, footer, &l10n, content)?,
             )
         }
+        Body::RenewalReminder {
+            plan_name,
+            date,
+            renews,
+            opt_out_deadline,
+            renewal_months,
+            uplift_percent,
+        } => {
+            let when = long_date(lang, &date);
+            let mut rows = vec![if renews {
+                row(l10n.renewal_reminder_renews_on(), when.clone())
+            } else {
+                row(l10n.renewal_reminder_ends_on(), when.clone())
+            }];
+            if let Some(next_end) = renewal_months
+                .filter(|_| renews)
+                .and_then(|months| date.checked_add_months(chrono::Months::new(months)))
+            {
+                rows.push(row(
+                    l10n.renewal_reminder_next_term_ends(),
+                    long_date(lang, &next_end),
+                ));
+            }
+            if let Some(percent) = uplift_percent.filter(|_| renews) {
+                rows.push(row(
+                    l10n.renewal_reminder_price_change(),
+                    l10n.renewal_reminder_uplift(&percent).to_string(),
+                ));
+            }
+            if let Some(deadline) = opt_out_deadline.filter(|_| renews) {
+                rows.push(row(
+                    l10n.renewal_reminder_opt_out_by(),
+                    long_date(lang, &deadline),
+                ));
+            }
+            let (heading, intro, subject) = if renews {
+                (
+                    l10n.renewal_reminder_renewing_heading().to_string(),
+                    l10n.renewal_reminder_renewing_intro(&plan_name, &when)
+                        .to_string(),
+                    l10n.renewal_reminder_renewing_subject(company).to_string(),
+                )
+            } else {
+                (
+                    l10n.renewal_reminder_ending_heading().to_string(),
+                    l10n.renewal_reminder_ending_intro(&plan_name, &when)
+                        .to_string(),
+                    l10n.renewal_reminder_ending_subject(company).to_string(),
+                )
+            };
+            let content = WalletNoticeContent {
+                heading,
+                intro,
+                summary: SummaryBoxTemplate { hero: None, rows },
+            };
+            (
+                subject.clone(),
+                render_layout(lang, subject, None, header, footer, &l10n, content)?,
+            )
+        }
         Body::Custom {
             html_fragment,
             summary,
@@ -1250,6 +1319,28 @@ mod tests {
                     cta: Cta::new("https://portal.example/customer?page=settings"),
                 },
             ),
+            (
+                "renewal_reminder",
+                Body::RenewalReminder {
+                    plan_name: "Scale".into(),
+                    date: NaiveDate::from_ymd_opt(2026, 12, 1).unwrap(),
+                    renews: true,
+                    opt_out_deadline: NaiveDate::from_ymd_opt(2026, 11, 1),
+                    renewal_months: Some(12),
+                    uplift_percent: Some("5".into()),
+                },
+            ),
+            (
+                "renewal_reminder_ending",
+                Body::RenewalReminder {
+                    plan_name: "Scale".into(),
+                    date: NaiveDate::from_ymd_opt(2026, 12, 1).unwrap(),
+                    renews: false,
+                    opt_out_deadline: None,
+                    renewal_months: None,
+                    uplift_percent: None,
+                },
+            ),
         ]
     }
 
@@ -1262,6 +1353,33 @@ mod tests {
                 .unwrap(),
             last_day: NaiveDate::from_ymd_opt(2026, 3, 31).unwrap(),
         }
+    }
+
+    #[test]
+    fn a_renewal_reminder_states_the_deadline_and_the_next_term() {
+        let lang = "en-US";
+        let l10n = email_l10n(lang);
+        let body = bodies()
+            .into_iter()
+            .find(|(kind, _)| *kind == "renewal_reminder")
+            .map(|(_, body)| body)
+            .unwrap();
+        let html = render(&layout(lang), Subject::Fixed, body)
+            .unwrap()
+            .body_html;
+        assert!(
+            html.contains(&esc(&l10n.renewal_reminder_opt_out_by())),
+            "deadline label"
+        );
+        assert!(html.contains(&long_date(
+            lang,
+            &NaiveDate::from_ymd_opt(2026, 11, 1).unwrap()
+        )));
+        assert!(html.contains(&long_date(
+            lang,
+            &NaiveDate::from_ymd_opt(2027, 12, 1).unwrap()
+        )));
+        assert!(html.contains("+5 %"), "uplift");
     }
 
     #[test]
@@ -1290,7 +1408,10 @@ mod tests {
                     html.contains("meteroid-logo-small.png"),
                     "{ctx}: powered-by logo"
                 );
-                if !kind.starts_with("quote_") && kind != "subscription_cancelled" {
+                if !kind.starts_with("quote_")
+                    && kind != "subscription_cancelled"
+                    && !kind.starts_with("renewal_reminder")
+                {
                     if kind != "payment_method_requested" && kind != "payment_method_expiring" {
                         assert!(html.contains("class=\"hero-amount\""), "{ctx}: hero");
                     }
@@ -1353,6 +1474,8 @@ mod tests {
                         l10n.payment_method_expiring_heading(),
                         Some(l10n.update_card()),
                     ),
+                    "renewal_reminder" => (l10n.renewal_reminder_renewing_heading(), None),
+                    "renewal_reminder_ending" => (l10n.renewal_reminder_ending_heading(), None),
                     _ => unreachable!(),
                 };
                 assert!(

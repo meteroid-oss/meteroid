@@ -16,6 +16,7 @@ pub struct QuoteRevisionRow {
     pub created_at: NaiveDateTime,
     pub superseded_at: Option<NaiveDateTime>,
     pub pdf_document_id: Option<StoredDocumentId>,
+    pub contract_value: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Insertable)]
@@ -28,4 +29,5 @@ pub struct QuoteRevisionRowNew {
     pub snapshot: serde_json::Value,
     pub document_hash: String,
     pub created_by: Option<String>,
+    pub contract_value: Option<serde_json::Value>,
 }

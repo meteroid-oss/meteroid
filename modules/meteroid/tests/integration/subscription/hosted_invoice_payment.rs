@@ -392,7 +392,7 @@ async fn test_settled_row_with_marker_stays_sweepable_until_released(#[future] t
             billing_start_date: Some(NaiveDate::from_ymd_opt(2024, 3, 1).unwrap()),
             billing_day_anchor: Some(1),
             net_terms: None,
-            trial_duration_days: None,
+            trial: Default::default(),
             end_date: None,
             auto_advance_invoices: true,
             charge_automatically: true,

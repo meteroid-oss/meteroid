@@ -1,7 +1,6 @@
 use crate::errors::IntoDbResult;
 use crate::plan_versions::{
     PlanVersionRow, PlanVersionRowNew, PlanVersionRowOverview, PlanVersionRowPatch,
-    PlanVersionTrialRowPatch,
 };
 
 use crate::{DbResult, PgConn};
@@ -382,39 +381,6 @@ impl PlanVersionRow {
             .into_db_result()
     }
 
-    /// Per version naming a trialing plan, that plan's active version.
-    pub async fn trialing_active_versions(
-        conn: &mut PgConn,
-        tenant_id: TenantId,
-        plan_version_ids: &[PlanVersionId],
-    ) -> DbResult<std::collections::HashMap<PlanVersionId, PlanVersionId>> {
-        use crate::schema::plan::dsl as p_dsl;
-        use crate::schema::plan_version::dsl as pv_dsl;
-        use diesel::{ExpressionMethods, NullableExpressionMethods};
-        use diesel_async::RunQueryDsl;
-
-        if plan_version_ids.is_empty() {
-            return Ok(std::collections::HashMap::new());
-        }
-
-        let query = pv_dsl::plan_version
-            .inner_join(p_dsl::plan.on(pv_dsl::trialing_plan_id.eq(p_dsl::id.nullable())))
-            .filter(pv_dsl::id.eq_any(plan_version_ids))
-            .filter(p_dsl::tenant_id.eq(tenant_id))
-            .filter(p_dsl::active_version_id.is_not_null())
-            .select((pv_dsl::id, p_dsl::active_version_id.assume_not_null()));
-
-        crate::debug_sql(&query);
-
-        let rows: Vec<(PlanVersionId, PlanVersionId)> = query
-            .load(conn)
-            .await
-            .attach("Error while getting the active versions of trialing plans")
-            .into_db_result()?;
-
-        Ok(rows.into_iter().collect())
-    }
-
     /// Get plan_ids for multiple plan_version_ids
     pub async fn get_plan_ids_by_version_ids(
         conn: &mut PgConn,
@@ -604,26 +570,6 @@ impl PlanVersionRowPatch {
             .get_result(conn)
             .await
             .attach("Error while updating plan version")
-            .into_db_result()
-    }
-}
-
-impl PlanVersionTrialRowPatch {
-    pub async fn update_trial(&self, conn: &mut PgConn) -> DbResult<PlanVersionRow> {
-        use crate::schema::plan_version::dsl as pv_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let query = diesel::update(pv_dsl::plan_version)
-            .filter(pv_dsl::id.eq(self.id))
-            .filter(pv_dsl::tenant_id.eq(self.tenant_id))
-            .set(self);
-
-        crate::debug_sql(&query);
-
-        query
-            .get_result(conn)
-            .await
-            .attach("Error while updating plan version trial")
             .into_db_result()
     }
 }

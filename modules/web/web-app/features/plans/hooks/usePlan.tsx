@@ -56,6 +56,7 @@ export const usePlanWithVersion = () => {
     isLoading: planQuery.isLoading,
     version: data.version,
     plan: data.plan,
+    trial: data.trial,
   }
 }
 

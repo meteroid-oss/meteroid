@@ -2494,3 +2494,96 @@ async fn test_rest_v2_subscription_entitlement_overrides() {
         after.body
     );
 }
+
+/// A subscription's trial is one input: the plan's, none, an offer of the catalog by code, or
+/// terms of its own; read back with the offer it came from.
+/// Rules: R-153
+#[tokio::test]
+async fn test_rest_v2_subscription_trial_is_an_offer_or_days() {
+    use meteroid_store::domain::trials::{TrialEligibility, TrialEndAction, TrialOfferNew};
+    let f = fixture().await;
+    seed(&f).await;
+    f.setup
+        .services
+        .create_trial_offer(
+            crate::data::ids::TENANT_ID,
+            TrialOfferNew {
+                name: "Two weeks".to_owned(),
+                code: Some("two-weeks".to_owned()),
+                duration_days: 14,
+                free: true,
+                trial_plan_id: None,
+                end_action: TrialEndAction::Convert,
+                eligibility: TrialEligibility::None,
+            },
+        )
+        .await
+        .expect("an offer");
+    let create = |key: &'static str, external_id: &'static str, trial: Value| {
+        let f = &f;
+        async move {
+            f.post_once(
+                "/api/v2/subscriptions",
+                key,
+                json!({
+                    "customer": "ext:spotify",
+                    "plan": "studio",
+                    "option": "monthly",
+                    "external_id": external_id,
+                    "quantities": {"users": "1"},
+                    "trial": trial,
+                    "invoicing": {"charge_automatically": false}
+                }),
+            )
+            .await
+        }
+    };
+
+    let by_offer = create(
+        "trial-offer",
+        "trial-offer",
+        json!({"type": "offer", "offer": "two-weeks"}),
+    )
+    .await;
+    assert_eq!(by_offer.status, StatusCode::CREATED, "{:#}", by_offer.body);
+    let read = f.get("/api/v2/subscriptions/trial-offer").await;
+    assert_eq!(read.body["trial"]["days"], 14, "{:#}", read.body);
+    assert_eq!(read.body["trial"]["offer"]["code"], "two-weeks");
+
+    let by_days = create(
+        "trial-days",
+        "trial-days",
+        json!({"type": "custom", "days": 7, "free": false}),
+    )
+    .await;
+    assert_eq!(by_days.status, StatusCode::CREATED, "{:#}", by_days.body);
+    let read = f.get("/api/v2/subscriptions/trial-days").await;
+    assert_eq!(read.body["trial"]["days"], 7, "{:#}", read.body);
+    assert_eq!(read.body["trial"]["free"], false);
+    assert!(read.body["trial"].get("offer").is_none());
+
+    let none = create("trial-none", "trial-none", json!({"type": "none"})).await;
+    assert_eq!(none.status, StatusCode::CREATED, "{:#}", none.body);
+    let read = f.get("/api/v2/subscriptions/trial-none").await;
+    assert!(
+        read.body.get("trial").is_none_or(Value::is_null),
+        "{:#}",
+        read.body
+    );
+
+    let unknown = create(
+        "trial-unknown",
+        "trial-unknown",
+        json!({"type": "offer", "offer": "nope"}),
+    )
+    .await;
+    assert_eq!(unknown.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(unknown.body["errors"][0]["path"], "/trial/offer");
+    let both = create(
+        "trial-both",
+        "trial-both",
+        json!({"type": "custom", "days": 7, "offer": "two-weeks"}),
+    )
+    .await;
+    assert_eq!(both.status, StatusCode::BAD_REQUEST, "{:#}", both.body);
+}

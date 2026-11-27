@@ -418,6 +418,8 @@ impl Services {
             success_url: return_url.clone(),
             cancel_url: return_url,
             resource_id: None,
+            trial_free: None,
+            trial_offer_id: None,
         }
         .insert_or_get(&mut conn)
         .await?;

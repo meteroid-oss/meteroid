@@ -53,9 +53,11 @@ pub(crate) async fn cadence_after_change(
     let sub = &details.subscription;
     // A change dated on or after the trial's end finds the subscription active.
     let trial_over_by = sub.status == SubscriptionStatusEnum::TrialActive
-        && sub
-            .trial_duration
-            .is_some_and(|days| sub.start_date + chrono::Duration::days(i64::from(days)) <= on);
+        && details
+            .trial_config
+            .as_ref()
+            .and_then(|trial| trial.ends_on)
+            .is_some_and(|ends_on| ends_on <= on);
     if (sub.status != SubscriptionStatusEnum::Active && !trial_over_by)
         || sub.current_period_end.is_none()
     {

@@ -262,7 +262,9 @@ const OfferSummary = ({
       {offer.optionName && <div className="text-sm font-medium">{offer.optionName}</div>}
       {offer.trialDays ? (
         <div className="mt-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-          {offer.trialDays} day trial
+          {offer.trialFree
+            ? `${offer.trialDays}-day free trial`
+            : `${offer.trialDays}-day trial, billed from today`}
         </div>
       ) : null}
       {offer.planDescription && (

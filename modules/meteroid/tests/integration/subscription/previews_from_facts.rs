@@ -882,7 +882,7 @@ async fn a_new_subscription_checkout_quote_is_what_its_first_invoice_bills(
             billing_start_date: Some(jan(15)),
             billing_day_anchor: Some(15),
             net_terms: None,
-            trial_duration_days: Some(0),
+            trial: meteroid_store::domain::trials::TrialRequest::None,
             end_date: None,
             auto_advance_invoices: true,
             charge_automatically: true,

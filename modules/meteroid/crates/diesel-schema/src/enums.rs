@@ -597,6 +597,8 @@ impl SubscriptionStatusEnum {
 pub enum SubscriptionChangeKindEnum {
     PlanChange,
     Amendment,
+    /// A phase's boundary: the rows its terms open and close on its start.
+    Phase,
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq)]

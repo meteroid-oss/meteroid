@@ -4,6 +4,10 @@ import { FC, ReactNode } from 'react'
 import { Slot } from '@/edition'
 import { MinimumCommitmentDisplay, productScopeOptions } from '@/features/billing/minimumCommitment'
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
+import {
+  QuoteContractValueSection,
+  QuotePriceSchedule,
+} from '@/features/quotes/QuotePriceSchedule'
 import { QuoteDiscounts } from '@/features/quotes/QuoteViewDiscounts'
 import {
   QuoteSignatureBlocks,
@@ -22,6 +26,7 @@ import {
   QuoteAddOn,
   QuoteComponent,
   QuoteCouponTerms,
+  QuotePriceStep,
   QuoteSectionPlacement,
   QuoteSignature,
   QuoteTotals,
@@ -36,6 +41,7 @@ export interface QuoteViewProps {
     components?: QuoteComponent[]
     addOns?: QuoteAddOn[]
     couponTerms?: QuoteCouponTerms[]
+    priceSchedule?: QuotePriceStep[]
     signatures?: QuoteSignature[]
   }
   mode?: 'preview' | 'detailed' | 'portal'
@@ -222,6 +228,12 @@ export const QuoteView: FC<QuoteViewProps> = ({
             showListPrice={Boolean(q.displayOptions?.showListPrice)}
           />
         )}
+        <QuotePriceSchedule
+          steps={quote.priceSchedule ?? []}
+          contract={totals?.contract}
+          currency={q.currency}
+        />
+        <QuoteContractValueSection value={totals?.contract} currency={q.currency} />
       </>
     )
   }
@@ -241,7 +253,10 @@ export const QuoteView: FC<QuoteViewProps> = ({
             <DetailRow label="Billing Start Date:" value={parseAndFormatDate(q.billingStartDate)} />
           )}
           {q.trialDuration !== undefined && q.trialDuration > 0 && (
-            <DetailRow label="Trial Duration:" value={`${q.trialDuration} days`} />
+            <DetailRow
+              label="Trial Duration:"
+              value={`${q.trialDuration} days${q.trialFree === false ? ', billed as usual' : q.trialFree ? ', free' : ''}`}
+            />
           )}
           {q.billingDayAnchor && (
             <DetailRow label="Billing Day:" value={`Day ${q.billingDayAnchor} of each month`} />

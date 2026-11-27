@@ -410,3 +410,30 @@ export const formatSubscriptionFeeCompact = (
  */
 export const seatCountKey = (slot: { unit: string; quantityId?: string }) =>
   slot.quantityId || slot.unit
+
+/**
+ * The one amount a fee is priced by, which a plan change or a phase may set (R-163): a rate, a
+ * recurring fee or a seat priced per unit, a capacity's base rate; none for tiers or packages.
+ */
+export const oneAmountPrice = (
+  fee: Pick<SubscriptionFee, 'fee'> | undefined
+): string | undefined => {
+  const value = fee?.fee
+  switch (value?.case) {
+    case 'recurring': {
+      const model = value.value.model?.model
+      if (!model) return value.value.rate
+      return model.case === 'perUnit' ? model.value : undefined
+    }
+    case 'rate':
+    case 'capacity':
+      return value.value.rate
+    case 'slot': {
+      const model = value.value.model?.model
+      if (!model) return value.value.unitRate
+      return model.case === 'perUnit' ? model.value : undefined
+    }
+    default:
+      return undefined
+  }
+}

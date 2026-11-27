@@ -94,7 +94,9 @@ pub fn timing(when: Option<&When>, kind: ChangeKind, rules: Rules) -> Result<Tim
         return Err(Problem::when_refused(
             "/when/type",
             format!(
-                "{} takes effect now or at the period's end, not on a date",
+                "{} takes effect now or at the period's end, not on a date: one on a later \
+                 renewal is a phase of the subscription's timeline \
+                 (POST /api/v2/subscriptions/{{id}}/timeline)",
                 kind.name()
             ),
         ));

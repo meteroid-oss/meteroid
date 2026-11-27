@@ -2986,6 +2986,15 @@
           "completed"
         ]
       },
+      "SubscriptionTrialEndAction": {
+        "type": "string",
+        "description": "What a trial's end does: the subscription goes on, ends, or switches plan.",
+        "enum": [
+          "convert",
+          "cancel",
+          "fallback"
+        ]
+      },
       "TextValue": {
         "type": "object",
         "description": "A text, or one of a select's options.",
@@ -3006,9 +3015,31 @@
         },
         "additionalProperties": false
       },
+      "TrialOfferSummary": {
+        "type": "object",
+        "description": "A trial offer, as a subscription names it.",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "TrialState": {
         "type": "object",
-        "description": "The subscription's trial; absent when it has none.",
+        "description": "The subscription's trial, as recorded at its start; absent when it has none.",
         "required": [
           "days"
         ],
@@ -3016,8 +3047,19 @@
           "days": {
             "type": "integer",
             "format": "int32",
-            "description": "Its length in days, from the start date.",
+            "description": "Its length in days, from its start.",
             "minimum": 0
+          },
+          "end_action": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionTrialEndAction",
+                "description": "What its end does; read on a single subscription."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "ends_on": {
             "type": [
@@ -3033,6 +3075,32 @@
               "null"
             ],
             "description": "Nothing is billed during it; read on a single subscription."
+          },
+          "offer": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TrialOfferSummary",
+                "description": "The trial offer it came from; read on a single subscription."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "plan": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The plan whose features it gives, by code; read on a single subscription."
+          },
+          "starts_on": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "Its first day, the billing start; read on a single subscription."
           }
         }
       },

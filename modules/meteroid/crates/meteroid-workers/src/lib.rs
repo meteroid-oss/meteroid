@@ -251,6 +251,21 @@ pub async fn spawn_workers(
 
     {
         let store = store.clone();
+        let entitlements = entitlements.clone();
+        join_set.spawn(async move {
+            misc::renewal_notices::run_renewal_notices_worker(store, entitlements).await;
+        });
+    }
+
+    {
+        let store = store.clone();
+        join_set.spawn(async move {
+            misc::lifecycle_notices::run_lifecycle_notices_worker(store).await;
+        });
+    }
+
+    {
+        let store = store.clone();
         join_set.spawn(async move {
             misc::customer_credit::run_customer_credit_worker(store).await;
         });

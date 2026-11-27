@@ -350,7 +350,7 @@ fn parts(lines: &[LineItem], add_on_ids: &AddOnIds) -> Vec<core::Part> {
 
 /// `coupons` as `billing_core` hands out their uses: what each limited one has left, none for
 /// one no invoice takes.
-fn uses_of(
+pub(in crate::services) fn uses_of(
     coupons: &[AppliedCouponDetailed],
     currency: &str,
     plan: Option<PlanId>,

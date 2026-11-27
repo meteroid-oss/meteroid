@@ -11,6 +11,7 @@ pub mod invoices;
 pub mod invoicingentities;
 pub mod organizations;
 pub mod rbac;
+pub mod renewals;
 pub mod shared;
 pub mod tenants;
 pub mod utils;

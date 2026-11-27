@@ -71,6 +71,8 @@ const FIELDS: Record<keyof QuoteFormValues, { section: QuoteSectionId; label: st
   billing_start_date: { section: 'quote-terms', label: 'Billing start date' },
   end_date: { section: 'quote-terms', label: 'End date' },
   trial_duration: { section: 'quote-terms', label: 'Trial' },
+  trial_free: { section: 'quote-terms', label: 'Trial' },
+  trial_plan_id: { section: 'quote-terms', label: 'Trial' },
   billing_day_anchor: { section: 'quote-terms', label: 'Billing day' },
   activation_condition: { section: 'quote-terms', label: 'Activation' },
   create_subscription_on_acceptance: { section: 'quote-terms', label: 'Subscription creation' },

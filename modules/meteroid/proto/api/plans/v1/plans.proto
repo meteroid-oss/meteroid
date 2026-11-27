@@ -119,14 +119,14 @@ message GetPlanParametersResponse {
   repeated PlanParameter parameters = 1;
 }
 
-message UpdatePlanTrialRequest {
+// The plan's trial set, on every version at once, or removed when unset (R-153).
+message SetPlanTrialRequest {
   string plan_id = 1;
-  string plan_version_id = 2;
-  TrialConfig trial = 3;
+  optional TrialTerms trial = 2;
 }
 
-message UpdatePlanTrialResponse {
-  PlanWithVersion plan = 1;
+message SetPlanTrialResponse {
+  optional PlanTrial trial = 1;
 }
 
 message GetPlanWithVersionRequest {
@@ -268,7 +268,7 @@ service PlansService {
   rpc CreateDraftPlan(CreateDraftPlanRequest) returns (CreateDraftPlanResponse) {}
   rpc UpdateDraftPlanOverview(UpdateDraftPlanOverviewRequest) returns (UpdateDraftPlanOverviewResponse) {}
   rpc UpdatePublishedPlanOverview(UpdatePublishedPlanOverviewRequest) returns (UpdatePublishedPlanOverviewResponse) {}
-  rpc UpdatePlanTrial(UpdatePlanTrialRequest) returns (UpdatePlanTrialResponse) {}
+  rpc SetPlanTrial(SetPlanTrialRequest) returns (SetPlanTrialResponse) {}
 
   rpc ListPlanVersionById(ListPlanVersionByIdRequest) returns (ListPlanVersionByIdResponse) {}
   rpc CopyVersionToDraft(CopyVersionToDraftRequest) returns (CopyVersionToDraftResponse) {}

@@ -112,9 +112,20 @@ pub fn method_auth(sm: &GrpcServiceMethod) -> Option<RouteAuth> {
         }
 
         // ---- billing operations, split per sub-area ----
-        "SubscriptionsService" | "RetentionService" => {
+        "SubscriptionsService" | "SubscriptionPhasesService" | "RetentionService" => {
             rw(method, SubscriptionsRead, SubscriptionsManage)
         }
+        // Offers are catalog; moving a running trial is subscription work.
+        "TrialsService" => match method {
+            "MoveTrial" => RouteAuth::Requires(SubscriptionsManage),
+            _ => rw(method, CatalogRead, CatalogManage),
+        },
+        // The notice policy is a setting; a subscription's renewal is subscription data.
+        "RenewalsService" => match method {
+            "GetRenewalSettings" => RouteAuth::Requires(SettingsRead),
+            "UpdateRenewalSettings" => RouteAuth::Requires(SettingsManage),
+            _ => rw(method, SubscriptionsRead, SubscriptionsManage),
+        },
         // Credit notes are invoice corrections and share the invoices area.
         "InvoicesService" | "CreditNotesService" => rw(method, InvoicesRead, InvoicesManage),
         // Customer credit is drawn by invoices and corrected by credit notes.
@@ -140,7 +151,6 @@ pub fn method_auth(sm: &GrpcServiceMethod) -> Option<RouteAuth> {
         | "ProductFamiliesService"
         | "AddOnsService"
         | "CouponsService"
-        | "SchedulesService"
         | "BillableMetricsService"
         | "ManagedQuantitiesService"
         | "RateCardsService"

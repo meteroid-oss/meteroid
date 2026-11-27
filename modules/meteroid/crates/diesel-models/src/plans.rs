@@ -5,7 +5,7 @@ use crate::plan_versions::PlanVersionRow;
 use crate::price_components::PriceComponentRow;
 use crate::product_families::ProductFamilyOverviewRow;
 use common_domain::ids::{
-    PlanId, PlanVersionId, ProductFamilyId, ProductId, ResourceTypeId, TenantId,
+    PlanId, PlanVersionId, ProductFamilyId, ProductId, ResourceTypeId, TenantId, TrialOfferId,
 };
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
@@ -48,6 +48,8 @@ pub struct PlanRow {
     pub code: String,
     /// The resource type its subscriptions are for; `None` for the customer.
     pub sold_for_resource_type_id: Option<ResourceTypeId>,
+    /// The plan's trial: the offer it names, the same on every version (R-153).
+    pub trial_offer_id: Option<TrialOfferId>,
 }
 
 #[derive(Debug, Default, Insertable)]
@@ -102,8 +104,8 @@ pub struct PlanRowForSubscription {
     pub name: String,
     pub currency: String,
     pub plan_type: PlanTypeEnum,
-    pub trial_duration_days: Option<i32>,
-    pub trial_is_free: bool,
+    pub plan_id: PlanId,
+    pub trial_offer_id: Option<TrialOfferId>,
     pub product_family_id: ProductFamilyId,
     pub tax_inclusive: bool,
 }
@@ -112,7 +114,6 @@ pub struct PlanRowForSubscription {
 pub struct PlanVersionRowInfo {
     pub id: PlanVersionId,
     pub version: i32,
-    pub trial_duration_days: Option<i32>,
 }
 
 #[derive(Debug, Queryable, Selectable)]

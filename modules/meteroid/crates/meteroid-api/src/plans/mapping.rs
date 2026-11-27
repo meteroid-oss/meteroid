@@ -7,7 +7,7 @@ pub mod plans {
     use meteroid_grpc::meteroid::api::plans::v1::plan_overview::ActiveVersionInfo;
     use meteroid_grpc::meteroid::api::plans::v1::{
         CreditCap, CreditExhaustedRule, MinimumCommitment, Plan, PlanBillingConfiguration,
-        PlanStatus, PlanType, PlanVersion, PlanWithVersion, TrialConfig, credit_exhausted_rule,
+        PlanStatus, PlanType, PlanVersion, PlanWithVersion, credit_exhausted_rule,
     };
     use meteroid_grpc::meteroid::api::plans::v1::{
         ListPlanVersion, PlanOption, PlanOverview, PricedOption,
@@ -177,17 +177,6 @@ pub mod plans {
 
     impl From<domain::PlanVersion> for PlanVersionWrapper {
         fn from(value: domain::PlanVersion) -> Self {
-            fn trial_config(version: &domain::PlanVersion) -> Option<TrialConfig> {
-                match version.trial_duration_days {
-                    Some(days) if days > 0 => Some(TrialConfig {
-                        trialing_plan_id: version.trialing_plan_id.map(|x| x.as_proto()),
-                        duration_days: days as u32,
-                        trial_is_free: version.trial_is_free,
-                    }),
-                    _ => None,
-                }
-            }
-
             fn billing_config(version: &domain::PlanVersion) -> Option<PlanBillingConfiguration> {
                 Some(PlanBillingConfiguration {
                     billing_cycles: Some(match version.billing_cycles {
@@ -218,7 +207,6 @@ pub mod plans {
                 id: value.id.as_proto(),
                 version: value.version as u32,
                 is_draft: value.is_draft_version,
-                trial_config: trial_config(&value),
                 billing_config: billing_config(&value),
                 currency: value.currency,
                 net_terms: value.net_terms,
@@ -300,6 +288,7 @@ pub mod plans {
             Self(PlanWithVersion {
                 plan: Some(plan_to_proto(value.plan)),
                 version: Some(PlanVersionWrapper::from(value.version).0),
+                trial: None,
             })
         }
     }
@@ -309,6 +298,7 @@ pub mod plans {
             Self(PlanWithVersion {
                 plan: Some(plan_to_proto(value.plan)),
                 version: value.version.map(|v| PlanVersionWrapper::from(v).0),
+                trial: None,
             })
         }
     }
@@ -371,7 +361,6 @@ pub mod plans {
                 active_version: value.active_version.map(|v| ActiveVersionInfo {
                     id: v.id.as_proto(),
                     version: v.version as u32,
-                    trial_duration_days: v.trial_duration_days.map(|x| x as u32),
                 }),
                 subscription_count: value.subscription_count.map_or(0, |x| x as u32),
                 self_service_rank: value.self_service_rank,
@@ -398,7 +387,42 @@ pub mod plans {
                 mrr: value.mrr.map(|mrr| mrr.to_string()),
                 free: value.free,
                 sold_for_resource_type_id: value.sold_for_resource_type_id.map(|id| id.as_proto()),
+                trial: value.trial.map(plan_trial_to_proto),
             })
+        }
+    }
+
+    pub fn trial_terms_to_proto(
+        terms: domain::trials::TrialTerms,
+    ) -> meteroid_grpc::meteroid::api::plans::v1::TrialTerms {
+        meteroid_grpc::meteroid::api::plans::v1::TrialTerms {
+            duration_days: terms.duration_days,
+            free: terms.free,
+            trial_plan_id: terms.trial_plan_id.map(|id| id.as_proto()),
+        }
+    }
+
+    pub fn trial_terms_from_proto(
+        terms: meteroid_grpc::meteroid::api::plans::v1::TrialTerms,
+    ) -> Result<domain::trials::TrialTerms, tonic::Status> {
+        Ok(domain::trials::TrialTerms {
+            duration_days: terms.duration_days,
+            free: terms.free,
+            trial_plan_id: common_domain::ids::PlanId::from_proto_opt(terms.trial_plan_id)?,
+        })
+    }
+
+    pub fn plan_trial_to_proto(
+        trial: domain::trials::PlanTrial,
+    ) -> meteroid_grpc::meteroid::api::plans::v1::PlanTrial {
+        meteroid_grpc::meteroid::api::plans::v1::PlanTrial {
+            trial_offer_id: trial.offer.id.as_proto(),
+            name: trial.offer.name.clone(),
+            code: trial.offer.code.clone(),
+            terms: Some(trial_terms_to_proto(trial.offer.terms())),
+            plans_sharing: u32::try_from(trial.plans.len()).unwrap_or(u32::MAX),
+            end_action: trial.offer.end_action.as_str().to_string(),
+            eligibility: trial.offer.eligibility.as_str().to_string(),
         }
     }
 

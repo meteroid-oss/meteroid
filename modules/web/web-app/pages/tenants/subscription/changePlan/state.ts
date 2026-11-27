@@ -20,6 +20,8 @@ export interface ChangePlanState {
   preview?: PreviewPlanChangeResponse
   applyMode: PlanChangeApplyMode
   componentChoices: Record<string, ComponentChoice>
+  /** Prices set on the target's charges priced by one amount, by component; empty: list. */
+  prices: Record<string, string>
 }
 
 export const changePlanAtom = atomWithReset<ChangePlanState>({
@@ -34,4 +36,5 @@ export const changePlanAtom = atomWithReset<ChangePlanState>({
   preview: undefined,
   applyMode: PlanChangeApplyMode.END_OF_PERIOD,
   componentChoices: {},
+  prices: {},
 })

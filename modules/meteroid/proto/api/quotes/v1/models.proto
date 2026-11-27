@@ -154,6 +154,11 @@ message Quote {
   repeated QuoteAttachment attachments = 56;
   // The stored resource its subscription will be for; kept by the conversion.
   optional string resource_id = 57;
+  // With `trial_duration`: whether the trial is free, signed with it; unset on a quote saved
+  // before, read as the plan's trial.
+  optional bool trial_free = 58;
+  // With `trial_duration`: the plan whose features the trial gives.
+  optional string trial_plan_id = 59;
 }
 
 // An uploaded PDF signed with the quote (Enterprise, quote-documents module).
@@ -191,6 +196,31 @@ message QuoteTotals {
   // The first invoice after coupons, before tax, as the subscription created on acceptance
   // would issue it. Absent when it cannot be previewed.
   optional string first_invoice_subtotal = 4;
+  // Absent when the quote cannot be valued.
+  optional QuoteContractValue contract = 5;
+}
+
+// What the quote is worth as billing bills the subscription it converts to: fixed fees after
+// coupons, trial and phases, before tax; usage aside. Decimals in major units.
+message QuoteContractValue {
+  // From the start to the end date; absent without an end date.
+  optional uint32 term_months = 1;
+  // The months valued: the term, else the first year (or up to a year after the last phase).
+  uint32 months = 2;
+  string total = 3;
+  // With the minimum commitments' shortfalls at no usage.
+  string committed_total = 4;
+  // A year's worth of `total`; all of it for a term shorter than a year.
+  string annual = 5;
+  // By contract year; the last may be partial.
+  repeated string years = 6;
+  // By step of the price schedule, in its order.
+  repeated QuotePhaseValue phases = 7;
+}
+
+message QuotePhaseValue {
+  // Over the step's span; absent for an open-ended last step.
+  optional string total = 1;
 }
 
 message RecipientDetails {
@@ -222,6 +252,43 @@ message DetailedQuote {
   optional string pdf_url = 15;
   // The terms of `coupons`, in the same order.
   repeated QuoteCouponTerms coupon_terms = 16;
+  // The quote's ramp, as its document states it; empty without phases.
+  repeated QuotePriceStep price_schedule = 17;
+  reserved 18;
+}
+
+// A phase of a quote's price schedule: from its start, these prices, seats and minimum.
+message QuotePriceStep {
+  uint32 offset_months = 1;
+  // Set when the quote has a billing start date.
+  optional string starts_on = 2;
+  optional string label = 3;
+  repeated QuotePriceStepLine prices = 4;
+  repeated QuotePriceStepSeats seats = 5;
+  // Absent: the minimum in force is kept.
+  optional QuotePriceStepMinimum minimum = 6;
+  // The plan switched to from this step on, by name.
+  optional string plan = 7;
+  reserved 8, 9;
+}
+
+message QuotePriceStepLine {
+  string name = 1;
+  // Decimal, in major units.
+  string price = 2;
+  optional meteroid.api.subscriptions.v1.SubscriptionFeeBillingPeriod period = 3;
+  // Set when the price is per seat of this unit.
+  optional string unit = 4;
+}
+
+message QuotePriceStepSeats {
+  string code = 1;
+  uint32 slots = 2;
+}
+
+message QuotePriceStepMinimum {
+  // Absent: no minimum from this phase on.
+  optional int64 amount_subunit = 1;
 }
 
 message QuoteEngagement {
@@ -399,6 +466,10 @@ message CreateQuote {
   optional string option = 43;
   // A stored resource of the customer; absent for the whole customer.
   optional string resource_id = 44;
+  // With `trial_duration`: the trial is free; else billed from day one.
+  optional bool trial_free = 45;
+  // With `trial_duration`: the plan whose features the trial gives.
+  optional string trial_plan_id = 46;
 }
 
 // Unsaved editor state. `payload` is the web editor's JSON, opaque to the server.
@@ -423,6 +494,9 @@ message QuoteRevision {
   optional string created_by = 4;
   string created_at = 5;
   optional string superseded_at = 6;
+  repeated QuotePriceStep price_schedule = 7;
+  // What it was worth when published.
+  optional QuoteContractValue contract_value = 8;
 }
 
 message QuoteEvidenceEvent {

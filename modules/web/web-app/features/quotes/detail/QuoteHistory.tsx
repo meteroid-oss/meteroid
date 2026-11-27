@@ -11,6 +11,10 @@ import {
 import { cn } from '@ui/lib'
 import { useMemo, useState } from 'react'
 
+import {
+  QuoteContractValueSection,
+  QuotePriceSchedule,
+} from '@/features/quotes/QuotePriceSchedule'
 import { formatDiscount } from '@/features/quotes/detail/QuoteLinesTable'
 import { QuoteMarkdown } from '@/features/quotes/detail/QuoteMarkdown'
 import { shortHash } from '@/features/quotes/detail/quoteFormat'
@@ -62,7 +66,14 @@ const RevisionDocument = ({ revision }: { revision: QuoteRevision }) => {
         <Field label="Start" value={summary.startDate && formatDateOnly(summary.startDate)} />
         <Field label="End" value={summary.endDate && formatDateOnly(summary.endDate)} />
         <Field label="Expires" value={summary.expiresAt && formatDateOnly(summary.expiresAt)} />
-        <Field label="Trial" value={summary.trialDays ? `${summary.trialDays} days` : undefined} />
+        <Field
+          label="Trial"
+          value={
+            summary.trialDays
+              ? `${summary.trialDays} days${summary.trialFree === false ? ', billed' : summary.trialFree ? ', free' : ''}`
+              : undefined
+          }
+        />
         <Field
           label="Payment terms"
           value={
@@ -129,6 +140,17 @@ const RevisionDocument = ({ revision }: { revision: QuoteRevision }) => {
             ))}
           </div>
         </div>
+      )}
+
+      {summary.currency && (
+        <>
+          <QuotePriceSchedule
+            steps={revision.priceSchedule}
+            contract={revision.contractValue}
+            currency={summary.currency}
+          />
+          <QuoteContractValueSection value={revision.contractValue} currency={summary.currency} />
+        </>
       )}
 
       {summary.sections.map((section, i) => (

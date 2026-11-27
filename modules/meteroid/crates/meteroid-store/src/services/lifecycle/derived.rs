@@ -1088,6 +1088,22 @@ impl Services {
             "Subscription terminated",
         )
         .await?;
+        crate::services::subscriptions::phases::withdraw_future_phases_tx(
+            conn,
+            row.tenant_id,
+            row.id,
+            ended.date_naive(),
+            "Subscription terminated",
+        )
+        .await?;
+        crate::services::subscriptions::timeline_items::withdraw_future_items_tx(
+            conn,
+            row.tenant_id,
+            row.id,
+            ended.date_naive(),
+            "Subscription terminated",
+        )
+        .await?;
         crate::services::credit::subscription_end::end_subscription_credit_tx(
             conn,
             &*self.store.hooks.credit,
@@ -1200,14 +1216,7 @@ impl Services {
         row: &SubscriptionRow,
         at: DateTime<Utc>,
     ) -> StoreResult<()> {
-        let in_force = db(SubscriptionChangeRow::list_in_force(
-            conn,
-            &row.tenant_id,
-            row.id,
-            SubscriptionChangeKindEnum::Amendment,
-            at.naive_utc(),
-        )
-        .await)?;
+        let in_force = in_force_written_ahead(conn, row, at).await?;
         for change in in_force {
             if db(SubscriptionEventRow::change_applied(conn, row.id, change.id).await)? {
                 continue;
@@ -1241,15 +1250,9 @@ impl Services {
         row: &SubscriptionRow,
         at: DateTime<Utc>,
     ) -> StoreResult<bool> {
-        let in_force = db(SubscriptionChangeRow::list_in_force(
-            conn,
-            &row.tenant_id,
-            row.id,
-            SubscriptionChangeKindEnum::Amendment,
-            at.naive_utc(),
-        )
-        .await)?;
+        let in_force = in_force_written_ahead(conn, row, at).await?;
         let mut amended = false;
+        let mut renewed = Vec::new();
         for change in in_force {
             if db(SubscriptionEventRow::change_applied(conn, row.id, change.id).await)? {
                 continue;
@@ -1259,7 +1262,11 @@ impl Services {
                 subscription_id: row.id,
                 event_type: SubscriptionEventType::Switch,
                 details: Some(serde_json::json!({
-                    "kind": "amendment",
+                    "kind": if change.kind == SubscriptionChangeKindEnum::Phase {
+                        "phase"
+                    } else {
+                        "amendment"
+                    },
                     "mode": "end_of_period",
                     "event": change.id.as_uuid().to_string(),
                 })),
@@ -1270,6 +1277,9 @@ impl Services {
             }
             .insert(conn)
             .await)?;
+            if change.kind == SubscriptionChangeKindEnum::Phase {
+                renewed.push(change.clone());
+            }
             // A longer period of a fee it changed gives back what was billed past its day, before
             // the renewal of that day bills.
             self.settle_scheduled_amendment_tx(
@@ -1298,6 +1308,11 @@ impl Services {
                 )
                 .await?;
             amended = true;
+        }
+        // A term renewing on one of these days writes its next renewal once every change of the
+        // step is recorded: none still pending stands in its way (R-152).
+        for change in &renewed {
+            crate::services::subscriptions::terms::renewed_tx(self, conn, change).await?;
         }
         Ok(amended)
     }
@@ -1546,7 +1561,9 @@ async fn record_changed_option(
         }
         (None, _) => return Ok(()),
     };
-    if option != row.plan_option_id {
+    // `row` is read once per step: a switch naming its option writes it, as a later switch of the
+    // same step may have to undo the one before.
+    if named.is_some() || option != row.plan_option_id {
         crate::services::subscriptions::currency::record_plan_option(conn, row.id, option).await?;
     }
     Ok(())
@@ -1559,16 +1576,21 @@ async fn written_ahead_change(
     to: PlanVersionId,
     on: NaiveDate,
 ) -> StoreResult<Option<SubscriptionChangeRow>> {
-    Ok(db(SubscriptionChangeRow::list_in_force(
-        conn,
-        &row.tenant_id,
-        row.id,
+    let mut changes = Vec::new();
+    for kind in [
         SubscriptionChangeKindEnum::PlanChange,
-        on.and_time(chrono::NaiveTime::MIN),
-    )
-    .await)?
-    .into_iter()
-    .find(|change| {
+        SubscriptionChangeKindEnum::Phase,
+    ] {
+        changes.extend(db(SubscriptionChangeRow::list_in_force(
+            conn,
+            &row.tenant_id,
+            row.id,
+            kind,
+            on.and_time(chrono::NaiveTime::MIN),
+        )
+        .await)?);
+    }
+    Ok(changes.into_iter().find(|change| {
         change.effective_at.date() == on
             && change
                 .change
@@ -1600,28 +1622,61 @@ async fn settles_a_switch(
 }
 
 /// Each amendment written ahead for a period's end, still to take effect, waits for the first
-/// renewal on or after its day: a change since may have moved that end past it (R-106).
+/// renewal on or after its day: a change since may have moved that end past it (R-106). A
+/// timeline change keeps its day: one no longer on a renewal refuses what moved the renewals,
+/// and one after the subscription's ending is left to its termination (R-146).
 async fn defer_amendments_tx(
     conn: &mut PgConn,
     row: &SubscriptionRow,
     now: DateTime<Utc>,
 ) -> StoreResult<()> {
-    let pending = db(SubscriptionChangeRow::list_pending(
-        conn,
-        &row.tenant_id,
-        row.id,
-        &[SubscriptionChangeKindEnum::Amendment],
-    )
-    .await)?;
+    let pending =
+        db(SubscriptionChangeRow::list_pending(conn, &row.tenant_id, row.id, WRITTEN_AHEAD).await)?;
     if pending.is_empty() {
         return Ok(());
     }
     let loaded = load_facts(conn, row.tenant_id, row.id, now.date_naive(), None).await?;
+    let settled_inside = db(SubscriptionChangeRow::settlements_due(conn, row.id).await)?;
     for change in &pending {
-        crate::services::facts::pending::defer_to_renewal_tx(conn, change, &loaded.facts, now)
-            .await?;
+        if crate::services::subscriptions::phases::is_timeline_change(change) {
+            if settled_inside.contains(&change.effective_at.date()) {
+                continue;
+            }
+            timeline_change_on_renewal(change, &loaded.facts)?;
+        } else {
+            crate::services::facts::pending::defer_to_renewal_tx(conn, change, &loaded.facts, now)
+                .await?;
+        }
     }
     Ok(())
+}
+
+fn timeline_change_on_renewal(
+    change: &SubscriptionChangeRow,
+    facts: &billing_core::facts::Facts<crate::services::evaluate::pricer::StoreFee>,
+) -> StoreResult<()> {
+    let day = change.effective_at.date();
+    // Written for its own day: a free timeline item from today, meant inside its period.
+    if day <= change.created_at.date() {
+        return Ok(());
+    }
+    let ends = facts
+        .ending
+        .map(|ending| ending.on())
+        .into_iter()
+        .chain(facts.end_date)
+        .min();
+    if ends.is_some_and(|ends| ends <= day) {
+        return Ok(());
+    }
+    let at = day.and_time(chrono::NaiveTime::MIN).and_utc();
+    if billing_core::evaluate::renewal_on_or_after(facts, day, at) == Some(day) {
+        return Ok(());
+    }
+    Err(Report::new(StoreError::InvalidArgument(format!(
+        "This would move the subscription's renewals off {day}, where a phase, dated item or \
+         discount changes its terms: edit the subscription's timeline first"
+    ))))
 }
 
 /// Every document of the subscription, one per slot (R-051, R-052): a written one is never due
@@ -1671,4 +1726,26 @@ fn latest_change<F>(facts: &Facts<F>, today: NaiveDate) -> Option<NaiveDate> {
         .flatten()
         .filter(|day| *day <= today)
         .max()
+}
+
+/// The changes written ahead for a renewal, applied by the step of their day: amendments and
+/// phase boundaries, which write the same kind of rows (R-106, R-146).
+const WRITTEN_AHEAD: &[SubscriptionChangeKindEnum] = &[
+    SubscriptionChangeKindEnum::Amendment,
+    SubscriptionChangeKindEnum::Phase,
+];
+
+async fn in_force_written_ahead(
+    conn: &mut PgConn,
+    row: &SubscriptionRow,
+    at: DateTime<Utc>,
+) -> StoreResult<Vec<SubscriptionChangeRow>> {
+    db(SubscriptionChangeRow::list_in_force_unapplied(
+        conn,
+        &row.tenant_id,
+        row.id,
+        WRITTEN_AHEAD,
+        at.naive_utc(),
+    )
+    .await)
 }

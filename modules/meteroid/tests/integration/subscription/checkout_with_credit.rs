@@ -29,7 +29,7 @@ async fn leetcode_session_until(env: &TestEnv, end_date: Option<NaiveDate>) -> C
             billing_start_date: Some(NaiveDate::from_ymd_opt(2024, 1, 15).unwrap()),
             billing_day_anchor: Some(15),
             net_terms: None,
-            trial_duration_days: Some(0),
+            trial: meteroid_store::domain::trials::TrialRequest::None,
             end_date,
             auto_advance_invoices: true,
             charge_automatically: true,

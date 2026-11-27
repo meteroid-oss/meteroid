@@ -51,19 +51,36 @@ message PlanBillingConfiguration {
   message Forever {}
 }
 
-message TrialConfig {
+// What a plan's trial gives, as the plan editor writes it.
+message TrialTerms {
   uint32 duration_days = 1;
-  // if true, nothing will be charged during trial. If false, the normal plan price applies.
-  bool trial_is_free = 2;
-  // what plan's features are applied during the trial (ex: Enterprise for X days). None for current plan's features.
-  optional string trialing_plan_id = 3;
+  // Nothing is billed during it; else the plan's prices apply from day one.
+  bool free = 2;
+  // The plan whose features it gives; none for the plan's own.
+  optional string trial_plan_id = 3;
+}
+
+// A plan's trial: the trial offer it names, the same on every version. A subscription created
+// on the plan asking no trial gets it, unless the offer is given once and the customer had it.
+message PlanTrial {
+  string trial_offer_id = 1;
+  string name = 2;
+  optional string code = 3;
+  TrialTerms terms = 4;
+  // The plans naming its offer, this one included.
+  uint32 plans_sharing = 5;
+  // CONVERT, CANCEL or FALLBACK; set in Enterprise.
+  string end_action = 6;
+  // NONE, OFFER, PLAN or PRODUCT_FAMILY; set in Enterprise.
+  string eligibility = 7;
 }
 
 message PlanVersion {
   string id = 1;
   bool is_draft = 2;
   uint32 version = 3;
-  TrialConfig trial_config = 4;
+  reserved 4;
+  reserved "trial_config";
   PlanBillingConfiguration billing_config = 5;
   string currency = 6;
   optional int32 period_start_day = 8;
@@ -214,17 +231,26 @@ message PlanOverview {
   bool free = 22;
   // Absent: sold for the customer.
   optional string sold_for_resource_type_id = 23;
+  reserved 24;
+  reserved "effective_trial";
+  // The plan's trial; set when plans are listed or one is read.
+  optional PlanTrial trial = 25;
 
   message ActiveVersionInfo {
     string id = 1;
     uint32 version = 2;
-    optional uint32 trial_duration_days = 3;
+    reserved 3;
+    reserved "trial_duration_days";
   }
 }
 
 message PlanWithVersion {
   Plan plan = 1;
   PlanVersion version = 2;
+  reserved 3;
+  reserved "effective_trial";
+  // The plan's trial; set by GetPlanWithVersion and GetPlanWithVersionByVersionId.
+  optional PlanTrial trial = 4;
 }
 
 

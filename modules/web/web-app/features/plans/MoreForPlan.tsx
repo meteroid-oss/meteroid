@@ -39,9 +39,21 @@ export interface PlanExtra {
 
 /** The plan's other sections as cards; each opens where its content fits. */
 export const MoreForPlan = ({ extras }: { extras: PlanExtra[] }) => {
-  // `?more=coupons` opens that section, as links from elsewhere do.
-  const [params] = useSearchParams()
-  const [openId, setOpenId] = useState<string | undefined>(() => params.get('more') ?? undefined)
+  // `?more=coupons` opens that section, as links from elsewhere (or another card) do.
+  const [params, setParams] = useSearchParams()
+  const asked = params.get('more') ?? undefined
+  const [openId, setOpenId] = useState<string | undefined>(asked)
+  useEffect(() => {
+    if (!asked) return
+    setOpenId(asked)
+    setParams(
+      next => {
+        next.delete('more')
+        return next
+      },
+      { replace: true }
+    )
+  }, [asked, setParams])
   const titleId = useId()
   const panelRef = useRef<HTMLDivElement>(null)
   const open = extras.find(extra => extra.id === openId)

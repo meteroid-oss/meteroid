@@ -140,7 +140,7 @@ impl SubscriptionTrialConversionRateRow {
            END AS all_time_conversion_rate_percentage
         FROM subscription s
         WHERE s.tenant_id = $1
-           AND s.trial_duration IS NOT NULL;
+           AND EXISTS (SELECT 1 FROM subscription_trial t WHERE t.subscription_id = s.id);
         ";
 
         diesel::sql_query(raw_sql)

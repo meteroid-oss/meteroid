@@ -31,7 +31,6 @@ use common_domain::ids::{BaseId, QuoteId, SubscriptionId, TenantId};
 use common_eventbus::{Event, EventBus};
 use diesel_models::applied_coupons::AppliedCouponRowNew;
 use diesel_models::checkout_sessions::{CheckoutSessionRow, CheckoutSessionRowNew};
-use diesel_models::plans::PlanRow;
 use diesel_models::slot_transactions::SlotTransactionRow;
 use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
 use diesel_models::subscription_components::{
@@ -51,8 +50,10 @@ use uuid::Uuid;
 #[derive(Debug)]
 pub struct ProcessedSubscription {
     subscription: SubscriptionRowNew,
-    /// Whether its trial is free, as the plan version it starts on says.
-    trial_is_free: bool,
+    /// Its trial, resolved once (R-153); recorded with its facts.
+    trial: Option<crate::domain::trials::ResolvedTrial>,
+    /// The later phases of its template or quote, written with it (R-154, R-155).
+    later_phases: Vec<crate::domain::trial_offers::PlanPhaseTemplate>,
     components: Vec<SubscriptionComponentRowNew>,
     add_ons: Vec<SubscriptionAddOnRowNew>,
     coupons: Vec<AppliedCouponRowNew>,
@@ -82,6 +83,8 @@ pub struct ProcessedSubscription {
     drop_minimum: bool,
     /// Inserted not started: the lifecycle starts it and bills its first period.
     start_deferred: bool,
+    /// Inserted only to be evaluated in a transaction rolled back: nothing billed, no checkout.
+    dry_run: bool,
     /// The metrics its charges and add-ons price, for the warnings of its target.
     metric_ids: Vec<common_domain::ids::BillableMetricId>,
 }
@@ -94,7 +97,7 @@ impl ProcessedSubscription {
         let row = &mut self.subscription;
         if row.activation_condition
             != diesel_models::enums::SubscriptionActivationConditionEnum::OnStart
-            || row.trial_duration.is_some()
+            || self.trial.is_some()
             || row.imported_at.is_some()
             || row.pending_checkout
         {
@@ -109,6 +112,17 @@ impl ProcessedSubscription {
         row.current_period_end = Some(row.start_date);
         self.start_deferred = true;
         Ok(())
+    }
+
+    /// For [`crate::services::quote_value`]: its facts are written, nothing is billed, and an
+    /// unsaved quote it values has no row to link.
+    pub(crate) fn dry_run(&mut self) {
+        self.dry_run = true;
+        self.subscription.quote_id = None;
+    }
+
+    pub(crate) fn currency(&self) -> &str {
+        &self.subscription.currency
     }
 }
 
@@ -134,6 +148,11 @@ pub struct DetailedSubscription {
     tax_inclusive_rate: Option<rust_decimal::Decimal>,
     /// Components including a product with no price the request removes.
     excluded_components: Vec<common_domain::ids::PriceComponentId>,
+    /// The later phases of its plan version's template or its quote, written with it (R-154,
+    /// R-155).
+    later_phases: Vec<crate::domain::trial_offers::PlanPhaseTemplate>,
+    /// Its trial, resolved with the context (R-153).
+    pub trial: Option<crate::domain::trials::ResolvedTrial>,
 }
 
 impl DetailedSubscription {
@@ -145,6 +164,35 @@ impl DetailedSubscription {
             || self.add_ons.iter().any(|add_on| add_on.fee.charges())
             || self.minimum_override.is_some()
             || (plan_minimum && !self.drop_minimum)
+    }
+
+    /// Phases at offsets from its billing start (a template's or a quote's): the one at offset 0
+    /// prices its fees, the later ones are written with it (R-154, R-155).
+    pub(crate) fn with_phases(
+        &mut self,
+        phases: Vec<crate::domain::trial_offers::PlanPhaseTemplate>,
+    ) -> crate::StoreResult<()> {
+        let mut phases = phases;
+        let fees: Vec<_> = self
+            .components
+            .iter()
+            .map(|component| (component.price_component_id, &component.fee))
+            .collect();
+        let precision = u32::from(self.currency.precision);
+        crate::services::plan_phases::price_list_rates(&mut phases, &fees, precision)?;
+        let priced = crate::services::plan_phases::priced_at_start(&phases, &fees, precision)?;
+        for (component, fee) in self.components.iter_mut().zip(priced) {
+            if let Some(fee) = fee {
+                component.fee = fee;
+                component.price_id = None;
+                component.is_override = true;
+            }
+        }
+        self.later_phases = phases
+            .into_iter()
+            .filter(|phase| phase.offset_months > 0)
+            .collect();
+        Ok(())
     }
 }
 
@@ -284,7 +332,9 @@ impl Services {
                 entitlements: entitlements.clone(),
                 minimum_override: minimum_override.clone(),
                 drop_minimum: *drop_minimum,
+                later_phases: vec![],
                 tax_inclusive_rate: context.tax_inclusive_rates.get(idx).copied().flatten(),
+                trial: context.trials.get(idx).cloned().flatten(),
             });
         }
 
@@ -352,7 +402,9 @@ impl Services {
             entitlements: params.entitlements.clone(),
             minimum_override: params.minimum_override.clone(),
             drop_minimum: false,
+            later_phases: vec![],
             tax_inclusive_rate: context.tax_inclusive_rates.first().copied().flatten(),
+            trial: context.trials.first().cloned().flatten(),
         })
     }
 
@@ -408,13 +460,8 @@ impl Services {
             )));
         }
 
-        // Use trial_duration from request, or fall back to plan's trial_duration_days
-        // Filter out 0 values - a trial of 0 days means no trial
-        let effective_trial_duration: Option<u32> = sub
-            .subscription
-            .trial_duration
-            .or(plan.trial_duration_days.map(|d| d as u32))
-            .filter(|&d| d > 0);
+        let trial_is_free = sub.trial.as_ref().is_some_and(|trial| trial.free);
+        let effective_trial_duration: Option<u32> = sub.trial.as_ref().map(|trial| trial.days);
 
         // Billing day anchor priority:
         // 1. Explicit anchor (fixed day billing)
@@ -423,8 +470,7 @@ impl Services {
         let billing_day_anchor = sub.subscription.billing_day_anchor.unwrap_or_else(|| {
             // For FREE trials, anchor to trial end date (billing starts after trial ends)
             // For PAID trials, anchor to billing start date (billing starts immediately)
-            let has_free_trial_for_anchor =
-                effective_trial_duration.is_some() && plan.trial_is_free;
+            let has_free_trial_for_anchor = effective_trial_duration.is_some() && trial_is_free;
             if has_free_trial_for_anchor {
                 let trial_days = effective_trial_duration.unwrap();
                 let trial_end = billing_start_date + chrono::Duration::days(i64::from(trial_days));
@@ -459,8 +505,8 @@ impl Services {
         // - Free trial: billing period = trial duration, no billing until trial ends
         // - Paid trial: billing period = full cycle (e.g., 30 days), billing immediately
         //   Trial only affects feature resolution (trialing_plan_id), not billing
-        let has_free_trial = effective_trial_duration.is_some() && plan.trial_is_free;
-        let has_paid_trial = effective_trial_duration.is_some() && !plan.trial_is_free;
+        let has_free_trial = effective_trial_duration.is_some() && trial_is_free;
+        let has_paid_trial = effective_trial_duration.is_some() && !trial_is_free;
 
         if sub.subscription.activation_condition == SubscriptionActivationCondition::OnStart {
             if sub.subscription.start_date <= now.date() {
@@ -635,7 +681,6 @@ impl Services {
             activated_at,
             net_terms,
             quote_id,
-            effective_trial_duration,
             imported_at,
             tax_inclusive_rate: sub.tax_inclusive_rate,
             currency: sub.currency.code,
@@ -644,8 +689,11 @@ impl Services {
 
         let subscription_row = enriched.map_to_row()?;
 
-        let subscription_coupons =
-            self.process_coupons(&subscription_row, plan.trial_is_free, &sub.coupons)?;
+        let subscription_coupons = self.process_coupons(
+            &subscription_row,
+            effective_trial_duration.filter(|_| trial_is_free),
+            &sub.coupons,
+        )?;
 
         let minimum_for_mrr = creation_minimum_for_mrr(
             &sub.components,
@@ -740,7 +788,8 @@ impl Services {
 
         Ok(ProcessedSubscription {
             subscription: subscription_row,
-            trial_is_free: plan.trial_is_free,
+            trial: sub.trial.clone(),
+            later_phases: sub.later_phases.clone(),
             components,
             add_ons: subscription_add_ons,
             coupons: subscription_coupons,
@@ -757,6 +806,7 @@ impl Services {
             minimum_override: sub.minimum_override.clone(),
             drop_minimum: sub.drop_minimum,
             start_deferred: false,
+            dry_run: false,
             metric_ids,
         })
     }
@@ -826,10 +876,10 @@ impl Services {
     fn process_coupons(
         &self,
         subscription: &SubscriptionRowNew,
-        trial_is_free: bool,
+        free_trial_days: Option<u32>,
         coupons: &[Coupon],
     ) -> Result<Vec<AppliedCouponRowNew>, StoreErrorReport> {
-        process_create_subscription_coupons(subscription, trial_is_free, coupons)
+        process_create_subscription_coupons(subscription, free_trial_days, coupons)
     }
 
     fn build_subscription_event(
@@ -1206,7 +1256,11 @@ impl Services {
                         SubscriptionRow::insert_subscription_batch(conn, subscriptions)
                             .await
                             .map(|v| v.into_iter().map(Into::into).collect())?;
-                    for created in inserted.iter_mut() {
+                    for (created, proc) in inserted.iter_mut().zip(processed.iter()) {
+                        created.trial_duration = proc
+                            .trial
+                            .as_ref()
+                            .and_then(|trial| i32::try_from(trial.days).ok());
                         let warned = warnings.remove(&created.id).unwrap_or_default();
                         created.warnings = warned.codes;
                         created.metrics_not_attributed = warned.metrics_not_attributed;
@@ -1256,10 +1310,33 @@ impl Services {
                         actor,
                         &processed
                             .iter()
-                            .map(|p| (&p.subscription, p.trial_is_free))
+                            .map(|p| (&p.subscription, p.trial.as_ref()))
                             .collect::<Vec<_>>(),
                     )
                     .await?;
+                    crate::services::trials::eligibility::record_trials_tx(
+                        services,
+                        conn,
+                        actor,
+                        &processed
+                            .iter()
+                            .filter_map(|p| p.trial.as_ref().map(|trial| (&p.subscription, trial)))
+                            .collect::<Vec<_>>(),
+                    )
+                    .await?;
+                    for proc in processed {
+                        if !proc.later_phases.is_empty() {
+                            crate::services::plan_phases::materialize_tx(
+                                services,
+                                conn,
+                                actor,
+                                &proc.subscription,
+                                proc.trial.as_ref().filter(|trial| trial.free).map(|trial| trial.days),
+                                &proc.later_phases,
+                            )
+                            .await?;
+                        }
+                    }
 
                     // Snapshot plan minimums onto subscriptions (mirrors the component snapshot).
                     {
@@ -1413,7 +1490,7 @@ impl Services {
                     // so the FK constraint on subscription_id is satisfied.
                     // Skip if skip_checkout_session is true (subscription created from checkout completion).
                     for (sub, proc) in inserted.iter().zip(processed.iter()) {
-                        if sub.pending_checkout && !proc.skip_checkout_session {
+                        if sub.pending_checkout && !proc.skip_checkout_session && !proc.dry_run {
                             // Deserialize payment_methods_config from the processed subscription
                             let payment_methods_config: Option<PaymentMethodsConfig> = proc
                                 .subscription
@@ -1434,7 +1511,16 @@ impl Services {
                                 billing_start_date: sub.billing_start_date,
                                 billing_day_anchor: Some(sub.billing_day_anchor),
                                 net_terms: Some(sub.net_terms),
-                                trial_duration_days: sub.trial_duration,
+                                trial: proc.trial.as_ref().map_or(
+                                    crate::domain::trials::TrialRequest::None,
+                                    |trial| crate::domain::trials::TrialRequest::Custom {
+                                        length: crate::domain::trials::TrialLength::Days(
+                                            trial.days,
+                                        ),
+                                        free: Some(trial.free),
+                                        trial_plan: Some(trial.trial_plan_id),
+                                    },
+                                ),
                                 end_date: sub.end_date,
                                 auto_advance_invoices: true,
                                 charge_automatically: true,
@@ -1475,7 +1561,7 @@ impl Services {
                         // The subscription is set up with current_period_end = today,
                         // so the cycle processing worker will pick it up and generate
                         // the invoice for the next period.
-                        if proc.skip_past_invoices || proc.start_deferred {
+                        if proc.skip_past_invoices || proc.start_deferred || proc.dry_run {
                             continue;
                         }
 
@@ -1486,19 +1572,9 @@ impl Services {
                         }
 
                         // For subscriptions with trials, check if it's a free trial
-                        if sub.trial_duration.is_some() {
-                            // Fetch plan version to check trial_is_free
-                            let plan_with_version =
-                                PlanRow::get_with_version(conn, sub.plan_version_id, tenant_id)
-                                    .await?;
-
-                            // Skip billing for free trials
-                            if let Some(version) = plan_with_version.version
-                                && version.trial_is_free
-                            {
-                                continue;
-                            }
-                            // Paid trial: fall through to billing
+                        // Skip billing for free trials; a paid trial falls through to billing
+                        if proc.trial.as_ref().is_some_and(|trial| trial.free) {
+                            continue;
                         }
 
                         services.bill_subscription_tx(

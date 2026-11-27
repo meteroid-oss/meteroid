@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package meteroid.api.renewals.v1;
+
+import "api/renewals/v1/models.proto";
+
+// Renewal notices: the tenant's policy and a subscription's next renewal. Settings take no gate:
+// they do nothing without terms (subscription phases) or retention.
+service RenewalsService {
+  rpc GetRenewalSettings(GetRenewalSettingsRequest) returns (GetRenewalSettingsResponse);
+  rpc UpdateRenewalSettings(UpdateRenewalSettingsRequest) returns (UpdateRenewalSettingsResponse);
+  // The subscription's next renewal, whatever dates it, and the notices sent so far.
+  rpc GetSubscriptionRenewal(GetSubscriptionRenewalRequest) returns (GetSubscriptionRenewalResponse);
+}
+
+message GetRenewalSettingsRequest {}
+message GetRenewalSettingsResponse { RenewalSettings settings = 1; }
+
+message RenewalCheckpoints { repeated uint32 days = 1; }
+message CustomerReminder { optional uint32 days = 1; }
+
+message UpdateRenewalSettingsRequest {
+  // Unset leaves them unchanged.
+  optional RenewalCheckpoints checkpoints = 1;
+  // Unset leaves it unchanged; set without days turns the reminder off.
+  optional CustomerReminder customer_reminder = 2;
+}
+message UpdateRenewalSettingsResponse { RenewalSettings settings = 1; }
+
+message GetSubscriptionRenewalRequest { string subscription_id = 1; }
+message GetSubscriptionRenewalResponse {
+  optional Renewal renewal = 1;
+  repeated RenewalNotice notices = 2;
+}

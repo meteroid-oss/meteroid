@@ -308,8 +308,8 @@ async fn test_oncheckout_paid_trial_full_flow(#[future] test_env: TestEnv) {
         .with_context("Phase 2: After checkout")
         .is_trial_active()
         .has_pending_checkout(false)
-        .has_trial_duration(Some(7))
         .has_cycle_index(0);
+    assert_eq!(env.trial_days(sub_id).await, Some(7));
     sub.assert().has_resolved_payment_method(&env, true).await;
 
     let invoices = env.get_invoices(sub_id).await;
@@ -455,10 +455,8 @@ async fn test_oncheckout_free_trial_checkout_after_expiry(#[future] test_env: Te
     );
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert()
-        .is_active()
-        .has_pending_checkout(false)
-        .has_trial_duration(Some(14));
+    sub.assert().is_active().has_pending_checkout(false);
+    assert_eq!(env.trial_days(sub_id).await, Some(14));
     sub.assert().has_resolved_payment_method(&env, true).await;
 
     let invoices = env.get_invoices(sub_id).await;
@@ -531,8 +529,8 @@ async fn test_oncheckout_payment_failure_at_checkout(#[future] test_env: TestEnv
     let sub = env.get_subscription(sub_id).await;
     sub.assert()
         .is_pending_activation()
-        .has_pending_checkout(true)
-        .has_trial_duration(None);
+        .has_pending_checkout(true);
+    assert_eq!(env.trial_days(sub_id).await, None);
     sub.assert().has_resolved_payment_method(&env, true).await;
 
     // No completed invoice - may have draft from failed attempt

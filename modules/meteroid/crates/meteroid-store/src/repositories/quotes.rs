@@ -546,6 +546,7 @@ impl QuotesInterface for Store {
             let actor = &actor;
             async move {
                 let now = common_clock::now().naive_utc();
+                schedule_converts_tx(conn, tenant_id, quote_id).await?;
 
                 let update = QuoteRowUpdate {
                     status: Some(diesel_models::enums::QuoteStatusEnum::Pending),
@@ -1076,6 +1077,7 @@ impl QuotesInterface for Store {
                 match quote.status {
                     diesel_models::enums::QuoteStatusEnum::Draft => {
                         // Publish the quote (transition to Pending)
+                        schedule_converts_tx(conn, tenant_id, quote_id).await?;
                         let now = common_clock::now().naive_utc();
                         let update = QuoteRowUpdate {
                             status: Some(diesel_models::enums::QuoteStatusEnum::Pending),
@@ -1735,6 +1737,16 @@ impl Store {
     }
 }
 
+/// A quote is sent only when its phases bill as signed once it converts (R-155).
+async fn schedule_converts_tx(
+    conn: &mut crate::store::PgConn,
+    tenant_id: TenantId,
+    quote_id: QuoteId,
+) -> StoreResult<()> {
+    let detailed = detailed_quote_tx(conn, tenant_id, quote_id).await?;
+    crate::services::plan_phases::check_quote_schedule(&detailed, &detailed.phases)
+}
+
 pub(crate) async fn detailed_quote_tx(
     conn: &mut crate::store::PgConn,
     tenant_id: TenantId,
@@ -1939,5 +1951,6 @@ pub(crate) async fn detailed_quote_tx(
         signatures,
         entitlements,
         minimum,
+        phases: crate::services::plan_phases::quote_phases_tx(conn, tenant_id, quote_id).await?,
     })
 }

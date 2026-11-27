@@ -117,7 +117,13 @@ export type DraftScope = {
 }
 
 type CommonProps = { feature?: Feature; onClose: () => void }
-type SavedProps = RowScope & CommonProps & { existing?: Entitlement; onDraft?: undefined }
+type SavedProps = RowScope &
+  CommonProps & {
+    existing?: Entitlement
+    onDraft?: undefined
+    /** A new override for a window: ends after a month, its reason asked for. */
+    temporary?: boolean
+  }
 type DraftProps = DraftScope &
   CommonProps & {
     existing?: GrantDraft
@@ -132,17 +138,21 @@ const isDraft = (p: RowSheetProps): p is DraftProps => p.onDraft !== undefined
 /** The shared add/edit entitlement drawer, for every source; saves, or returns a draft. */
 export const RowSheet = (props: RowSheetProps) => {
   const { soldForTypeId, multiInstance, feature: preset, onClose } = props
+  const temporary = !isDraft(props) && !props.existing && !!props.temporary
   const queryClient = useQueryClient()
   const { types, byId: typesById } = useResourceTypes()
   const source: Source = isDraft(props) ? props.source : sourceOf(props.owner, props.resource?.id)
   const resource = isDraft(props) ? undefined : props.resource
   const existingDraft = isDraft(props) ? props.existing : undefined
   const existing = isDraft(props)
-    ? props.existing && draftRow(props.existing, draftEffect(props.existing, source, !!multiInstance))
+    ? props.existing &&
+      draftRow(props.existing, draftEffect(props.existing, source, !!multiInstance))
     : props.existing
   // A draft's owner isn't in the customer's snapshot yet: no preview.
   const previewCustomerId =
-    !isDraft(props) && isOverrideSource(source) && props.owner.case === 'customerId' ? props.owner.value : undefined
+    !isDraft(props) && isOverrideSource(source) && props.owner.case === 'customerId'
+      ? props.owner.value
+      : undefined
   const override = isOverrideSource(source)
   const [picked, setPicked] = useState<Feature | undefined>(preset ?? existingDraft?.feature)
   const [confirmingClose, setConfirmingClose] = useState(false)
@@ -153,10 +163,16 @@ export const RowSheet = (props: RowSheetProps) => {
   const showWindow = override || !!(existing?.validFrom || existing?.validUntil || existing?.reason)
 
   const defaults = (f: Feature | undefined) => ({
-    level: (resource && resource.type.id !== f?.levelResourceTypeId ? `type:${resource.type.id}` : 'feature') as LevelKey,
+    level: (resource && resource.type.id !== f?.levelResourceTypeId
+      ? `type:${resource.type.id}`
+      : 'feature') as LevelKey,
     effect: defaultEffect(source, isOrdered(f), !!multiInstance),
   })
-  const form = useZodForm({ schema: rowSchema, defaultValues: rowToForm(feature, existing, defaults(feature)) })
+  const initial = (f: Feature | undefined, e?: Entitlement) => {
+    const values = rowToForm(f, e, defaults(f))
+    return temporary ? { ...values, ends: '1m' as const } : values
+  }
+  const form = useZodForm({ schema: rowSchema, defaultValues: initial(feature, existing) })
   const d = useWatch({ control: form.control }) as RowForm
   const isDirty = form.formState.isDirty
   const advancedErrors = useHasFieldErrors(form.control, ['validFrom', 'reason'])
@@ -164,7 +180,7 @@ export const RowSheet = (props: RowSheetProps) => {
   // A fresh pick is the new baseline: the form is clean until the user edits it.
   const pick = (f: Feature | undefined) => {
     setPicked(f)
-    form.reset(rowToForm(f, undefined, defaults(f)))
+    form.reset(initial(f))
   }
 
   const requestClose = () => (isDirty ? setConfirmingClose(true) : onClose())
@@ -173,7 +189,10 @@ export const RowSheet = (props: RowSheetProps) => {
     queryClient.invalidateQueries({
       queryKey: createConnectQueryKey({ schema: listFeatures.parent, cardinality: undefined }),
     })
-  const done = { onSuccess: () => invalidate().then(onClose), onError: (err: Error) => toast.error(err.message) }
+  const done = {
+    onSuccess: () => invalidate().then(onClose),
+    onError: (err: Error) => toast.error(err.message),
+  }
   const createMutation = useMutation(createEntitlement, done)
   const updateMutation = useMutation(updateEntitlement, done)
 
@@ -187,7 +206,9 @@ export const RowSheet = (props: RowSheetProps) => {
       // An untouched effect stays the source's default, applied by the server.
       const baseline = existing ? effectOf(existing) : defaults(feature).effect
       const effect =
-        spec.effect === baseline ? (existingDraft?.spec.effect ?? EntitlementEffect.UNSPECIFIED) : spec.effect
+        spec.effect === baseline
+          ? (existingDraft?.spec.effect ?? EntitlementEffect.UNSPECIFIED)
+          : spec.effect
       props.onDraft({ feature, spec: create(EntitlementSpecSchema, { ...spec, effect }) })
       return onClose()
     }
@@ -202,8 +223,11 @@ export const RowSheet = (props: RowSheetProps) => {
 
   const effects = feature ? allowedEffects(source, isOrdered(feature)) : []
   const levels = feature ? levelOptions(feature, source, soldForTypeId, types) : []
-  const conditionType = feature ? typesById.get(levelTypeId(d.level as LevelKey, feature) ?? '') : undefined
-  const hasAttributes = !!conditionType && Object.values(conditionType.attributes).some(a => a.values.length > 0)
+  const conditionType = feature
+    ? typesById.get(levelTypeId(d.level as LevelKey, feature) ?? '')
+    : undefined
+  const hasAttributes =
+    !!conditionType && Object.values(conditionType.attributes).some(a => a.values.length > 0)
   const effect = effectFromForm(d)
 
   const title = resource
@@ -211,7 +235,9 @@ export const RowSheet = (props: RowSheetProps) => {
     : override
       ? existing
         ? 'Edit override'
-        : 'Add override'
+        : temporary
+          ? 'Add temporary override'
+          : 'Add override'
       : source === 'default'
         ? existing
           ? 'Edit default'
@@ -253,7 +279,11 @@ export const RowSheet = (props: RowSheetProps) => {
                   {preset || existing ? (
                     <div className="flex flex-col gap-0.5">
                       <span className="text-sm font-medium">{feature?.name}</span>
-                      {feature?.code && <span className="font-mono text-xs text-muted-foreground">{feature.code}</span>}
+                      {feature?.code && (
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {feature.code}
+                        </span>
+                      )}
                     </div>
                   ) : (
                     <FeaturePicker
@@ -316,10 +346,15 @@ export const RowSheet = (props: RowSheetProps) => {
                         />
                       )}
 
-                      {conditionType && hasAttributes && source !== 'resource' && <AppliesField type={conditionType} />}
+                      {conditionType && hasAttributes && source !== 'resource' && (
+                        <AppliesField type={conditionType} />
+                      )}
 
                       {isLimit(feature) && source !== 'default' && (
-                        <PolicySection feature={feature} canOverride={effect === EntitlementEffect.SET} />
+                        <PolicySection
+                          feature={feature}
+                          canOverride={effect === EntitlementEffect.SET}
+                        />
                       )}
 
                       {showWindow && (
@@ -354,7 +389,7 @@ export const RowSheet = (props: RowSheetProps) => {
 
                           <AdvancedSection
                             label="More"
-                            defaultOpen={!!(existing?.validFrom || existing?.reason)}
+                            defaultOpen={temporary || !!(existing?.validFrom || existing?.reason)}
                             forceOpen={advancedErrors}
                           >
                             <GenericFormField
@@ -377,7 +412,9 @@ export const RowSheet = (props: RowSheetProps) => {
                               control={form.control}
                               name="reason"
                               label="Reason (optional)"
-                              placeholder="e.g. Contract amendment"
+                              placeholder={
+                                temporary ? 'e.g. Pilot extension' : 'e.g. Contract amendment'
+                              }
                             />
                           </AdvancedSection>
                         </>
@@ -416,7 +453,10 @@ export const RowSheet = (props: RowSheetProps) => {
                 <Button type="button" variant="outline" onClick={requestClose}>
                   Cancel
                 </Button>
-                <Button type="submit" disabled={!feature || createMutation.isPending || updateMutation.isPending}>
+                <Button
+                  type="submit"
+                  disabled={!feature || createMutation.isPending || updateMutation.isPending}
+                >
                   {submitLabel}
                 </Button>
               </SheetFooter>
@@ -557,7 +597,11 @@ const ValueField = ({ feature }: { feature: Feature }) => {
           name="mode"
           label="Value"
           render={({ field }) => (
-            <RadioGroup value={field.value} onValueChange={field.onChange} className="flex h-8 items-center gap-4">
+            <RadioGroup
+              value={field.value}
+              onValueChange={field.onChange}
+              className="flex h-8 items-center gap-4"
+            >
               {LIMIT_MODES.map(([value, label]) => (
                 <div key={value} className="flex items-center space-x-2">
                   <RadioGroupItem value={value} id={`${id}-${value}`} />
@@ -585,7 +629,13 @@ const ValueField = ({ feature }: { feature: Feature }) => {
   switch (feature.value?.type) {
     case FeatureValueType.NUMBER:
       return (
-        <InputFormField control={control} name="amount" label="Value" inputMode="decimal" rightText={unit} />
+        <InputFormField
+          control={control}
+          name="amount"
+          label="Value"
+          inputMode="decimal"
+          rightText={unit}
+        />
       )
     case FeatureValueType.SELECT:
       return (
@@ -598,7 +648,15 @@ const ValueField = ({ feature }: { feature: Feature }) => {
         </SelectFormField>
       )
     case FeatureValueType.JSON:
-      return <TextareaFormField control={control} name="amount" label="Value" rows={4} className="font-mono text-xs" />
+      return (
+        <TextareaFormField
+          control={control}
+          name="amount"
+          label="Value"
+          rows={4}
+          className="font-mono text-xs"
+        />
+      )
     default:
       return <InputFormField control={control} name="amount" label="Value" rightText={unit} />
   }
@@ -697,19 +755,38 @@ const PolicySection = ({ feature, canOverride }: { feature: Feature; canOverride
         </div>
       )}
       {canOverride && (
-        <SwitchFormField control={control} name="overridePolicy" label="Override policy" containerClassName="py-1" />
+        <SwitchFormField
+          control={control}
+          name="overridePolicy"
+          label="Override policy"
+          containerClassName="py-1"
+        />
       )}
       {overriding && <PolicyFields name="policy" appCounted={appCounted} />}
     </div>
   )
 }
 
-function Warnings({ feature, effect, level }: { feature: Feature; effect: EntitlementEffect; level: LevelKey }) {
+function Warnings({
+  feature,
+  effect,
+  level,
+}: {
+  feature: Feature
+  effect: EntitlementEffect
+  level: LevelKey
+}) {
   const { byId } = useResourceTypes()
   const own = feature.levelResourceTypeId ? byId.get(feature.levelResourceTypeId) : undefined
   const notes: string[] = []
-  if (own && level === 'customer' && (effect === EntitlementEffect.RAISE_TO || effect === EntitlementEffect.ADD))
-    notes.push(`Needs a ${isLimit(feature) ? 'limit' : 'value'} across all ${lower(own.pluralName)} on the plan.`)
+  if (
+    own &&
+    level === 'customer' &&
+    (effect === EntitlementEffect.RAISE_TO || effect === EntitlementEffect.ADD)
+  )
+    notes.push(
+      `Needs a ${isLimit(feature) ? 'limit' : 'value'} across all ${lower(own.pluralName)} on the plan.`
+    )
   if (!notes.length) return null
   return (
     <Alert variant="warning">

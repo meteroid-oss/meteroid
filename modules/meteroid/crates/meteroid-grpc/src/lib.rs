@@ -93,6 +93,18 @@ pub mod meteroid {
             }
         }
 
+        pub mod subscriptionphases {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.subscriptionphases.v1");
+            }
+        }
+
+        pub mod trials {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.trials.v1");
+            }
+        }
+
         pub mod customproperties {
             pub mod v1 {
                 tonic::include_proto!("meteroid.api.customproperties.v1");
@@ -168,6 +180,12 @@ pub mod meteroid {
         pub mod budgets {
             pub mod v1 {
                 tonic::include_proto!("meteroid.api.budgets.v1");
+            }
+        }
+
+        pub mod renewals {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.renewals.v1");
             }
         }
 
@@ -282,12 +300,6 @@ pub mod meteroid {
         pub mod components {
             pub mod v1 {
                 tonic::include_proto!("meteroid.api.components.v1");
-            }
-        }
-
-        pub mod schedules {
-            pub mod v1 {
-                include_proto_serde!("meteroid.api.schedules.v1");
             }
         }
 

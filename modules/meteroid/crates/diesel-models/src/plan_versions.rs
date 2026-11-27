@@ -13,15 +13,12 @@ pub struct PlanVersionRow {
     pub is_draft_version: bool,
     pub plan_id: PlanId,
     pub version: i32,
-    pub trial_duration_days: Option<i32>,
     pub tenant_id: TenantId,
     pub period_start_day: Option<i16>,
     pub net_terms: i32,
     pub currency: String,
     pub billing_cycles: Option<i32>,
     pub created_at: NaiveDateTime,
-    pub trialing_plan_id: Option<PlanId>,
-    pub trial_is_free: bool,
     pub uses_product_pricing: bool,
     pub tax_inclusive: bool,
     /// Unset on a draft whose rule was not chosen yet; publishing sets the default.
@@ -38,14 +35,11 @@ pub struct PlanVersionRowNew {
     pub is_draft_version: bool,
     pub plan_id: PlanId,
     pub version: i32,
-    pub trial_duration_days: Option<i32>,
     pub tenant_id: TenantId,
     pub period_start_day: Option<i16>,
     pub net_terms: i32,
     pub currency: String,
     pub billing_cycles: Option<i32>,
-    pub trialing_plan_id: Option<PlanId>,
-    pub trial_is_free: bool,
     pub uses_product_pricing: bool,
     pub tax_inclusive: bool,
     /// Unset on a draft whose rule was not chosen yet; publishing sets the default.
@@ -64,9 +58,6 @@ pub struct PlanVersionRowOverview {
     #[diesel(select_expression_type = crate::schema::plan::name)]
     pub plan_name: String,
     pub version: i32,
-    pub trial_duration_days: Option<i32>,
-    pub trialing_plan_id: Option<PlanId>,
-    pub trial_is_free: bool,
     pub period_start_day: Option<i16>,
     pub net_terms: i32,
     pub currency: String,
@@ -90,18 +81,6 @@ pub struct PlanVersionRowPatch {
     pub tax_inclusive: Option<bool>,
     pub credit_exhausted_rule: Option<CreditExhaustedRuleEnum>,
     pub credit_exhausted_caps: Option<serde_json::Value>,
-}
-
-#[derive(Debug, AsChangeset)]
-#[diesel(table_name = crate::schema::plan_version)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-#[diesel(primary_key(id, tenant_id))]
-pub struct PlanVersionTrialRowPatch {
-    pub id: PlanVersionId,
-    pub tenant_id: TenantId,
-    pub trialing_plan_id: Option<Option<PlanId>>,
-    pub trial_is_free: Option<bool>,
-    pub trial_duration_days: Option<Option<i32>>,
 }
 
 #[derive(Debug, Clone)]

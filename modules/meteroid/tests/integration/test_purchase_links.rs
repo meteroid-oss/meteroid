@@ -1194,7 +1194,7 @@ async fn other_checkout(env: &TestEnv, customer_id: CustomerId) -> CheckoutSessi
             billing_start_date: None,
             billing_day_anchor: None,
             net_terms: None,
-            trial_duration_days: None,
+            trial: Default::default(),
             end_date: None,
             auto_advance_invoices: true,
             charge_automatically: true,
@@ -1904,4 +1904,150 @@ async fn test_purchase_starts_on_the_level_picked(#[future] test_env: TestEnv) {
         .await
         .expect("the first checkout");
     assert_eq!(replaced.status, CheckoutSessionStatus::Cancelled);
+}
+
+/// A signup through a purchase link takes its plan's trial, as every creation does: the link
+/// leaves the trial to the plan. The trial is once per customer on its plan: back for another,
+/// the checkout previews no trial.
+/// Rules: R-153, R-159
+#[rstest]
+#[tokio::test]
+async fn test_a_purchase_link_signup_gets_its_plans_default_trial_offer(
+    #[future] test_env: TestEnv,
+) {
+    use meteroid_store::domain::trials::{TrialEligibility, TrialEndAction, TrialOfferNew};
+    let env = test_env.await;
+    env.seed_payments().await;
+    let offer = env
+        .services()
+        .create_trial_offer(
+            TENANT_ID,
+            TrialOfferNew {
+                name: "A week free".to_string(),
+                code: None,
+                duration_days: 7,
+                free: true,
+                trial_plan_id: None,
+                end_action: TrialEndAction::Convert,
+                eligibility: TrialEligibility::Plan,
+            },
+        )
+        .await
+        .expect("an offer")
+        .id;
+    env.services()
+        .set_plan_trial_offer(Actor::System, TENANT_ID, PLAN_LEETCODE_ID, Some(offer))
+        .await
+        .expect("LeetCode's trial");
+    let link = create_link(&env, false).await;
+    let purchases = purchases(&env);
+    let started = start(&env, &purchases, &link.link.token, "trial@acme.com")
+        .await
+        .expect("start purchase");
+    let session = env
+        .store()
+        .get_checkout_session(TENANT_ID, started.checkout_session_id)
+        .await
+        .unwrap();
+    assert_eq!(session.trial_duration_days, None);
+
+    let card = add_card(&env, started.customer_id).await;
+    let subscription_id = match env
+        .services()
+        .complete_checkout(
+            TENANT_ID,
+            started.checkout_session_id,
+            card,
+            0,
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("a free trial checks out at zero")
+    {
+        CheckoutCompletionResult::Completed {
+            subscription_id, ..
+        } => subscription_id,
+        other => panic!("unexpected checkout result: {other:?}"),
+    };
+    use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
+    let details = env
+        .store()
+        .get_subscription_details(TENANT_ID, subscription_id)
+        .await
+        .expect("the subscription");
+    assert_eq!(details.subscription.trial_duration, Some(7));
+    let redemptions = || async {
+        diesel_models::trial_offers::TrialRedemptionRow::list_by_customer(
+            &mut env.conn().await,
+            &TENANT_ID,
+            started.customer_id,
+        )
+        .await
+        .expect("the customer's redemptions")
+        .into_iter()
+        .map(|redemption| (redemption.trial_offer_id, redemption.subscription_id))
+        .collect::<Vec<_>>()
+    };
+    assert_eq!(redemptions().await, vec![(Some(offer), subscription_id)]);
+
+    // Back for a second subscription: the checkout previews no trial, and charges what it shows.
+    let session = env
+        .store()
+        .create_checkout_session(CreateCheckoutSession {
+            tenant_id: TENANT_ID,
+            customer_id: started.customer_id,
+            plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
+            option: None,
+            billing_start_date: None,
+            billing_day_anchor: None,
+            net_terms: None,
+            trial: Default::default(),
+            resource_id: None,
+            end_date: None,
+            auto_advance_invoices: true,
+            charge_automatically: true,
+            invoice_memo: None,
+            invoice_threshold: None,
+            purchase_order: None,
+            payment_methods_config: None,
+            components: None,
+            add_ons: None,
+            coupon_code: None,
+            coupon_ids: vec![],
+            expires_in_hours: Some(24),
+            metadata: None,
+            checkout_type: CheckoutType::SelfServe,
+            subscription_id: None,
+            change_date: None,
+            success_url: None,
+            cancel_url: None,
+        })
+        .await
+        .expect("a second checkout");
+    let preview = env
+        .services()
+        .build_preview_subscription_details(&session, TENANT_ID, None)
+        .await
+        .expect("its preview");
+    assert!(preview.trial_config.is_none());
+    assert_eq!(preview.subscription.trial_duration, None);
+    let second = match env
+        .services()
+        .complete_checkout(TENANT_ID, session.id, card, PRICE, "EUR".to_string(), None)
+        .await
+        .expect("the second checkout charges the full price it previewed")
+    {
+        CheckoutCompletionResult::Completed {
+            subscription_id, ..
+        } => subscription_id,
+        other => panic!("unexpected checkout result: {other:?}"),
+    };
+    let second = env
+        .store()
+        .get_subscription_details(TENANT_ID, second)
+        .await
+        .expect("the second subscription");
+    assert_eq!(second.subscription.trial_duration, None);
+    assert_eq!(redemptions().await, vec![(Some(offer), subscription_id)]);
 }

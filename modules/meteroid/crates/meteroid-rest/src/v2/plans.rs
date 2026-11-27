@@ -39,7 +39,7 @@ use meteroid_store::domain::plan_options::{
 };
 use meteroid_store::domain::pricing_pages::PlanPricingPage;
 use meteroid_store::domain::{
-    FullPlan, PlanNew, PlanPatch, PlanTrial, PlanVersionFilter, PlanVersionNewInternal,
+    FullPlan, PlanNew, PlanPatch, PlanVersionFilter, PlanVersionNewInternal,
 };
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::add_ons::AddOnInterfaceAuto;
@@ -159,7 +159,7 @@ pub struct OptionInput {
     pub hidden: bool,
 }
 
-/// A trial a subscription to the version starts with.
+/// What a plan's trial gives.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Trial {
@@ -175,6 +175,37 @@ pub struct Trial {
 
 fn yes() -> bool {
     true
+}
+
+/// A plan's trial: the trial offer it names, the same on every version. A subscription
+/// created on the plan asking no trial gets it.
+#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+pub struct PlanTrial {
+    /// Its length in days.
+    pub days: u32,
+    /// Nothing is billed during it.
+    pub free: bool,
+    /// The plan whose features it gives, by code; none: this plan.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan: Option<String>,
+    /// The trial offer it is; several plans may share one.
+    pub offer: crate::v2::subscriptions::model::TrialOfferSummary,
+}
+
+/// A plan's trial written: its own terms, or a trial offer of the catalog by id or code.
+#[derive(Deserialize, ToSchema, Debug, Clone, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[schema(as = PlanTrialInput)]
+pub enum PlanTrialInput {
+    Terms(Trial),
+    Offer(PlanTrialOffer),
+}
+
+/// A trial offer as a plan's trial.
+#[derive(Deserialize, ToSchema, Debug, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PlanTrialOffer {
+    pub offer: String,
 }
 
 /// A floor on what a subscription is billed each period.
@@ -219,9 +250,6 @@ pub struct PlanVersion {
     pub options: Vec<PlanOption>,
     /// What the version bills, in the order written, each charge in its canonical composition.
     pub charges: Vec<Charge>,
-    /// The trial a subscription starts with; none: no trial.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub trial: Option<Trial>,
     /// Days an invoice is due after it is issued.
     pub net_terms: i32,
     /// A floor on what a subscription is billed each period; none: no floor.
@@ -261,9 +289,6 @@ pub struct VersionInput {
     /// `*` for every one.
     #[serde(default)]
     pub charges: Vec<Charge>,
-    /// None: no trial.
-    #[serde(default)]
-    pub trial: Option<Trial>,
     /// Days an invoice is due after it is issued, 0 to 365; 0 when left out.
     #[serde(default)]
     pub net_terms: i32,
@@ -378,6 +403,9 @@ pub struct Plan {
     pub family: ProductFamilyRef,
     /// How it reads on its family's pricing page and self-serve ladder.
     pub listing: Listing,
+    /// Its trial, the same on every version; none: no trial.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trial: Option<PlanTrial>,
     /// The resource type its subscriptions are for; none: the customer.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sold_for: Option<ResourceTypeRef>,
@@ -451,6 +479,10 @@ pub struct UpdatePlan {
     /// Merged field by field into the plan's listing.
     #[serde(default)]
     pub listing: Option<ListingPatch>,
+    /// Its trial, on every version at once: its terms, or a trial offer; `null` removes it.
+    #[serde(default, with = "::serde_with::rust::double_option")]
+    #[schema(value_type = Option<PlanTrialInput>)]
+    pub trial: Option<Option<PlanTrialInput>>,
     /// The resource type its subscriptions are for, by code or id; `null`: the customer. A plan
     /// sold for a type carries no rows across all resources.
     #[serde(default, with = "::serde_with::rust::double_option")]
@@ -620,28 +652,6 @@ async fn render_version(
         .collect();
     add_ons.sort_by(|a, b| a.add_on.cmp(&b.add_on));
 
-    let trial = match fp.version.trial_duration_days {
-        None => None,
-        Some(days) => {
-            let plan = match fp.version.trialing_plan_id {
-                None => None,
-                Some(id) => Some(
-                    state
-                        .store()
-                        .plan_codes(tenant_id, &[id])
-                        .await?
-                        .remove(&id)
-                        .unwrap_or_else(|| id.to_string()),
-                ),
-            };
-            Some(Trial {
-                days: u32::try_from(days).unwrap_or(0),
-                free: fp.version.trial_is_free,
-                plan,
-            })
-        }
-    };
-
     let minimum = fp.version.minimum.as_ref().map(|minimum| Minimum {
         amount: minimum.amount_subunit,
         currency: Some(fp.version.currency.clone()),
@@ -681,7 +691,6 @@ async fn render_version(
             })
             .collect(),
         charges,
-        trial,
         net_terms: fp.version.net_terms,
         minimum,
         add_ons,
@@ -716,6 +725,38 @@ fn listing_of(page: PlanPricingPage, rank: Option<i32>) -> Listing {
     }
 }
 
+/// A plan's trial as v2 reads it, its trial plan by code.
+async fn plan_trial(
+    state: &impl Reader,
+    tenant_id: TenantId,
+    trial: Option<&meteroid_store::domain::trials::PlanTrial>,
+) -> Result<Option<PlanTrial>, Problem> {
+    let Some(trial) = trial else {
+        return Ok(None);
+    };
+    let plan = match trial.offer.trial_plan_id {
+        None => None,
+        Some(id) => Some(
+            state
+                .store()
+                .plan_codes(tenant_id, &[id])
+                .await?
+                .remove(&id)
+                .unwrap_or_else(|| id.to_string()),
+        ),
+    };
+    Ok(Some(PlanTrial {
+        days: trial.offer.duration_days,
+        free: trial.offer.free,
+        plan,
+        offer: crate::v2::subscriptions::model::TrialOfferSummary {
+            id: trial.offer.id,
+            code: trial.offer.code.clone(),
+            name: trial.offer.name.clone(),
+        },
+    }))
+}
+
 pub(crate) async fn render_plan(
     state: &impl Reader,
     tenant_id: TenantId,
@@ -742,6 +783,16 @@ pub(crate) async fn render_plan(
         status: fp.plan.status.clone().into(),
         family: family_ref(&families, fp.plan.product_family_id),
         listing: listing(state, tenant_id, fp.plan.id, fp.plan.self_service_rank).await?,
+        trial: plan_trial(
+            state,
+            tenant_id,
+            state
+                .store()
+                .plan_trial(tenant_id, fp.plan.id)
+                .await?
+                .as_ref(),
+        )
+        .await?,
         sold_for: fp
             .plan
             .sold_for_resource_type_id
@@ -1045,9 +1096,6 @@ async fn draft_of(
             format!("Net terms are 0 to {} days", bounds::MAX_NET_TERMS_DAYS),
         ));
     }
-    if let Some(trial) = &input.trial {
-        bounds::trial_days(trial.days, &format!("{prefix}/trial/days"))?;
-    }
     bounds::count(
         input.options.len(),
         bounds::MAX_OPTIONS,
@@ -1228,18 +1276,6 @@ async fn draft_of(
         }
     };
 
-    let trial = match &input.trial {
-        None => None,
-        Some(trial) => Some(PlanTrial {
-            duration_days: trial.days,
-            trialing_plan_id: match trial.plan.as_deref() {
-                None => None,
-                Some(plan) => Some(ids::plan_id(state, tenant_id, plan).await?),
-            },
-            trial_is_free: trial.free,
-        }),
-    };
-
     let mut add_ons = Vec::with_capacity(input.add_ons.len());
     for (index, add_on) in input.add_ons.iter().enumerate() {
         let add_on_id = ids::add_on_id(state, tenant_id, &add_on.add_on)
@@ -1283,7 +1319,7 @@ async fn draft_of(
             net_terms: input.net_terms,
             currency,
             billing_cycles: input.billing_cycles,
-            trial,
+            trial: None,
             entitlements,
             tax_inclusive: input.tax_inclusive,
             credit_exhausted_rule: carried.credit_exhausted_rule,
@@ -1380,6 +1416,7 @@ pub async fn list_plans(
                 Some(page) => listing_of(page, plan.self_service_rank),
                 None => listing(&state, auth.tenant_id, plan.id, plan.self_service_rank).await?,
             },
+            trial: plan_trial(&state, auth.tenant_id, plan.trial.as_ref()).await?,
             sold_for: plan
                 .sold_for_resource_type_id
                 .map(|id| sold_for_ref(&sold_for, id)),
@@ -1494,8 +1531,8 @@ pub async fn create_plan(
 
 /// Update a plan
 ///
-/// A JSON merge patch of its live fields: name, description, what it is sold for and listing,
-/// written together or not at all. Versions are written through the draft, the status by `…/archive` and `…/unarchive`.
+/// A JSON merge patch of its live fields: name, description, what it is sold for, listing and
+/// trial, written together or not at all. Versions are written through the draft, the status by `…/archive` and `…/unarchive`.
 #[utoipa::path(
     patch,
     tag = "Plans",
@@ -1583,11 +1620,67 @@ pub async fn update_plan(
             sold_for_of(&state, auth.tenant_id, raw, "/sold_for").await?,
         )),
     };
+    let trial = match &body.trial {
+        None => None,
+        Some(None) => Some(meteroid_store::domain::trials::PlanTrialChange::Terms(None)),
+        Some(Some(PlanTrialInput::Terms(trial))) => {
+            bounds::trial_days(trial.days, "/trial/days")?;
+            if trial.days == 0 {
+                return Err(Problem::field(
+                    "/trial/days",
+                    "invalid",
+                    "A trial lasts a day at least: send null for none",
+                ));
+            }
+            let trial_plan_id = match trial.plan.as_deref() {
+                None => None,
+                Some(plan) => Some(ids::plan_id(&state, auth.tenant_id, plan).await.map_err(
+                    |problem| {
+                        if problem.status == 404 {
+                            Problem::field(
+                                "/trial/plan",
+                                "not_found",
+                                format!("plan {plan} not found"),
+                            )
+                        } else {
+                            problem
+                        }
+                    },
+                )?),
+            };
+            Some(meteroid_store::domain::trials::PlanTrialChange::Terms(
+                Some(meteroid_store::domain::trials::TrialTerms {
+                    duration_days: trial.days,
+                    free: trial.free,
+                    trial_plan_id,
+                }),
+            ))
+        }
+        Some(Some(PlanTrialInput::Offer(named))) => {
+            let raw = named.offer.trim();
+            let id_or_code = match ids::parse_id::<common_domain::ids::TrialOfferId>(raw) {
+                Some(id) => common_domain::ids::AliasOr::Id(id),
+                None => common_domain::ids::AliasOr::Alias(raw.to_owned()),
+            };
+            let offer = state
+                .services
+                .find_trial_offer(auth.tenant_id, id_or_code)
+                .await
+                .map_err(|_| {
+                    Problem::field("/trial/offer", "not_found", format!("trial offer {raw}"))
+                })?;
+            Some(meteroid_store::domain::trials::PlanTrialChange::Offer(
+                offer.id,
+            ))
+        }
+    };
     // A store refusal points at the one part that could refuse it.
-    let pointer = match (sold_for.is_some(), body.listing.is_some()) {
-        (true, false) => Some("/sold_for"),
-        (false, _) => Some("/listing"),
-        (true, true) => None,
+    let pointer = match (sold_for.is_some(), body.listing.is_some(), trial.is_some()) {
+        (true, false, false) => Some("/sold_for"),
+        (false, true, false) => Some("/listing"),
+        (false, false, true) => Some("/trial"),
+        (false, false, false) => Some("/listing"),
+        _ => None,
     };
     // The live fields, what it is sold for and the copy together, or nothing.
     state
@@ -1605,6 +1698,7 @@ pub async fn update_plan(
             },
             sold_for,
             page,
+            trial,
         )
         .await
         .map_err(|error| match pointer {

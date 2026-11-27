@@ -24,8 +24,11 @@ use meteroid_grpc::meteroid::api::webhooks::out::v1 as grpc;
 use meteroid_store::domain::outbox_event::{
     CheckoutPaymentKeptAsCreditEvent, OutboxEvent, TopUpCapPeriod, WalletAutoTopUpCapReachedEvent,
 };
+use meteroid_store::domain::renewals::{
+    RenewalMode, RenewalSource, RenewalTermSnapshot, RenewalUpcomingEvent,
+};
 use meteroid_store::domain::retention_events::{
-    RenewalMode, RenewalUpcomingEvent, RetentionOfferKind, RetentionOutcome, RetentionSessionEvent,
+    RetentionOfferKind, RetentionOutcome, RetentionSessionEvent,
 };
 use meteroid_store::domain::webhooks_out::{WebhookEndpoint, WebhookEndpointNew};
 use meteroid_store::repositories::CustomerCreditWalletsInterface;
@@ -1010,7 +1013,7 @@ async fn test_rest_v2_webhook_retention_payloads_carry_their_subscription() {
         effective_date: Some(renewal_date),
         completed_at: now,
     });
-    let upcoming = OutboxEvent::retention_renewal_upcoming(RenewalUpcomingEvent {
+    let upcoming = OutboxEvent::renewal_upcoming(RenewalUpcomingEvent {
         id: RenewalUpcomingEvent::event_id(
             subscription_id,
             renewal_date,
@@ -1022,7 +1025,15 @@ async fn test_rest_v2_webhook_retention_payloads_carry_their_subscription() {
         subscription_id,
         renewal_date,
         mode: RenewalMode::Renewing,
+        source: RenewalSource::Term,
         days_before: 60,
+        opt_out_deadline: Some(renewal_date - chrono::Duration::days(30)),
+        term: Some(RenewalTermSnapshot {
+            auto_renew: true,
+            renewal_months: 12,
+            uplift_percent: Some(rust_decimal_macros::dec!(5)),
+            notice_days: 30,
+        }),
         plan_name: "Studio".to_owned(),
         currency: "EUR".to_owned(),
         mrr_cents: 12_300,
@@ -1045,7 +1056,7 @@ async fn test_rest_v2_webhook_retention_payloads_carry_their_subscription() {
     for received in on(&log, "/v2") {
         let payload = received.json();
         let event_type = payload["type"].as_str().unwrap().to_owned();
-        if !event_type.starts_with("retention.") {
+        if !event_type.starts_with("retention.") && event_type != "subscription.renewal_upcoming" {
             continue;
         }
         let data = &payload["data"];
@@ -1065,9 +1076,18 @@ async fn test_rest_v2_webhook_retention_payloads_carry_their_subscription() {
                 assert_eq!(data["effective_date"], renewal_date.to_string());
                 assert!(data["completed_at"].is_string());
             }
-            "retention.renewal_upcoming" => {
+            "subscription.renewal_upcoming" => {
                 assert_eq!(data["renewal_date"], renewal_date.to_string());
                 assert_eq!(data["mode"], "renewing");
+                assert_eq!(data["source"], "term");
+                assert_eq!(
+                    data["opt_out_deadline"],
+                    (renewal_date - chrono::Duration::days(30)).to_string()
+                );
+                assert_eq!(
+                    data["term"],
+                    json!({"auto_renew": true, "renewal_months": 12, "uplift_percent": "5", "notice_days": 30})
+                );
                 assert_eq!(data["days_before"], 60);
                 assert_eq!(data["mrr"], json!({"amount": 12_300, "currency": "EUR"}));
                 assert!(data.get("plan_name").is_none(), "{data:#}");
@@ -1080,8 +1100,8 @@ async fn test_rest_v2_webhook_retention_payloads_carry_their_subscription() {
     assert_eq!(
         seen,
         BTreeSet::from([
-            "retention.renewal_upcoming".to_owned(),
-            "retention.session_completed".to_owned()
+            "retention.session_completed".to_owned(),
+            "subscription.renewal_upcoming".to_owned()
         ])
     );
 
@@ -1090,7 +1110,7 @@ async fn test_rest_v2_webhook_retention_payloads_carry_their_subscription() {
     for received in on(&log, "/v1") {
         let payload = received.json();
         let event_type = payload["type"].as_str().unwrap().to_owned();
-        if !event_type.starts_with("retention.") {
+        if !event_type.starts_with("retention.") && event_type != "subscription.renewal_upcoming" {
             continue;
         }
         let stored = f
@@ -1111,8 +1131,11 @@ async fn test_rest_v2_webhook_retention_payloads_carry_their_subscription() {
                 assert_eq!(payload["offer_kind"], "PLAN_CHANGE");
                 assert_eq!(payload["offer_title"], "Move to the monthly plan");
             }
-            "retention.renewal_upcoming" => {
+            "subscription.renewal_upcoming" => {
                 assert_eq!(payload["mode"], "RENEWING");
+                assert_eq!(payload["source"], "TERM");
+                assert_eq!(payload["renewal_months"], 12);
+                assert_eq!(payload["uplift_percent"], "5");
                 assert_eq!(payload["plan_name"], "Studio");
                 assert_eq!(payload["mrr_cents"], 12_300);
                 assert_eq!(payload["currency"], "EUR");

@@ -51,6 +51,7 @@ use crate::domain::subscription_add_ons::{SubscriptionAddOnNew, SubscriptionAddO
 use crate::domain::subscription_components::{
     SubscriptionComponentNew, SubscriptionComponentNewInternal, SubscriptionFee,
 };
+use crate::domain::subscription_phases::PhaseMinimum;
 use crate::errors::StoreError;
 use crate::services::ServicesEdge;
 use crate::store::PgConn;
@@ -148,6 +149,8 @@ struct Context<'a> {
     event: &'a ScheduledEvent,
     /// Due already, as an earlier release stored it: each price taken as named, offered or not.
     as_stored: bool,
+    /// A timeline written again: an ending still to come cuts it only when it happens (R-162).
+    through_ending: bool,
     sub: &'a SubscriptionRow,
     on: NaiveDate,
     open_components: HashSet<SubscriptionPriceComponentId>,
@@ -189,13 +192,14 @@ pub(crate) async fn resolve_change_tx(
     conn: &mut PgConn,
     event: &ScheduledEvent,
 ) -> StoreResult<Resolution> {
-    resolve_change_with(conn, event, false).await
+    resolve_change_with(conn, event, false, false).await
 }
 
 async fn resolve_change_with(
     conn: &mut PgConn,
     event: &ScheduledEvent,
     as_stored: bool,
+    through_ending: bool,
 ) -> StoreResult<Resolution> {
     let sub =
         db(
@@ -223,6 +227,7 @@ async fn resolve_change_with(
     let ctx = Context {
         event,
         as_stored,
+        through_ending,
         sub: &sub,
         on: event.scheduled_time.date(),
         open_components,
@@ -234,16 +239,34 @@ async fn resolve_change_with(
             source_plan_version_id,
             new_plan_version_id,
             component_mappings,
+            addon_close,
+            addon_insert,
             ..
         } => {
-            resolve_plan_change(
+            let resolution = resolve_plan_change(
                 conn,
                 &ctx,
                 *source_plan_version_id,
                 *new_plan_version_id,
                 component_mappings,
             )
-            .await
+            .await?;
+            let Ok(mut facts) = resolution else {
+                return Ok(resolution);
+            };
+            if let Some(row) = addon_close
+                .iter()
+                .find(|row| !ctx.open_add_ons.iter().any(|(open, _)| open == *row))
+            {
+                return Ok(Err(Unresolvable::AddOnRowNotOpen(*row)));
+            }
+            facts.closes_add_ons.extend(addon_close.iter().copied());
+            for a in addon_insert {
+                facts
+                    .opens_add_ons
+                    .push(floored_add_on_row(ctx.sub, ctx.on, a)?);
+            }
+            Ok(Ok(facts))
         }
         ScheduledEventData::ApplyAmendment {
             component_close,
@@ -260,6 +283,50 @@ async fn resolve_change_with(
                 addon_insert,
             )
             .await
+        }
+        ScheduledEventData::ApplyPhase {
+            component_close,
+            component_insert,
+            addon_close,
+            addon_insert,
+            minimum,
+            ..
+        } => {
+            let resolution = resolve_amendment(
+                conn,
+                &ctx,
+                component_close,
+                component_insert,
+                addon_close,
+                addon_insert,
+            )
+            .await?;
+            Ok(resolution.map(|mut facts| {
+                // Ids derived from their owner: writing the same terms again writes the same rows.
+                for (row, insert) in facts.opens_components.iter_mut().zip(component_insert) {
+                    if let Some(id) = insert.subscription_component_id {
+                        row.id = id;
+                    }
+                }
+                for (row, insert) in facts.opens_add_ons.iter_mut().zip(addon_insert) {
+                    if let Some(id) = insert.subscription_add_on_id {
+                        row.id = id;
+                    }
+                }
+                facts.minimum = match minimum {
+                    PhaseMinimum::Kept => MinimumChange::Kept,
+                    PhaseMinimum::Ended => MinimumChange::Ended,
+                    PhaseMinimum::Amount {
+                        amount_subunit,
+                        products,
+                    } => MinimumChange::Replaced {
+                        amount_subunit: *amount_subunit,
+                        includes_all_components: products.is_empty(),
+                        products: products.clone(),
+                    },
+                };
+                facts
+            }))
         }
     }
 }
@@ -280,7 +347,7 @@ async fn resolve_plan_change(
             found: sub.plan_version_id,
         }));
     }
-    if let Some(why) = not_live_on(conn, sub, on).await? {
+    if let Some(why) = not_live_on(conn, sub, on, ctx.through_ending).await? {
         return Ok(Err(why));
     }
     let Some(target) =
@@ -375,6 +442,7 @@ async fn resolve_plan_change(
                 fee,
                 period,
                 seats,
+                priced,
             } => {
                 facts.closes_components.push(*current_component_id);
                 lay_target_seats(&mut facts, &ctx.held_quantities, fee, *seats, true, on);
@@ -384,8 +452,8 @@ async fn resolve_plan_change(
                     name: name.clone(),
                     period: *period,
                     fee: fee.clone(),
-                    is_override: false,
-                    price_id: Some(*price_id),
+                    is_override: *priced,
+                    price_id: (!priced).then_some(*price_id),
                     effective_from: on,
                 }
             }
@@ -567,7 +635,7 @@ async fn resolve_amendment(
     addon_insert: &[ResolvedAddOnInsert],
 ) -> StoreResult<Resolution> {
     let (sub, on) = (ctx.sub, ctx.on);
-    if let Some(why) = not_live_on(conn, sub, on).await? {
+    if let Some(why) = not_live_on(conn, sub, on, ctx.through_ending).await? {
         return Ok(Err(why));
     }
     if let Some(row) = component_close
@@ -582,16 +650,20 @@ async fn resolve_amendment(
     {
         return Ok(Err(Unresolvable::AddOnRowNotOpen(*row)));
     }
-    // An override names a component of the plan version it runs on.
-    let components: HashSet<PriceComponentId> = db(PriceComponentRow::list_by_plan_version_id(
-        conn,
-        ctx.event.tenant_id,
-        sub.plan_version_id,
-    )
-    .await)?
-    .into_iter()
-    .map(|component| component.id)
-    .collect();
+    // An override names a component of the plan version it runs on: the one in force on its
+    // day, a switch written ahead of it included (R-150).
+    let plan_version_id = db(SubscriptionPlanWindowRow::list_by_subscription(conn, sub.id).await)?
+        .into_iter()
+        .rfind(|window| window.from_date <= on)
+        .map_or(sub.plan_version_id, |window| window.plan_version_id);
+    let components: HashSet<PriceComponentId> =
+        db(
+            PriceComponentRow::list_by_plan_version_id(conn, ctx.event.tenant_id, plan_version_id)
+                .await,
+        )?
+        .into_iter()
+        .map(|component| component.id)
+        .collect();
     let named: Vec<Named> = component_insert
         .iter()
         .map(|c| Named {
@@ -661,12 +733,44 @@ async fn resolve_amendment(
     Ok(Ok(facts))
 }
 
-/// Why the subscription will not take a change on `on`: not running, or ended by then.
+/// The add-on row a phase's switch opens to floor a seat add-on (R-146): its id derived from the
+/// phase, its lineage kept.
+fn floored_add_on_row(
+    sub: &SubscriptionRow,
+    on: NaiveDate,
+    a: &ResolvedAddOnInsert,
+) -> StoreResult<SubscriptionAddOnRowNew> {
+    let mut row: SubscriptionAddOnRowNew = SubscriptionAddOnNew {
+        subscription_id: sub.id,
+        internal: SubscriptionAddOnNewInternal {
+            add_on_id: a.add_on_id,
+            name: a.name.clone(),
+            period: a.period,
+            fee: a.fee.clone(),
+            product_id: a.product_id,
+            price_id: a.price_id,
+            quantity: a.quantity,
+            effective_from: on,
+        },
+    }
+    .try_into()?;
+    row.lineage_id = a.lineage_id;
+    row.added_by_amendment = true;
+    if let Some(id) = a.subscription_add_on_id {
+        row.id = id;
+    }
+    Ok(row)
+}
+
+/// Why the subscription will not take a change on `on`: not running, or ended by then (an ending
+/// still to come left out with `through_ending`).
 async fn not_live_on(
     conn: &mut PgConn,
     sub: &SubscriptionRow,
     on: NaiveDate,
+    through_ending: bool,
 ) -> StoreResult<Option<Unresolvable>> {
+    let now = common_clock::now().naive_utc();
     let status = SubscriptionStatusEnum::from(sub.status.clone());
     if !matches!(
         status,
@@ -677,7 +781,7 @@ async fn not_live_on(
     Ok(db(SubscriptionEndingRow::list_of(conn, sub.id).await)?
         .into_iter()
         .map(|ending| ending.at)
-        .filter(|at| at.date() <= on)
+        .filter(|at| at.date() <= on && (!through_ending || *at <= now))
         .min()
         .map(Unresolvable::EndsBeforeTheChange))
 }
@@ -997,6 +1101,52 @@ impl WrittenFacts {
     }
 }
 
+/// A minimum of a change keeping the plan (a phase's): the one in force ends on `on`, and any
+/// written from then on goes, before the change's own (R-146).
+async fn write_dated_minimum_tx(
+    conn: &mut PgConn,
+    subscription_id: SubscriptionId,
+    on: NaiveDate,
+    minimum: &MinimumChange,
+) -> StoreResult<()> {
+    use diesel_models::subscription_adjustments::{
+        SubscriptionAdjustmentComponentRow, SubscriptionAdjustmentComponentRowNew,
+        SubscriptionAdjustmentRow, SubscriptionAdjustmentRowNew,
+    };
+    db(SubscriptionAdjustmentRow::end_current(conn, &subscription_id, on).await)?;
+    let MinimumChange::Replaced {
+        amount_subunit,
+        includes_all_components,
+        products,
+    } = minimum
+    else {
+        return Ok(());
+    };
+    db(SubscriptionAdjustmentRowNew {
+        subscription_id,
+        kind: diesel_models::enums::AdjustmentKindEnum::Minimum,
+        amount_subunit: *amount_subunit,
+        includes_all_components: *includes_all_components,
+        is_override: true,
+        effective_from: on,
+    }
+    .insert(conn)
+    .await)?;
+    if !includes_all_components {
+        let scope: Vec<SubscriptionAdjustmentComponentRowNew> = products
+            .iter()
+            .map(|product_id| SubscriptionAdjustmentComponentRowNew {
+                subscription_id,
+                kind: diesel_models::enums::AdjustmentKindEnum::Minimum,
+                product_id: *product_id,
+                effective_from: on,
+            })
+            .collect();
+        db(SubscriptionAdjustmentComponentRow::insert_batch(conn, &scope).await)?;
+    }
+    Ok(())
+}
+
 async fn write_facts(
     conn: &mut PgConn,
     facts: &PendingFacts,
@@ -1090,6 +1240,10 @@ async fn write_facts(
         }
     }
     let Some(window) = &facts.plan_window else {
+        if facts.minimum != MinimumChange::Kept {
+            write_dated_minimum_tx(conn, facts.subscription_id, on, &facts.minimum).await?;
+            written.minimum = true;
+        }
         if let Some(opened) =
             record_amendment_cadence_tx(conn, facts.tenant_id, facts.subscription_id, on).await?
         {
@@ -1181,13 +1335,9 @@ pub(crate) async fn amendment_cadence_window_tx(
     // A change dated on or after the trial's end finds the subscription active; one inside a
     // free trial moves the grid its billing starts on.
     let trialing = sub.status == SubscriptionStatusEnum::TrialActive;
-    let trial_over_by = trialing
-        && sub
-            .trial_duration
-            .is_some_and(|days| sub.start_date + chrono::Duration::days(i64::from(days)) <= on);
-    let in_free_trial = trialing
-        && db(SubscriptionTrialRow::find(conn, sub.id).await)?
-            .is_some_and(|trial| trial.free && on < trial.until_date);
+    let trial = db(SubscriptionTrialRow::find(conn, sub.id).await)?;
+    let trial_over_by = trialing && trial.as_ref().is_some_and(|trial| trial.until_date <= on);
+    let in_free_trial = trialing && trial.is_some_and(|trial| trial.free && on < trial.until_date);
     if (sub.status != SubscriptionStatusEnum::Active && !trial_over_by && !in_free_trial)
         || sub.current_period_end.is_none()
     {
@@ -1274,6 +1424,14 @@ pub(crate) async fn withdraw_pending_tx(
         .map_err(|error| Report::new(StoreError::SerdeError("written facts".into(), error)))?;
     if !db(SubscriptionChangeRow::withdraw(conn, &change.id, reason).await)? {
         return Ok(false);
+    }
+    if change.kind == SubscriptionChangeKindEnum::Phase {
+        db(SubscriptionChangeRow::drop_phase_settlement_due(
+            conn,
+            change.subscription_id,
+            change.effective_at.date(),
+        )
+        .await)?;
     }
     db(ScheduledRows::withdraw(
         &written.rows(change.tenant_id, change.subscription_id),
@@ -1369,9 +1527,23 @@ pub(crate) async fn withdraw_pending_of_tx(
     kinds: &[SubscriptionChangeKindEnum],
     reason: &str,
 ) -> StoreResult<usize> {
+    withdraw_pending_of_except_tx(conn, tenant_id, subscription_id, kinds, &[], reason).await
+}
+
+/// [`withdraw_pending_of_tx`], `keep` aside.
+pub(crate) async fn withdraw_pending_of_except_tx(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+    kinds: &[SubscriptionChangeKindEnum],
+    keep: &[ScheduledEventId],
+    reason: &str,
+) -> StoreResult<usize> {
     let mut withdrawn = 0;
     for change in
         db(SubscriptionChangeRow::list_pending(conn, &tenant_id, subscription_id, kinds).await)?
+            .into_iter()
+            .filter(|change| !keep.contains(&change.id))
     {
         if withdraw_pending_tx(conn, &change, reason).await? {
             withdrawn += 1;
@@ -1383,14 +1555,33 @@ pub(crate) async fn withdraw_pending_of_tx(
 /// A change requested now for a later date, written as facts at once and recorded with the rows
 /// it wrote, so it stays cancellable until its date.
 pub(crate) async fn schedule_as_facts_tx(
+    store: &crate::Store,
+    conn: &mut PgConn,
+    change: ScheduledEventNew,
+) -> StoreResult<ScheduledEvent> {
+    schedule_with(store, conn, change, false).await
+}
+
+/// [`schedule_as_facts_tx`] for a timeline change written again (R-162), on or after an ending
+/// still to come: the ending withdraws it when it happens, as it does the timeline it cuts.
+pub(crate) async fn schedule_replayed_as_facts_tx(
+    store: &crate::Store,
+    conn: &mut PgConn,
+    change: ScheduledEventNew,
+) -> StoreResult<ScheduledEvent> {
+    schedule_with(store, conn, change, true).await
+}
+
+async fn schedule_with(
     _store: &crate::Store,
     conn: &mut PgConn,
     change: ScheduledEventNew,
+    through_ending: bool,
 ) -> StoreResult<ScheduledEvent> {
     let lock =
         db(SubscriptionRow::lock_subscription_for_update(conn, change.subscription_id).await)?;
     let event = change.into_event(common_clock::now().naive_utc());
-    let facts = match resolve_change_tx(conn, &event).await? {
+    let facts = match resolve_change_with(conn, &event, false, through_ending).await? {
         Ok(facts) => facts,
         Err(why) => {
             return Err(Report::new(StoreError::InvalidArgument(format!(
@@ -1635,7 +1826,7 @@ async fn write_pending_event(conn: &mut PgConn, row: PendingEventRow) -> StoreRe
                 .await)?;
                 // Due already, it is written as the earlier release would have applied it.
                 let due = event.scheduled_time <= common_clock::now().naive_utc();
-                let facts = resolve_change_with(conn, event, due)
+                let facts = resolve_change_with(conn, event, due, false)
                     .await?
                     .map_err(|why| Report::new(StoreError::InvalidArgument(format!("{why:?}"))))?;
                 let written = write_facts(conn, &facts, event).await?;
@@ -1666,14 +1857,7 @@ async fn write_pending_event(conn: &mut PgConn, row: PendingEventRow) -> StoreRe
                 .await
                 .map_err(sql_error)?;
                 // Inside a period its adjustment and notes are due on its day: the controller's.
-                let kind = match event.event_data {
-                    ScheduledEventData::ApplyPlanChange { .. } => {
-                        SubscriptionChangeKindEnum::PlanChange
-                    }
-                    ScheduledEventData::ApplyAmendment { .. } => {
-                        SubscriptionChangeKindEnum::Amendment
-                    }
-                };
+                let kind = event.event_data.kind();
                 db(SubscriptionChangeRow::mark_settlement_due_inside_period(
                     conn,
                     event.subscription_id,

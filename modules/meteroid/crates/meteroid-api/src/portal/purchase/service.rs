@@ -8,6 +8,7 @@ use meteroid_grpc::meteroid::portal::purchase::v1::{
 };
 use meteroid_store::domain::purchase_links::{AllowedBuyerTypes, InstanceId, TaxIdCollection};
 use meteroid_store::domain::usage_levels::ChosenLevel;
+use meteroid_store::repositories::PlansInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
 use tonic::{Request, Response, Status};
 
@@ -60,6 +61,14 @@ impl PurchaseService for PurchaseServiceComponents {
         };
 
         let link = offer.link;
+        let trial = self
+            .store
+            .plan_trial(tenant_id, link.plan.id)
+            .await
+            .map_err(|e| {
+                log::error!("Purchase offer trial: {e:?}");
+                Status::internal("Internal error")
+            })?;
         let buyer_types = match link.link.allowed_buyer_types {
             AllowedBuyerTypes::All => vec![BuyerType::Company, BuyerType::Individual],
             AllowedBuyerTypes::CompaniesOnly => vec![BuyerType::Company],
@@ -78,11 +87,8 @@ impl PurchaseService for PurchaseServiceComponents {
                 plan_name: link.plan.name,
                 plan_description: link.plan.description,
                 currency: offer.currency,
-                trial_days: link
-                    .version
-                    .trial_duration_days
-                    .and_then(|d| u32::try_from(d).ok())
-                    .filter(|d| *d > 0),
+                trial_days: trial.as_ref().map(|trial| trial.offer.duration_days),
+                trial_free: trial.as_ref().is_some_and(|trial| trial.offer.free),
                 components: offer
                     .components
                     .into_iter()

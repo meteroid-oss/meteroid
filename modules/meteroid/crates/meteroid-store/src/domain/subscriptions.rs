@@ -13,8 +13,8 @@ use crate::domain::subscription_add_ons::{
 use crate::domain::subscription_components::SubscriptionComponentNewInternal;
 use crate::domain::{
     AppliedCouponDetailed, BillableMetric, CreateSubscriptionComponents, CreateSubscriptionCoupons,
-    Customer, InvoicingEntity, PlanForSubscription, Schedule, SubscriptionComponent,
-    SubscriptionStatusEnum, SubscriptionUsageScopes,
+    Customer, InvoicingEntity, PlanForSubscription, SubscriptionComponent, SubscriptionStatusEnum,
+    SubscriptionUsageScopes,
 };
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::services::PaymentSetupResult;
@@ -135,6 +135,8 @@ pub struct CreatedSubscription {
     pub billing_day_anchor: i16,
     pub tenant_id: TenantId,
     pub currency: String,
+    /// Its trial's days, as recorded: filled once its trial fact is written.
+    #[ghost({None})]
     pub trial_duration: Option<i32>,
     pub start_date: NaiveDate,
     pub end_date: Option<NaiveDate>,
@@ -267,7 +269,10 @@ impl TryFrom<SubscriptionForDisplayRow> for Subscription {
             billing_day_anchor: val.subscription.billing_day_anchor as u16,
             tenant_id: val.subscription.tenant_id,
             currency: val.subscription.currency,
-            trial_duration: val.subscription.trial_duration.map(|x| x as u32),
+            trial_duration: val
+                .trial_from
+                .zip(val.trial_until)
+                .and_then(|(from, until)| u32::try_from((until - from).num_days()).ok()),
             billing_start_date: val.subscription.billing_start_date,
             end_date: val.subscription.end_date,
             start_date: val.subscription.start_date,
@@ -328,7 +333,6 @@ impl TryFrom<SubscriptionForDisplayRow> for Subscription {
     }
 }
 
-// commitments etc will be represented by the Phases/Schedule, with possibly a way to simplify that in the UI (like trials that should also end up as a sort of phase, though it's a bit different as there's some conditional logic)
 // activated = paid or considered as paid. If not activated, then the trial fallback applies
 #[derive(Debug, Clone)]
 pub struct SubscriptionNew {
@@ -348,8 +352,8 @@ pub struct SubscriptionNew {
 
     pub activation_condition: SubscriptionActivationCondition,
 
-    // add trial config override ? ex: trial_end_date
-    pub trial_duration: Option<u32>, // in days
+    /// The trial asked for, resolved once at creation (`trials::resolve_trial_tx`, R-153).
+    pub trial: crate::domain::trials::TrialRequest,
 
     // if None, defaults to billing_start_date.day
     pub billing_day_anchor: Option<u16>,
@@ -391,8 +395,6 @@ pub struct SubscriptionNewEnriched<'a> {
     pub activated_at: Option<NaiveDateTime>,
     pub net_terms: u32,
     pub quote_id: Option<QuoteId>,
-    /// Effective trial duration: uses request override if provided, otherwise plan's trial_duration_days
-    pub effective_trial_duration: Option<u32>,
     /// Set to now() when skip_past_invoices is true, to track migrated subscriptions
     pub imported_at: Option<NaiveDateTime>,
     /// The tax the plan's quoted prices carry, resolved against this customer in the
@@ -426,7 +428,6 @@ impl SubscriptionNewEnriched<'_> {
 
         Ok(SubscriptionRowNew {
             id: self.subscription_id,
-            trial_duration: self.effective_trial_duration.map(|x| x as i32),
             customer_id: sub.customer_id,
             billing_day_anchor: self.billing_day_anchor as i16,
             tenant_id: self.tenant_id,
@@ -504,16 +505,19 @@ pub struct CreateSubscriptionFromQuote {
     pub minimum_override: Option<(i64, crate::domain::plan_minimums::CreateMinimumScope)>,
 }
 
-/// Trial configuration from the plan version
+/// The subscription's trial, as its fact records it (I29).
 #[derive(Debug, Clone)]
 pub struct TrialConfig {
     pub duration_days: u32,
     pub is_free: bool,
-    /// When the subscription's trial ended or ends: its length after the billing start, or the
-    /// plan change that ended it earlier.
+    pub starts_on: chrono::NaiveDate,
+    /// When it ended or ends, exclusive: its length after the billing start, an extension, or the
+    /// plan change that ended it earlier. None in a checkout preview, priced from its start.
     pub ends_on: Option<chrono::NaiveDate>,
     pub trialing_plan_id: Option<PlanId>,
     pub trialing_plan_name: Option<String>,
+    pub offer: Option<crate::domain::trials::TrialOffer>,
+    pub end_action: crate::domain::trials::TrialEnd,
 }
 
 #[derive(Debug, Clone)]
@@ -526,6 +530,8 @@ pub struct PendingScheduledEvent {
     pub cancel_reason: Option<String>,
     pub customer_initiated: bool,
     pub amendment_summary: Option<AmendmentSummary>,
+    /// A change of the subscription's timeline (a phase, a dated item): edited there (I33).
+    pub timeline: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -541,7 +547,6 @@ pub struct SubscriptionDetails {
     pub subscription: Subscription,
     pub invoicing_entity: InvoicingEntity,
     pub customer: Customer,
-    pub schedules: Vec<Schedule>,
     pub price_components: Vec<SubscriptionComponent>,
     pub add_ons: Vec<SubscriptionAddOn>,
     pub applied_coupons: Vec<AppliedCouponDetailed>,

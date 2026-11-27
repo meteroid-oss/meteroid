@@ -38,6 +38,11 @@ pub struct Quote {
     pub quote_number: String,
     // Subscription-like fields
     pub trial_duration_days: Option<i32>,
+    /// With `trial_duration_days`: whether the trial is free, signed with it; `None` on a quote
+    /// saved before, read as the plan's trial (R-155).
+    pub trial_free: Option<bool>,
+    /// With `trial_duration_days`: the plan whose features the trial gives.
+    pub trial_plan_id: Option<common_domain::ids::PlanId>,
     pub billing_start_date: Option<NaiveDate>,
     pub billing_end_date: Option<NaiveDate>,
     pub billing_day_anchor: Option<i32>,
@@ -196,6 +201,11 @@ pub struct QuoteNew {
     pub quote_number: String,
     // Subscription-like fields
     pub trial_duration_days: Option<i32>,
+    /// With `trial_duration_days`: whether the trial is free, signed with it; `None` on a quote
+    /// saved before, read as the plan's trial (R-155).
+    pub trial_free: Option<bool>,
+    /// With `trial_duration_days`: the plan whose features the trial gives.
+    pub trial_plan_id: Option<common_domain::ids::PlanId>,
     pub billing_start_date: Option<NaiveDate>,
     pub billing_end_date: Option<NaiveDate>,
     pub billing_day_anchor: Option<i32>,
@@ -264,6 +274,22 @@ pub struct QuoteNew {
 }
 
 impl Quote {
+    /// The trial its subscription converts with: the one it states, none when it states none
+    /// (R-155). A quote saved before its freeness was stored takes the plan's trial's.
+    pub fn trial_request(&self) -> crate::domain::trials::TrialRequest {
+        match self
+            .trial_duration_days
+            .and_then(|days| u32::try_from(days).ok())
+        {
+            None | Some(0) => crate::domain::trials::TrialRequest::None,
+            Some(days) => crate::domain::trials::TrialRequest::Custom {
+                length: crate::domain::trials::TrialLength::Days(days),
+                free: self.trial_free,
+                trial_plan: self.trial_free.map(|_| self.trial_plan_id),
+            },
+        }
+    }
+
     /// The quote as it would read once inserted, for computations over an editor's unsaved state.
     pub fn unsaved(new: QuoteNew) -> Self {
         Quote {
@@ -277,6 +303,8 @@ impl Quote {
             currency: new.currency,
             quote_number: new.quote_number,
             trial_duration_days: new.trial_duration_days,
+            trial_free: new.trial_free,
+            trial_plan_id: new.trial_plan_id,
             billing_start_date: new.billing_start_date,
             billing_end_date: new.billing_end_date,
             billing_day_anchor: new.billing_day_anchor,
@@ -351,6 +379,27 @@ pub struct QuoteTotals {
     /// Some line bills consumption, which `recurring` leaves out.
     pub has_usage: bool,
     pub first_invoice_subtotal: Option<Decimal>,
+    pub contract: Option<QuoteContractValue>,
+}
+
+/// What a quote is worth as billing bills the subscription it converts to (R-165): its fixed
+/// fees after coupons, trial and phases, before tax; usage aside.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuoteContractValue {
+    /// From its start to its end date; None when it has none.
+    pub term_months: Option<u32>,
+    /// The months valued: the term, else at least the first year and the last phase's.
+    pub months: u32,
+    pub total: Decimal,
+    /// `total` with the minimum commitments' shortfalls at no usage.
+    pub committed_total: Decimal,
+    /// A year's worth of `total`: all of it for a term shorter than a year.
+    pub annual: Decimal,
+    /// By contract year from the start; the last one may be partial.
+    pub years: Vec<Decimal>,
+    /// By phase of the price schedule, over its span; None for an open-ended last phase.
+    pub phases: Vec<Option<Decimal>>,
+    pub first_invoice: Option<Decimal>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -383,9 +432,34 @@ pub struct DetailedQuote {
     pub signatures: Vec<QuoteSignature>,
     pub entitlements: Vec<crate::domain::entitlements::Entitlement>,
     pub minimum: Option<crate::domain::QuoteMinimum>,
+    /// The ramp the subscription it converts to starts with (R-155).
+    pub phases: Vec<crate::domain::trial_offers::PlanPhaseTemplate>,
 }
 
 impl DetailedQuote {
+    /// The quote as its subscription starts: its components priced by the phase at offset 0, as
+    /// conversion prices them (R-155). A phase refused there leaves the lines as they are.
+    pub fn at_start(&self) -> Self {
+        let mut quote = self.clone();
+        let fees: Vec<_> = self
+            .components
+            .iter()
+            .map(|component| (component.price_component_id, &component.fee))
+            .collect();
+        if let Ok(priced) = crate::services::plan_phases::priced_at_start(
+            &self.phases,
+            &fees,
+            crate::domain::subscription_phases::precision_of(&self.quote.currency),
+        ) {
+            for (component, fee) in quote.components.iter_mut().zip(priced) {
+                if let Some(fee) = fee {
+                    component.fee = fee;
+                }
+            }
+        }
+        quote
+    }
+
     /// The terms of the quote's coupons, in the order they were added.
     pub fn coupon_terms(&self) -> Vec<crate::domain::quote_document::QuoteDocumentCoupon> {
         self.coupons

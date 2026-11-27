@@ -37,6 +37,7 @@ import { useDebounceValue } from '@/hooks/useDebounce'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { usePermissions } from '@/hooks/usePermissions'
 import { useQuery } from '@/lib/connectrpc'
+import { env } from '@/lib/env'
 import { lifecycleStateLabel, lifecycleStateVariant } from '@/lib/lifecycle'
 import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
 import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
@@ -325,6 +326,16 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
                       onClick={() => navigate(`${basePath}/quotes/create?customerId=${id}`)}
                     >
                       Create quote
+                    </DropdownMenuItem>
+                  )}
+                  {env.entitlementsEnabled && has('catalog:read') && canManage && (
+                    <DropdownMenuItem
+                      id="temporary_override"
+                      onClick={() =>
+                        navigate(`${basePath}/customers/${id}?tab=entitlements&override=temporary`)
+                      }
+                    >
+                      Temporary override
                     </DropdownMenuItem>
                   )}
                   {canManage && (

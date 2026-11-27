@@ -217,7 +217,10 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
           <>
             {isInTrial && (
               <div className="mt-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                {subscription?.subscription?.trialDuration} day trial
+                {subscription?.subscription?.trialDuration}-day{' '}
+                {subscription?.trialConfig?.isFree === false
+                  ? 'trial, billed from today'
+                  : 'free trial'}
               </div>
             )}
           </>

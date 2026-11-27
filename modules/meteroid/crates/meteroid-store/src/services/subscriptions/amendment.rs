@@ -15,7 +15,8 @@ use crate::domain::scheduled_events::{
 };
 use crate::domain::subscription_add_ons::{SubscriptionAddOn, SubscriptionAddOnNew};
 use crate::domain::subscription_amendment::{
-    AmendmentPreview, AmendmentPreviewExtended, ImmediateAmendmentResult, SubscriptionAmendment,
+    AddOnChanges, AmendmentPreview, AmendmentPreviewExtended, ComponentChanges,
+    ImmediateAmendmentResult, SubscriptionAmendment,
 };
 use crate::domain::subscription_changes::{
     AddedComponent, PlanChangeMode, ProrationSummary, RemovedComponent,
@@ -36,6 +37,7 @@ use crate::services::Services;
 use crate::services::evaluate::change::{Change, GiveBack};
 use crate::services::subscriptions::insert::context::resolve_fee_read_only;
 use crate::services::subscriptions::plan_change::calculate_components_mrr_with_slots;
+use crate::services::subscriptions::timeline_rewrite;
 use crate::services::subscriptions::utils::{
     MrrLine, calculate_mrr, fee_period_total_cents, resolve_add_on_sold_in, scale_fee,
     subscription_mrr, with_add_on_lines,
@@ -53,7 +55,6 @@ use diesel_models::invoices::InvoiceRow;
 use diesel_models::query::credit_inputs;
 use diesel_models::slot_transactions::SlotTransactionRow;
 use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
-use diesel_models::subscription_changes::SubscriptionChangeRow;
 use diesel_models::subscription_components::{
     SubscriptionComponentRow, SubscriptionComponentRowNew,
 };
@@ -548,6 +549,10 @@ impl Services {
                     ))));
                 }
 
+                // The timeline from its day is written again over it (R-162).
+                let lifted =
+                    timeline_rewrite::lift_tx(conn, tenant_id, subscription_id, change_date)
+                        .await?;
                 let resolved =
                     resolve_amendment(conn, &sub_details, amendment, change_date).await?;
 
@@ -584,6 +589,18 @@ impl Services {
                         !is_free_trial,
                     )
                     .await?;
+                if !lifted.is_empty() {
+                    timeline_rewrite::replay_tx(services, conn, actor, lifted).await?;
+                    services
+                        .derive_state_tx(
+                            conn,
+                            actor,
+                            tenant_id,
+                            subscription_id,
+                            crate::services::evaluate::bill::midnight(change_date),
+                        )
+                        .await?;
+                }
 
                 // What the rows just written owe goes on an adjustment invoice; what reconcile
                 // takes back of the lines billing them, latest first, on notes (R-078, R-080).
@@ -755,6 +772,91 @@ impl Services {
         .await
     }
 
+    /// What an amendment does to the subscription's timeline, read in a transaction rolled back:
+    /// `None` without a timeline after it (R-162).
+    pub(in crate::services) async fn amendment_timeline_effect(
+        &self,
+        actor: Actor,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        amendment: SubscriptionAmendment,
+    ) -> StoreResult<Option<crate::domain::subscription_phases::TimelineEffect>> {
+        let mut conn = self.store.get_conn().await?;
+        let details = self
+            .store
+            .get_subscription_details_with_conn(&mut conn, tenant_id, subscription_id)
+            .await?;
+        let is_immediate = matches!(amendment.apply_mode, PlanChangeMode::Immediate);
+        let on = amendment_effective_date(&details, is_immediate);
+        drop(conn);
+        timeline_rewrite::effect_of(self, tenant_id, subscription_id, on, is_immediate, |conn| {
+            let services = self;
+            let actor = &actor;
+            let amendment = &amendment;
+            async move {
+                if is_immediate {
+                    services
+                        .amend_rows_now_tx(conn, actor, subscription_id, tenant_id, amendment, on)
+                        .await
+                } else {
+                    services
+                        .schedule_amendment_tx(
+                            conn,
+                            actor,
+                            subscription_id,
+                            tenant_id,
+                            amendment,
+                            AmendmentOrigin::Manual,
+                        )
+                        .await
+                        .map(|(_, timeline)| timeline)
+                }
+            }
+            .scope_boxed()
+        })
+        .await
+    }
+
+    /// An immediate amendment's rows written on `on` and the timeline replayed over them, its
+    /// documents aside: what its timeline preview writes.
+    async fn amend_rows_now_tx(
+        &self,
+        conn: &mut PgConn,
+        actor: &Actor,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        amendment: &SubscriptionAmendment,
+        on: NaiveDate,
+    ) -> StoreResult<Vec<crate::domain::subscription_phases::RewriteEntry>> {
+        let sub_details = self
+            .store
+            .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
+            .await?;
+        let lifted = timeline_rewrite::lift_tx(conn, tenant_id, subscription_id, on).await?;
+        let resolved = resolve_amendment(conn, &sub_details, amendment, on).await?;
+        let (component_inserts, addon_inserts) = materialize_inserts(
+            conn,
+            tenant_id,
+            &sub_details,
+            resolved.component_inserts,
+            resolved.addon_inserts,
+        )
+        .await?;
+        self.execute_amendment_tx(
+            conn,
+            tenant_id,
+            subscription_id,
+            on,
+            &resolved.component_close,
+            &component_inserts,
+            &resolved.addon_close,
+            &addon_inserts,
+            false,
+        )
+        .await?;
+        timeline_rewrite::replay_tx(self, conn, actor, lifted).await
+    }
+
     pub(in crate::services) async fn schedule_amendment(
         &self,
         actor: Actor,
@@ -802,114 +904,136 @@ impl Services {
         self.store
             .transaction(|conn| {
                 let actor = &actor;
+                let amendment = &amendment;
                 async move {
-                    let lock = SubscriptionRow::lock_subscription_for_update(conn, subscription_id).await?;
-                    credit_inputs::bump_customer(conn, &lock).await?;
-                    crate::services::subscriptions::plan_change::refuse_while_a_paid_change_is_pending(
-                        conn,
-                        tenant_id,
-                        subscription_id,
-                        None,
-                    )
-                    .await?;
-
-                    let sub_details = self
-                        .store
-                        .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
-                        .await?;
-
-                    validate_subscription_for_amendment(&sub_details.subscription.status)?;
-                    reject_if_plan_change_pending(conn, subscription_id, tenant_id).await?;
-                    origin
-                        .refuse_while_a_change_is_pending(conn, tenant_id, subscription_id)
-                        .await?;
-
-                    let effective_date =
-                        sub_details.subscription.current_period_end.ok_or_else(|| {
-                            Report::new(StoreError::InvalidArgument(
-                                "Subscription has no current_period_end".to_string(),
-                            ))
-                        })?;
-
-                    let resolved =
-                        resolve_amendment(conn, &sub_details, &amendment, effective_date).await?;
-
-                    // Cancel any previously-scheduled amendment (but NOT plan changes).
-                    cancel_pending_amendments(conn, subscription_id, tenant_id).await?;
-
-                    let (component_inserts, addon_inserts) = materialize_inserts(
-                        conn,
-                        tenant_id,
-                        &sub_details,
-                        resolved.component_inserts,
-                        resolved.addon_inserts,
-                    )
-                    .await?;
-
-                    let metadata = amendment_metadata(
-                        &resolved.component_close,
-                        &component_inserts,
-                        &resolved.addon_close,
-                        &addon_inserts,
-                        effective_date,
-                        None,
-                    );
-
-                    // Written as facts now, the amendment's rows dated from the period's end.
-                    let event = crate::services::facts::pending::schedule_as_facts_tx(
-                        &self.store,
-                        conn,
-                        ScheduledEventNew {
-                            subscription_id,
-                            tenant_id,
-                            scheduled_time: effective_date.and_time(NaiveTime::MIN),
-                            event_data: ScheduledEventData::ApplyAmendment {
-                                component_close: resolved.component_close,
-                                component_insert: component_inserts,
-                                addon_close: resolved.addon_close,
-                                addon_insert: addon_inserts,
-                            },
-                            source: "api".to_string(),
-                            created_by: actor.clone(),
-                        },
-                    )
-                    .await?;
-                    // A period's end already past (the controller behind): dated as a late change.
-                    if effective_date <= common_clock::now().date_naive() {
-                        crate::repositories::subscriptions::usage_attribution::settle_late_change(
-                            conn,
-                            tenant_id,
-                            subscription_id,
-                            effective_date,
-                            "The amendment",
-                        )
-                        .await?;
-                    }
-                    self.derive_state_tx(
+                    self.schedule_amendment_tx(
                         conn,
                         actor,
-                        tenant_id,
                         subscription_id,
-                        common_clock::now(),
+                        tenant_id,
+                        amendment,
+                        origin,
                     )
-                    .await?;
-
-                    let activity = Activity::new(
-                        ActivityType::SubscriptionAmendmentScheduled,
-                        EntityType::Subscription,
-                        subscription_id.as_uuid(),
-                    )
-                    .with_metadata(metadata)
-                    .agg_customer(sub_details.customer.id);
-                    self.store
-                        .record_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
-                        .await?;
-
-                    Ok(event)
+                    .await
+                    .map(|(event, _)| event)
                 }
                 .scope_boxed()
             })
             .await
+    }
+
+    /// [`Self::schedule_amendment_from`] inside the caller's transaction.
+    async fn schedule_amendment_tx(
+        &self,
+        conn: &mut PgConn,
+        actor: &Actor,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        amendment: &SubscriptionAmendment,
+        origin: AmendmentOrigin,
+    ) -> StoreResult<(
+        ScheduledEvent,
+        Vec<crate::domain::subscription_phases::RewriteEntry>,
+    )> {
+        let lock = SubscriptionRow::lock_subscription_for_update(conn, subscription_id).await?;
+        credit_inputs::bump_customer(conn, &lock).await?;
+        crate::services::subscriptions::plan_change::refuse_while_a_paid_change_is_pending(
+            conn,
+            tenant_id,
+            subscription_id,
+            None,
+        )
+        .await?;
+
+        let sub_details = self
+            .store
+            .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
+            .await?;
+
+        validate_subscription_for_amendment(&sub_details.subscription.status)?;
+        reject_if_plan_change_pending(conn, subscription_id, tenant_id).await?;
+        origin
+            .refuse_while_a_change_is_pending(conn, tenant_id, subscription_id)
+            .await?;
+
+        let effective_date = sub_details.subscription.current_period_end.ok_or_else(|| {
+            Report::new(StoreError::InvalidArgument(
+                "Subscription has no current_period_end".to_string(),
+            ))
+        })?;
+
+        // The timeline from its day is written again over it (R-162).
+        let lifted =
+            timeline_rewrite::lift_tx(conn, tenant_id, subscription_id, effective_date).await?;
+        let resolved = resolve_amendment(conn, &sub_details, amendment, effective_date).await?;
+
+        // Cancel any previously-scheduled amendment (but NOT plan changes).
+        cancel_pending_amendments(conn, subscription_id, tenant_id).await?;
+
+        let (component_inserts, addon_inserts) = materialize_inserts(
+            conn,
+            tenant_id,
+            &sub_details,
+            resolved.component_inserts,
+            resolved.addon_inserts,
+        )
+        .await?;
+
+        let metadata = amendment_metadata(
+            &resolved.component_close,
+            &component_inserts,
+            &resolved.addon_close,
+            &addon_inserts,
+            effective_date,
+            None,
+        );
+
+        // Written as facts now, the amendment's rows dated from the period's end.
+        let event = crate::services::facts::pending::schedule_as_facts_tx(
+            &self.store,
+            conn,
+            ScheduledEventNew {
+                subscription_id,
+                tenant_id,
+                scheduled_time: effective_date.and_time(NaiveTime::MIN),
+                event_data: ScheduledEventData::ApplyAmendment {
+                    component_close: resolved.component_close,
+                    component_insert: component_inserts,
+                    addon_close: resolved.addon_close,
+                    addon_insert: addon_inserts,
+                },
+                source: "api".to_string(),
+                created_by: actor.clone(),
+            },
+        )
+        .await?;
+        let timeline = timeline_rewrite::replay_tx(self, conn, actor, lifted).await?;
+        // A period's end already past (the controller behind): dated as a late change.
+        if effective_date <= common_clock::now().date_naive() {
+            crate::repositories::subscriptions::usage_attribution::settle_late_change(
+                conn,
+                tenant_id,
+                subscription_id,
+                effective_date,
+                "The amendment",
+            )
+            .await?;
+        }
+        self.derive_state_tx(conn, actor, tenant_id, subscription_id, common_clock::now())
+            .await?;
+
+        let activity = Activity::new(
+            ActivityType::SubscriptionAmendmentScheduled,
+            EntityType::Subscription,
+            subscription_id.as_uuid(),
+        )
+        .with_metadata(metadata)
+        .agg_customer(sub_details.customer.id);
+        self.store
+            .record_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
+            .await?;
+
+        Ok((event, timeline))
     }
 
     pub(in crate::services) async fn cancel_amendment(
@@ -925,8 +1049,24 @@ impl Services {
                     let lock = SubscriptionRow::lock_subscription_for_update(conn, subscription_id)
                         .await?;
                     credit_inputs::bump_customer(conn, &lock).await?;
-                    let cancelled =
-                        cancel_pending_amendments(conn, subscription_id, tenant_id).await?;
+                    let cancelled = crate::services::subscriptions::phases::pending_one_offs_tx(
+                        conn,
+                        tenant_id,
+                        subscription_id,
+                        &[SubscriptionChangeKindEnum::Amendment],
+                    )
+                    .await?
+                    .len();
+                    timeline_rewrite::withdraw_one_offs_under_timeline_tx(
+                        self,
+                        conn,
+                        actor,
+                        tenant_id,
+                        subscription_id,
+                        &[SubscriptionChangeKindEnum::Amendment],
+                        "Cancelled by user",
+                    )
+                    .await?;
                     if cancelled == 0 {
                         return Err(Report::new(StoreError::ValueNotFound(
                             "No pending amendment found for this subscription".to_string(),
@@ -1331,19 +1471,55 @@ impl AmendmentOrigin {
     }
 }
 
+/// The add-on row an amendment adding `quantity` of `add_on_id` on `on` would write, resolved and
+/// checked against the plan as one: a timeline item's start, or its paid successor.
+pub(crate) async fn resolve_added_add_on(
+    conn: &mut PgConn,
+    sub_details: &SubscriptionDetails,
+    add_on_id: common_domain::ids::AddOnId,
+    quantity: i32,
+    on: NaiveDate,
+) -> StoreResult<ResolvedAddOnInsert> {
+    let amendment =
+        SubscriptionAmendment {
+            apply_mode: PlanChangeMode::EndOfPeriod,
+            component_changes: ComponentChanges::default(),
+            add_on_changes: AddOnChanges {
+                added: vec![crate::domain::subscription_add_ons::CreateSubscriptionAddOn {
+                add_on_id,
+                customization:
+                    crate::domain::subscription_add_ons::SubscriptionAddOnCustomization::None,
+                quantity,
+            }],
+                ..AddOnChanges::default()
+            },
+        };
+    let resolved = resolve_amendment(conn, sub_details, &amendment, on).await?;
+    let (_, mut add_ons) = materialize_inserts(
+        conn,
+        sub_details.subscription.tenant_id,
+        sub_details,
+        vec![],
+        resolved.addon_inserts,
+    )
+    .await?;
+    add_ons
+        .pop()
+        .ok_or_else(|| Report::new(StoreError::InvalidArgument("no add-on to add".to_string())))
+}
+
 async fn reject_if_plan_change_pending(
     conn: &mut PgConn,
     subscription_id: SubscriptionId,
     tenant_id: TenantId,
 ) -> StoreResult<()> {
-    let pending = SubscriptionChangeRow::list_pending(
+    let pending = crate::services::subscriptions::phases::pending_one_offs_tx(
         conn,
-        &tenant_id,
+        tenant_id,
         subscription_id,
         &[SubscriptionChangeKindEnum::PlanChange],
     )
-    .await
-    .map_err(Into::<Report<StoreError>>::into)?;
+    .await?;
     if !pending.is_empty() {
         return Err(Report::new(StoreError::InvalidArgument(
             "A plan change is already scheduled for this subscription; cancel it before amending"

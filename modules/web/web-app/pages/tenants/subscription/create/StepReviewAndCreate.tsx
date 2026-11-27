@@ -107,7 +107,7 @@ const buildCreateSubscriptionMessage = (
     billingDayAnchor,
     netTerms: state.netTerms,
     activationCondition: state.activationCondition,
-    trialDuration: state.trialDuration,
+    trial: trialRequest(state),
     invoiceMemo: state.invoiceMemo,
     invoiceThreshold: state.invoiceThreshold,
     purchaseOrder: state.purchaseOrder,
@@ -394,10 +394,10 @@ export const StepReviewAndCreate = () => {
                       <div className="font-medium">{state.endDate.toLocaleDateString()}</div>
                     </div>
                   )}
-                  {state.trialDuration && (
+                  {trialLabel(state) && (
                     <div>
                       <div className="text-xs text-muted-foreground">Trial Period</div>
-                      <div className="font-medium">{state.trialDuration} days</div>
+                      <div className="font-medium">{trialLabel(state)}</div>
                     </div>
                   )}
                   <div>
@@ -647,4 +647,40 @@ export const StepReviewAndCreate = () => {
       </div>
     </div>
   )
+}
+
+/** The trial the creation asks for; unset: the plan's (R-153). */
+const trialRequest = (state: CreateSubscriptionState) => {
+  if (state.trialOfferId) {
+    return { trial: { case: 'offerId' as const, value: state.trialOfferId } }
+  }
+  if (state.trialMode === 'none') {
+    return { trial: { case: 'none' as const, value: true } }
+  }
+  if (state.trialMode === 'custom') {
+    return {
+      trial: {
+        case: 'custom' as const,
+        value: {
+          length: state.trialUntil
+            ? { case: 'until' as const, value: mapDatev2(state.trialUntil) }
+            : { case: 'days' as const, value: state.trialDuration ?? 0 },
+          free: state.trialFree,
+        },
+      },
+    }
+  }
+  return undefined
+}
+
+const trialLabel = (state: CreateSubscriptionState) => {
+  if (state.trialOfferId) return 'Trial offer'
+  if (state.trialMode === 'none') return 'None'
+  if (state.trialMode === 'custom') {
+    const free = state.trialFree === false ? ', billed' : state.trialFree ? ', free' : ''
+    return state.trialUntil
+      ? `Until ${state.trialUntil.toLocaleDateString()}${free}`
+      : `${state.trialDuration ?? 0} days${free}`
+  }
+  return "The plan's"
 }

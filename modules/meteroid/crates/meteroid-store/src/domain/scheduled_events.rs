@@ -138,6 +138,11 @@ pub enum ScheduledEventData {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         new_plan_option_id: Option<common_domain::ids::PlanOptionId>,
         component_mappings: Vec<ComponentMapping>,
+        /// Seat add-ons a phase's switch floors: their rows closed and opened again (R-146).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        addon_close: Vec<SubscriptionAddOnId>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        addon_insert: Vec<ResolvedAddOnInsert>,
     },
     /// A manual/sales-led amendment at the end of the current period, its component and add-on
     /// deltas fully resolved (no plan-version switch).
@@ -147,6 +152,46 @@ pub enum ScheduledEventData {
         addon_close: Vec<SubscriptionAddOnId>,
         addon_insert: Vec<ResolvedAddOnInsert>,
     },
+    /// A phase's boundary on its start: the rows of the fees its terms price differently close,
+    /// their successors open with ids derived from the phase; its minimum is written dated.
+    ApplyPhase {
+        /// The phase or timeline item whose boundary it is.
+        #[serde(alias = "phase_id")]
+        owner_id: Uuid,
+        component_close: Vec<SubscriptionPriceComponentId>,
+        component_insert: Vec<ResolvedComponentInsert>,
+        #[serde(default)]
+        addon_close: Vec<SubscriptionAddOnId>,
+        #[serde(default)]
+        addon_insert: Vec<ResolvedAddOnInsert>,
+        #[serde(default)]
+        minimum: crate::domain::subscription_phases::PhaseMinimum,
+    },
+}
+
+/// The least seats of a managed quantity a phase bills from its start (R-146).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PhaseSeats {
+    pub quantity_id: common_domain::ids::ManagedQuantityId,
+    /// The quantity's code, filled when the phase is written.
+    #[serde(default)]
+    pub code: String,
+    pub slots: u32,
+}
+
+impl PhaseSeats {
+    /// Whether `fee` counts these seats: by its quantity, else by its unit, which is the code of
+    /// the quantity it counts (I32).
+    pub fn counts(&self, fee: &crate::domain::SubscriptionFee) -> bool {
+        match fee {
+            crate::domain::SubscriptionFee::Slot {
+                quantity_id: Some(id),
+                ..
+            } => *id == self.quantity_id,
+            crate::domain::SubscriptionFee::Slot { unit, .. } => *unit == self.code,
+            _ => false,
+        }
+    }
 }
 
 /// A fully-resolved subscription component to insert when an amendment is applied.
@@ -198,6 +243,7 @@ impl ScheduledEventData {
         match self {
             Self::ApplyPlanChange { .. } => ScheduledEventTypeEnum::ApplyPlanChange,
             Self::ApplyAmendment { .. } => ScheduledEventTypeEnum::ApplyAmendment,
+            Self::ApplyPhase { .. } => ScheduledEventTypeEnum::ApplyPhase,
         }
     }
 
@@ -205,6 +251,7 @@ impl ScheduledEventData {
         match self {
             Self::ApplyPlanChange { .. } => SubscriptionChangeKindEnum::PlanChange,
             Self::ApplyAmendment { .. } => SubscriptionChangeKindEnum::Amendment,
+            Self::ApplyPhase { .. } => SubscriptionChangeKindEnum::Phase,
         }
     }
 }
@@ -223,6 +270,9 @@ pub enum ComponentMapping {
         /// The seats a change of a seat fee sets, when it sets them; else they carry over (R-108).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         seats: Option<u32>,
+        /// Priced by a phase switching plan: `fee` is the row's own, not the catalog price's.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        priced: bool,
     },
     /// Component in target plan but not in current (new)
     Added {

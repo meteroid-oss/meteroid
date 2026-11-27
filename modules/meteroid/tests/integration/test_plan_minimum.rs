@@ -11,6 +11,7 @@ use diesel_models::plan_version_adjustments::PlanVersionAdjustmentRowNew;
 use meteroid_store::clients::usage::MockUsageClient;
 use meteroid_store::domain::coupons::{CouponDiscount, CouponNew};
 use meteroid_store::domain::enums::InvoiceType;
+use meteroid_store::domain::trials::{TrialLength, TrialRequest};
 use meteroid_store::domain::{
     CreateSubscription, CreateSubscriptionCoupon, CreateSubscriptionCoupons,
     SubscriptionActivationCondition, SubscriptionNew,
@@ -68,7 +69,7 @@ async fn test_minimum_shortfall_full_period() {
                     end_date: None,
                     billing_start_date: Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()),
                     activation_condition: SubscriptionActivationCondition::OnStart,
-                    trial_duration: None,
+                    trial: Default::default(),
                     billing_day_anchor: None,
                     payment_methods_config: None,
                     auto_advance_invoices: true,
@@ -173,7 +174,7 @@ async fn test_minimum_not_applied_when_usage_meets_floor() {
                     end_date: None,
                     billing_start_date: Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()),
                     activation_condition: SubscriptionActivationCondition::OnStart,
-                    trial_duration: None,
+                    trial: Default::default(),
                     billing_day_anchor: None,
                     payment_methods_config: None,
                     auto_advance_invoices: true,
@@ -263,7 +264,7 @@ async fn test_plan_edit_does_not_change_existing_subscription_minimum() {
                     end_date: None,
                     billing_start_date: Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()),
                     activation_condition: SubscriptionActivationCondition::OnStart,
-                    trial_duration: None,
+                    trial: Default::default(),
                     billing_day_anchor: None,
                     payment_methods_config: None,
                     auto_advance_invoices: true,
@@ -666,7 +667,7 @@ async fn test_minimum_floor_measured_on_spend_net_of_coupons() {
                     end_date: None,
                     billing_start_date: Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()),
                     activation_condition: SubscriptionActivationCondition::OnStart,
-                    trial_duration: None,
+                    trial: Default::default(),
                     billing_day_anchor: None,
                     payment_methods_config: None,
                     auto_advance_invoices: true,
@@ -977,13 +978,6 @@ async fn test_minimum_floor_prorated_rounds_half_up() {
 async fn test_minimum_skipped_during_active_trial() {
     let env =
         test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(MockUsageClient::noop())).await;
-    // A trial set on a LeetCode subscription is a paid one.
-    diesel::sql_query("UPDATE plan_version SET trial_is_free = false WHERE id = $1")
-        .bind::<diesel::sql_types::Uuid, _>(*PLAN_VERSION_1_LEETCODE_ID)
-        .execute(&mut env.conn().await)
-        .await
-        .unwrap();
-
     let invoice_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
     let shortfall = |trial_days: u32| {
         let env = &env;
@@ -992,7 +986,11 @@ async fn test_minimum_skipped_during_active_trial() {
                 .plan_version(PLAN_VERSION_1_LEETCODE_ID)
                 .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
                 .on_start()
-                .trial_days(trial_days)
+                .trial(TrialRequest::Custom {
+                    length: TrialLength::Days(trial_days),
+                    free: Some(false),
+                    trial_plan: Some(None),
+                })
                 .create(env.services())
                 .await;
             env.services()

@@ -37,9 +37,9 @@ use meteroid_grpc::meteroid::api::quotes::v1::quote_documents_service_client::Qu
 use meteroid_grpc::meteroid::api::quotes::v1::quotes_service_client::QuotesServiceClient;
 use meteroid_grpc::meteroid::api::quotetemplates::v1::quote_templates_service_client::QuoteTemplatesServiceClient;
 use meteroid_grpc::meteroid::api::ratecards::v1::rate_cards_service_client::RateCardsServiceClient;
-use meteroid_grpc::meteroid::api::schedules::v1::schedules_service_client::SchedulesServiceClient;
 use meteroid_grpc::meteroid::api::signals::v1::signals_service_client::SignalsServiceClient;
 use meteroid_grpc::meteroid::api::stats::v1::stats_service_client::StatsServiceClient;
+use meteroid_grpc::meteroid::api::subscriptionphases::v1::subscription_phases_service_client::SubscriptionPhasesServiceClient;
 use meteroid_grpc::meteroid::api::subscriptions::v1::subscriptions_service_client::SubscriptionsServiceClient;
 use meteroid_grpc::meteroid::api::targets::v1::targets_service_client::TargetsServiceClient;
 use meteroid_grpc::meteroid::api::tenants::v1::tenants_service_client::TenantsServiceClient;
@@ -74,7 +74,7 @@ pub struct AllClients {
     pub product_families: ProductFamiliesServiceClient<TestLayeredClientService>,
     pub products: ProductsServiceClient<TestLayeredClientService>,
     pub subscriptions: SubscriptionsServiceClient<TestLayeredClientService>,
-    pub schedules: SchedulesServiceClient<TestLayeredClientService>,
+    pub subscription_phases: SubscriptionPhasesServiceClient<TestLayeredClientService>,
     pub signals: SignalsServiceClient<TestLayeredClientService>,
     pub targets: TargetsServiceClient<TestLayeredClientService>,
     pub tenants: TenantsServiceClient<TestLayeredClientService>,
@@ -126,10 +126,10 @@ impl AllClients {
             price_components: PriceComponentsServiceClient::new(service.clone()),
             product_families: ProductFamiliesServiceClient::new(service.clone()),
             products: ProductsServiceClient::new(service.clone()),
-            schedules: SchedulesServiceClient::new(service.clone()),
             signals: SignalsServiceClient::new(service.clone()),
             targets: TargetsServiceClient::new(service.clone()),
             subscriptions: SubscriptionsServiceClient::new(service.clone()),
+            subscription_phases: SubscriptionPhasesServiceClient::new(service.clone()),
             tenants: TenantsServiceClient::new(service.clone()),
             users: UsersServiceClient::new(service.clone()),
             wallets: WalletsServiceClient::new(service.clone()),
