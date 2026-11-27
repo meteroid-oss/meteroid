@@ -57,6 +57,14 @@ payment-method-requested-intro = { $company } factureert uw abonnement nu rechts
 payment-method-requested-by = Voeg vóór { $date } een betaalmethode toe zodat uw volgende betaling slaagt.
 payment-method-requested-anytime = Voeg een betaalmethode toe zodat uw volgende betaling slaagt.
 payment-method-requested-hedge = Als u er al een hebt toegevoegd, kunt u deze e-mail negeren.
+payment-method-requested-heading-by = Voeg vóór { $date } een betaalmethode toe
+payment-method-moving-intro = { $company } verplaatst de facturering van uw abonnement op { $date } van { $provider } rechtstreeks naar { $company }. Uw abonnement en prijs blijven hetzelfde.
+payment-method-moving-kept-cards = { $provider } kan opgeslagen kaarten niet overzetten, daarom vragen we u er een toe te voegen. Uw facturen komen dan van { $company }, dat ook de belasting berekent.
+payment-method-moving-no-reuse = We kunnen de bij { $provider } opgeslagen kaart niet hergebruiken, daarom vragen we u er een te bevestigen.
+payment-method-moving-paypal = { $provider } kan PayPal-betalingen niet overzetten, daarom vragen we u een betaalmethode toe te voegen.
+payment-method-moving-invoice = U betaalt nu per factuur. Voeg een betaalmethode toe zodat uw betalingen automatisch worden afgeschreven.
+payment-method-link-hedge = Met deze link logt u in op uw factuurportaal van { $company }. Is de link verlopen, dan kunt u op de pagina een nieuwe aanvragen. Hebt u al een betaalmethode toegevoegd, dan kunt u deze e-mail negeren.
+payment-method-stop = Deze herinneringen niet meer ontvangen
 add-payment-method = Betaalmethode toevoegen
 
 ## Summary box labels (no trailing colon: shown as a label/value table)

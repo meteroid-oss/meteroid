@@ -2176,6 +2176,76 @@ diesel::table! {
 }
 
 diesel::table! {
+    migration_campaign (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        source_id -> Uuid,
+        name -> Text,
+        is_default -> Bool,
+        status -> Text,
+        audience_filter -> Jsonb,
+        audience_live -> Bool,
+        starts_at -> Nullable<Timestamptz>,
+        timezone -> Text,
+        window_start_hour -> Int2,
+        window_end_hour -> Int2,
+        window_days -> Array<Nullable<Int2>>,
+        reminder_offsets -> Array<Nullable<Int4>>,
+        max_emails -> Int4,
+        min_gap_days -> Int4,
+        deadline_offset_days -> Int4,
+        deadline_outcome -> Text,
+        max_per_hour -> Int4,
+        max_per_day -> Int4,
+        created_by -> Nullable<Uuid>,
+        updated_by -> Nullable<Uuid>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        started_at -> Nullable<Timestamptz>,
+        paused_at -> Nullable<Timestamptz>,
+        cancelled_at -> Nullable<Timestamptz>,
+        completed_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    migration_campaign_member (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        campaign_id -> Uuid,
+        migration_customer_id -> Uuid,
+        status -> Text,
+        joined_via -> Text,
+        deadline -> Nullable<Date>,
+        emails_sent -> Int4,
+        last_emailed_at -> Nullable<Timestamptz>,
+        next_send_at -> Nullable<Timestamptz>,
+        first_opened_at -> Nullable<Timestamptz>,
+        last_opened_at -> Nullable<Timestamptz>,
+        card_added_at -> Nullable<Timestamptz>,
+        outcome -> Nullable<Text>,
+        outcome_applied_at -> Nullable<Timestamptz>,
+        excluded_by -> Nullable<Uuid>,
+        excluded_reason -> Nullable<Text>,
+        stop_token -> Nullable<Text>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    migration_campaign_send (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        member_id -> Uuid,
+        step -> Int4,
+        queued_at -> Timestamptz,
+        sent_at -> Nullable<Timestamptz>,
+        skip_reason -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
     migration_customer (id) {
         id -> Uuid,
         tenant_id -> Uuid,
@@ -2210,6 +2280,7 @@ diesel::table! {
         actor_id -> Nullable<Uuid>,
         metadata -> Jsonb,
         created_at -> Timestamptz,
+        campaign_id -> Nullable<Uuid>,
     }
 }
 
@@ -2389,13 +2460,12 @@ diesel::table! {
         subscription_id -> Nullable<Uuid>,
         payment_method_strategy -> Text,
         payment_method_requested_at -> Nullable<Timestamptz>,
-        payment_method_reminders -> Bool,
-        payment_method_emails -> Int4,
-        payment_method_emailed_at -> Nullable<Timestamptz>,
         imported_at -> Timestamptz,
         last_seen_at -> Timestamptz,
         updated_at -> Timestamptz,
         resume_at_source_by -> Nullable<Timestamptz>,
+        payment_method_held -> Bool,
+        payment_method_waived -> Bool,
     }
 }
 
@@ -4312,9 +4382,17 @@ diesel::joinable!(metric_target_change -> tenant (tenant_id));
 diesel::joinable!(metric_target_change -> user (actor_user_id));
 diesel::joinable!(metric_target_snapshot -> metric_target (metric_target_id));
 diesel::joinable!(metric_target_snapshot -> tenant (tenant_id));
+diesel::joinable!(migration_campaign -> migration_source (source_id));
+diesel::joinable!(migration_campaign -> tenant (tenant_id));
+diesel::joinable!(migration_campaign_member -> migration_campaign (campaign_id));
+diesel::joinable!(migration_campaign_member -> migration_customer (migration_customer_id));
+diesel::joinable!(migration_campaign_member -> tenant (tenant_id));
+diesel::joinable!(migration_campaign_send -> migration_campaign_member (member_id));
+diesel::joinable!(migration_campaign_send -> tenant (tenant_id));
 diesel::joinable!(migration_customer -> customer (customer_id));
 diesel::joinable!(migration_customer -> migration_source (source_id));
 diesel::joinable!(migration_customer -> tenant (tenant_id));
+diesel::joinable!(migration_event -> migration_campaign (campaign_id));
 diesel::joinable!(migration_event -> migration_source (source_id));
 diesel::joinable!(migration_event -> migration_subscription (migration_subscription_id));
 diesel::joinable!(migration_event -> tenant (tenant_id));

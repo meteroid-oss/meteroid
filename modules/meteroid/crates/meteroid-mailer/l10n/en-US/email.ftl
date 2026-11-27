@@ -57,6 +57,14 @@ payment-method-requested-intro = { $company } now bills your subscription direct
 payment-method-requested-by = Please add a payment method before { $date } so that your next payment goes through.
 payment-method-requested-anytime = Please add a payment method so that your next payment goes through.
 payment-method-requested-hedge = If you have already added one, you can disregard this email.
+payment-method-requested-heading-by = Add a payment method before { $date }
+payment-method-moving-intro = { $company } is moving your subscription's billing from { $provider } to { $company } directly on { $date }. Your plan and price stay the same.
+payment-method-moving-kept-cards = { $provider } can't transfer saved cards, so we need you to add one. Your invoices will come from { $company }, which also calculates the tax.
+payment-method-moving-no-reuse = We can't reuse the card saved at { $provider }, so we need you to confirm one.
+payment-method-moving-paypal = { $provider } can't transfer PayPal payments, so we need you to add a payment method.
+payment-method-moving-invoice = You pay by invoice today. Add a payment method so that your payments are taken automatically.
+payment-method-link-hedge = This link signs you in to your billing portal for { $company }. If it has expired, you can request a new one from the page. If you have already added a payment method, you can ignore this email.
+payment-method-stop = Stop these reminders
 add-payment-method = Add a payment method
 
 ## Summary box labels (no trailing colon: shown as a label/value table)

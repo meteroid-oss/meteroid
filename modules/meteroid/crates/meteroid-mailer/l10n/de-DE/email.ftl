@@ -57,6 +57,14 @@ payment-method-requested-intro = { $company } rechnet Ihr Abonnement jetzt direk
 payment-method-requested-by = Bitte fügen Sie vor dem { $date } eine Zahlungsmethode hinzu, damit Ihre nächste Zahlung erfolgen kann.
 payment-method-requested-anytime = Bitte fügen Sie eine Zahlungsmethode hinzu, damit Ihre nächste Zahlung erfolgen kann.
 payment-method-requested-hedge = Wenn Sie bereits eine hinzugefügt haben, können Sie diese E-Mail ignorieren.
+payment-method-requested-heading-by = Fügen Sie vor dem { $date } eine Zahlungsmethode hinzu
+payment-method-moving-intro = { $company } verlegt die Abrechnung Ihres Abonnements am { $date } von { $provider } direkt zu { $company }. Ihr Tarif und Ihr Preis bleiben gleich.
+payment-method-moving-kept-cards = { $provider } kann gespeicherte Karten nicht übertragen, daher bitten wir Sie, eine hinzuzufügen. Ihre Rechnungen kommen dann von { $company }, das auch die Steuer berechnet.
+payment-method-moving-no-reuse = Wir können die bei { $provider } gespeicherte Karte nicht weiterverwenden, daher bitten wir Sie, eine zu bestätigen.
+payment-method-moving-paypal = { $provider } kann PayPal-Zahlungen nicht übertragen, daher bitten wir Sie, eine Zahlungsmethode hinzuzufügen.
+payment-method-moving-invoice = Sie zahlen derzeit per Rechnung. Fügen Sie eine Zahlungsmethode hinzu, damit Ihre Zahlungen automatisch eingezogen werden.
+payment-method-link-hedge = Mit diesem Link melden Sie sich in Ihrem Abrechnungsportal von { $company } an. Ist er abgelaufen, können Sie auf der Seite einen neuen anfordern. Wenn Sie bereits eine Zahlungsmethode hinzugefügt haben, können Sie diese E-Mail ignorieren.
+payment-method-stop = Diese Erinnerungen abbestellen
 add-payment-method = Zahlungsmethode hinzufügen
 
 ## Summary box labels (no trailing colon: shown as a label/value table)

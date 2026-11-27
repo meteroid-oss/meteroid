@@ -14,6 +14,9 @@
   <tr>
     <td style="padding-top:20px;">
       <p style="margin:0;font-size:13px;line-height:20px;color:#6b7079;"><%= hedge %></p>
+      <% if let Some((url, label)) = &stop { %>
+      <p style="margin:8px 0 0;font-size:13px;line-height:20px;color:#6b7079;"><a href="<%= url %>" style="color:#6b7079;text-decoration:underline;"><%= label %></a></p>
+      <% } %>
     </td>
   </tr>
 </table>

@@ -57,6 +57,14 @@ payment-method-requested-intro = { $company } ora fattura direttamente il Suo ab
 payment-method-requested-by = Aggiunga un metodo di pagamento entro il { $date } affinché il prossimo pagamento vada a buon fine.
 payment-method-requested-anytime = Aggiunga un metodo di pagamento affinché il prossimo pagamento vada a buon fine.
 payment-method-requested-hedge = Se ne ha già aggiunto uno, può ignorare questa e-mail.
+payment-method-requested-heading-by = Aggiungi un metodo di pagamento entro il { $date }
+payment-method-moving-intro = { $company } sposta la fatturazione del tuo abbonamento da { $provider } direttamente a { $company } il { $date }. Il tuo piano e il tuo prezzo restano invariati.
+payment-method-moving-kept-cards = { $provider } non può trasferire le carte salvate, quindi ti chiediamo di aggiungerne una. Le tue fatture arriveranno da { $company }, che calcola anche l'imposta.
+payment-method-moving-no-reuse = Non possiamo riutilizzare la carta salvata su { $provider }, quindi ti chiediamo di confermarne una.
+payment-method-moving-paypal = { $provider } non può trasferire i pagamenti PayPal, quindi ti chiediamo di aggiungere un metodo di pagamento.
+payment-method-moving-invoice = Oggi paghi tramite fattura. Aggiungi un metodo di pagamento perché i pagamenti vengano addebitati automaticamente.
+payment-method-link-hedge = Questo link ti dà accesso al portale di fatturazione di { $company }. Se è scaduto, puoi richiederne uno nuovo dalla pagina. Se hai già aggiunto un metodo di pagamento, puoi ignorare questa email.
+payment-method-stop = Non ricevere più questi promemoria
 add-payment-method = Aggiungi un metodo di pagamento
 
 ## Summary box labels (no trailing colon: shown as a label/value table)

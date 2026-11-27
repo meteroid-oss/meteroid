@@ -1145,11 +1145,19 @@ impl Services {
                 EmailContext::PaymentMethodRequested {
                     update_by,
                     previous_provider,
+                    moves_on,
+                    merchant_of_record,
+                    previous_method,
+                    stop_url,
                     ..
                 },
             ) => Body::PaymentMethodRequested {
                 previous_provider: previous_provider.clone(),
                 update_by: *update_by,
+                moves_on: *moves_on,
+                merchant_of_record: *merchant_of_record,
+                previous_method: (*previous_method).into(),
+                stop_url: stop_url.clone(),
                 cta: Cta::new(
                     self.payment_method_link(tenant_id, customer_id, *update_by, build)
                         .await?,
@@ -1430,6 +1438,13 @@ impl Services {
                 Body::PaymentMethodRequested {
                     previous_provider: "your previous billing provider".to_string(),
                     update_by: Some(today + chrono::Days::new(14)),
+                    moves_on: Some(today + chrono::Days::new(14)),
+                    merchant_of_record: false,
+                    previous_method: meteroid_mailer::render::PreviousMethod::Card,
+                    stop_url: Some(format!(
+                        "{}/migration/reminders/stop/preview",
+                        self.store.settings.public_url.trim_end_matches('/')
+                    )),
                     cta: Cta::new(format!(
                         "{}/portal/customer?token=preview",
                         self.store.settings.public_url.trim_end_matches('/')
@@ -1602,12 +1617,21 @@ fn credit_note_target(cn: &CreditNote) -> EmailTarget {
 }
 
 /// A customer asked to add a payment method because their billing moved from another provider.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PaymentMethodRequest {
     /// The day the customer's card is needed by, if any.
     pub update_by: Option<NaiveDate>,
     /// e.g. "Lemon Squeezy": who billed them until now.
     pub previous_provider: String,
+    /// The day billing moves, while it hasn't yet.
+    pub moves_on: Option<NaiveDate>,
+    /// The previous provider keeps its customers' cards, so none can be carried over.
+    pub merchant_of_record: bool,
+    pub previous_method: crate::domain::customer_emails::PreviousPaymentMethod,
+    /// One-click opt-out of these reminders.
+    pub stop_url: Option<String>,
+    /// Sends with the same key go out once: a retry after a failure doesn't email twice.
+    pub dedupe_key: Option<String>,
 }
 
 impl ServicesEdge {
@@ -1623,11 +1647,16 @@ impl ServicesEdge {
         if self.store.email_delivery(tenant_id).await?.is_off() {
             return Ok(false);
         }
+        let request_dedupe = request.dedupe_key.clone();
         let kind = EmailKind::PaymentMethodRequested;
         let context = EmailContext::PaymentMethodRequested {
             customer_id,
             update_by: request.update_by,
             previous_provider: request.previous_provider,
+            moves_on: request.moves_on,
+            merchant_of_record: request.merchant_of_record,
+            previous_method: request.previous_method,
+            stop_url: request.stop_url,
         };
         let no_pay_link = |_: InvoiceId| -> StoreResult<String> {
             Err(Report::new(StoreError::InvalidArgument(
@@ -1650,16 +1679,113 @@ impl ServicesEdge {
         if let BuildOutcome::Skip(..) = outcome {
             return Ok(false);
         }
-        let dedupe_key = format!(
-            "{kind}:{customer_id}:{}",
-            common_clock::wall().timestamp_millis()
-        );
+        let dedupe_key = match &request_dedupe {
+            Some(key) => format!("{kind}:{customer_id}:{key}"),
+            None => format!(
+                "{kind}:{customer_id}:{}",
+                common_clock::wall().timestamp_millis()
+            ),
+        };
         let mut conn = self.store.get_conn().await?;
         crate::repositories::customer_emails::enqueue_customer_email_on_tx(
             &mut conn, tenant_id, kind, context, dedupe_key,
         )
         .await?;
         Ok(true)
+    }
+
+    /// The payment method email `customer` would receive, rendered with a preview link that
+    /// signs nobody in.
+    pub async fn preview_payment_method_request(
+        &self,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        request: PaymentMethodRequest,
+        locale: Option<&str>,
+    ) -> StoreResult<(EmailRenderInput, meteroid_mailer::render::Rendered)> {
+        let context = EmailContext::PaymentMethodRequested {
+            customer_id,
+            update_by: request.update_by,
+            previous_provider: request.previous_provider,
+            moves_on: request.moves_on,
+            merchant_of_record: request.merchant_of_record,
+            previous_method: request.previous_method,
+            stop_url: request.stop_url,
+        };
+        let no_pay_link = |_: InvoiceId| -> StoreResult<String> {
+            Err(Report::new(StoreError::InvalidArgument(
+                "a payment method request has no invoice".to_string(),
+            )))
+        };
+        let input = match self
+            .services
+            .preview_customer_email(
+                tenant_id,
+                EmailKind::PaymentMethodRequested,
+                &context,
+                locale,
+                None,
+                &no_pay_link,
+                false,
+            )
+            .await?
+        {
+            BuildOutcome::Render(input) => *input,
+            BuildOutcome::Skip(reason, _) => {
+                return Err(Report::new(StoreError::InvalidArgument(format!(
+                    "This email can't be rendered for this customer: {reason:?}"
+                ))));
+            }
+            BuildOutcome::Defer(reason, _) => {
+                return Err(Report::new(StoreError::InvalidArgument(format!(
+                    "This email can't be rendered yet: {reason:?}"
+                ))));
+            }
+        };
+        let rendered = meteroid_mailer::render::render(
+            &input.layout,
+            input.subject.clone(),
+            input.body.clone(),
+        )
+        .map_err(|e| {
+            Report::new(StoreError::InvalidArgument(format!(
+                "failed to render email: {e}"
+            )))
+        })?;
+        Ok((input, rendered))
+    }
+
+    /// Sends the preview of [`Self::preview_payment_method_request`] to `to`, marked as a test.
+    /// `Ok(false)` without a configured mailer.
+    pub async fn send_payment_method_test(
+        &self,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        request: PaymentMethodRequest,
+        locale: Option<&str>,
+        to: String,
+    ) -> StoreResult<bool> {
+        let (input, rendered) = self
+            .preview_payment_method_request(tenant_id, customer_id, request, locale)
+            .await?;
+        let mut sender = input.sender(self.store.mailer.customer_from_addr())?;
+        sender.bcc.clear();
+        let mut email = sender.email(
+            vec![meteroid_mailer::model::EmailRecipient {
+                email: to,
+                first_name: None,
+                last_name: None,
+            }],
+            rendered,
+            vec![],
+        );
+        email.subject = format!("[Test, its link signs nobody in] {}", email.subject);
+        let sent = self.store.mailer.send(email).await.map_err(|e| {
+            Report::new(StoreError::InvalidArgument(format!(
+                "failed to send test email: {e}"
+            )))
+        })?;
+        Ok(sent && self.store.settings.mailer_enabled)
     }
 
     #[allow(clippy::too_many_arguments)]

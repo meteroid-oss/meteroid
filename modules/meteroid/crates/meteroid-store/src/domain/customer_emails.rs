@@ -375,7 +375,38 @@ pub enum EmailContext {
         customer_id: CustomerId,
         update_by: Option<chrono::NaiveDate>,
         previous_provider: String,
+        /// The day billing moves, while it hasn't: the email announces the move.
+        #[serde(default)]
+        moves_on: Option<chrono::NaiveDate>,
+        /// The previous provider keeps its customers' cards (merchant of record).
+        #[serde(default)]
+        merchant_of_record: bool,
+        #[serde(default)]
+        previous_method: PreviousPaymentMethod,
+        /// One-click opt-out of these reminders.
+        #[serde(default)]
+        stop_url: Option<String>,
     },
+}
+
+/// How the customer paid the previous provider: says why a new payment method is needed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PreviousPaymentMethod {
+    #[default]
+    Card,
+    PayPal,
+    Invoice,
+}
+
+impl From<PreviousPaymentMethod> for meteroid_mailer::render::PreviousMethod {
+    fn from(method: PreviousPaymentMethod) -> Self {
+        match method {
+            PreviousPaymentMethod::Card => Self::Card,
+            PreviousPaymentMethod::PayPal => Self::PayPal,
+            PreviousPaymentMethod::Invoice => Self::Invoice,
+        }
+    }
 }
 
 impl EmailContext {

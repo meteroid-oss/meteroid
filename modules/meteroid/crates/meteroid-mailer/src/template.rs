@@ -467,6 +467,8 @@ pub struct PaymentMethodRequestContent {
     pub ask: String,
     pub cta: ButtonTemplate,
     pub hedge: String,
+    /// The opt-out link and its label.
+    pub stop: Option<(String, String)>,
 }
 
 /// A prepaid-balance notice: no document and no button, the summary carries the figures.

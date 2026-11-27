@@ -74,6 +74,12 @@ const CUSTOMER_READ_METHODS: &[(&str, &[&str])] = &[
     ),
 ];
 
+/// Read methods EE modules serve, so absent from the core protos.
+const MODULE_CUSTOMER_READ_METHODS: &[(&str, &[&str])] = &[(
+    "meteroid.portal.migration.v1.PortalMigrationService",
+    &["GetPaymentMethodRequest"],
+)];
+
 /// Services whose writes buy or grant credit or set spending controls. A delegated session may
 /// only read them, as its credentials cannot reach the matching REST routes.
 const DELEGATED_READ_ONLY_SERVICES: &[&str] = &[
@@ -89,6 +95,7 @@ fn delegated_allows(gm: &GrpcServiceMethod) -> bool {
 fn is_customer_read_method(gm: &GrpcServiceMethod) -> bool {
     CUSTOMER_READ_METHODS
         .iter()
+        .chain(MODULE_CUSTOMER_READ_METHODS)
         .any(|(service, methods)| gm.service == *service && methods.contains(&gm.method.as_str()))
 }
 
@@ -238,6 +245,7 @@ pub fn authorize_portal(
                 && !gm.service.starts_with("meteroid.portal.walletcontrols.")
                 && !gm.service.starts_with("meteroid.portal.budgets.")
                 && !gm.service.starts_with("meteroid.portal.retention.")
+                && !gm.service.starts_with("meteroid.portal.migration.")
             {
                 return Err(Status::permission_denied("Unauthorized"));
             }
@@ -566,6 +574,14 @@ mod tests {
             Some(Code::Unauthenticated)
         );
         assert!(validate_portal_jwt(&sdk_token, &secret(), cutoff, after).is_ok());
+    }
+
+    #[test]
+    fn a_read_token_reads_the_migration_banner() {
+        let read = Some(vec![PortalScope::Read]);
+        let service = "meteroid.portal.migration.v1.PortalMigrationService";
+        assert!(authorize_customer(read.clone(), service, "GetPaymentMethodRequest").is_ok());
+        assert!(authorize_customer(read, service, "Anything").is_err());
     }
 
     #[test]

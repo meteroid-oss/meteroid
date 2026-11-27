@@ -79,6 +79,15 @@ impl Cta {
     }
 }
 
+/// How the customer paid the previous provider, which says why a new payment method is needed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PreviousMethod {
+    #[default]
+    Card,
+    PayPal,
+    Invoice,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Body {
     InvoiceReady {
@@ -187,6 +196,12 @@ pub enum Body {
     PaymentMethodRequested {
         previous_provider: String,
         update_by: Option<NaiveDate>,
+        /// Set while billing hasn't moved yet: the email announces the move.
+        moves_on: Option<NaiveDate>,
+        /// The previous provider keeps the cards (merchant of record).
+        merchant_of_record: bool,
+        previous_method: PreviousMethod,
+        stop_url: Option<String>,
         cta: Cta,
     },
     /// `html_fragment` comes from `copy::to_html` only; it is inserted unescaped.
@@ -615,6 +630,10 @@ pub fn render(
         Body::PaymentMethodRequested {
             previous_provider,
             update_by,
+            moves_on,
+            merchant_of_record,
+            previous_method,
+            stop_url,
             cta,
         } => {
             let ask = match update_by {
@@ -623,14 +642,47 @@ pub fn render(
                     .to_string(),
                 None => l10n.payment_method_requested_anytime().to_string(),
             };
-            let content = PaymentMethodRequestContent {
-                heading: l10n.payment_method_requested_heading().to_string(),
-                intro: l10n
-                    .payment_method_requested_intro(company, &previous_provider)
+            let heading = match update_by {
+                Some(date) => l10n
+                    .payment_method_requested_heading_by(long_date(lang, &date))
                     .to_string(),
+                None => l10n.payment_method_requested_heading().to_string(),
+            };
+            let reason = match (merchant_of_record, previous_method) {
+                (true, _) => l10n
+                    .payment_method_moving_kept_cards(company, &previous_provider)
+                    .to_string(),
+                (false, PreviousMethod::Card) => l10n
+                    .payment_method_moving_no_reuse(&previous_provider)
+                    .to_string(),
+                (false, PreviousMethod::PayPal) => l10n
+                    .payment_method_moving_paypal(&previous_provider)
+                    .to_string(),
+                (false, PreviousMethod::Invoice) => {
+                    l10n.payment_method_moving_invoice().to_string()
+                }
+            };
+            let intro = match moves_on {
+                Some(date) => format!(
+                    "{} {reason}",
+                    l10n.payment_method_moving_intro(
+                        company,
+                        long_date(lang, &date),
+                        &previous_provider
+                    )
+                ),
+                None => format!(
+                    "{} {reason}",
+                    l10n.payment_method_requested_intro(company, &previous_provider)
+                ),
+            };
+            let content = PaymentMethodRequestContent {
+                heading,
+                intro,
                 ask: ask.clone(),
                 cta: button(cta, l10n.add_payment_method(), &color),
-                hedge: l10n.payment_method_requested_hedge().to_string(),
+                hedge: l10n.payment_method_link_hedge(company).to_string(),
+                stop: stop_url.map(|url| (url, l10n.payment_method_stop().to_string())),
             };
             let subject = l10n.payment_method_requested_subject(company).to_string();
             (
@@ -1079,6 +1131,10 @@ mod tests {
                 Body::PaymentMethodRequested {
                     previous_provider: "Lemon Squeezy".into(),
                     update_by: NaiveDate::from_ymd_opt(2027, 3, 1),
+                    moves_on: NaiveDate::from_ymd_opt(2027, 3, 1),
+                    merchant_of_record: true,
+                    previous_method: PreviousMethod::Card,
+                    stop_url: Some("https://app.example/migration/reminders/stop/t".into()),
                     cta: Cta::new("https://portal.example/customer"),
                 },
             ),
@@ -1230,10 +1286,19 @@ mod tests {
                         l10n.authentication_required_heading(),
                         Some(l10n.confirm_payment()),
                     ),
-                    "payment_method_requested" => (
-                        l10n.payment_method_requested_heading(),
-                        Some(l10n.add_payment_method()),
-                    ),
+                    "payment_method_requested" => {
+                        assert!(
+                            html.contains(&esc(&l10n.payment_method_stop())),
+                            "{ctx}: stop link"
+                        );
+                        (
+                            l10n.payment_method_requested_heading_by(long_date(
+                                lang,
+                                &NaiveDate::from_ymd_opt(2027, 3, 1).unwrap(),
+                            )),
+                            Some(l10n.add_payment_method()),
+                        )
+                    }
                     "wallet_balance_low" => (l10n.wallet_balance_low_heading(), None),
                     "budget_threshold" => (l10n.budget_threshold_heading("80%"), None),
                     "budget_exceeded" => (l10n.budget_exceeded_heading(), None),
