@@ -72,6 +72,7 @@ mod regenerate;
 mod renewals;
 mod rest_credit_contract;
 mod seat_quantities;
+mod signup_backfill;
 mod signup_eligibility;
 mod term_end_changes;
 mod trial_offers;

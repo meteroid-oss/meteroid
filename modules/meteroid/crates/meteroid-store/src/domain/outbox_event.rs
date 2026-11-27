@@ -1013,6 +1013,14 @@ pub enum SubscriptionUpdateType {
     TrialChanged,
 }
 
+/// What created a subscription, set on `subscription.created` when it was not asked for it alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubscriptionOrigin {
+    /// Customers with no plan, started in bulk on their product line's free sign-up plan.
+    SignupPlanBackfill,
+}
+
 #[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, Deserialize, o2o)]
 #[from_owned(Subscription)]
@@ -1052,6 +1060,9 @@ pub struct SubscriptionEvent {
     /// Set on `subscription.cancelled` when a reason was supplied at cancellation.
     #[ghost({None})]
     pub cancellation_reason: Option<String>,
+    #[ghost({None})]
+    #[serde(default)]
+    pub origin: Option<SubscriptionOrigin>,
     #[serde(default)]
     pub custom_properties: serde_json::Value,
 }

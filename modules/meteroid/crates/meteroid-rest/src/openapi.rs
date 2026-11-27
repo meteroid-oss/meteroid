@@ -852,6 +852,7 @@ impl Modify for WebhooksAddon {
                             purchase_order: None,
                             change_type: None,
                             cancellation_reason: None,
+                            origin: None,
                             custom_properties: serde_json::json!({ "pdp_external_status": "approved" }),
                         },
                         timestamp: Default::default(),

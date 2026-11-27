@@ -23,6 +23,7 @@ impl From<BatchJobTypeWrapper> for BatchJobTypeEnum {
                 BatchJobTypeEnum::SubscriptionPlanMigration
             }
             proto::BatchJobType::TaxReportExport => BatchJobTypeEnum::TaxReportExport,
+            proto::BatchJobType::SignupPlanBackfill => BatchJobTypeEnum::SignupPlanBackfill,
         }
     }
 }
@@ -37,6 +38,7 @@ impl From<BatchJobTypeEnum> for BatchJobTypeWrapper {
                 proto::BatchJobType::SubscriptionPlanMigration
             }
             BatchJobTypeEnum::TaxReportExport => proto::BatchJobType::TaxReportExport,
+            BatchJobTypeEnum::SignupPlanBackfill => proto::BatchJobType::SignupPlanBackfill,
         })
     }
 }

@@ -771,6 +771,7 @@ pub enum BatchJobTypeEnum {
     SubscriptionCsvImport,
     SubscriptionPlanMigration,
     TaxReportExport,
+    SignupPlanBackfill,
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, PartialEq, Eq)]

@@ -13,3 +13,14 @@ pub struct TaxReportExportParams {
     #[serde(default)]
     pub bucket_days: Option<i64>,
 }
+
+/// A sign-up plan backfill's `input_params`; its input file holds the customer ids, one a line
+/// under a `customer_id` header.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SignupPlanBackfillParams {
+    pub product_family_id: common_domain::ids::ProductFamilyId,
+    /// The sign-up plan's version previewed: the job stops starting customers once it changed.
+    pub plan_version_id: common_domain::ids::PlanVersionId,
+}
+
+pub const SIGNUP_PLAN_BACKFILL_HEADER: &str = "customer_id";

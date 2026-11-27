@@ -416,6 +416,12 @@ pub async fn spawn_workers(
                 )),
             );
             worker.register_processor(
+                BatchJobTypeEnum::SignupPlanBackfill,
+                Arc::new(batch_jobs::processors::SignupPlanBackfillProcessor::new(
+                    (*services).clone(),
+                )),
+            );
+            worker.register_processor(
                 BatchJobTypeEnum::TaxReportExport,
                 Arc::new(batch_jobs::processors::TaxReportExportProcessor::new(
                     store_for_tax,

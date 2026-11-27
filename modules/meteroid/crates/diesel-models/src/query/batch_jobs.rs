@@ -82,6 +82,7 @@ impl BatchJobRow {
         conn: &mut PgConn,
         tenant_id_param: TenantId,
         job_type_filter: Option<BatchJobTypeEnum>,
+        excluded_types: Vec<BatchJobTypeEnum>,
         status_filter: Option<Vec<BatchJobStatusEnum>>,
         pagination: PaginationRequest,
     ) -> DbResult<PaginatedVec<BatchJobRow>> {
@@ -94,6 +95,9 @@ impl BatchJobRow {
 
         if let Some(jt) = job_type_filter {
             query = query.filter(job_type.eq(jt));
+        }
+        if !excluded_types.is_empty() {
+            query = query.filter(job_type.ne_all(excluded_types));
         }
         if let Some(statuses) = status_filter {
             query = query.filter(status.eq_any(statuses));

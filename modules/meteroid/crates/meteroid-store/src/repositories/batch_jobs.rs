@@ -26,10 +26,12 @@ pub trait BatchJobsInterface {
         tenant_id: TenantId,
     ) -> StoreResult<BatchJobDetail>;
 
+    /// `job_type` only when given, never one of `excluded_types`.
     async fn list_batch_jobs(
         &self,
         tenant_id: TenantId,
         job_type: Option<BatchJobTypeEnum>,
+        excluded_types: &[BatchJobTypeEnum],
         status: Option<Vec<BatchJobStatusEnum>>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<BatchJob>>;
@@ -209,6 +211,7 @@ impl BatchJobsInterface for Store {
         &self,
         tenant_id: TenantId,
         job_type: Option<BatchJobTypeEnum>,
+        excluded_types: &[BatchJobTypeEnum],
         status: Option<Vec<BatchJobStatusEnum>>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<BatchJob>> {
@@ -218,6 +221,7 @@ impl BatchJobsInterface for Store {
             &mut conn,
             tenant_id,
             job_type.map(Into::into),
+            excluded_types.iter().cloned().map(Into::into).collect(),
             status.map(|v| v.into_iter().map(Into::into).collect()),
             pagination.into(),
         )

@@ -1509,6 +1509,7 @@ impl Services {
         actor: &Actor,
         created: &[CreatedSubscription],
         tenant_id: TenantId,
+        origin: Option<crate::domain::outbox_event::SubscriptionOrigin>,
     ) -> StoreResult<()> {
         let ids = created.iter().map(|c| c.id).collect::<Vec<_>>();
         if ids.is_empty() {
@@ -1523,7 +1524,7 @@ impl Services {
                 .collect::<Result<Vec<_>, _>>()?;
         let outbox_events: Vec<OutboxEvent> = subscriptions
             .into_iter()
-            .map(|s| OutboxEvent::subscription_created(s.into()))
+            .map(|s| OutboxEvent::subscription_created(SubscriptionEvent { origin, ..s.into() }))
             .collect();
         self.store
             .internal

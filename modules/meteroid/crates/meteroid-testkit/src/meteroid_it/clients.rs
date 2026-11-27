@@ -11,6 +11,7 @@ use meteroid_grpc::meteroid::api::alerts::v1::alerts_service_client::AlertsServi
 use meteroid_grpc::meteroid::api::analytics::v1::analytics_service_client::AnalyticsServiceClient;
 use meteroid_grpc::meteroid::api::apitokens::v1::api_tokens_service_client::ApiTokensServiceClient;
 use meteroid_grpc::meteroid::api::bankaccounts::v1::bank_accounts_service_client::BankAccountsServiceClient;
+use meteroid_grpc::meteroid::api::batchjobs::v1::batch_jobs_service_client::BatchJobsServiceClient;
 use meteroid_grpc::meteroid::api::billablemetrics::v1::billable_metrics_service_client::BillableMetricsServiceClient;
 use meteroid_grpc::meteroid::api::components::v1::price_components_service_client::PriceComponentsServiceClient;
 use meteroid_grpc::meteroid::api::connectors::v1::connectors_service_client::ConnectorsServiceClient;
@@ -56,6 +57,7 @@ pub struct AllClients {
     pub entitlements: EntitlementsServiceClient<TestLayeredClientService>,
     pub api_tokens: ApiTokensServiceClient<TestLayeredClientService>,
     pub bank_accounts: BankAccountsServiceClient<TestLayeredClientService>,
+    pub batch_jobs: BatchJobsServiceClient<TestLayeredClientService>,
     pub connectors: ConnectorsServiceClient<TestLayeredClientService>,
     pub coupons: CouponsServiceClient<TestLayeredClientService>,
     pub credit_units: CreditUnitsServiceClient<TestLayeredClientService>,
@@ -113,6 +115,7 @@ impl AllClients {
             coupons: CouponsServiceClient::new(service.clone()),
             credit_units: CreditUnitsServiceClient::new(service.clone()),
             rate_cards: RateCardsServiceClient::new(service.clone()),
+            batch_jobs: BatchJobsServiceClient::new(service.clone()),
             pricing_page: PricingPageServiceClient::new(service.clone()),
             customers: CustomersServiceClient::new(service.clone()),
             customer_emails: CustomerEmailsServiceClient::new(service.clone()),

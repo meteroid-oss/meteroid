@@ -29,8 +29,10 @@ fn default_limit() -> u32 {
 
 // --- Enums (REST representation) ---
 
+// The jobs the REST API shows: a sign-up plan backfill, started from the customer journey only,
+// is not one of them.
 #[derive(o2o, Clone, Debug, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
-#[map_owned(meteroid_store::domain::enums::BatchJobTypeEnum)]
+#[owned_into(meteroid_store::domain::enums::BatchJobTypeEnum)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[schema(title = "BatchJobType")]
 pub enum BatchJobType {
@@ -40,6 +42,24 @@ pub enum BatchJobType {
     SubscriptionPlanMigration,
     TaxReportExport,
 }
+
+impl BatchJobType {
+    pub fn shown(job_type: meteroid_store::domain::enums::BatchJobTypeEnum) -> Option<Self> {
+        use meteroid_store::domain::enums::BatchJobTypeEnum as Domain;
+        match job_type {
+            Domain::EventCsvImport => Some(Self::EventCsvImport),
+            Domain::CustomerCsvImport => Some(Self::CustomerCsvImport),
+            Domain::SubscriptionCsvImport => Some(Self::SubscriptionCsvImport),
+            Domain::SubscriptionPlanMigration => Some(Self::SubscriptionPlanMigration),
+            Domain::TaxReportExport => Some(Self::TaxReportExport),
+            Domain::SignupPlanBackfill => None,
+        }
+    }
+}
+
+/// Job types the REST API leaves out.
+pub const HIDDEN_JOB_TYPES: &[meteroid_store::domain::enums::BatchJobTypeEnum] =
+    &[meteroid_store::domain::enums::BatchJobTypeEnum::SignupPlanBackfill];
 
 #[derive(o2o, Clone, Debug, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
 #[map_owned(meteroid_store::domain::enums::BatchJobStatusEnum)]

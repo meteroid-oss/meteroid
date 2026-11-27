@@ -8,6 +8,7 @@ enum BatchJobType {
   SUBSCRIPTION_CSV_IMPORT = 2;
   SUBSCRIPTION_PLAN_MIGRATION = 3;
   TAX_REPORT_EXPORT = 4;
+  SIGNUP_PLAN_BACKFILL = 5;
 }
 
 enum BatchJobStatus {

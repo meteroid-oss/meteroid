@@ -3,8 +3,10 @@ use crate::StoreResult;
 use crate::domain::PaymentMethodsConfig;
 use crate::domain::eligibility::{self, CustomerFacts, Eligibility};
 use crate::domain::enums::SubscriptionActivationCondition;
+use crate::domain::outbox_event::SubscriptionOrigin;
 use crate::domain::plan_options::{PlanOption, PlanOptionRef};
 use crate::domain::price_cells::{resolve_option, sold_options};
+use crate::domain::price_components::PriceComponent;
 use crate::domain::usage_levels::{ChosenLevel, starting_levels};
 use crate::domain::{
     ComponentParameterization, CreateSubscription, CreateSubscriptionComponents,
@@ -16,6 +18,7 @@ use crate::repositories::ProductFamilyJourneysInterface;
 use crate::repositories::customers::CustomersInterfaceAuto;
 use crate::repositories::price_components::PriceComponentInterface;
 use crate::services::ServicesEdge;
+use crate::services::lifecycle::derived::priced_at_nothing;
 use common_domain::actor::Actor;
 use common_domain::ids::{CustomerId, PlanVersionId, ProductFamilyId, TenantId};
 use common_eventbus::Event;
@@ -45,6 +48,100 @@ fn invalid(message: String) -> Report<StoreError> {
     Report::new(StoreError::InvalidArgument(message))
 }
 
+/// A product line's sign-up plan, before the currency of the customer it signs up.
+pub(crate) struct SignupPlan {
+    pub product_family_id: ProductFamilyId,
+    pub plan_name: String,
+    plan_version_id: PlanVersionId,
+    plan_currency: String,
+    signup_option: Option<String>,
+    pub eligibility: Option<Eligibility>,
+    components: Vec<PriceComponent>,
+    options: Vec<PlanOption>,
+    has_minimum: bool,
+}
+
+impl SignupPlan {
+    /// Bills nothing, grants no credit and reads no usage, in any option and currency, with no
+    /// minimum commitment to fill: a subscription to it writes no document.
+    pub fn free(&self) -> bool {
+        priced_at_nothing(&self.components)
+            && !self.has_minimum
+            && !self.components.iter().any(|component| {
+                component
+                    .fee_structure
+                    .as_ref()
+                    .or(component
+                        .legacy_pricing
+                        .as_ref()
+                        .map(|legacy| &legacy.fee_structure))
+                    .is_some_and(|structure| structure.metric_id().is_some())
+            })
+    }
+
+    pub fn plan_version_id(&self) -> PlanVersionId {
+        self.plan_version_id
+    }
+
+    /// As a customer in `currency` takes it: on the journey's option, else the first sold in
+    /// that currency. Refused when that option is not sold in it. Its usage-levels charges
+    /// start on `levels`, else their lowest.
+    pub fn offer(&self, currency: &str, levels: &[ChosenLevel]) -> StoreResult<SignupOffer> {
+        let components = &self.components;
+        let options = &self.options;
+        let currency = currency.trim().to_ascii_uppercase();
+        // A plan with no price at all is free in every currency.
+        let unpriced = components
+            .iter()
+            .all(|c| c.prices.is_empty() && c.legacy_pricing.is_none());
+        // Never a hidden option unless the journey names it: sign-up is public.
+        let default = || {
+            sold_options(options, components, &currency)
+                .into_iter()
+                .find(|option| !option.hidden)
+        };
+        let option = match self.signup_option.as_deref() {
+            // An alias the version lost falls back to its default, as at a plan change.
+            Some(alias) => resolve_option(options, Some(&PlanOptionRef::Alias(alias.into())))
+                .ok()
+                .or_else(default),
+            None => default(),
+        }
+        .or_else(|| unpriced.then(|| options.first()).flatten())
+        .cloned();
+        let sold = unpriced
+            || option.as_ref().is_some_and(|option| {
+                crate::services::subscriptions::currency::pricing(option, &currency)
+                    .sells(components)
+            });
+        if !sold {
+            return Err(invalid(format!(
+                "The sign-up plan is not offered in {currency}"
+            )));
+        }
+        if !currency.eq_ignore_ascii_case(&self.plan_currency) && self.has_minimum {
+            return Err(invalid(format!(
+                "The sign-up plan's minimum commitment is in {}: it cannot sign up customers in {currency}",
+                self.plan_currency
+            )));
+        }
+        let mut sold_cells = components.clone();
+        if let Some(option) = option.as_ref() {
+            crate::services::subscriptions::currency::pricing(option, &currency)
+                .narrow(&mut sold_cells);
+        }
+        let levels = starting_levels(&sold_cells, levels).map_err(Report::new)?;
+        Ok(SignupOffer {
+            product_family_id: self.product_family_id,
+            plan_version_id: self.plan_version_id,
+            option,
+            currency,
+            eligibility: self.eligibility.clone(),
+            levels,
+        })
+    }
+}
+
 impl ServicesEdge {
     /// The sign-up plan of `product_family_id`, or of the only family that has one, as a customer
     /// in `currency` takes it: on the journey's option, else the first sold in that currency.
@@ -69,6 +166,18 @@ impl ServicesEdge {
         currency: &str,
         levels: &[ChosenLevel],
     ) -> StoreResult<SignupOffer> {
+        self.signup_plan(tenant_id, product_family_id)
+            .await?
+            .offer(currency, levels)
+    }
+
+    /// The sign-up plan of `product_family_id`, or of the only family that has one, whatever
+    /// the currency: refused when it cannot sign anyone up.
+    pub(crate) async fn signup_plan(
+        &self,
+        tenant_id: TenantId,
+        product_family_id: Option<ProductFamilyId>,
+    ) -> StoreResult<SignupPlan> {
         let mut conn = self.store.get_conn().await?;
         let journey = match product_family_id {
             Some(id) => self.store.get_product_family_journey(tenant_id, id).await?,
@@ -122,7 +231,6 @@ impl ServicesEdge {
             &components,
         )
         .map_err(|message| invalid(message.to_owned()))?;
-        let currency = currency.trim().to_ascii_uppercase();
         let options = crate::services::subscriptions::currency::plan_options_of(
             &mut conn,
             tenant_id,
@@ -131,58 +239,19 @@ impl ServicesEdge {
         .await?
         .remove(&version.id)
         .unwrap_or_default();
-        // A plan with no price at all is free in every currency.
-        let unpriced = components
-            .iter()
-            .all(|c| c.prices.is_empty() && c.legacy_pricing.is_none());
-        // Never a hidden option unless the journey names it: sign-up is public.
-        let default = || {
-            sold_options(&options, &components, &currency)
-                .into_iter()
-                .find(|option| !option.hidden)
-        };
-        let option = match journey.signup_option.as_deref() {
-            // An alias the version lost falls back to its default, as at a plan change.
-            Some(alias) => resolve_option(&options, Some(&PlanOptionRef::Alias(alias.into())))
-                .ok()
-                .or_else(default),
-            None => default(),
-        }
-        .or_else(|| unpriced.then(|| options.first()).flatten())
-        .cloned();
-        let sold = unpriced
-            || option.as_ref().is_some_and(|option| {
-                crate::services::subscriptions::currency::pricing(option, &currency)
-                    .sells(&components)
-            });
-        if !sold {
-            return Err(invalid(format!(
-                "The sign-up plan is not offered in {currency}"
-            )));
-        }
-        if !currency.eq_ignore_ascii_case(&version.currency)
-            && crate::repositories::plans::load_plan_minimum(&mut conn, version.id)
-                .await?
-                .is_some()
-        {
-            return Err(invalid(format!(
-                "The sign-up plan's minimum commitment is in {}: it cannot sign up customers in {currency}",
-                version.currency
-            )));
-        }
-        let mut sold_cells = components;
-        if let Some(option) = option.as_ref() {
-            crate::services::subscriptions::currency::pricing(option, &currency)
-                .narrow(&mut sold_cells);
-        }
-        let levels = starting_levels(&sold_cells, levels).map_err(Report::new)?;
-        Ok(SignupOffer {
+        let has_minimum = crate::repositories::plans::load_plan_minimum(&mut conn, version.id)
+            .await?
+            .is_some();
+        Ok(SignupPlan {
             product_family_id: journey.product_family_id,
+            plan_name: plan.plan.name,
             plan_version_id: version.id,
-            option,
-            currency,
+            plan_currency: version.currency,
+            signup_option: journey.signup_option,
             eligibility,
-            levels,
+            components,
+            options,
+            has_minimum,
         })
     }
 
@@ -205,7 +274,7 @@ impl ServicesEdge {
                         .insert_customer_tx(conn, actor, tenant_id, customer)
                         .await?;
                     let inserted = self
-                        .subscribe_on_signup_tx(conn, actor, tenant_id, &customer, &offer)
+                        .subscribe_on_signup_tx(conn, actor, tenant_id, &customer, &offer, None)
                         .await?;
                     Ok((customer, inserted))
                 }
@@ -244,7 +313,7 @@ impl ServicesEdge {
             .transaction(|conn| {
                 let actor = &actor;
                 async move {
-                    self.subscribe_on_signup_tx(conn, actor, tenant_id, &customer, &offer)
+                    self.subscribe_on_signup_tx(conn, actor, tenant_id, &customer, &offer, None)
                         .await
                 }
                 .scope_boxed()
@@ -259,15 +328,17 @@ impl ServicesEdge {
             .ok_or_else(|| Report::new(StoreError::InsertError))
     }
 
-    /// The subscription from today, with the plan's trial, charged automatically when the
-    /// customer's invoicing entity takes cards or direct debits, else invoiced.
-    async fn subscribe_on_signup_tx(
+    /// The subscription from today, charged automatically when the customer's invoicing entity
+    /// takes cards or direct debits, else invoiced. With the plan's trial, unless started in bulk
+    /// (`origin`): those customers asked for no trial.
+    pub(super) async fn subscribe_on_signup_tx(
         &self,
         conn: &mut crate::store::PgConn,
         actor: &Actor,
         tenant_id: TenantId,
         customer: &Customer,
         offer: &SignupOffer,
+        origin: Option<SubscriptionOrigin>,
     ) -> StoreResult<Vec<CreatedSubscription>> {
         let providers = InvoicingEntityProvidersRow::resolve_providers_by_id(
             conn,
@@ -301,7 +372,11 @@ impl ServicesEdge {
                 end_date: None,
                 billing_start_date: None,
                 activation_condition: SubscriptionActivationCondition::OnStart,
-                trial: Default::default(),
+                trial: if origin.is_some() {
+                    crate::domain::trials::TrialRequest::None
+                } else {
+                    crate::domain::trials::TrialRequest::Plan
+                },
                 billing_day_anchor: None,
                 payment_methods_config: (!online).then_some(PaymentMethodsConfig::External),
                 auto_advance_invoices: true,
@@ -339,12 +414,13 @@ impl ServicesEdge {
             );
         }
         self.services
-            .persist_subscriptions(
+            .persist_subscriptions_from(
                 conn,
                 actor,
                 &processed,
                 tenant_id,
                 &self.store.settings.public_url,
+                origin,
             )
             .await
     }

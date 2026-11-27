@@ -30,6 +30,13 @@ impl BatchJobsService for BatchJobsServiceComponents {
 
         let job_type: meteroid_store::domain::enums::BatchJobTypeEnum =
             BatchJobTypeWrapper(req.job_type()).into();
+        // Started from the customer journey only, which checks who it starts and who may.
+        if job_type == meteroid_store::domain::enums::BatchJobTypeEnum::SignupPlanBackfill {
+            return Err(BatchJobApiError::InvalidArgument(
+                "Start customers on the sign-up plan from the customer journey".to_owned(),
+            )
+            .into());
+        }
 
         // Store file in S3 if provided
         const MAX_CSV_SIZE: usize = 10 * 1024 * 1024; // 10MB
@@ -214,7 +221,7 @@ impl BatchJobsService for BatchJobsServiceComponents {
 
         let res = self
             .store
-            .list_batch_jobs(tenant_id, job_type, statuses, pagination)
+            .list_batch_jobs(tenant_id, job_type, &[], statuses, pagination)
             .await
             .map_err(BatchJobApiError::from)?;
 

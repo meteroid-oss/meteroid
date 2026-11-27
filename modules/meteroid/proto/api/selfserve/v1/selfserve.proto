@@ -34,8 +34,48 @@ message SaveProductFamilyJourneyResponse {
   ProductFamilyJourney journey = 1;
 }
 
+message PreviewSignupPlanBackfillRequest {
+  string product_family_id = 1;
+  // Also start customers whose subscription in the product family ended.
+  bool include_churned = 2;
+}
+
+// How many customers with no plan in the product family a backfill starts on its free sign-up
+// plan, and how many it leaves off.
+message PreviewSignupPlanBackfillResponse {
+  string plan_name = 1;
+  uint32 customers = 2;
+  // Their subscription in the product family ended: in `customers` only with `include_churned`.
+  uint32 churned = 3;
+  // They pay in a currency the plan is not sold in.
+  uint32 not_sold = 4;
+  // The plan has an eligibility rule: `customers` counts those it leaves off too, skipped as
+  // the backfill runs.
+  bool eligibility_rule = 5;
+  // A backfill of the family still running, if any.
+  optional string running_batch_job_id = 6;
+  // Left off: their start in the family is unfinished, a subscription pending its activation or
+  // a trial's checkout, none active.
+  uint32 unfinished = 7;
+}
+
+message StartSignupPlanBackfillRequest {
+  string product_family_id = 1;
+  bool include_churned = 2;
+}
+
+message StartSignupPlanBackfillResponse {
+  string batch_job_id = 1;
+  // The customers it starts on the plan.
+  uint32 customers = 2;
+}
+
 // The self-serve journey of each product family. Needs the customer portal's self-service.
 service SelfServeJourneyService {
   rpc GetProductFamilyJourney(GetProductFamilyJourneyRequest) returns (GetProductFamilyJourneyResponse) {}
   rpc SaveProductFamilyJourney(SaveProductFamilyJourneyRequest) returns (SaveProductFamilyJourneyResponse) {}
+  // Customers without a plan, started on the free sign-up plan with no email sent: who it starts.
+  rpc PreviewSignupPlanBackfill(PreviewSignupPlanBackfillRequest) returns (PreviewSignupPlanBackfillResponse) {}
+  // Starts them, as a batch job, with no email sent.
+  rpc StartSignupPlanBackfill(StartSignupPlanBackfillRequest) returns (StartSignupPlanBackfillResponse) {}
 }

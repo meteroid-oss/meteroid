@@ -155,10 +155,15 @@ pub fn method_auth(sm: &GrpcServiceMethod) -> Option<RouteAuth> {
         | "ManagedQuantitiesService"
         | "RateCardsService"
         | "PricingPageService"
-        | "SelfServeJourneyService"
         | "EntitlementsService"
         | "ResourceTypesService"
         | "PurchaseLinksService" => rw(method, CatalogRead, CatalogManage),
+
+        // Starting customers on the sign-up plan subscribes them.
+        "SelfServeJourneyService" => match method {
+            "StartSignupPlanBackfill" => RouteAuth::Requires(SubscriptionsManage),
+            _ => rw(method, CatalogRead, CatalogManage),
+        },
 
         // ---- alerting & Signals ----
         "AlertsService" | "SignalsService" => rw(method, AlertsRead, AlertsManage),
@@ -522,6 +527,19 @@ mod tests {
         assert_eq!(
             method_auth(&gm(consolidation, "SetInvoiceConsolidation")),
             Some(RouteAuth::Requires(SettingsManage))
+        );
+    }
+
+    #[test]
+    fn starting_customers_on_the_signup_plan_subscribes_them() {
+        let service = "meteroid.api.selfserve.v1.SelfServeJourneyService";
+        assert_eq!(
+            method_auth(&gm(service, "StartSignupPlanBackfill")),
+            Some(RouteAuth::Requires(SubscriptionsManage))
+        );
+        assert_eq!(
+            method_auth(&gm(service, "PreviewSignupPlanBackfill")),
+            Some(RouteAuth::Requires(CatalogRead))
         );
     }
 

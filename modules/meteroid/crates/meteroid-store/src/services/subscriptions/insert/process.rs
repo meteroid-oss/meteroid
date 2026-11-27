@@ -7,6 +7,7 @@ use crate::domain::custom_property_definitions::CustomPropertyMode;
 use crate::domain::entity_activity::Actor;
 use crate::domain::enums::BillingPeriodEnum;
 use crate::domain::enums::{CustomPropertyEntityType, SubscriptionEventType};
+use crate::domain::outbox_event::SubscriptionOrigin;
 use crate::domain::slot_transactions::SlotTransactionNewInternal;
 use crate::domain::{
     CreateSubscription, CreateSubscriptionAddOns, CreateSubscriptionComponents,
@@ -1016,8 +1017,22 @@ impl Services {
         tenant_id: TenantId,
         public_url: &String,
     ) -> StoreResult<Vec<CreatedSubscription>> {
+        self.persist_subscriptions_from(conn, actor, processed, tenant_id, public_url, None)
+            .await
+    }
+
+    /// `persist_subscriptions`, their `subscription.created` naming `origin`.
+    pub(crate) async fn persist_subscriptions_from(
+        &self,
+        conn: &mut PgConn,
+        actor: &Actor,
+        processed: &[ProcessedSubscription],
+        tenant_id: TenantId,
+        public_url: &String,
+        origin: Option<SubscriptionOrigin>,
+    ) -> StoreResult<Vec<CreatedSubscription>> {
         self.persist_subscriptions_internal(
-            conn, actor, processed, tenant_id, public_url, false, None,
+            conn, actor, processed, tenant_id, public_url, false, None, origin,
         )
         .await
     }
@@ -1034,7 +1049,7 @@ impl Services {
         public_url: &String,
     ) -> StoreResult<Vec<CreatedSubscription>> {
         self.persist_subscriptions_internal(
-            conn, actor, processed, tenant_id, public_url, true, None,
+            conn, actor, processed, tenant_id, public_url, true, None, None,
         )
         .await
     }
@@ -1058,6 +1073,7 @@ impl Services {
             public_url,
             false,
             Some(redeemed_at),
+            None,
         )
         .await
     }
@@ -1072,6 +1088,7 @@ impl Services {
         public_url: &String,
         skip_coupon_validation: bool,
         redeemed_at: Option<chrono::DateTime<chrono::Utc>>,
+        origin: Option<SubscriptionOrigin>,
     ) -> StoreResult<Vec<CreatedSubscription>> {
         // A subscription billed at once is finalized under its customer's lock: its metering is
         // read first (outermost when inserted on a connection of its own).
@@ -1483,7 +1500,7 @@ impl Services {
                         .map_err(Into::<StoreErrorReport>::into)
                         .await?;
 
-                    services.insert_created_outbox_events_tx(conn, actor, &inserted, tenant_id)
+                    services.insert_created_outbox_events_tx(conn, actor, &inserted, tenant_id, origin)
                         .await?;
 
                     // For pending_checkout subscriptions, create checkout sessions inside the transaction

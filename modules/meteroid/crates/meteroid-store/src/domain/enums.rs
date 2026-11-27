@@ -823,6 +823,7 @@ pub enum BatchJobTypeEnum {
     SubscriptionCsvImport,
     SubscriptionPlanMigration,
     TaxReportExport,
+    SignupPlanBackfill,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

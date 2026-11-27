@@ -155,7 +155,7 @@ pub(crate) async fn plan_is_free_tx(
     let components =
         crate::repositories::price_components::price_components_of(conn, plan_version, tenant_id)
             .await?;
-    Ok(charges_nothing(&components) && !components.iter().any(includes_credit))
+    Ok(priced_at_nothing(&components))
 }
 
 /// The plan version in force on `day`: taken by the latest switch on or before it, else left by
@@ -172,6 +172,11 @@ fn version_on(
         .map(|(_, _, taken)| *taken)
         .or_else(|| switches.first().map(|(_, left, _)| *left))
         .unwrap_or(current)
+}
+
+/// Bills nothing and grants no credit, in any option and currency: a period of it writes nothing.
+pub(crate) fn priced_at_nothing(components: &[PriceComponent]) -> bool {
+    charges_nothing(components) && !components.iter().any(includes_credit)
 }
 
 /// A credit pack, paid or included.

@@ -54,6 +54,7 @@ pub mod renewals;
 pub mod sandbox_replay;
 pub(crate) mod served_usage;
 pub mod signup;
+pub mod signup_backfill;
 #[cfg(all(feature = "test-faults", debug_assertions))]
 pub mod step_faults;
 pub mod subscription_receivables;

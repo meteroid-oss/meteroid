@@ -36,6 +36,7 @@ export const JOB_TYPE_LABELS: Record<number, string> = {
   [BatchJobType.CUSTOMER_CSV_IMPORT]: 'Customer Import (CSV)',
   [BatchJobType.SUBSCRIPTION_CSV_IMPORT]: 'Subscription Import (CSV)',
   [BatchJobType.SUBSCRIPTION_PLAN_MIGRATION]: 'Subscription Plan Migration',
+  [BatchJobType.SIGNUP_PLAN_BACKFILL]: 'Customers started on the sign-up plan',
 }
 
 export const CHUNK_STATUS_CONFIG: Record<

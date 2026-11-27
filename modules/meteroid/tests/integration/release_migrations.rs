@@ -63,6 +63,7 @@ async fn release_migrations_revert_exactly_and_reapply_identically() -> TestResu
     }
     // PostgreSQL cannot drop enum values: the ones the release adds stay, unused.
     let kept = [
+        "enum BatchJobTypeEnum 6 SIGNUP_PLAN_BACKFILL",
         "enum CheckoutTypeEnum 5 TOP_UP",
         "enum DeclineKindEnum 9 DO_NOT_RETRY",
         "enum DeclineKindEnum 10 UNCONFIRMED",

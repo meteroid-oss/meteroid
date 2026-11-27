@@ -27479,6 +27479,17 @@
             "format": "int32",
             "minimum": 0
           },
+          "origin": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionOrigin",
+                "description": "Present on `subscription.created` when no request for this subscription alone created it."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "period": {
             "$ref": "#/components/schemas/BillingPeriodEnum"
           },
@@ -27624,6 +27635,13 @@
             "$ref": "#/components/schemas/PaginationResponse"
           }
         }
+      },
+      "SubscriptionOrigin": {
+        "type": "string",
+        "description": "What created a subscription, on a `subscription.created` it was not asked for alone.",
+        "enum": [
+          "signup_plan_backfill"
+        ]
       },
       "SubscriptionStatusEnum": {
         "type": "string",

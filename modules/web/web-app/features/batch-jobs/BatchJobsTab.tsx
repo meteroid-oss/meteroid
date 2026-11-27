@@ -111,6 +111,9 @@ export const BatchJobsTab: FunctionComponent = () => {
                 <SelectItem value={String(BatchJobType.SUBSCRIPTION_PLAN_MIGRATION)}>
                   Plan Migration
                 </SelectItem>
+                <SelectItem value={String(BatchJobType.SIGNUP_PLAN_BACKFILL)}>
+                  Sign-up plan backfill
+                </SelectItem>
               </SelectContent>
             </Select>
 

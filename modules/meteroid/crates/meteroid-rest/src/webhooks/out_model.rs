@@ -133,6 +133,17 @@ impl From<meteroid_store::domain::outbox_event::SubscriptionUpdateType> for Subs
     }
 }
 
+/// What created a subscription, on a `subscription.created` it was not asked for alone.
+#[derive(Clone, Copy, Debug, Serialize, o2o, utoipa::ToSchema)]
+#[from_owned(meteroid_store::domain::outbox_event::SubscriptionOrigin)]
+#[schema(as = SubscriptionOrigin)]
+#[serde(rename_all = "snake_case")]
+pub enum SubscriptionOrigin {
+    /// Customers with no plan, started in bulk on the product line's free sign-up plan: no
+    /// customer asked for it, so skip any welcome flow.
+    SignupPlanBackfill,
+}
+
 #[skip_serializing_none]
 #[derive(Clone, Debug, Serialize, o2o, utoipa::ToSchema)]
 #[schema(as = SubscriptionEventData)]
@@ -172,6 +183,9 @@ pub struct WebhookOutSubscriptionEventData {
     pub change_type: Option<SubscriptionUpdateType>,
     /// Present on `subscription.cancelled` when a reason was supplied.
     pub cancellation_reason: Option<String>,
+    /// Present on `subscription.created` when no request for this subscription alone created it.
+    #[from(~.map(Into::into))]
+    pub origin: Option<SubscriptionOrigin>,
     /// User-defined custom property values, keyed by definition key.
     #[schema(value_type = serde_json::Value)]
     pub custom_properties: serde_json::Value,

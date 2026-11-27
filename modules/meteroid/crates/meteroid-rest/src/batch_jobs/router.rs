@@ -50,6 +50,7 @@ pub async fn list_batch_jobs(
         .list_batch_jobs(
             authorized_state.tenant_id,
             job_type,
+            HIDDEN_JOB_TYPES,
             status,
             request.pagination.into(),
         )
@@ -59,7 +60,7 @@ pub async fn list_batch_jobs(
             RestApiError::from(e)
         })?;
 
-    let data = res.items.into_iter().map(map_job).collect();
+    let data = res.items.into_iter().filter_map(map_job).collect();
 
     Ok(Json(BatchJobListResponse {
         data,
@@ -104,6 +105,8 @@ pub async fn get_batch_job(
             log::error!("Error handling get_batch_job: {e}");
             RestApiError::from(e)
         })?;
+    let job_type =
+        BatchJobType::shown(detail.job.job_type.clone()).ok_or(RestApiError::NotFound)?;
 
     let has_error_csv = detail.job.error_output_key.is_some();
     let error_csv_url = if has_error_csv {
@@ -148,7 +151,7 @@ pub async fn get_batch_job(
 
     let response = BatchJobDetailResponse {
         id: detail.job.id,
-        job_type: detail.job.job_type.into(),
+        job_type,
         status: detail.job.status.into(),
         total_items: detail.job.total_items,
         processed_items: detail.job.processed_items,
@@ -198,6 +201,13 @@ pub async fn list_batch_job_failures(
     ApiValid(QueryParams(request)): ApiValid<QueryParams<BatchJobFailuresRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let tenant_id = authorized_state.tenant_id;
+    let job = app_state
+        .store
+        .get_batch_job(batch_job_id, tenant_id)
+        .await
+        .map_err(RestApiError::from)?
+        .job;
+    BatchJobType::shown(job.job_type).ok_or(RestApiError::NotFound)?;
 
     let failures = app_state
         .store
@@ -231,10 +241,10 @@ pub async fn list_batch_job_failures(
 
 // --- Mapping helpers ---
 
-fn map_job(job: meteroid_store::domain::batch_jobs::BatchJob) -> BatchJobResponse {
-    BatchJobResponse {
+fn map_job(job: meteroid_store::domain::batch_jobs::BatchJob) -> Option<BatchJobResponse> {
+    Some(BatchJobResponse {
         id: job.id,
-        job_type: job.job_type.into(),
+        job_type: BatchJobType::shown(job.job_type)?,
         status: job.status.into(),
         total_items: job.total_items,
         processed_items: job.processed_items,
@@ -243,7 +253,7 @@ fn map_job(job: meteroid_store::domain::batch_jobs::BatchJob) -> BatchJobRespons
         created_at: job.created_at.into(),
         completed_at: job.completed_at.map(Into::into),
         input_file_name: job.input_file_name,
-    }
+    })
 }
 
 fn map_failure(
