@@ -3,7 +3,6 @@ import { Cross2Icon } from '@radix-ui/react-icons'
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
-import { Button } from '@ui/components/ui/button'
 import { cn } from '@ui/lib'
 
 const Sheet = SheetPrimitive.Root
@@ -83,14 +82,8 @@ const SheetContent = React.forwardRef<
     >
       {children}
       {/* A 26px round close button: a faint fill, the cross in the quiet grey. */}
-      <SheetPrimitive.Close className="absolute right-4 top-4 rounded-full ring-offset-background focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none">
-        <Button
-          size="icon"
-          variant="ghost"
-          className="size-[26px] rounded-full bg-foreground/[0.04] text-faint-foreground hover:bg-foreground/10 hover:text-foreground"
-        >
-          <Cross2Icon className="size-3.5" />
-        </Button>
+      <SheetPrimitive.Close className="absolute right-4 top-4 flex size-[26px] items-center justify-center rounded-full bg-foreground/[0.04] text-faint-foreground ring-offset-background transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none">
+        <Cross2Icon className="size-3.5" />
         <span className="sr-only">Close</span>
       </SheetPrimitive.Close>
     </SheetPrimitive.Content>
