@@ -53,6 +53,8 @@ pub enum LeaderLock {
     DomainRecheck = 92_000_024,
     /// One-shot re-encryption of secrets sealed under the legacy nonce, at startup.
     SecretsReencryption = 92_000_025,
+    /// One-shot upgrade of the plan versions still priced by `legacy_fee`, at startup.
+    LegacyPlanUpgrade = 92_000_026,
     /// Marks customers whose entitlement rows cross a validity bound.
     EntitlementValidityScan = 92_000_031,
     // Retired keys, never reused: a replica of an earlier version may still hold one.

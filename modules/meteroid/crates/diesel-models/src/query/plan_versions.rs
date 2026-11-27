@@ -540,6 +540,53 @@ impl PlanVersionRow {
     }
 }
 
+impl PlanVersionRow {
+    /// Versions still priced by their components' `legacy_fee` (v1), by id after `after`.
+    pub async fn list_legacy_pricing(
+        conn: &mut PgConn,
+        after: Option<PlanVersionId>,
+        limit: i64,
+    ) -> DbResult<Vec<(PlanVersionId, TenantId)>> {
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let mut query = pv_dsl::plan_version
+            .filter(pv_dsl::uses_product_pricing.eq(false))
+            .select((pv_dsl::id, pv_dsl::tenant_id))
+            .order(pv_dsl::id)
+            .limit(limit)
+            .into_boxed();
+        if let Some(after) = after {
+            query = query.filter(pv_dsl::id.gt(after));
+        }
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while listing v1 plan versions")
+            .into_db_result()
+    }
+
+    pub async fn mark_product_pricing(
+        conn: &mut PgConn,
+        id: PlanVersionId,
+        tenant_id: TenantId,
+    ) -> DbResult<()> {
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use diesel_async::RunQueryDsl;
+
+        diesel::update(pv_dsl::plan_version)
+            .filter(pv_dsl::id.eq(id))
+            .filter(pv_dsl::tenant_id.eq(tenant_id))
+            .set(pv_dsl::uses_product_pricing.eq(true))
+            .execute(conn)
+            .await
+            .attach("Error while marking a plan version as product priced")
+            .into_db_result()
+            .map(|_| ())
+    }
+}
+
 impl PlanVersionRowPatch {
     pub async fn update_draft(&self, conn: &mut PgConn) -> DbResult<PlanVersionRow> {
         use crate::schema::plan_version::dsl as pv_dsl;

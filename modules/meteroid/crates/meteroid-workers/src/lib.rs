@@ -514,6 +514,30 @@ pub async fn spawn_workers(
         });
     }
     {
+        use distributed_lock::LeaderElection;
+        use meteroid_store::leader_lock::LeaderLock;
+        use meteroid_store::leader_lock::PgLeaderElection;
+
+        let store = store.clone();
+        let elector = PgLeaderElection::new(store.pool.clone(), LeaderLock::LegacyPlanUpgrade);
+        join_set.spawn(async move {
+            let guard = match elector.try_acquire().await {
+                Ok(Some(guard)) => guard,
+                Ok(None) => return,
+                Err(e) => {
+                    log::warn!("v1 plan upgrade skipped, leader election failed: {e:?}");
+                    return;
+                }
+            };
+            match store.upgrade_legacy_plan_versions().await {
+                Ok(report) if report == Default::default() => {}
+                Ok(report) => log::info!("Upgraded v1 plan versions: {report:?}"),
+                Err(e) => log::warn!("v1 plan upgrade failed: {e:?}"),
+            }
+            guard.release().await;
+        });
+    }
+    {
         let services = services.clone();
         join_set.spawn(async move {
             billing::controller::run_worker(services).await;

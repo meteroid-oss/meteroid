@@ -31,15 +31,17 @@ pub(crate) const LOWER_LEVEL_AT_PERIOD_END: &str =
 
 /// The levels of `component`: the capacity prices of its plan component's cell in the
 /// subscription's option, currency and cadence, fewest included units first. Empty for a component
-/// not from a plan, or not a capacity.
+/// not from a plan, not a capacity, or billing the fee it stored (v1): it has no level to leave.
 pub(crate) async fn levels_of(
     conn: &mut PgConn,
     subscription: &Subscription,
     component: &SubscriptionComponent,
 ) -> StoreResult<Vec<Price>> {
-    let (Some(price_component_id), SubscriptionFee::Capacity { .. }) =
-        (component.price_component_id, &component.fee)
-    else {
+    let (Some(price_component_id), Some(_), SubscriptionFee::Capacity { .. }) = (
+        component.price_component_id,
+        component.price_id,
+        &component.fee,
+    ) else {
         return Ok(Vec::new());
     };
     let cells = PlanComponentPriceRow::list_by_component_ids(conn, &[price_component_id])

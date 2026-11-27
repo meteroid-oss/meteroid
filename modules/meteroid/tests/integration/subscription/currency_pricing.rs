@@ -1283,3 +1283,477 @@ async fn the_plans_list_reads_a_legacy_charge() {
     assert_eq!(priced.amount, Some(dec!(49)));
     assert_eq!(priced.period, Some(Monthly));
 }
+
+/// `version` made a v1 one, `component` priced by `fee` alone: no linked price, product nor
+/// structure.
+async fn to_v1(
+    env: &TestEnv,
+    version: PlanVersionId,
+    component: PriceComponentId,
+    fee: meteroid_store::domain::FeeType,
+) {
+    use diesel_async::RunQueryDsl;
+    let fee = serde_json::to_string(&fee).expect("a legacy fee");
+    let mut conn = env.conn().await;
+    diesel::sql_query("DELETE FROM plan_component_price WHERE plan_component_id = $1")
+        .bind::<diesel::sql_types::Uuid, _>(component.as_uuid())
+        .execute(&mut conn)
+        .await
+        .expect("its prices dropped");
+    diesel::sql_query(
+        "UPDATE price_component SET legacy_fee = $2::jsonb, product_id = NULL, fee_structure = NULL WHERE id = $1",
+    )
+    .bind::<diesel::sql_types::Uuid, _>(component.as_uuid())
+    .bind::<diesel::sql_types::Text, _>(fee)
+    .execute(&mut conn)
+    .await
+    .expect("its legacy fee");
+    diesel::sql_query("UPDATE plan_version SET uses_product_pricing = false WHERE id = $1")
+        .bind::<diesel::sql_types::Uuid, _>(version.as_uuid())
+        .execute(&mut conn)
+        .await
+        .expect("a v1 version");
+}
+
+async fn uses_product_pricing(env: &TestEnv, version: PlanVersionId) -> bool {
+    use diesel_async::RunQueryDsl;
+    #[derive(diesel::QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        uses_product_pricing: bool,
+    }
+    diesel::sql_query("SELECT uses_product_pricing FROM plan_version WHERE id = $1")
+        .bind::<diesel::sql_types::Uuid, _>(version.as_uuid())
+        .get_result::<Row>(&mut env.conn().await)
+        .await
+        .expect("the version")
+        .uses_product_pricing
+}
+
+async fn price_id_of(env: &TestEnv, sub: SubscriptionId) -> Option<PriceId> {
+    env.store()
+        .get_subscription_details(TENANT_ID, sub)
+        .await
+        .expect("details")
+        .price_components
+        .remove(0)
+        .price_id
+}
+
+fn v1_rate(rates: &[(BillingPeriodEnum, Decimal)]) -> meteroid_store::domain::FeeType {
+    meteroid_store::domain::FeeType::Rate {
+        rates: rates
+            .iter()
+            .map(|(term, price)| meteroid_store::domain::TermRate {
+                term: *term,
+                price: *price,
+            })
+            .collect(),
+    }
+}
+
+/// The start-up upgrade prices a v1 version as its draft would be, once: a subscription made
+/// before keeps billing its stored fee, one made after bills the price.
+#[tokio::test]
+async fn a_v1_version_is_upgraded_and_its_subscriptions_keep_their_fee() {
+    let env = test_env().await;
+    let (version, component) = plan(&env, vec![rate("EUR", Monthly, dec!(49))]).await;
+    to_v1(&env, version, component, v1_rate(&[(Monthly, dec!(49))])).await;
+    let before = subscribe(&env, CUST_UBER_ID, version, None, None, None)
+        .await
+        .expect("on v1");
+    assert_eq!(price_id_of(&env, before).await, None);
+
+    let report = env
+        .store()
+        .upgrade_legacy_plan_versions()
+        .await
+        .expect("the upgrade");
+    assert!(report.upgraded >= 1 && report.failed == 0, "{report:?}");
+    assert!(uses_product_pricing(&env, version).await);
+
+    let options = env
+        .store()
+        .list_plan_options(TENANT_ID, version)
+        .await
+        .expect("the options");
+    let charge = env
+        .store()
+        .list_price_components(version, TENANT_ID)
+        .await
+        .expect("the charges")
+        .remove(0);
+    assert!(charge.legacy_pricing.is_none() && charge.product_id.is_some());
+    assert_eq!(charge.prices.len(), 1);
+    assert_eq!(charge.prices[0].currency, "EUR");
+    assert!(matches!(charge.prices[0].pricing, Pricing::Rate { rate } if rate == dec!(49)));
+    assert_eq!(charge.option_prices.len(), options.len());
+
+    env.store()
+        .upgrade_legacy_plan_versions()
+        .await
+        .expect("a second run");
+    let again = env
+        .store()
+        .list_price_components(version, TENANT_ID)
+        .await
+        .expect("the charges")
+        .remove(0);
+    assert_eq!(again.prices.len(), 1, "no second price");
+
+    assert_eq!(price_id_of(&env, before).await, None, "left as it was");
+    assert_eq!(
+        fee_of(&env, before, "Platform").await,
+        (dec!(49), SubscriptionFeeBillingPeriod::Monthly)
+    );
+    let after = subscribe(&env, CUST_SPOTIFY_ID, version, None, None, None)
+        .await
+        .expect("on the upgraded version");
+    assert_eq!(price_id_of(&env, after).await, Some(charge.prices[0].id));
+    assert_eq!(
+        fee_of(&env, after, "Platform").await,
+        (dec!(49), SubscriptionFeeBillingPeriod::Monthly)
+    );
+}
+
+/// A v1 rate on several terms would need an option per term: its version stays v1, untouched.
+#[tokio::test]
+async fn a_v1_rate_on_several_terms_stays_v1() {
+    let env = test_env().await;
+    let (version, component) = plan(&env, vec![rate("EUR", Monthly, dec!(49))]).await;
+    to_v1(
+        &env,
+        version,
+        component,
+        v1_rate(&[(Monthly, dec!(49)), (Annual, dec!(490))]),
+    )
+    .await;
+
+    let report = env
+        .store()
+        .upgrade_legacy_plan_versions()
+        .await
+        .expect("the upgrade");
+    assert!(report.several_cadences >= 1, "{report:?}");
+    assert!(!uses_product_pricing(&env, version).await);
+    let charge = env
+        .store()
+        .list_price_components(version, TENANT_ID)
+        .await
+        .expect("the charges")
+        .remove(0);
+    assert!(charge.prices.is_empty() && charge.legacy_pricing.is_some());
+}
+
+fn parameterized(
+    component: PriceComponentId,
+    parameters: Option<ComponentParameters>,
+) -> Option<CreateSubscriptionComponents> {
+    parameters.map(|parameters| CreateSubscriptionComponents {
+        parameterized_components: vec![ComponentParameterization {
+            component_id: component,
+            parameters,
+        }],
+        overridden_components: vec![],
+        extra_components: vec![],
+        remove_components: vec![],
+    })
+}
+
+/// The only charge of `sub` as billed: its period and fee, the seat count and its quantity left
+/// out (seats are counted by their ledger).
+async fn billed(
+    env: &TestEnv,
+    sub: SubscriptionId,
+) -> (SubscriptionFeeBillingPeriod, serde_json::Value) {
+    let component = env
+        .store()
+        .get_subscription_details(TENANT_ID, sub)
+        .await
+        .expect("details")
+        .price_components
+        .remove(0);
+    let mut fee = serde_json::to_value(&component.fee).expect("a fee");
+    if let Some(fields) = fee
+        .as_object_mut()
+        .and_then(|f| f.values_mut().next())
+        .and_then(|fields| fields.as_object_mut())
+    {
+        fields.remove("quantity_id");
+        fields.remove("initial_slots");
+    }
+    (component.period, fee)
+}
+
+/// What a subscription on a v1 charge billed, a subscription on its upgraded version bills.
+async fn bills_the_same_once_upgraded(
+    env: &TestEnv,
+    fee: meteroid_store::domain::FeeType,
+    parameters: Option<ComponentParameters>,
+) {
+    let (version, component) = plan(env, vec![rate("EUR", Monthly, dec!(1))]).await;
+    to_v1(env, version, component, fee.clone()).await;
+    let before = subscribe(
+        env,
+        CUST_UBER_ID,
+        version,
+        None,
+        parameterized(component, parameters.clone()),
+        None,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("on v1 {fee:?}: {e:?}"));
+    let report = env
+        .store()
+        .upgrade_legacy_plan_versions()
+        .await
+        .expect("the upgrade");
+    assert_eq!(report.failed, 0, "{fee:?}");
+    assert!(uses_product_pricing(env, version).await, "{fee:?}");
+    let after = subscribe(
+        env,
+        CUST_SPOTIFY_ID,
+        version,
+        None,
+        parameterized(component, parameters),
+        None,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("upgraded {fee:?}: {e:?}"));
+    assert!(price_id_of(env, after).await.is_some(), "{fee:?}");
+    assert_eq!(
+        billed(env, before).await,
+        billed(env, after).await,
+        "{fee:?}"
+    );
+}
+
+#[tokio::test]
+async fn every_v1_fee_bills_the_same_once_upgraded() {
+    use meteroid_store::domain::enums::BillingType;
+    use meteroid_store::domain::price_components::{
+        CreditExpiry, DowngradePolicy, TierRow, UpgradePolicy,
+    };
+    use meteroid_store::domain::{FeeType, TermRate};
+    let env = test_env().await;
+    let tier = |first_unit, rate| TierRow {
+        first_unit,
+        rate,
+        flat_fee: None,
+        flat_cap: None,
+    };
+    let seats = |count| ComponentParameters {
+        initial_slot_count: Some(count),
+        billing_period: None,
+        committed_capacity: None,
+    };
+    let cases = vec![
+        (
+            FeeType::Slot {
+                rates: vec![TermRate {
+                    term: Quarterly,
+                    price: dec!(12.5),
+                }],
+                slot_unit_name: "seat".to_string(),
+                upgrade_policy: UpgradePolicy::Prorated,
+                downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
+                minimum_count: Some(3),
+                quota: Some(40),
+            },
+            Some(seats(7)),
+        ),
+        (
+            FeeType::Usage {
+                metric_id: METRIC_BANDWIDTH,
+                pricing: UsagePricingModel::Tiered {
+                    tiers: vec![tier(0, dec!(0)), tier(1000, dec!(0.02))],
+                    block_size: None,
+                },
+                cadence: Annual,
+            },
+            None,
+        ),
+        (
+            FeeType::Usage {
+                metric_id: METRIC_BANDWIDTH,
+                pricing: UsagePricingModel::Package {
+                    block_size: 100,
+                    rate: dec!(3),
+                },
+                cadence: Monthly,
+            },
+            None,
+        ),
+        (
+            FeeType::ExtraRecurring {
+                unit_price: dec!(15),
+                quantity: 2,
+                billing_type: BillingType::Arrears,
+                cadence: Quarterly,
+            },
+            None,
+        ),
+        (
+            FeeType::OneTime {
+                unit_price: dec!(500),
+                quantity: 1,
+            },
+            None,
+        ),
+        (
+            FeeType::Credit {
+                unit_price: dec!(90),
+                quantity: 1,
+                credit_amount: dec!(100),
+                expiry: Some(CreditExpiry::Month(12)),
+                once: false,
+            },
+            None,
+        ),
+    ];
+    for (fee, parameters) in cases {
+        bills_the_same_once_upgraded(&env, fee, parameters).await;
+    }
+}
+
+/// A v1 capacity row bills its stored level and offers no level to move to; on the upgraded
+/// version a subscription buys the level it asks.
+#[tokio::test]
+async fn a_v1_capacity_row_offers_no_level_and_the_upgraded_version_sells_each() {
+    use meteroid_store::domain::FeeType;
+    use meteroid_store::domain::price_components::CapacityThreshold;
+    let env = test_env().await;
+    let level = |included_amount, price| CapacityThreshold {
+        included_amount,
+        price,
+        per_unit_overage: dec!(0.01),
+    };
+    let (version, component) = plan(&env, vec![rate("EUR", Monthly, dec!(1))]).await;
+    to_v1(
+        &env,
+        version,
+        component,
+        FeeType::Capacity {
+            metric_id: METRIC_BANDWIDTH,
+            thresholds: vec![
+                level(50_000, dec!(199)),
+                level(125_000, dec!(479)),
+                level(250_000, dec!(899)),
+            ],
+            cadence: Monthly,
+        },
+    )
+    .await;
+    let asked = |committed| ComponentParameters {
+        initial_slot_count: None,
+        billing_period: None,
+        committed_capacity: Some(committed),
+    };
+    let v1 = subscribe(
+        &env,
+        CUST_UBER_ID,
+        version,
+        None,
+        parameterized(
+            component,
+            Some(ComponentParameters {
+                billing_period: Some(Monthly),
+                ..asked(50_000)
+            }),
+        ),
+        None,
+    )
+    .await
+    .expect("on v1");
+
+    env.store()
+        .upgrade_legacy_plan_versions()
+        .await
+        .expect("the upgrade");
+
+    let levels = env
+        .services()
+        .list_capacity_levels(TENANT_ID, v1)
+        .await
+        .expect("the levels");
+    assert!(
+        levels.is_empty(),
+        "a stored fee has no level to leave: {levels:?}"
+    );
+    let after = subscribe(
+        &env,
+        CUST_SPOTIFY_ID,
+        version,
+        None,
+        parameterized(component, Some(asked(125_000))),
+        None,
+    )
+    .await
+    .expect("the 125k level");
+    let (_, fee) = billed(&env, after).await;
+    assert_eq!(fee["Capacity"]["included"], 125_000, "{fee}");
+}
+
+/// A v1 charge is sold as the product its draft made for it; a charge billing something else
+/// under the same name gets its own.
+#[tokio::test]
+async fn a_v1_charge_reuses_the_product_of_the_same_charge() {
+    use meteroid_store::repositories::PlansInterface;
+    let env = test_env().await;
+    let (version, component) = plan(&env, vec![rate("EUR", Monthly, dec!(49))]).await;
+    to_v1(&env, version, component, v1_rate(&[(Monthly, dec!(49))])).await;
+    let draft = env
+        .store()
+        .copy_plan_version_to_draft(version, TENANT_ID)
+        .await
+        .expect("a draft");
+    let drafted = env
+        .store()
+        .list_price_components(draft.id, TENANT_ID)
+        .await
+        .expect("the draft's charges")
+        .remove(0)
+        .product_id
+        .expect("a product");
+
+    env.store()
+        .upgrade_legacy_plan_versions()
+        .await
+        .expect("the upgrade");
+    let upgraded = env
+        .store()
+        .list_price_components(version, TENANT_ID)
+        .await
+        .expect("the charges")
+        .remove(0);
+    assert_eq!(upgraded.product_id, Some(drafted));
+}
+
+/// A legacy fee that doesn't read leaves its version v1, nothing written.
+#[tokio::test]
+async fn an_unreadable_v1_fee_leaves_its_version_untouched() {
+    use diesel_async::RunQueryDsl;
+    let env = test_env().await;
+    let (version, component) = plan(&env, vec![rate("EUR", Monthly, dec!(49))]).await;
+    to_v1(&env, version, component, v1_rate(&[(Monthly, dec!(49))])).await;
+    diesel::sql_query(
+        "UPDATE price_component SET legacy_fee = '{\"Rate\": {\"oops\": 1}}' WHERE id = $1",
+    )
+    .bind::<diesel::sql_types::Uuid, _>(component.as_uuid())
+    .execute(&mut env.conn().await)
+    .await
+    .expect("an unreadable fee");
+
+    let report = env
+        .store()
+        .upgrade_legacy_plan_versions()
+        .await
+        .expect("the upgrade runs");
+    assert!(report.failed >= 1, "{report:?}");
+    assert!(!uses_product_pricing(&env, version).await);
+    let charge = env
+        .store()
+        .list_price_components_with_conn(&mut env.conn().await, version, TENANT_ID)
+        .await;
+    assert!(charge.is_err(), "still unreadable, never half converted");
+}

@@ -78,6 +78,7 @@ mod filter_resolution;
 pub mod historical_rates;
 pub mod instance_telemetry;
 pub mod invoicing_entities;
+pub mod legacy_plan_versions;
 pub mod org_security_audit_log;
 pub mod organizations;
 pub mod outbox;

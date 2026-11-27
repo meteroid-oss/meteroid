@@ -5,10 +5,7 @@ use crate::store::{PgConn, Store};
 
 use crate::domain::credit_exhausted::CreditExhaustedRule;
 use crate::domain::entitlements::Entitlement;
-use crate::domain::price_components::FeeType;
-use crate::domain::prices::{
-    LegacyPricingData, extract_fee_structure, extract_legacy_pricing, extract_pricing,
-};
+use crate::domain::prices::{LegacyPricingData, extract_legacy_pricing};
 use crate::domain::{
     FullPlan, FullPlanNew, PaginatedVec, PaginationRequest, Plan, PlanAndVersionPatch, PlanFilters,
     PlanOverview, PlanPatch, PlanStatusEnum, PlanVersion, PlanVersionFilter, PlanVersionNew,
@@ -18,15 +15,16 @@ use crate::domain::{
 use crate::errors::StoreError;
 use crate::hooks::USAGE_CONTROLS_UNAVAILABLE;
 use crate::repositories::entitlements::insert_entitlement_specs;
+use crate::repositories::legacy_plan_versions::{legacy_components, upgrade_legacy_components};
 use crate::repositories::plan_options::{
-    copy_options, insert_options_and_links, options_by_version, version_options,
+    copy_options, insert_options_and_links, options_by_version,
 };
 use crate::repositories::price_components::{attach_prices, resolve_component_internal};
+use common_domain::ids::EntitlementEntityId;
 use common_domain::ids::{
     BaseId, PlanId, PlanVersionId, PriceComponentId, ProductFamilyId, ProductId, ResourceTypeId,
     TenantId,
 };
-use common_domain::ids::{EntitlementEntityId, PriceId};
 use common_eventbus::Event;
 use diesel_models::entitlements::EntitlementRow;
 use diesel_models::plan_component_prices::{PlanComponentPriceRow, PlanComponentPriceRowNew};
@@ -37,9 +35,8 @@ use diesel_models::plans::{
     FullPlanRow, PlanRow, PlanRowNew, PlanRowOverview, PlanRowPatch, SelfServicePlanRow,
 };
 use diesel_models::price_components::PriceComponentRow;
-use diesel_models::prices::PriceRowNew;
 use diesel_models::product_families::ProductFamilyRow;
-use diesel_models::products::{ProductRow, ProductRowNew};
+use diesel_models::products::ProductRow;
 use diesel_models::tenants::TenantRow;
 use error_stack::{Report, bail};
 use meteroid_store_macros::with_conn_delegate;
@@ -963,10 +960,15 @@ impl PlansInterface for Store {
     ) -> StoreResult<PlanVersion> {
         self.transaction(|conn| {
             async move {
-                let original =
-                    PlanVersionRow::find_by_id_and_tenant_id(conn, plan_version_id, auth_tenant_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
+                // Locked: the start-up v1 upgrade converts it under the same lock, never midway
+                // through the copy.
+                let original = PlanVersionRow::select_for_update_by_id_and_tenant(
+                    conn,
+                    plan_version_id,
+                    auth_tenant_id,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
 
                 // Clear draft_version_id before deleting old drafts to avoid FK violation
                 PlanRowPatch {
@@ -1073,121 +1075,24 @@ impl PlansInterface for Store {
                     }
                 }
 
-                // Auto-upgrade v1 components to v2 when source plan didn't use product pricing
                 if !original_uses_product_pricing {
-                    let plan_with_version =
+                    let product_family_id =
                         PlanRow::get_with_version(conn, original.id, auth_tenant_id)
                             .await
-                            .map_err(Into::<Report<StoreError>>::into)?;
-                    let product_family_id = plan_with_version.plan.product_family_id;
-
-                    let dst_component_ids: Vec<_> = dst_components.iter().map(|c| c.id).collect();
-                    let existing_pcp =
-                        PlanComponentPriceRow::list_by_component_ids(conn, &dst_component_ids)
-                            .await
-                            .map_err(Into::<Report<StoreError>>::into)?;
-                    let components_with_pcp: std::collections::HashSet<_> =
-                        existing_pcp.iter().map(|p| p.plan_component_id).collect();
-
-                    let options: Vec<common_domain::ids::PlanOptionId> =
-                        version_options(conn, auth_tenant_id, new.id)
-                            .await?
-                            .into_iter()
-                            .map(|option| option.id)
-                            .collect();
-                    let mut upgrade_pcp_rows = Vec::new();
-                    for comp in &dst_components {
-                        if components_with_pcp.contains(&comp.id) {
-                            continue;
-                        }
-
-                        if let Some(ref legacy_fee_value) = comp.legacy_fee {
-                            let fee: FeeType = serde_json::from_value(legacy_fee_value.clone())
-                                .map_err(|e| {
-                                    Report::new(StoreError::SerdeError(
-                                        "Failed to parse legacy_fee".to_string(),
-                                        e,
-                                    ))
-                                })?;
-
-                            // The v1 fee's structure becomes the charge's, its product created
-                            // without one when it has none.
-                            let (_, fee_structure) = extract_fee_structure(&fee);
-                            let fee_structure =
-                                crate::repositories::price_components::charge_structure_tx(
-                                    conn,
-                                    auth_tenant_id,
-                                    fee_structure,
-                                )
-                                .await?;
-                            let product_id = if let Some(pid) = comp.product_id {
-                                pid
-                            } else {
-                                ProductRowNew {
-                                    id: ProductId::new(),
-                                    name: comp.name.clone(),
-                                    description: None,
-                                    tenant_id: auth_tenant_id,
-                                    product_family_id,
-                                    catalog: true,
-                                    tax_category_id: None,
-                                    icon: None,
-                                    color: None,
-                                }
-                                .insert(conn)
-                                .await
-                                .map_err(Into::<Report<StoreError>>::into)?
-                                .id
-                            };
-                            let mut updated_comp = comp.clone();
-                            updated_comp.product_id = Some(product_id);
-                            updated_comp.fee_structure =
-                                crate::domain::price_components::structure_json(Some(
-                                    &fee_structure,
-                                ))?;
-                            updated_comp
-                                .update(conn, auth_tenant_id)
-                                .await
-                                .map_err(Into::<Report<StoreError>>::into)?;
-
-                            let pricing_list = extract_pricing(&fee);
-                            for (cadence, pricing) in &pricing_list {
-                                let price_row = PriceRowNew {
-                                    id: PriceId::new(),
-                                    product_id,
-                                    cadence: (*cadence).into(),
-                                    currency: original_currency.clone(),
-                                    pricing: serde_json::to_value(pricing).map_err(|e| {
-                                        Report::new(StoreError::SerdeError(
-                                            "Failed to serialize pricing".to_string(),
-                                            e,
-                                        ))
-                                    })?,
-                                    tenant_id: auth_tenant_id,
-                                    catalog: true,
-                                    credit_unit_id: None,
-                                    credit_unit_rate: None,
-                                }
-                                .insert(conn)
-                                .await
-                                .map_err(Into::<Report<StoreError>>::into)?;
-
-                                upgrade_pcp_rows.extend(options.iter().map(|option_id| {
-                                    PlanComponentPriceRowNew {
-                                        plan_component_id: comp.id,
-                                        price_id: price_row.id,
-                                        option_id: *option_id,
-                                    }
-                                }));
-                            }
-                        }
-                    }
-
-                    if !upgrade_pcp_rows.is_empty() {
-                        PlanComponentPriceRowNew::insert_batch(conn, &upgrade_pcp_rows)
-                            .await
-                            .map_err(Into::<Report<StoreError>>::into)?;
-                    }
+                            .map_err(Into::<Report<StoreError>>::into)?
+                            .plan
+                            .product_family_id;
+                    let legacy = legacy_components(conn, auth_tenant_id, new.id).await?;
+                    upgrade_legacy_components(
+                        conn,
+                        auth_tenant_id,
+                        new.id,
+                        &original_currency,
+                        product_family_id,
+                        legacy,
+                        &[],
+                    )
+                    .await?;
                 }
 
                 diesel_models::schedules::ScheduleRow::clone_all(conn, original.id, new.id)

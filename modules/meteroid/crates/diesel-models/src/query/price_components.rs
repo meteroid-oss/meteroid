@@ -4,9 +4,10 @@ use std::collections::HashMap;
 
 use crate::{DbResult, PgConn};
 
-use common_domain::ids::{BaseId, PlanVersionId, PriceComponentId, ProductId, TenantId};
+use common_domain::ids::{BaseId, PlanId, PlanVersionId, PriceComponentId, ProductId, TenantId};
 use diesel::{
-    ExpressionMethods, Insertable, IntoSql, OptionalExtension, QueryDsl, SelectableHelper,
+    ExpressionMethods, Insertable, IntoSql, JoinOnDsl, NullableExpressionMethods,
+    OptionalExtension, QueryDsl, SelectableHelper,
 };
 use error_stack::ResultExt;
 use itertools::Itertools;
@@ -48,6 +49,33 @@ struct PriceChargeStructureRow {
     price_id: common_domain::ids::PriceId,
     #[diesel(sql_type = diesel::sql_types::Jsonb)]
     fee_structure: serde_json::Value,
+}
+
+/// The live products the charges of `plan_id` are sold as, with each charge's name and structure,
+/// the latest version's first.
+pub async fn products_by_charge_name(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    plan_id: PlanId,
+) -> DbResult<Vec<(String, ProductId, serde_json::Value)>> {
+    use crate::schema::plan_version::dsl as pv;
+    use crate::schema::price_component::dsl as pc;
+    use crate::schema::product::dsl as p;
+    use diesel_async::RunQueryDsl;
+
+    pc::price_component
+        .inner_join(pv::plan_version)
+        .inner_join(p::product.on(pc::product_id.eq(p::id.nullable())))
+        .filter(pv::plan_id.eq(plan_id))
+        .filter(pv::tenant_id.eq(tenant_id))
+        .filter(p::archived_at.is_null())
+        .filter(pc::fee_structure.is_not_null())
+        .order(pv::version.desc())
+        .select((pc::name, p::id, pc::fee_structure.assume_not_null()))
+        .get_results(conn)
+        .await
+        .attach("Error while listing the products of a plan's charges")
+        .into_db_result()
 }
 
 /// The structures of the charges each of `price_ids` is linked to: plan components (in any
