@@ -350,13 +350,20 @@ impl MandateOps for StancerConnector {
     async fn fetch_payment_method(
         &self,
         external_payment_method_id: &str,
-        _external_customer_id: &str,
+        external_customer_id: &str,
     ) -> Result<PaymentMethodSnapshot, Report<ConnectorError>> {
         let secret_key = self.secret_key();
         let card = Self::client()
             .get_card(external_payment_method_id, &secret_key)
             .await
             .map_err(|e| map_stancer_error(StancerOp::PaymentMethod, e))?;
+        // The lookup spans the whole provider account: only the customer's own is accepted.
+        super::error::ensure_owned_by(
+            "Stancer card",
+            &card.id,
+            card.customer.as_deref(),
+            external_customer_id,
+        )?;
         // Cards carry no metadata — meteroid_* fields stay None.
         Ok(snapshot_from_card(card, &HashMap::new(), None))
     }

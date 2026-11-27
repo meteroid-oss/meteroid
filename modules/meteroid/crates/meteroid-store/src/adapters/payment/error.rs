@@ -124,3 +124,37 @@ pub(crate) fn adoption_mismatch(
         report
     }
 }
+
+/// A payment method looked up by id across the whole provider account belongs to `customer`:
+/// refused unless the provider names that customer as its owner.
+pub(crate) fn ensure_owned_by(
+    what: &str,
+    id: &str,
+    owner: Option<&str>,
+    customer: &str,
+) -> Result<(), Report<ConnectorError>> {
+    if owner == Some(customer) {
+        Ok(())
+    } else {
+        Err(Report::new(ConnectorError::CustomerOp(format!(
+            "{what} {id} does not belong to customer {customer}"
+        ))))
+    }
+}
+
+#[cfg(test)]
+mod ownership_tests {
+    use super::*;
+
+    #[test]
+    fn only_the_customer_s_own_method_is_accepted() {
+        assert!(ensure_owned_by("mandate", "MD1", Some("CU1"), "CU1").is_ok());
+        for owner in [Some("CU2"), None] {
+            let refused = ensure_owned_by("mandate", "MD1", owner, "CU1").unwrap_err();
+            assert!(matches!(
+                refused.current_context(),
+                ConnectorError::CustomerOp(_)
+            ));
+        }
+    }
+}

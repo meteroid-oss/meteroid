@@ -516,7 +516,7 @@ impl MandateOps for GoCardlessConnector {
     async fn fetch_payment_method(
         &self,
         external_payment_method_id: &str,
-        _external_customer_id: &str,
+        external_customer_id: &str,
     ) -> Result<PaymentMethodSnapshot, Report<ConnectorError>> {
         let token = self.access_token();
         let client = self.client();
@@ -524,6 +524,13 @@ impl MandateOps for GoCardlessConnector {
             .get_mandate(external_payment_method_id, &token)
             .await
             .map_err(|e| map_gc_error(GcOp::PaymentMethod, e))?;
+        // The lookup spans the whole provider account: only the customer's own is accepted.
+        super::error::ensure_owned_by(
+            "GoCardless mandate",
+            &mandate.id,
+            mandate.links.customer.as_deref(),
+            external_customer_id,
+        )?;
         Ok(snapshot_from_mandate(
             mandate.id,
             mandate.scheme,
