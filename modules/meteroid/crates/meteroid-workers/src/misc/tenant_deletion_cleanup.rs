@@ -1,4 +1,4 @@
-//! Worker that hard-deletes `PendingDeletion` tenants: purges their ClickHouse
+//! Worker that hard-deletes `PendingDeletion` tenants past their restore window: purges their ClickHouse
 //! (metering, then the edition's analytics) and object-store data, deletes their Postgres rows (cascade), then removes
 //! any archived organization left with no tenants. Schedule is configurable.
 

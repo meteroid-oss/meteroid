@@ -357,11 +357,12 @@ impl TenantRow {
         .into_db_result()
     }
 
-    /// Up to `limit` tenant ids currently pending deletion (the cleanup worker's
-    /// work list). The worker drains in batches, re-querying until fewer than
-    /// `limit` come back.
+    /// Up to `limit` ids of tenants pending deletion since before `deleted_before` (the
+    /// cleanup worker's work list). The worker drains in batches, re-querying until fewer
+    /// than `limit` come back.
     pub async fn list_ids_pending_deletion(
         conn: &mut PgConn,
+        deleted_before: chrono::NaiveDateTime,
         limit: i64,
     ) -> DbResult<Vec<TenantId>> {
         use crate::schema::tenant::dsl as t_dsl;
@@ -369,11 +370,33 @@ impl TenantRow {
 
         t_dsl::tenant
             .filter(t_dsl::status.eq(TenantStatusEnum::PendingDeletion))
+            .filter(t_dsl::archived_at.lt(deleted_before))
             .select(t_dsl::id)
             .limit(limit)
             .get_results(conn)
             .await
             .attach("Error while listing tenants marked for deletion")
+            .into_db_result()
+    }
+
+    /// The organization's tenants pending deletion since `deleted_after`.
+    pub async fn list_pending_deletion_by_organization_id(
+        conn: &mut PgConn,
+        organization_id: OrganizationId,
+        deleted_after: chrono::NaiveDateTime,
+    ) -> DbResult<Vec<TenantRow>> {
+        use crate::schema::tenant::dsl as t_dsl;
+        use diesel_async::RunQueryDsl;
+
+        t_dsl::tenant
+            .filter(t_dsl::organization_id.eq(organization_id))
+            .filter(t_dsl::status.eq(TenantStatusEnum::PendingDeletion))
+            .filter(t_dsl::archived_at.gt(deleted_after))
+            .order(t_dsl::archived_at.desc())
+            .select(TenantRow::as_select())
+            .get_results(conn)
+            .await
+            .attach("Error while listing tenants pending deletion")
             .into_db_result()
     }
 

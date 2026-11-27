@@ -196,6 +196,146 @@ async fn test_delete_tenant_and_last_drops_organization() {
 }
 
 #[tokio::test]
+async fn test_cancel_tenant_deletion_within_restore_window() {
+    use common_domain::ids::{BaseId, TenantId};
+    use diesel_async::RunQueryDsl;
+    use meteroid_store::repositories::tenants::TenantInterface;
+    use std::str::FromStr;
+
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::MINIMAL).await;
+    let setup =
+        meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
+            .await;
+    let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
+    let clients = meteroid_it::clients::AllClients::from_channel(
+        setup.channel.clone(),
+        auth.token.clone().as_str(),
+        "TESTORG",
+        "testslug",
+    );
+    let tenants = clients.tenants.clone();
+
+    let staging = tenants
+        .clone()
+        .create_tenant(api::tenants::v1::CreateTenantRequest {
+            name: "Staging".to_string(),
+            environment: 1,
+            disable_emails: None,
+            email_delivery_mode: None,
+            sandbox_preset: 0,
+            copy_from: None,
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .tenant
+        .unwrap();
+    let staging_id = TenantId::from_str(&staging.id).unwrap();
+
+    tenants
+        .clone()
+        .delete_tenant(api::tenants::v1::DeleteTenantRequest {
+            tenant_id: staging.id.clone(),
+        })
+        .await
+        .unwrap();
+
+    let pending = tenants
+        .clone()
+        .list_pending_deletion_tenants(api::tenants::v1::ListPendingDeletionTenantsRequest {})
+        .await
+        .unwrap()
+        .into_inner()
+        .tenants;
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].tenant.as_ref().unwrap().id, staging.id);
+    assert!(
+        !setup
+            .store
+            .list_tenants_pending_deletion(100)
+            .await
+            .unwrap()
+            .contains(&staging_id),
+        "the cleanup worker must not purge a tenant still in its restore window"
+    );
+
+    let restored = tenants
+        .clone()
+        .cancel_tenant_deletion(api::tenants::v1::CancelTenantDeletionRequest {
+            tenant_id: staging.id.clone(),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .tenant
+        .unwrap();
+    assert_eq!(
+        restored.status,
+        api::tenants::v1::TenantStatusEnum::Active as i32
+    );
+    let listed = tenants
+        .clone()
+        .list_tenants(api::tenants::v1::ListTenantsRequest {})
+        .await
+        .unwrap()
+        .into_inner()
+        .tenants;
+    assert!(listed.iter().any(|t| t.id == staging.id));
+
+    // Past the restore window the deletion is final and the worker picks it up.
+    tenants
+        .clone()
+        .delete_tenant(api::tenants::v1::DeleteTenantRequest {
+            tenant_id: staging.id.clone(),
+        })
+        .await
+        .unwrap();
+    diesel::sql_query(
+        "UPDATE tenant SET archived_at = archived_at - interval '2 days' WHERE id = $1",
+    )
+    .bind::<diesel::sql_types::Uuid, _>(staging_id.as_uuid())
+    .execute(&mut setup.store.get_conn().await.unwrap())
+    .await
+    .unwrap();
+
+    let err = tenants
+        .clone()
+        .cancel_tenant_deletion(api::tenants::v1::CancelTenantDeletionRequest {
+            tenant_id: staging.id.clone(),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+    let pending = tenants
+        .clone()
+        .list_pending_deletion_tenants(api::tenants::v1::ListPendingDeletionTenantsRequest {})
+        .await
+        .unwrap()
+        .into_inner()
+        .tenants;
+    assert!(pending.is_empty());
+    assert!(
+        setup
+            .store
+            .list_tenants_pending_deletion(100)
+            .await
+            .unwrap()
+            .contains(&staging_id)
+    );
+
+    let err = tenants
+        .clone()
+        .resume_tenant(api::tenants::v1::ResumeTenantRequest {
+            tenant_id: staging.id.clone(),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+}
+
+#[tokio::test]
 async fn test_delete_production_tenant_blocked() {
     helpers::init::logging();
     let postgres_connection_string =

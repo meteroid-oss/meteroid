@@ -92,6 +92,27 @@ message DeleteTenantResponse {
   bool organization_deleted = 1;
 }
 
+message ListPendingDeletionTenantsRequest {}
+
+message ListPendingDeletionTenantsResponse {
+  repeated PendingDeletionTenant tenants = 1;
+}
+
+message PendingDeletionTenant {
+  Tenant tenant = 1;
+  string deleted_at = 2;
+  // After this instant the deletion can no longer be canceled.
+  string restorable_until = 3;
+}
+
+message CancelTenantDeletionRequest {
+  string tenant_id = 1;
+}
+
+message CancelTenantDeletionResponse {
+  Tenant tenant = 1;
+}
+
 
 message ActiveTenantRequest {}
 
@@ -144,9 +165,13 @@ service TenantsService {
   rpc GetTenantSeedingStatus(GetTenantSeedingStatusRequest) returns (GetTenantSeedingStatusResponse) {}
   rpc ResumeTenant(ResumeTenantRequest) returns (ResumeTenantResponse) {}
   rpc CreateTenant(CreateTenantRequest) returns (CreateTenantResponse) {}
-  // Hard-delete a non-production tenant and everything under it. Caller must be
-  // an Admin member. Dropping the last tenant drops the organization too.
+  // Schedule a non-production tenant and everything under it for hard deletion.
+  // Caller must be an Admin member. Dropping the last tenant drops the organization too.
   rpc DeleteTenant(DeleteTenantRequest) returns (DeleteTenantResponse) {}
+  // Tenants deleted recently enough to be restored. Caller must be an Admin member.
+  rpc ListPendingDeletionTenants(ListPendingDeletionTenantsRequest) returns (ListPendingDeletionTenantsResponse) {}
+  // Restore a tenant deleted within the restore window. Caller must be an Admin member.
+  rpc CancelTenantDeletion(CancelTenantDeletionRequest) returns (CancelTenantDeletionResponse) {}
 
   rpc ListTenantCurrencies(ListTenantsCurrenciesRequest) returns (ListTenantsCurrenciesResponse) {}
   rpc ListTenantCurrenciesWithCustomerCount(ListTenantsCurrenciesWithCustomerCountRequest) returns (ListTenantsCurrenciesWithCustomerCountResponse) {}

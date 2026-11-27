@@ -144,6 +144,9 @@ pub enum SecurityEventType {
     #[strum(serialize = "tenant.deleted")]
     #[serde(rename = "tenant.deleted")]
     TenantDeleted,
+    #[strum(serialize = "tenant.deletion_canceled")]
+    #[serde(rename = "tenant.deletion_canceled")]
+    TenantDeletionCanceled,
     #[strum(serialize = "organization.deletion_scheduled")]
     #[serde(rename = "organization.deletion_scheduled")]
     OrganizationDeletionScheduled,

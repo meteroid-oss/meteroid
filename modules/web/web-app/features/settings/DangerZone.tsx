@@ -7,6 +7,10 @@ import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
 import {
+  TENANT_RESTORE_WINDOW_LABEL,
+  useCancelTenantDeletion,
+} from '@/features/settings/PendingDeletionTenants'
+import {
   DangerAction,
   DangerZone as DangerZoneSection,
 } from '@/features/settings/components/DangerZone'
@@ -48,18 +52,20 @@ export const DangerZone = () => {
   const hasProductionTenant = tenants.some(t => t.environment === TenantEnvironmentEnum.PRODUCTION)
   const isLastTenant = tenants.length <= 1
 
+  const cancelDeletionMut = useCancelTenantDeletion({ openOnSuccess: true })
+
   const deleteTenantMut = useMutation(deleteTenant, {
-    onSuccess: async ({ organizationDeleted }) => {
+    onSuccess: async ({ organizationDeleted }, { tenantId }) => {
       await queryClient.invalidateQueries()
-      toast.success(
-        organizationDeleted
-          ? 'Organization scheduled for deletion'
-          : 'Tenant scheduled for deletion'
-      )
       // The tenant (or whole org) is now hidden/inaccessible, so leave this route.
       if (organizationDeleted) {
+        toast.success('Organization scheduled for deletion')
         window.location.replace('/')
       } else {
+        toast.success('Tenant scheduled for deletion', {
+          description: `You can restore it within ${TENANT_RESTORE_WINDOW_LABEL} from the tenant menu or Settings › General.`,
+          action: { label: 'Undo', onClick: () => cancelDeletionMut.mutate({ tenantId }) },
+        })
         navigate(`/${organizationSlug}`, { replace: true })
       }
     },
@@ -146,8 +152,7 @@ export const DangerZone = () => {
       : [promote]),
     {
       title: 'Delete tenant',
-      description:
-        'This tenant and all its data will be permanently deleted. This can’t be undone.',
+      description: `This tenant and all its data will be permanently deleted. It can be restored within ${TENANT_RESTORE_WINDOW_LABEL}.`,
       buttonLabel: 'Delete tenant',
       disabledReason: tenantDisabledReason,
       onConfirm: () => deleteTenantMut.mutate({ tenantId: currentTenant.id }),
@@ -155,7 +160,7 @@ export const DangerZone = () => {
         header: isLastTenant ? 'Delete last tenant' : 'Delete tenant',
         message: isLastTenant
           ? `"${currentTenant.name}" is the last tenant, so the organization will be deleted too. All data is permanently removed. This cannot be undone.`
-          : `"${currentTenant.name}" and all of its data will be permanently deleted. This cannot be undone.`,
+          : `"${currentTenant.name}" and all of its data will be permanently deleted. An admin can restore it within ${TENANT_RESTORE_WINDOW_LABEL} from the tenant menu or Settings › General.`,
         confirmLabel: isLastTenant ? 'Delete tenant & organization' : 'Delete tenant',
       },
     },

@@ -1,19 +1,22 @@
 use crate::tenants::error::TenantApiError;
 use common_domain::ids::TenantId;
 use common_grpc::middleware::server::auth::RequestExt;
+use meteroid_app::conversions::ProtoConv;
 use meteroid_app::features::{
     PORTAL_EMBEDDING_NOT_IN_PLAN, ResolvedEntitlements, ensure_change_allowed,
     ensure_production_tenant_allowed, gates,
 };
 use meteroid_grpc::meteroid::api::tenants::v1::{
-    ActiveTenantRequest, ActiveTenantResponse, CopiedRows, CreateTenantRequest,
-    CreateTenantResponse, DeleteTenantRequest, DeleteTenantResponse, GetTenantByIdRequest,
-    GetTenantByIdResponse, GetTenantSeedingStatusRequest, GetTenantSeedingStatusResponse,
+    ActiveTenantRequest, ActiveTenantResponse, CancelTenantDeletionRequest,
+    CancelTenantDeletionResponse, CopiedRows, CreateTenantRequest, CreateTenantResponse,
+    DeleteTenantRequest, DeleteTenantResponse, GetTenantByIdRequest, GetTenantByIdResponse,
+    GetTenantSeedingStatusRequest, GetTenantSeedingStatusResponse,
+    ListPendingDeletionTenantsRequest, ListPendingDeletionTenantsResponse,
     ListTenantsCurrenciesRequest, ListTenantsCurrenciesResponse,
     ListTenantsCurrenciesWithCustomerCountRequest, ListTenantsCurrenciesWithCustomerCountResponse,
-    ListTenantsRequest, ListTenantsResponse, ResumeTenantRequest, ResumeTenantResponse,
-    SandboxPreset, UpdateTenantAvailableCurrenciesRequest, UpdateTenantAvailableCurrenciesResponse,
-    UpdateTenantRequest, UpdateTenantResponse,
+    ListTenantsRequest, ListTenantsResponse, PendingDeletionTenant, ResumeTenantRequest,
+    ResumeTenantResponse, SandboxPreset, UpdateTenantAvailableCurrenciesRequest,
+    UpdateTenantAvailableCurrenciesResponse, UpdateTenantRequest, UpdateTenantResponse,
     list_tenants_currencies_with_customer_count_response::ListCurrency,
     tenants_service_server::TenantsService,
 };
@@ -22,6 +25,7 @@ use meteroid_store::domain::sandbox_seeds::SandboxSeedStatus;
 use meteroid_store::domain::tenants::normalize_embed_origins;
 use meteroid_store::repositories::sandbox::SandboxInterface;
 use meteroid_store::repositories::tenant_copy::TenantCopyScope;
+use meteroid_store::repositories::tenants::TENANT_RESTORE_WINDOW;
 use meteroid_store::repositories::{OrganizationsInterface, TenantCopyInterface, TenantInterface};
 use tonic::{Request, Response, Status};
 
@@ -385,6 +389,57 @@ impl TenantsService for TenantServiceComponents {
 
         Ok(Response::new(DeleteTenantResponse {
             organization_deleted,
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn list_pending_deletion_tenants(
+        &self,
+        request: Request<ListPendingDeletionTenantsRequest>,
+    ) -> Result<Response<ListPendingDeletionTenantsResponse>, Status> {
+        request.require_admin()?;
+        let organization_id = request.organization()?;
+
+        let tenants = self
+            .store
+            .list_restorable_tenants(organization_id)
+            .await
+            .map_err(Into::<TenantApiError>::into)?
+            .into_iter()
+            .filter_map(|tenant| {
+                let deleted_at = tenant.archived_at?;
+                Some(PendingDeletionTenant {
+                    deleted_at: deleted_at.as_proto(),
+                    restorable_until: (deleted_at + TENANT_RESTORE_WINDOW).as_proto(),
+                    tenant: Some(mapping::tenants::domain_to_server(tenant)),
+                })
+            })
+            .collect();
+
+        Ok(Response::new(ListPendingDeletionTenantsResponse {
+            tenants,
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn cancel_tenant_deletion(
+        &self,
+        request: Request<CancelTenantDeletionRequest>,
+    ) -> Result<Response<CancelTenantDeletionResponse>, Status> {
+        request.require_admin()?;
+        let actor = request.actor_user()?;
+        let organization_id = request.organization()?;
+        let request_context = meteroid_app::security_context::from_request(&request);
+        let tenant_id = TenantId::from_proto(request.into_inner().tenant_id)?;
+
+        let tenant = self
+            .store
+            .cancel_tenant_deletion(actor, organization_id, tenant_id, request_context)
+            .await
+            .map_err(Into::<TenantApiError>::into)?;
+
+        Ok(Response::new(CancelTenantDeletionResponse {
+            tenant: Some(mapping::tenants::domain_to_server(tenant)),
         }))
     }
 

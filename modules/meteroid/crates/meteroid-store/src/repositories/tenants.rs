@@ -28,6 +28,13 @@ use diesel_models::webhooks_out::WebhookOutEndpointRow;
 /// Tenants hard-deleted per transaction, to bound each cascading delete's size.
 const TENANT_HARD_DELETE_CHUNK: usize = 25;
 
+/// How long after its deletion an admin can still restore a tenant.
+pub const TENANT_RESTORE_WINDOW: chrono::TimeDelta = chrono::TimeDelta::hours(24);
+
+/// The cleanup worker waits this much past the restore window, so a restore at the end
+/// of the window cannot interleave with a purge on another host's skewed clock.
+const TENANT_PURGE_MARGIN: chrono::TimeDelta = chrono::TimeDelta::minutes(10);
+
 /// First `base`, `base-1`, `base-2`, … not already present in `taken`. `taken` must
 /// include archived tenants: the slug unique index `(organization_id, slug)` covers them.
 pub fn next_available_slug(base: &str, taken: &[String]) -> String {
@@ -105,6 +112,7 @@ pub trait TenantInterface {
     /// against Production in the query layer.
     async fn pause_tenant(&self, tenant_id: TenantId) -> StoreResult<()>;
     /// Resume a paused/archived tenant back to ACTIVE (e.g. the user clicked resume).
+    /// Refuses a tenant marked or pending for deletion: see `cancel_tenant_deletion`.
     async fn resume_tenant(&self, tenant_id: TenantId) -> StoreResult<()>;
     /// Mark an inactive non-prod tenant as archived / pending deletion. Guarded
     /// against Production in the query layer.
@@ -121,8 +129,23 @@ pub trait TenantInterface {
         request_context: crate::domain::org_security_audit_log::SecurityRequestContext,
     ) -> StoreResult<bool>;
 
-    /// Up to `limit` tenant ids currently pending deletion — the cleanup worker's
-    /// work list, drained in batches.
+    /// Tenants of the organization deleted within the restore window, most recent first.
+    async fn list_restorable_tenants(
+        &self,
+        organization_id: OrganizationId,
+    ) -> StoreResult<Vec<Tenant>>;
+
+    /// Bring a tenant deleted within the restore window back to ACTIVE.
+    async fn cancel_tenant_deletion(
+        &self,
+        actor: UserId,
+        organization_id: OrganizationId,
+        tenant_id: TenantId,
+        request_context: crate::domain::org_security_audit_log::SecurityRequestContext,
+    ) -> StoreResult<Tenant>;
+
+    /// Up to `limit` ids of tenants pending deletion past the restore window — the
+    /// cleanup worker's work list, drained in batches.
     async fn list_tenants_pending_deletion(&self, limit: i64) -> StoreResult<Vec<TenantId>>;
 
     /// Hard-delete the given tenants (Postgres cascade), after the cleanup worker
@@ -503,6 +526,20 @@ impl TenantInterface for Store {
     }
 
     async fn resume_tenant(&self, tenant_id: TenantId) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+        let tenant = TenantRow::find_by_id(&mut conn, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        drop(conn);
+        if matches!(
+            tenant.status,
+            diesel_models::enums::TenantStatusEnum::MarkedForDeletion
+                | diesel_models::enums::TenantStatusEnum::PendingDeletion
+        ) {
+            return Err(Report::new(StoreError::FailedPrecondition(
+                "a tenant scheduled for deletion cannot be resumed".to_string(),
+            )));
+        }
         set_tenant_status(
             self,
             tenant_id,
@@ -599,9 +636,107 @@ impl TenantInterface for Store {
         Ok(archives_org)
     }
 
+    async fn list_restorable_tenants(
+        &self,
+        organization_id: OrganizationId,
+    ) -> StoreResult<Vec<Tenant>> {
+        let mut conn = self.get_conn().await?;
+        let deleted_after = common_clock::now().naive_utc() - TENANT_RESTORE_WINDOW;
+        TenantRow::list_pending_deletion_by_organization_id(
+            &mut conn,
+            organization_id,
+            deleted_after,
+        )
+        .await
+        .map_err(Into::into)
+        .map(|rows| rows.into_iter().map(Into::into).collect())
+    }
+
+    async fn cancel_tenant_deletion(
+        &self,
+        actor: UserId,
+        organization_id: OrganizationId,
+        tenant_id: TenantId,
+        request_context: crate::domain::org_security_audit_log::SecurityRequestContext,
+    ) -> StoreResult<Tenant> {
+        // Admin authorization is enforced at the gRPC layer (require_admin).
+        let now = common_clock::now().naive_utc();
+        let deleted_after = now - TENANT_RESTORE_WINDOW;
+
+        let tenant = self
+            .transaction_bumping_tenant(tenant_id, |conn| {
+                async move {
+                    let row = TenantRow::find_by_id_for_update(conn, tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                    let restorable = row.organization_id == organization_id
+                        && row.status == diesel_models::enums::TenantStatusEnum::PendingDeletion
+                        && row.archived_at.is_some_and(|at| at > deleted_after);
+                    if !restorable {
+                        return Err(Report::new(StoreError::FailedPrecondition(
+                            "this tenant can no longer be restored".to_string(),
+                        )));
+                    }
+                    let organization = OrganizationRow::get_by_id(conn, organization_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                    if organization.archived_at.is_some() {
+                        return Err(Report::new(StoreError::FailedPrecondition(
+                            "the organization is scheduled for deletion".to_string(),
+                        )));
+                    }
+
+                    TenantRow::set_status(
+                        conn,
+                        tenant_id,
+                        diesel_models::enums::TenantStatusEnum::Active,
+                        now,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                    TenantRow::find_by_id(conn, tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)
+                }
+                .scope_boxed()
+            })
+            .await?;
+
+        self.invalidate_tenant_cache(&tenant_id);
+
+        let mut conn = self.get_conn().await?;
+        let actor_email = UserRow::find_by_id(&mut conn, actor)
+            .await
+            .ok()
+            .map(|u| u.email);
+        self.record_security_event_best_effort(
+            crate::domain::org_security_audit_log::RecordSecurityEvent {
+                organization_id,
+                event_type:
+                    crate::domain::org_security_audit_log::SecurityEventType::TenantDeletionCanceled,
+                actor: crate::domain::org_security_audit_log::Actor::User { id: actor },
+                actor_email,
+                target_user_id: None,
+                target_email: None,
+                metadata: Some(serde_json::json!({
+                    "tenant_id": tenant_id.to_string(),
+                    "tenant_name": tenant.name,
+                })),
+                context: request_context,
+            },
+        )
+        .await;
+
+        log::info!("Tenant {tenant_id} deletion canceled by user {actor}");
+
+        Ok(tenant.into())
+    }
+
     async fn list_tenants_pending_deletion(&self, limit: i64) -> StoreResult<Vec<TenantId>> {
         let mut conn = self.get_conn().await?;
-        TenantRow::list_ids_pending_deletion(&mut conn, limit)
+        let deleted_before =
+            common_clock::now().naive_utc() - TENANT_RESTORE_WINDOW - TENANT_PURGE_MARGIN;
+        TenantRow::list_ids_pending_deletion(&mut conn, deleted_before, limit)
             .await
             .map_err(Into::into)
     }
