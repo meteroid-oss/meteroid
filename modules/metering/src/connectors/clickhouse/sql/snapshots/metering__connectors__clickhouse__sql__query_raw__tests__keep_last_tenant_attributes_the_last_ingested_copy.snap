@@ -1,0 +1,25 @@
+---
+source: modules/metering/src/connectors/clickhouse/sql/query_raw.rs
+expression: pretty
+---
+SELECT
+    min(toDateTime(timestamp)) AS window_start,
+    max(toDateTime(timestamp)) AS window_end,
+    toString(sum(ifNull(toDecimal128OrNull(properties[?{"tokens"}], 9), accurateCastOrNull(toFloat64OrNull(properties[?{"tokens"}]), 'Decimal(38, 9)')))) AS value,
+    toString(countIf(isNull(toDecimal128OrNull(properties[?{"tokens"}], 9)))) AS decimal_fallbacks,
+    customer_id,
+    properties[?{"model"}] AS _prop_model
+FROM (
+    SELECT id, customer_id, timestamp, ingested_at, properties
+    FROM (
+        SELECT id, customer_id, timestamp, ingested_at, properties
+        FROM raw_events_v2
+        WHERE (tenant_id = ?{ffffffff-ffff-ffff-ffff-ffffffffffff} AND code = ?{"tokens"} AND timestamp >= toDateTime(?{1788220800}) AND timestamp < toDateTime(?{1790812800}) AND customer_id IN ?{["ffffffff-ffff-ffff-ffff-ffffffffffff"]}) AND is_tombstone = 0 AND ((SELECT count() FROM meteroid.event_voids_local WHERE tenant_id = toUUID('ffffffff-ffff-ffff-ffff-ffffffffffff') AND code IN ('tokens') AND customer_id IN (toUUID('ffffffff-ffff-ffff-ffff-ffffffffffff')) AND timestamp >= toDateTime(1788220800) AND timestamp <= toDateTime(1790812800)) = 0 OR (customer_id, id, ingested_at) NOT IN (SELECT customer_id, id, ingested_at FROM meteroid.event_voids_local WHERE tenant_id = toUUID('ffffffff-ffff-ffff-ffff-ffffffffffff') AND code IN ('tokens') AND customer_id IN (toUUID('ffffffff-ffff-ffff-ffff-ffffffffffff')) AND timestamp >= toDateTime(1788220800) AND timestamp <= toDateTime(1790812800))) ORDER BY ingested_at DESC LIMIT 1 BY id, customer_id
+    )
+    WHERE properties[?{"tokens"}] != '' AND abs(toFloat64OrNull(properties[?{"tokens"}])) < 1e18
+)
+WHERE
+    properties[?{"project"}] = ?{"p1"}
+GROUP BY
+    customer_id,
+    properties[?{"model"}]

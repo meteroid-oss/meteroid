@@ -4780,13 +4780,20 @@ mod tests {
         )
     }
 
+    /// The value guards read properties, so they judge the copy the dedup keeps.
     #[test]
     fn keep_last_tenant_keeps_the_last_copy_ingested() {
         let sql = sum_series_sql(true);
+        let columns = "SELECT id, customer_id, timestamp, ingested_at, properties";
+        let bounds = format!(
+            "{columns} FROM raw_events_v2 WHERE (tenant_id = ? AND code = ? \
+             AND timestamp >= toDateTime(?) AND timestamp <= toDateTime(?){}",
+            live(USAGE_DAY)
+        );
         assert!(
             sql.contains(&format!(
-                "FROM ( {} ORDER BY ingested_at DESC LIMIT 1 BY id, customer_id )",
-                sum_series_where()
+                "FROM ( {columns} FROM ( {bounds} ORDER BY ingested_at DESC LIMIT 1 BY id, \
+                 customer_id ) WHERE properties[?] != '' AND isNotNull(toFloat64OrNull(properties[?])) )"
             )),
             "{sql}"
         );

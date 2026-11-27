@@ -167,13 +167,22 @@ impl EventsSource<'_> {
         self.dedup
     }
 
-    /// The live rows of `columns` matching every `filter` conjunct, as a typed relation.
+    /// The live rows of `columns` matching every `filter` conjunct, as a typed relation. Under a
+    /// dedup, conjuncts on `properties` judge the version it keeps, so a re-send that changes a
+    /// filtered property moves the event instead of leaving its older version behind.
     pub fn read(
         &self,
         columns: Vec<ast::Ident>,
         filter: Vec<ast::Expr>,
         scope: VoidScope,
     ) -> ast::Relation {
+        let (kept, filter) = match self.dedup {
+            EventDedup::Off => (vec![], filter),
+            EventDedup::LastIngested => filter
+                .into_iter()
+                .flat_map(ast::Expr::into_conjuncts)
+                .partition(|conjunct| conjunct.reads_column("properties")),
+        };
         ast::Relation::Events(ast::EventsRead {
             table: self.table.to_string(),
             database: self.database.to_string(),
@@ -181,6 +190,7 @@ impl EventsSource<'_> {
             dedup: self.dedup,
             columns,
             filter,
+            kept,
             scope,
             flat: false,
         })
@@ -197,6 +207,7 @@ impl EventsSource<'_> {
                 dedup: self.dedup,
                 columns: vec![],
                 filter,
+                kept: vec![],
                 scope,
                 flat: true,
             })
@@ -372,6 +383,85 @@ mod tests {
         );
         let sql = source_sql(EventDedup::Off, &scope);
         assert_eq!(sql.matches(&narrowed).count(), 2, "{sql}");
+    }
+
+    #[test]
+    fn keep_last_filters_properties_on_the_kept_version() {
+        let tenant = uuid::Uuid::from_u128(7);
+        let cohort = ast::Select::new(
+            vec![ast::Item::new(ast::Expr::col("customer_id"))],
+            ast::Relation::Named(ast::Ident::trusted("cohort"), None),
+        )
+        .filter(vec![ast::Expr::col("properties").eq(ast::Expr::str("x"))])
+        .query();
+        let sql = |dedup| {
+            let read = EventsTable::new("raw_events_v2")
+                .source("meteroid", tenant, dedup)
+                .read(
+                    vec![ast::Ident::trusted("id")],
+                    vec![
+                        ast::Expr::col("tenant_id").eq(ast::Expr::Uuid(tenant)),
+                        ast::Expr::col("customer_id").in_set(ast::Expr::subquery(cohort.clone())),
+                        ast::Expr::Index(
+                            Box::new(ast::Expr::col("properties")),
+                            Box::new(ast::Expr::str("region")),
+                        )
+                        .eq(ast::Expr::str("eu")),
+                    ],
+                    VoidScope::default(),
+                );
+            let select = ast::Select::new(vec![ast::Item::new(ast::Expr::Star)], read);
+            render::render(&select.query(), &[]).sql
+        };
+        let kept = sql(EventDedup::LastIngested);
+        assert!(
+            kept.contains(
+                "FROM ( SELECT id FROM ( SELECT id, properties FROM raw_events_v2 WHERE \
+                 (tenant_id = toUUID('00000000-0000-0000-0000-000000000007') AND customer_id IN \
+                 ( SELECT customer_id FROM cohort WHERE properties = 'x' )) AND is_tombstone = 0"
+            ),
+            "{kept}"
+        );
+        assert!(
+            kept.ends_with(
+                " ORDER BY ingested_at DESC LIMIT 1 BY id, customer_id ) WHERE properties['region'] = 'eu' )"
+            ),
+            "{kept}"
+        );
+        let off = sql(EventDedup::Off);
+        assert!(
+            off.contains("AND properties['region'] = 'eu') AND is_tombstone = 0"),
+            "{off}"
+        );
+    }
+
+    #[test]
+    fn a_mixed_conjunct_keeps_its_bounds_before_the_dedup() {
+        let read = EventsTable::new("raw_events_v2")
+            .source(
+                "meteroid",
+                uuid::Uuid::from_u128(7),
+                EventDedup::LastIngested,
+            )
+            .read(
+                vec![ast::Ident::trusted("properties")],
+                vec![ast::Expr::And(vec![
+                    ast::Expr::col("timestamp").ge(ast::Expr::Int(1)),
+                    ast::Expr::col("properties").ne(ast::Expr::str("")),
+                ])],
+                VoidScope::default(),
+            );
+        let ast::Relation::Events(read) = read else {
+            unreachable!()
+        };
+        assert_eq!(
+            read.filter,
+            vec![ast::Expr::col("timestamp").ge(ast::Expr::Int(1))]
+        );
+        assert_eq!(
+            read.kept,
+            vec![ast::Expr::col("properties").ne(ast::Expr::str(""))]
+        );
     }
 
     #[test]

@@ -1049,14 +1049,8 @@ mod tests {
             }],
         }));
         params.keep_last_events = true;
-        let result = query_meter_sql(params, &"raw_events_v2".into(), "meteroid").unwrap();
-        assert!(
-            normalize_sql(&result.sql).contains(
-                "ORDER BY ingested_at DESC LIMIT 1 BY id, customer_id) WHERE properties[?] = ?"
-            ),
-            "{}",
-            result.sql
-        );
+        let (result, pretty) = meter(params);
+        insta::assert_snapshot!(pretty);
         assert_bind_parity(&result);
     }
 

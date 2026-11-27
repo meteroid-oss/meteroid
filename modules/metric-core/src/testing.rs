@@ -695,6 +695,15 @@ pub fn metric_cases() -> Vec<(String, MetricQuery)> {
         ];
         push(format!("{m}/scoped_filtered"), q);
     }
+    for m in ["raw_sum", "tw_value"] {
+        let mut q = query(m);
+        q.keep_last_events = true;
+        q.filters = vec![
+            filter("region", &["eu"], FilterOp::In),
+            filter("tier", &["free"], FilterOp::NotIn),
+        ];
+        push(format!("{m}/keep_last_filtered"), q);
+    }
 
     for m in [
         "fact_sum",

@@ -362,7 +362,8 @@ impl Renderer {
         }
     }
 
-    /// `( SELECT <columns> FROM <events> WHERE (<filter>) AND <live>[ <dedup>] )`.
+    /// `( SELECT <columns> FROM <events> WHERE (<filter>) AND <live>[ <dedup>] )`, wrapped in a
+    /// `WHERE <kept>` over the kept versions when it has kept conjuncts.
     fn events(&mut self, read: &EventsRead) {
         if read.flat {
             self.push(&read.table);
@@ -377,10 +378,40 @@ impl Renderer {
         self.list(&read.columns, ", ", |r, c| r.ident(c));
         self.br();
         self.push("FROM ");
-        self.push(&read.table);
-        self.br();
-        self.events_filter(read);
-        self.push(read.dedup.limit_by_suffix());
+        if read.kept.is_empty() {
+            self.push(&read.table);
+            self.br();
+            self.events_filter(read);
+            self.push(read.dedup.limit_by_suffix());
+        } else {
+            self.push("(");
+            self.depth += 1;
+            self.br();
+            self.push("SELECT ");
+            let mut columns: Vec<&Ident> = read.columns.iter().collect();
+            let mut kept_reads = Vec::new();
+            read.kept
+                .iter()
+                .for_each(|e| e.own_columns(&mut kept_reads));
+            for column in kept_reads {
+                if !columns.contains(&column) {
+                    columns.push(column);
+                }
+            }
+            self.list(&columns, ", ", |r, c| r.ident(c));
+            self.br();
+            self.push("FROM ");
+            self.push(&read.table);
+            self.br();
+            self.events_filter(read);
+            self.push(read.dedup.limit_by_suffix());
+            self.depth -= 1;
+            self.br();
+            self.push(")");
+            self.br();
+            self.push("WHERE ");
+            self.list(&read.kept, " AND ", |r, e| r.operand(e, AND));
+        }
         self.depth -= 1;
         self.br();
         self.push(")");

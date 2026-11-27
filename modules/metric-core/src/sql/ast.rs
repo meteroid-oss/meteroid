@@ -218,6 +218,81 @@ pub enum Expr {
 }
 
 impl Expr {
+    /// A top-level `AND` as its conjuncts.
+    pub(crate) fn into_conjuncts(self) -> Vec<Expr> {
+        match self {
+            Expr::And(items) => items.into_iter().flat_map(Expr::into_conjuncts).collect(),
+            e => vec![e],
+        }
+    }
+
+    /// Whether the expression reads `column` of its own row.
+    pub(crate) fn reads_column(&self, column: &str) -> bool {
+        let mut columns = Vec::new();
+        self.own_columns(&mut columns);
+        columns.iter().any(|c| c.as_str() == column)
+    }
+
+    /// The columns of its own row the expression reads; a subquery reads its own rows.
+    pub(crate) fn own_columns<'a>(&'a self, out: &mut Vec<&'a Ident>) {
+        let all = |items: &'a [Expr], out: &mut Vec<&'a Ident>| {
+            items.iter().for_each(|e| e.own_columns(out))
+        };
+        match self {
+            Expr::Column(_, name) => out.push(name),
+            Expr::Call(_, args) | Expr::And(args) | Expr::Or(args) | Expr::Tuple(args) => {
+                all(args, out)
+            }
+            Expr::Parametric(_, params, args) => {
+                all(params, out);
+                all(args, out);
+            }
+            Expr::Binary(l, _, r) | Expr::Index(l, r) => {
+                l.own_columns(out);
+                r.own_columns(out);
+            }
+            Expr::In { expr, set, .. } => {
+                expr.own_columns(out);
+                set.own_columns(out);
+            }
+            Expr::Between { expr, low, high } => {
+                expr.own_columns(out);
+                low.own_columns(out);
+                high.own_columns(out);
+            }
+            Expr::Lambda(param, body) => {
+                let mut inner = Vec::new();
+                body.own_columns(&mut inner);
+                out.extend(inner.into_iter().filter(|c| *c != param));
+            }
+            Expr::Not(e)
+            | Expr::Neg(e)
+            | Expr::IsNull(e)
+            | Expr::IsNotNull(e)
+            | Expr::OverNamed(e, _) => e.own_columns(out),
+            Expr::Over { call, window, .. } => {
+                call.own_columns(out);
+                all(&window.partition_by, out);
+                all(&window.order_by, out);
+            }
+            Expr::Dict(d) => {
+                d.key.own_columns(out);
+                d.default.iter().for_each(|e| e.own_columns(out));
+            }
+            Expr::Subquery(_)
+            | Expr::Bind(_)
+            | Expr::Uuid(_)
+            | Expr::Date(_)
+            | Expr::Interval(..)
+            | Expr::Int(_)
+            | Expr::Float(_)
+            | Expr::Literal(_)
+            | Expr::Str(_)
+            | Expr::Null
+            | Expr::Star => {}
+        }
+    }
+
     fn visit_tables(&mut self, f: &mut impl FnMut(&mut Table)) {
         match self {
             Expr::Subquery(q) => q.visit_tables(f),
@@ -435,6 +510,8 @@ pub struct EventsRead {
     pub(super) dedup: EventDedup,
     pub(super) columns: Vec<Ident>,
     pub(super) filter: Vec<Expr>,
+    /// Conjuncts on the version the dedup keeps, applied after it.
+    pub(super) kept: Vec<Expr>,
     pub(super) scope: VoidScope,
     /// Read as `<table> WHERE …` by the enclosing select instead of a subquery, for a read that
     /// sorts and limits the table itself; never with a dedup.
@@ -488,7 +565,11 @@ impl Relation {
                 columns.iter_mut().for_each(|(e, _)| e.visit_tables(f));
             }
             Relation::Function(e) => e.visit_tables(f),
-            Relation::Events(read) => read.filter.iter_mut().for_each(|e| e.visit_tables(f)),
+            Relation::Events(read) => read
+                .filter
+                .iter_mut()
+                .chain(&mut read.kept)
+                .for_each(|e| e.visit_tables(f)),
         }
     }
 

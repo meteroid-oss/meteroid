@@ -315,3 +315,148 @@ async fn test_metering_query_parity() {
             .is_err()
     );
 }
+
+/// A keep-last tenant's filters judge the version it keeps: a re-send that changes the filtered
+/// property moves the event, and one that makes its value unparsable drops it.
+#[tokio::test]
+async fn test_a_keep_last_resend_is_filtered_on_its_last_version() {
+    use metering::domain::{
+        EventCursor, EventSortOrder, PropertyFilter, PropertyFilterOp, QueryRawEventsParams,
+        SegmentationFilter,
+    };
+    let env = setup().await;
+    let resend = |id: &str, v: &str, region: &str, ingested: i64| {
+        format!(
+            "('{id}', 'resend', toUUID('{}'), toUUID('{}'), {}, {}, map('v', '{v}', 'region', '{region}'))",
+            env.customer_id.as_uuid(),
+            env.tenant_id.as_uuid(),
+            ch_time(at(0, 0)),
+            ch_time(at(ingested, 0)),
+        )
+    };
+    let values = [
+        resend("moved", "10", "eu", 0),
+        resend("moved", "10", "us", 1),
+        resend("unparsable", "7", "eu", 0),
+        resend("unparsable", "abc", "eu", 1),
+    ]
+    .join(", ");
+    env.client
+        .query(&format!(
+            "INSERT INTO raw_events_v2 (id, code, customer_id, tenant_id, timestamp, ingested_at, properties) \
+             SETTINGS insert_distributed_sync = 1 VALUES {values}"
+        ))
+        .execute()
+        .await
+        .expect("insert");
+
+    let filter = |op, region: &str| PropertyFilter {
+        property: "region".to_string(),
+        op,
+        values: vec![region.to_string()],
+    };
+    let total = |aggregation,
+                 keep_last_events,
+                 filters: Vec<PropertyFilter>,
+                 segment: Option<&str>| {
+        let mut params = env.params("resend", aggregation);
+        params.keep_last_events = keep_last_events;
+        params.filters = filters;
+        params.segmentation_filter = segment.map(|region| {
+            SegmentationFilter::Independent(vec![("region".to_string(), vec![region.to_string()])])
+        });
+        let connector = env.connector.clone();
+        async move {
+            connector
+                .query_meter(params)
+                .await
+                .expect("query_meter")
+                .into_iter()
+                .map(|usage| match usage.value {
+                    MeterValue::Exact(value) => value,
+                    other => panic!("{other:?}"),
+                })
+                .sum::<Decimal>()
+        }
+    };
+    let (sum, count) = (MeterAggregation::Sum, MeterAggregation::Count);
+    let eu = || vec![filter(PropertyFilterOp::In, "eu")];
+    assert_eq!(
+        total(sum.clone(), true, eu(), None).await,
+        Decimal::ZERO,
+        "both eu copies are superseded"
+    );
+    assert_eq!(
+        total(
+            sum.clone(),
+            true,
+            vec![filter(PropertyFilterOp::In, "us")],
+            None
+        )
+        .await,
+        dec!(10),
+        "the moved event is counted once"
+    );
+    assert_eq!(
+        total(count, true, eu(), None).await,
+        dec!(1),
+        "only the unparsable one is still eu"
+    );
+    assert_eq!(
+        total(sum.clone(), true, vec![], None).await,
+        dec!(10),
+        "the unparsable copy is dropped"
+    );
+    assert_eq!(
+        total(
+            sum.clone(),
+            true,
+            vec![filter(PropertyFilterOp::NotIn, "us")],
+            None
+        )
+        .await,
+        Decimal::ZERO
+    );
+    assert_eq!(
+        total(sum.clone(), true, vec![], Some("eu")).await,
+        Decimal::ZERO,
+        "segments too"
+    );
+    assert_eq!(
+        total(sum, false, vec![], None).await,
+        dec!(27),
+        "a default tenant counts every copy"
+    );
+
+    let found = env
+        .connector
+        .query_raw_events(QueryRawEventsParams {
+            tenant_id: env.tenant_id,
+            from: at(-3600, 0),
+            to: Some(at(3600, 0)),
+            limit: 10,
+            offset: 0,
+            search: Some("eu".to_string()),
+            event_codes: vec!["resend".to_string()],
+            customer_ids: vec![],
+            filters: vec![filter(PropertyFilterOp::In, "eu")],
+            sort_order: EventSortOrder::TimestampAsc,
+            after: Some(EventCursor {
+                timestamp_nanos: at(-1, 0).timestamp_nanos_opt().unwrap(),
+                id: String::new(),
+            }),
+            keep_last_events: true,
+        })
+        .await
+        .expect("query_raw_events")
+        .events;
+    let found: Vec<_> = found
+        .iter()
+        .map(|e| (e.id.as_str(), e.properties["v"].as_str()))
+        .collect();
+    assert_eq!(
+        found,
+        vec![("unparsable", "abc")],
+        "the explorer lists last copies only"
+    );
+}

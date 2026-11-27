@@ -156,7 +156,11 @@ impl Verifier {
             joined: false,
         };
         self.require(&own, &Ident::trusted("tenant_id"), None, &events.table)?;
-        events.filter.iter().try_for_each(|e| self.expr(e))
+        events
+            .filter
+            .iter()
+            .chain(&events.kept)
+            .try_for_each(|e| self.expr(e))
     }
 
     /// A conjunct `<table>.<column> = <tenant>`; unqualified only when the table reads alone.
