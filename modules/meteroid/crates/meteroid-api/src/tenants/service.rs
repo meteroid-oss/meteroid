@@ -27,6 +27,9 @@ use tonic::{Request, Response, Status};
 
 use super::{TenantServiceComponents, mapping};
 
+const SEEDING_GRACE: chrono::Duration = chrono::Duration::minutes(3);
+const SEEDING_MAX_DURATION: chrono::Duration = chrono::Duration::minutes(30);
+
 fn ensure_sandbox_preset_entitled(
     preset: SandboxPreset,
     resolved: &ResolvedEntitlements,
@@ -217,44 +220,54 @@ impl TenantsService for TenantServiceComponents {
             .await
             .map_err(Into::<TenantApiError>::into)?;
 
+        let seed = self
+            .store
+            .get_sandbox_seed(tenant_id)
+            .await
+            .map_err(Into::<TenantApiError>::into)?;
+
+        // Past this window seeding is over: a sandbox still lagging behind is stuck, and a failure is old news.
+        let now = common_clock::wall().naive_utc();
+        let started_at = seed.as_ref().map_or(tenant.created_at, |s| s.started_at);
+        if now - started_at > SEEDING_MAX_DURATION {
+            return Ok(Response::new(GetTenantSeedingStatusResponse {
+                in_progress: false,
+                pending_subscriptions: 0,
+                failed: false,
+                failure_reason: None,
+            }));
+        }
+
+        if let Some(seed) = &seed
+            && seed.status == SandboxSeedStatus::Failed
+        {
+            return Ok(Response::new(GetTenantSeedingStatusResponse {
+                in_progress: false,
+                pending_subscriptions: 0,
+                failed: true,
+                failure_reason: seed.failure_reason.clone(),
+            }));
+        }
+
         let pending = self
             .store
             .count_subscriptions_pending_catchup(tenant_id)
             .await
             .map_err(Into::<TenantApiError>::into)?;
 
-        // Sandbox seeding runs in the background, so before the subscriptions are
-        // created `pending` is 0 even though seeding isn't finished. Keep reporting
-        // in-progress during a short grace window after tenant creation; the catch-up
-        // count takes over once the subscriptions exist (and bounds the loader if
-        // background seeding failed).
-        let seed = self
-            .store
-            .get_sandbox_seed(tenant_id)
-            .await
-            .map_err(Into::<TenantApiError>::into)?;
-        let (in_progress, failed, failure_reason) = match seed {
-            Some(seed) => match seed.status {
-                SandboxSeedStatus::InProgress => (true, false, None),
-                SandboxSeedStatus::Completed => (pending > 0, false, None),
-                SandboxSeedStatus::Failed => (false, true, seed.failure_reason),
-            },
+        // Before the subscriptions exist `pending` is 0 although seeding isn't finished.
+        let in_progress = match seed.map(|s| s.status) {
+            Some(SandboxSeedStatus::InProgress) => true,
+            Some(_) => pending > 0,
             // Seeded before seeds were tracked.
-            None => {
-                let seeding_grace = common_clock::wall().naive_utc() - chrono::Duration::minutes(3);
-                (
-                    pending > 0 || tenant.created_at > seeding_grace,
-                    false,
-                    None,
-                )
-            }
+            None => pending > 0 || now - started_at < SEEDING_GRACE,
         };
 
         Ok(Response::new(GetTenantSeedingStatusResponse {
             in_progress,
             pending_subscriptions: pending as u32,
-            failed,
-            failure_reason,
+            failed: false,
+            failure_reason: None,
         }))
     }
 
