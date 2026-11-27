@@ -192,6 +192,11 @@ pub trait ApiModule: Send + Sync {
         None
     }
 
+    /// The configuration this module keeps per tenant, copied into a tenant started as a copy.
+    fn tenant_copy(&self) -> Option<meteroid_store::hooks::ModuleTenantCopy> {
+        None
+    }
+
     /// The live usage controls; without them, core never watches usage live.
     fn credit_control_hooks(&self) -> Option<Arc<dyn CreditControlHooks>> {
         None
@@ -374,6 +379,11 @@ impl Modules {
                 .iter()
                 .find_map(|module| module.credit_control_hooks())
                 .unwrap_or(core.credit),
+            tenant_copy: self
+                .api
+                .iter()
+                .filter_map(|module| module.tenant_copy())
+                .collect(),
         }
     }
 

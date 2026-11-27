@@ -212,6 +212,28 @@ impl EntitlementEntityId {
     }
 }
 
+/// `prefix_<base62>` as `(prefix_, uuid)`, whatever the id type: for rewriting ids inside
+/// stored payloads, where the type of each id is not known.
+pub fn split_base62(s: &str) -> Option<(&str, Uuid)> {
+    let cut = s.rfind('_')? + 1;
+    let (prefix, encoded) = s.split_at(cut);
+    if prefix.len() < 2
+        || encoded.is_empty()
+        || !prefix[..cut - 1]
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b == b'_')
+    {
+        return None;
+    }
+    let decoded = base62::decode(encoded).ok()?;
+    Some((prefix, Uuid::from_u128(decoded.rotate_right(67))))
+}
+
+/// The inverse of [`split_base62`].
+pub fn join_base62(prefix: &str, id: Uuid) -> String {
+    format!("{prefix}{}", base62::encode(id.as_u128().rotate_left(67)))
+}
+
 pub mod string_serde {
     use crate::ids::{BaseId, IdError};
     use serde::{Deserialize, Deserializer, Serializer};
@@ -315,9 +337,20 @@ pub mod string_serde_vec_opt {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn base62_round_trips_without_its_type() {
+        let id = PlanVersionId::new();
+        let encoded = id.as_base62();
+        let (prefix, uuid) = split_base62(&encoded).unwrap();
+        assert_eq!((prefix, uuid), (PlanVersionId::PREFIX, id.as_uuid()));
+        assert_eq!(join_base62(prefix, uuid), encoded);
+        assert_eq!(split_base62("no-prefix"), None);
+    }
+
     use crate::ids::BaseId;
     use crate::ids::{
-        CustomerId, string_serde, string_serde_opt, string_serde_vec, string_serde_vec_opt,
+        CustomerId, PlanVersionId, join_base62, split_base62, string_serde, string_serde_opt,
+        string_serde_vec, string_serde_vec_opt,
     };
     use serde::Deserialize;
     use serde::Serialize;

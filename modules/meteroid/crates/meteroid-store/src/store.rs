@@ -101,6 +101,8 @@ pub struct Store {
     /// The tenant's reporting currency, for an hour.
     pub(crate) reporting_currency_cache: TimedCache<TenantId, crate::constants::Currency>,
     pub auth_cache: AuthCache,
+    pub(crate) database_url: String,
+    pub(crate) tenant_changes: tokio::sync::broadcast::Sender<crate::tenant_changes::TenantChange>,
 }
 
 /// What the auth layer reads on every request, held by the store like its other caches.
@@ -241,9 +243,12 @@ impl Store {
                 recycle_timeout_secs: 3,
             },
         })?;
+        let database_url = config.pg.database_url.clone();
         let pool: PgPool = diesel_make_pg_pool(config.pg)?;
 
         Ok(Store {
+            database_url,
+            tenant_changes: crate::tenant_changes::channel(),
             keep_last_events: crate::repositories::tenants::KeepLastEventsLookup::new(lookup_pool),
             slug_ids: crate::repositories::tenants::SlugIds::new(),
             tenant_cache: TimedCache::new(200, Duration::from_secs(300)),
@@ -463,6 +468,16 @@ impl ServerCertVerifier for DummyTlsVerifier {
             .signature_verification_algorithms
             .supported_schemes()
     }
+}
+
+/// TLS as the pool uses it; `sslmode=disable` still connects in plain text.
+pub(crate) fn tls_connector() -> MakeRustlsConnect {
+    MakeRustlsConnect::new(
+        rustls::ClientConfig::builder()
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(DummyTlsVerifier))
+            .with_no_client_auth(),
+    )
 }
 
 pub fn get_tls(database_url: &str) -> Option<MakeRustlsConnect> {

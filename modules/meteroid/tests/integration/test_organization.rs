@@ -79,6 +79,7 @@ async fn test_delete_organization_blocked_by_production_tenant() {
             disable_emails: None,
             email_delivery_mode: None,
             sandbox_preset: 0,
+            copy_from: None,
         })
         .await
         .unwrap();
@@ -133,6 +134,7 @@ async fn test_delete_tenant_and_last_drops_organization() {
             disable_emails: None,
             email_delivery_mode: None,
             sandbox_preset: 0,
+            copy_from: None,
         })
         .await
         .unwrap();
@@ -221,6 +223,7 @@ async fn test_delete_production_tenant_blocked() {
             disable_emails: None,
             email_delivery_mode: None,
             sandbox_preset: 0,
+            copy_from: None,
         })
         .await
         .unwrap()

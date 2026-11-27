@@ -82,6 +82,7 @@ pub(crate) async fn generate_api_key(channel: &Channel) -> CreateApiTokenRespons
                 disable_emails: None,
                 email_delivery_mode: None,
                 sandbox_preset: 0,
+                copy_from: None,
             },
         ))
         .await

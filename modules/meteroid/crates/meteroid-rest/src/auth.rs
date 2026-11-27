@@ -275,6 +275,26 @@ struct AuthStatus {
     msg: Option<String>,
 }
 
+/// A tenant changed (its environment, say): its keys' cached environments may be stale.
+/// `None` means changes may have been missed, so every key is forgotten.
+pub async fn forget_api_tokens(tenant: Option<TenantId>) {
+    use cached::Cached;
+    let mut cache = VALIDATE_API_TOKEN_BY_ID_CACHED.lock().await;
+    let Some(tenant) = tenant else {
+        cache.cache_clear();
+        return;
+    };
+    let stale: Vec<_> = cache
+        .key_order()
+        .zip(cache.value_order())
+        .filter(|(_, (_, (_, cached_tenant, _)))| *cached_tenant == tenant)
+        .map(|(key, _)| *key)
+        .collect();
+    for key in stale {
+        cache.cache_remove(&key);
+    }
+}
+
 // The key must include the presented secret: keying on the token id alone lets anyone
 // quoting a known id reuse the entry a legitimate request populated, skipping validate_hash.
 #[cached(

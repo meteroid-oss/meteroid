@@ -29,6 +29,7 @@ pub use roles::RolesInterface;
 pub use sso::SsoInterface;
 pub use subscription_pages::SubscriptionPagesInterface;
 pub use subscriptions::SubscriptionInterface;
+pub use tenant_copy::TenantCopyInterface;
 pub use tenants::TenantInterface;
 pub use user_deletion::UserDeletionInterface;
 pub use users::UserInterface;
@@ -42,6 +43,7 @@ pub mod invoices;
 pub mod plans;
 pub mod production_revenue;
 pub mod tax_categories;
+pub mod tenant_copy;
 pub mod tenants;
 
 pub mod add_ons;

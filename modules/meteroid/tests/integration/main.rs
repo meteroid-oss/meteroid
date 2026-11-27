@@ -116,6 +116,7 @@ mod test_subscription;
 mod test_subscription_cancelled_email;
 mod test_support_actor_masking;
 mod test_tenant;
+mod test_tenant_copy;
 mod test_tenant_deletion_cascade;
 mod test_tenant_scoping;
 mod test_usage_costs_metering;

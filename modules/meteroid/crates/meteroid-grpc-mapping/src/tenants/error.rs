@@ -11,7 +11,7 @@ pub enum TenantApiError {
     #[code(InvalidArgument)]
     MissingArgument(String),
 
-    #[error("Invalid argument: {0}")]
+    #[error("{0}")]
     #[code(InvalidArgument)]
     InvalidArgument(String),
 
@@ -33,6 +33,7 @@ impl From<Report<StoreError>> for TenantApiError {
         let err = value.current_context();
         match err {
             StoreError::FailedPrecondition(msg) => Self::FailedPrecondition(msg.clone()),
+            StoreError::InvalidArgument(msg) => Self::InvalidArgument(msg.clone()),
             StoreError::Forbidden(msg) => Self::PermissionDenied(msg.clone()),
             _ => Self::StoreError(
                 "Error in tenant service".to_string(),

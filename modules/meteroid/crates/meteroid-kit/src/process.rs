@@ -171,6 +171,7 @@ pub fn start(edition: impl FnOnce() -> Modules) -> Result<Process, dotenvy::Erro
 
     let usage_client = MeteringUsageClient::connect(&config);
     let store = build_store(&modules, &config, &usage_client, &egress);
+    meteroid_store::tenant_changes::spawn_listener(store.clone());
     Ok(Process {
         config,
         modules,

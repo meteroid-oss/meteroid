@@ -503,6 +503,7 @@ async fn start_meteroid_from_config(
         portal_legacy_tokens_until: None,
     })
     .expect("Could not create store");
+    meteroid_store::tenant_changes::spawn_listener(store.clone());
 
     let services = Services::new(Arc::new(store.clone()), usage_client);
 

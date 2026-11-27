@@ -1101,6 +1101,26 @@ impl WebhookOutEndpointRow {
 
         Ok(())
     }
+
+    /// Moves the endpoints still on the `from` cap to `to`, leaving tuned ones alone.
+    pub async fn retune_max_in_flight(
+        conn: &mut PgConn,
+        tenant_uid: TenantId,
+        from: i32,
+        to: i32,
+    ) -> DbResult<usize> {
+        use crate::schema::webhook_out_endpoint::dsl as e;
+        use diesel_async::RunQueryDsl;
+
+        diesel::update(e::webhook_out_endpoint)
+            .filter(e::tenant_id.eq(tenant_uid))
+            .filter(e::max_in_flight.eq(from))
+            .set(e::max_in_flight.eq(to))
+            .execute(conn)
+            .await
+            .attach("Error while retuning webhook endpoints")
+            .into_db_result()
+    }
 }
 
 impl WebhookOutMessageRow {

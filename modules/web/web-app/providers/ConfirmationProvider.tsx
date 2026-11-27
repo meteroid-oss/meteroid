@@ -42,9 +42,9 @@ export const useConfirmationModal = () => {
 
 const DefaultModalContent = ({ message }: { message?: string | JSX.Element }) => (
   <Modal.Content>
-    <p className="py-4 text-sm text-muted-foreground">
+    <div className="py-4 text-sm text-muted-foreground">
       {message || 'This action cannot be undone. Are you sure you want to continue ?'}
-    </p>
+    </div>
   </Modal.Content>
 )
 

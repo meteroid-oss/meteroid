@@ -77,6 +77,19 @@ where
 {
     let rest_rate_limiters = build_rest_rate_limiters(&rate_limiter, &config.api.rate_limit.rest);
 
+    let mut tenant_changes = store.subscribe_tenant_changes();
+    tokio::spawn(async move {
+        use tokio::sync::broadcast::error::RecvError;
+        loop {
+            let tenant = match tenant_changes.recv().await {
+                Ok(change) => change,
+                Err(RecvError::Lagged(_)) => None,
+                Err(RecvError::Closed) => break,
+            };
+            crate::api_rest::auth::forget_api_tokens(tenant).await;
+        }
+    });
+
     let feature_resolver = modules.entitlements(&store);
     let analytics = modules.analytics_hook(&store, &config, &egress);
 

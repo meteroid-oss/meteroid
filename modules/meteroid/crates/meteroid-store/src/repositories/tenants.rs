@@ -23,6 +23,7 @@ use common_domain::ids::{BaseId, OrganizationId, TenantId, UserId};
 use diesel_models::organizations::OrganizationRow;
 use diesel_models::tenants::{TenantRow, TenantRowNew, TenantRowPatch};
 use diesel_models::users::UserRow;
+use diesel_models::webhooks_out::WebhookOutEndpointRow;
 
 /// Tenants hard-deleted per transaction, to bound each cascading delete's size.
 const TENANT_HARD_DELETE_CHUNK: usize = 25;
@@ -231,6 +232,14 @@ impl TenantInterface for Store {
         organization_id: OrganizationId,
         tenant_id: TenantId,
     ) -> StoreResult<Tenant> {
+        if tenant.environment == Some(domain::enums::TenantEnvironmentEnum::Production)
+            && self.find_tenant_by_id(tenant_id).await?.tenant.environment
+                != domain::enums::TenantEnvironmentEnum::Production
+        {
+            self.organization_hooks
+                .ensure_production_tenant_allowed(organization_id)
+                .await?;
+        }
         let res = self
             .transaction(|conn| {
                 let actor = &actor;
@@ -242,6 +251,18 @@ impl TenantInterface for Store {
                     let before = TenantRow::find_by_id_for_update(conn, tenant_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
+                    let was_sandbox =
+                        before.environment == diesel_models::enums::TenantEnvironmentEnum::Sandbox;
+                    if let Some(environment) = &tenant.environment
+                        && was_sandbox
+                            != (*environment == domain::enums::TenantEnvironmentEnum::Sandbox)
+                    {
+                        return Err(StoreError::InvalidArgument(
+                            "A sandbox stays a sandbox: create a tenant to move to another environment"
+                                .to_string(),
+                        )
+                        .into());
+                    }
                     if tenant.environment == Some(domain::enums::TenantEnvironmentEnum::Production)
                         && before.environment
                             != diesel_models::enums::TenantEnvironmentEnum::Production
@@ -311,6 +332,17 @@ impl TenantInterface for Store {
                         .update(conn, tenant_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
+                    if before.environment != updated_tenant.environment {
+                        use crate::domain::webhooks_out::max_in_flight_for;
+                        WebhookOutEndpointRow::retune_max_in_flight(
+                            conn,
+                            tenant_id,
+                            max_in_flight_for(before.environment.clone().into()),
+                            max_in_flight_for(updated_tenant.environment.clone().into()),
+                        )
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                    }
 
                     let mut changed_fields: Vec<&'static str> = Vec::new();
                     if trade_name_changed {
@@ -963,6 +995,10 @@ impl KeepLastEventsLookup {
 
     pub(crate) fn invalidate(&self, tenant_id: &TenantId) {
         self.entries().cache_remove(tenant_id);
+    }
+
+    pub(crate) fn clear(&self) {
+        self.entries().cache_clear();
     }
 }
 

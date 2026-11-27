@@ -10,6 +10,22 @@ use o2o::o2o;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 
+use crate::domain::enums::TenantEnvironmentEnum;
+
+/// Per-endpoint in-flight cap of a production endpoint. It bounds how much of the
+/// delivery budget one endpoint can hold; higher means faster bursts, more reordering.
+pub const MAX_IN_FLIGHT_PRODUCTION: i32 = 4;
+pub const MAX_IN_FLIGHT_SANDBOX: i32 = 1;
+
+/// Non-production tenants stay serialised: their bursts are cheap to delay and their
+/// endpoints are the ones most likely to be dead.
+pub fn max_in_flight_for(environment: TenantEnvironmentEnum) -> i32 {
+    match environment {
+        TenantEnvironmentEnum::Production => MAX_IN_FLIGHT_PRODUCTION,
+        _ => MAX_IN_FLIGHT_SANDBOX,
+    }
+}
+
 use crate::domain::enums::{WebhookDeliveryStatus, WebhookEndpointDisabledReason};
 
 /// A tenant's outbound webhook destination. Signing secrets are never part of this type;

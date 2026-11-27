@@ -6,6 +6,7 @@ use crate::production_revenue::DailyRevenueRow;
 use crate::{DbResult, PgConn};
 
 /// Days in `[from, to)` with revenue, by currency: invoices minus credit notes, pre-tax.
+/// Invoices finalized while their tenant was in production count, and the credit notes on them.
 pub async fn daily_production_revenue(
     conn: &mut PgConn,
     from: chrono::NaiveDate,
@@ -19,13 +20,14 @@ pub async fn daily_production_revenue(
            SELECT i.finalized_at::date AS day, i.currency, i.total - i.tax_amount AS amount, \
                   FALSE AS credit_note \
            FROM invoice i JOIN tenant t ON t.id = i.tenant_id \
-           WHERE t.environment = 'PRODUCTION' \
+           WHERE COALESCE(i.production_revenue, t.legacy_invoices_production) \
              AND i.finalized_at >= $1::timestamp AND i.finalized_at < $2::timestamp \
            UNION ALL \
            SELECT (c.finalized_at AT TIME ZONE 'UTC')::date, c.currency, \
                   c.tax_amount - c.total, TRUE \
            FROM credit_note c JOIN tenant t ON t.id = c.tenant_id \
-           WHERE t.environment = 'PRODUCTION' \
+           JOIN invoice ci ON ci.id = c.invoice_id \
+           WHERE COALESCE(ci.production_revenue, t.legacy_invoices_production) \
              AND c.finalized_at >= ($1::timestamp AT TIME ZONE 'UTC') \
              AND c.finalized_at < ($2::timestamp AT TIME ZONE 'UTC') \
          ) revenue \

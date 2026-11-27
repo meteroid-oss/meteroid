@@ -11,6 +11,7 @@ pub mod leader_lock;
 pub mod repositories;
 pub mod services;
 pub mod store;
+pub mod tenant_changes;
 pub mod usage_controls_support;
 pub mod utils;
 

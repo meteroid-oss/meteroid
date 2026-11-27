@@ -1,28 +1,16 @@
 use std::collections::HashSet;
 
 use common_domain::ids::TenantId;
-use meteroid_store::domain::enums::TenantEnvironmentEnum;
 use meteroid_store::domain::webhooks_out::WebhookHeaderInput;
 use meteroid_store::repositories::tenants::TenantInterface;
 use meteroid_store::{Store, StoreResult};
 
-/// Per-endpoint in-flight cap of a new production endpoint. It bounds how much of the
-/// delivery budget one endpoint can hold; higher means faster bursts, more reordering.
-pub const MAX_IN_FLIGHT_PRODUCTION: i32 = 4;
-pub const MAX_IN_FLIGHT_SANDBOX: i32 = 1;
+pub use meteroid_store::domain::webhooks_out::{
+    MAX_IN_FLIGHT_PRODUCTION, MAX_IN_FLIGHT_SANDBOX, max_in_flight_for,
+};
 
-/// The in-flight cap a new endpoint of this tenant starts on. Non-production tenants
-/// stay serialised: their bursts are cheap to delay and their endpoints are the ones
-/// most likely to be dead.
-pub fn max_in_flight_for(environment: TenantEnvironmentEnum) -> i32 {
-    match environment {
-        TenantEnvironmentEnum::Production => MAX_IN_FLIGHT_PRODUCTION,
-        _ => MAX_IN_FLIGHT_SANDBOX,
-    }
-}
-
-/// In-flight cap for an endpoint about to be created for this tenant. Resolved once at
-/// creation: later moves between environments do not exist, and updates leave it alone.
+/// In-flight cap for an endpoint about to be created for this tenant. A change of
+/// environment moves the endpoints still on the default cap.
 pub async fn tenant_max_in_flight(store: &Store, tenant_id: TenantId) -> StoreResult<i32> {
     let tenant = store.find_tenant_by_id(tenant_id).await?;
 
@@ -154,6 +142,7 @@ pub fn description_patch(description: Option<String>) -> Option<Option<String>> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use meteroid_store::domain::enums::TenantEnvironmentEnum;
 
     #[test]
     fn only_production_endpoints_get_the_production_cap() {

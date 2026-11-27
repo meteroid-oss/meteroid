@@ -6,13 +6,13 @@ use meteroid_app::features::{
     ensure_production_tenant_allowed, gates,
 };
 use meteroid_grpc::meteroid::api::tenants::v1::{
-    ActiveTenantRequest, ActiveTenantResponse, CreateTenantRequest, CreateTenantResponse,
-    DeleteTenantRequest, DeleteTenantResponse, GetTenantByIdRequest, GetTenantByIdResponse,
-    GetTenantSeedingStatusRequest, GetTenantSeedingStatusResponse, ListTenantsCurrenciesRequest,
-    ListTenantsCurrenciesResponse, ListTenantsCurrenciesWithCustomerCountRequest,
-    ListTenantsCurrenciesWithCustomerCountResponse, ListTenantsRequest, ListTenantsResponse,
-    ResumeTenantRequest, ResumeTenantResponse, SandboxPreset,
-    UpdateTenantAvailableCurrenciesRequest, UpdateTenantAvailableCurrenciesResponse,
+    ActiveTenantRequest, ActiveTenantResponse, CopiedRows, CreateTenantRequest,
+    CreateTenantResponse, DeleteTenantRequest, DeleteTenantResponse, GetTenantByIdRequest,
+    GetTenantByIdResponse, GetTenantSeedingStatusRequest, GetTenantSeedingStatusResponse,
+    ListTenantsCurrenciesRequest, ListTenantsCurrenciesResponse,
+    ListTenantsCurrenciesWithCustomerCountRequest, ListTenantsCurrenciesWithCustomerCountResponse,
+    ListTenantsRequest, ListTenantsResponse, ResumeTenantRequest, ResumeTenantResponse,
+    SandboxPreset, UpdateTenantAvailableCurrenciesRequest, UpdateTenantAvailableCurrenciesResponse,
     UpdateTenantRequest, UpdateTenantResponse,
     list_tenants_currencies_with_customer_count_response::ListCurrency,
     tenants_service_server::TenantsService,
@@ -21,7 +21,8 @@ use meteroid_store::domain::TenantEnvironmentEnum;
 use meteroid_store::domain::sandbox_seeds::SandboxSeedStatus;
 use meteroid_store::domain::tenants::normalize_embed_origins;
 use meteroid_store::repositories::sandbox::SandboxInterface;
-use meteroid_store::repositories::{OrganizationsInterface, TenantInterface};
+use meteroid_store::repositories::tenant_copy::TenantCopyScope;
+use meteroid_store::repositories::{OrganizationsInterface, TenantCopyInterface, TenantInterface};
 use tonic::{Request, Response, Status};
 
 use super::{TenantServiceComponents, mapping};
@@ -289,8 +290,10 @@ impl TenantsService for TenantServiceComponents {
     ) -> Result<Response<CreateTenantResponse>, Status> {
         let organization_id = request.organization()?;
 
+        let actor = request.actor_typed()?;
         let request = request.into_inner();
         let preset = request.sandbox_preset();
+        let copy_from = request.copy_from.clone();
         let req = mapping::tenants::create_req_to_domain(request)?;
 
         if req.environment == TenantEnvironmentEnum::Production {
@@ -302,7 +305,33 @@ impl TenantsService for TenantServiceComponents {
             .await?;
         }
 
-        let res = if req.environment == TenantEnvironmentEnum::Sandbox {
+        let mut copied = Vec::new();
+        let res = if let Some(copy) = copy_from {
+            let source = TenantId::from_proto(copy.tenant_id)?;
+            let created = self
+                .store
+                .insert_tenant_copy(
+                    actor,
+                    source,
+                    req,
+                    organization_id,
+                    TenantCopyScope {
+                        catalog: copy.catalog,
+                        invoicing: copy.invoicing,
+                    },
+                )
+                .await
+                .map_err(Into::<TenantApiError>::into)?;
+            copied = created
+                .copied
+                .into_iter()
+                .map(|(table, rows)| CopiedRows {
+                    table,
+                    rows: rows as u64,
+                })
+                .collect();
+            created.tenant
+        } else if req.environment == TenantEnvironmentEnum::Sandbox {
             ensure_sandbox_preset_entitled(
                 preset,
                 &self.feature_resolver.resolve(organization_id).await,
@@ -320,6 +349,7 @@ impl TenantsService for TenantServiceComponents {
 
         Ok(Response::new(CreateTenantResponse {
             tenant: Some(mapping::tenants::domain_to_server(res)),
+            copied,
         }))
     }
 

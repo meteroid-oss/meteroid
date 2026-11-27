@@ -1,5 +1,13 @@
 import { useMutation } from '@connectrpc/connect-query'
-import { Button, Card, Form, InputFormField, SelectFormField, SelectItem } from '@md/ui'
+import {
+  Button,
+  Card,
+  CheckboxFormField,
+  Form,
+  InputFormField,
+  SelectFormField,
+  SelectItem,
+} from '@md/ui'
 import { ChevronLeft } from 'lucide-react'
 import { FunctionComponent, useEffect, useMemo, useState } from 'react'
 import { useWatch } from 'react-hook-form'
@@ -8,6 +16,7 @@ import { toast } from 'sonner'
 import { z } from 'zod'
 
 import { entitlementCodes, useEntitlement, useFeaturesQuery } from '@/hooks/useEntitlement'
+import { useIsCloud } from '@/hooks/useIsCloud'
 import { buildSyncParam } from '@/hooks/useSyncQueries'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
@@ -29,7 +38,36 @@ const tenantSchema = z.object({
     }
   }),
   sandboxPreset: z.string().transform((val: string) => Number(val) as SandboxPreset),
+  copyFrom: z.string(),
+  copyCatalog: z.boolean(),
+  copyInvoicing: z.boolean(),
 })
+
+const START_EMPTY = 'empty'
+
+const COPIED_LABELS: Record<string, [string, string]> = {
+  plan: ['plan', 'plans'],
+  product: ['product', 'products'],
+  billable_metric: ['metric', 'metrics'],
+  add_on: ['add-on', 'add-ons'],
+  coupon: ['coupon', 'coupons'],
+  feature: ['feature', 'features'],
+  credit_unit: ['credit unit', 'credit units'],
+  purchase_link: ['purchase link', 'purchase links'],
+  quote_template: ['quote template', 'quote templates'],
+  custom_property_definition: ['custom property', 'custom properties'],
+  invoicing_entity: ['invoicing entity', 'invoicing entities'],
+  custom_tax: ['custom tax', 'custom taxes'],
+  payment_reminder_sequence: ['reminder sequence', 'reminder sequences'],
+}
+
+const copySummary = (copied: { table: string; rows: bigint }[]) => {
+  const named = copied.flatMap(({ table, rows }) => {
+    const label = COPIED_LABELS[table]
+    return label ? [`${rows} ${rows === 1n ? label[0] : label[1]}`] : []
+  })
+  return named.length > 0 ? named.join(', ') : 'the configuration'
+}
 
 const environmentPlaceholders: Record<TenantEnvironmentEnum, string> = {
   [TenantEnvironmentEnum.PRODUCTION]: 'Production',
@@ -54,6 +92,9 @@ export const TenantNew: FunctionComponent = () => {
       name: '',
       environment: `${TenantEnvironmentEnum.DEVELOPMENT}` as unknown as TenantEnvironmentEnum,
       sandboxPreset: `${SandboxPreset.DEFAULT}` as unknown as SandboxPreset,
+      copyFrom: START_EMPTY,
+      copyCatalog: true,
+      copyInvoicing: true,
     },
   })
 
@@ -62,11 +103,12 @@ export const TenantNew: FunctionComponent = () => {
   const navigate = useNavigate()
 
   const mut = useMutation(createTenant, {
-    onSuccess: ({ tenant }) => {
-      navigate(`../${tenant?.slug}`)
+    onSuccess: ({ copied }) => {
+      if (copied.length > 0) {
+        toast.success(`Copied ${copySummary(copied)}`, { duration: 10_000 })
+      }
     },
     onError: error => {
-      console.error('Error creating tenant:', { error })
       toast.error('Failed to create tenant: ' + error.rawMessage)
       setError(error.rawMessage)
     },
@@ -80,15 +122,22 @@ export const TenantNew: FunctionComponent = () => {
     control: methods.control,
     name: 'sandboxPreset',
   })
+  const copyFrom = useWatch({
+    control: methods.control,
+    name: 'copyFrom',
+  })
+  const isSandbox = Number(environment) === TenantEnvironmentEnum.SANDBOX
+  const copying = !isSandbox && copyFrom !== START_EMPTY
 
   const features = useFeaturesQuery().data
   const tenants = useQuery(listTenants).data?.tenants
   const productionCount =
     tenants?.filter(t => t.environment === TenantEnvironmentEnum.PRODUCTION).length ?? 0
-  // The first Production tenant comes with the organization (or Cloud's go-live), not from here.
+  const isCloud = useIsCloud()
+  // On Cloud, the first Production tenant comes from go-live, with its subscription.
   const canCreateProduction =
     features !== undefined &&
-    productionCount > 0 &&
+    (productionCount > 0 || isCloud === false) &&
     (features.productionTenantLimit === undefined ||
       productionCount < features.productionTenantLimit)
   const isProduction = Number(environment) === TenantEnvironmentEnum.PRODUCTION
@@ -97,11 +146,7 @@ export const TenantNew: FunctionComponent = () => {
   const presets = useMemo(
     () =>
       adminSandboxes
-        ? [
-            SandboxPreset.DEFAULT,
-            SandboxPreset.CURRENCIES_AND_COUPONS,
-            SandboxPreset.AI_CREDITS,
-          ]
+        ? [SandboxPreset.DEFAULT, SandboxPreset.CURRENCIES_AND_COUPONS, SandboxPreset.AI_CREDITS]
         : [SandboxPreset.DEFAULT, SandboxPreset.CURRENCIES_AND_COUPONS],
     [adminSandboxes]
   )
@@ -130,12 +175,21 @@ export const TenantNew: FunctionComponent = () => {
           <Form {...methods}>
             <form
               onSubmit={methods.handleSubmit(async values => {
-                const result = await mut.mutateAsync({
-                  name: values.name,
-                  environment: values.environment,
-                  sandboxPreset: values.sandboxPreset,
-                })
-                if (result.tenant) {
+                const result = await mut
+                  .mutateAsync({
+                    name: values.name,
+                    environment: values.environment,
+                    sandboxPreset: values.sandboxPreset,
+                    copyFrom: copying
+                      ? {
+                          tenantId: values.copyFrom,
+                          catalog: values.copyCatalog,
+                          invoicing: values.copyInvoicing,
+                        }
+                      : undefined,
+                  })
+                  .catch(() => undefined)
+                if (result?.tenant) {
                   // Add query param for sandbox tenants to trigger data refresh on dashboard
                   const isSandbox = values.environment === TenantEnvironmentEnum.SANDBOX
                   const queryParam = isSandbox ? `?${buildSyncParam('stats')}` : ''
@@ -187,7 +241,47 @@ export const TenantNew: FunctionComponent = () => {
                     </p>
                   </div>
 
-                  {Number(environment) === TenantEnvironmentEnum.SANDBOX && (
+                  {!isSandbox && (tenants?.length ?? 0) > 0 && (
+                    <div className="space-y-3">
+                      <SelectFormField
+                        name="copyFrom"
+                        label="Start from"
+                        control={methods.control}
+                        className="max-w-xs"
+                      >
+                        <SelectItem value={START_EMPTY}>An empty tenant</SelectItem>
+                        {tenants
+                          ?.filter(t => t.environment !== TenantEnvironmentEnum.SANDBOX)
+                          .map(t => (
+                            <SelectItem key={t.id} value={t.id}>
+                              A copy of {t.name}
+                            </SelectItem>
+                          ))}
+                      </SelectFormField>
+                      {copying && (
+                        <div className="space-y-2">
+                          <CheckboxFormField
+                            control={methods.control}
+                            name="copyCatalog"
+                            label="Catalog: products, metrics, plans, add-ons, coupons, features, purchase links, custom properties, quote and annex templates"
+                          />
+                          <CheckboxFormField
+                            control={methods.control}
+                            name="copyInvoicing"
+                            label="Invoicing: entities, bank accounts, taxes, email and reminder settings"
+                          />
+                          <p className="max-w-sm text-xs text-muted-foreground">
+                            Customers, subscriptions, invoices and payments stay where they are.
+                            Connectors, webhooks and notification channels hold credentials: set
+                            them up again in the new tenant, along with analytics segments, alerts
+                            and targets.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {isSandbox && (
                     <SelectFormField
                       name="sandboxPreset"
                       label="Example data"

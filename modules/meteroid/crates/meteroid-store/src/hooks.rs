@@ -662,6 +662,17 @@ pub struct StoreHooks {
     pub signals: Arc<dyn SignalHooks>,
     pub members: Arc<dyn MemberHooks>,
     pub credit: Arc<dyn CreditControlHooks>,
+    /// Every module's configuration tables, copied after core's.
+    pub tenant_copy: Vec<ModuleTenantCopy>,
+}
+
+/// What a tenant copy does with each table a module owns: every table with a `tenant_id`
+/// is copied or named here, which a test of the edition checks.
+#[derive(Clone, Copy, Default)]
+pub struct ModuleTenantCopy {
+    pub catalog: &'static [diesel_models::query::tenant_copy::CopiedTable],
+    pub invoicing: &'static [diesel_models::query::tenant_copy::CopiedTable],
+    pub not_copied: &'static [&'static str],
 }
 
 impl Default for StoreHooks {
@@ -670,6 +681,7 @@ impl Default for StoreHooks {
             signals: Arc::new(NoSignalHooks),
             members: Arc::new(NoMemberHooks),
             credit: Arc::new(NoCreditControls),
+            tenant_copy: Vec::new(),
         }
     }
 }

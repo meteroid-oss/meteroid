@@ -93,6 +93,7 @@ async fn test_connect_mock_is_refused_on_production_tenants() {
             disable_emails: None,
             email_delivery_mode: None,
             sandbox_preset: 0,
+            copy_from: None,
         })
         .await
         .unwrap()

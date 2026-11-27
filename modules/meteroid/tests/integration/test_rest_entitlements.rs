@@ -144,6 +144,7 @@ async fn second_tenant_key(
             disable_emails: None,
             email_delivery_mode: None,
             sandbox_preset: 0,
+            copy_from: None,
         })
         .await
         .unwrap()
@@ -368,6 +369,7 @@ async fn test_rest_feature_and_entitlement_writes() {
             disable_emails: None,
             email_delivery_mode: None,
             sandbox_preset: 0,
+            copy_from: None,
         })
         .await
         .unwrap()

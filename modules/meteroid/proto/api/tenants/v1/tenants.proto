@@ -57,10 +57,30 @@ message CreateTenantRequest {
   // Omitted: LIVE in production, TEST elsewhere.
   optional EmailDeliveryMode email_delivery_mode = 4;
   SandboxPreset sandbox_preset = 5;
+  // Sets the new tenant up like another tenant of the organization. Not for a sandbox.
+  optional TenantConfigurationCopy copy_from = 6;
+}
+
+// Never customers, subscriptions, invoices or payments, nor connectors, webhooks and notification
+// channels, which hold credentials, nor analytics segments, alerts and targets.
+message TenantConfigurationCopy {
+  string tenant_id = 1;
+  // Products, metrics, prices, plans, add-ons, coupons, features, purchase links, quote approval
+  // rules, and the custom properties, quote and annex templates of the modules that have them.
+  bool catalog = 2;
+  // Invoicing entities, bank accounts, custom taxes, email and reminder settings.
+  bool invoicing = 3;
 }
 
 message CreateTenantResponse {
   Tenant tenant = 1;
+  // With `copy_from`: the rows copied per table, for the tables that had any.
+  repeated CopiedRows copied = 2;
+}
+
+message CopiedRows {
+  string table = 1;
+  uint64 rows = 2;
 }
 
 message DeleteTenantRequest {
