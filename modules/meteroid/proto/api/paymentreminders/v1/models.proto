@@ -233,3 +233,48 @@ message InvoiceCollection {
   // RFC 3339; when `end` happens, if known.
   optional string end_at = 5;
 }
+
+// Invoices whose first automatic payment failed in a period, and where they stand now.
+message DunningRecoveryStats {
+  uint32 failed = 1;
+  // Paid since, by any means.
+  uint32 recovered = 2;
+  // Unpaid, still open to collection.
+  uint32 in_collection = 3;
+  // Voided or marked uncollectible unpaid.
+  uint32 written_off = 4;
+  // Their subscription cancelled with no payment received, even if the credit the
+  // cancellation gave back cleared them.
+  uint32 churned = 5;
+  // Distinct subscriptions behind `churned`.
+  uint32 churned_subscriptions = 6;
+  // Paid by an automatic retry.
+  uint32 recovered_by_retry = 7;
+  // Paid by the customer, from the portal or the pay page.
+  uint32 recovered_by_customer = 8;
+  // Paid outside a payment attempt: marked paid, credit, transfer.
+  uint32 recovered_otherwise = 9;
+  // From the first failure to the payment; unset with nothing recovered.
+  optional double average_days_to_recover = 10;
+  // One entry per currency.
+  repeated RecoveryAmounts amounts = 11;
+  // By the first failure's decline, most failed first.
+  repeated DeclineRecovery by_decline = 12;
+}
+
+// Minor units of `currency`, of the first failed attempts.
+message RecoveryAmounts {
+  string currency = 1;
+  int64 failed = 2;
+  int64 recovered = 3;
+  int64 in_collection = 4;
+  // Written off or churned.
+  int64 lost = 5;
+}
+
+message DeclineRecovery {
+  // Unset when the provider gave no reason.
+  optional CollectionDecline decline = 1;
+  uint32 failed = 2;
+  uint32 recovered = 3;
+}

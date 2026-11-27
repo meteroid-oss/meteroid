@@ -66,9 +66,31 @@ export const useVisibleItems = <T extends { useVisible: (ctx: C) => boolean }, C
   ctx: C
 ): T[] => items.filter(item => item.useVisible(ctx))
 
-/** The modules' main navigation sections, each with what waits on the caller there. */
-export const useNavMainSections = (): (NavMainSection & { counts: Record<string, number> })[] =>
-  slotItems('layout.navMain').map(section => ({ ...section, counts: section.useCounts?.() ?? {} }))
+/**
+ * The modules' main navigation sections, each with what waits on the caller there. Sections of
+ * one title are one: the first gives its icon and place, and an entry naming `after` follows it.
+ */
+export const useNavMainSections = (): (NavMainSection & { counts: Record<string, number> })[] => {
+  const sections: (NavMainSection & { counts: Record<string, number> })[] = []
+  for (const section of slotItems('layout.navMain')) {
+    const counts = section.useCounts?.() ?? {}
+    const same = sections.find(other => other.title === section.title)
+    if (same) {
+      same.items = [...same.items, ...section.items]
+      same.counts = { ...same.counts, ...counts }
+    } else {
+      sections.push({ ...section, counts })
+    }
+  }
+  return sections.map(section => ({
+    ...section,
+    items: placeAfter(
+      section.items.filter(item => item.after === undefined),
+      section.items.filter(item => item.after !== undefined),
+      item => item.title
+    ).map(({ after: _, ...item }) => item),
+  }))
+}
 
 /** Renders every component contributed to a component slot. */
 export const Slot = <K extends keyof ComponentSlots>({

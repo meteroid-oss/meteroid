@@ -241,9 +241,10 @@ pub fn method_auth(sm: &GrpcServiceMethod) -> Option<RouteAuth> {
         // Per-invoice and per-customer operations follow their resource; sequences,
         // sender settings and kind toggles are settings.
         "PaymentRemindersService" => match method {
-            "GetInvoiceReminders" | "PreviewInvoiceReminderResolution" => {
-                RouteAuth::Requires(InvoicesRead)
-            }
+            "GetInvoiceReminders"
+            | "PreviewInvoiceReminderResolution"
+            | "GetInvoiceCollection"
+            | "GetDunningRecoveryStats" => RouteAuth::Requires(InvoicesRead),
             "PauseInvoiceReminders"
             | "ResumeInvoiceReminders"
             | "StopInvoiceReminders"
@@ -730,6 +731,8 @@ mod tests {
             ("ArchivePaymentReminderSequence", SettingsManage),
             ("GetInvoiceReminders", InvoicesRead),
             ("PreviewInvoiceReminderResolution", InvoicesRead),
+            ("GetInvoiceCollection", InvoicesRead),
+            ("GetDunningRecoveryStats", InvoicesRead),
             ("PauseInvoiceReminders", InvoicesManage),
             ("ResumeInvoiceReminders", InvoicesManage),
             ("StopInvoiceReminders", InvoicesManage),

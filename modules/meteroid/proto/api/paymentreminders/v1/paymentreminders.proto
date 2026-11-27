@@ -96,6 +96,16 @@ message GetInvoiceCollectionResponse {
   InvoiceCollection collection = 1;
 }
 
+message GetDunningRecoveryStatsRequest {
+  // Dates, as YYYY-MM-DD, of the invoices' first failed automatic payment; unset for no bound.
+  optional string from = 1;
+  optional string to = 2;
+}
+
+message GetDunningRecoveryStatsResponse {
+  DunningRecoveryStats stats = 1;
+}
+
 message PreviewInvoiceReminderResolutionRequest {
   string invoice_id = 1;
 }
@@ -212,6 +222,7 @@ service PaymentRemindersService {
   rpc GetInvoiceReminders(GetInvoiceRemindersRequest) returns (GetInvoiceRemindersResponse) {}
   // The invoice's payments, the retries the dunning policy still plans and what follows them.
   rpc GetInvoiceCollection(GetInvoiceCollectionRequest) returns (GetInvoiceCollectionResponse) {}
+  rpc GetDunningRecoveryStats(GetDunningRecoveryStatsRequest) returns (GetDunningRecoveryStatsResponse) {}
   rpc PreviewInvoiceReminderResolution(PreviewInvoiceReminderResolutionRequest) returns (PreviewInvoiceReminderResolutionResponse) {}
   rpc PauseInvoiceReminders(PauseInvoiceRemindersRequest) returns (PauseInvoiceRemindersResponse) {}
   rpc ResumeInvoiceReminders(ResumeInvoiceRemindersRequest) returns (ResumeInvoiceRemindersResponse) {}

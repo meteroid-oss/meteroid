@@ -148,6 +148,8 @@ export interface NavMainItem {
   new?: boolean
   /** Read permission the entry requires. */
   permission?: string
+  /** Title of the entry it follows, from another module's section of the same title. */
+  after?: string
 }
 
 /** A section of the sidebar's main navigation, outside Express organizations; hidden when no entry is left. */
@@ -554,7 +556,7 @@ export interface ComponentSlots {
   /** Once on the portal Credit page, after the wallets: the dialogs a module opens. */
   'portal.balance.dialogs': PortalBalanceContext
   /** The cancel dialog of a portal subscription; the first one replaces the core confirmation. */
-  'portal.subscription.cancelFlow': PortalCancelFlowContext  /** In the Cancellation stage of the Customer journey page, after how cancelling works. */
+  'portal.subscription.cancelFlow': PortalCancelFlowContext /** In the Cancellation stage of the Customer journey page, after how cancelling works. */
   'journey.cancellation': Record<never, never>
 }
 
