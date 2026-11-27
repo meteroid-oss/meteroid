@@ -36,6 +36,7 @@ pub fn kind_to_proto(kind: EmailKind) -> server::EmailKind {
         EmailKind::BudgetThreshold => server::EmailKind::BudgetThreshold,
         EmailKind::BudgetExceeded => server::EmailKind::BudgetExceeded,
         EmailKind::SubscriptionCancelled => server::EmailKind::SubscriptionCancelled,
+        EmailKind::PaymentMethodRequested => server::EmailKind::PaymentMethodRequested,
     }
 }
 
@@ -57,6 +58,7 @@ pub fn kind_from_proto(raw: i32) -> Result<EmailKind, Status> {
         server::EmailKind::BudgetThreshold => Ok(EmailKind::BudgetThreshold),
         server::EmailKind::BudgetExceeded => Ok(EmailKind::BudgetExceeded),
         server::EmailKind::SubscriptionCancelled => Ok(EmailKind::SubscriptionCancelled),
+        server::EmailKind::PaymentMethodRequested => Ok(EmailKind::PaymentMethodRequested),
     }
 }
 

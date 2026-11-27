@@ -57,6 +57,8 @@ pub enum LeaderLock {
     LegacyPlanUpgrade = 92_000_026,
     /// Marks customers whose entitlement rows cross a validity bound.
     EntitlementValidityScan = 92_000_031,
+    /// Subscription migration: source syncs, shadow comparisons and cutovers.
+    SubscriptionMigration = 92_000_033,
     // Retired keys, never reused: a replica of an earlier version may still hold one.
     // 92_000_007 (stale-draft refresh), 92_000_023 (pending changes start-up migration),
     // 92_000_032 (usage claim reconcile).

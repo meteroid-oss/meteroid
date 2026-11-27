@@ -50,6 +50,15 @@ authentication-required-subject = Confirmez votre paiement pour la facture { $nu
 authentication-required-heading = Votre banque demande une confirmation
 authentication-required-intro = Votre banque demande une confirmation avant de prélever { $amount }. Cela ne prend que quelques secondes.
 
+## Moyen de paiement (type payment_method_requested : la facturation a changé de prestataire)
+payment-method-requested-subject = Action requise : ajoutez un moyen de paiement pour votre abonnement { $company }
+payment-method-requested-heading = Ajoutez un moyen de paiement pour conserver votre abonnement
+payment-method-requested-intro = { $company } facture désormais votre abonnement directement, et non plus via { $provider }. Votre offre et votre prix restent les mêmes.
+payment-method-requested-by = Merci d'ajouter un moyen de paiement avant le { $date } pour que votre prochain paiement aboutisse.
+payment-method-requested-anytime = Merci d'ajouter un moyen de paiement pour que votre prochain paiement aboutisse.
+payment-method-requested-hedge = Si vous en avez déjà ajouté un, vous pouvez ignorer cet e-mail.
+add-payment-method = Ajouter un moyen de paiement
+
 ## Summary box labels (no trailing colon: shown as a label/value table)
 invoice-number = Numéro de facture
 invoice-date = Date d'émission

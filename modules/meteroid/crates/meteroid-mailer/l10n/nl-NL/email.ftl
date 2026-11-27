@@ -50,6 +50,15 @@ authentication-required-subject = Bevestig uw betaling voor factuur { $number }
 authentication-required-heading = Uw bank vraagt u deze betaling te bevestigen
 authentication-required-intro = Uw bank vraagt om een bevestiging voordat { $amount } wordt afgeschreven. Dit duurt slechts enkele seconden.
 
+## Betaalmethode (soort payment_method_requested: facturatie verhuisd van een andere aanbieder)
+payment-method-requested-subject = Actie vereist: voeg een betaalmethode toe voor uw { $company }-abonnement
+payment-method-requested-heading = Voeg een betaalmethode toe om uw abonnement te behouden
+payment-method-requested-intro = { $company } factureert uw abonnement nu rechtstreeks in plaats van via { $provider }. Uw abonnement en prijs blijven hetzelfde.
+payment-method-requested-by = Voeg vóór { $date } een betaalmethode toe zodat uw volgende betaling slaagt.
+payment-method-requested-anytime = Voeg een betaalmethode toe zodat uw volgende betaling slaagt.
+payment-method-requested-hedge = Als u er al een hebt toegevoegd, kunt u deze e-mail negeren.
+add-payment-method = Betaalmethode toevoegen
+
 ## Summary box labels (no trailing colon: shown as a label/value table)
 invoice-number = Factuurnummer
 invoice-date = Factuurdatum

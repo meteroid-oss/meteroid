@@ -2176,6 +2176,236 @@ diesel::table! {
 }
 
 diesel::table! {
+    migration_customer (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        source_id -> Uuid,
+        external_id -> Text,
+        name -> Text,
+        email -> Nullable<Text>,
+        country -> Nullable<Text>,
+        address -> Jsonb,
+        tax_id -> Nullable<Text>,
+        is_company -> Bool,
+        payment_method -> Nullable<Jsonb>,
+        customer_id -> Nullable<Uuid>,
+        data -> Jsonb,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    migration_event (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        source_id -> Uuid,
+        migration_subscription_id -> Nullable<Uuid>,
+        kind -> Text,
+        message -> Text,
+        actor_kind -> Text,
+        actor_id -> Nullable<Uuid>,
+        metadata -> Jsonb,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    migration_price_mapping (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        source_id -> Uuid,
+        external_product_id -> Text,
+        external_product_name -> Text,
+        external_price_id -> Text,
+        external_price_name -> Text,
+        unit_amount -> Nullable<Int8>,
+        currency -> Text,
+        billing_interval -> Text,
+        interval_count -> Int4,
+        usage_based -> Bool,
+        pricing_scheme -> Text,
+        data -> Jsonb,
+        status -> Text,
+        plan_id -> Nullable<Uuid>,
+        plan_version_id -> Nullable<Uuid>,
+        price_component_id -> Nullable<Uuid>,
+        price_mode -> Text,
+        confidence -> Float4,
+        note -> Nullable<Text>,
+        confirmed_by -> Nullable<Uuid>,
+        confirmed_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    migration_shadow_period (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        migration_subscription_id -> Uuid,
+        source_invoice_id -> Uuid,
+        period_start -> Date,
+        period_end -> Date,
+        currency -> Text,
+        source_subtotal -> Int8,
+        source_discount -> Int8,
+        source_tax -> Int8,
+        source_total -> Int8,
+        meteroid_subtotal -> Int8,
+        meteroid_discount -> Int8,
+        meteroid_tax -> Int8,
+        meteroid_total -> Int8,
+        drift -> Int8,
+        buckets -> Jsonb,
+        lines -> Jsonb,
+        outcome -> Text,
+        detail -> Nullable<Text>,
+        computed_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    migration_source (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        kind -> Text,
+        name -> Text,
+        live_mode -> Bool,
+        external_account_id -> Nullable<Text>,
+        credentials -> Nullable<Text>,
+        default_currency -> Text,
+        invoicing_entity_id -> Nullable<Uuid>,
+        sync_requested_at -> Nullable<Timestamptz>,
+        sync_started_at -> Nullable<Timestamptz>,
+        sync_finished_at -> Nullable<Timestamptz>,
+        sync_error -> Nullable<Text>,
+        sync_stats -> Jsonb,
+        auto_cutover -> Bool,
+        drift_tolerance_amount -> Int8,
+        drift_tolerance_bps -> Int4,
+        min_clean_periods -> Int4,
+        backtest_periods -> Int4,
+        max_shadow_days -> Nullable<Int4>,
+        compare_tax -> Bool,
+        require_payment_method -> Bool,
+        cutover_lead_hours -> Int4,
+        bucket_tolerances -> Jsonb,
+        plan_overrides -> Jsonb,
+        breach_action -> Text,
+        paused -> Bool,
+        cutover_deadline -> Nullable<Date>,
+        readiness_confirmed_at -> Nullable<Timestamptz>,
+        readiness_confirmed_by -> Nullable<Uuid>,
+        upload -> Nullable<Jsonb>,
+        archived_at -> Nullable<Timestamptz>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    migration_source_invoice (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        source_id -> Uuid,
+        migration_subscription_id -> Uuid,
+        external_id -> Text,
+        billing_reason -> Text,
+        status -> Text,
+        currency -> Text,
+        subtotal -> Int8,
+        discount -> Int8,
+        tax -> Int8,
+        total -> Int8,
+        refunded -> Int8,
+        issued_at -> Timestamptz,
+        period_start -> Date,
+        period_end -> Date,
+        lines -> Jsonb,
+        data -> Jsonb,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    migration_subscription (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        source_id -> Uuid,
+        external_id -> Text,
+        external_customer_id -> Text,
+        migration_customer_id -> Nullable<Uuid>,
+        external_price_id -> Nullable<Text>,
+        external_item_id -> Nullable<Text>,
+        quantity -> Int4,
+        currency -> Text,
+        source_status -> Text,
+        product_name -> Text,
+        price_name -> Text,
+        mrr -> Int8,
+        billing_anchor -> Nullable<Int4>,
+        started_at -> Timestamptz,
+        current_period_start -> Nullable<Timestamptz>,
+        current_period_end -> Nullable<Timestamptz>,
+        trial_ends_at -> Nullable<Timestamptz>,
+        ends_at -> Nullable<Timestamptz>,
+        usage_based -> Bool,
+        card_brand -> Nullable<Text>,
+        card_last_four -> Nullable<Text>,
+        payment_processor -> Nullable<Text>,
+        items -> Jsonb,
+        discount -> Nullable<Jsonb>,
+        data -> Jsonb,
+        state -> Text,
+        state_reason -> Nullable<Text>,
+        state_changed_at -> Timestamptz,
+        clean_periods -> Int4,
+        compared_periods -> Int4,
+        last_drift -> Nullable<Int8>,
+        shadow_stale -> Bool,
+        hold_reason -> Nullable<Text>,
+        held_by -> Nullable<Uuid>,
+        held_at -> Nullable<Timestamptz>,
+        drift_accepted_through -> Nullable<Date>,
+        exclude_auto_cutover -> Bool,
+        drift_tolerance_override -> Nullable<Int8>,
+        approved_by -> Nullable<Uuid>,
+        approved_at -> Nullable<Timestamptz>,
+        cutover_at -> Nullable<Timestamptz>,
+        cutover_started_at -> Nullable<Timestamptz>,
+        source_cancelled_at -> Nullable<Timestamptz>,
+        manual_cancel_confirmed_at -> Nullable<Timestamptz>,
+        cutover_completed_at -> Nullable<Timestamptz>,
+        cutover_error -> Nullable<Text>,
+        cutover_attempts -> Int4,
+        subscription_id -> Nullable<Uuid>,
+        payment_method_strategy -> Text,
+        payment_method_requested_at -> Nullable<Timestamptz>,
+        payment_method_reminders -> Bool,
+        payment_method_emails -> Int4,
+        payment_method_emailed_at -> Nullable<Timestamptz>,
+        imported_at -> Timestamptz,
+        last_seen_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    migration_usage_snapshot (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        migration_subscription_id -> Uuid,
+        period_start -> Date,
+        period_end -> Date,
+        quantity -> Numeric,
+        captured_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::ChannelTypeEnum;
 
@@ -4076,6 +4306,31 @@ diesel::joinable!(metric_target_change -> tenant (tenant_id));
 diesel::joinable!(metric_target_change -> user (actor_user_id));
 diesel::joinable!(metric_target_snapshot -> metric_target (metric_target_id));
 diesel::joinable!(metric_target_snapshot -> tenant (tenant_id));
+diesel::joinable!(migration_customer -> customer (customer_id));
+diesel::joinable!(migration_customer -> migration_source (source_id));
+diesel::joinable!(migration_customer -> tenant (tenant_id));
+diesel::joinable!(migration_event -> migration_source (source_id));
+diesel::joinable!(migration_event -> migration_subscription (migration_subscription_id));
+diesel::joinable!(migration_event -> tenant (tenant_id));
+diesel::joinable!(migration_price_mapping -> migration_source (source_id));
+diesel::joinable!(migration_price_mapping -> plan (plan_id));
+diesel::joinable!(migration_price_mapping -> plan_version (plan_version_id));
+diesel::joinable!(migration_price_mapping -> price_component (price_component_id));
+diesel::joinable!(migration_price_mapping -> tenant (tenant_id));
+diesel::joinable!(migration_shadow_period -> migration_source_invoice (source_invoice_id));
+diesel::joinable!(migration_shadow_period -> migration_subscription (migration_subscription_id));
+diesel::joinable!(migration_shadow_period -> tenant (tenant_id));
+diesel::joinable!(migration_source -> invoicing_entity (invoicing_entity_id));
+diesel::joinable!(migration_source -> tenant (tenant_id));
+diesel::joinable!(migration_source_invoice -> migration_source (source_id));
+diesel::joinable!(migration_source_invoice -> migration_subscription (migration_subscription_id));
+diesel::joinable!(migration_source_invoice -> tenant (tenant_id));
+diesel::joinable!(migration_subscription -> migration_customer (migration_customer_id));
+diesel::joinable!(migration_subscription -> migration_source (source_id));
+diesel::joinable!(migration_subscription -> subscription (subscription_id));
+diesel::joinable!(migration_subscription -> tenant (tenant_id));
+diesel::joinable!(migration_usage_snapshot -> migration_subscription (migration_subscription_id));
+diesel::joinable!(migration_usage_snapshot -> tenant (tenant_id));
 diesel::joinable!(notification_channel -> tenant (tenant_id));
 diesel::joinable!(org_security_audit_log -> organization (organization_id));
 diesel::joinable!(organization_domain -> organization (organization_id));

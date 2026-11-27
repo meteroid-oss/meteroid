@@ -20,6 +20,8 @@ enum EmailKind {
   BUDGET_EXCEEDED = 11;
   QUOTE_ACCEPTED = 12;
   SUBSCRIPTION_CANCELLED = 13;
+  // Billing moved from another provider: the customer adds a payment method.
+  PAYMENT_METHOD_REQUESTED = 14;
 }
 
 enum EmailAudienceMode {

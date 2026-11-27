@@ -50,6 +50,15 @@ authentication-required-subject = Confirme o seu pagamento da fatura { $number }
 authentication-required-heading = O seu banco pede-lhe que confirme este pagamento
 authentication-required-intro = O seu banco pede uma confirmação antes de debitar { $amount }. Demora apenas alguns segundos.
 
+## Método de pagamento (tipo payment_method_requested: a faturação mudou de fornecedor)
+payment-method-requested-subject = Ação necessária: adicione um método de pagamento para a sua subscrição { $company }
+payment-method-requested-heading = Adicione um método de pagamento para manter a sua subscrição
+payment-method-requested-intro = A { $company } passou a faturar a sua subscrição diretamente, em vez de { $provider }. O seu plano e o seu preço mantêm-se.
+payment-method-requested-by = Adicione um método de pagamento antes de { $date } para que o seu próximo pagamento seja processado.
+payment-method-requested-anytime = Adicione um método de pagamento para que o seu próximo pagamento seja processado.
+payment-method-requested-hedge = Se já adicionou um, pode ignorar este e-mail.
+add-payment-method = Adicionar método de pagamento
+
 ## Summary box labels (no trailing colon: shown as a label/value table)
 invoice-number = Número da fatura
 invoice-date = Data de emissão

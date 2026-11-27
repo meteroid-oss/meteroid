@@ -7,8 +7,9 @@ use crate::l10n::{EmailL10N, email_l10n};
 use crate::template::{
     AuthenticationRequiredContent, BudgetAlertContent, ButtonTemplate, CreditNoteIssuedContent,
     CustomBodyContent, EmailColors, HeaderTemplate, InvoicePaidContent, InvoiceReadyContent,
-    PaymentFailedContent, QuoteReadyContent, QuoteSignatureCodeContent, StatusBadge,
-    SummaryBoxTemplate, SummaryHero, WalletNoticeContent, render_layout,
+    PaymentFailedContent, PaymentMethodRequestContent, QuoteReadyContent,
+    QuoteSignatureCodeContent, StatusBadge, SummaryBoxTemplate, SummaryHero, WalletNoticeContent,
+    render_layout,
 };
 use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::l10n::long_date;
@@ -181,6 +182,12 @@ pub enum Body {
         plan_name: String,
         received_at: NaiveDateTime,
         last_day: NaiveDate,
+    },
+    /// Billing moved from `previous_provider`: the customer adds a payment method by `update_by`.
+    PaymentMethodRequested {
+        previous_provider: String,
+        update_by: Option<NaiveDate>,
+        cta: Cta,
     },
     /// `html_fragment` comes from `copy::to_html` only; it is inserted unescaped.
     Custom {
@@ -603,6 +610,32 @@ pub fn render(
             (
                 subject.clone(),
                 render_layout(lang, subject, preheader, header, footer, &l10n, content)?,
+            )
+        }
+        Body::PaymentMethodRequested {
+            previous_provider,
+            update_by,
+            cta,
+        } => {
+            let ask = match update_by {
+                Some(date) => l10n
+                    .payment_method_requested_by(long_date(lang, &date))
+                    .to_string(),
+                None => l10n.payment_method_requested_anytime().to_string(),
+            };
+            let content = PaymentMethodRequestContent {
+                heading: l10n.payment_method_requested_heading().to_string(),
+                intro: l10n
+                    .payment_method_requested_intro(company, &previous_provider)
+                    .to_string(),
+                ask: ask.clone(),
+                cta: button(cta, l10n.add_payment_method(), &color),
+                hedge: l10n.payment_method_requested_hedge().to_string(),
+            };
+            let subject = l10n.payment_method_requested_subject(company).to_string();
+            (
+                subject.clone(),
+                render_layout(lang, subject, Some(ask), header, footer, &l10n, content)?,
             )
         }
         Body::WalletBalanceLow {
@@ -1042,6 +1075,14 @@ mod tests {
                 },
             ),
             (
+                "payment_method_requested",
+                Body::PaymentMethodRequested {
+                    previous_provider: "Lemon Squeezy".into(),
+                    update_by: NaiveDate::from_ymd_opt(2027, 3, 1),
+                    cta: Cta::new("https://portal.example/customer"),
+                },
+            ),
+            (
                 "wallet_balance_low",
                 Body::WalletBalanceLow {
                     available_minor: 4_250,
@@ -1152,7 +1193,9 @@ mod tests {
                     "{ctx}: powered-by logo"
                 );
                 if !kind.starts_with("quote_") && kind != "subscription_cancelled" {
-                    assert!(html.contains("class=\"hero-amount\""), "{ctx}: hero");
+                    if kind != "payment_method_requested" {
+                        assert!(html.contains("class=\"hero-amount\""), "{ctx}: hero");
+                    }
                     assert!(html.contains("mso-hide:all"), "{ctx}: preheader");
                 }
                 assert!(
@@ -1186,6 +1229,10 @@ mod tests {
                     "authentication_required" => (
                         l10n.authentication_required_heading(),
                         Some(l10n.confirm_payment()),
+                    ),
+                    "payment_method_requested" => (
+                        l10n.payment_method_requested_heading(),
+                        Some(l10n.add_payment_method()),
                     ),
                     "wallet_balance_low" => (l10n.wallet_balance_low_heading(), None),
                     "budget_threshold" => (l10n.budget_threshold_heading("80%"), None),

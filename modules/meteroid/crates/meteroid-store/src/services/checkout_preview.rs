@@ -337,6 +337,23 @@ impl Services {
         create: &CreateSubscription,
         tenant_id: TenantId,
     ) -> StoreResult<(ComputedInvoiceContent, SubscriptionDetails)> {
+        let details = self
+            .virtual_subscription_details(conn, create, tenant_id)
+            .await?;
+        let content = self
+            .preview_new_subscription_invoice(conn, &details)
+            .await?;
+        Ok((content, details))
+    }
+
+    /// The `SubscriptionDetails` a `CreateSubscription` would record, built in memory: nothing
+    /// is persisted, its rows start on its billing start.
+    pub async fn virtual_subscription_details(
+        &self,
+        conn: &mut PgConn,
+        create: &CreateSubscription,
+        tenant_id: TenantId,
+    ) -> StoreResult<SubscriptionDetails> {
         let sub = &create.subscription;
 
         let mut price_components = self
@@ -409,7 +426,7 @@ impl Services {
             )
             .await?;
 
-        self.preview_first_invoice(
+        self.previewed_details(
             conn,
             tenant_id,
             PreviewedSubscription {
@@ -500,6 +517,19 @@ impl Services {
         tenant_id: TenantId,
         preview: PreviewedSubscription<'_>,
     ) -> StoreResult<(ComputedInvoiceContent, SubscriptionDetails)> {
+        let details = self.previewed_details(conn, tenant_id, preview).await?;
+        let content = self
+            .preview_new_subscription_invoice(conn, &details)
+            .await?;
+        Ok((content, details))
+    }
+
+    async fn previewed_details(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        preview: PreviewedSubscription<'_>,
+    ) -> StoreResult<SubscriptionDetails> {
         let PreviewedSubscription {
             subscription: sub,
             offer_currency,
@@ -683,11 +713,7 @@ impl Services {
             sub.billing_start_date.unwrap_or(contract_start),
         );
 
-        let content = self
-            .preview_new_subscription_invoice(conn, &details)
-            .await?;
-
-        Ok((content, details))
+        Ok(details)
     }
 
     /// Builds a SubscriptionComponent from a PriceComponent for preview purposes.

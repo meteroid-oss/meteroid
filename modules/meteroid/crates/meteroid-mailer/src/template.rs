@@ -458,6 +458,17 @@ pub struct AuthenticationRequiredContent {
     pub hedge: String,
 }
 
+/// Billing moved from another provider: no document, a button to add a payment method.
+#[derive(TemplateSimple)]
+#[template(path = "payment_method_request.stpl")]
+pub struct PaymentMethodRequestContent {
+    pub heading: String,
+    pub intro: String,
+    pub ask: String,
+    pub cta: ButtonTemplate,
+    pub hedge: String,
+}
+
 /// A prepaid-balance notice: no document and no button, the summary carries the figures.
 #[derive(TemplateSimple)]
 #[template(path = "wallet_notice.stpl")]

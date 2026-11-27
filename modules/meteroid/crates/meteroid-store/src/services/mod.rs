@@ -70,6 +70,7 @@ pub use credit::top_up_support::customer_safe_decline_reason;
 pub use credit::unit_wallets::{CreditSaleQuote, UnitPriceSource, UnitSale};
 pub use credit::wallet_purchase::{ReplayedTopUp, TopUpWalletReceipt};
 pub use credit_paid_features::{CreditPaidFeature, CreditPayer};
+pub use customer_emails::PaymentMethodRequest;
 pub use edge::CheckoutPaymentOutcome;
 pub use invoices::{
     CustomerDetailsUpdate, InvoiceBillingMode, InvoiceDelivery, IssueAt, ManualInvoice,

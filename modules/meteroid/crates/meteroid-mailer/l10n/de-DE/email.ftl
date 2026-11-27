@@ -50,6 +50,15 @@ authentication-required-subject = Bitte bestätigen Sie Ihre Zahlung für Rechnu
 authentication-required-heading = Ihre Bank bittet Sie, diese Zahlung zu bestätigen
 authentication-required-intro = Ihre Bank verlangt eine Bestätigung, bevor { $amount } abgebucht werden. Das dauert nur wenige Sekunden.
 
+## Zahlungsmethode (Art payment_method_requested: Abrechnung von einem anderen Anbieter umgezogen)
+payment-method-requested-subject = Handlungsbedarf: Fügen Sie eine Zahlungsmethode für Ihr { $company }-Abonnement hinzu
+payment-method-requested-heading = Fügen Sie eine Zahlungsmethode hinzu, um Ihr Abonnement zu behalten
+payment-method-requested-intro = { $company } rechnet Ihr Abonnement jetzt direkt ab statt über { $provider }. Ihr Tarif und Ihr Preis bleiben gleich.
+payment-method-requested-by = Bitte fügen Sie vor dem { $date } eine Zahlungsmethode hinzu, damit Ihre nächste Zahlung erfolgen kann.
+payment-method-requested-anytime = Bitte fügen Sie eine Zahlungsmethode hinzu, damit Ihre nächste Zahlung erfolgen kann.
+payment-method-requested-hedge = Wenn Sie bereits eine hinzugefügt haben, können Sie diese E-Mail ignorieren.
+add-payment-method = Zahlungsmethode hinzufügen
+
 ## Summary box labels (no trailing colon: shown as a label/value table)
 invoice-number = Rechnungsnummer
 invoice-date = Rechnungsdatum

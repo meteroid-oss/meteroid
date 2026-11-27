@@ -40,6 +40,7 @@ pub const ENCRYPTED_COLUMNS: &[EncryptedColumn] = &[
     column("issued_license", "activation_code_encrypted"),
     column("license_signing_key", "private_key_encrypted"),
     column("oauth_verifier", "pkce_verifier"),
+    column("migration_source", "credentials"),
 ];
 
 #[derive(QueryableByName, Debug)]

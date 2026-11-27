@@ -136,6 +136,91 @@ impl ServicesEdge {
             .await
     }
 
+    /// Records a payment method that already exists at the provider of `connector_id` (imported
+    /// with the customer from another billing system), its default when the customer has none.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn adopt_existing_payment_method(
+        &self,
+        tenant_id: TenantId,
+        customer_id: common_domain::ids::CustomerId,
+        connector_id: common_domain::ids::ConnectorId,
+        external_customer_id: String,
+        external_payment_method_id: String,
+        card_brand: Option<String>,
+        card_last4: Option<String>,
+    ) -> StoreResult<common_domain::ids::CustomerPaymentMethodId> {
+        use crate::domain::customer_payment_methods::CustomerPaymentMethodNew;
+        use crate::domain::customers::CustomerConnection;
+        use crate::domain::enums::PaymentMethodTypeEnum;
+        use crate::repositories::customer_connection::CustomerConnectionInterface;
+        use crate::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
+        use common_domain::ids::{BaseId, CustomerConnectionId, CustomerPaymentMethodId};
+
+        let connection = self
+            .store
+            .upsert_customer_connection(
+                &tenant_id,
+                CustomerConnection {
+                    id: CustomerConnectionId::new(),
+                    customer_id,
+                    connector_id,
+                    supported_payment_types: None,
+                    external_customer_id,
+                },
+            )
+            .await?;
+        let method = self
+            .store
+            .upsert_payment_method(CustomerPaymentMethodNew {
+                id: CustomerPaymentMethodId::new(),
+                tenant_id,
+                customer_id,
+                connection_id: connection.id,
+                external_payment_method_id,
+                payment_method_type: PaymentMethodTypeEnum::Card,
+                account_number_hint: None,
+                card_brand,
+                card_last4,
+                card_exp_month: None,
+                card_exp_year: None,
+                fingerprint: None,
+                saved_for_payment: false,
+            })
+            .await?;
+        self.services
+            .adopt_default_payment_method(
+                Actor::System,
+                tenant_id,
+                customer_id,
+                method.id,
+                crate::services::payment::hosted_setup::DefaultMethodAdoption::IfNone,
+            )
+            .await?;
+        Ok(method.id)
+    }
+
+    /// The recurring invoice of `period_start` that `create` would bill, nothing persisted,
+    /// its usage taken from `usage` (one quantity per metric for the period).
+    pub async fn preview_period_of_new_subscription(
+        &self,
+        create: &CreateSubscription,
+        tenant_id: TenantId,
+        period_start: chrono::NaiveDate,
+        usage: &std::collections::HashMap<
+            common_domain::ids::BillableMetricId,
+            rust_decimal::Decimal,
+        >,
+    ) -> StoreResult<crate::services::evaluate::preview::VirtualPeriodInvoice> {
+        let mut conn = self.get_conn().await?;
+        let details = self
+            .services
+            .virtual_subscription_details(&mut conn, create, tenant_id)
+            .await?;
+        self.services
+            .preview_period_invoice_of_details(&mut conn, &details, period_start, usage)
+            .await
+    }
+
     pub async fn get_subscription_component_usage(
         &self,
         subscription_details: &SubscriptionDetails,

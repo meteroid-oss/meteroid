@@ -50,6 +50,15 @@ authentication-required-subject = Please confirm your payment for invoice { $num
 authentication-required-heading = Your bank needs you to confirm this payment
 authentication-required-intro = Your bank asked for a confirmation before charging { $amount }. It only takes a few seconds.
 
+## Payment method (kind payment_method_requested: billing moved from another provider)
+payment-method-requested-subject = Action needed: add a payment method for your { $company } subscription
+payment-method-requested-heading = Add a payment method to keep your subscription
+payment-method-requested-intro = { $company } now bills your subscription directly instead of { $provider }. Your plan and price stay the same.
+payment-method-requested-by = Please add a payment method before { $date } so that your next payment goes through.
+payment-method-requested-anytime = Please add a payment method so that your next payment goes through.
+payment-method-requested-hedge = If you have already added one, you can disregard this email.
+add-payment-method = Add a payment method
+
 ## Summary box labels (no trailing colon: shown as a label/value table)
 invoice-number = Invoice number
 invoice-date = Invoice date

@@ -140,6 +140,15 @@ export const EMAIL_KIND_META: EmailKindMeta[] = [
     attachesDocument: false,
     sentByModule: true,
   },
+  {
+    kind: EmailKind.PAYMENT_METHOD_REQUESTED,
+    label: 'Payment method request (migration)',
+    description:
+      'Sent to customers moved from another billing system, to add a payment method before their next renewal.',
+    editableCopy: false,
+    attachesDocument: false,
+    sentByModule: true,
+  },
 ]
 
 const byKind = (kind: EmailKind) => EMAIL_KIND_META.find(m => m.kind === kind)
@@ -173,6 +182,7 @@ const GROUPS: KindGroup[] = [
     title: 'Budgets',
     kinds: [EmailKind.BUDGET_THRESHOLD, EmailKind.BUDGET_EXCEEDED].map(k => byKind(k)!),
   },
+  { title: 'Migration', kinds: [byKind(EmailKind.PAYMENT_METHOD_REQUESTED)!] },
 ]
 
 export const emailKindLabel = (kind: EmailKind): string => byKind(kind)?.label ?? 'Email'

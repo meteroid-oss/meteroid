@@ -2,14 +2,16 @@
 //! write laid over them, evaluated at the change's instant and billed through the same pipeline
 //! as the change itself (evaluate, reconcile, assemble, settle). Nothing is written.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use billing_core::charge::ChargeKey;
 use billing_core::evaluate::{Charge, DocumentSlot, evaluate};
+use billing_core::pricer::UsageReads;
 use chrono::{Datelike, NaiveDate, NaiveTime};
 use common_domain::actor::ActorType;
 use common_domain::ids::{
-    BaseId, InvoiceId, PlanVersionId, PriceComponentId, ScheduledEventId, SubscriptionId, TenantId,
+    BaseId, BillableMetricId, InvoiceId, PlanVersionId, PriceComponentId, ScheduledEventId,
+    SubscriptionId, TenantId,
 };
 use common_utils::decimals::ToSubunit;
 use error_stack::Report;
@@ -761,6 +763,102 @@ impl Services {
                 .await?;
             self.finish_invoice_content(conn, details, priced, common_clock::now(), None)
                 .await
+        })
+        .await
+    }
+}
+
+/// A recurring invoice of a subscription that exists only in memory, its usage supplied by the
+/// caller instead of read from metering.
+pub struct VirtualPeriodInvoice {
+    pub content: ComputedInvoiceContent,
+    /// Whether a recurring period of the subscription starts on the date asked: without one,
+    /// nothing is billed on it.
+    pub period_starts: bool,
+    /// Metrics the period bills usage of that `usage` had no quantity for: billed as zero.
+    pub missing_usage: Vec<BillableMetricId>,
+}
+
+impl Services {
+    /// The recurring invoice of `period_start` of the virtual subscription `details` (as
+    /// `virtual_subscription_details` builds it), its usage of each metric over the period
+    /// taken from `usage`. Nothing is read from metering nor reconciled against issued invoices.
+    pub(in crate::services) async fn preview_period_invoice_of_details(
+        &self,
+        conn: &mut PgConn,
+        details: &SubscriptionDetails,
+        period_start: NaiveDate,
+        usage: &HashMap<BillableMetricId, Decimal>,
+    ) -> StoreResult<VirtualPeriodInvoice> {
+        Box::pin(async move {
+            let sub = &details.subscription;
+            let currency = Currencies::resolve_currency(&sub.currency).ok_or_else(|| {
+                Report::new(StoreError::ValueNotFound(format!(
+                    "Currency {} not found",
+                    sub.currency
+                )))
+            })?;
+            let mut loaded = facts_of_details(conn, details).await?;
+            let now = evaluated_at(&loaded.facts, period_start);
+            as_written(&mut loaded.facts, now);
+            let slot = DocumentSlot::Recurring { period_start };
+            let planned =
+                evaluate(&loaded.facts, now, None, &StorePricer).map_err(pricing_error)?;
+            let mut reads = UsageReads::new();
+            let mut missing_usage = Vec::new();
+            for need in planned
+                .usage_needed
+                .iter()
+                .filter(|need| need.document == slot && need.read.window.until <= now)
+            {
+                let quantity = usage.get(&need.read.metric).copied().unwrap_or_else(|| {
+                    missing_usage.push(need.read.metric);
+                    Decimal::ZERO
+                });
+                reads.insert(need.read, vec![(BTreeMap::new(), quantity)]);
+            }
+            missing_usage.sort();
+            missing_usage.dedup();
+            let evaluation =
+                evaluate(&loaded.facts, now, Some(&reads), &StorePricer).map_err(pricing_error)?;
+            let charges: Vec<&Charge> = evaluation
+                .charges
+                .iter()
+                .filter(|charge| charge.document == slot && !charge.is_commitment())
+                .collect();
+            let period_starts = !charges.is_empty();
+            let to_bill: Vec<(ChargeKey, i64)> = keys_in(&charges)
+                .into_iter()
+                .map(|key| {
+                    let amount = charges
+                        .iter()
+                        .filter(|charge| charge.key == key)
+                        .map(|charge| charge.amount)
+                        .sum();
+                    (key, amount)
+                })
+                .collect();
+            let lines = rendered_lines(&loaded, details, &charges, &to_bill, currency.precision)?;
+            let priced = PricedLines {
+                lines,
+                invoice_date: period_start,
+                currency_precision: currency.precision,
+                tax_inclusive: sub.tax_inclusive,
+                invoice_type: InvoiceType::Recurring,
+                prepaid_amount: None,
+                invoice_id: None,
+                true_up: None,
+                reopened: Box::default(),
+                span: BilledSpan::of(&InvoiceType::Recurring),
+            };
+            let content = self
+                .finish_invoice_content(conn, details, priced, common_clock::now(), None)
+                .await?;
+            Ok(VirtualPeriodInvoice {
+                content,
+                period_starts,
+                missing_usage,
+            })
         })
         .await
     }

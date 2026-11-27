@@ -493,7 +493,8 @@ impl Services {
             EmailContext::WalletBalanceLow { customer_id, .. }
             | EmailContext::AutoTopUpFailed { customer_id, .. }
             | EmailContext::BudgetAlert { customer_id, .. }
-            | EmailContext::SubscriptionCancelled { customer_id, .. } => {
+            | EmailContext::SubscriptionCancelled { customer_id, .. }
+            | EmailContext::PaymentMethodRequested { customer_id, .. } => {
                 Ok(customer_target(*customer_id))
             }
             other => {
@@ -1023,6 +1024,43 @@ impl Services {
     /// A wallet, budget or cancellation notice: the figures travel in the context, as the event
     /// reported them.
     #[allow(clippy::too_many_arguments)]
+    /// A portal link to add a payment method, minted when the email is built so that no sign-in
+    /// token is stored with it: it lives until the card is due, 3 to 21 days.
+    async fn payment_method_link(
+        &self,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        update_by: Option<NaiveDate>,
+        build: Build,
+    ) -> StoreResult<String> {
+        use crate::repositories::portal_tokens::PortalTokensInterface;
+        let base = self
+            .store
+            .settings
+            .public_url
+            .trim_end_matches('/')
+            .to_string();
+        if build == Build::Preview {
+            return Ok(format!("{base}/portal/customer?token=preview"));
+        }
+        let ttl = update_by
+            .map(|by| by - common_clock::now().date_naive())
+            .unwrap_or(chrono::Duration::days(14))
+            .clamp(chrono::Duration::days(3), chrono::Duration::days(21));
+        let issued = self
+            .store
+            .customer_portal_token(
+                tenant_id,
+                customer_id,
+                ttl,
+                Some(vec![common_domain::auth::PortalScope::Manage]),
+                false,
+                crate::jwt_claims::ClientClaims::default(),
+            )
+            .await?;
+        Ok(format!("{base}/portal/customer?token={}", issued.token))
+    }
+
     async fn build_wallet_email(
         &self,
         tenant_id: TenantId,
@@ -1101,6 +1139,21 @@ impl Services {
                 plan_name: plan_name.clone(),
                 received_at: *received_at,
                 last_day: last_day_of_service(*ends_at),
+            },
+            (
+                EmailKind::PaymentMethodRequested,
+                EmailContext::PaymentMethodRequested {
+                    update_by,
+                    previous_provider,
+                    ..
+                },
+            ) => Body::PaymentMethodRequested {
+                previous_provider: previous_provider.clone(),
+                update_by: *update_by,
+                cta: Cta::new(
+                    self.payment_method_link(tenant_id, customer_id, *update_by, build)
+                        .await?,
+                ),
             },
             (kind, context) => {
                 return Err(Report::new(StoreError::InvalidArgument(format!(
@@ -1372,6 +1425,18 @@ impl Services {
                 },
                 vec![],
             ),
+            EmailKind::PaymentMethodRequested => (
+                Subject::Fixed,
+                Body::PaymentMethodRequested {
+                    previous_provider: "your previous billing provider".to_string(),
+                    update_by: Some(today + chrono::Days::new(14)),
+                    cta: Cta::new(format!(
+                        "{}/portal/customer?token=preview",
+                        self.store.settings.public_url.trim_end_matches('/')
+                    )),
+                },
+                vec![],
+            ),
             EmailKind::PaymentReminder => {
                 let offset = offset_days.unwrap_or(7);
                 let default;
@@ -1495,6 +1560,7 @@ fn context_name(context: &EmailContext) -> &'static str {
         EmailContext::AutoTopUpFailed { .. } => "auto_top_up_failed",
         EmailContext::BudgetAlert { .. } => "budget_alert",
         EmailContext::SubscriptionCancelled { .. } => "subscription_cancelled",
+        EmailContext::PaymentMethodRequested { .. } => "payment_method_requested",
     }
 }
 
@@ -1535,7 +1601,67 @@ fn credit_note_target(cn: &CreditNote) -> EmailTarget {
     }
 }
 
+/// A customer asked to add a payment method because their billing moved from another provider.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaymentMethodRequest {
+    /// The day the customer's card is needed by, if any.
+    pub update_by: Option<NaiveDate>,
+    /// e.g. "Lemon Squeezy": who billed them until now.
+    pub previous_provider: String,
+}
+
 impl ServicesEdge {
+    /// Emails the customer a link to add a payment method. `Ok(false)` when the pipeline skips it
+    /// (kind disabled, no billing email, audience rule, delivery off); test-mode tenants send to
+    /// their test recipients as usual.
+    pub async fn send_payment_method_request(
+        &self,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        request: PaymentMethodRequest,
+    ) -> StoreResult<bool> {
+        if self.store.email_delivery(tenant_id).await?.is_off() {
+            return Ok(false);
+        }
+        let kind = EmailKind::PaymentMethodRequested;
+        let context = EmailContext::PaymentMethodRequested {
+            customer_id,
+            update_by: request.update_by,
+            previous_provider: request.previous_provider,
+        };
+        let no_pay_link = |_: InvoiceId| -> StoreResult<String> {
+            Err(Report::new(StoreError::InvalidArgument(
+                "a payment method request has no invoice".to_string(),
+            )))
+        };
+        let outcome = self
+            .services
+            .build_customer_email(
+                tenant_id,
+                kind,
+                &context,
+                None,
+                None,
+                &no_pay_link,
+                false,
+                SendOrigin::Automatic,
+            )
+            .await?;
+        if let BuildOutcome::Skip(..) = outcome {
+            return Ok(false);
+        }
+        let dedupe_key = format!(
+            "{kind}:{customer_id}:{}",
+            common_clock::wall().timestamp_millis()
+        );
+        let mut conn = self.store.get_conn().await?;
+        crate::repositories::customer_emails::enqueue_customer_email_on_tx(
+            &mut conn, tenant_id, kind, context, dedupe_key,
+        )
+        .await?;
+        Ok(true)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn build_customer_email(
         &self,

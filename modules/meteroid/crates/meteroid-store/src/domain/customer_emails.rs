@@ -51,6 +51,8 @@ pub enum EmailKind {
     BudgetExceeded,
     /// A cancellation was recorded: the customer's confirmation in text form (§ 312k BGB).
     SubscriptionCancelled,
+    /// Billing moved from another provider: the customer adds a payment method Meteroid charges.
+    PaymentMethodRequested,
 }
 
 impl EmailKind {
@@ -93,6 +95,7 @@ impl EmailKind {
                 | Self::BudgetThreshold
                 | Self::BudgetExceeded
                 | Self::SubscriptionCancelled
+                | Self::PaymentMethodRequested
         )
     }
 
@@ -367,6 +370,12 @@ pub enum EmailContext {
         received_at: NaiveDateTime,
         ends_at: NaiveDateTime,
     },
+    /// `update_by` is the day the payment method is needed; the link is minted when it is sent.
+    PaymentMethodRequested {
+        customer_id: CustomerId,
+        update_by: Option<chrono::NaiveDate>,
+        previous_provider: String,
+    },
 }
 
 impl EmailContext {
@@ -393,7 +402,8 @@ impl EmailContext {
             | Self::WalletBalanceLow { .. }
             | Self::AutoTopUpFailed { .. }
             | Self::BudgetAlert { .. }
-            | Self::SubscriptionCancelled { .. } => None,
+            | Self::SubscriptionCancelled { .. }
+            | Self::PaymentMethodRequested { .. } => None,
         }
     }
 
@@ -403,7 +413,8 @@ impl EmailContext {
             Self::WalletBalanceLow { customer_id, .. }
             | Self::AutoTopUpFailed { customer_id, .. }
             | Self::BudgetAlert { customer_id, .. }
-            | Self::SubscriptionCancelled { customer_id, .. } => Some(*customer_id),
+            | Self::SubscriptionCancelled { customer_id, .. }
+            | Self::PaymentMethodRequested { customer_id, .. } => Some(*customer_id),
             _ => None,
         }
     }
