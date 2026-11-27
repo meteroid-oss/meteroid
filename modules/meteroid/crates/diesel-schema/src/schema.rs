@@ -2192,6 +2192,9 @@ diesel::table! {
         data -> Jsonb,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        payment_method_check -> Nullable<Text>,
+        payment_method_check_reason -> Nullable<Text>,
+        payment_method_checked_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -2294,6 +2297,7 @@ diesel::table! {
         bucket_tolerances -> Jsonb,
         plan_overrides -> Jsonb,
         breach_action -> Text,
+        usage_from -> Text,
         paused -> Bool,
         cutover_deadline -> Nullable<Date>,
         readiness_confirmed_at -> Nullable<Timestamptz>,
@@ -2303,6 +2307,7 @@ diesel::table! {
         created_by -> Uuid,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        request_id -> Nullable<Text>,
     }
 }
 
@@ -2390,6 +2395,7 @@ diesel::table! {
         imported_at -> Timestamptz,
         last_seen_at -> Timestamptz,
         updated_at -> Timestamptz,
+        resume_at_source_by -> Nullable<Timestamptz>,
     }
 }
 

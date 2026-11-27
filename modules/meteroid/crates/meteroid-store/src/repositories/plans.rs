@@ -49,6 +49,17 @@ use std::collections::HashMap;
 pub trait PlansInterface {
     async fn insert_plan(&self, actor: Actor, plan: FullPlanNew) -> StoreResult<FullPlan>;
 
+    /// `insert_plan` within the caller's transaction on `conn`; announce the plan with
+    /// [`PlansInterface::announce_plan_created`] once that transaction commits.
+    async fn insert_plan_with(
+        &self,
+        conn: &mut PgConn,
+        actor: Actor,
+        plan: FullPlanNew,
+    ) -> StoreResult<FullPlan>;
+
+    async fn announce_plan_created(&self, actor: Actor, plan: &FullPlan);
+
     async fn get_plan(
         &self,
         id: PlanId,
@@ -533,7 +544,30 @@ pub(crate) async fn load_plan_minimum(
 impl PlansInterface for Store {
     async fn insert_plan(&self, actor: Actor, full_plan: FullPlanNew) -> StoreResult<FullPlan> {
         let mut conn = self.get_conn().await?;
+        let plan = self
+            .insert_plan_with(&mut conn, actor.clone(), full_plan)
+            .await?;
+        self.announce_plan_created(actor, &plan).await;
+        Ok(plan)
+    }
 
+    async fn announce_plan_created(&self, actor: Actor, plan: &FullPlan) {
+        let _ = self
+            .eventbus
+            .publish(Event::plan_created_draft(
+                actor,
+                plan.version.id,
+                plan.plan.tenant_id,
+            ))
+            .await;
+    }
+
+    async fn insert_plan_with(
+        &self,
+        conn: &mut PgConn,
+        actor: Actor,
+        full_plan: FullPlanNew,
+    ) -> StoreResult<FullPlan> {
         let FullPlanNew {
             plan,
             version,
@@ -543,18 +577,18 @@ impl PlansInterface for Store {
         let sold_for = plan.sold_for_resource_type_id;
 
         let product_family_row =
-            ProductFamilyRow::find_by_id(&mut conn, plan.product_family_id, plan.tenant_id)
+            ProductFamilyRow::find_by_id(conn, plan.product_family_id, plan.tenant_id)
                 .await
                 .map_err(|err| StoreError::DatabaseError(err.error))?;
         crate::repositories::product_families::ensure_family_live(&product_family_row)?;
         let product_family: ProductFamilyOverview = product_family_row.into();
 
-        let tenant = TenantRow::find_by_id(&mut conn, plan.tenant_id)
+        let tenant = TenantRow::find_by_id(conn, plan.tenant_id)
             .await
             .map_err(|err| StoreError::DatabaseError(err.error))?;
 
         let res = self
-            .transaction_with(&mut conn, |conn| {
+            .transaction_with(conn, |conn| {
                 let actor = &actor;
                 async move {
                     let plan_to_insert: PlanRowNew = plan.into_raw(product_family.id);
@@ -716,15 +750,6 @@ impl PlansInterface for Store {
                 .scope_boxed()
             })
             .await?;
-
-        let _ = self
-            .eventbus
-            .publish(Event::plan_created_draft(
-                actor,
-                res.version.id,
-                res.plan.tenant_id,
-            ))
-            .await;
 
         Ok(res)
     }

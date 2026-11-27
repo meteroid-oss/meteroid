@@ -768,27 +768,36 @@ impl Services {
     }
 }
 
-/// A recurring invoice of a subscription that exists only in memory, its usage supplied by the
-/// caller instead of read from metering.
+/// Where the usage of a virtual subscription's period comes from.
+#[derive(Clone, Copy, Debug)]
+pub enum PeriodUsage<'a> {
+    /// One quantity per metric for the period, as another system counted it.
+    Supplied(&'a HashMap<BillableMetricId, Decimal>),
+    /// Meteroid's metering, for the subscription's customer.
+    Metering,
+}
+
+/// A recurring invoice of a subscription that exists only in memory.
 pub struct VirtualPeriodInvoice {
     pub content: ComputedInvoiceContent,
     /// Whether a recurring period of the subscription starts on the date asked: without one,
     /// nothing is billed on it.
     pub period_starts: bool,
-    /// Metrics the period bills usage of that `usage` had no quantity for: billed as zero.
+    /// Metrics the period bills usage of that a supplied `usage` had no quantity for: billed as
+    /// zero.
     pub missing_usage: Vec<BillableMetricId>,
 }
 
 impl Services {
     /// The recurring invoice of `period_start` of the virtual subscription `details` (as
     /// `virtual_subscription_details` builds it), its usage of each metric over the period
-    /// taken from `usage`. Nothing is read from metering nor reconciled against issued invoices.
+    /// taken from `usage`. Nothing is reconciled against issued invoices.
     pub(in crate::services) async fn preview_period_invoice_of_details(
         &self,
         conn: &mut PgConn,
         details: &SubscriptionDetails,
         period_start: NaiveDate,
-        usage: &HashMap<BillableMetricId, Decimal>,
+        usage: PeriodUsage<'_>,
     ) -> StoreResult<VirtualPeriodInvoice> {
         Box::pin(async move {
             let sub = &details.subscription;
@@ -804,19 +813,29 @@ impl Services {
             let slot = DocumentSlot::Recurring { period_start };
             let planned =
                 evaluate(&loaded.facts, now, None, &StorePricer).map_err(pricing_error)?;
-            let mut reads = UsageReads::new();
-            let mut missing_usage = Vec::new();
-            for need in planned
+            let needs: Vec<_> = planned
                 .usage_needed
                 .iter()
                 .filter(|need| need.document == slot && need.read.window.until <= now)
-            {
-                let quantity = usage.get(&need.read.metric).copied().unwrap_or_else(|| {
-                    missing_usage.push(need.read.metric);
-                    Decimal::ZERO
-                });
-                reads.insert(need.read, vec![(BTreeMap::new(), quantity)]);
-            }
+                .cloned()
+                .collect();
+            let mut missing_usage = Vec::new();
+            let reads = match usage {
+                PeriodUsage::Metering => {
+                    read_usage(self.usage_client.as_ref(), &loaded, &needs).await?
+                }
+                PeriodUsage::Supplied(usage) => {
+                    let mut reads = UsageReads::new();
+                    for need in &needs {
+                        let quantity = usage.get(&need.read.metric).copied().unwrap_or_else(|| {
+                            missing_usage.push(need.read.metric);
+                            Decimal::ZERO
+                        });
+                        reads.insert(need.read, vec![(BTreeMap::new(), quantity)]);
+                    }
+                    reads
+                }
+            };
             missing_usage.sort();
             missing_usage.dedup();
             let evaluation =

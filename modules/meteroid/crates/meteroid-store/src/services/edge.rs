@@ -199,17 +199,13 @@ impl ServicesEdge {
         Ok(method.id)
     }
 
-    /// The recurring invoice of `period_start` that `create` would bill, nothing persisted,
-    /// its usage taken from `usage` (one quantity per metric for the period).
+    /// The recurring invoice of `period_start` that `create` would bill, nothing persisted.
     pub async fn preview_period_of_new_subscription(
         &self,
         create: &CreateSubscription,
         tenant_id: TenantId,
         period_start: chrono::NaiveDate,
-        usage: &std::collections::HashMap<
-            common_domain::ids::BillableMetricId,
-            rust_decimal::Decimal,
-        >,
+        usage: crate::services::evaluate::preview::PeriodUsage<'_>,
     ) -> StoreResult<crate::services::evaluate::preview::VirtualPeriodInvoice> {
         let mut conn = self.get_conn().await?;
         let details = self
