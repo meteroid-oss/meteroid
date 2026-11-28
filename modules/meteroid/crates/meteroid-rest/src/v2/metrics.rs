@@ -663,7 +663,7 @@ pub async fn get_metric(
     State(state): State<AppState>,
     Path(id_or_code): Path<String>,
 ) -> Result<Json<Metric>, Problem> {
-    let metric = ids::metric(&state, auth.tenant_id, &id_or_code).await?;
+    let metric = ids::metric(&state.store, auth.tenant_id, &id_or_code).await?;
     Ok(Json(one(&state, auth.tenant_id, metric).await?))
 }
 
@@ -840,7 +840,7 @@ pub async fn update_metric(
     Path(id_or_code): Path<String>,
     Body(body): Body<UpdateMetric>,
 ) -> Result<Response, Problem> {
-    let stored = ids::metric(&state, auth.tenant_id, &id_or_code).await?;
+    let stored = ids::metric(&state.store, auth.tenant_id, &id_or_code).await?;
     if body
         .name
         .as_deref()
@@ -947,7 +947,7 @@ pub async fn archive_metric(
     State(state): State<AppState>,
     Path(id_or_code): Path<String>,
 ) -> Result<Response, Problem> {
-    let metric = ids::metric(&state, auth.tenant_id, &id_or_code).await?;
+    let metric = ids::metric(&state.store, auth.tenant_id, &id_or_code).await?;
     if metric.archived_at.is_some() {
         return Ok(Json(one(&state, auth.tenant_id, metric).await?).into_response());
     }
@@ -977,7 +977,7 @@ pub async fn unarchive_metric(
     State(state): State<AppState>,
     Path(id_or_code): Path<String>,
 ) -> Result<Response, Problem> {
-    let metric = ids::metric(&state, auth.tenant_id, &id_or_code).await?;
+    let metric = ids::metric(&state.store, auth.tenant_id, &id_or_code).await?;
     if metric.archived_at.is_none() {
         return Ok(Json(one(&state, auth.tenant_id, metric).await?).into_response());
     }
@@ -1013,7 +1013,7 @@ pub async fn preview_attribution(
     Path(id_or_code): Path<String>,
     Body(body): Body<PreviewAttribution>,
 ) -> Result<Json<AttributionPreview>, Problem> {
-    let metric = ids::metric(&state, auth.tenant_id, &id_or_code).await?;
+    let metric = ids::metric(&state.store, auth.tenant_id, &id_or_code).await?;
     let attribution = attribution_of(
         &state,
         auth.tenant_id,

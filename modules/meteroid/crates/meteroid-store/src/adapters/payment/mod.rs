@@ -32,7 +32,7 @@ pub use stripe::StripeConnector;
 pub use connector::{
     ConnectorIdentity, ConnectorRef, CredentialOps, CustomerOps, HOSTED_RETURN_PATH,
     HostedSetupCompletion, MandateOps, MandateSetupMode, PaymentCapabilities, PaymentConnector,
-    PaymentOps, ReconcileOps, RefundOps, WalletOps, WebhookOps,
+    PaymentOps, ProviderFee, ReconcileOps, RefundOps, WalletOps, WebhookOps,
 };
 pub use error::{ConnectorError, CredentialsRejected, HostedSetupPending, credentials_rejected};
 pub use events::{

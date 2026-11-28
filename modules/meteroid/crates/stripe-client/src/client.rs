@@ -106,6 +106,20 @@ impl StripeClient {
         self.execute(request_builder, retry_strategy)
     }
 
+    /// A `GET` with query pairs, e.g. `expand[]`.
+    pub(crate) fn get_query<T: DeserializeOwned + Send + 'static>(
+        &self,
+        path: &str,
+        query: &[(&str, &str)],
+        secret_key: &SecretString,
+        retry_strategy: RetryStrategy,
+    ) -> Response<T> {
+        let mut url = self.url(path);
+        url.query_pairs_mut().extend_pairs(query);
+        let request_builder = self.create_init_request(Method::GET, url, secret_key, None);
+        self.execute(request_builder, retry_strategy)
+    }
+
     /// Make a `POST` http request with urlencoded body
     pub(crate) fn post_form<T: DeserializeOwned + Send + 'static, F: Serialize>(
         &self,

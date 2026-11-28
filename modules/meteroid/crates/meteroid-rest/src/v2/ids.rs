@@ -128,33 +128,26 @@ pub async fn product_family_id(
 
 /// The rate card, checked to be the tenant's.
 pub async fn rate_card_id(
-    state: &AppState,
+    store: &Store,
     tenant_id: TenantId,
     raw: &str,
 ) -> Result<RateCardId, Problem> {
     match parse::<RateCardId>(raw) {
-        AliasOr::Id(id) => Ok(state.store.get_rate_card(tenant_id, id).await?.0.id),
-        AliasOr::Alias(code) => Ok(state
-            .store
-            .find_rate_card_id_by_code(tenant_id, &code)
-            .await?),
+        AliasOr::Id(id) => Ok(store.find_rate_card(tenant_id, id).await?.id),
+        AliasOr::Alias(code) => Ok(store.find_rate_card_id_by_code(tenant_id, &code).await?),
     }
 }
 
 /// The metric of an id or a code: its own code, not the event code its usage events carry
 /// (several metrics may read one).
 pub async fn metric(
-    state: &AppState,
+    store: &Store,
     tenant_id: TenantId,
     raw: &str,
 ) -> Result<BillableMetric, Problem> {
     match parse::<BillableMetricId>(raw) {
-        AliasOr::Id(id) => Ok(state
-            .store
-            .find_billable_metric_by_id(id, tenant_id)
-            .await?),
-        AliasOr::Alias(code) => Ok(state
-            .store
+        AliasOr::Id(id) => Ok(store.find_billable_metric_by_id(id, tenant_id).await?),
+        AliasOr::Alias(code) => Ok(store
             .find_billable_metric_by_catalog_code(tenant_id, &code)
             .await?),
     }

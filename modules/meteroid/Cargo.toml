@@ -92,8 +92,6 @@ meteroid-mailer = { workspace = true }
 meteroid-store = { workspace = true }
 meteroid-middleware = { workspace = true, features = ["server"] }
 insta = { workspace = true, features = ["json"] }
-opentelemetry-proto.workspace = true
-prost.workspace = true
 
 [build-dependencies]
 utoipa-config.workspace = true

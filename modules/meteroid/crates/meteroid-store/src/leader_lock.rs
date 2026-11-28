@@ -83,6 +83,15 @@ impl PgLeaderElection {
             key: lock.key(),
         }
     }
+
+    /// A module's own lock: keys from 93_000_000 up are the modules', each module owning its own.
+    pub fn for_module(pool: PgPool, key: i64) -> Self {
+        assert!(
+            key >= 93_000_000,
+            "module leader lock keys start at 93_000_000"
+        );
+        Self { pool, key }
+    }
 }
 
 struct PgLeaderGuard {

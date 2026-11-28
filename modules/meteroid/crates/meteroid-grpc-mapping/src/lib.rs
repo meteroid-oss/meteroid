@@ -10,6 +10,7 @@ pub mod filters;
 pub mod invoices;
 pub mod invoicingentities;
 pub mod organizations;
+pub mod ratecards;
 pub mod rbac;
 pub mod renewals;
 pub mod shared;

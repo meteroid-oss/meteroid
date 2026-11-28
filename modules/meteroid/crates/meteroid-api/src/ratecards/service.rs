@@ -8,16 +8,16 @@ use error_stack::Report;
 use meteroid_grpc::meteroid::api::ratecards::v1::{
     CreateRateCardRequest, CreateRateCardResponse, GetRateCardRequest, GetRateCardResponse,
     ListRateCardChangesRequest, ListRateCardChangesResponse, ListRateCardsRequest,
-    ListRateCardsResponse, LookupRateRequest, LookupRateResponse, RateCardPurpose,
-    RateCardUnmatched, SetRateCardRatesRequest, SetRateCardRatesResponse,
-    rate_cards_service_server::RateCardsService,
+    ListRateCardsResponse, LookupRateRequest, LookupRateResponse, RateCardUnmatched,
+    SetRateCardRatesRequest, SetRateCardRatesResponse, rate_cards_service_server::RateCardsService,
 };
 use meteroid_grpc_mapping::activity::entries::{
     decode_cursor, encode_cursor, entries_to_proto, resolve_limit,
 };
+use meteroid_grpc_mapping::ratecards as mapping;
 use meteroid_store::domain::entity_activity::EntityType;
 use meteroid_store::domain::rate_cards::{
-    self as domain, RateCardDenomination, RateCardKeyRemoval, RateCardNew, RateCardRateInput,
+    RateCardDenomination, RateCardKeyRemoval, RateCardNew, RateCardPurpose, RateCardRateInput,
     RateCardRatesSet, rates_at,
 };
 use meteroid_store::errors::StoreError;
@@ -26,7 +26,7 @@ use meteroid_store::repositories::entity_activity::EntityActivityInterface;
 use rust_decimal::Decimal;
 use tonic::{Request, Response, Status};
 
-use super::{RateCardsServiceComponents, mapping};
+use super::RateCardsServiceComponents;
 
 fn store_status(report: Report<StoreError>) -> Status {
     match report.current_context() {
@@ -74,17 +74,6 @@ impl RateCardsService for RateCardsServiceComponents {
         let on_unmatched = RateCardUnmatched::try_from(inner.on_unmatched)
             .map(mapping::unmatched_from_proto)
             .map_err(|_| Status::invalid_argument("unknown unmatched policy"))?;
-        let purpose = RateCardPurpose::try_from(inner.purpose)
-            .map(mapping::purpose_from_proto)
-            .map_err(|_| Status::invalid_argument("unknown rate card purpose"))?;
-        if purpose == domain::RateCardPurpose::Cost {
-            meteroid_app::features::ensure_ai_module_open(
-                self.feature_resolver.as_ref(),
-                &self.store,
-                tenant_id,
-            )
-            .await?;
-        }
         let card = self
             .store
             .create_rate_card(
@@ -98,7 +87,7 @@ impl RateCardsService for RateCardsServiceComponents {
                     denomination,
                     unit_size,
                     on_unmatched,
-                    purpose,
+                    purpose: RateCardPurpose::Price,
                 },
             )
             .await
@@ -114,21 +103,15 @@ impl RateCardsService for RateCardsServiceComponents {
         request: Request<ListRateCardsRequest>,
     ) -> Result<Response<ListRateCardsResponse>, Status> {
         let tenant_id = request.tenant()?;
-        let inner = request.into_inner();
-        let purpose = match inner.purpose {
-            Some(value) => RateCardPurpose::try_from(value)
-                .map(mapping::purpose_from_proto)
-                .map_err(|_| Status::invalid_argument("unknown rate card purpose"))?,
-            None => domain::RateCardPurpose::Price,
-        };
-        let metric_id = inner
+        let metric_id = request
+            .into_inner()
             .billable_metric_id
             .filter(|id| !id.is_empty())
             .map(BillableMetricId::from_proto)
             .transpose()?;
         let cards = self
             .store
-            .list_rate_cards(tenant_id, metric_id, Some(purpose))
+            .list_rate_cards(tenant_id, metric_id, Some(RateCardPurpose::Price))
             .await
             .map_err(store_status)?;
         Ok(Response::new(ListRateCardsResponse {
@@ -152,7 +135,11 @@ impl RateCardsService for RateCardsServiceComponents {
             .unwrap_or_else(today);
         let (card, entries) = self
             .store
-            .get_rate_card(tenant_id, RateCardId::from_proto(inner.id)?)
+            .get_rate_card_of_purpose(
+                tenant_id,
+                RateCardId::from_proto(inner.id)?,
+                RateCardPurpose::Price,
+            )
             .await
             .map_err(store_status)?;
         Ok(Response::new(GetRateCardResponse {
@@ -202,15 +189,14 @@ impl RateCardsService for RateCardsServiceComponents {
                 })
                 .collect(),
         };
+        let id = RateCardId::from_proto(inner.rate_card_id)?;
+        self.store
+            .find_rate_card_of_purpose(tenant_id, id, RateCardPurpose::Price)
+            .await
+            .map_err(store_status)?;
         let summary = self
             .store
-            .set_rate_card_rates(
-                actor,
-                tenant_id,
-                RateCardId::from_proto(inner.rate_card_id)?,
-                set,
-                today(),
-            )
+            .set_rate_card_rates(actor, tenant_id, id, set, today())
             .await
             .map_err(store_status)?;
         let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
@@ -237,7 +223,11 @@ impl RateCardsService for RateCardsServiceComponents {
             .unwrap_or_else(today);
         let (card, entries) = self
             .store
-            .get_rate_card(tenant_id, RateCardId::from_proto(inner.rate_card_id)?)
+            .get_rate_card_of_purpose(
+                tenant_id,
+                RateCardId::from_proto(inner.rate_card_id)?,
+                RateCardPurpose::Price,
+            )
             .await
             .map_err(store_status)?;
         let dimensions: BTreeMap<String, String> = inner.dimensions.into_iter().collect();
@@ -260,6 +250,10 @@ impl RateCardsService for RateCardsServiceComponents {
         let org_id = request.organization()?;
         let inner = request.into_inner();
         let id = RateCardId::from_proto(inner.rate_card_id)?;
+        self.store
+            .find_rate_card_of_purpose(tenant_id, id, RateCardPurpose::Price)
+            .await
+            .map_err(store_status)?;
         let before = inner
             .cursor
             .as_deref()

@@ -43,6 +43,7 @@ pub mod minimum_progress;
 pub(crate) mod orchestration;
 pub mod override_notices;
 mod payment;
+pub use payment::reconcile::SettlementFee;
 pub(crate) mod plan_phases;
 pub(crate) mod portal_credit;
 mod prices;

@@ -1,7 +1,7 @@
 use crate::AppState;
 use crate::events::mapping;
 use crate::events::model::{IngestEventsRequest, IngestEventsResponse};
-use crate::rate_limit::rate_limit_eps;
+use crate::rate_limit::{RateLimiters, rate_limit_eps};
 use axum::Extension;
 use axum::Json;
 use axum::extract::State;
@@ -13,6 +13,7 @@ use meteroid_app::errors::RestApiError;
 use meteroid_rest_common::error::RestErrorResponse;
 use meteroid_rest_common::extract::{ApiJson, ApiValid};
 use meteroid_store::clients::usage;
+use meteroid_store::{Services, Store};
 
 /// Ingest events
 ///
@@ -70,21 +71,37 @@ pub(crate) async fn ingest(
     allow_backfilling: bool,
     fail_on_error: bool,
 ) -> Result<usage::IngestEventsResult, RestApiError> {
-    rate_limit_eps(
+    ingest_checked(
+        &app_state.store,
+        &app_state.services,
         &app_state.rest_rate_limiters,
         authorized_state,
-        events.len(),
+        events,
+        allow_backfilling,
+        fail_on_error,
     )
-    .await?;
+    .await
+}
 
-    let keep_last_events = app_state
-        .store
+/// [`ingest`] for a module's endpoint, with its own limiters: built over the same backend and
+/// buckets, they count against the tenant's one events-per-second quota.
+pub async fn ingest_checked(
+    store: &Store,
+    services: &Services,
+    limiters: &RateLimiters,
+    authorized_state: &AuthorizedAsTenant,
+    events: Vec<grpc::Event>,
+    allow_backfilling: bool,
+    fail_on_error: bool,
+) -> Result<usage::IngestEventsResult, RestApiError> {
+    rate_limit_eps(limiters, authorized_state, events.len()).await?;
+
+    let keep_last_events = store
         .keep_last_events(authorized_state.tenant_id)
         .await
         .map_err(RestApiError::from)?;
 
-    app_state
-        .services
+    services
         .usage_clients()
         .ingest_events(
             &authorized_state.tenant_id,

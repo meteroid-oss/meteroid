@@ -203,3 +203,15 @@ async fn create_refund_roundtrips() {
         .expect("get_refund should deserialize against stripe-mock");
     assert!(fetched.id.starts_with("re_"));
 }
+
+#[tokio::test]
+async fn a_payment_intent_reads_with_its_charge_expanded() {
+    let (client, key) = client_or_skip!();
+
+    // stripe-mock answers a fixture: the shape parses whether the charge is expanded or not.
+    let intent =
+        stripe_client::charges::ChargeApi::retrieve_payment_intent_charge(&client, "pi_123", &key)
+            .await
+            .expect("the intent and its latest charge parse");
+    assert!(!intent.id.is_empty());
+}

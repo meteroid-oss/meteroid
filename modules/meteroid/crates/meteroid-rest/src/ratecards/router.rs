@@ -16,25 +16,33 @@ use http::StatusCode;
 use meteroid_app::errors::RestApiError;
 use meteroid_rest_common::error::RestErrorResponse;
 use meteroid_rest_common::extract::{ApiJson, ApiPath, ApiQuery, ApiValid};
+use meteroid_store::domain::rate_cards::RateCardPurpose;
 use meteroid_store::repositories::RateCardsInterface;
 
 fn today() -> chrono::NaiveDate {
     common_clock::now().date_naive()
 }
 
+/// A price card's id: a cost card is not found here.
 async fn card_id(
     state: &AppState,
     tenant_id: TenantId,
     id_or_code: AliasOr<RateCardId>,
 ) -> Result<RateCardId, RestApiError> {
-    match id_or_code {
-        AliasOr::Id(id) => Ok(id),
+    let id = match id_or_code {
+        AliasOr::Id(id) => id,
         AliasOr::Alias(code) => state
             .store
             .find_rate_card_id_by_code(tenant_id, &code)
             .await
-            .map_err(RestApiError::from),
-    }
+            .map_err(RestApiError::from)?,
+    };
+    state
+        .store
+        .find_rate_card_of_purpose(tenant_id, id, RateCardPurpose::Price)
+        .await
+        .map_err(RestApiError::from)?;
+    Ok(id)
 }
 
 /// List rate cards
@@ -64,7 +72,7 @@ pub async fn list_rate_cards(
         .list_rate_cards(
             auth.tenant_id,
             request.metric_id,
-            Some(meteroid_store::domain::rate_cards::RateCardPurpose::Price),
+            Some(RateCardPurpose::Price),
         )
         .await
         .map_err(RestApiError::from)?;

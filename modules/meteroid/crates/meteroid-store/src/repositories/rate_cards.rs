@@ -8,7 +8,7 @@ use crate::domain::rate_cards::{
     RateCardUnmatched, RateCardUpsert, plan_upsert, rates_changed,
 };
 use crate::errors::StoreError;
-use crate::store::Store;
+use crate::store::{PgConn, Store};
 use common_domain::ids::{BaseId, BillableMetricId, RateCardId, TenantId};
 use diesel_models::billable_metrics::BillableMetricRow;
 use diesel_models::credit_units::CreditUnitRow;
@@ -20,6 +20,15 @@ use scoped_futures::ScopedFutureExt;
 #[async_trait::async_trait]
 pub trait RateCardsInterface {
     async fn create_rate_card(&self, actor: Actor, new: RateCardNew) -> StoreResult<RateCard>;
+
+    /// [`Self::create_rate_card`] on the caller's connection, inside its transaction: for a
+    /// module that writes what it keeps beside the card in the same transaction.
+    async fn create_rate_card_in(
+        &self,
+        conn: &mut PgConn,
+        actor: Actor,
+        new: RateCardNew,
+    ) -> StoreResult<RateCard>;
 
     /// Renames the card and sets what its unmatched usage does; a field left `None` stays. What it
     /// rates (metric, dimensions, denomination, unit size) never changes.
@@ -61,6 +70,21 @@ pub trait RateCardsInterface {
 
     /// The card, without its entries.
     async fn find_rate_card(&self, tenant_id: TenantId, id: RateCardId) -> StoreResult<RateCard>;
+
+    /// [`Self::get_rate_card`] for an API serving cards of one purpose: another's is not found.
+    async fn get_rate_card_of_purpose(
+        &self,
+        tenant_id: TenantId,
+        id: RateCardId,
+        purpose: RateCardPurpose,
+    ) -> StoreResult<(RateCard, Vec<RateCardEntry>)>;
+
+    async fn find_rate_card_of_purpose(
+        &self,
+        tenant_id: TenantId,
+        id: RateCardId,
+        purpose: RateCardPurpose,
+    ) -> StoreResult<RateCard>;
 
     /// Off the catalog for new prices (`true`) or back on it (`false`), recorded in its activity
     /// when it changes; the prices it rates keep rating, and its rates can still be set.
@@ -154,6 +178,19 @@ impl RateCardsInterface for Store {
     }
 
     async fn create_rate_card(&self, actor: Actor, new: RateCardNew) -> StoreResult<RateCard> {
+        self.transaction(|conn| {
+            let (actor, new) = (actor.clone(), new.clone());
+            async move { self.create_rate_card_in(conn, actor, new).await }.scope_boxed()
+        })
+        .await
+    }
+
+    async fn create_rate_card_in(
+        &self,
+        conn: &mut PgConn,
+        actor: Actor,
+        new: RateCardNew,
+    ) -> StoreResult<RateCard> {
         let mut dimensions = new.dimensions.clone();
         dimensions.sort();
         dimensions.dedup();
@@ -171,9 +208,8 @@ impl RateCardsInterface for Store {
                 "a rate card's unit size is positive".to_owned(),
             )));
         }
-        let mut conn = self.get_conn().await?;
         // A metric's declared dimension values only suggest keys: a card rates any metric.
-        let metric = BillableMetricRow::find_by_id(&mut conn, new.metric_id, new.tenant_id).await?;
+        let metric = BillableMetricRow::find_by_id(conn, new.metric_id, new.tenant_id).await?;
         if !crate::repositories::price_components::adds_up(metric.aggregation_type) {
             return Err(Report::new(StoreError::InvalidArgument(
                 "a rate card rates a metric that adds up: a sum or a count".to_owned(),
@@ -182,7 +218,7 @@ impl RateCardsInterface for Store {
         let credit_unit_id = match &new.denomination {
             RateCardDenomination::Money => None,
             RateCardDenomination::CreditUnit(unit) => {
-                CreditUnitRow::find_by_id(&mut conn, new.tenant_id, *unit)
+                CreditUnitRow::find_by_id(conn, new.tenant_id, *unit)
                     .await?
                     .ok_or_else(|| {
                         Report::new(StoreError::ValueNotFound(format!("credit unit {unit}")))
@@ -192,7 +228,7 @@ impl RateCardsInterface for Store {
         };
         if new.purpose == RateCardPurpose::Cost
             && !RateCardRow::list(
-                &mut conn,
+                conn,
                 new.tenant_id,
                 Some(new.metric_id),
                 Some(RateCardPurpose::Cost.into()),
@@ -202,7 +238,6 @@ impl RateCardsInterface for Store {
         {
             return Err(second_cost_card());
         }
-        drop(conn);
         // Unrated usage on a cost card is an unknown cost, never a reason to hold an invoice.
         let on_unmatched = match new.purpose {
             RateCardPurpose::Price => new.on_unmatched,
@@ -220,46 +255,36 @@ impl RateCardsInterface for Store {
             unit_size: new.unit_size,
             purpose: new.purpose.into(),
         };
-        self.transaction(|conn| {
-            let (actor, row_new) = (&actor, &row_new);
-            async move {
-                let row = row_new.insert(conn).await.map_err(|err| {
-                    let unique =
-                        matches!(err.error.current_context(), DatabaseError::UniqueViolation);
-                    if unique
-                        && format!("{:?}", err.error).contains("rate_card_live_cost_per_metric")
-                    {
-                        second_cost_card()
-                    } else if unique {
-                        Report::new(StoreError::DuplicateValue {
-                            entity: "rate card",
-                            key: Some(row_new.code.clone()),
-                        })
-                    } else {
-                        err.into()
-                    }
-                })?;
-                let card: RateCard = row.try_into()?;
-                let activity = Activity::new(
-                    ActivityType::RateCardCreated,
-                    EntityType::RateCard,
-                    card.id.as_uuid(),
-                )
-                .with_metadata(serde_json::json!({
-                    "code": card.code,
-                    "name": card.name,
-                    "dimensions": card.dimensions,
-                    "unit_size": card.unit_size.normalize().to_string(),
-                    "purpose": card.purpose,
-                }));
-                self.internal
-                    .record_audit_tx(conn, card.tenant_id, actor, AuditInput::Activity(activity))
-                    .await?;
-                Ok(card)
+        let row = row_new.insert(conn).await.map_err(|err| {
+            let unique = matches!(err.error.current_context(), DatabaseError::UniqueViolation);
+            if unique && format!("{:?}", err.error).contains("rate_card_live_cost_per_metric") {
+                second_cost_card()
+            } else if unique {
+                Report::new(StoreError::DuplicateValue {
+                    entity: "rate card",
+                    key: Some(row_new.code.clone()),
+                })
+            } else {
+                err.into()
             }
-            .scope_boxed()
-        })
-        .await
+        })?;
+        let card: RateCard = row.try_into()?;
+        let activity = Activity::new(
+            ActivityType::RateCardCreated,
+            EntityType::RateCard,
+            card.id.as_uuid(),
+        )
+        .with_metadata(serde_json::json!({
+            "code": card.code,
+            "name": card.name,
+            "dimensions": card.dimensions,
+            "unit_size": card.unit_size.normalize().to_string(),
+            "purpose": card.purpose,
+        }));
+        self.internal
+            .record_audit_tx(conn, card.tenant_id, &actor, AuditInput::Activity(activity))
+            .await?;
+        Ok(card)
     }
 
     async fn list_rate_cards(
@@ -325,6 +350,32 @@ impl RateCardsInterface for Store {
             .await?
             .ok_or_else(|| not_found(id))?
             .try_into()?)
+    }
+
+    async fn get_rate_card_of_purpose(
+        &self,
+        tenant_id: TenantId,
+        id: RateCardId,
+        purpose: RateCardPurpose,
+    ) -> StoreResult<(RateCard, Vec<RateCardEntry>)> {
+        let (card, entries) = self.get_rate_card(tenant_id, id).await?;
+        if card.purpose != purpose {
+            return Err(not_found(id));
+        }
+        Ok((card, entries))
+    }
+
+    async fn find_rate_card_of_purpose(
+        &self,
+        tenant_id: TenantId,
+        id: RateCardId,
+        purpose: RateCardPurpose,
+    ) -> StoreResult<RateCard> {
+        let card = self.find_rate_card(tenant_id, id).await?;
+        if card.purpose != purpose {
+            return Err(not_found(id));
+        }
+        Ok(card)
     }
 
     async fn set_rate_card_archived(
@@ -419,7 +470,12 @@ impl RateCardsInterface for Store {
                 let (inserts, replaced, summary) = plan_upsert(&card, &existing, &inputs, today)?;
                 // The deleted scheduled entries live on in the audit only.
                 let changed = rates_changed(&existing, &inserts, &replaced, effective_from);
-                RateCardEntryRow::delete_scheduled(conn, tenant_id, &replaced, today).await?;
+                // A cost card's corrected entries go whatever their day; a price's only if scheduled.
+                let floor = match card.purpose {
+                    RateCardPurpose::Cost => chrono::NaiveDate::MIN,
+                    _ => today,
+                };
+                RateCardEntryRow::delete_scheduled(conn, tenant_id, &replaced, floor).await?;
                 let now = common_clock::now();
                 let rows: Vec<RateCardEntryRow> = inserts
                     .into_iter()

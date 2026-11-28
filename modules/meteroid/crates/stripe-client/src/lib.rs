@@ -1,4 +1,5 @@
 pub mod accounts;
+pub mod charges;
 pub mod client;
 pub mod customers;
 pub mod error;

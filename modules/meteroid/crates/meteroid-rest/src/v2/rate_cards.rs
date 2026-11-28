@@ -21,6 +21,7 @@ use common_domain::ids::{BaseId, CreditUnitId, RateCardId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use meteroid_rest_common::datetime::ApiDateTime;
+use meteroid_store::Store;
 use meteroid_store::domain::entity_activity::{ActivityType, EntityType};
 use meteroid_store::domain::rate_cards as domain;
 use meteroid_store::repositories::RateCardsInterface;
@@ -30,6 +31,9 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
+
+/// The cards this API serves; cost cards are another module's, and read as not found here.
+const PRICE: domain::RateCardPurpose = domain::RateCardPurpose::Price;
 
 /// What a card's rates are in: `money`, a rate per currency on each key; `credit_unit`, rates in
 /// the card's one credit unit.
@@ -83,7 +87,6 @@ pub struct RateCard {
     /// What usage no key matches does: `hold` keeps the invoice waiting until it is rated,
     /// `ignore` leaves it unbilled.
     pub on_unmatched: crate::v2::charges::Unmatched,
-    pub purpose: RateCardPurpose,
     /// Archived: it prices no new charge; the prices it rates keep rating.
     pub archived: bool,
     pub created_at: ApiDateTime,
@@ -100,34 +103,6 @@ pub struct RateCard {
 
 crate::v2_list!(RateCardList, RateCard);
 
-/// What a card's rates are: the prices plans charge (`price`), or what the usage costs the
-/// tenant (`cost`, a cost book with the AI module: never named by a price, one live per metric).
-#[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum RateCardPurpose {
-    #[default]
-    Price,
-    Cost,
-}
-
-impl From<RateCardPurpose> for domain::RateCardPurpose {
-    fn from(purpose: RateCardPurpose) -> Self {
-        match purpose {
-            RateCardPurpose::Price => domain::RateCardPurpose::Price,
-            RateCardPurpose::Cost => domain::RateCardPurpose::Cost,
-        }
-    }
-}
-
-impl From<domain::RateCardPurpose> for RateCardPurpose {
-    fn from(purpose: domain::RateCardPurpose) -> Self {
-        match purpose {
-            domain::RateCardPurpose::Price => RateCardPurpose::Price,
-            domain::RateCardPurpose::Cost => RateCardPurpose::Cost,
-        }
-    }
-}
-
 #[derive(Deserialize, IntoParams, Debug, Clone, Default)]
 #[into_params(parameter_in = Query)]
 pub struct RateCardListQuery {
@@ -136,8 +111,6 @@ pub struct RateCardListQuery {
     /// Archived cards too.
     #[serde(default)]
     pub include_archived: bool,
-    /// Only the cards of this purpose; price cards when left out.
-    pub purpose: Option<RateCardPurpose>,
     pub limit: Option<u32>,
     pub after: Option<String>,
 }
@@ -211,7 +184,7 @@ pub struct RatesSet {
     pub rate_card: RateCard,
 }
 
-fn today() -> NaiveDate {
+pub fn today() -> NaiveDate {
     common_clock::now().date_naive()
 }
 
@@ -225,7 +198,7 @@ fn rate(entry: &domain::RateCardEntry) -> Rate {
     }
 }
 
-fn to_api(
+pub fn to_api(
     card: domain::RateCard,
     refs: &Refs,
     entries: Option<(&[domain::RateCardEntry], NaiveDate)>,
@@ -272,7 +245,6 @@ fn to_api(
             domain::RateCardUnmatched::Hold => crate::v2::charges::Unmatched::Hold,
             domain::RateCardUnmatched::Ignore => crate::v2::charges::Unmatched::Ignore,
         },
-        purpose: card.purpose.into(),
         archived: card.archived_at.is_some(),
         created_at: card.created_at.into(),
         at,
@@ -282,8 +254,8 @@ fn to_api(
 }
 
 /// The metrics and credit units the cards name, read in one round.
-async fn card_refs(
-    state: &AppState,
+pub async fn card_refs(
+    store: &Store,
     tenant_id: TenantId,
     cards: &[domain::RateCard],
 ) -> Result<Refs, Problem> {
@@ -298,29 +270,125 @@ async fn card_refs(
             .collect(),
         ..ReferenceIds::default()
     };
-    Refs::load(&state.store, tenant_id, &ids).await
+    Refs::load(store, tenant_id, &ids).await
+}
+
+/// The card of an id or code, when it is of `purpose`: another purpose's card is not found.
+pub async fn card_id(
+    store: &Store,
+    tenant_id: TenantId,
+    raw: &str,
+    purpose: domain::RateCardPurpose,
+) -> Result<RateCardId, Problem> {
+    let id = ids::rate_card_id(store, tenant_id, raw).await?;
+    store
+        .find_rate_card_of_purpose(tenant_id, id, purpose)
+        .await?;
+    Ok(id)
 }
 
 /// The card as it reads, with its rates at `at`.
-async fn read_card(
-    state: &AppState,
+pub async fn read_card(
+    store: &Store,
     tenant_id: TenantId,
     id: RateCardId,
     at: NaiveDate,
 ) -> Result<RateCard, Problem> {
-    let (card, entries) = state.store.get_rate_card(tenant_id, id).await?;
-    let refs = card_refs(state, tenant_id, std::slice::from_ref(&card)).await?;
+    let (card, entries) = store.get_rate_card(tenant_id, id).await?;
+    let refs = card_refs(store, tenant_id, std::slice::from_ref(&card)).await?;
     Ok(to_api(card, &refs, Some((&entries, at))))
 }
 
 /// A card written, read back; by its id when it is not (the write is made all the same: a write
 /// committed never answers an error).
-async fn written(state: &AppState, tenant_id: TenantId, id: RateCardId) -> Response {
+async fn written(store: &Store, tenant_id: TenantId, id: RateCardId) -> Response {
     committed_write(
         StatusCode::OK,
-        read_card(state, tenant_id, id, today()).await,
+        read_card(store, tenant_id, id, today()).await,
         || serde_json::json!({"id": id.to_string()}),
     )
+}
+
+/// A page of the tenant's cards of `purpose`.
+pub async fn list_cards(
+    store: &Store,
+    tenant_id: TenantId,
+    query: RateCardListQuery,
+    purpose: domain::RateCardPurpose,
+) -> Result<RateCardList, Problem> {
+    let metric = match query.metric.as_deref() {
+        Some(metric) => Some(ids::metric(store, tenant_id, metric).await?.id),
+        None => None,
+    };
+    let page_query = PageQuery {
+        limit: query.limit,
+        after: query.after,
+    };
+    let limit = page_query.limit()?;
+    let rows = store
+        .list_rate_cards_after(
+            tenant_id,
+            metric,
+            Some(purpose),
+            query.include_archived,
+            page_query
+                .cursor()?
+                .map(|Cursor(after)| RateCardId::from(after)),
+            limit + 1,
+        )
+        .await?;
+    let paged = keyset(rows, limit, |card| card.id.as_uuid());
+    let refs = card_refs(store, tenant_id, &paged.data).await?;
+    Ok(paged.map(|card| to_api(card, &refs, None)).into())
+}
+
+/// The card of `purpose` with the rates in force on `at` (today by default).
+pub async fn get_card(
+    store: &Store,
+    tenant_id: TenantId,
+    id_or_code: &str,
+    at: Option<NaiveDate>,
+    purpose: domain::RateCardPurpose,
+) -> Result<RateCard, Problem> {
+    let id = card_id(store, tenant_id, id_or_code, purpose).await?;
+    read_card(store, tenant_id, id, at.unwrap_or_else(today)).await
+}
+
+/// A batch of rates as the store sets it, refused when it is too large.
+pub fn rates_batch(body: SetRates) -> Result<domain::RateCardRatesSet, Problem> {
+    crate::v2::bounds::count(
+        body.rates.len(),
+        crate::v2::bounds::MAX_RATES_PER_WRITE,
+        "/rates",
+        "rates",
+    )?;
+    crate::v2::bounds::count(
+        body.remove.len(),
+        crate::v2::bounds::MAX_RATES_PER_WRITE,
+        "/remove",
+        "keys removed",
+    )?;
+    Ok(domain::RateCardRatesSet {
+        effective_from: body.effective_from,
+        rates: body
+            .rates
+            .into_iter()
+            .map(|rate| domain::RateCardRateInput {
+                key: rate.key,
+                currency: rate.currency.map(|c| c.trim().to_ascii_uppercase()),
+                rate: rate.rate,
+                label: rate.label,
+            })
+            .collect(),
+        remove: body
+            .remove
+            .into_iter()
+            .map(|removal| domain::RateCardKeyRemoval {
+                key: removal.key,
+                currency: removal.currency.map(|c| c.trim().to_ascii_uppercase()),
+            })
+            .collect(),
+    })
 }
 
 /// List rate cards
@@ -343,31 +411,9 @@ pub async fn list_rate_cards(
     State(state): State<AppState>,
     Query(query): Query<RateCardListQuery>,
 ) -> Result<Json<RateCardList>, Problem> {
-    let metric = match query.metric.as_deref() {
-        Some(metric) => Some(ids::metric(&state, auth.tenant_id, metric).await?.id),
-        None => None,
-    };
-    let page_query = PageQuery {
-        limit: query.limit,
-        after: query.after,
-    };
-    let limit = page_query.limit()?;
-    let rows = state
-        .store
-        .list_rate_cards_after(
-            auth.tenant_id,
-            metric,
-            Some(query.purpose.unwrap_or_default().into()),
-            query.include_archived,
-            page_query
-                .cursor()?
-                .map(|Cursor(after)| RateCardId::from(after)),
-            limit + 1,
-        )
-        .await?;
-    let paged = keyset(rows, limit, |card| card.id.as_uuid());
-    let refs = card_refs(&state, auth.tenant_id, &paged.data).await?;
-    Ok(Json(paged.map(|card| to_api(card, &refs, None)).into()))
+    Ok(Json(
+        list_cards(&state.store, auth.tenant_id, query, PRICE).await?,
+    ))
 }
 
 /// Get a rate card
@@ -394,11 +440,9 @@ pub async fn get_rate_card(
     Path(id_or_code): Path<String>,
     Query(query): Query<RateCardGetQuery>,
 ) -> Result<Json<RateCard>, Problem> {
-    let id = ids::rate_card_id(&state, auth.tenant_id, &id_or_code).await?;
-    let (card, entries) = state.store.get_rate_card(auth.tenant_id, id).await?;
-    let refs = card_refs(&state, auth.tenant_id, std::slice::from_ref(&card)).await?;
-    let at = query.at.unwrap_or_else(today);
-    Ok(Json(to_api(card, &refs, Some((&entries, at)))))
+    Ok(Json(
+        get_card(&state.store, auth.tenant_id, &id_or_code, query.at, PRICE).await?,
+    ))
 }
 
 /// Set a rate card's rates
@@ -429,42 +473,10 @@ pub async fn set_rates(
     Path(id_or_code): Path<String>,
     Body(body): Body<SetRates>,
 ) -> Result<Response, Problem> {
-    crate::v2::bounds::count(
-        body.rates.len(),
-        crate::v2::bounds::MAX_RATES_PER_WRITE,
-        "/rates",
-        "rates",
-    )?;
-    crate::v2::bounds::count(
-        body.remove.len(),
-        crate::v2::bounds::MAX_RATES_PER_WRITE,
-        "/remove",
-        "keys removed",
-    )?;
-    let id = ids::rate_card_id(&state, auth.tenant_id, &id_or_code).await?;
+    let set = rates_batch(body)?;
+    let id = card_id(&state.store, auth.tenant_id, &id_or_code, PRICE).await?;
     let today = today();
-    let at = body.effective_from.unwrap_or(today);
-    let set = domain::RateCardRatesSet {
-        effective_from: body.effective_from,
-        rates: body
-            .rates
-            .into_iter()
-            .map(|rate| domain::RateCardRateInput {
-                key: rate.key,
-                currency: rate.currency.map(|c| c.trim().to_ascii_uppercase()),
-                rate: rate.rate,
-                label: rate.label,
-            })
-            .collect(),
-        remove: body
-            .remove
-            .into_iter()
-            .map(|removal| domain::RateCardKeyRemoval {
-                key: removal.key,
-                currency: removal.currency.map(|c| c.trim().to_ascii_uppercase()),
-            })
-            .collect(),
-    };
+    let at = set.effective_from.unwrap_or(today);
     let summary = state
         .store
         .set_rate_card_rates(auth.as_actor(), auth.tenant_id, id, set, today)
@@ -475,7 +487,7 @@ pub async fn set_rates(
         summary.unchanged,
         summary.replaced,
     );
-    let read = read_card(&state, auth.tenant_id, id, at)
+    let read = read_card(&state.store, auth.tenant_id, id, at)
         .await
         .map(|rate_card| RatesSet {
             inserted,
@@ -529,9 +541,6 @@ pub struct CreateRateCard {
     /// is rated, `ignore` leaves it unbilled.
     #[serde(default)]
     pub on_unmatched: crate::v2::charges::Unmatched,
-    /// `cost` needs the AI module on for the tenant; its unmatched usage is always ignored.
-    #[serde(default)]
-    pub purpose: RateCardPurpose,
 }
 
 /// A merge patch of what a card may change: its name and what unmatched usage does.
@@ -564,7 +573,6 @@ fn unmatched(on: crate::v2::charges::Unmatched) -> domain::RateCardUnmatched {
     request_body = CreateRateCard,
     responses(
         (status = 201, description = "Created, without rates", body = RateCard),
-        (status = 403, description = "A cost card while the AI module is off", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The code is taken", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A field is refused", body = Problem, content_type = "application/problem+json"),
     ),
@@ -576,6 +584,30 @@ pub async fn create_rate_card(
     Body(body): Body<CreateRateCard>,
 ) -> Result<Response, Problem> {
     let tenant_id = auth.tenant_id;
+    let code = body.code.clone();
+    let new = new_card(&state.store, tenant_id, body, PRICE).await?;
+    let card = state
+        .store
+        .create_rate_card(auth.as_actor(), new)
+        .await
+        .map_err(|error| create_refused(error, &code))?;
+    let no_entries: &[domain::RateCardEntry] = &[];
+    let known = card.clone();
+    let read = card_refs(&state.store, tenant_id, std::slice::from_ref(&card))
+        .await
+        .map(|refs| to_api(card, &refs, Some((no_entries, today()))));
+    Ok(committed_write(StatusCode::CREATED, read, || {
+        to_api(known, &Refs::default(), Some((no_entries, today())))
+    }))
+}
+
+/// A create body checked, its metric and credit unit resolved, as the store creates it.
+pub async fn new_card(
+    store: &Store,
+    tenant_id: TenantId,
+    body: CreateRateCard,
+    purpose: domain::RateCardPurpose,
+) -> Result<domain::RateCardNew, Problem> {
     ids::check_code(Some(body.code.as_str()), RateCardId::PREFIX)?;
     let name = body.name.trim().to_owned();
     if name.is_empty() {
@@ -586,7 +618,7 @@ pub async fn create_rate_card(
         ));
     }
     crate::v2::bounds::name(&name, "/name")?;
-    let metric = ids::metric(&state, tenant_id, &body.metric)
+    let metric = ids::metric(store, tenant_id, &body.metric)
         .await
         .map_err(|problem| {
             if problem.status == 404 {
@@ -657,55 +689,33 @@ pub async fn create_rate_card(
             domain::RateCardDenomination::CreditUnit(unit)
         }
     };
-    if body.purpose == RateCardPurpose::Cost {
-        meteroid_app::features::ensure_ai_module_open(
-            state.feature_resolver.as_ref(),
-            &state.store,
-            tenant_id,
-        )
-        .await
-        .map_err(|status| match status.code() {
-            tonic::Code::FailedPrecondition => Problem::feature_not_available(status.message()),
-            _ => Problem::gated(status),
-        })?;
+    Ok(domain::RateCardNew {
+        tenant_id,
+        code: body.code,
+        name,
+        metric_id: metric.id,
+        dimensions,
+        denomination,
+        unit_size,
+        on_unmatched: unmatched(body.on_unmatched),
+        purpose,
+    })
+}
+
+/// A refused create as the API answers it.
+pub fn create_refused(
+    error: error_stack::Report<meteroid_store::errors::StoreError>,
+    code: &str,
+) -> Problem {
+    let problem = Problem::from(error);
+    if problem.status == 404 {
+        Problem::field("/credit_unit", "not_found", "The credit unit is not found")
+    } else if problem.errors.is_empty() && problem.status == 422 {
+        let detail = problem.detail.clone().unwrap_or_default();
+        Problem::field("/metric", "invalid", detail)
+    } else {
+        problem.code_taken(code)
     }
-    let code = body.code.clone();
-    let card = state
-        .store
-        .create_rate_card(
-            auth.as_actor(),
-            domain::RateCardNew {
-                tenant_id,
-                code: body.code,
-                name,
-                metric_id: metric.id,
-                dimensions,
-                denomination,
-                unit_size,
-                on_unmatched: unmatched(body.on_unmatched),
-                purpose: body.purpose.into(),
-            },
-        )
-        .await
-        .map_err(|error| {
-            let problem = Problem::from(error);
-            if problem.status == 404 {
-                Problem::field("/credit_unit", "not_found", "The credit unit is not found")
-            } else if problem.errors.is_empty() && problem.status == 422 {
-                let detail = problem.detail.clone().unwrap_or_default();
-                Problem::field("/metric", "invalid", detail)
-            } else {
-                problem.code_taken(&code)
-            }
-        })?;
-    let no_entries: &[domain::RateCardEntry] = &[];
-    let known = card.clone();
-    let read = card_refs(&state, tenant_id, std::slice::from_ref(&card))
-        .await
-        .map(|refs| to_api(card, &refs, Some((no_entries, today()))));
-    Ok(committed_write(StatusCode::CREATED, read, || {
-        to_api(known, &Refs::default(), Some((no_entries, today())))
-    }))
 }
 
 /// Update a rate card
@@ -730,19 +740,12 @@ pub async fn update_rate_card(
     Path(id_or_code): Path<String>,
     Body(body): Body<UpdateRateCard>,
 ) -> Result<Response, Problem> {
-    let id = ids::rate_card_id(&state, auth.tenant_id, &id_or_code).await?;
-    if body
-        .name
-        .as_deref()
-        .is_some_and(|name| name.trim().is_empty())
-    {
-        return Err(Problem::field("/name", "invalid", "A rate card has a name"));
-    }
-    if let Some(name) = body.name.as_deref() {
-        crate::v2::bounds::name(name.trim(), "/name")?;
-    }
+    let id = card_id(&state.store, auth.tenant_id, &id_or_code, PRICE).await?;
+    check_name(body.name.as_deref())?;
     if body.name.is_none() && body.on_unmatched.is_none() {
-        return Ok(Json(read_card(&state, auth.tenant_id, id, today()).await?).into_response());
+        return Ok(
+            Json(read_card(&state.store, auth.tenant_id, id, today()).await?).into_response(),
+        );
     }
     state
         .store
@@ -754,7 +757,16 @@ pub async fn update_rate_card(
             body.on_unmatched.map(unmatched),
         )
         .await?;
-    Ok(written(&state, auth.tenant_id, id).await)
+    Ok(written(&state.store, auth.tenant_id, id).await)
+}
+
+/// A new name, when one is given, is not blank and fits.
+pub fn check_name(name: Option<&str>) -> Result<(), Problem> {
+    let Some(name) = name else { return Ok(()) };
+    if name.trim().is_empty() {
+        return Err(Problem::field("/name", "invalid", "A rate card has a name"));
+    }
+    crate::v2::bounds::name(name.trim(), "/name")
 }
 
 /// What a change of a rate card was: `created`, `rates_set` (a batch of rates and removals),
@@ -882,7 +894,19 @@ pub async fn list_rate_card_changes(
     Path(id_or_code): Path<String>,
     Query(query): Query<PageQuery>,
 ) -> Result<Json<RateCardChangeList>, Problem> {
-    let id = ids::rate_card_id(&state, auth.tenant_id, &id_or_code).await?;
+    let id = card_id(&state.store, auth.tenant_id, &id_or_code, PRICE).await?;
+    Ok(Json(
+        card_changes(&state.store, auth.tenant_id, id, query).await?,
+    ))
+}
+
+/// A page of the card's changes, newest first.
+pub async fn card_changes(
+    store: &Store,
+    tenant_id: TenantId,
+    id: RateCardId,
+    query: PageQuery,
+) -> Result<RateCardChangeList, Problem> {
     let limit = query.limit()?;
     let before = query
         .after
@@ -890,10 +914,9 @@ pub async fn list_rate_card_changes(
         .filter(|after| !after.trim().is_empty())
         .map(read_change_cursor)
         .transpose()?;
-    let page = state
-        .store
+    let page = store
         .list_entity_activities(
-            auth.tenant_id,
+            tenant_id,
             &EntityType::RateCard.to_string(),
             id.as_uuid(),
             before,
@@ -970,11 +993,11 @@ pub async fn list_rate_card_changes(
         })
         .collect();
     let next_cursor = page.next_cursor.map(change_cursor);
-    Ok(Json(RateCardChangeList {
+    Ok(RateCardChangeList {
         data,
         has_more: next_cursor.is_some(),
         next_cursor,
-    }))
+    })
 }
 
 /// Archive a rate card
@@ -998,7 +1021,7 @@ pub async fn archive_rate_card(
     State(state): State<AppState>,
     Path(id_or_code): Path<String>,
 ) -> Result<Response, Problem> {
-    set_archived(&state, &auth, &id_or_code, true).await
+    set_archived(&state.store, &auth, &id_or_code, true).await
 }
 
 /// Unarchive a rate card
@@ -1021,21 +1044,20 @@ pub async fn unarchive_rate_card(
     State(state): State<AppState>,
     Path(id_or_code): Path<String>,
 ) -> Result<Response, Problem> {
-    set_archived(&state, &auth, &id_or_code, false).await
+    set_archived(&state.store, &auth, &id_or_code, false).await
 }
 
 async fn set_archived(
-    state: &AppState,
+    store: &Store,
     auth: &AuthorizedAsTenant,
     id_or_code: &str,
     archived: bool,
 ) -> Result<Response, Problem> {
-    let id = ids::rate_card_id(state, auth.tenant_id, id_or_code).await?;
-    state
-        .store
+    let id = card_id(store, auth.tenant_id, id_or_code, PRICE).await?;
+    store
         .set_rate_card_archived(auth.as_actor(), auth.tenant_id, id, archived)
         .await?;
-    Ok(written(state, auth.tenant_id, id).await)
+    Ok(written(store, auth.tenant_id, id).await)
 }
 
 pub fn routes() -> OpenApiRouter<AppState> {

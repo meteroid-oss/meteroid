@@ -2,6 +2,8 @@ pub mod mapping;
 pub mod model;
 pub mod router;
 
+pub use router::ingest_checked;
+
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 

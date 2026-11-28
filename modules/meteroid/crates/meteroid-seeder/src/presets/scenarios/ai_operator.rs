@@ -1,8 +1,7 @@
 //! **Fjordline Inference**, an EU inference cloud reselling open and third-party models through
 //! the LiteLLM gateway it runs, per million tokens: the "AI operator" template. Its usage follows
-//! the LLM usage convention (`llm_tokens`, a sum of `tokens` by `model` and `token_class`), its
-//! prices are a rate card, and a cost card holds what each model costs it at list price, which
-//! the AI module's margin reads. Scale buys at 20% off, which loses money on GPT-4.1 output.
+//! the LLM usage convention (`llm_tokens`, a sum of `tokens` by `model` and `token_class`) and its
+//! prices are a rate card. Scale buys at 20% off.
 
 use super::common::{customer, metric, org};
 use super::domain::{
@@ -10,7 +9,6 @@ use super::domain::{
     Subscription, UnitLabel, UsageSample,
 };
 use chrono::{Days, NaiveDate};
-use meteroid_store::domain::rate_cards::RateCardPurpose;
 use meteroid_store::domain::{BillingMetricAggregateEnum, BillingPeriodEnum, PlanTypeEnum};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -18,15 +16,14 @@ use rust_decimal_macros::dec;
 const EUR: &str = "EUR";
 pub const LLM_METRIC: &str = "llm_tokens";
 pub const PRICE_CARD: &str = "llm-prices";
-pub const COST_CARD: &str = "llm-costs";
 const MODEL: &str = "model";
 const TOKEN_CLASS: &str = "token_class";
 const PER_MILLION: Decimal = dec!(1000000);
 pub const PAY_AS_YOU_GO: &str = "Pay as you go";
 pub const SCALE: &str = "Scale";
 
-/// Calls by model and token class, of 1k to 40k tokens each. `qwen-2.5-72b` is in neither card's
-/// named rates: its price is the `*` row's, and its cost is unknown until it is priced.
+/// Calls by model and token class, of 1k to 40k tokens each. `qwen-2.5-72b` is not in the card's
+/// named rates: its price is the `*` row's.
 fn llm_usage() -> UsageSample {
     UsageSample {
         min: 1_000,
@@ -62,33 +59,16 @@ fn rate(model: &'static str, class: &'static str, rate: Decimal) -> RateSpec {
     }
 }
 
-fn card(
-    code: &'static str,
-    name: &'static str,
-    purpose: RateCardPurpose,
-    effective_from: NaiveDate,
-    rates: Vec<RateSpec>,
-) -> RateCardSpec {
+/// What Fjordline charges per 1M tokens, in EUR.
+pub fn price_card(effective_from: NaiveDate) -> RateCardSpec {
     RateCardSpec {
-        code,
-        name,
+        code: PRICE_CARD,
+        name: "LLM prices",
         metric_code: LLM_METRIC,
         dimensions: vec![MODEL, TOKEN_CLASS],
         unit_size: PER_MILLION,
         effective_from,
-        rates,
-        purpose,
-    }
-}
-
-/// What Fjordline charges per 1M tokens, in EUR.
-pub fn price_card(effective_from: NaiveDate) -> RateCardSpec {
-    card(
-        PRICE_CARD,
-        "LLM prices",
-        RateCardPurpose::Price,
-        effective_from,
-        vec![
+        rates: vec![
             rate("mistral-large", "input", dec!(2.40)),
             rate("mistral-large", "output", dec!(7.20)),
             rate("llama-3.3-70b", "input", dec!(0.90)),
@@ -100,30 +80,7 @@ pub fn price_card(effective_from: NaiveDate) -> RateCardSpec {
             rate("*", "cache_read", dec!(0.30)),
             rate("*", "*", dec!(4)),
         ],
-    )
-}
-
-/// What each model costs Fjordline per 1M tokens, in EUR: list prices for the third-party
-/// models, GPU cost for the ones it hosts. A small seed, to be replaced by the operator's own.
-pub fn cost_card(effective_from: NaiveDate) -> RateCardSpec {
-    card(
-        COST_CARD,
-        "LLM costs",
-        RateCardPurpose::Cost,
-        effective_from,
-        vec![
-            rate("mistral-large", "input", dec!(1.80)),
-            rate("mistral-large", "output", dec!(5.40)),
-            rate("mistral-large", "cache_read", dec!(0.18)),
-            rate("llama-3.3-70b", "*", dec!(0.35)),
-            rate("gpt-4.1", "input", dec!(1.85)),
-            rate("gpt-4.1", "output", dec!(7.40)),
-            rate("gpt-4.1", "cache_read", dec!(0.46)),
-            rate("claude-sonnet-4", "input", dec!(2.75)),
-            rate("claude-sonnet-4", "output", dec!(13.80)),
-            rate("claude-sonnet-4", "cache_read", dec!(0.28)),
-        ],
-    )
+    }
 }
 
 fn tokens(multiplier: Option<Decimal>) -> PriceComponent {
@@ -203,16 +160,17 @@ pub fn ai_operator_scenario(now: NaiveDate) -> Scenario {
         plural: "tokens",
     });
     llm_metric.usage = Some(llm_usage());
-    // Before the oldest subscription, so every period it bills is rated and costed.
+    // Before the oldest subscription, so every period it bills is rated.
     let rates_from = now.checked_sub_days(Days::new(180)).unwrap_or(now);
 
     let mut fjordline = org("NO123456789MVA", "Oslo", "0150");
     fjordline.country = Some("NO");
 
     Scenario {
+        template: meteroid_store::hooks::SandboxTemplate::AiOperator,
         name: "Fjordline Inference".to_string(),
         metrics: vec![llm_metric],
-        rate_cards: vec![price_card(rates_from), cost_card(rates_from)],
+        rate_cards: vec![price_card(rates_from)],
         features: vec![],
         plans: plans(),
         customers: customers(now),
@@ -237,31 +195,16 @@ mod tests {
     }
 
     #[test]
-    fn one_price_card_and_one_cost_card_rate_the_llm_metric() {
+    fn one_price_card_rates_the_llm_metric() {
         let scenario = scenario();
-        let purposes: Vec<(&str, RateCardPurpose)> = scenario
-            .rate_cards
-            .iter()
-            .map(|card| (card.code, card.purpose))
-            .collect();
-        assert_eq!(
-            purposes,
-            vec![
-                (PRICE_CARD, RateCardPurpose::Price),
-                (COST_CARD, RateCardPurpose::Cost)
-            ]
-        );
-        assert!(
-            scenario
-                .rate_cards
-                .iter()
-                .all(|card| card.metric_code == LLM_METRIC
-                    && card.dimensions == vec![MODEL, TOKEN_CLASS])
-        );
+        let codes: Vec<&str> = scenario.rate_cards.iter().map(|card| card.code).collect();
+        assert_eq!(codes, vec![PRICE_CARD]);
+        assert_eq!(scenario.rate_cards[0].metric_code, LLM_METRIC);
+        assert_eq!(scenario.rate_cards[0].dimensions, vec![MODEL, TOKEN_CLASS]);
     }
 
     #[test]
-    fn plans_price_with_the_price_card_never_the_cost_card() {
+    fn plans_price_with_the_price_card() {
         for plan in scenario().plans {
             for component in plan.components {
                 match component.fee {
@@ -270,21 +213,5 @@ mod tests {
                 }
             }
         }
-    }
-
-    /// Scale's 20% off makes GPT-4.1 output cost more than it is sold for.
-    #[test]
-    fn scale_loses_money_on_gpt_4_1_output() {
-        let rate_of = |card: &RateCardSpec| {
-            card.rates
-                .iter()
-                .find(|r| r.key == vec!["gpt-4.1", "output"])
-                .map(|r| r.rates[0].1)
-                .unwrap()
-        };
-        let now = NaiveDate::from_ymd_opt(2026, 11, 26).unwrap();
-        let price = rate_of(&price_card(now)) * dec!(0.8);
-        let cost = rate_of(&cost_card(now));
-        assert!(price < cost, "{price} < {cost}");
     }
 }

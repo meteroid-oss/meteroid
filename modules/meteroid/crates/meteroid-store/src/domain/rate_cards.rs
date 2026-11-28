@@ -323,7 +323,8 @@ pub struct RateCardUpsert {
 /// its own: an entry already there, or one repeating the rate in force, is unchanged; a key's
 /// first rate may start on a past day, unless it takes over usage another key rated then; any
 /// later change starts today or later, and replaces a scheduled entry of its day. A removal ends
-/// the key from its day, its scheduled entries from then on withdrawn. Refused as a whole when
+/// the key from its day, its scheduled entries from then on withdrawn. A cost card also takes
+/// changes and removals on past days, an entry of the same day replaced. Refused as a whole when
 /// one input is (R-131).
 pub fn plan_upsert(
     card: &RateCard,
@@ -332,6 +333,8 @@ pub fn plan_upsert(
     today: NaiveDate,
 ) -> Result<(Vec<RateCardEntry>, Vec<RateCardEntryId>, RateCardUpsert), StoreError> {
     let dimensions = &card.dimensions;
+    // A cost card takes backdated corrections (a supplier's late invoice); a price never does.
+    let correctable = card.purpose == RateCardPurpose::Cost;
     let invalid = |message: String| Err(StoreError::InvalidArgument(message));
     let mut inserts: Vec<RateCardEntry> = Vec::new();
     let mut replaced: Vec<RateCardEntryId> = Vec::new();
@@ -390,7 +393,10 @@ pub fn plan_upsert(
                 summary.unchanged += 1;
                 continue;
             }
-            if input.effective_from < today || withdrawn.iter().any(|e| e.effective_from <= today) {
+            if !correctable
+                && (input.effective_from < today
+                    || withdrawn.iter().any(|e| e.effective_from <= today))
+            {
                 return invalid(format!(
                     "a removal of {named} starts today or later, after its rates in force"
                 ));
@@ -410,7 +416,7 @@ pub fn plan_upsert(
                     summary.unchanged += 1;
                     continue;
                 }
-                Some(entry) if entry.effective_from > today => {
+                Some(entry) if entry.effective_from > today || correctable => {
                     replaced.push(entry.id);
                     summary.replaced += 1;
                     if before == input.rate {
@@ -428,7 +434,7 @@ pub fn plan_upsert(
                         summary.unchanged += 1;
                         continue;
                     }
-                    if input.effective_from < today {
+                    if input.effective_from < today && !correctable {
                         if before.is_some() {
                             return invalid(format!(
                                 "a change of {named} starts today or later, not {}",
@@ -657,6 +663,44 @@ mod tests {
         assert_eq!((inserts.len(), summary.inserted), (1, 1));
         assert!(plan_upsert(&card(), &existing, &[input("x", 5, dec!(4))], day(10)).is_err());
         assert!(plan_upsert(&card(), &existing, &[input("x", 10, dec!(4))], day(10)).is_ok());
+    }
+
+    #[test]
+    fn a_cost_card_takes_backdated_corrections_a_price_card_does_not() {
+        let cost = RateCard {
+            purpose: RateCardPurpose::Cost,
+            ..card()
+        };
+        let in_force = stored("x", 1, dec!(3));
+        let existing = vec![in_force.clone(), stored("x", 8, dec!(4))];
+        let (inserts, replaced, _) = plan_upsert(
+            &cost,
+            &existing,
+            &[input("x", 5, dec!(2)), input("x", 1, dec!(2.5))],
+            day(10),
+        )
+        .unwrap();
+        assert_eq!(
+            inserts.iter().map(|e| e.effective_from).collect::<Vec<_>>(),
+            vec![day(5), day(1)]
+        );
+        assert_eq!(
+            replaced,
+            vec![in_force.id],
+            "the rate in force since the 1st is corrected"
+        );
+        let mut any = stored("*", 1, dec!(1));
+        any.key[1] = Pattern::Any;
+        assert!(
+            plan_upsert(&cost, &[any], &[input("c", 3, dec!(5))], day(10)).is_ok(),
+            "a backdated key"
+        );
+
+        assert!(
+            plan_upsert(&card(), &existing, &[input("x", 5, dec!(2))], day(10)).is_err(),
+            "a price stays"
+        );
+        assert!(plan_upsert(&card(), &existing, &[input("x", 1, dec!(2.5))], day(10)).is_err());
     }
 
     /// Rules: R-131

@@ -5,8 +5,8 @@
 use super::account::{ValidatedCredentials, mask_secret};
 use super::connector::{
     ConnectorIdentity, ConnectorRef, CredentialOps, CustomerOps, InboundWebhooks, MandateOps,
-    MandateSetup, PaymentCapabilities, PaymentOps, ReconcileOps, RefundOps, RefundSupport,
-    WebhookOps, subscription_fingerprint,
+    MandateSetup, PaymentCapabilities, PaymentOps, ProviderFee, ReconcileOps, RefundOps,
+    RefundSupport, WebhookOps, subscription_fingerprint,
 };
 use super::error::{ConnectorError, CredentialsRejected};
 use super::events::{
@@ -41,6 +41,7 @@ use std::collections::HashMap;
 use std::num::NonZeroU32;
 use std::sync::OnceLock;
 use std::time::Duration;
+use stripe_client::charges::ChargeApi;
 use stripe_client::client::StripeClient;
 use stripe_client::customers::{
     CreateCustomer, CustomerApi, CustomerShipping, OptionalFieldsAddress,
@@ -555,6 +556,44 @@ impl ReconcileOps for StripeConnector {
             }
             Err(e) => Err(map_stripe_error(e)),
         }
+    }
+    async fn fetch_settlement_fee(
+        &self,
+        external_transaction_id: &str,
+    ) -> Result<Option<ProviderFee>, Report<ConnectorError>> {
+        let intent = Self::client()
+            .retrieve_payment_intent_charge(external_transaction_id, &self.secret_key())
+            .await
+            .map_err(map_stripe_error)?;
+        Ok(intent.balance_transaction().map(provider_fee))
+    }
+}
+
+/// A Stripe balance transaction's fee: its breakdown, rate and timing kept for audit.
+fn provider_fee(txn: &stripe_client::charges::StripeBalanceTransaction) -> ProviderFee {
+    ProviderFee {
+        amount: txn.fee,
+        currency: txn.currency.to_ascii_uppercase(),
+        details: serde_json::json!({
+            "balance_transaction": txn.id,
+            "fee_details": txn.fee_details.iter().map(|detail| serde_json::json!({
+                "type": detail.fee_type,
+                "amount": detail.amount,
+                "currency": detail.currency.to_ascii_uppercase(),
+                "description": detail.description,
+            })).collect::<Vec<_>>(),
+            "amount": txn.amount,
+            "net": txn.net,
+            "exchange_rate": txn.exchange_rate,
+            "status": txn.status,
+            "created": txn.created,
+            "available_on": txn.available_on,
+            "type": txn.transaction_type,
+        }),
+        // The day the charge entered the balance, as revenue does; not when funds are available.
+        settled_at: txn
+            .created
+            .and_then(|seconds| chrono::DateTime::from_timestamp(seconds, 0)),
     }
 }
 
@@ -1494,6 +1533,22 @@ fn payment_method_update(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_provider_fee_is_on_the_day_its_charge_entered_the_balance() {
+        let txn: stripe_client::charges::StripeBalanceTransaction = serde_json::from_str(
+            r#"{"id":"txn_1","amount":10870,"fee":345,"net":10525,"currency":"usd",
+            "created":1764201600,"available_on":1764633600,"fee_details":[]}"#,
+        )
+        .unwrap();
+        let fee = super::provider_fee(&txn);
+        assert_eq!(
+            fee.settled_at.map(|at| at.timestamp()),
+            Some(1764201600),
+            "created, not available_on"
+        );
+        assert_eq!((fee.amount, fee.currency.as_str()), (345, "USD"));
+    }
+
     #[test]
     fn bank_returns_reported_as_disputes_are_failed_collections() {
         use super::dispute_failure;

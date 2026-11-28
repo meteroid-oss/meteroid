@@ -3,9 +3,7 @@ import { formatDistanceToNow } from 'date-fns'
 import { ArrowRightIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
-import { useQuery } from '@/lib/connectrpc'
 import { ActorType } from '@/rpc/api/activity/v1/activity_pb'
-import { listRateCardChanges } from '@/rpc/api/ratecards/v1/ratecards-RateCardsService_connectquery'
 import { RateCardChangeKind, type RateCardChange } from '@/rpc/api/ratecards/v1/ratecards_pb'
 
 import {
@@ -17,6 +15,7 @@ import {
   type KeyHistory,
 } from './history'
 import { CREDITS } from './rateTable'
+import { coreRateCards, type RateCardService } from './service'
 
 import type { RateCardEntry } from '@/rpc/api/ratecards/v1/models_pb'
 
@@ -32,12 +31,14 @@ const LINES_SHOWN = 5
  */
 export const RateCardHistory = ({
   cardId,
+  service = coreRateCards,
   entries,
   today,
   amount,
   focus,
 }: {
   cardId: string
+  service?: RateCardService
   entries: RateCardEntry[]
   today: string
   amount: Amount
@@ -80,7 +81,7 @@ export const RateCardHistory = ({
           </div>
         )}
       </section>
-      <ChangeLog cardId={cardId} amount={amount} />
+      <ChangeLog cardId={cardId} amount={amount} service={service} />
     </div>
   )
 }
@@ -130,10 +131,18 @@ const KeyTimeline = ({ history, amount }: { history: KeyHistory; amount: Amount 
 
 type Page = { changes: RateCardChange[]; cursor?: string }
 
-const ChangeLog = ({ cardId, amount }: { cardId: string; amount: Amount }) => {
+const ChangeLog = ({
+  cardId,
+  amount,
+  service,
+}: {
+  cardId: string
+  amount: Amount
+  service: RateCardService
+}) => {
   // Each "Load more" keeps the page shown and reads the next one, as the activity timeline does.
   const [pages, setPages] = useState<Page[]>([])
-  const query = useQuery(listRateCardChanges, {
+  const query = service.useChanges({
     rateCardId: cardId,
     cursor: pages.at(-1)?.cursor,
     limit: CHANGES_PAGE,

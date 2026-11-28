@@ -1002,6 +1002,42 @@ diesel::table! {
 }
 
 diesel::table! {
+    cost_card_settings (rate_card_id) {
+        rate_card_id -> Uuid,
+        tenant_id -> Uuid,
+        cost_currency -> Text,
+        reported_amount_property -> Nullable<Text>,
+        reported_currency_property -> Nullable<Text>,
+        reported_default_currency -> Nullable<Text>,
+        reported_group_by -> Array<Nullable<Text>>,
+        attributed_metric_id -> Nullable<Uuid>,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    cost_projection_cursor (rate_card_id) {
+        rate_card_id -> Uuid,
+        tenant_id -> Uuid,
+        projected_through -> Nullable<Date>,
+        dirty_from -> Nullable<Date>,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    cost_ratio (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        metric_id -> Nullable<Uuid>,
+        ratio -> Numeric,
+        effective_from -> Date,
+        created_at -> Timestamptz,
+        archived_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
     coupon (id) {
         id -> Uuid,
         code -> Text,
@@ -2767,6 +2803,20 @@ diesel::table! {
         created_at -> Timestamptz,
         expires_at -> Timestamptz,
         consumed_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    payment_fee_rule (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        connector_id -> Nullable<Uuid>,
+        bps -> Int4,
+        fixed_minor -> Int8,
+        fixed_currency -> Nullable<Text>,
+        effective_from -> Date,
+        created_at -> Timestamptz,
+        archived_at -> Nullable<Timestamptz>,
     }
 }
 

@@ -23,6 +23,8 @@ use super::timeline::{Event, History};
 #[derive(Clone)]
 pub struct Scenario {
     pub name: String, // will be the tenant name
+    /// What the modules add to the seed, told through `AnalyticsHook::sandbox_seeded`.
+    pub template: meteroid_store::hooks::SandboxTemplate,
     pub metrics: Vec<BillableMetric>,
     /// Rate cards on the metrics, which plans price usage by, referenced by code.
     pub rate_cards: Vec<RateCardSpec>,
@@ -89,8 +91,6 @@ pub struct RateCardSpec {
     pub unit_size: Decimal,
     pub effective_from: NaiveDate,
     pub rates: Vec<RateSpec>,
-    /// A cost card records what the usage costs the tenant; a price card what plans charge.
-    pub purpose: meteroid_store::domain::rate_cards::RateCardPurpose,
 }
 
 /// A key of a rate card, a pattern per dimension (`*`: any value), and its rate by currency.

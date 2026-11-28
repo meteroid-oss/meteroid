@@ -41,10 +41,6 @@ common-clock = { workspace = true }
 common-domain = { workspace = true, features = ["utoipa", "tonic"] }
 common-utils = { workspace = true, features = ["error-stack-conv"] }
 bytes.workspace = true
-flate2.workspace = true
-hex.workspace = true
-opentelemetry-proto.workspace = true
-prost.workspace = true
 url.workspace = true
 jsonwebtoken = { workspace = true }
 image = { workspace = true }

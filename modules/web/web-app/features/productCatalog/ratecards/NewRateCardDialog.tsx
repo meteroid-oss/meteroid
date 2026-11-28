@@ -25,7 +25,7 @@ import { useQuery } from '@/lib/connectrpc'
 import { rpcErrorMessage } from '@/lib/rpcError'
 import { getBillableMetric } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import { discoverProperties } from '@/rpc/api/eventinsights/v1/eventinsights-EventInsightsService_connectquery'
-import { RateCardPurpose, RateCardUnmatched, type RateCard } from '@/rpc/api/ratecards/v1/models_pb'
+import { RateCardUnmatched, type RateCard } from '@/rpc/api/ratecards/v1/models_pb'
 import {
   createRateCard,
   listRateCards,
@@ -36,6 +36,15 @@ import { priceRatesForCard } from './bridge'
 import { UNIT_SIZES, dimensionName, listNames, unitSizeLabel } from './rateTable'
 
 import type { PriceRates } from './bridge'
+
+/** What a card is made of, as the dialog collects it. */
+export type NewCard = {
+  code: string
+  name: string
+  metricId: string
+  dimensions: string[]
+  unitSize: string
+}
 
 const schema = z.object({
   name: z.string().trim().min(1, 'Name is required'),
@@ -98,7 +107,8 @@ export const NewRateCardDialog = ({
   creditUnitId,
   from,
   currency,
-  purpose = RateCardPurpose.PRICE,
+  create: createCard,
+  title,
   onClose,
   onCreated,
 }: {
@@ -106,8 +116,9 @@ export const NewRateCardDialog = ({
   creditUnitId?: string
   from?: PriceRates
   currency?: string
-  /** A cost card records what the usage costs (the AI module's cost book), never a price. */
-  purpose?: RateCardPurpose
+  /** Creates the card instead of core's rate card API: a module serving its own cards. */
+  create?: (card: NewCard) => Promise<RateCard | undefined>
+  title?: string
   onClose: () => void
   onCreated: (card: RateCard) => void
 }) => {
@@ -133,23 +144,28 @@ export const NewRateCardDialog = ({
   const unit = metric?.unitLabel
 
   const submit = async (data: z.infer<typeof schema>) => {
-    const created = await create
-      .mutateAsync({
-        code: data.code,
-        name: data.name,
-        metricId,
-        dimensions: data.dimensions,
-        creditUnitId,
-        unitSize: data.unitSize,
-        onUnmatched:
-          from?.onUnmatched === 'ignore' ? RateCardUnmatched.IGNORE : RateCardUnmatched.HOLD,
-        purpose,
-      })
-      .catch(error => {
-        toast.error(rpcErrorMessage(error, 'The rate card could not be created'))
-        return undefined
-      })
-    const card = created?.card
+    const fields = {
+      code: data.code,
+      name: data.name,
+      metricId,
+      dimensions: data.dimensions,
+      unitSize: data.unitSize,
+    }
+    const card = await (
+      createCard
+        ? createCard(fields)
+        : create
+            .mutateAsync({
+              ...fields,
+              creditUnitId,
+              onUnmatched:
+                from?.onUnmatched === 'ignore' ? RateCardUnmatched.IGNORE : RateCardUnmatched.HOLD,
+            })
+            .then(created => created.card)
+    ).catch(error => {
+      toast.error(rpcErrorMessage(error, 'The rate card could not be created'))
+      return undefined
+    })
     if (!card) return
     // Its first rates, from today: the price's, as they are.
     const rated =
@@ -166,9 +182,11 @@ export const NewRateCardDialog = ({
             return false
           }
         ))
-    await listed()
+    if (!createCard) await listed()
     if (rated)
-      toast.success(from ? "Rate card created with the price's rates" : 'Rate card created')
+      toast.success(
+        from ? "Rate card created with the price's rates" : `${title ?? 'Rate card'} created`
+      )
     onCreated(card)
   }
 
@@ -177,11 +195,7 @@ export const NewRateCardDialog = ({
       <DialogContent className="sm:max-w-[460px]">
         <DialogHeader>
           <DialogTitle>
-            {from
-              ? 'Save as a rate card'
-              : purpose === RateCardPurpose.COST
-                ? 'New cost card'
-                : 'New rate card'}
+            {from ? 'Save as a rate card' : `New ${(title ?? 'Rate card').toLowerCase()}`}
           </DialogTitle>
         </DialogHeader>
         <Form {...methods}>

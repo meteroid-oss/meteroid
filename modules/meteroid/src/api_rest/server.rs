@@ -23,6 +23,7 @@ use meteroid_store::{Services, Store};
 use rate_limiter::RateLimiter;
 use rate_limiter::middleware::axum::rate_limit_middleware;
 use std::any::Any;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::catch_panic::CatchPanicLayer;
@@ -108,12 +109,14 @@ where
     let mut module_client = OpenApiRouter::new();
     let mut module_v2 = OpenApiRouter::new();
     let mut module_other = Router::new();
+    let mut body_limits: HashMap<&'static str, usize> = HashMap::new();
     for module in &modules.api {
         let routes = module.rest(&module_ctx).await;
         module_api = module_api.merge(routes.api);
         module_client = module_client.merge(routes.client);
         module_v2 = module_v2.merge(routes.v2);
         module_other = module_other.merge(routes.other);
+        body_limits.extend(routes.body_limits);
     }
     // Same SSRF guards as the delivery worker, so an endpoint the worker would refuse
     // is rejected at create/update time instead.
@@ -254,7 +257,10 @@ where
         .layer(client_auth_layer)
         .layer(auth_layer)
         .layer(DefaultBodyLimit::disable())
-        .layer(axum::middleware::from_fn(body_limit))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::new(body_limits),
+            body_limit,
+        ))
         .layer(axum::middleware::map_response(json_payload_too_large))
         .layer(CatchPanicLayer::custom(handle_500))
         // v2's version, request id and problem responses, whoever answered: outside the auth,
@@ -323,14 +329,17 @@ async fn handler_404(uri: Uri) -> impl IntoResponse {
 
 const BODY_LIMIT_BYTES: usize = 1024 * 1024;
 
-/// 1 MB a body, more for what AI gateways export: a declared length above is refused before any
+/// 1 MB a body, more on the paths a module raises: a declared length above is refused before any
 /// extractor runs, with plain text; a body read past it fails its extractor with a `413`.
-async fn body_limit(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
-    let limit = if crate::api_rest::v2::gateway::PATHS.contains(&request.uri().path()) {
-        crate::api_rest::v2::gateway::MAX_BODY_BYTES
-    } else {
-        BODY_LIMIT_BYTES
-    };
+async fn body_limit(
+    axum::extract::State(limits): axum::extract::State<Arc<HashMap<&'static str, usize>>>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let limit = limits
+        .get(request.uri().path())
+        .copied()
+        .unwrap_or(BODY_LIMIT_BYTES);
     let declared = request
         .headers()
         .get(http::header::CONTENT_LENGTH)
@@ -353,8 +362,7 @@ async fn json_payload_too_large(response: Response) -> Response {
     }
     let body = Json(RestErrorResponse {
         code: ErrorCode::BadRequest,
-        message: "The request body is larger than 1 MB (16 MB for an AI gateway's export)"
-            .to_string(),
+        message: "The request body is larger than this endpoint's limit".to_string(),
     });
     (StatusCode::PAYLOAD_TOO_LARGE, body).into_response()
 }

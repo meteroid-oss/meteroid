@@ -4,8 +4,8 @@ package meteroid.api.ratecards.v1;
 
 // The rates of a metric's usage by its dimensions (model, token type), independent of plans.
 message RateCard {
-  reserved 6;
-  reserved "currency";
+  reserved 6, 10;
+  reserved "currency", "purpose";
 
   string id = 1;
   string code = 2;
@@ -19,15 +19,6 @@ message RateCard {
   RateCardUnmatched on_unmatched = 8;
   // Rates are per this many units of the metric (1000000: per 1M tokens), a decimal string.
   string unit_size = 9;
-  RateCardPurpose purpose = 10;
-}
-
-enum RateCardPurpose {
-  // What plans charge for the usage: prices name the card.
-  RATE_CARD_PURPOSE_PRICE = 0;
-  // What the usage costs the tenant (a cost book, with the AI module): never named by a price,
-  // at most one live per metric; usage no key rates has an unknown cost.
-  RATE_CARD_PURPOSE_COST = 1;
 }
 
 enum RateCardUnmatched {

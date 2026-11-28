@@ -40,13 +40,13 @@ fn ensure_sandbox_preset_entitled(
 ) -> Result<(), Status> {
     match preset {
         SandboxPreset::Default | SandboxPreset::CurrenciesAndCoupons => Ok(()),
-        SandboxPreset::AiCredits if resolved.is_enabled(gates::ADMIN_SANDBOXES) => Ok(()),
-        SandboxPreset::AiCredits => Err(Status::permission_denied(
+        SandboxPreset::AiCredits | SandboxPreset::AiOperator
+            if resolved.is_enabled(gates::ADMIN_SANDBOXES) =>
+        {
+            Ok(())
+        }
+        SandboxPreset::AiCredits | SandboxPreset::AiOperator => Err(Status::permission_denied(
             "This sandbox example is not enabled for this organization.",
-        )),
-        SandboxPreset::AiOperator if resolved.is_enabled(gates::AI) => Ok(()),
-        SandboxPreset::AiOperator => Err(Status::permission_denied(
-            "The AI operator example needs the AI module in the license.",
         )),
     }
 }
@@ -530,10 +530,10 @@ mod tests {
     }
 
     #[test]
-    fn the_ai_operator_example_needs_the_ai_module_in_the_license() {
-        let unlicensed = ResolvedEntitlements::with_enabled(&[gates::ADMIN_SANDBOXES]);
-        assert!(ensure_sandbox_preset_entitled(SandboxPreset::AiOperator, &unlicensed).is_err());
-        let licensed = ResolvedEntitlements::with_enabled(&[gates::AI]);
-        assert!(ensure_sandbox_preset_entitled(SandboxPreset::AiOperator, &licensed).is_ok());
+    fn the_ai_operator_example_is_an_admin_sandbox() {
+        let unflagged = ResolvedEntitlements::with_enabled(&[]);
+        assert!(ensure_sandbox_preset_entitled(SandboxPreset::AiOperator, &unflagged).is_err());
+        let flagged = ResolvedEntitlements::with_enabled(&[gates::ADMIN_SANDBOXES]);
+        assert!(ensure_sandbox_preset_entitled(SandboxPreset::AiOperator, &flagged).is_ok());
     }
 }

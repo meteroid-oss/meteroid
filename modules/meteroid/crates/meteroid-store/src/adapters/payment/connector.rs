@@ -371,6 +371,25 @@ pub trait ReconcileOps: Send + Sync {
         &self,
         external_transaction_id: &str,
     ) -> Result<RemoteTransactionStatus, Report<ConnectorError>>;
+
+    /// What the provider took in fees on a settled payment, in its settlement currency; `None`
+    /// until it settles, or for a provider that does not report its fees.
+    async fn fetch_settlement_fee(
+        &self,
+        _external_transaction_id: &str,
+    ) -> Result<Option<ProviderFee>, Report<ConnectorError>> {
+        Ok(None)
+    }
+}
+
+/// A provider's fee on a payment, in the minor unit of `currency` (the settlement currency).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProviderFee {
+    pub amount: i64,
+    pub currency: String,
+    /// The provider's breakdown and settlement details, as it reports them.
+    pub details: serde_json::Value,
+    pub settled_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[async_trait]

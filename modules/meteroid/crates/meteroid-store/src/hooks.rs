@@ -103,10 +103,21 @@ pub fn core_instance() -> Arc<dyn InstanceEdition> {
 /// What a sandbox seed created.
 pub struct SeededSandbox<'a> {
     pub tenant_id: TenantId,
+    /// The template seeded, for the modules that add to some templates.
+    pub template: SandboxTemplate,
     /// By plan name.
     pub plans: &'a HashMap<String, FullPlan>,
     /// In creation order: the first is the scenario's primary usage metric.
     pub metrics: &'a [BillableMetric],
+}
+
+/// A sandbox template a module adds to; `Other` for those none does.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SandboxTemplate {
+    #[default]
+    Other,
+    /// Usage of the LLM usage convention, priced by a rate card.
+    AiOperator,
 }
 
 /// Told when a tenant's billing history is written after the fact, so derived analytics catch up,

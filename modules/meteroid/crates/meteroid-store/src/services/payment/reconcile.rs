@@ -24,6 +24,7 @@
 //! `Unsupported`; those rows are skipped and wait for their webhook.
 
 use crate::StoreResult;
+use crate::adapters::payment::ProviderFee;
 use crate::adapters::payment::error::ConnectorError;
 use crate::adapters::payment::model::{RemoteRefundStatus, RemoteTransactionStatus};
 use crate::domain::PaymentStatusEnum;
@@ -39,6 +40,13 @@ use common_domain::ids::{PaymentTransactionId, TenantId};
 use diesel_models::payments::PaymentTransactionRow;
 use error_stack::ResultExt;
 use scoped_futures::ScopedFutureExt;
+
+/// A payment's provider fee and the connector it went through.
+#[derive(Clone, Debug)]
+pub struct SettlementFee {
+    pub connector_id: common_domain::ids::ConnectorId,
+    pub fee: Option<ProviderFee>,
+}
 
 impl Services {
     /// Reconcile a single pending transaction against the provider. Idempotent:
@@ -229,6 +237,34 @@ impl Services {
             .await?;
 
         Ok(())
+    }
+
+    /// What the provider took in fees on a settled payment and through which connector; the fee
+    /// is `None` until the provider settles it, or for a provider that reports none. Read off the
+    /// payment path, outside any transaction; core never calls it.
+    pub async fn fetch_settlement_fee(
+        &self,
+        transaction_id: PaymentTransactionId,
+        tenant_id: TenantId,
+    ) -> StoreResult<SettlementFee> {
+        let mut conn = self.store.get_conn().await?;
+        let row = PaymentTransactionRow::get_by_id(&mut conn, transaction_id, tenant_id)
+            .await
+            .map_err(|err| StoreError::DatabaseError(err.error))?;
+        let (connector, connector_impl) =
+            super::resolve_connector_for_transaction(&self.store, &mut conn, &row).await?;
+        drop(conn);
+        let fee = match row.provider_transaction_id.as_deref() {
+            Some(external_id) => connector_impl
+                .fetch_settlement_fee(external_id)
+                .await
+                .change_context(StoreError::PaymentProviderError)?,
+            None => None,
+        };
+        Ok(SettlementFee {
+            connector_id: connector.id,
+            fee,
+        })
     }
 
     async fn resolve_transaction_connector(

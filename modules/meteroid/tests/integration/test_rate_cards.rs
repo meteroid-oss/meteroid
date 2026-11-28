@@ -41,7 +41,6 @@ async fn a_rate_card_syncs_in_bulk_and_rates_by_the_most_specific_key() {
             credit_unit_id: None,
             on_unmatched: grpc::RateCardUnmatched::Hold.into(),
             unit_size: Some("1000000".into()),
-            ..Default::default()
         })
         .await
         .expect("create")
@@ -242,7 +241,6 @@ async fn a_rate_cards_changes_are_logged_with_who_made_them() {
             credit_unit_id: None,
             on_unmatched: grpc::RateCardUnmatched::Hold.into(),
             unit_size: None,
-            ..Default::default()
         })
         .await
         .expect("create")
@@ -408,7 +406,6 @@ async fn a_rate_card_rates_a_metric_declaring_its_dimension_values() {
             credit_unit_id: None,
             on_unmatched: grpc::RateCardUnmatched::Hold.into(),
             unit_size: None,
-            ..Default::default()
         })
         .await
         .expect("a card rates a metric with a segmentation matrix")
@@ -416,4 +413,133 @@ async fn a_rate_card_rates_a_metric_declaring_its_dimension_values() {
         .card
         .expect("card");
     assert_eq!(card.dimensions, vec!["model".to_string()]);
+}
+
+/// Cost cards are an Enterprise module's: core's rate card APIs list, read, rate and log price
+/// cards only, and a cost card reads as not found.
+#[tokio::test]
+async fn a_cost_card_is_absent_from_cores_rate_card_apis() {
+    use common_domain::actor::Actor;
+    use meteroid_store::domain::rate_cards::{
+        RateCardDenomination, RateCardNew, RateCardPurpose, RateCardUnmatched,
+    };
+    use meteroid_store::repositories::RateCardsInterface;
+
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
+    let setup =
+        meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
+    let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
+    let clients = meteroid_it::clients::AllClients::from_channel(
+        setup.channel.clone(),
+        auth.token.clone().as_str(),
+        "TESTORG",
+        "testslug",
+    );
+    let mut cards = clients.rate_cards.clone();
+    let cost = setup
+        .store
+        .create_rate_card(
+            Actor::System,
+            RateCardNew {
+                tenant_id: crate::data::ids::TENANT_ID,
+                code: "bandwidth-costs".into(),
+                name: "Bandwidth costs".into(),
+                metric_id: METRIC_BANDWIDTH,
+                dimensions: vec!["region".into()],
+                denomination: RateCardDenomination::Money,
+                unit_size: rust_decimal::Decimal::ONE,
+                on_unmatched: RateCardUnmatched::Ignore,
+                purpose: RateCardPurpose::Cost,
+            },
+        )
+        .await
+        .expect("a cost card");
+
+    let listed = cards
+        .list_rate_cards(grpc::ListRateCardsRequest::default())
+        .await
+        .unwrap()
+        .into_inner()
+        .cards;
+    assert!(listed.iter().all(|card| card.id != cost.id.as_proto()));
+    let get = cards
+        .get_rate_card(grpc::GetRateCardRequest {
+            id: cost.id.as_proto(),
+            at: None,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(get.code(), Code::NotFound);
+    let set = cards
+        .set_rate_card_rates(grpc::SetRateCardRatesRequest {
+            rate_card_id: cost.id.as_proto(),
+            effective_from: None,
+            rates: vec![grpc::RateCardRateInput {
+                key: vec!["eu".into()],
+                currency: Some("EUR".into()),
+                rate: "1".into(),
+                label: None,
+            }],
+            remove: vec![],
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(set.code(), Code::NotFound);
+    let lookup = cards
+        .lookup_rate(grpc::LookupRateRequest {
+            rate_card_id: cost.id.as_proto(),
+            dimensions: Default::default(),
+            on: None,
+            currency: Some("EUR".into()),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(lookup.code(), Code::NotFound);
+    let changes = cards
+        .list_rate_card_changes(grpc::ListRateCardChangesRequest {
+            rate_card_id: cost.id.as_proto(),
+            cursor: None,
+            limit: None,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(changes.code(), Code::NotFound);
+
+    let api_key = clients
+        .api_tokens
+        .clone()
+        .create_api_token(
+            meteroid_grpc::meteroid::api::apitokens::v1::CreateApiTokenRequest {
+                name: "rate cards".into(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap()
+        .into_inner()
+        .api_key;
+    let http = http_client_tracing::client();
+    let base = setup.config.rest_api_external_url.clone();
+    let get = |path: String| {
+        let request = http.get(format!("{base}{path}")).bearer_auth(&api_key);
+        async move { request.send().await.unwrap() }
+    };
+    let list: serde_json::Value = get("/api/v2/rate-cards".into()).await.json().await.unwrap();
+    assert!(
+        list["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|card| card["code"] != "bandwidth-costs"),
+        "{list}"
+    );
+    for path in [
+        "/api/v2/rate-cards/bandwidth-costs",
+        "/api/v2/rate-cards/bandwidth-costs/changes",
+        "/api/v1/rate-cards/bandwidth-costs",
+    ] {
+        assert_eq!(get(path.into()).await.status(), 404, "{path}");
+    }
 }

@@ -90,6 +90,8 @@ pub struct RestRoutes {
     pub v2: OpenApiRouter,
     /// Outside the published API, e.g. protocol endpoints called by other installations.
     pub other: axum::Router,
+    /// Paths whose request bodies may exceed the server's 1 MB, with their own limit in bytes.
+    pub body_limits: Vec<(&'static str, usize)>,
 }
 
 /// What module REST handlers usually read; a module may use a state of its own instead.

@@ -1,5 +1,4 @@
 import {
-  createConnectQueryKey,
   createQueryOptions,
   skipToken,
   useTransport,
@@ -45,18 +44,13 @@ import { toast } from 'sonner'
 
 import { useCreditUnit } from '@/features/pricing/CreditUnitPriceFields'
 import { usePermissions } from '@/hooks/usePermissions'
-import { useMutation, useQuery } from '@/lib/connectrpc'
+import { useQuery } from '@/lib/connectrpc'
 import { rpcErrorMessage } from '@/lib/rpcError'
 import { downloadCsv } from '@/lib/utils/csv'
 import { formatCurrencyNoRounding } from '@/lib/utils/numbers'
 import { getBillableMetric } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import { discoverPropertyValues } from '@/rpc/api/eventinsights/v1/eventinsights-EventInsightsService_connectquery'
 import { RateCardUnmatched, type RateCard } from '@/rpc/api/ratecards/v1/models_pb'
-import {
-  getRateCard,
-  listRateCardChanges,
-  setRateCardRates,
-} from '@/rpc/api/ratecards/v1/ratecards-RateCardsService_connectquery'
 import { listTenantCurrencies } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
 
 import { RateCardHistory } from './RateCardHistory'
@@ -84,6 +78,7 @@ import {
   type Draft,
   type Row,
 } from './rateTable'
+import { coreRateCards, type RateCardService } from './service'
 
 const isoDay = (date: Date) => format(date, 'yyyy-MM-dd')
 
@@ -115,9 +110,17 @@ function useSeenValues(eventCode: string | undefined, dimensions: string[]) {
  * Edits are staged and saved as one batch, from today or a day picked. Its history shows each
  * row's rates over time and who changed them.
  */
-export const RateCardSheet = ({ id, onClose }: { id: string; onClose: () => void }) => {
+export const RateCardSheet = ({
+  id,
+  onClose,
+  service = coreRateCards,
+}: {
+  id: string
+  onClose: () => void
+  service?: RateCardService
+}) => {
   const [today] = useState(() => isoDay(new Date()))
-  const cardQuery = useQuery(getRateCard, { id })
+  const cardQuery = service.useCard(id)
   const card = cardQuery.data?.card
   const metric = useQuery(getBillableMetric, card ? { id: card.metricId } : skipToken).data
     ?.billableMetric
@@ -150,7 +153,7 @@ export const RateCardSheet = ({ id, onClose }: { id: string; onClose: () => void
   const staged = count > 0 || invalid || draft.added.length > 0 || draft.removed.length > 0
   const empty = !shown.some(row => row.added || Object.keys(row.cells).length > 0)
 
-  const save = useMutation(setRateCardRates, {
+  const save = service.useSetRates({
     onSuccess: result => {
       const done = [
         result.inserted && `${result.inserted} set`,
@@ -161,9 +164,7 @@ export const RateCardSheet = ({ id, onClose }: { id: string; onClose: () => void
       setDraft(emptyDraft)
       setFrom(undefined)
       cardQuery.refetch()
-      queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey({ schema: listRateCardChanges, cardinality: undefined }),
-      })
+      queryClient.invalidateQueries({ queryKey: service.changesKey })
     },
     onError: error => toast.error(rpcErrorMessage(error, 'The rates could not be saved')),
   })
@@ -496,6 +497,7 @@ export const RateCardSheet = ({ id, onClose }: { id: string; onClose: () => void
                 <RateCardHistory
                   key={historyOf?.join('\u0001') ?? ''}
                   cardId={card.id}
+                  service={service}
                   entries={cardQuery.data?.entries ?? []}
                   today={today}
                   amount={amount}

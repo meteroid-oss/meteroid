@@ -1,9 +1,9 @@
+//! Rate cards between the store and the gRPC API, shared with the Enterprise cost cards.
 use meteroid_grpc::meteroid::api::activity::v1::ActivityEntry;
 use meteroid_grpc::meteroid::api::ratecards::v1 as proto;
 use meteroid_store::domain::entity_activity::ActivityType;
 use meteroid_store::domain::rate_cards::{
-    RateCard, RateCardDenomination, RateCardEntry, RateCardPurpose, RateCardRatesChanged,
-    RateCardUnmatched,
+    RateCard, RateCardDenomination, RateCardEntry, RateCardRatesChanged, RateCardUnmatched,
 };
 
 pub fn unmatched_from_proto(value: proto::RateCardUnmatched) -> RateCardUnmatched {
@@ -20,20 +20,6 @@ fn unmatched_to_proto(value: RateCardUnmatched) -> proto::RateCardUnmatched {
     }
 }
 
-pub fn purpose_from_proto(value: proto::RateCardPurpose) -> RateCardPurpose {
-    match value {
-        proto::RateCardPurpose::Price => RateCardPurpose::Price,
-        proto::RateCardPurpose::Cost => RateCardPurpose::Cost,
-    }
-}
-
-fn purpose_to_proto(value: RateCardPurpose) -> proto::RateCardPurpose {
-    match value {
-        RateCardPurpose::Price => proto::RateCardPurpose::Price,
-        RateCardPurpose::Cost => proto::RateCardPurpose::Cost,
-    }
-}
-
 pub fn card_to_proto(card: RateCard) -> proto::RateCard {
     proto::RateCard {
         id: card.id.as_proto(),
@@ -47,7 +33,6 @@ pub fn card_to_proto(card: RateCard) -> proto::RateCard {
             RateCardDenomination::CreditUnit(unit) => Some(unit.as_proto()),
         },
         unit_size: card.unit_size.normalize().to_string(),
-        purpose: purpose_to_proto(card.purpose).into(),
     }
 }
 

@@ -29,8 +29,8 @@ pub fn ai_credits_scenario() -> scenarios::domain::Scenario {
 }
 
 /// "Fjordline Inference", an EU inference cloud reselling models per 1M tokens through LiteLLM:
-/// the AI operator template, with a price card, a cost card and the AI module on. The
-/// `AI_OPERATOR` sandbox preset.
+/// the AI operator template, with a price card. The `AI_OPERATOR` sandbox preset; an edition's
+/// modules may add to it (a cost book, the AI module on).
 pub fn ai_operator_scenario() -> scenarios::domain::Scenario {
     let now = chrono::Utc::now().naive_utc().date();
     scenarios::ai_operator::ai_operator_scenario(now)

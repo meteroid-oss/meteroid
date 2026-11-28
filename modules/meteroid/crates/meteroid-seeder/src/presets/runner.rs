@@ -64,7 +64,6 @@ use meteroid_store::repositories::invoicing_entities::{
 use meteroid_store::repositories::products::ProductInterface;
 use meteroid_store::repositories::sandbox::SandboxInterface;
 use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
-use meteroid_store::repositories::tenant_modules::{AI_MODULE, TenantModulesInterface};
 use meteroid_store::utils::periods::find_period_containing_date;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -398,16 +397,6 @@ async fn seed_sandbox_data(
         now,
     )
     .await?;
-    // A cost book is the AI module's: the sandbox has it on, its license deciding whether it runs.
-    if scenario
-        .rate_cards
-        .iter()
-        .any(|card| card.purpose == RateCardPurpose::Cost)
-    {
-        store
-            .set_tenant_module_enabled(tenant.id, AI_MODULE, true)
-            .await?;
-    }
     for plan in &mut scenario.plans {
         plan.resolve_rate_cards(&rate_card_ids)?;
     }
@@ -1080,6 +1069,7 @@ async fn seed_sandbox_data(
             store,
             &SeededSandbox {
                 tenant_id: tenant.id,
+                template: scenario.template,
                 plans: &plan_map,
                 metrics: &created_metrics,
             },
@@ -1139,7 +1129,7 @@ async fn create_rate_cards(
                     denomination: RateCardDenomination::Money,
                     unit_size: card.unit_size,
                     on_unmatched: RateCardUnmatched::Hold,
-                    purpose: card.purpose,
+                    purpose: RateCardPurpose::Price,
                 },
             )
             .await?;

@@ -234,6 +234,7 @@ pub fn ai_credits_scenario() -> Scenario {
     halyard.tax_resolver = Some(TaxResolverEnum::Manual);
 
     Scenario {
+        template: meteroid_store::hooks::SandboxTemplate::Other,
         name: "Halyard AI".to_string(),
         metrics: vec![tokens],
         rate_cards: vec![],

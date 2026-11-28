@@ -352,6 +352,17 @@ impl ServicesEdge {
             .await
     }
 
+    /// What the provider took in fees on a settled payment; `None` until it settles.
+    pub async fn fetch_settlement_fee(
+        &self,
+        transaction_id: common_domain::ids::PaymentTransactionId,
+        tenant_id: TenantId,
+    ) -> StoreResult<crate::services::SettlementFee> {
+        self.services
+            .fetch_settlement_fee(transaction_id, tenant_id)
+            .await
+    }
+
     /// Reconcile a single pending REFUND row against the provider. Second pass of the
     /// reconciliation worker's sweep.
     #[tracing::instrument(skip_all, fields(tenant_id = %tenant_id, payment_transaction_id = %refund_id))]

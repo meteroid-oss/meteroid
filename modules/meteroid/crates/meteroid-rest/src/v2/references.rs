@@ -56,7 +56,7 @@ pub async fn resolve_refs(
     };
     match &charge.quantity {
         Some(Quantity::Metered(metered)) => {
-            let metric = ids::metric(state, tenant_id, &metered.metric)
+            let metric = ids::metric(&state.store, tenant_id, &metered.metric)
                 .await
                 .map_err(not_found(
                     format!("{path}/quantity/metric"),
@@ -88,7 +88,7 @@ pub async fn resolve_refs(
         if let PriceModel::RateCard(model) = &price.model
             && !refs.rate_cards.contains_key(&model.rate_card)
         {
-            let id = ids::rate_card_id(state, tenant_id, &model.rate_card)
+            let id = ids::rate_card_id(&state.store, tenant_id, &model.rate_card)
                 .await
                 .map_err(not_found(
                     format!("{path}/prices/{index}/model/rate_card"),

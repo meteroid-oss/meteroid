@@ -437,7 +437,7 @@ async fn domain_type(
         FeatureType::Limit(limit) => {
             let counted_by = match (limit.counted_by, limit.metric.as_deref()) {
                 (LimitCountedBy::Events, Some(raw)) => {
-                    let metric = ids::metric(state, tenant_id, raw)
+                    let metric = ids::metric(&state.store, tenant_id, raw)
                         .await
                         .map_err(not_found_at("/type/metric", "metric", raw))?;
                     domain::LimitCountedBy::Events(metric.id)
@@ -1030,7 +1030,7 @@ async fn type_patch(
         return Err(fixed("/type/counted_by", "counting"));
     }
     if let Some(raw) = patch.metric.as_deref() {
-        let metric = ids::metric(state, tenant_id, raw)
+        let metric = ids::metric(&state.store, tenant_id, raw)
             .await
             .map_err(not_found_at("/type/metric", "metric", raw))?;
         if current.kind.metric_id() != Some(metric.id) {

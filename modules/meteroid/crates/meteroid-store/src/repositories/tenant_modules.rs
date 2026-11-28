@@ -8,9 +8,6 @@ use error_stack::Report;
 
 use crate::errors::StoreError;
 
-/// The AI module: cost book, AI margin and the gateway integrations.
-pub const AI_MODULE: &str = "ai";
-
 #[async_trait::async_trait]
 pub trait TenantModulesInterface {
     /// The ids of the modules the tenant turned on.

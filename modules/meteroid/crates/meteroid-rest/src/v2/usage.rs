@@ -371,7 +371,7 @@ async fn named_metric(
     tenant_id: TenantId,
     raw: &str,
 ) -> Result<BillableMetric, Problem> {
-    ids::metric(state, tenant_id, raw)
+    ids::metric(&state.store, tenant_id, raw)
         .await
         .map_err(filter_not_found("metric", raw))
 }

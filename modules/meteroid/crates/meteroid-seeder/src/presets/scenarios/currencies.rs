@@ -205,7 +205,6 @@ fn llm_rate_card(effective_from: NaiveDate) -> RateCardSpec {
         dimensions: vec![MODEL, TOKEN_TYPE],
         unit_size: PER_MILLION,
         effective_from,
-        purpose: meteroid_store::domain::rate_cards::RateCardPurpose::Price,
         rates: vec![
             llm_rate(
                 "gpt-4o",
@@ -586,6 +585,7 @@ pub fn currencies_scenario(now: NaiveDate) -> Scenario {
     acme.tax_resolver = Some(TaxResolverEnum::Manual);
 
     Scenario {
+        template: meteroid_store::hooks::SandboxTemplate::Other,
         name: "Acme Analytics".to_string(),
         metrics: vec![events_metric, llm_metric],
         rate_cards: vec![llm_rate_card(rates_from)],
