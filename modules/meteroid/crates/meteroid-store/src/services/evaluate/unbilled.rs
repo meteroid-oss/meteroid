@@ -20,6 +20,7 @@ use super::load::load_facts;
 use super::usage::plan_usage;
 use crate::StoreResult;
 use crate::domain::enums::InvoiceType;
+use crate::domain::invoice_lines::SubLineItem;
 use crate::domain::{Invoice, UsagePeriod};
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
@@ -39,12 +40,22 @@ pub struct UnbilledUsage {
     pub customer_id: CustomerId,
     pub subscription_id: SubscriptionId,
     pub product_id: Option<ProductId>,
+    pub metric_id: Option<BillableMetricId>,
     pub currency: String,
     /// The days the line bills, as its invoice dates them, and that invoice's date.
     pub period: (NaiveDate, NaiveDate),
     pub invoice_date: NaiveDate,
     /// Minor units, net of tax (and of the discounts and promotional credit the line carries).
     pub amount: i64,
+    /// What the line's sub-lines bill before discounts, as its invoice itemizes them.
+    pub sub_lines: Vec<SubLineItem>,
+}
+
+/// Whose usage periods open across an instant are priced.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnbilledScope {
+    Entity(InvoicingEntityId),
+    Customers(Vec<CustomerId>),
 }
 
 /// `period` cut at `until`; None when nothing of it is left.
@@ -191,20 +202,29 @@ impl UsageClient for UsageUntil {
 }
 
 impl Services {
-    /// The subscriptions of the entity's customers that may hold a usage period open at `at`.
+    /// The subscriptions in `scope` that may hold a usage period open at `at`.
     async fn subscriptions_open_at(
         conn: &mut PgConn,
         tenant_id: TenantId,
-        entity_id: InvoicingEntityId,
+        scope: &UnbilledScope,
         at: DateTime<Utc>,
     ) -> StoreResult<Vec<SubscriptionId>> {
         use diesel_models::schema::{customer, subscription};
         let day = at.date_naive();
-        subscription::table
+        let mut query = subscription::table
             .inner_join(customer::table)
             .filter(subscription::tenant_id.eq(tenant_id))
-            .filter(customer::invoicing_entity_id.eq(entity_id))
-            .filter(subscription::start_date.lt(day))
+            .into_boxed();
+        query = match scope {
+            UnbilledScope::Entity(entity_id) => {
+                query.filter(customer::invoicing_entity_id.eq(*entity_id))
+            }
+            UnbilledScope::Customers(customers) => {
+                query.filter(subscription::customer_id.eq_any(customers.clone()))
+            }
+        };
+        query
+            .filter(subscription::start_date.le(day))
             .filter(
                 subscription::end_date
                     .is_null()
@@ -227,16 +247,17 @@ impl Services {
         &self,
         conn: &mut PgConn,
         tenant_id: TenantId,
-        entity_id: InvoicingEntityId,
+        scope: &UnbilledScope,
         at: DateTime<Utc>,
     ) -> StoreResult<Vec<UnbilledUsage>> {
         let day = at.date_naive();
+        let instant = at.naive_utc();
         let as_of = self.reading_usage(Arc::new(UsageUntil {
             inner: self.usage_client.clone(),
             until: at.naive_utc(),
         }));
         let mut unbilled = Vec::new();
-        for subscription_id in Self::subscriptions_open_at(conn, tenant_id, entity_id, at).await? {
+        for subscription_id in Self::subscriptions_open_at(conn, tenant_id, scope, at).await? {
             let loaded = load_facts(conn, tenant_id, subscription_id, day, None).await?;
             let mut open: Vec<(NaiveDate, HashSet<BillableMetricId>)> = Vec::new();
             for need in plan_usage(&loaded, at)? {
@@ -307,7 +328,7 @@ impl Services {
                             is_usage_based_line(line)
                                 && line.credit_unit.is_none()
                                 && line.metric_id.is_some_and(|m| metrics.contains(&m))
-                                && line.start_date < day
+                                && line.start_date.and_time(chrono::NaiveTime::MIN) < instant
                                 && line.end_date >= day
                                 && line.taxable_amount != 0
                         })
@@ -315,10 +336,12 @@ impl Services {
                             customer_id: details.subscription.customer_id,
                             subscription_id,
                             product_id: line.product_id,
+                            metric_id: line.metric_id,
                             currency: details.subscription.currency.clone(),
                             period: (line.start_date, line.end_date),
                             invoice_date,
                             amount: line.taxable_amount,
+                            sub_lines: line.sub_lines,
                         }),
                 );
             }
@@ -336,9 +359,20 @@ impl ServicesEdge {
         entity_id: InvoicingEntityId,
         at: DateTime<Utc>,
     ) -> StoreResult<Vec<UnbilledUsage>> {
+        self.unbilled_usage_in(tenant_id, &UnbilledScope::Entity(entity_id), at)
+            .await
+    }
+
+    /// The same for the subscriptions of `scope`.
+    pub async fn unbilled_usage_in(
+        &self,
+        tenant_id: TenantId,
+        scope: &UnbilledScope,
+        at: DateTime<Utc>,
+    ) -> StoreResult<Vec<UnbilledUsage>> {
         let mut conn = self.store.get_conn().await?;
         self.services
-            .unbilled_usage(&mut conn, tenant_id, entity_id, at)
+            .unbilled_usage(&mut conn, tenant_id, scope, at)
             .await
     }
 }
