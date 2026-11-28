@@ -1335,36 +1335,40 @@ impl Services {
         change_date: NaiveDate,
         issue: crate::services::evaluate::change::AdjustmentIssue,
     ) -> StoreResult<(Option<crate::domain::Invoice>, Vec<CreditNoteId>)> {
-        let subscription = &prepared.subscription_details.subscription;
-        let notes = self
-            .execute_plan_change_tx(
-                conn,
-                actor,
-                prepared,
-                subscription.id,
-                subscription.tenant_id,
-                new_plan_version_id,
-                change_date,
-            )
-            .await?;
-        if prepared.is_free_trial() {
-            return Ok((None, notes));
-        }
-        let bills = self
-            .plan_change_bills(conn, subscription, change_date)
-            .await?;
-        let invoice = self
-            .issue_change_adjustment_tx(
-                conn,
-                actor,
-                subscription,
-                &prepared.subscription_details.customer,
-                change_date,
-                &bills,
-                issue,
-            )
-            .await?;
-        Ok((invoice, notes))
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
+            let subscription = &prepared.subscription_details.subscription;
+            let notes = self
+                .execute_plan_change_tx(
+                    conn,
+                    actor,
+                    prepared,
+                    subscription.id,
+                    subscription.tenant_id,
+                    new_plan_version_id,
+                    change_date,
+                )
+                .await?;
+            if prepared.is_free_trial() {
+                return Ok((None, notes));
+            }
+            let bills = self
+                .plan_change_bills(conn, subscription, change_date)
+                .await?;
+            let invoice = self
+                .issue_change_adjustment_tx(
+                    conn,
+                    actor,
+                    subscription,
+                    &prepared.subscription_details.customer,
+                    change_date,
+                    &bills,
+                    issue,
+                )
+                .await?;
+            Ok((invoice, notes))
+        })
+        .await
     }
 
     /// What an immediate plan change on `on` bills, from the facts it wrote: the new fees' stubs
@@ -1399,21 +1403,25 @@ impl Services {
         component_params: &[ComponentParameterization],
         change_date: NaiveDate,
     ) -> StoreResult<PreparedPlanChange> {
-        let target: PlanTarget = target.into();
-        let lock = SubscriptionRow::lock_subscription_for_update(conn, subscription_id).await?;
-        credit_inputs::bump_customer(conn, &lock).await?;
-        let prepared = self
-            .prepare_plan_change_inner(
-                conn,
-                subscription_id,
-                tenant_id,
-                target,
-                component_params,
-                change_date,
-            )
-            .await?;
-        prepared.ensure_immediate_allowed()?;
-        Ok(prepared)
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
+            let target: PlanTarget = target.into();
+            let lock = SubscriptionRow::lock_subscription_for_update(conn, subscription_id).await?;
+            credit_inputs::bump_customer(conn, &lock).await?;
+            let prepared = self
+                .prepare_plan_change_inner(
+                    conn,
+                    subscription_id,
+                    tenant_id,
+                    target,
+                    component_params,
+                    change_date,
+                )
+                .await?;
+            prepared.ensure_immediate_allowed()?;
+            Ok(prepared)
+        })
+        .await
     }
 
     /// Read-only version of prepare (no row lock). For previews/GetCheckout.
@@ -1608,6 +1616,8 @@ impl Services {
         new_plan_version_id: PlanVersionId,
         change_date: NaiveDate,
     ) -> StoreResult<(Vec<CreditNoteId>, Vec<RewriteEntry>)> {
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
         // Free trials settle nothing: no money changed hands.
         let settles_outgoing = !prepared.is_free_trial() && prepared.settle_outgoing;
 
@@ -1948,6 +1958,8 @@ impl Services {
         )
         .await?;
         Ok((credit_note_ids, timeline))
+        })
+        .await
     }
 }
 

@@ -885,76 +885,82 @@ impl Services {
         conn: &mut PgConn,
         invoice: &Invoice,
     ) -> StoreResult<bool> {
-        // A true-up of an earlier period is no line a change ends (R-022): it widens no span.
-        let span = |lines: &[LineItem], period_start: NaiveDate| {
-            let ended = || {
-                lines.iter().filter(|line| {
-                    line.kind != LineItemKind::MinimumShortfall
-                        || minimum::is_up_front(line, period_start)
-                })
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
+            // A true-up of an earlier period is no line a change ends (R-022): it widens no span.
+            let span = |lines: &[LineItem], period_start: NaiveDate| {
+                let ended = || {
+                    lines.iter().filter(|line| {
+                        line.kind != LineItemKind::MinimumShortfall
+                            || minimum::is_up_front(line, period_start)
+                    })
+                };
+                let from = ended().map(|line| line.start_date).min()?;
+                let to = ended().map(|line| line.end_date).max()?;
+                Some((from, to))
             };
-            let from = ended().map(|line| line.start_date).min()?;
-            let to = ended().map(|line| line.end_date).max()?;
-            Some((from, to))
-        };
-        let mut billed: Vec<(SubscriptionId, NaiveDate, NaiveDate)> = Vec::new();
-        match invoice.subscription_id {
-            Some(subscription_id) => {
-                if let Some((from, to)) = span(&invoice.line_items, invoice.billing_period_start) {
-                    billed.push((subscription_id, from, to));
-                }
-            }
-            None => {
-                use diesel_models::invoices::InvoiceRow;
-                for child in
-                    InvoiceRow::list_consolidated_children(conn, invoice.tenant_id, invoice.id)
-                        .await?
-                {
-                    let child: Invoice = child.try_into()?;
-                    if let (Some(subscription_id), Some((from, to))) = (
-                        child.subscription_id,
-                        span(&child.line_items, child.billing_period_start),
-                    ) {
+            let mut billed: Vec<(SubscriptionId, NaiveDate, NaiveDate)> = Vec::new();
+            match invoice.subscription_id {
+                Some(subscription_id) => {
+                    if let Some((from, to)) =
+                        span(&invoice.line_items, invoice.billing_period_start)
+                    {
                         billed.push((subscription_id, from, to));
                     }
                 }
+                None => {
+                    use diesel_models::invoices::InvoiceRow;
+                    for child in
+                        InvoiceRow::list_consolidated_children(conn, invoice.tenant_id, invoice.id)
+                            .await?
+                    {
+                        let child: Invoice = child.try_into()?;
+                        if let (Some(subscription_id), Some((from, to))) = (
+                            child.subscription_id,
+                            span(&child.line_items, child.billing_period_start),
+                        ) {
+                            billed.push((subscription_id, from, to));
+                        }
+                    }
+                }
             }
-        }
-        let mut issued = false;
-        for (subscription_id, from, to) in billed {
-            use diesel_models::subscription_events::SubscriptionEventRow;
-            let switches =
-                SubscriptionEventRow::list_settling_switches(conn, subscription_id, from, to)
-                    .await?;
-            for at in switches {
-                let notes = self
-                    .settle_plan_change_ending_tx(
-                        conn,
-                        &Actor::System,
-                        invoice.tenant_id,
-                        subscription_id,
-                        at,
-                    )
-                    .await?;
-                issued |= !notes.is_empty();
+            let mut issued = false;
+            for (subscription_id, from, to) in billed {
+                use diesel_models::subscription_events::SubscriptionEventRow;
+                let switches =
+                    SubscriptionEventRow::list_settling_switches(conn, subscription_id, from, to)
+                        .await?;
+                for at in switches {
+                    let notes = self
+                        .settle_plan_change_ending_tx(
+                            conn,
+                            &Actor::System,
+                            invoice.tenant_id,
+                            subscription_id,
+                            at,
+                        )
+                        .await?;
+                    issued |= !notes.is_empty();
+                }
+                let cancellations =
+                    SubscriptionEventRow::list_settling_cancellations(conn, subscription_id, to)
+                        .await?;
+                for at in cancellations {
+                    let notes = self
+                        .settle_cancellation_ending_tx(
+                            conn,
+                            &Actor::System,
+                            invoice.tenant_id,
+                            subscription_id,
+                            at,
+                        )
+                        .await?;
+                    issued |= !notes.is_empty();
+                }
             }
-            let cancellations =
-                SubscriptionEventRow::list_settling_cancellations(conn, subscription_id, to)
-                    .await?;
-            for at in cancellations {
-                let notes = self
-                    .settle_cancellation_ending_tx(
-                        conn,
-                        &Actor::System,
-                        invoice.tenant_id,
-                        subscription_id,
-                        at,
-                    )
-                    .await?;
-                issued |= !notes.is_empty();
-            }
-        }
-        Ok(issued)
+            Ok(issued)
+        })
+        .await
     }
 
     /// Settles what the plan switch of `subscription_id` at `at` ended and no change settled yet.
@@ -1382,30 +1388,34 @@ impl Services {
         component_params: &[crate::domain::subscription_components::ComponentParameterization],
         change_date: NaiveDate,
     ) -> StoreResult<Option<UsageReads>> {
-        let mut conn = self.store.get_conn().await?;
-        let prepared = self
-            .prepare_plan_change_readonly(
-                &mut conn,
-                subscription_id,
-                tenant_id,
-                target,
-                component_params,
-                change_date,
-            )
-            .await?;
-        if prepared.is_free_trial() {
-            return Ok(None);
-        }
-        let ending = Ending::of_change(&prepared, change_date);
-        let Some(scope) =
-            EndingScope::of_subscription(&prepared.subscription_details.subscription, &ending)
-        else {
-            return Ok(Some(UsageReads::default()));
-        };
-        let recorded = RecordingUsage::new(self.usage_client.clone());
-        self.preview_outgoing_packs(&mut conn, &recorded, &scope, &ending)
-            .await?;
-        Ok(Some(recorded.reads()?))
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
+            let mut conn = self.store.get_conn().await?;
+            let prepared = self
+                .prepare_plan_change_readonly(
+                    &mut conn,
+                    subscription_id,
+                    tenant_id,
+                    target,
+                    component_params,
+                    change_date,
+                )
+                .await?;
+            if prepared.is_free_trial() {
+                return Ok(None);
+            }
+            let ending = Ending::of_change(&prepared, change_date);
+            let Some(scope) =
+                EndingScope::of_subscription(&prepared.subscription_details.subscription, &ending)
+            else {
+                return Ok(Some(UsageReads::default()));
+            };
+            let recorded = RecordingUsage::new(self.usage_client.clone());
+            self.preview_outgoing_packs(&mut conn, &recorded, &scope, &ending)
+                .await?;
+            Ok(Some(recorded.reads()?))
+        })
+        .await
     }
 
     /// The old packs as the ending would leave them, read without a lock: the settlement of their
@@ -1543,122 +1553,137 @@ impl Services {
         scope: &EndingScope,
         ending: &Ending,
     ) -> StoreResult<Option<PlannedEnding>> {
-        let EndingScope {
-            tenant_id,
-            customer_id,
-            subscription_id,
-            ..
-        } = *scope;
-        let at = ending.settle_at;
-        let now = common_clock::now();
-
-        // Usage is read before the grant locks; under the customer lock every caller holds, it is
-        // served by a pass that ran before it (`transaction_reading_usage_first`).
-        let unlocked =
-            gather_period_credit_context(conn, tenant_id, subscription_id, scope.from, scope.to)
-                .await?;
-        let settled = Settled::read(conn, tenant_id, subscription_id, &unlocked).await?;
-        let from_facts = match &ending.from_facts {
-            Some(change) => Some(
-                change_credits(
-                    conn,
-                    tenant_id,
-                    subscription_id,
-                    change,
-                    self.usage_client.as_ref(),
-                )
-                .await?,
-            ),
-            None => None,
-        };
-        let grants =
-            CustomerCreditGrantRow::list_for_customer(conn, tenant_id, customer_id).await?;
-        let owed = owed_denominations(&unlocked, ending, &settled, &grants);
-        if owed.is_empty()
-            && ending_fee_items(&unlocked, from_facts.as_deref()).is_empty()
-            && shortfall_credit_items(ending, &unlocked, &settled).is_empty()
-        {
-            return Ok(None);
-        }
-        let mut usage = HashMap::new();
-        for denomination in owed {
-            let read = read_ending_usage(
-                &self.store,
-                self.usage_client.as_ref(),
-                conn,
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
+            let EndingScope {
                 tenant_id,
                 customer_id,
-                &denomination,
-                at,
-                now,
-            )
-            .await?;
-            usage.insert(denomination, read);
-        }
+                subscription_id,
+                ..
+            } = *scope;
+            let at = ending.settle_at;
+            let now = common_clock::now();
 
-        let lock = lock_customer_tx(conn, tenant_id, customer_id).await?;
-        let ctx =
-            gather_period_credit_context(conn, tenant_id, subscription_id, scope.from, scope.to)
-                .await?;
-        for invoice in &ctx.invoices {
-            diesel_models::invoices::InvoiceRow::lock_by_id(conn, &lock, invoice.id).await?;
-        }
-        let settled = Settled::read(conn, tenant_id, subscription_id, &ctx).await?;
-        let currency_precision =
-            crate::constants::Currencies::resolve_currency_precision(&scope.currency).unwrap_or(2);
-
-        let mut packs = Vec::new();
-        for (denomination, lines) in tied_pack_lines(&ctx, ending, &settled) {
-            let mut grants = lock_grants_tx(conn, &lock, &denomination).await?;
-            let ending_ids = ending_grant_ids(&lines, &grants, ending);
-            settle_ending_grants_tx(
-                &self.store,
-                self.usage_client.as_ref(),
+            // Usage is read before the grant locks; under the customer lock every caller holds, it is
+            // served by a pass that ran before it (`transaction_reading_usage_first`).
+            let unlocked = gather_period_credit_context(
                 conn,
                 tenant_id,
-                customer_id,
-                &denomination,
-                &mut grants,
-                &ending_ids,
-                at,
-                now,
-                usage.get(&denomination),
+                subscription_id,
+                scope.from,
+                scope.to,
             )
             .await?;
-            packs.extend(outgoing_packs(
-                lines,
-                &grants,
-                &ctx,
-                ending,
-                currency_precision,
-            ));
-        }
-        // Read again under the locks: an invoice issued meanwhile is credited too.
-        let from_facts = match &ending.from_facts {
-            Some(change) => Some(
-                change_credits(
+            let settled = Settled::read(conn, tenant_id, subscription_id, &unlocked).await?;
+            let from_facts = match &ending.from_facts {
+                Some(change) => Some(
+                    change_credits(
+                        conn,
+                        tenant_id,
+                        subscription_id,
+                        change,
+                        self.usage_client.as_ref(),
+                    )
+                    .await?,
+                ),
+                None => None,
+            };
+            let grants =
+                CustomerCreditGrantRow::list_for_customer(conn, tenant_id, customer_id).await?;
+            let owed = owed_denominations(&unlocked, ending, &settled, &grants);
+            if owed.is_empty()
+                && ending_fee_items(&unlocked, from_facts.as_deref()).is_empty()
+                && shortfall_credit_items(ending, &unlocked, &settled).is_empty()
+            {
+                return Ok(None);
+            }
+            let mut usage = HashMap::new();
+            for denomination in owed {
+                let read = read_ending_usage(
+                    &self.store,
+                    self.usage_client.as_ref(),
                     conn,
                     tenant_id,
-                    subscription_id,
-                    change,
-                    self.usage_client.as_ref(),
+                    customer_id,
+                    &denomination,
+                    at,
+                    now,
                 )
-                .await?,
-            ),
-            None => None,
-        };
-        let fee_items = ending_fee_items(&ctx, from_facts.as_deref());
-        let beyond_fees = credits_beyond_fees(ending, &ctx, &settled, &packs)
-            .into_iter()
-            .map(|(_, item)| item)
-            .collect();
-        Ok(Some(PlannedEnding {
-            lock,
-            ctx,
-            fee_items,
-            beyond_fees,
-            packs,
-        }))
+                .await?;
+                usage.insert(denomination, read);
+            }
+
+            let lock = lock_customer_tx(conn, tenant_id, customer_id).await?;
+            let ctx = gather_period_credit_context(
+                conn,
+                tenant_id,
+                subscription_id,
+                scope.from,
+                scope.to,
+            )
+            .await?;
+            for invoice in &ctx.invoices {
+                diesel_models::invoices::InvoiceRow::lock_by_id(conn, &lock, invoice.id).await?;
+            }
+            let settled = Settled::read(conn, tenant_id, subscription_id, &ctx).await?;
+            let currency_precision =
+                crate::constants::Currencies::resolve_currency_precision(&scope.currency)
+                    .unwrap_or(2);
+
+            let mut packs = Vec::new();
+            for (denomination, lines) in tied_pack_lines(&ctx, ending, &settled) {
+                let mut grants = lock_grants_tx(conn, &lock, &denomination).await?;
+                let ending_ids = ending_grant_ids(&lines, &grants, ending);
+                settle_ending_grants_tx(
+                    &self.store,
+                    self.usage_client.as_ref(),
+                    conn,
+                    tenant_id,
+                    customer_id,
+                    &denomination,
+                    &mut grants,
+                    &ending_ids,
+                    at,
+                    now,
+                    usage.get(&denomination),
+                )
+                .await?;
+                packs.extend(outgoing_packs(
+                    lines,
+                    &grants,
+                    &ctx,
+                    ending,
+                    currency_precision,
+                ));
+            }
+            // Read again under the locks: an invoice issued meanwhile is credited too.
+            let from_facts = match &ending.from_facts {
+                Some(change) => Some(
+                    change_credits(
+                        conn,
+                        tenant_id,
+                        subscription_id,
+                        change,
+                        self.usage_client.as_ref(),
+                    )
+                    .await?,
+                ),
+                None => None,
+            };
+            let fee_items = ending_fee_items(&ctx, from_facts.as_deref());
+            let beyond_fees = credits_beyond_fees(ending, &ctx, &settled, &packs)
+                .into_iter()
+                .map(|(_, item)| item)
+                .collect();
+            Ok(Some(PlannedEnding {
+                lock,
+                ctx,
+                fee_items,
+                beyond_fees,
+                packs,
+            }))
+        })
+        .await
     }
 
     /// Removes the old packs' paid credit as far as its fee came back, un-billed with the note. On a

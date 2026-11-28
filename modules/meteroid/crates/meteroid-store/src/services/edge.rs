@@ -534,43 +534,47 @@ impl ServicesEdge {
         charge: Option<&crate::services::checkout_completion::DirectChargeResult>,
         document: &str,
     ) -> StoreResult<()> {
-        let charged = match charge {
-            Some(charge) => Some(
-                self.services
-                    .create_transaction_for_direct_charge(
-                        conn,
-                        tenant_id,
-                        invoice_id,
-                        charge,
-                        crate::services::DefaultMethodAdoption::Paid {
-                            on_session: true,
-                            started_at: common_clock::now(),
-                        },
-                    )
-                    .await?,
-            ),
-            None => None,
-        };
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
+            let charged = match charge {
+                Some(charge) => Some(
+                    self.services
+                        .create_transaction_for_direct_charge(
+                            conn,
+                            tenant_id,
+                            invoice_id,
+                            charge,
+                            crate::services::DefaultMethodAdoption::Paid {
+                                on_session: true,
+                                started_at: common_clock::now(),
+                            },
+                        )
+                        .await?,
+                ),
+                None => None,
+            };
 
-        self.services
-            .finalize_invoice_tx(
+            self.services
+                .finalize_invoice_tx(
+                    conn,
+                    &Actor::Customer { id: customer_id },
+                    invoice_id,
+                    tenant_id,
+                    false,
+                    &None,
+                )
+                .await?;
+
+            self.record_checkout_invoice_tx(
                 conn,
-                &Actor::Customer { id: customer_id },
-                invoice_id,
                 tenant_id,
-                false,
-                &None,
+                customer_id,
+                invoice_id,
+                charged.as_ref(),
+                document,
             )
-            .await?;
-
-        self.record_checkout_invoice_tx(
-            conn,
-            tenant_id,
-            customer_id,
-            invoice_id,
-            charged.as_ref(),
-            document,
-        )
+            .await
+        })
         .await
     }
 
@@ -586,71 +590,75 @@ impl ServicesEdge {
         charged: Option<&PaymentTransaction>,
         document: &str,
     ) -> StoreResult<()> {
-        let finalized_at =
-            diesel_models::invoices::InvoiceRow::find_by_id(conn, tenant_id, invoice_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .finalized_at;
-        let settled = self
-            .services
-            .settle_invoice_unfunded_tx(
-                conn,
-                tenant_id,
-                invoice_id,
-                charged
-                    .and_then(|transaction| transaction.processed_at)
-                    .or(finalized_at),
-            )
-            .await?;
-        match charged {
-            Some(transaction) => {
-                crate::services::credit::collected_payment::reconcile_overpayment_tx(
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
+            let finalized_at =
+                diesel_models::invoices::InvoiceRow::find_by_id(conn, tenant_id, invoice_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?
+                    .finalized_at;
+            let settled = self
+                .services
+                .settle_invoice_unfunded_tx(
                     conn,
-                    &*self.store.hooks.credit,
                     tenant_id,
                     invoice_id,
-                    Some(crate::services::credit::collected_payment::Collection {
-                        payment: transaction.id,
-                        at: transaction
-                            .processed_at
-                            .map_or_else(common_clock::now, |at| at.and_utc()),
-                    }),
-                    crate::domain::wallet_events::CreditUnrecoveredCause::PaymentReversed,
-                    None,
+                    charged
+                        .and_then(|transaction| transaction.processed_at)
+                        .or(finalized_at),
                 )
                 .await?;
+            match charged {
+                Some(transaction) => {
+                    crate::services::credit::collected_payment::reconcile_overpayment_tx(
+                        conn,
+                        &*self.store.hooks.credit,
+                        tenant_id,
+                        invoice_id,
+                        Some(crate::services::credit::collected_payment::Collection {
+                            payment: transaction.id,
+                            at: transaction
+                                .processed_at
+                                .map_or_else(common_clock::now, |at| at.and_utc()),
+                        }),
+                        crate::domain::wallet_events::CreditUnrecoveredCause::PaymentReversed,
+                        None,
+                    )
+                    .await?;
+                }
+                None if settled.state.due != 0 => {
+                    return Err(Report::new(StoreError::CheckoutError).attach(format!(
+                        "{document} invoice {invoice_id} asks {} that credit no longer covers",
+                        settled.state.due
+                    )));
+                }
+                None => {}
             }
-            None if settled.state.due != 0 => {
-                return Err(Report::new(StoreError::CheckoutError).attach(format!(
-                    "{document} invoice {invoice_id} asks {} that credit no longer covers",
-                    settled.state.due
-                )));
+            if settled.state.due > 0 {
+                log::error!(
+                    "{document} invoice {invoice_id} left {} due after its checkout charge {}",
+                    settled.state.due,
+                    charged
+                        .and_then(|transaction| transaction.provider_transaction_id.as_deref())
+                        .unwrap_or("none")
+                );
+            } else if settled.paid_now {
+                self.services
+                    .fund_paid_invoice_tx(conn, &settled.invoice, common_clock::now())
+                    .await?;
+                self.store
+                    .internal
+                    .record_outbox_batch_tx(
+                        conn,
+                        tenant_id,
+                        &Actor::Customer { id: customer_id },
+                        vec![OutboxEvent::invoice_paid((&settled.invoice).into())],
+                    )
+                    .await?;
             }
-            None => {}
-        }
-        if settled.state.due > 0 {
-            log::error!(
-                "{document} invoice {invoice_id} left {} due after its checkout charge {}",
-                settled.state.due,
-                charged
-                    .and_then(|transaction| transaction.provider_transaction_id.as_deref())
-                    .unwrap_or("none")
-            );
-        } else if settled.paid_now {
-            self.services
-                .fund_paid_invoice_tx(conn, &settled.invoice, common_clock::now())
-                .await?;
-            self.store
-                .internal
-                .record_outbox_batch_tx(
-                    conn,
-                    tenant_id,
-                    &Actor::Customer { id: customer_id },
-                    vec![OutboxEvent::invoice_paid((&settled.invoice).into())],
-                )
-                .await?;
-        }
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 }
 
@@ -2051,13 +2059,17 @@ impl ServicesEdge {
         target: impl Into<PlanTarget>,
         change_date: NaiveDate,
     ) -> StoreResult<ComputedInvoiceContent> {
-        self.compute_plan_change_checkout_invoice_with(
-            subscription_id,
-            tenant_id,
-            target,
-            &[],
-            change_date,
-        )
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
+            self.compute_plan_change_checkout_invoice_with(
+                subscription_id,
+                tenant_id,
+                target,
+                &[],
+                change_date,
+            )
+            .await
+        })
         .await
     }
 
@@ -2163,16 +2175,20 @@ impl ServicesEdge {
         component_params: Vec<crate::domain::subscription_components::ComponentParameterization>,
         change_date: NaiveDate,
     ) -> StoreResult<crate::domain::subscription_changes::ImmediatePlanChangeResult> {
-        self.services
-            .apply_plan_change_immediate_at(
-                typed_actor,
-                subscription_id,
-                tenant_id,
-                new_plan_version_id,
-                component_params,
-                change_date,
-            )
-            .await
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
+            self.services
+                .apply_plan_change_immediate_at(
+                    typed_actor,
+                    subscription_id,
+                    tenant_id,
+                    new_plan_version_id,
+                    component_params,
+                    change_date,
+                )
+                .await
+        })
+        .await
     }
 
     pub async fn cancel_plan_change(
@@ -3116,41 +3132,48 @@ impl ServicesEdge {
         currency_confirmation: String,
         coupon_code: Option<String>,
     ) -> Result<CheckoutCompletionResult, StoreErrorReport> {
-        let session: CheckoutSession = CheckoutSessionRow::get_by_id(
-            &mut self.get_conn().await?,
-            tenant_id,
-            checkout_session_id,
-        )
-        .await?
-        .into();
-        if session.checkout_type == CheckoutType::TopUp {
-            if session.can_complete() {
-                ensure_billing_information_if_required(
-                    &mut self.get_conn().await?,
-                    tenant_id,
-                    session.customer_id,
-                )
-                .await?;
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
+            let session: CheckoutSession = CheckoutSessionRow::get_by_id(
+                &mut self.get_conn().await?,
+                tenant_id,
+                checkout_session_id,
+            )
+            .await?
+            .into();
+            if session.checkout_type == CheckoutType::TopUp {
+                if session.can_complete() {
+                    ensure_billing_information_if_required(
+                        &mut self.get_conn().await?,
+                        tenant_id,
+                        session.customer_id,
+                    )
+                    .await?;
+                }
+                return self
+                    .complete_top_up_checkout(
+                        session,
+                        payment_method_id,
+                        total_amount_confirmation,
+                        currency_confirmation,
+                    )
+                    .await;
             }
-            return self
-                .complete_top_up_checkout(
-                    session,
-                    payment_method_id,
-                    total_amount_confirmation,
-                    currency_confirmation,
-                )
-                .await;
-        }
-        // Read before the transaction locks the customer; the plan change is served these reads
-        // under the lock and never reads metering there. One unreadable now fails it there.
-        let plan_change_usage = match (
-            session.checkout_type,
-            session.subscription_id,
-            session.plan_version_id,
-            session.change_date,
-        ) {
-            (CheckoutType::PlanChange, Some(subscription_id), Some(plan_version_id), Some(at)) => {
-                self.services
+            // Read before the transaction locks the customer; the plan change is served these reads
+            // under the lock and never reads metering there. One unreadable now fails it there.
+            let plan_change_usage = match (
+                session.checkout_type,
+                session.subscription_id,
+                session.plan_version_id,
+                session.change_date,
+            ) {
+                (
+                    CheckoutType::PlanChange,
+                    Some(subscription_id),
+                    Some(plan_version_id),
+                    Some(at),
+                ) => self
+                    .services
                     .plan_change_checkout_usage(
                         tenant_id,
                         subscription_id,
@@ -3166,76 +3189,77 @@ impl ServicesEdge {
                     .unwrap_or_else(|error| {
                         log::warn!("plan change checkout usage not read ahead: {error:?}");
                         Some(Default::default())
-                    })
-            }
-            _ => None,
-        };
-        let plan_change_usage = &plan_change_usage;
-        let first = self
-            .complete_checkout_run(
-                tenant_id,
-                checkout_session_id,
-                Some(payment_method_id),
-                total_amount_confirmation,
-                currency_confirmation.clone(),
-                coupon_code.clone(),
-                plan_change_usage,
-                &CheckoutCharge::Price,
-            )
-            .await;
-        let result = match first.as_ref().err().and_then(charge_needed) {
-            None => first,
-            Some(needed) => match self
-                .services
-                .send_checkout_charge(tenant_id, checkout_session_id, &needed)
-                .await
-            {
-                Ok(CheckoutChargeSent::InFlight(transaction, next_action)) => {
-                    Ok(CheckoutCompletionResult::AwaitingPayment {
-                        transaction,
-                        next_action,
-                    })
-                }
-                Ok(CheckoutChargeSent::Answered(result)) => {
-                    let charge = CheckoutCharge::answer(result);
-                    let second = self
-                        .complete_checkout_run(
-                            tenant_id,
-                            checkout_session_id,
-                            Some(payment_method_id),
-                            total_amount_confirmation,
-                            currency_confirmation.clone(),
-                            coupon_code.clone(),
-                            plan_change_usage,
-                            &charge,
-                        )
+                    }),
+                _ => None,
+            };
+            let plan_change_usage = &plan_change_usage;
+            let first = self
+                .complete_checkout_run(
+                    tenant_id,
+                    checkout_session_id,
+                    Some(payment_method_id),
+                    total_amount_confirmation,
+                    currency_confirmation.clone(),
+                    coupon_code.clone(),
+                    plan_change_usage,
+                    &CheckoutCharge::Price,
+                )
+                .await;
+            let result = match first.as_ref().err().and_then(charge_needed) {
+                None => first,
+                Some(needed) => match self
+                    .services
+                    .send_checkout_charge(tenant_id, checkout_session_id, &needed)
+                    .await
+                {
+                    Ok(CheckoutChargeSent::InFlight(transaction, next_action)) => {
+                        Ok(CheckoutCompletionResult::AwaitingPayment {
+                            transaction,
+                            next_action,
+                        })
+                    }
+                    Ok(CheckoutChargeSent::Answered(result)) => {
+                        let charge = CheckoutCharge::answer(result);
+                        let second = self
+                            .complete_checkout_run(
+                                tenant_id,
+                                checkout_session_id,
+                                Some(payment_method_id),
+                                total_amount_confirmation,
+                                currency_confirmation.clone(),
+                                coupon_code.clone(),
+                                plan_change_usage,
+                                &charge,
+                            )
+                            .await;
+                        self.after_charged_run(tenant_id, checkout_session_id, &charge, second)
+                            .await
+                    }
+                    Err(e) => Err(e),
+                },
+            };
+
+            // Tx unwound → session lock released. Record a declined charge now (fresh
+            // conn) so it survives the rollback and the failed-payment webhook resolves.
+            // No-op unless the error carries the decline attachment.
+            let result = match result {
+                Ok(result) => result,
+                Err(e) => {
+                    self.services
+                        .persist_declined_checkout_charge(tenant_id, checkout_session_id, &e)
                         .await;
-                    self.after_charged_run(tenant_id, checkout_session_id, &charge, second)
-                        .await
+                    self.services
+                        .cancel_checkout_after_repeated_declines(tenant_id, checkout_session_id, &e)
+                        .await;
+                    return Err(e);
                 }
-                Err(e) => Err(e),
-            },
-        };
+            };
 
-        // Tx unwound → session lock released. Record a declined charge now (fresh
-        // conn) so it survives the rollback and the failed-payment webhook resolves.
-        // No-op unless the error carries the decline attachment.
-        let result = match result {
-            Ok(result) => result,
-            Err(e) => {
-                self.services
-                    .persist_declined_checkout_charge(tenant_id, checkout_session_id, &e)
-                    .await;
-                self.services
-                    .cancel_checkout_after_repeated_declines(tenant_id, checkout_session_id, &e)
-                    .await;
-                return Err(e);
-            }
-        };
-
-        Ok(self
-            .activate_accepted_checkout_debit_in_flight(tenant_id, checkout_session_id, result)
-            .await)
+            Ok(self
+                .activate_accepted_checkout_debit_in_flight(tenant_id, checkout_session_id, result)
+                .await)
+        })
+        .await
     }
 
     /// Completes a self-serve checkout whose trial asks no card (`card_required = false`) without
@@ -3284,38 +3308,42 @@ impl ServicesEdge {
         plan_change_usage: &Option<crate::services::served_usage::UsageReads>,
         charge: &CheckoutCharge,
     ) -> Result<CheckoutCompletionResult, StoreErrorReport> {
-        // Metering is read before the session's locks: a pass that needs some reads it unlocked
-        // and the next pass is served it (`served_usage`).
-        let mut passes = crate::services::served_usage::UsagePasses::default();
-        loop {
-            let usage = passes.next_pass()?;
-            let edge = ServicesEdge {
-                store: self.store.clone(),
-                services: crate::services::Services {
-                    served: Some(usage.clone()),
-                    ..self.services.reading_usage(usage.clone())
-                },
-            };
-            charge.reset_used();
-            let result = edge
-                .complete_checkout_pass(
-                    tenant_id,
-                    checkout_session_id,
-                    payment_method_id,
-                    total_amount_confirmation,
-                    currency_confirmation.clone(),
-                    coupon_code.clone(),
-                    plan_change_usage,
-                    charge,
-                )
-                .await;
-            if passes
-                .served(self.services.usage_client.as_ref(), &usage)
-                .await?
-            {
-                return result;
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
+            // Metering is read before the session's locks: a pass that needs some reads it unlocked
+            // and the next pass is served it (`served_usage`).
+            let mut passes = crate::services::served_usage::UsagePasses::default();
+            loop {
+                let usage = passes.next_pass()?;
+                let edge = ServicesEdge {
+                    store: self.store.clone(),
+                    services: crate::services::Services {
+                        served: Some(usage.clone()),
+                        ..self.services.reading_usage(usage.clone())
+                    },
+                };
+                charge.reset_used();
+                let result = edge
+                    .complete_checkout_pass(
+                        tenant_id,
+                        checkout_session_id,
+                        payment_method_id,
+                        total_amount_confirmation,
+                        currency_confirmation.clone(),
+                        coupon_code.clone(),
+                        plan_change_usage,
+                        charge,
+                    )
+                    .await;
+                if passes
+                    .served(self.services.usage_client.as_ref(), &usage)
+                    .await?
+                {
+                    return result;
+                }
             }
-        }
+        })
+        .await
     }
 
     /// One pass of [`Self::complete_checkout_run`]'s transaction.

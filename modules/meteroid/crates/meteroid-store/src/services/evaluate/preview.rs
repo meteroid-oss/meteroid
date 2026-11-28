@@ -381,38 +381,42 @@ impl Services {
         new_plan_version_id: PlanVersionId,
         change_date: NaiveDate,
     ) -> StoreResult<ComputedInvoiceContent> {
-        let overlay = self
-            .plan_change_overlay(conn, prepared, new_plan_version_id, change_date)
-            .await?;
-        if prepared.is_free_trial() {
-            let after = details_after(conn, &prepared.subscription_details, &overlay).await?;
-            return self
-                .compute_invoice_from_facts_with(
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
+            let overlay = self
+                .plan_change_overlay(conn, prepared, new_plan_version_id, change_date)
+                .await?;
+            if prepared.is_free_trial() {
+                let after = details_after(conn, &prepared.subscription_details, &overlay).await?;
+                return self
+                    .compute_invoice_from_facts_with(
+                        conn,
+                        &change_date,
+                        &after,
+                        None,
+                        None,
+                        InvoiceType::Recurring,
+                        CreditUnitCover::Estimate { invoice_id: None },
+                        None,
+                        Some(&overlay),
+                    )
+                    .await;
+            }
+            let packs = self
+                .outgoing_pack_credits_tx(conn, prepared, change_date)
+                .await?;
+            Ok(self
+                .preview_change_documents(
                     conn,
-                    &change_date,
-                    &after,
-                    None,
-                    None,
-                    InvoiceType::Recurring,
-                    CreditUnitCover::Estimate { invoice_id: None },
-                    None,
-                    Some(&overlay),
+                    &prepared.subscription_details,
+                    &overlay,
+                    Change::of_rows(change_date, GiveBack::Unused, "plan change"),
+                    packs,
                 )
-                .await;
-        }
-        let packs = self
-            .outgoing_pack_credits_tx(conn, prepared, change_date)
-            .await?;
-        Ok(self
-            .preview_change_documents(
-                conn,
-                &prepared.subscription_details,
-                &overlay,
-                Change::of_rows(change_date, GiveBack::Unused, "plan change"),
-                packs,
-            )
-            .await?
-            .quote())
+                .await?
+                .quote())
+        })
+        .await
     }
 
     /// What buying `add_ons` on `on` bills, as the purchase's completion prices it; and the
