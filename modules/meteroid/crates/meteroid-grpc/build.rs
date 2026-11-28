@@ -35,6 +35,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
         "selfserve",
         "entitlements",
         "customers",
+        "customerhierarchy",
         "coupons",
         "creditnotes",
         "customeremails",

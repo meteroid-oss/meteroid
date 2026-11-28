@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package meteroid.api.customerhierarchy.v1;
+
+import "api/customers/v1/customers.proto";
+
+message SetCustomerParentRequest {
+  string customer_id = 1;
+  // Unset to move the customer to the top of the hierarchy.
+  optional string parent_customer_id = 2;
+}
+
+message SetCustomerParentResponse {
+  meteroid.api.customers.v1.CustomerHierarchy hierarchy = 1;
+}
+
+// Placing customers under a parent customer. Reading the hierarchy is core
+// (`CustomersService.GetCustomerHierarchy`).
+service CustomerHierarchyService {
+  rpc SetCustomerParent(SetCustomerParentRequest) returns (SetCustomerParentResponse) {}
+}

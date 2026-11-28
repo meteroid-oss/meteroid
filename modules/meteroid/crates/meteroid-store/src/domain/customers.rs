@@ -906,3 +906,12 @@ mod tests {
         assert_eq!(patch.name, None);
     }
 }
+
+/// Where a customer sits in its account hierarchy.
+#[derive(Clone, Debug)]
+pub struct CustomerHierarchy {
+    /// The parent, its parent and so on, nearest first.
+    pub ancestors: Vec<CustomerBrief>,
+    /// Children that are not archived.
+    pub children: Vec<CustomerBrief>,
+}

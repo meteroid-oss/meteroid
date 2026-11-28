@@ -198,6 +198,28 @@ message GetCustomerSummaryResponse {
   optional CustomerTerm term = 4;
 }
 
+message CustomerHierarchyEntry {
+  string id = 1;
+  string name = 2;
+  optional string alias = 3;
+}
+
+// Where a customer sits in its account hierarchy.
+message CustomerHierarchy {
+  // The parent, its parent and so on, nearest first.
+  repeated CustomerHierarchyEntry ancestors = 1;
+  // Children that are not archived.
+  repeated CustomerHierarchyEntry children = 2;
+}
+
+message GetCustomerHierarchyRequest {
+  string customer_id = 1;
+}
+
+message GetCustomerHierarchyResponse {
+  CustomerHierarchy hierarchy = 1;
+}
+
 service CustomersService {
   rpc CreateCustomer(CreateCustomerRequest) returns (CreateCustomerResponse) {}
   rpc UpdateCustomer(UpdateCustomerRequest) returns (UpdateCustomerResponse) {}
@@ -218,5 +240,6 @@ service CustomersService {
   rpc DeleteCustomerConnection(DeleteCustomerConnectionRequest) returns (DeleteCustomerConnectionResponse) {}
   // Assign / unassign the account owner for one or more customers.
   rpc AssignCustomerOwner(AssignCustomerOwnerRequest) returns (AssignCustomerOwnerResponse) {}
+  rpc GetCustomerHierarchy(GetCustomerHierarchyRequest) returns (GetCustomerHierarchyResponse) {}
 }
 

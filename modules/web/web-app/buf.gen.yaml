@@ -16,6 +16,7 @@ types:
     - meteroid.api.connectors.v1.ConnectorsService
     - meteroid.api.consolidation.v1.InvoiceConsolidationService
     - meteroid.api.customers.v1.CustomersService
+    - meteroid.api.customerhierarchy.v1.CustomerHierarchyService
     - meteroid.api.customeremails.v1.CustomerEmailsService
     - meteroid.api.customeremails.v1.EmailKind
     - meteroid.api.coupons.v1.CouponsService

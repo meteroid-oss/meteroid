@@ -491,6 +491,12 @@ export interface PortalBalanceWalletContext extends PortalBalanceContext {
   standalone: boolean
 }
 
+export interface CustomerParentContext {
+  customerId: string
+  /** The current parent, if any. */
+  parentId?: string
+}
+
 /**
  * Slots filled with components, keyed to the props each component receives. Named
  * `<screen>.<area>`; contributions render in module order at the place documented below.
@@ -522,6 +528,8 @@ export interface ComponentSlots {
   'invoiceSettings.rows': InvoiceSettingsContext
   /** Rows of the customer email Sender settings' "Branding in emails" group, after the footer. */
   'emailSenderSettings.brandingRows': Record<never, never>
+  /** After the customer's parent on its overview; without one, the parent is read-only. */
+  'customerDetail.parentActions': CustomerParentContext
   /** Rows of the customer's Invoicing details, after the invoicing emails. */
   'customerDetail.invoicingRows': CustomerDetailContext
   /** Below the payments of an invoice that is not a draft. */

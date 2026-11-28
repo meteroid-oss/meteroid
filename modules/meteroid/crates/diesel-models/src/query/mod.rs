@@ -29,6 +29,7 @@ pub mod customer_connections;
 pub mod customer_credit;
 pub mod customer_credit_activity;
 pub mod customer_credit_operation;
+pub mod customer_hierarchy;
 pub mod customer_payment_methods;
 pub mod customers;
 pub mod dead_letter;

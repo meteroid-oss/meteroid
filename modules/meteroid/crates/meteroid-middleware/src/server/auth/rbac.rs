@@ -267,6 +267,8 @@ pub fn method_auth(sm: &GrpcServiceMethod) -> Option<RouteAuth> {
         // An invoicing-entity setting, served by the consolidation module.
         "InvoiceConsolidationService" => rw(method, SettingsRead, SettingsManage),
         "MultiEntityService" => RouteAuth::Requires(SettingsManage),
+        // A customer's parent, served by the account-hierarchy module.
+        "CustomerHierarchyService" => RouteAuth::Requires(CustomersManage),
 
         // ---- customer emails & payment reminders ----
         // Per-invoice and per-customer operations follow their resource; sequences,

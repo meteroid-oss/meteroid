@@ -1326,6 +1326,7 @@ diesel::table! {
         payment_reminders_opt_out -> Bool,
         payment_reminder_sequence_id -> Nullable<Uuid>,
         buyer_reference -> Nullable<Text>,
+        parent_customer_id -> Nullable<Uuid>,
     }
 }
 

@@ -28,12 +28,17 @@ use meteroid_grpc::meteroid::api::customers::v1::{
     UpdateCustomerResponse, UpsertCustomerConnectionRequest, UpsertCustomerConnectionResponse,
     customers_service_server::CustomersService,
 };
+use meteroid_grpc::meteroid::api::customers::v1::{
+    GetCustomerHierarchyRequest, GetCustomerHierarchyResponse,
+};
+use meteroid_grpc_mapping::customers::mapping::hierarchy::hierarchy_to_server;
 use meteroid_grpc_mapping::utils::{PaginationExt, caller_permissions, check_bulk_ids};
 use meteroid_store::domain::customer_signals::OpenSignals;
 use meteroid_store::domain::customer_summary::SummaryParts;
 use meteroid_store::domain::resources::ResourceInput;
 use meteroid_store::domain::{CustomerNew, CustomerPatch};
 use meteroid_store::errors::StoreError;
+use meteroid_store::repositories::CustomerHierarchyInterface;
 use meteroid_store::repositories::CustomersInterface;
 use meteroid_store::repositories::ResourcesInterface;
 use meteroid_store::repositories::connectors::ConnectorsInterface;
@@ -810,6 +815,25 @@ impl CustomersService for CustomerServiceComponents {
 
         Ok(Response::new(AssignCustomerOwnerResponse {
             updated: updated as u32,
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn get_customer_hierarchy(
+        &self,
+        request: Request<GetCustomerHierarchyRequest>,
+    ) -> Result<Response<GetCustomerHierarchyResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let customer_id = CustomerId::from_proto(request.into_inner().customer_id)?;
+
+        let hierarchy = self
+            .store
+            .get_customer_hierarchy(tenant_id, customer_id)
+            .await
+            .map_err(Into::<CustomerApiError>::into)?;
+
+        Ok(Response::new(GetCustomerHierarchyResponse {
+            hierarchy: Some(hierarchy_to_server(hierarchy)),
         }))
     }
 }

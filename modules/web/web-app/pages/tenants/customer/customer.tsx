@@ -21,6 +21,7 @@ import { Slot, placeAfter, slotItems, useVisibleItems } from '@/edition'
 import { CustomerWalletsPanel, useCustomerCreditBalances } from '@/features/credit'
 import { CustomerHeader, CustomersCreatePanel } from '@/features/customers'
 import { CustomerAvatar } from '@/features/customers/CustomerAvatar'
+import { CustomerHierarchyRows } from '@/features/customers/CustomerHierarchyRows'
 import { OwnerPicker } from '@/features/customers/OwnerPicker'
 import { ActivityCard } from '@/features/customers/cards/ActivityCard'
 import {
@@ -448,6 +449,7 @@ export const Customer = () => {
                       }
                     />
                   )}
+                  {!isExpress && <CustomerHierarchyRows customerId={data.id} />}
                   <DetailRow title="Legal name" value={data.name} />
                   <DetailRow title="Email" value={data.billingEmail} />
                   <DetailRow title="Currency" value={data.currency} />

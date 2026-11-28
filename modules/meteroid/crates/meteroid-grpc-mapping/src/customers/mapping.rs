@@ -402,3 +402,20 @@ pub mod summary {
         }
     }
 }
+
+pub mod hierarchy {
+    use meteroid_grpc::meteroid::api::customers::v1 as server;
+    use meteroid_store::domain;
+
+    pub fn hierarchy_to_server(h: domain::CustomerHierarchy) -> server::CustomerHierarchy {
+        let entry = |c: domain::CustomerBrief| server::CustomerHierarchyEntry {
+            id: c.id.as_proto(),
+            name: c.name,
+            alias: c.alias,
+        };
+        server::CustomerHierarchy {
+            ancestors: h.ancestors.into_iter().map(entry).collect(),
+            children: h.children.into_iter().map(entry).collect(),
+        }
+    }
+}

@@ -5,6 +5,7 @@ pub use credit_notes::CreditNoteInterface;
 pub use credit_units::CreditUnitsInterface;
 pub use custom_properties::CustomPropertyDefinitionsInterface;
 pub use customer_emails::CustomerEmailsInterface;
+pub use customer_hierarchy::CustomerHierarchyInterface;
 pub use customer_pages::CustomerPagesInterface;
 pub use customers::CustomersInterface;
 pub use document_pages::DocumentPagesInterface;
@@ -37,6 +38,7 @@ pub use users::UserInterface;
 pub use webhooks_out::WebhookOutInterface;
 
 pub mod accounting;
+pub mod customer_hierarchy;
 pub mod customers;
 pub mod document_pages;
 pub mod invoice_account;

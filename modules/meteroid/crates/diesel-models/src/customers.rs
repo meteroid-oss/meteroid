@@ -57,6 +57,8 @@ pub struct CustomerRow {
     pub payment_reminder_sequence_id: Option<PaymentReminderSequenceId>,
     /// BT-10 — the reference the buyer routes invoices by (Leitweg-ID).
     pub buyer_reference: Option<String>,
+    /// Set through the hierarchy path, which rejects cycles.
+    pub parent_customer_id: Option<CustomerId>,
 }
 
 /// A `CustomerRow` plus the derived list metrics (MRR + lifecycle_state) computed
