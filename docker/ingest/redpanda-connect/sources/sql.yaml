@@ -1,0 +1,15 @@
+# Rows of the lookback window (SQL_LOOKBACK), run every few minutes: overlapping runs are deduplicated by event_id.
+# Columns event_id, code, customer and timestamp name the event; every other column is a property.
+input:
+  sql_select:
+    driver: ${SQL_DRIVER:postgres}
+    dsn: ${SQL_DSN}
+    table: ${SQL_TABLE:usage_events}
+    columns: ["*"]
+    where: ${SQL_TIMESTAMP_COLUMN:timestamp} >= now() - interval '${SQL_LOOKBACK:2 hours}'
+pipeline:
+  processors:
+    - resource: meteroid_row
+    - resource: meteroid_event
+output:
+  resource: meteroid

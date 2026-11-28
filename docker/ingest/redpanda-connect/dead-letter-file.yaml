@@ -1,0 +1,6 @@
+# Rejected events as JSON lines: `{"event": ..., "error": ...}`.
+output_resources:
+  - label: meteroid_dead_letter
+    file:
+      path: ${METEROID_DEAD_LETTER_PATH:./meteroid-rejected.jsonl}
+      codec: lines

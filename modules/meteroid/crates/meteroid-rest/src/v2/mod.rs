@@ -49,6 +49,7 @@ pub mod rate_cards;
 pub mod references;
 pub mod refs;
 pub mod resource_types;
+pub mod segment;
 pub mod subscriptions;
 pub mod trials;
 pub mod usage;

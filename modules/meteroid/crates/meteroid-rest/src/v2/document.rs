@@ -129,15 +129,16 @@ fn rate_limits() -> String {
          - Requests to the event routes (`/api/v2/events/…`): {} and {} a second, bucket \
          `rest:metering` (`rest:non_prod:metering`).\n\
          - Events ingested: {} and {} a second, each `POST /events/ingest` counting the events \
-         it holds.\n\
+         it holds, unless the organization's plan sets its own.\n\
          - Usage reads (`/usage/summary`, and `…/usage…` under a customer or a subscription): \
          {} and {} a minute, unless the organization's plan sets its own.\n\
          - Event corrections (`/events/{{event_id}}/void` and `…/amend`, Enterprise edition): \
          600 and 120 changes a minute.\n\n\
          The first two count requests: their `429` carries `Retry-After` and the `RateLimit` \
          headers, which every response they counted carries too. The others are counted within \
-         the request, after it passed the first: their `429 rate_limited` says its wait in \
-         `detail` (`Retry after <n> seconds`), without `Retry-After`.",
+         the request, after it passed the first: their `429 rate_limited` carries `Retry-After` \
+         and says the same wait in `detail` (`Retry after <n> seconds`), without the \
+         `RateLimit` headers.",
         grouped(limits.prod_rps),
         grouped(limits.non_prod_rps),
         grouped(limits.prod_metering_rps),

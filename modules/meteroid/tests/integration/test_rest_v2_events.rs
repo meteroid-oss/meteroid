@@ -492,3 +492,85 @@ async fn test_rest_v2_ingests_events_in_v2s_shape() {
         .await;
     assert!(spec.body["paths"][path]["post"].is_object());
 }
+
+fn segment_track(message_id: &str, group: Option<&str>) -> serde_json::Value {
+    let mut event = json!({
+        "messageId": message_id,
+        "type": "track",
+        "event": "api_calls",
+        "userId": "user-7",
+        "properties": {"tokens": 12, "model": {"name": "large"}},
+        "context": {"library": {"name": "analytics.js"}},
+        "anonymousId": "anon-1",
+    });
+    if let Some(group) = group {
+        event["context"]["groupId"] = json!(group);
+    }
+    event
+}
+
+#[tokio::test]
+async fn test_rest_v2_ingests_segment_track_events() {
+    let usage = Arc::new(Ingesting {
+        inner: MockUsageClient::noop(),
+        ingested: Mutex::new(Vec::new()),
+        customers: Mutex::new(Vec::new()),
+        properties: Mutex::new(Vec::new()),
+    });
+    let f = fixture(usage.clone()).await;
+    let path = "/api/v2/events/segment";
+
+    // A batch: the group names the customer; refusals at their pointer, the rest ingested.
+    let batch = f
+        .post(
+            path,
+            json!([
+                segment_track("seg-1", Some("uber")),
+                segment_track("seg-2", None),
+                segment_track("bad-seg", Some("uber")),
+                {"messageId": "seg-identify", "type": "identify", "userId": "user-7", "event": "x"},
+            ]),
+        )
+        .await;
+    assert_eq!(batch.status, StatusCode::OK, "{:#}", batch.body);
+    assert_eq!(batch.body["accepted"], 1, "{:#}", batch.body);
+    let at: Vec<&str> = batch.body["rejected"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|rejection| rejection["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(at, vec!["/1/context/groupId", "/2", "/3/type"]);
+    assert_eq!(*usage.ingested.lock().unwrap(), vec!["seg-1"]);
+    assert_eq!(*usage.customers.lock().unwrap(), vec!["alias:uber"]);
+    let properties = usage.properties.lock().unwrap()[0].clone();
+    assert_eq!(properties["tokens"], "12");
+    assert_eq!(properties["model.name"], "large");
+
+    // One event, by its user.
+    let one = f
+        .post(
+            &format!("{path}?customer=user"),
+            segment_track("seg-3", None),
+        )
+        .await;
+    assert_eq!(one.status, StatusCode::OK, "{:#}", one.body);
+    assert_eq!(one.body, json!({"accepted": 1, "rejected": []}));
+    assert_eq!(usage.customers.lock().unwrap()[1], "alias:user-7");
+
+    // More than metering's 500 a call: sent in chunks, every event counted.
+    let large: Vec<serde_json::Value> = (0..1200)
+        .map(|i| {
+            json!({"messageId": format!("seg-big-{i}"), "event": "api_calls", "context": {"groupId": "uber"}})
+        })
+        .collect();
+    let chunked = f.post(path, json!(large)).await;
+    assert_eq!(chunked.status, StatusCode::OK, "{:#}", chunked.body);
+    assert_eq!(chunked.body["accepted"], 1200);
+    assert_eq!(usage.ingested.lock().unwrap().len(), 1202);
+
+    let empty = f.post(path, json!([])).await;
+    assert_eq!(empty.status, StatusCode::UNPROCESSABLE_ENTITY);
+    let scalar = f.post(path, json!("track")).await;
+    assert_eq!(scalar.status, StatusCode::UNPROCESSABLE_ENTITY);
+}

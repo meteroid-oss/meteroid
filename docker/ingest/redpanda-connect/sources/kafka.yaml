@@ -1,0 +1,15 @@
+# One JSON event per record, in v2 ingest's shape; a record without event_id is named by its offset.
+input:
+  redpanda:
+    seed_brokers: ["${KAFKA_BROKERS}"]
+    topics: ["${KAFKA_TOPIC:usage-events}"]
+    consumer_group: ${KAFKA_CONSUMER_GROUP:meteroid-ingest}
+    tls:
+      enabled: ${KAFKA_TLS:false}
+pipeline:
+  processors:
+    - mapping: |
+        meta meteroid_event_id = "%v-%v-%v".format(@kafka_topic, @kafka_partition, @kafka_offset)
+    - resource: meteroid_event
+output:
+  resource: meteroid

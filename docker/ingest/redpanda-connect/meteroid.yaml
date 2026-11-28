@@ -1,0 +1,77 @@
+# The Meteroid side of every recipe (`output: {resource: meteroid}`): batches to v2 ingest,
+# retries failed requests until they succeed, writes rejected events to `meteroid_dead_letter`.
+processor_resources:
+  # A v2 event from a message in its shape; coerces what would refuse the whole batch.
+  - label: meteroid_event
+    mapping: |
+      let fallback = @meteroid_event_id.or(content().string().hash("xxhash64").encode("hex"))
+      root.event_id = this.event_id.or($fallback).string()
+      root.code = this.code.or("").string()
+      root.customer = this.customer.or("").string()
+      root.timestamp = match this.timestamp {
+        this.type() == "number" || this.type() == "timestamp" => this.ts_format("2006-01-02T15:04:05.999999999Z07:00", "UTC")
+        this.type() == "string" => this
+        _ => deleted()
+      }
+      root.properties = if this.properties.type() == "object" { this.properties } else { {} }
+
+  # A table row as an event: every column but the event's own is a property.
+  - label: meteroid_row
+    mapping: |
+      root = this.with("event_id", "code", "customer", "timestamp")
+      root.properties = this.without("event_id", "code", "customer", "timestamp")
+
+output_resources:
+  - label: meteroid
+    switch:
+      cases:
+        - check: errored()
+          output:
+            resource: meteroid_dead_letter
+            processors:
+              - mapping: |
+                  root.event = content().string()
+                  root.error = error()
+        - output:
+            broker:
+              pattern: fan_out
+              outputs:
+                - resource: meteroid_dead_letter
+              batching:
+                count: ${METEROID_BATCH_COUNT:500}
+                byte_size: 900000
+                period: ${METEROID_BATCH_PERIOD:1s}
+                processors:
+                  - archive:
+                      format: json_array
+                  - mapping: |
+                      root.events = this
+                      root.allow_partial_failures = true
+                      root.allow_backfilling = env("METEROID_ALLOW_BACKFILLING").or("false") == "true"
+                  - branch:
+                      request_map: root = this
+                      processors:
+                        - retry:
+                            max_retries: 0
+                            backoff:
+                              initial_interval: 1s
+                              max_interval: 60s
+                              max_elapsed_time: 0s
+                            processors:
+                              - http:
+                                  url: ${METEROID_API_URL:https://api.meteroid.com}/api/v2/events/ingest
+                                  verb: POST
+                                  headers:
+                                    Authorization: Bearer ${METEROID_API_KEY}
+                                    Content-Type: application/json
+                                  timeout: 30s
+                                  retries: 0
+                      result_map: root.rejected = this.rejected
+                  - mapping: |
+                      let events = this.events
+                      root = this.rejected.map_each(rejection -> {
+                        "event": $events.index(rejection.index),
+                        "error": rejection.message
+                      })
+                  - unarchive:
+                      format: json_array

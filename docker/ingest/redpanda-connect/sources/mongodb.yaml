@@ -1,0 +1,19 @@
+# Documents of the lookback window (MONGODB_LOOKBACK), run every few minutes: overlapping runs are deduplicated.
+# Fields event_id (or _id), code, customer and timestamp name the event; every other field is a property.
+input:
+  mongodb:
+    url: ${MONGODB_URL}
+    database: ${MONGODB_DATABASE}
+    collection: ${MONGODB_COLLECTION:usage_events}
+    query: |
+      root.timestamp = {"$gte": now().ts_sub_iso8601("${MONGODB_LOOKBACK:PT2H}")}
+pipeline:
+  processors:
+    - mapping: |
+        root = this
+        root.event_id = this.event_id.or(this._id.string())
+        root._id = deleted()
+    - resource: meteroid_row
+    - resource: meteroid_event
+output:
+  resource: meteroid

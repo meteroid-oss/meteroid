@@ -1,0 +1,14 @@
+# Rows of the lookback window (BIGQUERY_LOOKBACK_HOURS), run every few minutes: overlapping runs are deduplicated.
+# Columns event_id, code, customer and timestamp name the event; every other column is a property.
+input:
+  gcp_bigquery_select:
+    project: ${BIGQUERY_PROJECT}
+    table: ${BIGQUERY_TABLE}
+    columns: ["*"]
+    where: timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL ${BIGQUERY_LOOKBACK_HOURS:2} HOUR)
+pipeline:
+  processors:
+    - resource: meteroid_row
+    - resource: meteroid_event
+output:
+  resource: meteroid

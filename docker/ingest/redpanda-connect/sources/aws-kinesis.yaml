@@ -1,0 +1,13 @@
+# One JSON event per record, in v2 ingest's shape; shard checkpoints are kept in DynamoDB.
+input:
+  aws_kinesis:
+    streams: ["${KINESIS_STREAM}"]
+    region: ${AWS_REGION}
+    dynamodb:
+      table: ${KINESIS_CHECKPOINT_TABLE:meteroid-ingest-checkpoints}
+      create: true
+pipeline:
+  processors:
+    - resource: meteroid_event
+output:
+  resource: meteroid

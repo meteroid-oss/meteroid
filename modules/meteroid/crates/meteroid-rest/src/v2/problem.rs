@@ -278,6 +278,9 @@ pub struct Problem {
     /// The id of the request, as in the `Request-Id` header: quote it to support.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
+    /// Sent as the `Retry-After` header, not in the body.
+    #[serde(skip)]
+    pub retry_after: Option<u64>,
 }
 
 impl Problem {
@@ -291,6 +294,7 @@ impl Problem {
             detail: (!detail.is_empty()).then_some(detail),
             errors: Vec::new(),
             request_id: None,
+            retry_after: None,
         }
     }
 
@@ -508,6 +512,11 @@ impl IntoResponse for Problem {
             http::header::CONTENT_TYPE,
             HeaderValue::from_static(PROBLEM_CONTENT_TYPE),
         );
+        if let Some(seconds) = self.retry_after {
+            response
+                .headers_mut()
+                .insert(http::header::RETRY_AFTER, HeaderValue::from(seconds));
+        }
         response
     }
 }
@@ -654,6 +663,14 @@ impl From<RestApiError> for Problem {
                 ProblemCode::RateLimited,
                 message,
             ),
+            RestApiError::RetryAfter(seconds) => Problem {
+                retry_after: Some(seconds),
+                ..Problem::new(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    ProblemCode::RateLimited,
+                    format!("Retry after {seconds} seconds"),
+                )
+            },
             RestApiError::Unavailable(message) | RestApiError::NotConfigured(message) => {
                 Problem::new(
                     StatusCode::SERVICE_UNAVAILABLE,

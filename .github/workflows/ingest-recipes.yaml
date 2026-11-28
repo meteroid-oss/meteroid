@@ -1,0 +1,18 @@
+name: Ingestion recipes
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/ingest-recipes.yaml"
+      - "docker/ingest/**"
+
+jobs:
+  redpanda-connect:
+    name: Redpanda Connect recipes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Lint every recipe
+        run: docker/ingest/redpanda-connect/test/lint.sh
+      - name: Kafka to Meteroid, end to end
+        run: docker/ingest/redpanda-connect/test/run.sh

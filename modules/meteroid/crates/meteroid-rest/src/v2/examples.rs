@@ -66,6 +66,7 @@ pub const SHOWN: &[&str] = &[
     "download_invoice_pdf",
     "download_invoice_xml",
     "ingest_events",
+    "ingest_segment_events",
     "list_webhook_endpoints",
     "create_webhook_endpoint",
     "get_webhook_endpoint",

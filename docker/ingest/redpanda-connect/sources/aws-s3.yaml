@@ -1,0 +1,16 @@
+# NDJSON files under an inbox prefix, deleted once ingested; run on a schedule.
+input:
+  aws_s3:
+    bucket: ${S3_BUCKET}
+    prefix: ${S3_PREFIX:meteroid-inbox/}
+    region: ${AWS_REGION}
+    scanner:
+      lines: {}
+    delete_objects: true
+pipeline:
+  processors:
+    - mapping: |
+        meta meteroid_event_id = "%s:%s".format(@s3_key, content().hash("xxhash64").encode("hex"))
+    - resource: meteroid_event
+output:
+  resource: meteroid

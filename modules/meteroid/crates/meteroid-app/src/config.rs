@@ -398,6 +398,8 @@ pub struct RestRateLimitConfig {
     pub prod_metering_rps: u64,
     #[envconfig(from = "RATE_LIMIT_REST_NON_PROD_METERING_RPS", default = "125")]
     pub non_prod_metering_rps: u64,
+    /// Per tenant, events ingested per second. An organization's `metering_eps_rate_limit`
+    /// entitlement overrides it.
     #[envconfig(from = "RATE_LIMIT_REST_PROD_METERING_EPS", default = "5000")]
     pub prod_metering_eps: u64,
     #[envconfig(from = "RATE_LIMIT_REST_NON_PROD_METERING_EPS", default = "1250")]

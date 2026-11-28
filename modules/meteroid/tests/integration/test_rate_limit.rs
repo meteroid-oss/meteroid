@@ -305,6 +305,38 @@ async fn test_rate_limit() {
         "Each publishable key has its own bucket"
     );
 
+    // ── Events per second, counted within the request ───────────────────────
+
+    let events: Vec<serde_json::Value> = (0..101)
+        .map(|i| {
+            serde_json::json!({
+                "event_id": format!("eps-{i}"),
+                "code": "api_calls",
+                "customer": "ext:any",
+            })
+        })
+        .collect();
+    let resp = http_client
+        .post(format!(
+            "{}/api/v2/events/ingest",
+            setup.config.rest_api_external_url
+        ))
+        .bearer_auth(&api_key)
+        .json(&serde_json::json!({ "events": events }))
+        .send()
+        .await
+        .expect("HTTP request failed");
+    assert_eq!(resp.status(), reqwest::StatusCode::TOO_MANY_REQUESTS);
+    let retry_after: u64 = resp
+        .headers()
+        .get("Retry-After")
+        .expect("an events-per-second 429 carries Retry-After")
+        .to_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(retry_after >= 1, "{retry_after}");
+
     // ── gRPC rate limit ──────────────────────────────────────────────────────
 
     let mut grpc_rate_limited = None;

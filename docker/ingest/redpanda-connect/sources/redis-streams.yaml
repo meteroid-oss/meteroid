@@ -1,0 +1,12 @@
+# One JSON event per entry, in v2 ingest's shape, under the field REDIS_BODY_KEY (body).
+input:
+  redis_streams:
+    url: ${REDIS_URL}
+    streams: ["${REDIS_STREAM:usage-events}"]
+    consumer_group: ${REDIS_CONSUMER_GROUP:meteroid-ingest}
+    body_key: ${REDIS_BODY_KEY:body}
+pipeline:
+  processors:
+    - resource: meteroid_event
+output:
+  resource: meteroid

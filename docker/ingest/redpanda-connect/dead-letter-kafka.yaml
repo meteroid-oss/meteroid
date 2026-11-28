@@ -1,0 +1,8 @@
+# Rejected events to a Kafka topic, as `{"event": ..., "error": ...}`.
+output_resources:
+  - label: meteroid_dead_letter
+    redpanda:
+      seed_brokers: ["${KAFKA_BROKERS}"]
+      topic: ${METEROID_DEAD_LETTER_TOPIC:meteroid-rejected}
+      tls:
+        enabled: ${KAFKA_TLS:false}

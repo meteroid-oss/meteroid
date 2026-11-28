@@ -143,6 +143,9 @@ pub enum RestApiError {
     ExternalServiceError(String),
     #[error("Rate limit exceeded. {0}")]
     RateLimitExceeded(String),
+    /// A limit counted within the request; its 429 carries `Retry-After`.
+    #[error("Rate limit exceeded. Retry after {0} seconds")]
+    RetryAfter(u64),
     /// An entitlement refusal answered with its own `code`.
     #[error("{1}")]
     Refused(meteroid_store::errors::EntitlementRefusal, String),
@@ -190,7 +193,7 @@ impl IntoResponse for RestApiError {
             RestApiError::ExternalServiceError(_) => {
                 (StatusCode::BAD_GATEWAY, ErrorCode::InternalServerError)
             }
-            RestApiError::RateLimitExceeded(_) => {
+            RestApiError::RateLimitExceeded(_) | RestApiError::RetryAfter(_) => {
                 (StatusCode::TOO_MANY_REQUESTS, ErrorCode::TooManyRequests)
             }
             RestApiError::Refused(refusal, _) => {
@@ -224,7 +227,13 @@ impl IntoResponse for RestApiError {
             message: error_message,
         });
 
-        (status, error_body).into_response()
+        let mut response = (status, error_body).into_response();
+        if let RestApiError::RetryAfter(seconds) = self {
+            response
+                .headers_mut()
+                .insert(http::header::RETRY_AFTER, http::HeaderValue::from(seconds));
+        }
+        response
     }
 }
 

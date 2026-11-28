@@ -10,6 +10,7 @@ use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use metering_grpc::meteroid::metering::v1 as grpc;
 use meteroid_app::errors::RestApiError;
+use meteroid_app::features::Entitlements;
 use meteroid_rest_common::error::RestErrorResponse;
 use meteroid_rest_common::extract::{ApiJson, ApiValid};
 use meteroid_store::clients::usage;
@@ -75,6 +76,7 @@ pub(crate) async fn ingest(
         &app_state.store,
         &app_state.services,
         &app_state.rest_rate_limiters,
+        app_state.feature_resolver.as_ref(),
         authorized_state,
         events,
         allow_backfilling,
@@ -89,12 +91,13 @@ pub async fn ingest_checked(
     store: &Store,
     services: &Services,
     limiters: &RateLimiters,
+    entitlements: &dyn Entitlements,
     authorized_state: &AuthorizedAsTenant,
     events: Vec<grpc::Event>,
     allow_backfilling: bool,
     fail_on_error: bool,
 ) -> Result<usage::IngestEventsResult, RestApiError> {
-    rate_limit_eps(limiters, authorized_state, events.len()).await?;
+    rate_limit_eps(limiters, entitlements, authorized_state, events.len()).await?;
 
     let keep_last_events = store
         .keep_last_events(authorized_state.tenant_id)

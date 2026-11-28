@@ -176,6 +176,7 @@ pub const ALERT_DEFINITIONS_CODE: &str = "alert_definitions";
 pub const PRODUCTION_TENANTS_CODE: &str = "production_tenants";
 pub const INVOICING_ENTITIES_CODE: &str = "invoicing_entities";
 pub const USAGE_COSTS_RATE_LIMIT_CODE: &str = "usage_costs_rate_limit";
+pub const METERING_EPS_RATE_LIMIT_CODE: &str = "metering_eps_rate_limit";
 /// The self-hosted free tier's cap on alert definitions.
 pub const DEFAULT_FREE_TIER_ALERT_LIMIT: u32 = 3;
 
@@ -183,7 +184,7 @@ pub const DEFAULT_FREE_TIER_ALERT_LIMIT: u32 = 3;
 pub mod quotas {
     use super::{
         ALERT_DEFINITIONS_CODE, FeatureCode, FeatureGate, INVOICING_ENTITIES_CODE,
-        PRODUCTION_TENANTS_CODE, USAGE_COSTS_RATE_LIMIT_CODE,
+        METERING_EPS_RATE_LIMIT_CODE, PRODUCTION_TENANTS_CODE, USAGE_COSTS_RATE_LIMIT_CODE,
     };
 
     pub const ALERT_DEFINITIONS: FeatureGate =
@@ -196,6 +197,11 @@ pub mod quotas {
     pub const USAGE_COSTS_RATE_LIMIT: FeatureGate = FeatureGate::number(
         FeatureCode::new(USAGE_COSTS_RATE_LIMIT_CODE),
         "requests per minute",
+    );
+    /// The events ingested per second; the limiter stays in code.
+    pub const METERING_EPS_RATE_LIMIT: FeatureGate = FeatureGate::number(
+        FeatureCode::new(METERING_EPS_RATE_LIMIT_CODE),
+        "events per second",
     );
 }
 
@@ -383,6 +389,13 @@ impl ResolvedEntitlements {
     /// sets a number; otherwise the instance's default applies.
     pub fn usage_costs_rate_limit(&self) -> Option<u64> {
         self.number(&quotas::USAGE_COSTS_RATE_LIMIT)
+            .filter(|n| *n > 0)
+    }
+
+    /// Events per second a tenant of the org may ingest, when its plan sets a number; otherwise
+    /// the instance's default applies.
+    pub fn metering_eps_rate_limit(&self) -> Option<u64> {
+        self.number(&quotas::METERING_EPS_RATE_LIMIT)
             .filter(|n| *n > 0)
     }
 }
@@ -862,6 +875,11 @@ mod tests {
         assert_eq!(rate.kind, GateKind::Number);
         assert_eq!(rate.unit, Some("requests per minute"));
         assert_eq!(rate.outage, GateValue::Off);
+
+        let eps = quotas::METERING_EPS_RATE_LIMIT;
+        assert_eq!(eps.kind, GateKind::Number);
+        assert_eq!(eps.unit, Some("events per second"));
+        assert_eq!(eps.outage, GateValue::Off);
     }
 
     #[test]
@@ -936,6 +954,24 @@ mod tests {
         }]);
         assert_eq!(metered.limit(PRODUCTION_TENANTS_CODE), Some(4));
         assert_eq!(metered.limit(INVOICING_ENTITIES_CODE), None);
+    }
+
+    #[test]
+    fn metering_eps_rate_limit_reads_a_positive_number_and_defaults_otherwise() {
+        let limit =
+            |value| with_config(METERING_EPS_RATE_LIMIT_CODE, value).metering_eps_rate_limit();
+        assert_eq!(limit(json!("20000")), Some(20_000));
+        assert_eq!(limit(json!(50_000)), Some(50_000));
+        assert_eq!(limit(json!("0")), None);
+        assert_eq!(limit(json!("-5")), None);
+        assert_eq!(
+            with_config(USAGE_COSTS_RATE_LIMIT_CODE, json!("10")).metering_eps_rate_limit(),
+            None
+        );
+        assert_eq!(
+            ResolvedEntitlements::outage().metering_eps_rate_limit(),
+            None
+        );
     }
 
     #[test]

@@ -8419,6 +8419,187 @@
         "x-idempotency": "optional"
       }
     },
+    "/api/v2/events/segment": {
+      "post": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "Ingest Segment events",
+        "description": "Ingests Segment `track` events as usage, for Segment's Webhooks (Actions) destination: one\nevent, or a batch of up to 4,000 (the body 1 MB at most). Map only the fields below to stay\nunder it. Each event's `messageId` is its `event_id`, its `event` name its code, and its\ncustomer the alias in `context.groupId` (or `groupId`), or in `userId` with `customer=user`.\n`properties` are flattened (`{\"plan\": {\"tier\": \"pro\"}}` is `plan.tier`). The `timestamp`\nrules are `/events/ingest`'s.\n\nThe events accepted are ingested, and the `200` names the ones refused in `rejected`, at\ntheir pointer in the body (`/3/userId`). Sending a batch again is safe: events are\ndeduplicated by `messageId` and customer.",
+        "operationId": "ingest_segment_events",
+        "parameters": [
+          {
+            "name": "customer",
+            "in": "query",
+            "description": "Which identity is the customer's alias: `group` (the default) or `user`.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Which Segment identity names the Meteroid customer, by its alias.",
+              "enum": [
+                "group",
+                "user"
+              ]
+            }
+          },
+          {
+            "name": "allow_backfilling",
+            "in": "query",
+            "description": "Accept timestamps up to 13 months ago instead of 24 hours.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SegmentTrackEvent"
+                }
+              },
+              "example": [
+                {
+                  "messageId": "ajs-next-1764148364249-5f1c",
+                  "type": "track",
+                  "event": "completion",
+                  "userId": "user_8f3a",
+                  "context": {
+                    "groupId": "northwind"
+                  },
+                  "timestamp": "2026-11-26T09:12:44.249Z",
+                  "properties": {
+                    "model": "large",
+                    "tokens": 1832
+                  }
+                },
+                {
+                  "messageId": "ajs-next-1764148371802-9b2e",
+                  "type": "track",
+                  "event": "completion",
+                  "userId": "user_8f3a",
+                  "context": {
+                    "groupId": "northwind"
+                  },
+                  "timestamp": "2026-11-26T09:12:51.802Z",
+                  "properties": {
+                    "model": "small",
+                    "tokens": 412
+                  }
+                }
+              ]
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The events accepted, and those rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestEventsResult"
+                },
+                "example": {
+                  "accepted": 2,
+                  "rejected": []
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "description": "The batch is empty or too large, or not JSON events",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests or events, retry later",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            }
+          },
+          "503": {
+            "description": "Metering is unavailable, retry later",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss",
+        "x-idempotency": "optional"
+      }
+    },
     "/api/v2/features": {
       "get": {
         "tags": [
@@ -39831,6 +40012,84 @@
           "on_payment"
         ]
       },
+      "SegmentContext": {
+        "type": "object",
+        "properties": {
+          "groupId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The group (account) the event is for: the customer's alias by default."
+          }
+        },
+        "additionalProperties": false
+      },
+      "SegmentTrackEvent": {
+        "type": "object",
+        "description": "A Segment `track` event; any other field Segment sends is ignored.",
+        "required": [
+          "messageId",
+          "event"
+        ],
+        "properties": {
+          "context": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SegmentContext"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Segment's context: only its `groupId` is read."
+          },
+          "event": {
+            "type": "string",
+            "description": "The event's name, as written in Segment: the event code metrics read."
+          },
+          "groupId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A group id mapped to the top level, read before `context.groupId`."
+          },
+          "messageId": {
+            "type": "string",
+            "description": "Segment's id of the message: the event's `event_id`, so Segment's retries count once."
+          },
+          "properties": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Nested objects are flattened to dotted keys (`plan.tier`), arrays kept as JSON text, nulls\ndropped."
+          },
+          "timestamp": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339; the time it is received when left out."
+          },
+          "type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`track`, when sent."
+          },
+          "userId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The user: the customer's alias with `customer=user`."
+          }
+        },
+        "additionalProperties": false
+      },
       "SetRates": {
         "type": "object",
         "description": "Rates set and keys removed together, all from one day (today when left out). Keys not\nlisted keep their rates; a repeated batch changes nothing.",
@@ -44508,7 +44767,7 @@
         }
       },
       "TooManyRequests": {
-        "description": "Too many requests: retry later, with the same `Idempotency-Key` for a POST.\n\nLimits are per tenant environment, every API key of the tenant sharing them, each a token bucket refilled continuously over its window. At their defaults (a self-hosted instance sets its own, `RATE_LIMIT_REST_*`), production first, then any other environment:\n\n- Requests: 100 and 25 a second, every route but the event routes; `RateLimit-Policy` names the bucket `rest:api` (`rest:non_prod:api`).\n- Requests to the event routes (`/api/v2/events/…`): 500 and 125 a second, bucket `rest:metering` (`rest:non_prod:metering`).\n- Events ingested: 5,000 and 1,250 a second, each `POST /events/ingest` counting the events it holds.\n- Usage reads (`/usage/summary`, and `…/usage…` under a customer or a subscription): 600 and 120 a minute, unless the organization's plan sets its own.\n- Event corrections (`/events/{event_id}/void` and `…/amend`, Enterprise edition): 600 and 120 changes a minute.\n\nThe first two count requests: their `429` carries `Retry-After` and the `RateLimit` headers, which every response they counted carries too. The others are counted within the request, after it passed the first: their `429 rate_limited` says its wait in `detail` (`Retry after <n> seconds`), without `Retry-After`.",
+        "description": "Too many requests: retry later, with the same `Idempotency-Key` for a POST.\n\nLimits are per tenant environment, every API key of the tenant sharing them, each a token bucket refilled continuously over its window. At their defaults (a self-hosted instance sets its own, `RATE_LIMIT_REST_*`), production first, then any other environment:\n\n- Requests: 100 and 25 a second, every route but the event routes; `RateLimit-Policy` names the bucket `rest:api` (`rest:non_prod:api`).\n- Requests to the event routes (`/api/v2/events/…`): 500 and 125 a second, bucket `rest:metering` (`rest:non_prod:metering`).\n- Events ingested: 5,000 and 1,250 a second, each `POST /events/ingest` counting the events it holds, unless the organization's plan sets its own.\n- Usage reads (`/usage/summary`, and `…/usage…` under a customer or a subscription): 600 and 120 a minute, unless the organization's plan sets its own.\n- Event corrections (`/events/{event_id}/void` and `…/amend`, Enterprise edition): 600 and 120 changes a minute.\n\nThe first two count requests: their `429` carries `Retry-After` and the `RateLimit` headers, which every response they counted carries too. The others are counted within the request, after it passed the first: their `429 rate_limited` carries `Retry-After` and says the same wait in `detail` (`Retry after <n> seconds`), without the `RateLimit` headers.",
         "headers": {
           "Meteroid-Version": {
             "$ref": "#/components/headers/Meteroid-Version"

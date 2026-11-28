@@ -1,0 +1,9 @@
+# One JSON event per message, in v2 ingest's shape.
+input:
+  websocket:
+    url: ${WEBSOCKET_URL}
+pipeline:
+  processors:
+    - resource: meteroid_event
+output:
+  resource: meteroid

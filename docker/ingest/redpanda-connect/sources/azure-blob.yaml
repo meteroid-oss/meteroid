@@ -1,0 +1,16 @@
+# NDJSON files under an inbox prefix, deleted once ingested; run on a schedule.
+input:
+  azure_blob_storage:
+    storage_connection_string: ${AZURE_STORAGE_CONNECTION_STRING}
+    container: ${AZURE_CONTAINER}
+    prefix: ${AZURE_PREFIX:meteroid-inbox/}
+    scanner:
+      lines: {}
+    delete_objects: true
+pipeline:
+  processors:
+    - mapping: |
+        meta meteroid_event_id = "%s:%s".format(@blob_storage_key, content().hash("xxhash64").encode("hex"))
+    - resource: meteroid_event
+output:
+  resource: meteroid

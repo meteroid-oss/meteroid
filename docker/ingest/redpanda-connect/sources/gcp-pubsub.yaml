@@ -1,0 +1,10 @@
+# One JSON event per message, in v2 ingest's shape; acked once Meteroid answered.
+input:
+  gcp_pubsub:
+    project: ${PUBSUB_PROJECT}
+    subscription: ${PUBSUB_SUBSCRIPTION}
+pipeline:
+  processors:
+    - resource: meteroid_event
+output:
+  resource: meteroid

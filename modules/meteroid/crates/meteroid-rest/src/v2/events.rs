@@ -20,7 +20,9 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 pub fn routes() -> OpenApiRouter<AppState> {
-    OpenApiRouter::new().routes(routes!(ingest_events))
+    OpenApiRouter::new()
+        .routes(routes!(ingest_events))
+        .merge(crate::v2::segment::routes())
 }
 
 /// Events in one request, at most: metering's own limit.

@@ -6023,6 +6023,42 @@
       "rejected": []
     }
   },
+  "ingest_segment_events": {
+    "request": [
+      {
+        "messageId": "ajs-next-1764148364249-5f1c",
+        "type": "track",
+        "event": "completion",
+        "userId": "user_8f3a",
+        "context": {
+          "groupId": "northwind"
+        },
+        "timestamp": "2026-11-26T09:12:44.249Z",
+        "properties": {
+          "model": "large",
+          "tokens": 1832
+        }
+      },
+      {
+        "messageId": "ajs-next-1764148371802-9b2e",
+        "type": "track",
+        "event": "completion",
+        "userId": "user_8f3a",
+        "context": {
+          "groupId": "northwind"
+        },
+        "timestamp": "2026-11-26T09:12:51.802Z",
+        "properties": {
+          "model": "small",
+          "tokens": 412
+        }
+      }
+    ],
+    "response": {
+      "accepted": 2,
+      "rejected": []
+    }
+  },
   "create_webhook_endpoint": {
     "request": {
       "url": "https://billing.acme.example/webhooks/meteroid",

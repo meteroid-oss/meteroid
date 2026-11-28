@@ -1,0 +1,49 @@
+# The Kafka recipe end to end: Apache Kafka, Redpanda Connect, and a stand-in for Meteroid.
+services:
+  kafka:
+    image: apache/kafka:3.9.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 2s
+      retries: 60
+  meteroid:
+    image: python:3.12-alpine
+    command: ["python", "/test/mock_meteroid.py"]
+    volumes:
+      - ./:/test:ro
+      - data:/data
+  connect:
+    image: docker.redpanda.com/redpandadata/connect:${CONNECT_VERSION:-4.68.0}
+    # The stand-in writes to the same volume, as root.
+    user: root
+    command:
+      - run
+      - -r
+      - /recipes/meteroid.yaml
+      - -r
+      - /recipes/dead-letter-file.yaml
+      - /recipes/sources/kafka.yaml
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      METEROID_API_URL: http://meteroid:8080
+      METEROID_API_KEY: test-key
+      METEROID_DEAD_LETTER_PATH: /data/rejected.jsonl
+    volumes:
+      - ../:/recipes:ro
+      - data:/data
+    depends_on:
+      kafka:
+        condition: service_healthy
+      meteroid:
+        condition: service_started
+volumes:
+  data:

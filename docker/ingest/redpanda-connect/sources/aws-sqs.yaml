@@ -1,0 +1,11 @@
+# One JSON event per message, in v2 ingest's shape; deleted from the queue once Meteroid answered.
+input:
+  aws_sqs:
+    url: ${SQS_QUEUE_URL}
+    region: ${AWS_REGION}
+pipeline:
+  processors:
+    - mapping: meta meteroid_event_id = @sqs_message_id
+    - resource: meteroid_event
+output:
+  resource: meteroid
