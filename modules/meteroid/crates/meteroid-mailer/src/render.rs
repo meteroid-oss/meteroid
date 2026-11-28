@@ -7,12 +7,13 @@ use crate::l10n::{EmailL10N, email_l10n};
 use crate::template::{
     AuthenticationRequiredContent, BudgetAlertContent, ButtonTemplate, CreditNoteIssuedContent,
     CustomBodyContent, EmailColors, HeaderTemplate, InvoicePaidContent, InvoiceReadyContent,
-    PaymentFailedContent, PaymentMethodRequestContent, QuoteReadyContent,
+    LayoutTemplate, PaymentFailedContent, PaymentMethodRequestContent, QuoteReadyContent,
     QuoteSignatureCodeContent, StatusBadge, SummaryBoxTemplate, SummaryHero, WalletNoticeContent,
     render_layout,
 };
 use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::l10n::long_date;
+use sailfish::TemplateSimple;
 
 pub use crate::template::format_currency;
 
@@ -404,6 +405,26 @@ fn preview_line(summary: &SummaryBoxTemplate, number: &str) -> Option<String> {
 
 /// Inline styles on the tags `copy::to_html` emits, for clients that drop `<style>`.
 /// Text and variables are already escaped there, so a literal tag can only be markup.
+/// A workflow's email to the team, in the Meteroid layout: its text as paragraphs, and a button
+/// to the workflow when its page is known.
+pub fn team_notice(
+    subject: &str,
+    message: &str,
+    workflow_url: Option<String>,
+) -> Result<String, MailerServiceError> {
+    let content = CustomBodyContent {
+        html_fragment: style_fragment(&crate::copy::plain_to_html(message)),
+        summary: None,
+        cta: workflow_url.map(|url| ButtonTemplate {
+            label: "View the workflow".to_string(),
+            url,
+            color: "#111318".to_string(),
+        }),
+        hedge: Some("A workflow of your Meteroid workspace sent this email.".to_string()),
+    };
+    Ok(LayoutTemplate::meteroid(subject.to_owned(), content).render_once()?)
+}
+
 fn style_fragment(html: &str) -> String {
     const BLOCK: &str = "margin:0 0 16px;font-size:15px;line-height:24px;color:#414651;";
     html.replace("<p>", &format!("<p style=\"{BLOCK}\">"))

@@ -492,7 +492,7 @@ pub struct BudgetAlertContent {
 }
 
 /// `html_fragment` is the single unescaped insertion point of the layout; it is only ever
-/// fed by `copy::to_html`.
+/// fed by `copy::to_html` or `copy::plain_to_html`.
 #[derive(TemplateSimple)]
 #[template(path = "custom_body.stpl")]
 pub struct CustomBodyContent {

@@ -303,6 +303,21 @@ pub fn to_html(body_md: &str, vars: &Vars) -> String {
     })
 }
 
+/// Plain text as HTML paragraphs, escaped: a blank line parts them, a line break stays one.
+pub fn plain_to_html(text: &str) -> String {
+    text.replace("\r\n", "\n")
+        .split("\n\n")
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(|p| {
+            format!(
+                "<p>{}</p>",
+                html_escape::encode_text(p).replace('\n', "<br>")
+            )
+        })
+        .collect()
+}
+
 /// Plain-text substitution for subjects: no Markdown, no escaping.
 pub fn substitute(subject: &str, vars: &Vars) -> String {
     replace_vars(subject, |name| vars.value(name).to_string())
@@ -311,6 +326,15 @@ pub fn substitute(subject: &str, vars: &Vars) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plain_text_becomes_escaped_paragraphs() {
+        assert_eq!(
+            plain_to_html("Hi <b>team</b>\nline two\n\n\nNext"),
+            "<p>Hi &lt;b&gt;team&lt;/b&gt;<br>line two</p><p>Next</p>"
+        );
+        assert_eq!(plain_to_html("  \n\n "), "");
+    }
 
     fn vars() -> Vars {
         Vars::new()
