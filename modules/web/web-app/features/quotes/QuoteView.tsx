@@ -4,10 +4,7 @@ import { FC, ReactNode } from 'react'
 import { Slot } from '@/edition'
 import { MinimumCommitmentDisplay, productScopeOptions } from '@/features/billing/minimumCommitment'
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
-import {
-  QuoteContractValueSection,
-  QuotePriceSchedule,
-} from '@/features/quotes/QuotePriceSchedule'
+import { QuoteContractValueSection, QuotePriceSchedule } from '@/features/quotes/QuotePriceSchedule'
 import { QuoteDiscounts } from '@/features/quotes/QuoteViewDiscounts'
 import {
   QuoteSignatureBlocks,
@@ -28,6 +25,7 @@ import {
   QuoteComponent,
   QuoteCouponTerms,
   QuotePriceStep,
+  QuoteContractTerm,
   QuoteSectionPlacement,
   QuoteSignature,
   QuoteTotals,
@@ -45,6 +43,7 @@ export interface QuoteViewProps {
     couponTerms?: QuoteCouponTerms[]
     priceSchedule?: QuotePriceStep[]
     signatures?: QuoteSignature[]
+    contractTerm?: QuoteContractTerm
   }
   mode?: 'preview' | 'detailed' | 'portal'
   className?: string
@@ -280,19 +279,23 @@ export const QuoteView: FC<QuoteViewProps> = ({
   }
 
   const renderContractTerms = () => {
-    if (!minimumCommitment || !q?.currency) return null
+    const term = quote.contractTerm
+    if ((!minimumCommitment || !q?.currency) && !term) return null
 
     // Scope is keyed by product; resolve product names from the quote's components.
     const componentOptions = productScopeOptions(quote.components || [])
 
     return (
       <Section title="Contract Terms">
-        <div className="rounded-lg bg-muted/50 p-4">
-          <MinimumCommitmentDisplay
-            commitment={minimumCommitment}
-            currency={q.currency}
-            components={componentOptions}
-          />
+        <div className="flex flex-col gap-3 rounded-lg bg-muted/50 p-4">
+          {term && <ContractTermRows term={term} />}
+          {minimumCommitment && q?.currency && (
+            <MinimumCommitmentDisplay
+              commitment={minimumCommitment}
+              currency={q.currency}
+              components={componentOptions}
+            />
+          )}
         </div>
       </Section>
     )
@@ -339,3 +342,29 @@ export const QuoteView: FC<QuoteViewProps> = ({
     </Card>
   )
 }
+
+const months = (n: number) =>
+  n % 12 === 0 ? `${n / 12} year${n === 12 ? '' : 's'}` : `${n} months`
+
+/** The term the quote signs, as its subscription will renew (ADR-0022 §2). */
+const ContractTermRows = ({ term }: { term: QuoteContractTerm }) => (
+  <div className="grid gap-x-8 gap-y-2 lg:grid-cols-2">
+    <DetailRow label="Term:" value={`${months(term.termMonths)} from the billing start`} />
+    <DetailRow
+      label="Renewal:"
+      value={
+        term.autoRenew
+          ? `Renews automatically for ${months(term.renewalMonths)}${
+              term.upliftPercent ? `, prices +${term.upliftPercent}% at each renewal` : ''
+            }`
+          : 'Ends with the term'
+      }
+    />
+    {term.autoRenew && term.noticeDays > 0 && (
+      <DetailRow
+        label="Notice:"
+        value={`Cancel at least ${term.noticeDays} days before a term ends`}
+      />
+    )}
+  </div>
+)

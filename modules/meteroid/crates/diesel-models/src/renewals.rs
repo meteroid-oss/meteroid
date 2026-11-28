@@ -36,6 +36,8 @@ pub struct RenewalCandidateRow {
     pub currency: String,
     #[diesel(sql_type = Int8)]
     pub mrr_cents: i64,
+    #[diesel(sql_type = diesel::sql_types::Int2)]
+    pub billing_day_anchor: i16,
     #[diesel(sql_type = Text)]
     pub period: String,
     #[diesel(sql_type = Nullable<Date>)]

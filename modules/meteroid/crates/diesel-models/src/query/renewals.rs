@@ -10,7 +10,7 @@ use crate::{DbResult, PgConn};
 
 const LIST_CANDIDATES: &str = "
 SELECT s.tenant_id, tn.organization_id, s.id AS subscription_id, s.customer_id,
-       c.name AS customer_name, p.name AS plan_name, s.currency, s.mrr_cents,
+       c.name AS customer_name, p.name AS plan_name, s.currency, s.mrr_cents, s.billing_day_anchor,
        s.period::text AS period, s.current_period_end, s.end_date, cancel.at AS cancel_date,
        t.term_end, t.auto_renew AS term_auto_renew, t.renewal_months AS term_renewal_months,
        t.uplift_percent AS term_uplift_percent, t.notice_days AS term_notice_days,

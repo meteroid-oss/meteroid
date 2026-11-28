@@ -424,3 +424,27 @@ mod scaled_price_tests {
         assert_eq!(scaled_price(dec!(0.0004), dec!(1.05), 2), dec!(0.00042));
     }
 }
+
+/// A quote's contract term (ADR-0022 §2): written as its subscription's term on conversion, its
+/// ends counted in months from the billing start.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct QuoteTerm {
+    pub term_months: u32,
+    pub auto_renew: bool,
+    pub renewal_months: u32,
+    pub notice_days: u32,
+    pub uplift_percent: Option<rust_decimal::Decimal>,
+}
+
+impl QuoteTerm {
+    pub fn from_row(row: &diesel_models::trial_offers::QuoteTermRow) -> Self {
+        let months = |m: i32| u32::try_from(m).unwrap_or_default();
+        QuoteTerm {
+            term_months: months(row.term_months),
+            auto_renew: row.auto_renew,
+            renewal_months: months(row.renewal_months),
+            notice_days: months(row.notice_days),
+            uplift_percent: row.uplift_percent,
+        }
+    }
+}

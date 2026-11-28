@@ -335,6 +335,31 @@ message SetQuotePhasesResponse {
   repeated PlanPhaseTemplate phases = 1;
 }
 
+// A quote's contract term (ADR-0022 §2), written as its subscription's term on conversion: its
+// ends counted in months from the billing start.
+message QuoteTerm {
+  uint32 term_months = 1;
+  bool auto_renew = 2;
+  uint32 renewal_months = 3;
+  uint32 notice_days = 4;
+  // Decimal percent added at each renewal to each fee priced by one amount.
+  optional string uplift_percent = 5;
+}
+message GetQuoteTermRequest {
+  string quote_id = 1;
+}
+message GetQuoteTermResponse {
+  optional QuoteTerm term = 1;
+}
+// Without a term, the quote has none: it ends on its end date, if any.
+message SetQuoteTermRequest {
+  string quote_id = 1;
+  optional QuoteTerm term = 2;
+}
+message SetQuoteTermResponse {
+  optional QuoteTerm term = 1;
+}
+
 // Phases for a common shape, to review and set: nothing is stored.
 message GeneratePhasesRequest {
   message Price {
@@ -379,5 +404,7 @@ service SubscriptionPhasesService {
   rpc SetPlanVersionPhases(SetPlanVersionPhasesRequest) returns (SetPlanVersionPhasesResponse) {}
   rpc ListQuotePhases(ListQuotePhasesRequest) returns (ListQuotePhasesResponse) {}
   rpc SetQuotePhases(SetQuotePhasesRequest) returns (SetQuotePhasesResponse) {}
+  rpc GetQuoteTerm(GetQuoteTermRequest) returns (GetQuoteTermResponse) {}
+  rpc SetQuoteTerm(SetQuoteTermRequest) returns (SetQuoteTermResponse) {}
   rpc GeneratePhases(GeneratePhasesRequest) returns (GeneratePhasesResponse) {}
 }

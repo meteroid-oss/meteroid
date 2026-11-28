@@ -313,6 +313,16 @@ pub async fn create_subscription(
             );
             RestApiError::from(e)
         })?;
+    if let Err(error) = app_state
+        .services
+        .mark_sold_via(authorized_state.tenant_id, &[created.id], "API")
+        .await
+    {
+        log::warn!(
+            "subscription {} sold via the API not recorded: {error:?}",
+            created.id
+        );
+    }
 
     let res = app_state
         .store

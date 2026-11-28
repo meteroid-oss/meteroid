@@ -265,6 +265,17 @@ message DetailedQuote {
   // The quote's ramp, as its document states it; empty without phases.
   repeated QuotePriceStep price_schedule = 17;
   reserved 18;
+  // The contract term it signs; absent without one.
+  optional QuoteContractTerm contract_term = 19;
+}
+
+// A quote's contract term as its document states it (ADR-0022 §2).
+message QuoteContractTerm {
+  uint32 term_months = 1;
+  bool auto_renew = 2;
+  uint32 renewal_months = 3;
+  uint32 notice_days = 4;
+  optional string uplift_percent = 5;
 }
 
 // A phase of a quote's price schedule: from its start, these prices, seats and minimum.

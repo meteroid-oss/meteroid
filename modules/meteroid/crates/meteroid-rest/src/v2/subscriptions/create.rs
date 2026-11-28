@@ -282,6 +282,16 @@ pub async fn create_subscription(
             return Err(insert_refused(&state, &auth, external_id.as_deref(), error).await);
         }
     };
+    if let Err(error) = state
+        .services
+        .mark_sold_via(tenant_id, &[created.id], "API")
+        .await
+    {
+        log::warn!(
+            "subscription {} sold via the API not recorded: {error:?}",
+            created.id
+        );
+    }
     // Written: a retry replays this answer, never a second subscription, whatever is read back.
     // Whole, else as lists read it, else by its id alone.
     let id = created.id;

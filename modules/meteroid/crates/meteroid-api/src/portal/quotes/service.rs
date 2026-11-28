@@ -512,6 +512,10 @@ pub(crate) async fn quote_portal_details(
         comments,
         coupon_terms,
         price_schedule,
+        contract_term: detailed_quote
+            .term
+            .as_ref()
+            .map(crate::quotes::mapping::quotes::contract_term_to_proto),
         current_signer_role: crate::quotes::mapping::quotes::signer_role_to_proto(
             current_signer_role,
         ) as i32,

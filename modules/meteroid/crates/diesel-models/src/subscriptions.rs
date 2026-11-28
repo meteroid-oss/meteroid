@@ -103,6 +103,8 @@ pub struct SubscriptionRow {
     pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
     /// The stored resource it is for; `None` for the whole customer.
     pub resource_id: Option<ResourceId>,
+    /// How it was sold: SELF_SERVE, QUOTE, APP, API or IMPORT; null when unknown.
+    pub sold_via: Option<String>,
 }
 
 #[derive(Insertable, Debug, Clone)]
@@ -147,6 +149,8 @@ pub struct SubscriptionRowNew {
     /// The integrator's own id, unique per tenant (`subscription_tenant_external_id_key`).
     pub external_id: Option<String>,
     pub resource_id: Option<ResourceId>,
+    /// How it was sold: SELF_SERVE, QUOTE, APP, API or IMPORT; null when unknown.
+    pub sold_via: Option<String>,
 }
 
 pub struct CancelSubscriptionParams {

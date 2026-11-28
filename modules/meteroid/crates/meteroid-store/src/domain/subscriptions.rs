@@ -226,6 +226,8 @@ pub struct Subscription {
     pub tax_inclusive_rate: Option<rust_decimal::Decimal>,
     /// The stored resource it is for, fixed once active; `None` for the whole customer.
     pub resource_id: Option<ResourceId>,
+    /// How it was sold: SELF_SERVE, QUOTE, APP, API or IMPORT; `None` when unknown (ADR-0022 §4).
+    pub sold_via: Option<String>,
 }
 
 pub enum CyclePosition {
@@ -329,6 +331,7 @@ impl TryFrom<SubscriptionForDisplayRow> for Subscription {
             tax_inclusive: val.subscription.tax_inclusive,
             tax_inclusive_rate: val.subscription.tax_inclusive_rate,
             resource_id: val.subscription.resource_id,
+            sold_via: val.subscription.sold_via.clone(),
         })
     }
 }
@@ -469,6 +472,15 @@ impl SubscriptionNewEnriched<'_> {
             plan_option_id: self.plan_option_id,
             external_id: sub.external_id.clone(),
             resource_id: sub.resource_id,
+            sold_via: if self.quote_id.is_some() {
+                Some("QUOTE".to_string())
+            } else if self.imported_at.is_some() {
+                Some("IMPORT".to_string())
+            } else if sub.skip_checkout_session {
+                Some("SELF_SERVE".to_string())
+            } else {
+                None
+            },
         })
     }
 }

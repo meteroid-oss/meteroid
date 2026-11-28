@@ -315,6 +315,7 @@ pub const NOT_COPIED: &[&str] = &[
     "quote_signature_otp",
     "quote_view",
     "quote_phase",
+    "quote_term",
     "quote_offer",
     "quote_contract_value",
     "slot_transaction",

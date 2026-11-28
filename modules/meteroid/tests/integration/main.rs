@@ -79,6 +79,7 @@ mod test_product;
 mod test_product_family;
 mod test_purchase_links;
 mod test_quote;
+mod test_quote_term;
 mod test_quote_v2;
 mod test_rate_cards;
 mod test_rate_limit;

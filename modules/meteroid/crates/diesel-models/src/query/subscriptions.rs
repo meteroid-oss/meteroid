@@ -40,6 +40,25 @@ impl SubscriptionRowNew {
 }
 
 impl SubscriptionRow {
+    /// Records how the subscriptions were sold (ADR-0022 §4), when nothing recorded it yet.
+    pub async fn mark_sold_via(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        ids: &[SubscriptionId],
+        sold_via: &str,
+    ) -> DbResult<usize> {
+        use crate::schema::subscription::dsl as s;
+        diesel::update(s::subscription)
+            .filter(s::tenant_id.eq(tenant_id))
+            .filter(s::id.eq_any(ids))
+            .filter(s::sold_via.is_null())
+            .set(s::sold_via.eq(sold_via))
+            .execute(conn)
+            .await
+            .attach("Error while recording how subscriptions were sold")
+            .into_db_result()
+    }
+
     /// Non-terminal subscriptions whose billing cursor has not yet reached today,
     /// i.e. the billing worker is still generating their historical invoices.
     pub async fn count_pending_billing_catchup(

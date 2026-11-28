@@ -260,7 +260,25 @@ impl Services {
         issue: Issue,
     ) -> StoreResult<Option<Stepped>> {
         // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
-        Box::pin(self.step_unboxed(conn, actor, tenant_id, subscription_id, now, issue)).await
+        Box::pin(async move {
+            let stepped = self
+                .step_unboxed(conn, actor, tenant_id, subscription_id, now, issue)
+                .await?;
+            if stepped.is_some() {
+                Box::pin(
+                    crate::services::subscriptions::terms::attach_pending_renewal_tx(
+                        self,
+                        conn,
+                        actor,
+                        tenant_id,
+                        subscription_id,
+                    ),
+                )
+                .await?;
+            }
+            Ok(stepped)
+        })
+        .await
     }
 
     async fn step_unboxed(

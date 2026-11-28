@@ -1742,14 +1742,16 @@ impl Store {
     }
 }
 
-/// A quote is sent only when its phases bill as signed once it converts (R-155).
+/// A quote is sent only when its phases and term bill as signed once it converts (R-155,
+/// ADR-0022 §2).
 async fn schedule_converts_tx(
     conn: &mut crate::store::PgConn,
     tenant_id: TenantId,
     quote_id: QuoteId,
 ) -> StoreResult<()> {
     let detailed = detailed_quote_tx(conn, tenant_id, quote_id).await?;
-    crate::services::plan_phases::check_quote_schedule(&detailed, &detailed.phases)
+    crate::services::plan_phases::check_quote_schedule(&detailed, &detailed.phases)?;
+    crate::services::plan_phases::check_quote_term(&detailed, true)
 }
 
 pub(crate) async fn detailed_quote_tx(
@@ -1968,5 +1970,10 @@ pub(crate) async fn detailed_quote_tx(
         minimum,
         phases: crate::services::plan_phases::quote_phases_tx(conn, tenant_id, quote_id).await?,
         trial_plan_name,
+        term: diesel_models::trial_offers::QuoteTermRow::find(conn, tenant_id, quote_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .as_ref()
+            .map(crate::domain::subscription_phases::QuoteTerm::from_row),
     })
 }

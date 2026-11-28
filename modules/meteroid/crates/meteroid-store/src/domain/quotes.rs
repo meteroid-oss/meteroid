@@ -474,6 +474,8 @@ pub struct DetailedQuote {
     pub phases: Vec<crate::domain::trial_offers::PlanPhaseTemplate>,
     /// The name of the plan whose features its trial gives.
     pub trial_plan_name: Option<String>,
+    /// The contract term it signs (ADR-0022 §2).
+    pub term: Option<crate::domain::subscription_phases::QuoteTerm>,
 }
 
 impl DetailedQuote {

@@ -328,6 +328,7 @@ const QuotePortalView: FC<QuotePortalViewProps> = ({ quoteData, preview = false 
                 addOns: quoteData.addOns,
                 couponTerms: quoteData.couponTerms,
                 priceSchedule: quoteData.priceSchedule,
+                contractTerm: quoteData.contractTerm,
                 quote,
                 customer,
                 invoicingEntity: quoteData.entity,

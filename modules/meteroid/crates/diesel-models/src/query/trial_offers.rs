@@ -415,3 +415,49 @@ impl QuotePhaseRow {
             .into_db_result()
     }
 }
+
+impl crate::trial_offers::QuoteTermRow {
+    pub async fn find(
+        conn: &mut PgConn,
+        tenant_id_param: TenantId,
+        quote_id_param: common_domain::ids::QuoteId,
+    ) -> DbResult<Option<crate::trial_offers::QuoteTermRow>> {
+        use crate::schema::quote_term::dsl::{quote_id, quote_term, tenant_id};
+        quote_term
+            .filter(tenant_id.eq(tenant_id_param))
+            .filter(quote_id.eq(quote_id_param))
+            .select(crate::trial_offers::QuoteTermRow::as_select())
+            .first(conn)
+            .await
+            .optional()
+            .attach("Error while reading a quote's term")
+            .into_db_result()
+    }
+
+    /// The quote's term replaced by `row`, or removed when none.
+    pub async fn replace(
+        conn: &mut PgConn,
+        tenant_id_param: TenantId,
+        quote_id_param: common_domain::ids::QuoteId,
+        row: Option<&crate::trial_offers::QuoteTermRow>,
+    ) -> DbResult<()> {
+        use crate::schema::quote_term::dsl::{quote_id, quote_term, tenant_id};
+        diesel::delete(quote_term)
+            .filter(tenant_id.eq(tenant_id_param))
+            .filter(quote_id.eq(quote_id_param))
+            .execute(conn)
+            .await
+            .attach("Error while replacing a quote's term")
+            .into_db_result()?;
+        let Some(row) = row else {
+            return Ok(());
+        };
+        diesel::insert_into(quote_term)
+            .values(row)
+            .execute(conn)
+            .await
+            .attach("Error while writing a quote's term")
+            .map(|_| ())
+            .into_db_result()
+    }
+}

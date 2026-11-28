@@ -3,7 +3,7 @@ use chrono::NaiveDateTime;
 use common_domain::ids::{
     CustomerId, PlanId, PlanVersionId, ProductFamilyId, SubscriptionId, TenantId, TrialOfferId,
 };
-use diesel::{Identifiable, Insertable, Queryable, Selectable};
+use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable, Insertable)]
@@ -72,4 +72,21 @@ pub struct QuotePhaseRow {
     pub label: Option<String>,
     pub terms: serde_json::Value,
     pub created_at: NaiveDateTime,
+}
+
+/// A quote's contract term (ADR-0022 §2), written as its subscription's term on conversion.
+#[derive(Debug, Clone, PartialEq, Queryable, Selectable, Insertable, AsChangeset)]
+#[diesel(table_name = crate::schema::quote_term)]
+#[diesel(primary_key(quote_id))]
+#[diesel(treat_none_as_null = true)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct QuoteTermRow {
+    pub quote_id: common_domain::ids::QuoteId,
+    pub tenant_id: TenantId,
+    pub term_months: i32,
+    pub auto_renew: bool,
+    pub renewal_months: i32,
+    pub notice_days: i32,
+    pub uplift_percent: Option<rust_decimal::Decimal>,
+    pub updated_at: NaiveDateTime,
 }

@@ -2,7 +2,7 @@
 //! COMPLETE ending. Renewing, it has none: without uplift the term just rolls on; with one, a
 //! renewal phase at the term's end restates each fee at its price plus the uplift, and applying it
 //! rolls the term and appends the next. Billing reads the ending and the phases, never this.
-use chrono::{Months, NaiveDate};
+use chrono::{Datelike, Months, NaiveDate};
 use common_domain::actor::Actor;
 use common_domain::ids::{SubscriptionId, TenantId};
 use diesel_models::PgConn;
@@ -34,13 +34,24 @@ fn invalid(message: impl Into<String>) -> Report<StoreError> {
     Report::new(StoreError::InvalidArgument(message.into()))
 }
 
+/// `months` after `end`, on the `anchor` day of the month or its last day when shorter: a term's
+/// ends stay on the billing grid however many renewals chain them (ADR-0022 §2).
+pub(crate) fn months_on_anchor(end: NaiveDate, months: u32, anchor: u32) -> Option<NaiveDate> {
+    let next = end.checked_add_months(Months::new(months))?;
+    let last = NaiveDate::from_ymd_opt(next.year(), next.month(), 1)?
+        .checked_add_months(Months::new(1))?
+        .pred_opt()?
+        .day();
+    next.with_day(anchor.clamp(1, last))
+}
+
 /// The term's end on or after `today`: a term renewing without uplift rolls on unwritten.
-fn current_end(row: &SubscriptionTermRow, today: NaiveDate) -> NaiveDate {
+fn current_end(row: &SubscriptionTermRow, today: NaiveDate, anchor: u32) -> NaiveDate {
     let mut end = row.term_end;
     if row.auto_renew && row.renewal_phase_id.is_none() {
-        let months = Months::new(u32::try_from(row.renewal_months).unwrap_or(1));
+        let months = u32::try_from(row.renewal_months).unwrap_or(1);
         while end < today {
-            match end.checked_add_months(months) {
+            match months_on_anchor(end, months, anchor) {
                 Some(next) => end = next,
                 None => break,
             }
@@ -49,8 +60,12 @@ fn current_end(row: &SubscriptionTermRow, today: NaiveDate) -> NaiveDate {
     end
 }
 
-pub(crate) fn to_domain(row: &SubscriptionTermRow, today: NaiveDate) -> SubscriptionTerm {
-    let term_end = current_end(row, today);
+pub(crate) fn to_domain(
+    row: &SubscriptionTermRow,
+    today: NaiveDate,
+    anchor: u32,
+) -> SubscriptionTerm {
+    let term_end = current_end(row, today, anchor);
     let notice_days = u32::try_from(row.notice_days).unwrap_or_default();
     SubscriptionTerm {
         subscription_id: row.subscription_id,
@@ -76,10 +91,13 @@ impl Services {
     ) -> StoreResult<Option<SubscriptionTerm>> {
         let mut conn = self.store.get_conn().await?;
         let today = common_clock::now().date_naive();
-        Ok(
+        let Some(row) =
             db(SubscriptionTermRow::find(&mut conn, &tenant_id, subscription_id).await)?
-                .map(|row| to_domain(&row, today)),
-        )
+        else {
+            return Ok(None);
+        };
+        let anchor = anchor_of(&mut conn, tenant_id, subscription_id).await?;
+        Ok(Some(to_domain(&row, today, anchor)))
     }
 
     /// Sets the term: its end on a renewal after today, and whether and how it renews. Turning
@@ -120,7 +138,8 @@ impl Services {
                         common_clock::now(),
                     )
                     .await?;
-                    Ok(to_domain(&row, today))
+                    let anchor = anchor_of(conn, tenant_id, subscription_id).await?;
+                    Ok(to_domain(&row, today, anchor))
                 }
                 .scope_boxed()
             })
@@ -180,9 +199,10 @@ pub(in crate::services) async fn set_term_waiving_tx(
         .await?;
     }
     let existing = db(SubscriptionTermRow::find(conn, &tenant_id, subscription_id).await)?;
+    let anchor = u32::from(details.subscription.billing_day_anchor);
     let late_opt_out = existing
         .as_ref()
-        .map(|existing| to_domain(existing, today))
+        .map(|existing| to_domain(existing, today, anchor))
         .filter(|term| term.auto_renew && !input.auto_renew && today > term.notice_cutoff);
     match (&late_opt_out, waiver) {
         (Some(term), None) => {
@@ -362,7 +382,8 @@ pub(crate) async fn detach_renewal_tx(
     let Some(row) = db(SubscriptionTermRow::find(conn, &tenant_id, subscription_id).await)? else {
         return Ok(None);
     };
-    let end = current_end(&row, common_clock::now().date_naive());
+    let anchor = anchor_of(conn, tenant_id, subscription_id).await?;
+    let end = current_end(&row, common_clock::now().date_naive(), anchor);
     if let Some(late) = phases.iter().find(|phase| phase.start_date >= end) {
         return Err(invalid(format!(
             "the term ends on {end}: a phase starting {} comes with a longer term",
@@ -396,6 +417,7 @@ pub(in crate::services) async fn attach_renewal_tx(
     row.renewal_phase_id = None;
     if row.auto_renew
         && let Some(percent) = uplifted(&row)
+        && takes_changes(conn, tenant_id, subscription_id).await?
     {
         let terms = renewal_terms(conn, tenant_id, subscription_id, row.term_end, percent).await?;
         let seq = list_phases_tx(conn, tenant_id, subscription_id)
@@ -511,11 +533,127 @@ pub(in crate::services) async fn renewed_tx(
     let Some(mut row) = db(SubscriptionTermRow::renewed_by(conn, phase.id).await)? else {
         return Ok(());
     };
-    let months = Months::new(u32::try_from(row.renewal_months).unwrap_or(1));
-    row.term_end = row
-        .term_end
-        .checked_add_months(months)
-        .ok_or_else(|| invalid("the term's next end is out of range"))?;
+    let anchor = anchor_of(conn, change.tenant_id, change.subscription_id).await?;
+    row.term_end = months_on_anchor(
+        row.term_end,
+        u32::try_from(row.renewal_months).unwrap_or(1),
+        anchor,
+    )
+    .ok_or_else(|| invalid("the term's next end is out of range"))?;
     attach_renewal_tx(services, conn, &Actor::System, row).await?;
     Ok(())
+}
+
+/// Writes a converted quote's term on its subscription (ADR-0022 §2): its end the term's months
+/// after the billing start, on the grid's anchor.
+pub(in crate::services) async fn write_quote_term_tx(
+    services: &Services,
+    conn: &mut PgConn,
+    actor: &Actor,
+    subscription: &crate::domain::CreatedSubscription,
+    term: &crate::domain::subscription_phases::QuoteTerm,
+) -> StoreResult<SubscriptionTermRow> {
+    let start = subscription
+        .billing_start_date
+        .unwrap_or(subscription.start_date);
+    let anchor = u32::try_from(subscription.billing_day_anchor).unwrap_or(1);
+    let term_end = months_on_anchor(start, term.term_months, anchor)
+        .ok_or_else(|| invalid("the contract term ends past the calendar"))?;
+    set_term_tx(
+        services,
+        conn,
+        actor,
+        subscription.tenant_id,
+        subscription.id,
+        &SubscriptionTermInput {
+            term_end,
+            auto_renew: term.auto_renew,
+            renewal_months: term.renewal_months,
+            uplift_percent: term.uplift_percent,
+            notice_days: term.notice_days,
+        },
+    )
+    .await
+}
+
+/// The day of the month the subscription's periods start on.
+pub(crate) async fn anchor_of(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+) -> StoreResult<u32> {
+    let subscription =
+        db(SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id).await)?;
+    Ok(u32::try_from(subscription.subscription.billing_day_anchor).unwrap_or(1))
+}
+
+/// Whether the subscription takes scheduled changes: it runs (R-162).
+async fn takes_changes(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+) -> StoreResult<bool> {
+    use diesel_models::enums::SubscriptionStatusEnum as Status;
+    let row = db(SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id).await)?;
+    Ok(matches!(
+        row.subscription.status,
+        Status::Active | Status::TrialActive
+    ))
+}
+
+/// The renewal phase of a term with an uplift set before its subscription started (a converted
+/// quote's), written once it has.
+pub(in crate::services) async fn attach_pending_renewal_tx(
+    services: &Services,
+    conn: &mut PgConn,
+    actor: &Actor,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+) -> StoreResult<()> {
+    let Some(row) = db(SubscriptionTermRow::find(conn, &tenant_id, subscription_id).await)? else {
+        return Ok(());
+    };
+    if !row.auto_renew || uplifted(&row).is_none() || row.renewal_phase_id.is_some() {
+        return Ok(());
+    }
+    if !takes_changes(conn, tenant_id, subscription_id).await? {
+        return Ok(());
+    }
+    attach_renewal_tx(services, conn, actor, row)
+        .await
+        .map(drop)
+}
+
+#[cfg(test)]
+mod anchor_tests {
+    use super::months_on_anchor;
+    use chrono::NaiveDate;
+
+    fn day(y: i32, m: u32, d: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(y, m, d).unwrap()
+    }
+
+    /// A term started on Feb 29 renews on Feb 29 again in a leap year, never drifting to the 28th.
+    #[test]
+    fn term_ends_stay_on_their_anchor() {
+        let mut end = day(2028, 2, 29);
+        let mut ends = Vec::new();
+        for _ in 0..4 {
+            end = months_on_anchor(end, 12, 29).unwrap();
+            ends.push(end);
+        }
+        assert_eq!(
+            ends,
+            vec![
+                day(2029, 2, 28),
+                day(2030, 2, 28),
+                day(2031, 2, 28),
+                day(2032, 2, 29)
+            ]
+        );
+        assert_eq!(
+            months_on_anchor(day(2026, 1, 31), 1, 31),
+            Some(day(2026, 2, 28))
+        );
+    }
 }

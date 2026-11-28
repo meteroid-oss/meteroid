@@ -468,7 +468,9 @@ impl ServicesEdge {
                     .process_subscription(&sub, &payment, &context, tenant_id, None)?,
             );
         }
-        self.services
+        let self_serve = origin.is_none();
+        let created = self
+            .services
             .persist_subscriptions_from(
                 conn,
                 actor,
@@ -477,6 +479,17 @@ impl ServicesEdge {
                 &self.store.settings.public_url,
                 origin,
             )
-            .await
+            .await?;
+        if self_serve {
+            let ids: Vec<_> = created.iter().map(|c| c.id).collect();
+            diesel_models::subscriptions::SubscriptionRow::mark_sold_via(
+                conn,
+                tenant_id,
+                &ids,
+                "SELF_SERVE",
+            )
+            .await?;
+        }
+        Ok(created)
     }
 }

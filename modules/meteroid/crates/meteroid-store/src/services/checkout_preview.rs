@@ -279,6 +279,7 @@ impl Services {
             // A preview books no MRR, so it needs no snapshot of the embedded rate.
             tax_inclusive_rate: None,
             resource_id: session.resource_id,
+            sold_via: None,
         };
 
         let mut applied_coupons = Vec::new();
@@ -659,6 +660,7 @@ impl Services {
             // A preview books no MRR, so it needs no snapshot of the embedded rate.
             tax_inclusive_rate: None,
             resource_id: sub.resource_id,
+            sold_via: None,
         };
 
         let mut applied_coupons = Vec::new();

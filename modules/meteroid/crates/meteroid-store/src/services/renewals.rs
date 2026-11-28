@@ -52,7 +52,8 @@ fn term_of(row: &RenewalCandidateRow) -> Option<SubscriptionTermRow> {
 
 /// The next date after `today` that renews or ends the subscription (R-160).
 pub fn next_renewal(row: &RenewalCandidateRow, today: NaiveDate) -> Option<Renewal> {
-    let term = term_of(row).map(|term| terms::to_domain(&term, today));
+    let anchor = u32::try_from(row.billing_day_anchor).unwrap_or(1);
+    let term = term_of(row).map(|term| terms::to_domain(&term, today, anchor));
     let renewal =
         |date,
          mode,
@@ -427,6 +428,7 @@ async fn notify(store: &Store, due: Due) -> StoreResult<(bool, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Datelike;
     use uuid::Uuid;
 
     fn d(month: u32, day: u32) -> NaiveDate {
@@ -443,6 +445,7 @@ mod tests {
             plan_name: String::new(),
             currency: "EUR".into(),
             mrr_cents: 0,
+            billing_day_anchor: 1,
             period: period.into(),
             current_period_end: period_end,
             end_date: None,
@@ -464,6 +467,7 @@ mod tests {
         notice: i32,
     ) -> RenewalCandidateRow {
         row.term_end = Some(end);
+        row.billing_day_anchor = i16::try_from(end.day()).unwrap_or(1);
         row.term_auto_renew = Some(renews);
         row.term_renewal_months = Some(12);
         row.term_notice_days = Some(notice);

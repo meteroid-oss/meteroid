@@ -217,6 +217,10 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .insert_subscription(actor, subscription, tenant_id)
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
+        self.services
+            .mark_sold_via(tenant_id, &[created.id], "APP")
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
 
         let res = mapping::subscriptions::created_domain_to_proto(created)?;
 
@@ -249,6 +253,11 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let inserted = self
             .services
             .insert_subscription_batch(actor, subscriptions, tenant_id)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
+        let ids: Vec<_> = inserted.iter().map(|s| s.id).collect();
+        self.services
+            .mark_sold_via(tenant_id, &ids, "APP")
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
 

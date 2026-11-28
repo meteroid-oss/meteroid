@@ -9,14 +9,14 @@ use diesel_models::PgConn;
 use diesel_models::plans::PlanRow;
 use diesel_models::price_components::PriceComponentRow;
 use diesel_models::subscriptions::SubscriptionRowNew;
-use diesel_models::trial_offers::{PlanVersionPhaseRow, QuotePhaseRow};
+use diesel_models::trial_offers::{PlanVersionPhaseRow, QuotePhaseRow, QuoteTermRow};
 use error_stack::Report;
 use std::collections::HashMap;
 
 use crate::StoreResult;
 use crate::domain::quotes::DetailedQuote;
 use crate::domain::subscription_components::SubscriptionFee;
-use crate::domain::subscription_phases::{PhaseMinimum, SubscriptionPhaseInput};
+use crate::domain::subscription_phases::{PhaseMinimum, QuoteTerm, SubscriptionPhaseInput};
 use crate::domain::trial_offers::PlanPhaseTemplate;
 use crate::errors::StoreError;
 use crate::services::Services;
@@ -120,6 +120,66 @@ impl Services {
         )
         .await)?;
         Ok(phases)
+    }
+
+    pub(in crate::services) async fn get_quote_term(
+        &self,
+        tenant_id: TenantId,
+        quote_id: QuoteId,
+    ) -> StoreResult<Option<QuoteTerm>> {
+        let mut conn = self.store.get_conn().await?;
+        Ok(
+            db(QuoteTermRow::find(&mut conn, tenant_id, quote_id).await)?
+                .as_ref()
+                .map(QuoteTerm::from_row),
+        )
+    }
+
+    /// Replaces a draft quote's contract term, or removes it, and the quote's document with it:
+    /// what a recipient signs states its term (ADR-0022 §2).
+    pub(in crate::services) async fn set_quote_term(
+        &self,
+        tenant_id: TenantId,
+        quote_id: QuoteId,
+        term: Option<QuoteTerm>,
+    ) -> StoreResult<Option<QuoteTerm>> {
+        self.store
+            .transaction(|conn| {
+                async move {
+                    let quote = db(diesel_models::quotes::QuoteRow::find_by_id_for_update(
+                        conn, tenant_id, quote_id,
+                    )
+                    .await)?;
+                    if quote.status != diesel_models::enums::QuoteStatusEnum::Draft {
+                        return Err(invalid(
+                            "a quote's term is set while it is a draft: what was sent is signed as it was",
+                        ));
+                    }
+                    let mut detailed =
+                        crate::repositories::quotes::detailed_quote_tx(conn, tenant_id, quote_id)
+                            .await?;
+                    detailed.term = term.clone();
+                    check_quote_term(&detailed, false)?;
+                    let row = term.as_ref().map(|term| QuoteTermRow {
+                        quote_id,
+                        tenant_id,
+                        term_months: i32::try_from(term.term_months).unwrap_or(i32::MAX),
+                        auto_renew: term.auto_renew,
+                        renewal_months: i32::try_from(term.renewal_months).unwrap_or(i32::MAX),
+                        notice_days: i32::try_from(term.notice_days).unwrap_or(i32::MAX),
+                        uplift_percent: term.uplift_percent,
+                        updated_at: common_clock::now().naive_utc(),
+                    });
+                    db(QuoteTermRow::replace(conn, tenant_id, quote_id, row.as_ref()).await)?;
+                    crate::repositories::quote_signing::refresh_quote_document_tx(
+                        conn, tenant_id, quote_id,
+                    )
+                    .await?;
+                    Ok(term)
+                }
+                .scope_boxed()
+            })
+            .await
     }
 
     pub(in crate::services) async fn list_quote_phases(
@@ -309,6 +369,57 @@ pub(crate) fn check_quote_schedule(
                 "a quote with phases renews on its billing start's day: remove its billing day anchor",
             ));
         }
+    }
+    Ok(())
+}
+
+/// What a quote's term needs for the subscription it converts to to renew as signed (ADR-0022
+/// §2): its ends on a renewal of every recurring fee, on the billing start's day, after today.
+pub(crate) fn check_quote_term(quote: &DetailedQuote, sending: bool) -> StoreResult<()> {
+    let Some(term) = &quote.term else {
+        return Ok(());
+    };
+    let q = &quote.quote;
+    if q.billing_end_date.is_some() {
+        return Err(invalid(
+            "a quote with a contract term ends with it: remove its end date",
+        ));
+    }
+    if !(1..=120).contains(&term.term_months) || !(1..=120).contains(&term.renewal_months) {
+        return Err(invalid("a term and its renewal last 1 to 120 months"));
+    }
+    for fee in quote_fees(quote) {
+        for months in &fee.months {
+            for (what, length) in [("term", term.term_months), ("renewal", term.renewal_months)] {
+                if !length.is_multiple_of(*months) {
+                    return Err(invalid(format!(
+                        "{} is billed every {months} months: a {length}-month {what} does not end one of its periods",
+                        fee.name
+                    )));
+                }
+            }
+        }
+    }
+    if let Some(anchor) = q.billing_day_anchor {
+        let on_start = q
+            .billing_start_date
+            .is_some_and(|start| i32::try_from(start.day()).ok() == Some(anchor));
+        if !on_start {
+            return Err(invalid(
+                "a quote with a contract term renews on its billing start's day: remove its billing day anchor",
+            ));
+        }
+    }
+    if u64::from(term.notice_days) >= u64::from(term.term_months) * 28 {
+        return Err(invalid("the notice is shorter than the term"));
+    }
+    if sending
+        && let Some(start) = q.billing_start_date
+        && start
+            .checked_add_months(Months::new(term.term_months))
+            .is_some_and(|end| end <= common_clock::now().date_naive())
+    {
+        return Err(invalid("the contract term has already ended"));
     }
     Ok(())
 }

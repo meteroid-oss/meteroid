@@ -1356,6 +1356,21 @@ impl ServicesEdge {
                         )));
                     }
 
+                    if let Some(term) =
+                        crate::repositories::quotes::detailed_quote_tx(conn, tenant_id, quote_id)
+                            .await?
+                            .term
+                    {
+                        crate::services::subscriptions::terms::write_quote_term_tx(
+                            &self.services,
+                            conn,
+                            actor,
+                            &inserted,
+                            &term,
+                        )
+                        .await?;
+                    }
+
                     let quote_converted_event = QuoteConvertedEvent::new(
                         quote_id,
                         tenant_id,
@@ -1811,6 +1826,41 @@ impl ServicesEdge {
     ) -> StoreResult<crate::services::timeline::Projection> {
         self.services
             .project_subscription(tenant_id, subscription_id, months)
+            .await
+    }
+
+    /// Records how the subscriptions were sold, through which API (ADR-0022 §4).
+    pub async fn mark_sold_via(
+        &self,
+        tenant_id: TenantId,
+        ids: &[SubscriptionId],
+        sold_via: &str,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+        diesel_models::subscriptions::SubscriptionRow::mark_sold_via(
+            &mut conn, tenant_id, ids, sold_via,
+        )
+        .await
+        .map(drop)
+        .map_err(Into::into)
+    }
+
+    pub async fn get_quote_term(
+        &self,
+        tenant_id: TenantId,
+        quote_id: common_domain::ids::QuoteId,
+    ) -> StoreResult<Option<crate::domain::subscription_phases::QuoteTerm>> {
+        self.services.get_quote_term(tenant_id, quote_id).await
+    }
+
+    pub async fn set_quote_term(
+        &self,
+        tenant_id: TenantId,
+        quote_id: common_domain::ids::QuoteId,
+        term: Option<crate::domain::subscription_phases::QuoteTerm>,
+    ) -> StoreResult<Option<crate::domain::subscription_phases::QuoteTerm>> {
+        self.services
+            .set_quote_term(tenant_id, quote_id, term)
             .await
     }
 

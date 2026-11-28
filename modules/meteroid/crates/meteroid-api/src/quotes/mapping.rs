@@ -508,6 +508,7 @@ pub mod quotes {
                 .map(coupon_terms_to_proto)
                 .collect(),
             price_schedule: price_schedule_to_proto(detailed_quote),
+            contract_term: detailed_quote.term.as_ref().map(contract_term_to_proto),
             signatures: signatures.iter().map(quote_signature_to_proto).collect(),
             minimum_commitment: detailed_quote
                 .minimum
@@ -630,6 +631,18 @@ pub mod quotes {
             id: coupon.id.as_proto(),
             quote_id: coupon.quote_id.as_proto(),
             coupon_id: coupon.coupon_id.as_proto(),
+        }
+    }
+
+    pub fn contract_term_to_proto(
+        term: &meteroid_store::domain::subscription_phases::QuoteTerm,
+    ) -> v1::QuoteContractTerm {
+        v1::QuoteContractTerm {
+            term_months: term.term_months,
+            auto_renew: term.auto_renew,
+            renewal_months: term.renewal_months,
+            notice_days: term.notice_days,
+            uplift_percent: term.uplift_percent.map(|p| p.normalize().to_string()),
         }
     }
 

@@ -3718,6 +3718,19 @@ diesel::table! {
 }
 
 diesel::table! {
+    quote_term (quote_id) {
+        quote_id -> Uuid,
+        tenant_id -> Uuid,
+        term_months -> Int4,
+        auto_renew -> Bool,
+        renewal_months -> Int4,
+        notice_days -> Int4,
+        uplift_percent -> Nullable<Numeric>,
+        updated_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     quote_view (id) {
         id -> Uuid,
         tenant_id -> Uuid,
@@ -4096,6 +4109,7 @@ diesel::table! {
         external_id -> Nullable<Text>,
         updated_at -> Nullable<Timestamptz>,
         resource_id -> Nullable<Uuid>,
+        sold_via -> Nullable<Text>,
     }
 }
 
@@ -5189,6 +5203,8 @@ diesel::joinable!(quote_signature_certificate -> tenant (tenant_id));
 diesel::joinable!(quote_signature_otp -> quote (quote_id));
 diesel::joinable!(quote_signature_otp -> tenant (tenant_id));
 diesel::joinable!(quote_template -> tenant (tenant_id));
+diesel::joinable!(quote_term -> quote (quote_id));
+diesel::joinable!(quote_term -> tenant (tenant_id));
 diesel::joinable!(quote_view -> quote (quote_id));
 diesel::joinable!(quote_view -> tenant (tenant_id));
 diesel::joinable!(rate_card -> billable_metric (metric_id));

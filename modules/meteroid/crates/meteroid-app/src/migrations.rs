@@ -89,6 +89,7 @@ END $$"#;
 // written in the final schema, so it cannot run before the conversion; it adds them `IF NOT EXISTS`.
 const COLUMNS_THE_CONVERSION_READS: &str = "
     ALTER TABLE subscription ADD COLUMN IF NOT EXISTS resource_id UUID;
+    ALTER TABLE subscription ADD COLUMN IF NOT EXISTS sold_via TEXT;
     ALTER TABLE plan ADD COLUMN IF NOT EXISTS trial_offer_id UUID;
     ALTER TABLE subscription_trial ADD COLUMN IF NOT EXISTS trial_plan_id UUID,
         ADD COLUMN IF NOT EXISTS trial_offer_id UUID,

@@ -57,6 +57,9 @@ pub struct QuoteDocument {
     // keeps the hash it had (R-155).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub phases: Vec<PlanPhaseTemplate>,
+    // The contract term signed; skipped when unset so a document without one keeps its hash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub term: Option<crate::domain::subscription_phases::QuoteTerm>,
     pub recipients: Vec<RecipientDetails>,
     pub countersigners: Vec<QuoteCountersigner>,
     /// Their content's hash is part of the document's: a signature covers the files it was given.
@@ -236,6 +239,7 @@ impl QuoteDocument {
             coupon_ids: quote.coupons.iter().map(|c| c.coupon_id).collect(),
             coupons: quote.coupon_terms(),
             phases: named_phases(quote),
+            term: quote.term.clone(),
             minimum: quote.minimum.as_ref().map(|m| QuoteDocumentMinimum {
                 amount_subunit: m.amount_subunit,
                 product_ids: match &m.scope {
@@ -434,6 +438,7 @@ mod tests {
             coupons,
             minimum: None,
             phases: vec![],
+            term: None,
             recipients: vec![],
             countersigners: vec![],
             attachments: vec![],

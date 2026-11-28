@@ -48,7 +48,7 @@ pub(crate) async fn create_test_quote(clients: &AllClients) -> api::quotes::v1::
         .expect("Failed to create quote")
 }
 
-fn test_quote_payload(
+pub(crate) fn test_quote_payload(
     slot_count: u32,
     custom_properties: Option<String>,
 ) -> api::quotes::v1::CreateQuote {

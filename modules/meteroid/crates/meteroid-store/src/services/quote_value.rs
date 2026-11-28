@@ -20,7 +20,7 @@ use crate::services::quotes::build_subscription_from_quote;
 use crate::services::timeline::Projection;
 use crate::store::PgConn;
 
-const MAX_MONTHS: u32 = 60;
+const MAX_MONTHS: u32 = 120;
 
 impl ServicesEdge {
     /// Values the quote as stored and keeps the value, after each of its writes: what a
@@ -67,10 +67,16 @@ impl ServicesEdge {
         // Valued as from its start, whatever activates it.
         params.subscription.activation_condition = SubscriptionActivationCondition::OnStart;
         let start = params.subscription.start_date;
-        let term_months = params
-            .subscription
-            .end_date
-            .map(|end| months_between(start, end));
+        let term_months = quote
+            .term
+            .as_ref()
+            .map(|term| term.term_months)
+            .or_else(|| {
+                params
+                    .subscription
+                    .end_date
+                    .map(|end| months_between(start, end))
+            });
         let last_phase = quote
             .phases
             .iter()

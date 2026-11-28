@@ -48,6 +48,7 @@ message QuotePortalDetails {
   reserved 31;
   // The merchant's workspace is not in production: the portal shows a test-mode banner.
   bool test_mode = 32;
+  optional api.quotes.v1.QuoteContractTerm contract_term = 33;
 }
 
 message QuoteCountersignerStatus {
