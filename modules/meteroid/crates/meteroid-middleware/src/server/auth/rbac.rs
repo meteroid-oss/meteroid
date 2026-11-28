@@ -174,7 +174,9 @@ pub fn method_auth(sm: &GrpcServiceMethod) -> Option<RouteAuth> {
         "TargetsService" => rw(method, TargetsRead, TargetsManage),
 
         // ---- the books ----
-        "RevenueRecognitionService" => rw(method, AccountingRead, AccountingManage),
+        "RevenueRecognitionService" | "DatevService" => {
+            rw(method, AccountingRead, AccountingManage)
+        }
 
         // ---- read-only analytics & reporting ----
         "StatsService"
@@ -409,6 +411,15 @@ mod tests {
         assert_eq!(
             method_auth(&gm(service, "ExportJournal")),
             Some(RouteAuth::Requires(AccountingRead))
+        );
+        let datev = "meteroid.api.datev.v1.DatevService";
+        assert_eq!(
+            method_auth(&gm(datev, "ExportDatevMonth")),
+            Some(RouteAuth::Requires(AccountingRead))
+        );
+        assert_eq!(
+            method_auth(&gm(datev, "UpdateDatevSettings")),
+            Some(RouteAuth::Requires(AccountingManage))
         );
     }
 

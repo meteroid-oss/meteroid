@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package meteroid.api.datev.v1;
+
+// An invoicing entity's books as DATEV-Format files for its tax adviser (EE module `datev`).
+service DatevService {
+  rpc GetDatevSettings(GetDatevSettingsRequest) returns (GetDatevSettingsResponse);
+  rpc UpdateDatevSettings(UpdateDatevSettingsRequest) returns (UpdateDatevSettingsResponse);
+  // A month's booking batch and the master data of the customers it books. Customers booked for
+  // the first time receive their DATEV account number.
+  rpc ExportDatevMonth(ExportDatevMonthRequest) returns (ExportDatevMonthResponse);
+  // A closed month's revenue recognition journal (deferrals posting scope), with key 40 wherever
+  // DATEV would derive VAT. Needs revenue recognition.
+  rpc ExportDatevJournal(ExportDatevJournalRequest) returns (ExportDatevJournalResponse);
+}
+
+enum DatevChart {
+  DATEV_CHART_UNSPECIFIED = 0;
+  DATEV_CHART_SKR03 = 1;
+  DATEV_CHART_SKR04 = 2;
+}
+
+enum DatevTaxExemption {
+  DATEV_TAX_EXEMPTION_NONE = 0;
+  DATEV_TAX_EXEMPTION_REVERSE_CHARGE = 1;
+  DATEV_TAX_EXEMPTION_TAX_EXEMPT = 2;
+  DATEV_TAX_EXEMPTION_EXPORT = 3;
+  DATEV_TAX_EXEMPTION_NOT_REGISTERED = 4;
+  DATEV_TAX_EXEMPTION_NO_VAT_TERRITORY = 5;
+}
+
+// The account the supplies at a rate, in a tax position, are booked to.
+message DatevPositionAccount {
+  // A fraction: "0.19" for 19 %.
+  string tax_rate = 1;
+  DatevTaxExemption exemption = 2;
+  uint64 account = 3;
+  // The BU-Schlüssel the account needs; unset for an automatic account.
+  optional string tax_key = 4;
+}
+
+message DatevSettings {
+  uint32 consultant_number = 1;
+  uint32 client_number = 2;
+  DatevChart chart = 3;
+  uint32 account_length = 4;
+  // 1 for a calendar fiscal year.
+  uint32 fiscal_year_start_month = 5;
+  // Where customer numbering starts; 10000 with four-digit accounts when unset.
+  optional uint64 first_debtor_account = 6;
+  bool lock_batches = 7;
+  repeated DatevPositionAccount positions = 8;
+  // Unset: the chart's default (Geldtransit).
+  optional uint64 clearing_account = 9;
+  // Prepaid credit sold, a customer advance. Unset: the chart's default.
+  optional uint64 advance_account = 10;
+}
+
+message GetDatevSettingsRequest {
+  string invoicing_entity_id = 1;
+}
+message GetDatevSettingsResponse {
+  // Unset until the entity's DATEV client is set up.
+  optional DatevSettings settings = 1;
+  // Whether the tenant's plan lets it change the settings and export.
+  bool editable = 2;
+}
+
+message UpdateDatevSettingsRequest {
+  string invoicing_entity_id = 1;
+  DatevSettings settings = 2;
+}
+message UpdateDatevSettingsResponse {
+  DatevSettings settings = 1;
+}
+
+message ExportDatevMonthRequest {
+  string invoicing_entity_id = 1;
+  // Any day of the month (YYYY-MM-DD).
+  string month = 2;
+}
+
+message DatevFile {
+  string filename = 1;
+  // Windows-1252, as DATEV imports it.
+  bytes content = 2;
+}
+
+message ExportDatevMonthResponse {
+  DatevFile bookings = 1;
+  DatevFile debtors = 2;
+  uint32 booked = 3;
+  // What the adviser should know: VAT DATEV derives differently, product codes that are no account.
+  repeated string warnings = 4;
+}
+
+message ExportDatevJournalRequest {
+  string invoicing_entity_id = 1;
+  // Any day of the closed month (YYYY-MM-DD).
+  string month = 2;
+}
+
+message ExportDatevJournalResponse {
+  DatevFile bookings = 1;
+  uint32 booked = 2;
+}

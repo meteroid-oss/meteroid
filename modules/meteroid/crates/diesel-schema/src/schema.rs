@@ -1620,6 +1620,25 @@ diesel::table! {
 }
 
 diesel::table! {
+    datev_debtor (invoicing_entity_id, customer_id) {
+        invoicing_entity_id -> Uuid,
+        customer_id -> Uuid,
+        tenant_id -> Uuid,
+        account -> Int8,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    datev_settings (invoicing_entity_id) {
+        invoicing_entity_id -> Uuid,
+        tenant_id -> Uuid,
+        config -> Jsonb,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::DeadLetterStatusEnum;
 
@@ -5043,6 +5062,11 @@ diesel::joinable!(retention_settings -> tenant (tenant_id));
 diesel::joinable!(revrec_contract -> tenant (tenant_id));
 diesel::joinable!(revrec_contract_adjustment -> tenant (tenant_id));
 diesel::joinable!(revrec_period -> tenant (tenant_id));
+diesel::joinable!(datev_debtor -> customer (customer_id));
+diesel::joinable!(datev_debtor -> invoicing_entity (invoicing_entity_id));
+diesel::joinable!(datev_debtor -> tenant (tenant_id));
+diesel::joinable!(datev_settings -> invoicing_entity (invoicing_entity_id));
+diesel::joinable!(datev_settings -> tenant (tenant_id));
 diesel::joinable!(revrec_settings -> invoicing_entity (invoicing_entity_id));
 diesel::joinable!(revrec_settings -> tenant (tenant_id));
 diesel::joinable!(role -> organization (organization_id));

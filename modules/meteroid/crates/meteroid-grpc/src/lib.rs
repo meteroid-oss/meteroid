@@ -195,6 +195,12 @@ pub mod meteroid {
             }
         }
 
+        pub mod datev {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.datev.v1");
+            }
+        }
+
         pub mod revenuerecognition {
             pub mod v1 {
                 tonic::include_proto!("meteroid.api.revenuerecognition.v1");

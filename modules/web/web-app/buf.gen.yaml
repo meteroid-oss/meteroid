@@ -41,6 +41,7 @@ types:
     - meteroid.api.customproperties.v1.CustomPropertyDefinitionsService
     - meteroid.api.customproperties.v1.CustomPropertyEntityType
     - meteroid.api.customproperties.v1.CustomPropertyType
+    - meteroid.api.datev.v1.DatevService
     - meteroid.api.plans.v1.PlansService
     - meteroid.api.components.v1.PriceComponentsService
     - meteroid.api.prices.v1.PricesService

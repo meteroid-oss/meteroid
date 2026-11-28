@@ -20,6 +20,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
         "analytics",
         "apitokens",
         "customproperties",
+        "datev",
         "bankaccounts",
         "batchjobs",
         "billablemetrics",

@@ -52,6 +52,8 @@ enum ChartTemplate {
   CHART_TEMPLATE_IFRS = 3;
   // DATEV SKR 04.
   CHART_TEMPLATE_DE_SKR04 = 4;
+  // DATEV SKR 03.
+  CHART_TEMPLATE_DE_SKR03 = 5;
 }
 
 message LedgerAccount {
