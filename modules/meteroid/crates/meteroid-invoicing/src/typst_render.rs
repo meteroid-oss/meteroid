@@ -20,6 +20,7 @@ static INVOICE_CORE: &str = include_str!("../templates/invoice.typ");
 static TEMPLATE_CORE: &str = include_str!("../templates/template.typ");
 static NUMBERS: &str = include_str!("../templates/numbers.typ");
 static MAIN_TEMPLATE: &str = include_str!("../templates/main.typ");
+pub static WATERMARK: &str = include_str!("../templates/watermark.typ");
 
 static INTER_VARIABLE_FONT: &[u8] = include_bytes!("../assets/fonts/Inter-Variable.ttf");
 static NOTO_SANS_HEBREW: &[u8] = include_bytes!("../assets/fonts/NotoSansHebrew-Regular.ttf");
@@ -572,6 +573,7 @@ typst_dict_struct! {
         pub tax_inclusive: bool,
         pub total_excl_tax: Option<TypstDecimal>,
         pub prepaid_credit_purchase: bool,
+        pub test_mode: bool,
     }
 }
 
@@ -1039,6 +1041,7 @@ impl TryFrom<&Invoice> for TypstInvoiceContent {
             tax_inclusive: invoice.tax_inclusive,
             total_excl_tax,
             prepaid_credit_purchase: invoice.prepaid_credit_purchase,
+            test_mode: invoice.metadata.flags.test_mode,
         })
     }
 }
@@ -1106,6 +1109,7 @@ impl TypstInvoiceRenderer {
                 ("template.typ", TEMPLATE_CORE),
                 ("numbers.typ", NUMBERS),
                 ("main.typ", MAIN_TEMPLATE),
+                ("watermark.typ", WATERMARK),
             ])
             .with_static_file_resolver([("wordmark.svg", WORDMARK_LOGO)])
             .with_static_file_resolver([("logo.png", LOGO)])

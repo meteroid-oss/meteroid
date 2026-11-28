@@ -1,5 +1,8 @@
 #import sys: inputs
 #import "invoice.typ": invoice
+#import "watermark.typ": test_watermark
+
+#set page(background: test_watermark(inputs.at("test_mode", default: false)))
 
 // Factur-X / ZUGFeRD: the XML is an associated file of the PDF, not a separate
 // document. `relationship` is what tells a receiver the attachment *is* the

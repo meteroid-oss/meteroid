@@ -14,6 +14,7 @@ import { Eye, Pen, RefreshCw } from 'lucide-react'
 import { FC, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
+import { PortalTestModeBanner } from '@/components/PortalTestModeBanner'
 import { QuoteSignerSlot } from '@/features/quotes/QuoteViewSigners'
 import { recurringSummary, termSummary } from '@/features/quotes/QuoteViewTotals'
 import { DeclineReasonDialog } from '@/features/quotes/detail/DeclineReasonDialog'
@@ -249,6 +250,7 @@ const QuotePortalView: FC<QuotePortalViewProps> = ({ quoteData, preview = false 
       )}
       style={brandStyle}
     >
+      <PortalTestModeBanner active={!preview && quoteData.testMode} />
       {preview && (
         <div
           aria-hidden

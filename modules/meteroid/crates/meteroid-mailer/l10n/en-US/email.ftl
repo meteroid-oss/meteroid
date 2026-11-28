@@ -104,7 +104,7 @@ view-and-sign-quote = View and sign quote
 ## Layout
 already-paid-disregard = If you have already paid, please disregard this email.
 powered-by = Powered by Meteroid
-test-mode-notice = Test email: sent from a non-production environment. No real payment will be taken.
+test-mode-notice = Test mode: sent from a non-production environment.
 
 ## Seeded default reminder sequence: steps -3 / 0 / +7 / +14, copied into payment_reminder_step.content.
 reminder-default-before-subject = Invoice { "{{invoice_number}}" } is due on { "{{due_date}}" }

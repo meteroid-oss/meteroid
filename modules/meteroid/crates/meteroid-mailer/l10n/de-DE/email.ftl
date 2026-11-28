@@ -104,7 +104,7 @@ view-and-sign-quote = Angebot ansehen und unterzeichnen
 ## Layout
 already-paid-disregard = Falls Sie bereits bezahlt haben, betrachten Sie diese E-Mail bitte als gegenstandslos.
 powered-by = Bereitgestellt von Meteroid
-test-mode-notice = Test-E-Mail: aus einer Nicht-Produktionsumgebung gesendet. Es wird keine echte Zahlung eingezogen.
+test-mode-notice = Testmodus: aus einer Nicht-Produktionsumgebung gesendet.
 
 ## Seeded default reminder sequence: steps -3 / 0 / +7 / +14, copied into payment_reminder_step.content.
 reminder-default-before-subject = Rechnung { "{{invoice_number}}" } ist am { "{{due_date}}" } fällig

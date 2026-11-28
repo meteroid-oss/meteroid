@@ -57,6 +57,8 @@ message Checkout {
   // The invoicing entity requires a billing email and a complete billing address (line 1,
   // city, postal code, country) before the checkout completes.
   bool require_billing_information = 33;
+  // The merchant's workspace is not in production: the portal shows a test-mode banner.
+  bool test_mode = 34;
 }
 
 message TopUpCredits {

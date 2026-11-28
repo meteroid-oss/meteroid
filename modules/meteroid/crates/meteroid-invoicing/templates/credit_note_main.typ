@@ -1,5 +1,8 @@
 #import sys: inputs
 #import "credit_note.typ": credit_note
+#import "watermark.typ": test_watermark
+
+#set page(background: test_watermark(inputs.at("test_mode", default: false)))
 
 // The structured credit note travels inside the PDF, as on an invoice.
 #let einvoice = inputs.at("einvoice", default: none)

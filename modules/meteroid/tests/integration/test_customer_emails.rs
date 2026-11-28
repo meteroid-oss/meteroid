@@ -774,7 +774,7 @@ async fn invoice_ready_uses_entity_sender_bcc_locale_and_footer(#[future] test_e
     assert!(
         email
             .body_html
-            .contains(">Email de test : envoyé depuis un environnement hors production."),
+            .contains(">Mode test : envoyé depuis un environnement hors production."),
         "the harness tenant is non-production: test-mode banner"
     );
     assert!(

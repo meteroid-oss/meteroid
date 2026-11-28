@@ -1023,6 +1023,10 @@ impl PortalCheckoutServiceComponents {
             .resolve(organization.id)
             .await
             .is_enabled(meteroid_app::features::gates::WHITELABEL);
+        let test_mode =
+            meteroid_store::services::customer_emails::tenant_test_mode(&self.store, tenant)
+                .await
+                .map_err(Into::<PortalCheckoutApiError>::into)?;
         let resolved = self
             .services
             .resolve_subscription_payment_methods(tenant, None, &customer)
@@ -1102,6 +1106,7 @@ impl PortalCheckoutServiceComponents {
             roundness: branding.roundness,
             show_powered_by,
             require_billing_information: entity.require_billing_information,
+            test_mode,
             ..Default::default()
         })
     }
@@ -1142,6 +1147,10 @@ impl PortalCheckoutServiceComponents {
             .resolve(organization.id)
             .await
             .is_enabled(meteroid_app::features::gates::WHITELABEL);
+        let test_mode =
+            meteroid_store::services::customer_emails::tenant_test_mode(&self.store, tenant)
+                .await
+                .map_err(Into::<PortalCheckoutApiError>::into)?;
 
         // Resolve payment methods at runtime based on subscription's config
         let resolved = self
@@ -1320,6 +1329,7 @@ impl PortalCheckoutServiceComponents {
             credit_coupons,
             show_powered_by,
             require_billing_information,
+            test_mode,
         })
     }
 

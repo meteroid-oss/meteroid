@@ -2,6 +2,7 @@ import { AlertCircle } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 
+import { PortalTestModeBanner } from '@/components/PortalTestModeBanner'
 import { useScrollFade } from '@/hooks/useScrollFade'
 
 import { usePortalConfig } from './PortalThemeProvider'
@@ -295,6 +296,7 @@ export const PortalApp = () => {
 
   return (
     <PortalNavContext.Provider value={nav}>
+      <PortalTestModeBanner active={config.branding.testMode} />
       <Header overview={overview!} brandName={brandName} logoUrl={config.branding.logoUrl} />
       <div style={{ borderBottom: '1px solid var(--mtp-border)' }}>
         <Tabs tabs={tabs} active={tab} onChange={t => nav.goTo(t)} />

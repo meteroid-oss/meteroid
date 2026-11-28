@@ -211,6 +211,41 @@ async fn refuse_production_with_test_gateway(
     Ok(())
 }
 
+/// Leaving production would leave its live payment connections charging from a test tenant.
+async fn refuse_leaving_production_with_live_gateway(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+) -> StoreResult<()> {
+    use diesel_models::connectors::ConnectorRow;
+    use diesel_models::enums::ConnectorTypeEnum;
+
+    let live: Vec<String> = ConnectorRow::list_connectors(
+        conn,
+        tenant_id,
+        Some(ConnectorTypeEnum::PaymentProvider),
+        None,
+    )
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?
+    .into_iter()
+    .filter(|row| {
+        row.account
+            .as_ref()
+            .and_then(|account| account.get("livemode"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+    })
+    .map(|row| row.alias)
+    .collect();
+    if !live.is_empty() {
+        return Err(Report::new(StoreError::FailedPrecondition(format!(
+            "Delete the live payment connections ({}) before moving this tenant out of production",
+            live.join(", ")
+        ))));
+    }
+    Ok(())
+}
+
 #[async_trait::async_trait]
 impl TenantInterface for Store {
     async fn insert_tenant(
@@ -291,6 +326,13 @@ impl TenantInterface for Store {
                             != diesel_models::enums::TenantEnvironmentEnum::Production
                     {
                         refuse_production_with_test_gateway(conn, tenant_id).await?;
+                    }
+                    if before.environment == diesel_models::enums::TenantEnvironmentEnum::Production
+                        && tenant.environment.as_ref().is_some_and(|env| {
+                            *env != domain::enums::TenantEnvironmentEnum::Production
+                        })
+                    {
+                        refuse_leaving_production_with_live_gateway(conn, tenant_id).await?;
                     }
                     let mut tenant = tenant;
                     if tenant.email_delivery_mode.is_none()

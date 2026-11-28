@@ -35,4 +35,6 @@ message InvoiceForPayment {
   optional string direct_debit_unavailable_reason = 18;
   // False when the merchant's plan includes white-label.
   bool show_powered_by = 19;
+  // The merchant's workspace is not in production: the portal shows a test-mode banner.
+  bool test_mode = 20;
 }

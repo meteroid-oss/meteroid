@@ -2,6 +2,7 @@ import { useMutation } from '@connectrpc/connect-query'
 import { type CSSProperties, type JSX, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
+import { PortalTestModeBanner } from '@/components/PortalTestModeBanner'
 import { useQuery } from '@/lib/connectrpc'
 import { AddPaymentMethodDialog } from '@/pages/portal/customer/AddPaymentMethodDialog'
 import { setDefaultPaymentMethod } from '@/rpc/portal/shared/v1/shared-PortalSharedService_connectquery'
@@ -739,6 +740,7 @@ export const EmbedHost = ({ view }: { view: EmbedView }) => {
 
   return (
     <div ref={ref} style={WIDGET_WRAP}>
+      <PortalTestModeBanner active={branding.testMode} inline />
       {view === 'plan' && <CompactEmbed render={o => <PlanEmbed overview={o} />} />}
       {view === 'subscriptions' && (
         <CompactEmbed render={o => <SubscriptionsEmbed overview={o} />} />

@@ -470,6 +470,9 @@ pub(crate) async fn quote_portal_details(
     // The entity's logo, else the default entity's, as the customer portal shows it.
     let logo_url = branding.logo_attachment_id.map(|id| links.logo(id));
     let show_powered_by = !meteroid_app::features::is_whitelabel(features, store, tenant).await;
+    let test_mode = meteroid_store::services::customer_emails::tenant_test_mode(store, tenant)
+        .await
+        .map_err(Into::<PortalQuoteApiError>::into)?;
 
     let full_open = portal_gate_open(features, store, tenant, gates::QUOTES_FULL)
         .await
@@ -520,6 +523,7 @@ pub(crate) async fn quote_portal_details(
         }
         .to_string(),
         pdf_url,
+        test_mode,
     })
 }
 

@@ -104,7 +104,7 @@ view-and-sign-quote = Offerte bekijken en ondertekenen
 ## Layout
 already-paid-disregard = Heeft u al betaald, dan kunt u deze e-mail als niet verzonden beschouwen.
 powered-by = Mogelijk gemaakt door Meteroid
-test-mode-notice = Testmail: verzonden vanuit een niet-productieomgeving. Er wordt geen echte betaling uitgevoerd.
+test-mode-notice = Testmodus: verzonden vanuit een niet-productieomgeving.
 
 ## Seeded default reminder sequence: steps -3 / 0 / +7 / +14, copied into payment_reminder_step.content.
 reminder-default-before-subject = Factuur { "{{invoice_number}}" } vervalt op { "{{due_date}}" }

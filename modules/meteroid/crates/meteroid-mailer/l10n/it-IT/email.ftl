@@ -104,7 +104,7 @@ view-and-sign-quote = Visualizza e firma il preventivo
 ## Layout
 already-paid-disregard = Se ha già effettuato il pagamento, La preghiamo di ignorare questa email.
 powered-by = Powered by Meteroid
-test-mode-notice = Email di prova: inviata da un ambiente non di produzione. Non verrà addebitato alcun pagamento reale.
+test-mode-notice = Modalità test: inviata da un ambiente non di produzione.
 
 ## Seeded default reminder sequence: steps -3 / 0 / +7 / +14, copied into payment_reminder_step.content.
 reminder-default-before-subject = La fattura { "{{invoice_number}}" } scade il { "{{due_date}}" }

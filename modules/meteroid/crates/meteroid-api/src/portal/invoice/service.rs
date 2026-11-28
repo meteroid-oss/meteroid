@@ -98,6 +98,10 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
             .resolve(organization.id)
             .await
             .is_enabled(meteroid_app::features::gates::WHITELABEL);
+        let test_mode =
+            meteroid_store::services::customer_emails::tenant_test_mode(&self.store, tenant)
+                .await
+                .map_err(Into::<PortalInvoiceApiError>::into)?;
 
         // Resolve payment method availability based on subscription payment configuration
         // This uses the hybrid approach:
@@ -233,6 +237,7 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
                 card_unavailable_reason,
                 direct_debit_unavailable_reason,
                 show_powered_by,
+                test_mode,
             }),
         }))
     }

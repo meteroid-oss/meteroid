@@ -10,7 +10,6 @@ use crate::domain::payment_reminders::{EmailCopy, EmailCopyByLocale};
 use crate::domain::{CreditNote, Customer, Invoice, InvoicingEntity};
 use crate::errors::StoreError;
 use crate::repositories::InvoiceInterface;
-use crate::repositories::TenantInterface;
 use crate::repositories::credit_notes::CreditNoteInterface;
 use crate::repositories::customer_emails::CustomerEmailsInterface;
 use crate::repositories::customers::CustomersInterfaceAuto;
@@ -284,12 +283,16 @@ fn override_or(locale_override: Option<&str>, resolved: &'static str) -> &'stati
         .unwrap_or(resolved)
 }
 
-/// Customer mails from a non-production tenant carry the test-mode banner (tenant lookup is cached).
-/// Emails of a non-production workspace carry a test notice ("no real payment"), whatever
-/// its delivery mode: a production workspace in `Test` still takes real payments.
+/// Mails, documents and portal pages of a non-production workspace are marked as test, whatever
+/// its email delivery mode: a production workspace in `Test` still takes real payments. Read
+/// uncached: the tenant cache is per process, and a promotion must not leave a test mark on a
+/// real invoice rendered by another one.
 pub async fn tenant_test_mode(store: &Store, tenant_id: TenantId) -> StoreResult<bool> {
-    let tenant = store.find_tenant_by_id(tenant_id).await?;
-    Ok(tenant.tenant.environment != TenantEnvironmentEnum::Production)
+    let mut conn = store.get_conn().await?;
+    let tenant = diesel_models::tenants::TenantRow::find_by_id(&mut conn, tenant_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    Ok(TenantEnvironmentEnum::from(tenant.environment) != TenantEnvironmentEnum::Production)
 }
 
 pub fn layout_for_entity(

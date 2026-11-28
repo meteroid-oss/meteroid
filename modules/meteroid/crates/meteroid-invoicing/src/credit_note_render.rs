@@ -306,6 +306,7 @@ typst_dict_struct! {
         pub show_legal_info: bool,
         pub show_footer_custom_info: bool,
         pub whitelabel: bool,
+        pub test_mode: bool,
     }
 }
 
@@ -627,6 +628,7 @@ impl TryFrom<&CreditNote> for TypstCreditNoteContent {
                 .show_footer_custom_info
                 .unwrap_or(true),
             whitelabel: credit_note.metadata.flags.whitelabel.unwrap_or(false),
+            test_mode: credit_note.metadata.flags.test_mode,
         })
     }
 }
@@ -677,6 +679,7 @@ impl TypstCreditNoteRenderer {
                 ("template.typ", TEMPLATE_CORE),
                 ("numbers.typ", NUMBERS),
                 ("credit_note_main.typ", CREDIT_NOTE_MAIN_TEMPLATE),
+                ("watermark.typ", crate::typst_render::WATERMARK),
             ])
             .with_static_file_resolver([("wordmark.svg", WORDMARK_LOGO)])
             .with_static_file_resolver([("logo.png", LOGO)])

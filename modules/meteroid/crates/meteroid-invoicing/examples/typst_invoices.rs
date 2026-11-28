@@ -155,7 +155,8 @@ fn create_test_invoice() -> Invoice {
                 show_tax_info: Some(true),
                 show_legal_info: Some(true),
                 show_footer_custom_info: Some(true),
-                whitelabel: None
+                whitelabel: None,
+                test_mode: false,
             },
             discount: Money::from_major(0, eur),
             promotional_credit: Money::from_major(0, eur),

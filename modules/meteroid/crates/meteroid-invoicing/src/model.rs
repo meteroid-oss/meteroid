@@ -249,6 +249,8 @@ pub struct Flags {
     pub show_legal_info: Option<bool>,
     pub show_footer_custom_info: Option<bool>,
     pub whitelabel: Option<bool>,
+    /// Issued by a non-production tenant: every page carries a test-mode tag.
+    pub test_mode: bool,
 }
 
 type Price = meteroid_money::Money<'static, Currency>;

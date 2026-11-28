@@ -1,6 +1,6 @@
 use crate::errors::InvoicingRenderError;
 use crate::services::einvoicing::{map_format, rejection_outcome};
-use crate::services::invoice_rendering::line_credit_units;
+use crate::services::invoice_rendering::{line_credit_units, tenant_test_mode};
 use crate::services::storage::{self, ObjectKind, ObjectStoreService};
 use common_domain::ids::{CreditNoteId, InvoicingEntityId, StoredDocumentId, TenantId};
 use error_stack::{Report, ResultExt};
@@ -88,7 +88,8 @@ impl CreditNotePreviewRenderingService {
             .await
             .change_context(InvoicingRenderError::StoreError)?;
 
-        let mapped = mapper::map_credit_note_to_invoicing(
+        let tenant_id = credit_note.tenant_id;
+        let mut mapped = mapper::map_credit_note_to_invoicing(
             credit_note,
             &invoicing_entity,
             organization_logo,
@@ -97,6 +98,7 @@ impl CreditNotePreviewRenderingService {
             &credit_units,
             promotional_credit_restored,
         )?;
+        mapped.metadata.flags.test_mode = tenant_test_mode(&self.store, tenant_id).await?;
 
         let svgs = self
             .generator
@@ -277,7 +279,7 @@ impl CreditNotePdfRenderingService {
             .await
             .change_context(InvoicingRenderError::StoreError)?;
 
-        let mapped_credit_note = mapper::map_credit_note_to_invoicing(
+        let mut mapped_credit_note = mapper::map_credit_note_to_invoicing(
             credit_note,
             invoicing_entity,
             organization_logo,
@@ -286,6 +288,8 @@ impl CreditNotePdfRenderingService {
             &credit_units,
             promotional_credit_restored,
         )?;
+        mapped_credit_note.metadata.flags.test_mode =
+            tenant_test_mode(&self.store, tenant_id).await?;
 
         // A credit note is an e-invoice too — BT-3 is `381` and BG-3 names the
         // invoice it credits. Never fatal, for the same reason as an invoice:
@@ -450,6 +454,7 @@ pub mod mapper {
                 show_legal_info: Some(true),
                 show_footer_custom_info: Some(true),
                 whitelabel: Some(false),
+                test_mode: false,
             },
         };
 

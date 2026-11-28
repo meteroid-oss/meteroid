@@ -46,6 +46,8 @@ message QuotePortalDetails {
   repeated api.quotes.v1.QuoteCouponTerms coupon_terms = 29;
   repeated api.quotes.v1.QuotePriceStep price_schedule = 30;
   reserved 31;
+  // The merchant's workspace is not in production: the portal shows a test-mode banner.
+  bool test_mode = 32;
 }
 
 message QuoteCountersignerStatus {

@@ -439,7 +439,8 @@ impl InvoicePreviewRenderingService {
             line_credit_units(&self.store, invoice.tenant_id, &invoice.line_items).await?;
         let carry = invoice_carry(&self.store, &invoice).await?;
 
-        let mapped = mapper::map_invoice_to_invoicing(
+        let tenant_id = invoice.tenant_id;
+        let mut mapped = mapper::map_invoice_to_invoicing(
             invoice,
             &invoicing_entity,
             organization_logo,
@@ -450,6 +451,7 @@ impl InvoicePreviewRenderingService {
             &credit_units,
             carry,
         )?;
+        mapped.metadata.flags.test_mode = tenant_test_mode(&self.store, tenant_id).await?;
 
         let svgs = self
             .generator
@@ -793,7 +795,7 @@ impl PdfRenderingService {
         let carry = invoice_carry(&self.store, &invoice).await?;
         let is_consolidated_child = invoice.is_consolidated_child();
 
-        let mapped_invoice = mapper::map_invoice_to_invoicing(
+        let mut mapped_invoice = mapper::map_invoice_to_invoicing(
             invoice,
             invoicing_entity,
             organization_logo,
@@ -804,6 +806,7 @@ impl PdfRenderingService {
             &credit_units,
             carry,
         )?;
+        mapped_invoice.metadata.flags.test_mode = tenant_test_mode(&self.store, tenant_id).await?;
 
         // Structured e-invoicing, when the entity opted in.
         //
@@ -999,6 +1002,7 @@ mod mapper {
                 show_legal_info: Some(true),
                 show_footer_custom_info: Some(true),
                 whitelabel: Some(false),
+                test_mode: false,
             },
             purchase_order: invoice.purchase_order.clone(),
             parent_invoice_number: parent_invoice.map(|pi| pi.invoice_number.clone()),
@@ -1405,6 +1409,16 @@ mod mapper {
 
         details
     }
+}
+
+/// A non-production tenant's documents are watermarked, so they can't pass for real ones.
+pub(crate) async fn tenant_test_mode(
+    store: &Store,
+    tenant_id: TenantId,
+) -> Result<bool, Report<InvoicingRenderError>> {
+    meteroid_store::services::customer_emails::tenant_test_mode(store, tenant_id)
+        .await
+        .change_context(InvoicingRenderError::StoreError)
 }
 
 async fn get_logo_bytes_for_invoice(

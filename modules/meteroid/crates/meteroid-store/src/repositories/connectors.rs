@@ -55,6 +55,24 @@ pub async fn refuse_test_gateway_on_production(
     Ok(())
 }
 
+/// The reverse: a non-production tenant never moves real money, so it takes test credentials
+/// only. Checked on the account the provider reports, after the credentials are validated.
+pub async fn refuse_live_gateway_outside_production(
+    store: &Store,
+    tenant_id: TenantId,
+    account: &ProviderAccount,
+) -> StoreResult<()> {
+    if account.livemode
+        && crate::services::customer_emails::tenant_test_mode(store, tenant_id).await?
+    {
+        return Err(Report::new(StoreError::FailedPrecondition(
+            "Live payment credentials can only be used by a production tenant; use test or sandbox credentials here"
+                .to_string(),
+        )));
+    }
+    Ok(())
+}
+
 /// An invoicing entity that routes payments to a connector.
 #[derive(Debug, Clone)]
 pub struct RoutedInvoicingEntity {
@@ -381,6 +399,7 @@ impl ConnectorsInterface for Store {
             .validate_credentials()
             .await
             .map_err(credential_error)?;
+        refuse_live_gateway_outside_production(self, tenant_id, &account).await?;
         candidate.refresh_public_data(public)?;
 
         // Not refused: the credentials modal shows the account it now points at.
@@ -536,6 +555,7 @@ impl ConnectorsInterface for Store {
             let validated = connector_impl.validate_credentials().await;
             self.note_rejected_credentials(&connector, &validated).await;
             let validated = validated.map_err(credential_error)?;
+            refuse_live_gateway_outside_production(self, tenant_id, &validated.account).await?;
             Some(validated.account)
         } else {
             None

@@ -62,6 +62,7 @@ export const brandingFromOverview = (overview?: CustomerPortalOverview): PortalB
   theme: asThemeMode(overview?.invoicingEntityThemeMode),
   roundness: asRoundness(overview?.invoicingEntityRoundness),
   showPoweredBy: overview?.showPoweredBy,
+  testMode: overview?.testMode,
 })
 
 /**

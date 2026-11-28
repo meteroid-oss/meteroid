@@ -5,6 +5,7 @@ import { AlertCircle } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 
+import { PortalTestModeBanner } from '@/components/PortalTestModeBanner'
 import { pagePortalToken } from '@/features/auth/portalToken'
 import { CheckoutThemePane } from '@/features/checkout/CheckoutThemePane'
 import { PaymentPanel } from '@/features/checkout/PaymentPanel'
@@ -265,6 +266,7 @@ const InvoicePaymentFlow: React.FC<Props> = ({
 
   return (
     <div className="w-full flex flex-col lg:flex-row min-h-screen lg:h-screen lg:overflow-hidden">
+      <PortalTestModeBanner active={invoicePaymentData.testMode} />
       {/* Left panel - Invoice summary */}
       <div className="flex flex-col bg-background-gray gap-5 w-full lg:w-3/5 px-5 py-6 lg:px-10 lg:py-12 xl:px-20 xl:pt-16 xl:pb-20 border-b lg:border-b-0 lg:border-r border-border-regular lg:h-screen lg:overflow-auto">
         <div className="w-full">

@@ -267,6 +267,10 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
             .get_portal_embed_origins(tenant)
             .await
             .map_err(Into::<PortalCustomerApiError>::into)?;
+        let test_mode =
+            meteroid_store::services::customer_emails::tenant_test_mode(&self.store, tenant)
+                .await
+                .map_err(Into::<PortalCustomerApiError>::into)?;
 
         Ok(Response::new(GetCustomerPortalOverviewResponse {
             overview: Some(CustomerPortalOverview {
@@ -288,6 +292,7 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
                 self_service,
                 embedding_allowed,
                 embed_origins,
+                test_mode,
             }),
         }))
     }

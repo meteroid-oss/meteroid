@@ -581,6 +581,33 @@ fn an_invoice_selling_currency_credit_says_its_tax_is_charged_on_use() {
 }
 
 #[test]
+fn a_test_mode_document_carries_the_watermark_on_every_page() {
+    let watermark = "Test mode – Not a real document";
+
+    let mut invoice = create_full_invoice();
+    assert!(!render_text(&invoice).contains(watermark));
+    invoice.metadata.flags.test_mode = true;
+    let renderer = TypstInvoiceRenderer::new().expect("Failed to create TypstInvoiceRenderer");
+    let document = renderer.render_invoice(&invoice).expect("render invoice");
+    for page in 0..document.pages().len() {
+        assert!(
+            page_text(&document, page).contains(watermark),
+            "page {page}"
+        );
+    }
+
+    let mut credit_note = create_minimal_credit_note();
+    assert!(!render_credit_note_text(&credit_note).contains(watermark));
+    credit_note.metadata.flags.test_mode = true;
+    assert!(render_credit_note_text(&credit_note).contains(watermark));
+
+    let mut french = create_minimal_invoice();
+    french.lang = "fr-FR".to_string();
+    french.metadata.flags.test_mode = true;
+    assert!(render_text(&french).contains(watermark));
+}
+
+#[test]
 fn requested_language_selects_the_message_bundle() {
     let mut invoice = create_minimal_invoice();
     for (tag, title) in [
@@ -1397,6 +1424,7 @@ fn create_minimal_invoice() -> Invoice {
                 show_legal_info: Some(false),
                 show_footer_custom_info: Some(false),
                 whitelabel: Some(false),
+                test_mode: false,
             },
             discount: Money::from_major(0, eur),
             promotional_credit: Money::from_major(0, eur),
@@ -1522,6 +1550,7 @@ fn create_full_invoice() -> Invoice {
                 show_legal_info: Some(true),
                 show_footer_custom_info: Some(true),
                 whitelabel: Some(false),
+                test_mode: false,
             },
             discount: Money::from_major(0, eur),
             promotional_credit: Money::from_major(0, eur),
@@ -1894,6 +1923,7 @@ fn create_minimal_credit_note() -> CreditNote {
                 show_legal_info: Some(false),
                 show_footer_custom_info: Some(false),
                 whitelabel: Some(false),
+                test_mode: false,
             },
         },
         lines: vec![cn::CreditNoteLine {
@@ -1991,6 +2021,7 @@ fn create_full_credit_note() -> CreditNote {
                 show_legal_info: Some(true),
                 show_footer_custom_info: Some(true),
                 whitelabel: Some(false),
+                test_mode: false,
             },
         },
         lines: vec![

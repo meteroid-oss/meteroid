@@ -68,6 +68,8 @@ export interface PortalBranding {
   roundness?: PortalRoundness
   /** Whether to show the "Powered by Meteroid" footer. */
   showPoweredBy?: boolean
+  /** The merchant's workspace is not in production. */
+  testMode?: boolean
 }
 
 const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i
