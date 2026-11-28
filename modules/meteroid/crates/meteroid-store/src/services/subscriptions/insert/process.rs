@@ -53,6 +53,8 @@ pub struct ProcessedSubscription {
     subscription: SubscriptionRowNew,
     /// Its trial, resolved once (R-153); recorded with its facts.
     trial: Option<crate::domain::trials::ResolvedTrial>,
+    /// Its offer, resolved with its trial (R-170); recorded after its coupons.
+    offer: Option<crate::domain::offers::ResolvedOffer>,
     /// The later phases of its template or quote, written with it (R-154, R-155).
     later_phases: Vec<crate::domain::trial_offers::PlanPhaseTemplate>,
     components: Vec<SubscriptionComponentRowNew>,
@@ -154,6 +156,8 @@ pub struct DetailedSubscription {
     later_phases: Vec<crate::domain::trial_offers::PlanPhaseTemplate>,
     /// Its trial, resolved with the context (R-153).
     pub trial: Option<crate::domain::trials::ResolvedTrial>,
+    /// Its offer, resolved with its trial (R-170).
+    pub offer: Option<crate::domain::offers::ResolvedOffer>,
 }
 
 impl DetailedSubscription {
@@ -336,6 +340,7 @@ impl Services {
                 later_phases: vec![],
                 tax_inclusive_rate: context.tax_inclusive_rates.get(idx).copied().flatten(),
                 trial: context.trials.get(idx).cloned().flatten(),
+                offer: context.offers.get(idx).cloned().flatten(),
             });
         }
 
@@ -406,6 +411,7 @@ impl Services {
             later_phases: vec![],
             tax_inclusive_rate: context.tax_inclusive_rates.first().copied().flatten(),
             trial: context.trials.first().cloned().flatten(),
+            offer: context.offers.first().cloned().flatten(),
         })
     }
 
@@ -790,6 +796,7 @@ impl Services {
         Ok(ProcessedSubscription {
             subscription: subscription_row,
             trial: sub.trial.clone(),
+            offer: sub.offer.clone(),
             later_phases: sub.later_phases.clone(),
             components,
             add_ons: subscription_add_ons,
@@ -1341,6 +1348,18 @@ impl Services {
                             .collect::<Vec<_>>(),
                     )
                     .await?;
+                    for proc in processed.iter().filter(|p| {
+                        p.trial.is_some()
+                            && p.subscription.status
+                                == diesel_models::enums::SubscriptionStatusEnum::TrialActive
+                    }) {
+                        crate::services::customer_emails::trials::enqueue_trial_started_email_tx(
+                            conn,
+                            tenant_id,
+                            proc.subscription.id,
+                        )
+                        .await?;
+                    }
                     for proc in processed {
                         if !proc.later_phases.is_empty() {
                             crate::services::plan_phases::materialize_tx(
@@ -1492,6 +1511,23 @@ impl Services {
                         };
                     }
 
+                    crate::services::offers::apply::record_tx(
+                        services,
+                        conn,
+                        actor,
+                        &processed
+                            .iter()
+                            .map(|p| crate::services::offers::apply::Created {
+                                subscription: &p.subscription,
+                                trial: p.trial.as_ref(),
+                                offer: p.offer.as_ref(),
+                                coupons: &p.coupons,
+                            })
+                            .collect::<Vec<_>>(),
+                        redeemed_at.unwrap_or_else(common_clock::now),
+                    )
+                    .await?;
+
                     SubscriptionEventRow::insert_batch(conn, events)
                         .map_err(Into::<StoreErrorReport>::into)
                         .await?;
@@ -1528,6 +1564,7 @@ impl Services {
                                 billing_start_date: sub.billing_start_date,
                                 billing_day_anchor: Some(sub.billing_day_anchor),
                                 net_terms: Some(sub.net_terms),
+                                offer: crate::domain::offers::OfferRequest::None,
                                 trial: proc.trial.as_ref().map_or(
                                     crate::domain::trials::TrialRequest::None,
                                     |trial| crate::domain::trials::TrialRequest::Custom {
@@ -1536,6 +1573,8 @@ impl Services {
                                         ),
                                         free: Some(trial.free),
                                         trial_plan: Some(trial.trial_plan_id),
+                                        manual: trial.end_action
+                                            == crate::domain::trials::TrialEndAction::Manual,
                                     },
                                 ),
                                 end_date: sub.end_date,

@@ -106,7 +106,7 @@ const NEW_GROUPS = [
   [
     { title: 'Plan', url: 'plans/add-plan', icon: Layers },
     { title: 'Metric', url: 'metrics/add-metric', icon: Gauge },
-    { title: 'Coupon', url: 'coupons/add-coupon', icon: TicketPercent },
+    { title: 'Coupon', url: 'offers/coupons/add-coupon', icon: TicketPercent },
   ],
 ]
 

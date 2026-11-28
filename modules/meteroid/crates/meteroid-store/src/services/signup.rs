@@ -366,8 +366,8 @@ impl ServicesEdge {
     }
 
     /// The subscription from today, charged automatically when the customer's invoicing entity
-    /// takes cards or direct debits, else invoiced. With the plan's trial, unless started in bulk
-    /// (`origin`): those customers asked for no trial.
+    /// takes cards or direct debits, else invoiced. With the plan's trial unless started in bulk
+    /// (`origin`); a trial asking a card hands off to checkout when charged automatically.
     pub(super) async fn subscribe_on_signup_tx(
         &self,
         conn: &mut crate::store::PgConn,
@@ -394,6 +394,23 @@ impl ServicesEdge {
             eligibility::check(rule, &CustomerFacts::of(customer))
                 .map_err(|why| invalid(why.message()))?;
         }
+        let today = common_clock::now().date_naive();
+        // A trial asking a card starts once the customer gives one at checkout.
+        let activation_condition = if online
+            && origin.is_none()
+            && crate::services::trials::resolve::signup_needs_card_tx(
+                conn,
+                tenant_id,
+                offer.plan_version_id,
+                customer.id,
+                today,
+            )
+            .await?
+        {
+            SubscriptionActivationCondition::OnCheckout
+        } else {
+            SubscriptionActivationCondition::OnStart
+        };
         let batch = vec![CreateSubscription {
             option: offer
                 .option
@@ -405,14 +422,15 @@ impl ServicesEdge {
                 net_terms: None,
                 invoice_memo: None,
                 invoice_threshold: None,
-                start_date: common_clock::now().date_naive(),
+                start_date: today,
                 end_date: None,
                 billing_start_date: None,
-                activation_condition: SubscriptionActivationCondition::OnStart,
+                activation_condition,
+                offer: Default::default(),
                 trial: if origin.is_some() {
                     crate::domain::trials::TrialRequest::None
                 } else {
-                    crate::domain::trials::TrialRequest::Plan
+                    crate::domain::trials::TrialRequest::Default
                 },
                 billing_day_anchor: None,
                 payment_methods_config: (!online).then_some(PaymentMethodsConfig::External),

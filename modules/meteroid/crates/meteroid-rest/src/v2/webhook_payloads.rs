@@ -18,10 +18,11 @@ use crate::v2::checkout_sessions::CheckoutSession;
 use crate::v2::customers::credits::{CustomerCreditGrant, GrantSource, LedgerEntry, Wallet};
 use crate::v2::entitlements::model::{LevelKind, LevelResource};
 use crate::v2::invoices::model::InvoicePayment;
+use crate::v2::offers::{OfferGrantKind, SubscriptionGrantSourceType};
 use crate::v2::problem::{Problem, ProblemCode};
 use crate::v2::refs::{
-    CreditNoteRef, CreditUnitRef, CustomerRef, FeatureRef, InvoiceRef, PlanRef, ReferenceIds, Refs,
-    ResourceRef, SubscriptionRef,
+    CouponRef, CreditNoteRef, CreditUnitRef, CustomerRef, FeatureRef, InvoiceRef, PlanRef,
+    ReferenceIds, Refs, ResourceRef, SubscriptionRef,
 };
 use crate::v2::subscriptions::model::{Money, Subscription};
 use crate::webhooks::out_model::{
@@ -36,15 +37,15 @@ use crate::webhooks::out_model::{
 };
 use chrono::NaiveDate;
 use common_domain::ids::{
-    BudgetId, CreditGrantId, CustomerId, InvoiceId, LedgerEntryId, PaymentTransactionId, QuoteId,
-    RetentionSessionId, SubscriptionId, TenantId,
+    BudgetId, CreditGrantId, CustomerId, InvoiceId, LedgerEntryId, OfferGrantId, OfferId,
+    PaymentTransactionId, QuoteId, RetentionSessionId, SubscriptionId, TenantId,
 };
 use http::StatusCode;
 use meteroid_app::rest::denomination::{Denomination, Denominations};
 use meteroid_rest_common::datetime::ApiDateTime;
 use meteroid_store::domain::outbox_event::{OutboxEvent, PaymentTransactionEvent};
 use meteroid_store::domain::workflow_events::WorkflowRunTransition;
-use meteroid_store::domain::{renewals, retention_events};
+use meteroid_store::domain::{renewals, retention_events, usage_alert_events};
 use meteroid_store::repositories::CreditNoteInterface;
 use meteroid_store::repositories::CustomerCreditWalletsInterface;
 use meteroid_store::repositories::PlansInterface;
@@ -293,6 +294,17 @@ pub async fn data(reader: &impl Reader, event: &OutboxEvent) -> Result<Value, Pr
                 expired_amount: v1.expired_amount,
                 expired_at: v1.expired_at,
                 reason: v1.reason.into(),
+            })
+        }
+        OutboxEvent::CreditGrantUpdated(e) => {
+            let (customer, wallet) =
+                customer_wallet(reader, tenant_id, e.customer_id, &e.currency).await?;
+            to_value(&CreditGrantUpdatedEventData {
+                customer,
+                wallet,
+                credit_grant: grant(reader, tenant_id, e.customer_id, e.credit_grant_id).await?,
+                effective_at: e.effective_at.into(),
+                expires_at: e.expires_at.map(Into::into),
             })
         }
         OutboxEvent::WalletBalanceLow(e) => {
@@ -577,10 +589,27 @@ pub async fn data(reader: &impl Reader, event: &OutboxEvent) -> Result<Value, Pr
         }
         OutboxEvent::SubscriptionTrialEndingSoon(e) => {
             let refs = refs(reader, tenant_id, |ids| ids.customers.push(e.customer_id)).await?;
+            let (subscription, trial) =
+                subscription_and_trial(reader, tenant_id, e.subscription_id).await?;
             to_value(&TrialEndingEventData {
                 customer: refs.customer(e.customer_id),
-                subscription: subscription(reader, tenant_id, e.subscription_id).await?,
+                subscription,
                 trial_end: e.trial_end,
+                ends_on: e.trial_end,
+                billing_starts_on: match &trial {
+                    Some(trial) => trial.billing_starts_on.filter(|_| {
+                        trial.at_end.as_ref().is_some_and(|at_end| {
+                            at_end.kind == crate::v2::trials::TrialAtEndType::Convert
+                        })
+                    }),
+                    None => e.billing_starts_on,
+                },
+                has_payment_method: trial
+                    .as_ref()
+                    .and_then(|trial| trial.has_payment_method)
+                    .or(e.has_payment_method)
+                    .unwrap_or(false),
+                first_charge_estimate: trial.and_then(|trial| trial.first_charge_estimate),
                 free: e.free,
             })
         }
@@ -604,6 +633,44 @@ pub async fn data(reader: &impl Reader, event: &OutboxEvent) -> Result<Value, Pr
                 finished_at: e.finished_at.map(Into::into),
             },
         }),
+        OutboxEvent::SubscriptionTrialEnded(e) => {
+            let refs = refs(reader, tenant_id, |ids| ids.customers.push(e.customer_id)).await?;
+            to_value(&TrialEndedEventData {
+                customer: refs.customer(e.customer_id),
+                subscription: subscription(reader, tenant_id, e.subscription_id).await?,
+                ends_on: e.trial_end,
+                ended_on: e.ended_at.date(),
+                outcome: e.outcome.into(),
+            })
+        }
+        OutboxEvent::OfferApplied(e) => {
+            let refs = refs(reader, tenant_id, |ids| {
+                ids.customers.push(e.customer_id);
+                ids.coupons.extend(e.coupon_id);
+            })
+            .await?;
+            to_value(&OfferAppliedEventData {
+                customer: refs.customer(e.customer_id),
+                subscription: subscription(reader, tenant_id, e.subscription_id).await?,
+                offer: e.offer_id,
+                coupon: e.coupon_id.map(|id| refs.coupon(id)),
+                source: SubscriptionGrantSourceType::named(&e.source),
+                grants: e.grant_ids.clone(),
+                applied_at: e.applied_at.into(),
+            })
+        }
+        OutboxEvent::GrantEnded(e) => {
+            let refs = refs(reader, tenant_id, |ids| ids.customers.push(e.customer_id)).await?;
+            to_value(&GrantEndedEventData {
+                customer: refs.customer(e.customer_id),
+                subscription: subscription(reader, tenant_id, e.subscription_id).await?,
+                offer: e.offer_id,
+                grant: e.grant_id,
+                kind: OfferGrantKind::named(&e.kind),
+                reason: e.reason.into(),
+                ended_on: e.ended_at.date(),
+            })
+        }
         OutboxEvent::BudgetThresholdReached(e) | OutboxEvent::BudgetExceeded(e) => {
             let v1 = WebhookOutBudgetAlertEventData::from((**e).clone());
             let refs = wallet_refs(reader, tenant_id, v1.customer_id, &v1.credit_unit, |ids| {
@@ -652,6 +719,21 @@ async fn subscription(
         read => read,
     };
     resource_or_id(read, id)
+}
+
+/// The subscription as `subscription` reads it, and its trial read whole when it reads whole.
+async fn subscription_and_trial(
+    reader: &impl Reader,
+    tenant_id: TenantId,
+    id: SubscriptionId,
+) -> Result<(Value, Option<crate::v2::subscriptions::model::TrialState>), Problem> {
+    match crate::v2::subscriptions::render::subscription(reader, tenant_id, id).await {
+        Ok(read) => {
+            let trial = read.trial.clone();
+            Ok((resource_or_id(Ok(read), id)?, trial))
+        }
+        Err(_) => Ok((subscription(reader, tenant_id, id).await?, None)),
+    }
 }
 
 /// The keys of what `name` collects, read in one round.
@@ -989,6 +1071,24 @@ pub struct CreditGrantExpiredEventData {
     pub expired_amount: i64,
     pub expired_at: ApiDateTime,
     pub reason: GrantLapseReason,
+}
+
+/// A grant not in effect yet was dated again, as the trial its offer counts from moved; no credit
+/// moved.
+#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+pub struct CreditGrantUpdatedEventData {
+    pub customer: CustomerRef,
+    /// The wallet, as `GET /customers/{id}/wallets/{wallet}` reads it.
+    #[schema(value_type = Wallet)]
+    pub wallet: Value,
+    /// The grant, as `GET /customers/{id}/credit-grants/{grant_id}` reads it.
+    #[schema(value_type = CustomerCreditGrant)]
+    pub credit_grant: Value,
+    /// When its credit becomes usable, as dated again.
+    pub effective_at: ApiDateTime,
+    /// When its credit expires, as dated again; absent when it never does.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<ApiDateTime>,
 }
 
 /// A wallet's balance (credit on account net of usage not invoiced yet) fell below one of its
@@ -1396,16 +1496,111 @@ pub struct OverrideEndingEventData {
     pub reason: Option<String>,
 }
 
-/// A subscription's trial ends in 3 days, once per trial end.
+/// A subscription's trial ends within 7 days, once per trial end (at its start when it is
+/// shorter).
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct TrialEndingEventData {
     pub customer: CustomerRef,
     /// The subscription, as `GET /subscriptions/{id}` reads it.
     #[schema(value_type = Subscription)]
     pub subscription: Value,
-    /// The trial's end, exclusive: billing starts on it.
+    /// The trial's end, exclusive; `ends_on`, kept for one release.
     pub trial_end: NaiveDate,
+    /// The trial's end, exclusive.
+    pub ends_on: NaiveDate,
+    /// When billing starts, the trial converting at its end; absent when its end cancels the
+    /// subscription or waits for a decision.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub billing_starts_on: Option<NaiveDate>,
+    /// Whether the subscription has a payment method it is charged or invoiced with.
+    pub has_payment_method: bool,
+    /// What the trial's end is estimated to charge first, when it converts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_charge_estimate: Option<crate::v2::trials::FirstChargeEstimate>,
+    /// Always `true`: a trial is free. Kept for one release.
     pub free: bool,
+}
+
+/// A subscription's trial ended: how (`outcome`). Sent again when an outcome awaiting a payment
+/// or a decision resolves.
+#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+pub struct TrialEndedEventData {
+    pub customer: CustomerRef,
+    /// The subscription, as `GET /subscriptions/{id}` reads it.
+    #[schema(value_type = Subscription)]
+    pub subscription: Value,
+    /// The trial's end, exclusive.
+    pub ends_on: NaiveDate,
+    /// The day it ended.
+    pub ended_on: NaiveDate,
+    /// How it ended.
+    pub outcome: crate::v2::trials::TrialOutcome,
+}
+
+/// An offer was applied to a subscription: its plan's start offer or a catalog offer at its
+/// creation, or one a coupon's code gives. Its grants read in the subscription's `grants`.
+#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+pub struct OfferAppliedEventData {
+    pub customer: CustomerRef,
+    /// The subscription, as `GET /subscriptions/{id}` reads it.
+    #[schema(value_type = Subscription)]
+    pub subscription: Value,
+    /// The offer applied.
+    #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
+    pub offer: OfferId,
+    /// The coupon whose code gave it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coupon: Option<CouponRef>,
+    /// How it came to the subscription; absent for a source this version does not know.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<SubscriptionGrantSourceType>,
+    /// The grants it gives.
+    #[serde(serialize_with = "common_domain::ids::string_serde_vec::serialize")]
+    pub grants: Vec<OfferGrantId>,
+    pub applied_at: ApiDateTime,
+}
+
+/// Why a grant ended: `withdrawn` its subscription never started; `subscription_ended` its
+/// subscription ended; `window_ended` its window is over.
+#[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GrantEndReason {
+    Withdrawn,
+    SubscriptionEnded,
+    WindowEnded,
+}
+
+impl From<usage_alert_events::GrantEndReason> for GrantEndReason {
+    fn from(reason: usage_alert_events::GrantEndReason) -> Self {
+        match reason {
+            usage_alert_events::GrantEndReason::Withdrawn => GrantEndReason::Withdrawn,
+            usage_alert_events::GrantEndReason::SubscriptionEnded => {
+                GrantEndReason::SubscriptionEnded
+            }
+            usage_alert_events::GrantEndReason::WindowEnded => GrantEndReason::WindowEnded,
+        }
+    }
+}
+
+/// A grant of an offer applied to a subscription ended: its window over, or before it.
+#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+pub struct GrantEndedEventData {
+    pub customer: CustomerRef,
+    /// The subscription, as `GET /subscriptions/{id}` reads it.
+    #[schema(value_type = Subscription)]
+    pub subscription: Value,
+    /// The offer that gave it.
+    #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
+    pub offer: OfferId,
+    /// The grant, as the subscription's `grants` name it.
+    #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
+    pub grant: OfferGrantId,
+    /// What it gave; absent for a kind this version does not know.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<OfferGrantKind>,
+    pub reason: GrantEndReason,
+    /// The day it ended.
+    pub ended_on: NaiveDate,
 }
 
 /// A budget's spend reached a percentage of it (`budget.threshold_reached`), or the budget
@@ -1535,6 +1730,7 @@ pub fn data_schema(event: WebhookOutEventTypeEnum) -> &'static str {
         E::WalletFunded => "WalletFundedEventData",
         E::WalletDebited => "WalletDebitedEventData",
         E::CreditGrantExpired => "CreditGrantExpiredEventData",
+        E::CreditGrantUpdated => "CreditGrantUpdatedEventData",
         E::WalletBalanceLow => "WalletBalanceLowEventData",
         E::WalletDepleted => "WalletDepletedEventData",
         E::WalletRecovered => "WalletRecoveredEventData",
@@ -1556,6 +1752,9 @@ pub fn data_schema(event: WebhookOutEventTypeEnum) -> &'static str {
         E::WorkflowRunStarted | E::WorkflowRunSucceeded | E::WorkflowRunFailed => {
             "WorkflowRunEventData"
         }
+        E::SubscriptionTrialEnded => "TrialEndedEventData",
+        E::OfferApplied => "OfferAppliedEventData",
+        E::GrantEnded => "GrantEndedEventData",
     }
 }
 
@@ -1611,6 +1810,7 @@ pub fn envelope_schema(event: WebhookOutEventTypeEnum) -> String {
     WalletFundedEventData,
     WalletDebitedEventData,
     CreditGrantExpiredEventData,
+    CreditGrantUpdatedEventData,
     WalletBalanceLowEventData,
     WalletDepletedEventData,
     WalletRecoveredEventData,
@@ -1628,6 +1828,9 @@ pub fn envelope_schema(event: WebhookOutEventTypeEnum) -> String {
     WorkflowRunEventData,
     OverrideEndingEventData,
     TrialEndingEventData,
+    TrialEndedEventData,
+    OfferAppliedEventData,
+    GrantEndedEventData,
 )))]
 pub struct WebhookPayloadsDoc;
 

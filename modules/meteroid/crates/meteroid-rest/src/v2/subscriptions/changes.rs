@@ -168,13 +168,13 @@ async fn change_result(
     }
 }
 
-fn today() -> NaiveDate {
+pub(super) fn today() -> NaiveDate {
     common_clock::now().date_naive()
 }
 
 /// What a store preview left out, unpriced: the preview says so (`incomplete`), its documents
 /// never reading as the change billing nothing.
-fn left_out(
+pub(super) fn left_out(
     parts: &[meteroid_store::domain::subscription_changes::PreviewPart],
 ) -> Vec<PreviewPart> {
     use meteroid_store::domain::subscription_changes::PreviewPart as Part;

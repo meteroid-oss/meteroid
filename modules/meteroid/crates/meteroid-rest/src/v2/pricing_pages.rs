@@ -8,9 +8,11 @@ use crate::v2::extract::{Path, Query};
 use crate::v2::ids;
 use crate::v2::problem::Problem;
 use crate::v2::refs::{PlanRef, ProductFamilyRef};
+use crate::v2::trials::AfterTrial;
 use axum::Extension;
 use axum::Json;
 use axum::extract::State;
+use chrono::NaiveDate;
 use common_domain::ids::{PlanId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_store::domain::pricing_pages as domain;
@@ -198,6 +200,10 @@ pub struct PricingCard {
     /// The trial's length in days, when the plan has one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trial_days: Option<u32>,
+    /// With a trial started today: what is billed each period once it ends, the card's base
+    /// price; none when the price is not shown or has no base.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after_trial: Option<AfterTrial>,
     /// Sold by contacting sales.
     pub sales_led: bool,
     /// The price is not shown: `price` is none and the card reads "Custom pricing".
@@ -242,7 +248,56 @@ fn kind(kind: domain::CardExtraKind) -> ExtraKind {
     }
 }
 
-fn card(card: domain::PricingCard, codes: &HashMap<PlanId, String>) -> PricingCard {
+/// A card's fixed fees billed from the end of a trial started `today`, per cadence: its base
+/// price, then the fees billed on their own cadence. Seats and usage are left out.
+fn after_trial(card: &domain::PricingCard, currency: &str, today: NaiveDate) -> Option<AfterTrial> {
+    use crate::v2::trials::RecurringAmount;
+    use common_utils::decimals::ToSubunit;
+    let days = card.trial_days.filter(|days| *days > 0)?;
+    let price = card.price.as_ref()?;
+    let own = price.period?;
+    let precision = meteroid_store::constants::Currencies::resolve_currency_precision(currency)?;
+    let mut amounts: Vec<(meteroid_store::domain::enums::BillingPeriodEnum, i64)> = Vec::new();
+    for extra in &price.extras {
+        let period = match extra.kind {
+            domain::CardExtraKind::Base => own,
+            domain::CardExtraKind::Recurring => match extra.period {
+                Some(period) => period,
+                None => continue,
+            },
+            _ => continue,
+        };
+        let amount = extra.amount?.to_subunit_opt(precision)?;
+        match amounts.iter_mut().find(|(at, _)| *at == period) {
+            Some((_, sum)) => *sum += amount,
+            None => amounts.push((period, amount)),
+        }
+    }
+    if !amounts.iter().any(|(period, _)| *period == own) {
+        return None;
+    }
+    amounts.retain(|(_, amount)| *amount != 0);
+    amounts.sort_by_key(|(period, _)| (*period != own, period.as_months()));
+    Some(AfterTrial {
+        currency: currency.to_owned(),
+        starts_on: today.checked_add_days(chrono::Days::new(u64::from(days)))?,
+        recurring: amounts
+            .into_iter()
+            .map(|(period, amount)| RecurringAmount {
+                amount,
+                interval: period.into(),
+            })
+            .collect(),
+    })
+}
+
+fn card(
+    card: domain::PricingCard,
+    codes: &HashMap<PlanId, String>,
+    currency: &str,
+    today: NaiveDate,
+) -> PricingCard {
+    let after_trial = after_trial(&card, currency, today);
     PricingCard {
         plan: PlanRef {
             id: card.plan_id,
@@ -309,6 +364,7 @@ fn card(card: domain::PricingCard, codes: &HashMap<PlanId, String>) -> PricingCa
             .map(|highlight| highlight.text)
             .collect(),
         trial_days: card.trial_days,
+        after_trial,
         sales_led: card.sales_led,
         hide_price: card.hide_price,
         contact_url: card.contact_url,
@@ -369,6 +425,8 @@ pub async fn render(
         .await?;
     let plan_ids: Vec<PlanId> = page.cards.iter().map(|card| card.plan_id).collect();
     let codes = state.store.plan_codes(tenant_id, &plan_ids).await?;
+    let today = common_clock::now().date_naive();
+    let currency = page.currency.clone();
     Ok(PricingPage {
         family: ProductFamilyRef {
             id: family.id,
@@ -386,7 +444,11 @@ pub async fn render(
             })
             .collect(),
         currencies: page.currencies,
-        cards: page.cards.into_iter().map(|c| card(c, &codes)).collect(),
+        cards: page
+            .cards
+            .into_iter()
+            .map(|c| card(c, &codes, &currency, today))
+            .collect(),
     })
 }
 

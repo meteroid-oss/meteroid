@@ -97,12 +97,28 @@ pub(crate) async fn mint_coupon_credit_tx(
         .into_iter()
         .map(|row| TryInto::<Coupon>::try_into(row).map(|coupon| (coupon.id, coupon)))
         .collect::<Result<_, _>>()?;
+    // A credit grant's own coupon row is funded by its offer, by the grant's window (R-174).
+    let grant_definitions: Vec<CouponId> =
+        diesel_models::offers::OfferGrantRow::list_by_coupons(conn, &coupon_ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .filter(|grant| {
+                grant.coupon_id.is_some_and(|id| {
+                    coupons
+                        .get(&id)
+                        .is_some_and(|coupon| coupon.offer_id != Some(grant.offer_id))
+                })
+            })
+            .filter_map(|grant| grant.coupon_id)
+            .collect();
     let credited: Vec<(&AppliedCouponRowNew, &Coupon)> = applied
         .iter()
         .filter_map(|a| {
             coupons
                 .get(&a.coupon_id)
                 .filter(|coupon| coupon.discount.is_credit())
+                .filter(|coupon| !grant_definitions.contains(&coupon.id))
                 .map(|coupon| (*a, coupon))
         })
         .collect();
@@ -375,7 +391,7 @@ async fn redeem_coupon_credit_code_tx(
         .await
         .map_err(Into::<Report<StoreError>>::into)?
         .into_iter()
-        .find(|row| row.code == code)
+        .find(|row| row.code.as_deref() == Some(code))
         .ok_or_else(not_redeemable)?
         .id;
     // Locked so concurrent redemptions cannot exceed the redemption limit nor redeem twice.

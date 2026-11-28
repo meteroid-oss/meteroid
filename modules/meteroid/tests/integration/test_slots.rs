@@ -1712,6 +1712,7 @@ fn seats_at_custom_price(
             end_date: None,
             billing_start_date: None,
             activation_condition: meteroid_store::domain::SubscriptionActivationCondition::OnStart,
+            offer: Default::default(),
             trial: Default::default(),
             billing_day_anchor: None,
             payment_methods_config: None,

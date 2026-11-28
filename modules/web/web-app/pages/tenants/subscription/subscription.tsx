@@ -64,6 +64,7 @@ import { SubscribedForDetail, SubscribedForWarnings } from '@/features/subscript
 import { SubscriptionAttention } from '@/features/subscriptions/SubscriptionAttention'
 import { SubscriptionCreditSummary } from '@/features/subscriptions/SubscriptionCreditSummary'
 import { SubscriptionEntitlementsCard } from '@/features/subscriptions/SubscriptionEntitlementsCard'
+import { SubscriptionGrantsSection } from '@/features/subscriptions/SubscriptionGrantsSection'
 import { SubscriptionInvoicesTable } from '@/features/subscriptions/SubscriptionInvoicesTable'
 import { SubscriptionMinimumProgress } from '@/features/subscriptions/SubscriptionMinimumProgress'
 import { SubscriptionNextInvoice } from '@/features/subscriptions/SubscriptionNextInvoice'
@@ -86,6 +87,7 @@ import {
   usagePriceRanges,
 } from '@/features/subscriptions/subscriptionPrice'
 import { subscriptionWallets } from '@/features/subscriptions/subscriptionWallets'
+import { SubscriptionTrialSection } from '@/features/subscriptions/trial/SubscriptionTrialSection'
 import { useSlotCounts, useUsageUnits } from '@/features/subscriptions/useUsageUnits'
 import { formatDateRange, formatShortDay } from '@/features/subscriptions/utils/dates'
 import { useBasePath } from '@/hooks/useBasePath'
@@ -840,6 +842,11 @@ export const Subscription = () => {
               onViewTransactions={setSlotTransactionsUnit}
             />
 
+            <SubscriptionGrantsSection
+              subscriptionId={data.id}
+              appliedCoupons={details.appliedCoupons}
+            />
+
             {details.minimumCommitment && live && (
               <SubscriptionMinimumProgress subscriptionId={data.id} />
             )}
@@ -950,55 +957,15 @@ export const Subscription = () => {
           {details.trialConfig && (
             <>
               <SidebarSeparator />
-              <DetailSection title="Trial">
-                <DetailRow
-                  label="Trial"
-                  value={`${details.trialConfig.startsOn} – ${details.trialConfig.endsOn ?? ''} (${details.trialConfig.durationDays} days)`}
-                />
-                {(data.status === SubscriptionStatus.TRIALING ||
-                  data.status === SubscriptionStatus.TRIAL_EXPIRED) && (
-                  <DetailRow
-                    label="Trial status"
-                    value={<SubscriptionStatusBadge status={data.status} />}
-                  />
-                )}
-                <DetailRow
-                  label="Trial type"
-                  value={
-                    isFreePlan
-                      ? 'Free plan'
-                      : details.trialConfig.isFree
-                        ? 'Free trial'
-                        : 'Paid trial'
-                  }
-                />
-                {details.trialConfig.trialingPlanName && (
-                  <DetailRow
-                    label="Trial features"
-                    value={`"${details.trialConfig.trialingPlanName}" features`}
-                  />
-                )}
-                {details.trialConfig.trialOfferName && (
-                  <DetailRow label="Trial offer" value={details.trialConfig.trialOfferName} />
-                )}
-                {details.trialConfig.endAction !== 'CONVERT' && (
-                  <DetailRow
-                    label="At its end"
-                    value={
-                      details.trialConfig.endAction === 'CANCEL'
-                        ? 'The subscription ends'
-                        : 'The subscription switches plan'
-                    }
-                  />
-                )}
-                {trialing && (
-                  <Slot
-                    name="subscriptionDetail.trialActions"
-                    subscriptionId={data.id}
-                    trial={details.trialConfig}
-                  />
-                )}
-              </DetailSection>
+              <SubscriptionTrialSection
+                subscription={data}
+                trial={details.trialConfig}
+                isFreePlan={isFreePlan}
+                periods={fees.map(f => f.period)}
+                paymentMethod={paymentMethod}
+                canManage={canManageSubscriptions && canAct && !ended}
+                onCancel={() => setShowCancelModal(true)}
+              />
             </>
           )}
 

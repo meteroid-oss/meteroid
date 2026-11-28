@@ -11,6 +11,9 @@ pub(crate) mod mapping;
 pub use mapping::ext;
 
 mod service;
+pub(crate) mod trial;
+
+pub use trial::service as trials_service;
 
 pub struct SubscriptionServiceComponents {
     pub store: Store,

@@ -8,6 +8,7 @@ import { useCustomPropertyRows } from '@/features/customproperties/useCustomProp
 import { EntitlementRowsEditor } from '@/features/entitlements/rows/EntitlementRowsEditor'
 import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
 import { isQuoteEditable } from '@/features/quotes/quoteEditable'
+import { quoteTrialLabel } from '@/features/quotes/quoteTrial'
 import {
   formatSubscriptionFee,
   formatSubscriptionFeeBillingPeriod,
@@ -16,7 +17,11 @@ import { useBasePath } from '@/hooks/useBasePath'
 import { env } from '@/lib/env'
 import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
 import { MinimumCommitment } from '@/rpc/api/plans/v1/models_pb'
-import { DetailedQuote, QuoteComponent } from '@/rpc/api/quotes/v1/models_pb'
+import {
+  DetailedQuote,
+  QuoteComponent,
+  QuoteTrialEndAction,
+} from '@/rpc/api/quotes/v1/models_pb'
 import { ActivationCondition, PaymentMethodsConfig } from '@/rpc/api/subscriptions/v1/models_pb'
 import { parseAndFormatDate } from '@/utils/date'
 
@@ -136,8 +141,15 @@ export const QuoteSettingsTab = ({ quote, minimumCommitment, planName }: Props) 
           {q.trialDuration !== undefined && q.trialDuration > 0 && (
             <Detail
               label="Trial"
-              value={`${q.trialDuration} days${q.trialFree === false ? ', billed' : q.trialFree ? ', free' : ''}`}
+              value={quoteTrialLabel({
+                days: q.trialDuration,
+                free: q.trialFree,
+                manual: q.trialEndAction === QuoteTrialEndAction.MANUAL,
+              })}
             />
+          )}
+          {!!q.trialDuration && q.trialPlanName && (
+            <Detail label="Features of" value={q.trialPlanName} />
           )}
           <Detail
             label="Billing day"

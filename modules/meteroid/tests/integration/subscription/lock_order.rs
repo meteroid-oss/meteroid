@@ -345,6 +345,7 @@ async fn a_checkout_waits_for_its_customer_before_locking_its_session() {
             billing_start_date: Some(NaiveDate::from_ymd_opt(2024, 1, 15).unwrap()),
             billing_day_anchor: Some(15),
             net_terms: None,
+            offer: Default::default(),
             trial: meteroid_store::domain::trials::TrialRequest::from_days(Some(7), None),
             end_date: None,
             auto_advance_invoices: true,

@@ -30,6 +30,7 @@ export interface RevisionSummary {
   expiresAt?: string
   trialDays?: number
   trialFree?: boolean
+  trialManual?: boolean
   netTerms?: number
   lines: RevisionLine[]
   coupons: RevisionCoupon[]
@@ -155,6 +156,7 @@ export const parseRevisionDocument = (document: string): RevisionSummary | undef
     expiresAt: str(doc.expires_at),
     trialDays: typeof doc.trial_duration_days === 'number' ? doc.trial_duration_days : undefined,
     trialFree: typeof doc.trial_free === 'boolean' ? doc.trial_free : undefined,
+    trialManual: doc.trial_end_action === 'MANUAL',
     netTerms: typeof doc.net_terms === 'number' ? doc.net_terms : undefined,
     lines: list(doc.lines).map(line => {
       const quantity =

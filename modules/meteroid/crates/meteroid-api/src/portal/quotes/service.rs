@@ -414,6 +414,7 @@ pub(crate) async fn quote_portal_details(
         Some(detailed_quote.customer.name.clone()),
         true,
     );
+    proto_quote.trial_plan_name = detailed_quote.trial_plan_name.clone();
     crate::quotes::link_attachments(documents, tenant, detailed_quote.quote.id, &mut proto_quote)?;
     let has_attachments = !detailed_quote.quote.attachments.is_empty();
 

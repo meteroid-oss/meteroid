@@ -282,6 +282,36 @@ impl CustomerCreditGrantProductRow {
 }
 
 impl CustomerCreditGrantRow {
+    /// A grant not in effect yet and untouched (nothing drawn, not ended) dated again; none
+    /// when it no longer is.
+    pub async fn redate_pending(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        id: CreditGrantId,
+        effective_at: DateTime<Utc>,
+        expires_at: Option<DateTime<Utc>>,
+        now: DateTime<Utc>,
+    ) -> DbResult<Option<CustomerCreditGrantRow>> {
+        use crate::schema::customer_credit_grant::dsl as g;
+
+        diesel::update(g::customer_credit_grant)
+            .filter(g::tenant_id.eq(tenant_id))
+            .filter(g::id.eq(id))
+            .filter(g::effective_at.gt(now))
+            .filter(g::remaining.eq(g::amount))
+            .filter(g::ends_at.is_null())
+            .set((
+                g::effective_at.eq(effective_at),
+                g::expires_at.eq(expires_at),
+            ))
+            .returning(CustomerCreditGrantRow::as_returning())
+            .get_result(conn)
+            .await
+            .optional()
+            .attach("Error while dating a pending credit grant again")
+            .into_db_result()
+    }
+
     /// The debt-cancelling notes of invoices whose purchased paid credit still holds value past
     /// its lapse: forgiveness funded it, and a late pack credits it back before the sweep lapses it.
     /// [`Self::list_forgiven_purchase_notes`] of one customer.

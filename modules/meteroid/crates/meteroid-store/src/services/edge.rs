@@ -2668,6 +2668,7 @@ impl ServicesEdge {
             billing_start_date: None,
             billing_day_anchor: None,
             net_terms: None,
+            offer: Default::default(),
             trial: Default::default(),
             end_date: None,
             auto_advance_invoices: true,
@@ -3174,7 +3175,7 @@ impl ServicesEdge {
             .complete_checkout_run(
                 tenant_id,
                 checkout_session_id,
-                payment_method_id,
+                Some(payment_method_id),
                 total_amount_confirmation,
                 currency_confirmation.clone(),
                 coupon_code.clone(),
@@ -3201,7 +3202,7 @@ impl ServicesEdge {
                         .complete_checkout_run(
                             tenant_id,
                             checkout_session_id,
-                            payment_method_id,
+                            Some(payment_method_id),
                             total_amount_confirmation,
                             currency_confirmation.clone(),
                             coupon_code.clone(),
@@ -3237,13 +3238,46 @@ impl ServicesEdge {
             .await)
     }
 
+    /// Completes a self-serve checkout whose trial asks no card (`card_required = false`) without
+    /// a payment method: its subscription starts on the trial, which takes its `without_card` at
+    /// its end. Refused for a checkout with no such trial.
+    pub async fn complete_checkout_without_payment_method(
+        &self,
+        tenant_id: TenantId,
+        checkout_session_id: CheckoutSessionId,
+        currency_confirmation: String,
+        coupon_code: Option<String>,
+    ) -> Result<CheckoutCompletionResult, StoreErrorReport> {
+        let session: CheckoutSession = CheckoutSessionRow::get_by_id(
+            &mut self.get_conn().await?,
+            tenant_id,
+            checkout_session_id,
+        )
+        .await?
+        .into();
+        if session.checkout_type != CheckoutType::SelfServe {
+            return Err(payment_method_required());
+        }
+        self.complete_checkout_run(
+            tenant_id,
+            checkout_session_id,
+            None,
+            0,
+            currency_confirmation,
+            coupon_code,
+            &None,
+            &CheckoutCharge::Price,
+        )
+        .await
+    }
+
     /// One run of a checkout's transaction (see [`CheckoutCharge`]).
     #[allow(clippy::too_many_arguments)]
     async fn complete_checkout_run(
         &self,
         tenant_id: TenantId,
         checkout_session_id: CheckoutSessionId,
-        payment_method_id: CustomerPaymentMethodId,
+        payment_method_id: Option<CustomerPaymentMethodId>,
         total_amount_confirmation: u64,
         currency_confirmation: String,
         coupon_code: Option<String>,
@@ -3290,7 +3324,7 @@ impl ServicesEdge {
         &self,
         tenant_id: TenantId,
         checkout_session_id: CheckoutSessionId,
-        payment_method_id: CustomerPaymentMethodId,
+        payment_method_id: Option<CustomerPaymentMethodId>,
         total_amount_confirmation: u64,
         currency_confirmation: String,
         coupon_code: Option<String>,
@@ -3331,14 +3365,16 @@ impl ServicesEdge {
                     ensure_billing_information_if_required(conn, tenant_id, session.customer_id)
                         .await?;
 
-                    self.services
-                        .ensure_payment_method_of_customer(
-                            conn,
-                            tenant_id,
-                            session.customer_id,
-                            payment_method_id,
-                        )
-                        .await?;
+                    if let Some(payment_method_id) = payment_method_id {
+                        self.services
+                            .ensure_payment_method_of_customer(
+                                conn,
+                                tenant_id,
+                                session.customer_id,
+                                payment_method_id,
+                            )
+                            .await?;
+                    }
                     self.services
                         .ensure_coupon_code_accepted(conn, &session, coupon_code.as_deref())
                         .await?;
@@ -3385,7 +3421,7 @@ impl ServicesEdge {
                                 tenant_id,
                                 checkout_session_id,
                                 session,
-                                payment_method_id,
+                                payment_method_id.ok_or_else(payment_method_required)?,
                                 total_amount_confirmation,
                                 currency_confirmation,
                                 coupon_code,
@@ -3418,7 +3454,7 @@ impl ServicesEdge {
                                 tenant_id,
                                 checkout_session_id,
                                 session,
-                                payment_method_id,
+                                payment_method_id.ok_or_else(payment_method_required)?,
                                 total_amount_confirmation,
                                 currency_confirmation,
                                 plan_change_usage.clone().unwrap_or_default(),
@@ -3432,7 +3468,7 @@ impl ServicesEdge {
                                 tenant_id,
                                 checkout_session_id,
                                 session,
-                                payment_method_id,
+                                payment_method_id.ok_or_else(payment_method_required)?,
                                 total_amount_confirmation,
                                 currency_confirmation,
                                 charge,
@@ -3720,7 +3756,7 @@ impl ServicesEdge {
         tenant_id: TenantId,
         checkout_session_id: CheckoutSessionId,
         session: CheckoutSession,
-        payment_method_id: CustomerPaymentMethodId,
+        payment_method_id: Option<CustomerPaymentMethodId>,
         total_amount_confirmation: u64,
         currency_confirmation: String,
         coupon_code: Option<String>,
@@ -3796,37 +3832,51 @@ impl ServicesEdge {
                 .trial_config
                 .as_ref()
                 .is_some_and(|tc| tc.is_free);
+            if payment_method_id.is_none()
+                && !preview_details
+                    .trial_config
+                    .as_ref()
+                    .is_some_and(crate::domain::subscriptions::TrialConfig::starts_without_card)
+            {
+                return Err(Report::new(StoreError::InvalidArgument(
+                    "This checkout collects a payment method: its plan has no trial started without a card"
+                        .to_string(),
+                )));
+            }
 
             // Zero amount due to coupon discount (not free trial)
             let is_zero_amount = amount_due <= 0 && !is_free_trial;
 
             let charge_result = if is_free_trial || amount_due <= 0 {
-                let _method =
-                    diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
-                        conn,
-                        &tenant_id,
-                        &payment_method_id,
-                    )
-                    .await
-                    .map_err(|_| {
-                        Report::new(StoreError::InvalidArgument(
-                            "Payment method not found".to_string(),
-                        ))
-                    })?;
-                // Nothing is charged now: the card the customer chose is what renewals bill.
-                self.services
-                    .adopt_default_payment_method_tx(
-                        conn,
-                        &actor,
-                        tenant_id,
-                        session.customer_id,
-                        payment_method_id,
-                        crate::services::DefaultMethodAdoption::Replace,
-                    )
-                    .await?;
+                if let Some(payment_method_id) = payment_method_id {
+                    let _method =
+                        diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
+                            conn,
+                            &tenant_id,
+                            &payment_method_id,
+                        )
+                        .await
+                        .map_err(|_| {
+                            Report::new(StoreError::InvalidArgument(
+                                "Payment method not found".to_string(),
+                            ))
+                        })?;
+                    // Nothing is charged now: the card the customer chose is what renewals bill.
+                    self.services
+                        .adopt_default_payment_method_tx(
+                            conn,
+                            &actor,
+                            tenant_id,
+                            session.customer_id,
+                            payment_method_id,
+                            crate::services::DefaultMethodAdoption::Replace,
+                        )
+                        .await?;
+                }
 
                 None
             } else {
+                let payment_method_id = payment_method_id.ok_or_else(payment_method_required)?;
                 let amount_diff = (amount_due - total_amount_confirmation as i64).abs();
                 if amount_diff > 1 {
                     return Err(Report::new(StoreError::CheckoutError).attach(format!(
@@ -4241,6 +4291,7 @@ impl ServicesEdge {
             billing_start_date: None,
             billing_day_anchor: None,
             net_terms: None,
+            offer: Default::default(),
             trial: Default::default(),
             end_date: None,
             auto_advance_invoices: true,
@@ -4869,4 +4920,10 @@ impl ServicesEdge {
         }
     }).await
     }
+}
+
+fn payment_method_required() -> Report<StoreError> {
+    Report::new(StoreError::InvalidArgument(
+        "This checkout is completed with a payment method".to_string(),
+    ))
 }

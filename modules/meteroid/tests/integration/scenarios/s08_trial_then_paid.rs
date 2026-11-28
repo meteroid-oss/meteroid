@@ -32,6 +32,9 @@ async fn s08_free_trial_then_paid_with_a_promo_code_at_signup() {
                 duration_days: 14,
                 free: true,
                 trial_plan_id: None,
+                card_required: None,
+                end_action: None,
+                without_card: None,
             }),
         )
         .await

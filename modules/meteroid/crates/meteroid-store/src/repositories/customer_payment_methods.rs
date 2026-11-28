@@ -304,6 +304,72 @@ impl CustomerPaymentMethodsInterface for Store {
 }
 
 impl Store {
+    /// Whether a subscription charged automatically online, through a provider its invoicing entity
+    /// routes, resolves no payment method, in the caller's transaction (R-179). One paid by invoice
+    /// (bank transfer, external, no online provider) lacks none.
+    pub(crate) async fn lacks_payment_method_tx(
+        &self,
+        conn: &mut crate::store::PgConn,
+        tenant_id: TenantId,
+        id: SubscriptionId,
+        charge_automatically: bool,
+    ) -> StoreResult<bool> {
+        if !charge_automatically {
+            return Ok(false);
+        }
+        let context =
+            CustomerPaymentMethodRow::get_subscription_payment_context(conn, tenant_id, id)
+                .await
+                .map_err(|err| StoreError::DatabaseError(err.error))?;
+        let config: Option<PaymentMethodsConfig> = context
+            .payment_methods_config
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(|e| {
+                StoreError::SerdeError(format!("Failed to parse payment_methods_config: {}", e), e)
+            })?;
+        let PaymentMethodsConfig::Online {
+            config: online_config,
+        } = config.unwrap_or_else(PaymentMethodsConfig::online)
+        else {
+            return Ok(false);
+        };
+        let enabled = |method: Option<&crate::domain::subscriptions::OnlineMethodConfig>| {
+            method.is_none_or(|m| m.enabled)
+        };
+        let routed: Vec<ConnectorId> = [
+            context
+                .card_provider_id
+                .filter(|_| enabled(online_config.as_ref().and_then(|c| c.card.as_ref()))),
+            context
+                .direct_debit_provider_id
+                .filter(|_| enabled(online_config.as_ref().and_then(|c| c.direct_debit.as_ref()))),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        if routed.is_empty()
+            || ConnectorRow::filter_active_ids(conn, tenant_id, &routed)
+                .await
+                .map_err(|err| StoreError::DatabaseError(err.error))?
+                .is_empty()
+        {
+            return Ok(false);
+        }
+        let resolved = self
+            .resolve_online_payment_method(
+                conn,
+                &tenant_id,
+                &context.customer_id,
+                context.current_payment_method_id,
+                context.card_provider_id,
+                context.direct_debit_provider_id,
+                online_config.as_ref(),
+            )
+            .await?;
+        Ok(matches!(resolved, ResolvedPaymentMethod::NotConfigured))
+    }
+
     /// Merges a re-added instrument into its existing row: by provider id, else by active
     /// fingerprint (adopting the new provider id). Concurrent writers converge via ON CONFLICT.
     async fn persist_payment_method(

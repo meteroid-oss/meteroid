@@ -244,6 +244,19 @@ pub struct TrialEndingEvent {
     pub trial_end: chrono::NaiveDate,
     pub free: bool,
     pub trial_offer_id: Option<Uuid>,
+    /// When billing starts, the trial's end converting; none when its end cancels it or waits
+    /// for a decision. Unset in events queued before it was published.
+    #[serde(default)]
+    pub billing_starts_on: Option<chrono::NaiveDate>,
+    /// The subscription resolves a payment method now (R-179).
+    #[serde(default)]
+    pub has_payment_method: Option<bool>,
+    /// CONVERT, CANCEL, FALLBACK or MANUAL, as the trial records it.
+    #[serde(default)]
+    pub end_action: Option<String>,
+    /// AWAIT_PAYMENT, CANCEL or SWITCH: what a converting end does without a payment method.
+    #[serde(default)]
+    pub without_card: Option<String>,
 }
 
 impl TrialEndingEvent {
@@ -251,6 +264,106 @@ impl TrialEndingEvent {
 
     pub fn event_id(subscription_id: SubscriptionId, trial_end: chrono::NaiveDate) -> EventId {
         let identity = format!("trial_ending|{subscription_id}|{trial_end}");
+        Uuid::new_v5(&EVENT_NAMESPACE, identity.as_bytes()).into()
+    }
+}
+
+/// A subscription's trial ended (`subscription.trial_ended`), published when its outcome is
+/// recorded and again when an awaiting outcome resolves (R-167).
+#[skip_serializing_none]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrialEndedEvent {
+    pub id: EventId,
+    pub tenant_id: TenantId,
+    pub customer_id: CustomerId,
+    pub subscription_id: SubscriptionId,
+    /// The trial's end, exclusive.
+    pub trial_end: chrono::NaiveDate,
+    pub outcome: crate::domain::trials::TrialOutcome,
+    pub ended_at: NaiveDateTime,
+    pub trial_offer_id: Option<Uuid>,
+}
+
+impl TrialEndedEvent {
+    pub const ROUTING_KEY: &'static str = "subscription.trial_ended";
+
+    pub fn event_id(
+        subscription_id: SubscriptionId,
+        trial_end: chrono::NaiveDate,
+        outcome: crate::domain::trials::TrialOutcome,
+    ) -> EventId {
+        let identity = format!(
+            "trial_ended|{subscription_id}|{trial_end}|{}",
+            outcome.as_str()
+        );
+        Uuid::new_v5(&EVENT_NAMESPACE, identity.as_bytes()).into()
+    }
+}
+
+/// An offer applied to a subscription (`offer.applied`, ADR 0019): at its creation, from a
+/// coupon, or later.
+#[skip_serializing_none]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OfferAppliedEvent {
+    pub id: EventId,
+    pub tenant_id: TenantId,
+    pub customer_id: CustomerId,
+    pub subscription_id: SubscriptionId,
+    pub offer_id: common_domain::ids::OfferId,
+    pub application_id: common_domain::ids::OfferApplicationId,
+    pub coupon_id: Option<common_domain::ids::CouponId>,
+    /// `OfferSource::as_str`.
+    pub source: String,
+    pub grant_ids: Vec<common_domain::ids::OfferGrantId>,
+    pub applied_at: NaiveDateTime,
+}
+
+impl OfferAppliedEvent {
+    pub const ROUTING_KEY: &'static str = "offer.applied";
+
+    pub fn event_id(application_id: common_domain::ids::OfferApplicationId) -> EventId {
+        let identity = format!("offer_applied|{application_id}");
+        Uuid::new_v5(&EVENT_NAMESPACE, identity.as_bytes()).into()
+    }
+}
+
+/// Why a grant ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GrantEndReason {
+    /// Its subscription never started.
+    Withdrawn,
+    /// Its subscription ended.
+    SubscriptionEnded,
+    /// Its window ended.
+    WindowEnded,
+}
+
+/// A grant of an applied offer ended (`grant.ended`): its window over, or before it.
+#[skip_serializing_none]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GrantEndedEvent {
+    pub id: EventId,
+    pub tenant_id: TenantId,
+    pub customer_id: CustomerId,
+    pub subscription_id: SubscriptionId,
+    pub offer_id: common_domain::ids::OfferId,
+    pub application_id: common_domain::ids::OfferApplicationId,
+    pub grant_id: common_domain::ids::OfferGrantId,
+    /// `GrantKind::as_str`.
+    pub kind: String,
+    pub reason: GrantEndReason,
+    pub ended_at: NaiveDateTime,
+}
+
+impl GrantEndedEvent {
+    pub const ROUTING_KEY: &'static str = "grant.ended";
+
+    pub fn event_id(
+        application_id: common_domain::ids::OfferApplicationId,
+        grant_id: common_domain::ids::OfferGrantId,
+    ) -> EventId {
+        let identity = format!("grant_ended|{application_id}|{grant_id}");
         Uuid::new_v5(&EVENT_NAMESPACE, identity.as_bytes()).into()
     }
 }

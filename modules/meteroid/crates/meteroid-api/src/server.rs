@@ -268,6 +268,10 @@ pub async fn start_api_server_with_incoming(
             feature_resolver.clone(),
         ))
         .add_service(api::plans::service(store.clone(), feature_resolver.clone()))
+        .add_service(api::offers::service(
+            services.clone(),
+            feature_resolver.clone(),
+        ))
         .add_service(api::prices::service(store.clone(), services.clone()))
         .add_service(api::productitems::service(
             store.clone(),
@@ -304,6 +308,10 @@ pub async fn start_api_server_with_incoming(
             store.clone(),
             services.clone(),
             feature_resolver.clone(),
+        ))
+        .add_service(api::subscriptions::trials_service(
+            store.clone(),
+            services.clone(),
         ))
         .add_service(api::taxes::service(
             store.clone(),

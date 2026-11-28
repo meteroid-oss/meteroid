@@ -121,6 +121,7 @@ mod test_tenant;
 mod test_tenant_copy;
 mod test_tenant_deletion_cascade;
 mod test_tenant_scoping;
+mod test_trial_switch_gate;
 mod test_usage_costs_metering;
 mod test_user;
 mod test_user_deletion;

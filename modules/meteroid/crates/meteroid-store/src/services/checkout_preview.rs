@@ -154,13 +154,15 @@ impl Services {
         let plan =
             crate::services::trials::PlanRef::of_version_tx(conn, tenant_id, plan_version.id)
                 .await?;
-        let trial = crate::services::trials::resolve_trial_tx(
+        let (trial, offer) = crate::services::offers::resolve_tx(
             conn,
             tenant_id,
             &plan,
             billing_start_date,
             Some(session.customer_id),
+            session.offer_request(),
             &session.trial_request(),
+            false,
         )
         .await?;
         let trial_is_free = trial.as_ref().is_some_and(|trial| trial.free);
@@ -197,6 +199,18 @@ impl Services {
                 None
             };
 
+            // Its card default reads from it (`card_required`).
+            let offer = match trial.as_ref().and_then(|trial| trial.offer) {
+                Some(id) => Some(
+                    crate::services::trials::catalog::find_tx(
+                        conn,
+                        tenant_id,
+                        &common_domain::ids::AliasOr::Id(id),
+                    )
+                    .await?,
+                ),
+                None => None,
+            };
             Some(TrialConfig {
                 duration_days: trial_days,
                 is_free: trial_is_free,
@@ -205,7 +219,7 @@ impl Services {
                 ends_on: None,
                 trialing_plan_id,
                 trialing_plan_name,
-                offer: None,
+                offer,
                 end_action: trial
                     .as_ref()
                     .map_or(crate::domain::trials::TrialEnd::Convert, |trial| {
@@ -300,6 +314,11 @@ impl Services {
                 );
             }
         }
+
+        applied_coupons.extend(
+            self.preview_offer_coupons(conn, tenant_id, offer.as_ref(), &virtual_subscription)
+                .await?,
+        );
 
         let minimum = crate::repositories::plans::load_plan_minimum(
             conn,
@@ -534,13 +553,15 @@ impl Services {
         let plan =
             crate::services::trials::PlanRef::of_version_tx(conn, tenant_id, plan_version.id)
                 .await?;
-        let trial = crate::services::trials::resolve_trial_tx(
+        let (trial, offer) = crate::services::offers::resolve_tx(
             conn,
             tenant_id,
             &plan,
             sub.billing_start_date.unwrap_or(sub.start_date),
             Some(sub.customer_id),
+            sub.offer,
             &sub.trial,
+            false,
         )
         .await?;
         let (effective_trial_duration, billing_start_date) =
@@ -656,6 +677,10 @@ impl Services {
                 applied_coupons.push(preview_coupon);
             }
         }
+        applied_coupons.extend(
+            self.preview_offer_coupons(conn, tenant_id, offer.as_ref(), &virtual_subscription)
+                .await?,
+        );
 
         let details = rows_from(
             SubscriptionDetails {
@@ -1091,6 +1116,48 @@ impl Services {
             subscription,
             effective_from,
         ))
+    }
+
+    /// The applied coupons the offer's discount and credit grants write when the subscription is
+    /// created (`offers::apply`), unchecked as there: no code is redeemed.
+    async fn preview_offer_coupons(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        offer: Option<&crate::domain::offers::ResolvedOffer>,
+        subscription: &Subscription,
+    ) -> StoreResult<Vec<AppliedCouponDetailed>> {
+        use crate::repositories::coupons::CouponInterface;
+        let coupon_ids: Vec<CouponId> = offer
+            .into_iter()
+            .flat_map(|offer| offer.grants.iter())
+            .filter(|grant| {
+                matches!(
+                    grant.definition,
+                    crate::domain::offers::GrantDefinition::Discount(_)
+                        | crate::domain::offers::GrantDefinition::Credit(_)
+                )
+            })
+            .filter_map(|grant| grant.coupon_id)
+            .collect();
+        if coupon_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let effective_from =
+            crate::services::subscriptions::coupon_months_from_tx(conn, subscription).await?;
+        let mut coupons = Vec::with_capacity(coupon_ids.len());
+        for coupon_id in coupon_ids {
+            let coupon = self
+                .store
+                .get_coupon_by_id_with_conn(conn, tenant_id, coupon_id)
+                .await?;
+            coupons.push(Self::create_preview_applied_coupon(
+                coupon,
+                subscription,
+                effective_from,
+            ));
+        }
+        Ok(coupons)
     }
 
     /// Creates a preview AppliedCouponDetailed (not persisted) for invoice computation, its months

@@ -13,10 +13,10 @@ export const createQuoteSchema = z.object({
   billing_start_date: z.date().optional(),
   end_date: z.date().optional(),
   trial_duration: z.number().min(0).optional(),
-  /** With `trial_duration`: nothing billed during it; signed with the quote. */
-  trial_free: z.boolean().optional(),
   /** With `trial_duration`: the plan whose features it gives. */
   trial_plan_id: z.string().optional(),
+  /** With `trial_duration`; unset converts. */
+  trial_end_action: z.enum(['convert', 'manual']).optional(),
   billing_day_anchor: z.preprocess(val => {
     if (val === '') return undefined
     return val

@@ -53,6 +53,7 @@ async fn test_checkout_session_paid_trial_invoice_dates(#[future] test_env: Test
             billing_start_date: Some(start_date),
             billing_day_anchor: Some(15), // Bill on the 15th
             net_terms: None,
+            offer: Default::default(),
             trial: meteroid_store::domain::trials::TrialRequest::from_days(Some(7), None), // 7-day paid trial
             end_date: None,
             auto_advance_invoices: true,
@@ -232,6 +233,7 @@ async fn test_checkout_session_free_trial_invoice_dates(#[future] test_env: Test
             billing_start_date: Some(start_date),
             billing_day_anchor: Some(1), // Bill on the 1st
             net_terms: None,
+            offer: Default::default(),
             trial: meteroid_store::domain::trials::TrialRequest::from_days(Some(14), None), // 14-day free trial
             end_date: None,
             auto_advance_invoices: true,
@@ -418,6 +420,7 @@ async fn test_checkout_session_free_trial_no_anchor(#[future] test_env: TestEnv)
             billing_start_date: Some(start_date),
             billing_day_anchor: None, // NO anchor - billing follows trial end naturally
             net_terms: None,
+            offer: Default::default(),
             trial: meteroid_store::domain::trials::TrialRequest::from_days(Some(14), None), // 14-day free trial
             end_date: None,
             auto_advance_invoices: true,
@@ -590,6 +593,7 @@ async fn test_checkout_session_no_trial_invoice_dates(#[future] test_env: TestEn
             billing_start_date: Some(start_date),
             billing_day_anchor: Some(1), // Bill on the 1st
             net_terms: None,
+            offer: Default::default(),
             trial: Default::default(), // No trial
             end_date: None,
             auto_advance_invoices: true,
@@ -733,6 +737,7 @@ async fn test_checkout_session_100_percent_coupon(#[future] test_env: TestEnv) {
             billing_start_date: Some(start_date),
             billing_day_anchor: Some(15),
             net_terms: None,
+            offer: Default::default(),
             trial: meteroid_store::domain::trials::TrialRequest::None, // Explicitly no trial
             end_date: None,
             auto_advance_invoices: true,
@@ -852,6 +857,7 @@ async fn test_checkout_declined_charge_persists_failed_transaction(#[future] tes
             billing_start_date: Some(start_date),
             billing_day_anchor: Some(15),
             net_terms: None,
+            offer: Default::default(),
             trial: meteroid_store::domain::trials::TrialRequest::from_days(Some(7), None),
             end_date: None,
             auto_advance_invoices: true,
@@ -922,6 +928,7 @@ async fn a_checkout_preview_s_fees_live_from_its_billing_start(#[future] test_en
             billing_start_date: Some(start_date),
             billing_day_anchor: Some(1),
             net_terms: None,
+            offer: Default::default(),
             trial: Default::default(),
             end_date: None,
             auto_advance_invoices: true,
@@ -1017,6 +1024,7 @@ async fn a_mixed_cadence_checkout_charges_the_first_invoice_creation_bills(
             billing_start_date: Some(start_date),
             billing_day_anchor: Some(1),
             net_terms: None,
+            offer: Default::default(),
             trial: Default::default(),
             end_date: None,
             auto_advance_invoices: true,

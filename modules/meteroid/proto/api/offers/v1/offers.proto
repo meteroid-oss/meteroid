@@ -1,0 +1,296 @@
+syntax = "proto3";
+
+package meteroid.api.offers.v1;
+
+import "api/entitlements/v1/models.proto";
+import "api/plans/v1/models.proto";
+
+// What a subscription is given beside its plan: a trial, grants or both (ADR 0019).
+message Offer {
+  string id = 1;
+  string name = 2;
+  optional string description = 3;
+  // Unset: it gives its grants only.
+  optional meteroid.api.plans.v1.TrialTerms trial = 4;
+  repeated Grant grants = 5;
+  // Who is given it once: its trial and every grant.
+  meteroid.api.plans.v1.TrialEligibility eligibility = 6;
+  // Listed in the catalog; a plan's own offer, or a coupon's, is not.
+  bool standalone = 7;
+  bool archived = 8;
+  // Read only.
+  OfferUse used_by = 9;
+}
+
+message OfferUse {
+  // The plans naming it as their start offer.
+  repeated string plan_ids = 1;
+  repeated string retention_offer_ids = 3;
+  // The coupons whose code gives it.
+  repeated OfferCoupon coupons = 4;
+  // The subscriptions it was given to.
+  uint64 applications = 5;
+}
+
+message OfferCoupon {
+  string id = 1;
+  string code = 2;
+}
+
+// When a grant applies on a subscription: from its anchor, for its duration.
+message GrantWindow {
+  enum Anchor {
+    // The subscription's start: its trial's first day when it has one.
+    START = 0;
+    // When billing starts: a free trial's end, else the billing start.
+    BILLING_START = 1;
+  }
+  Anchor anchor = 1;
+  oneof duration {
+    bool forever = 2;
+    uint32 days = 3;
+    uint32 months = 4;
+    // The trial's free segment.
+    bool until_billing_starts = 5;
+    // A coupon's first invoices, as coupons made before durations in months count them; read only.
+    uint32 invoices = 6;
+  }
+}
+
+message CurrencyAmount {
+  string currency = 1;
+  string amount = 2;
+}
+
+message GrantDiscount {
+  oneof discount {
+    // A decimal, out of 100.
+    string percentage = 1;
+    CurrencyAmount fixed = 2;
+  }
+  // A fixed discount in currencies other than its own.
+  repeated CurrencyAmount fixed_amounts = 3;
+  // Only these add-ons' lines; empty: the whole invoice.
+  repeated string add_on_ids = 4;
+}
+
+// Promotional credit, funded when the subscription starts.
+message GrantCredit {
+  enum Scope {
+    // Pays any of the customer's subscriptions.
+    CUSTOMER = 0;
+    // Pays only the subscription it is given on, and ends with it.
+    SUBSCRIPTION = 1;
+  }
+  string currency = 1;
+  string amount = 2;
+  Scope scope = 3;
+}
+
+message GrantEntitlement {
+  string feature_id = 1;
+  meteroid.api.entitlements.v1.EntitlementValue value = 2;
+  // Unspecified: the feature's default.
+  meteroid.api.entitlements.v1.EntitlementEffect effect = 3;
+}
+
+// An add-on given for the window. Enterprise.
+message GrantAddOn {
+  enum AtEnd {
+    // It is removed.
+    REVERT = 0;
+    // It stays, at its catalog price.
+    CONVERT = 1;
+  }
+  string add_on_id = 1;
+  uint32 quantity = 2;
+  AtEnd at_end = 3;
+}
+
+message Grant {
+  enum Kind {
+    DISCOUNT = 0;
+    CREDIT = 1;
+    ENTITLEMENT = 2;
+    ADD_ON = 3;
+  }
+  string id = 1;
+  Kind kind = 2;
+  GrantWindow window = 3;
+  oneof definition {
+    GrantDiscount discount = 4;
+    GrantCredit credit = 5;
+    GrantEntitlement entitlement = 6;
+    GrantAddOn add_on = 7;
+  }
+}
+
+message GrantNew {
+  GrantWindow window = 1;
+  oneof definition {
+    GrantDiscount discount = 2;
+    GrantCredit credit = 3;
+    GrantEntitlement entitlement = 4;
+    GrantAddOn add_on = 5;
+  }
+}
+
+// The row a grant wrote on a subscription.
+message GrantRef {
+  oneof target {
+    string applied_coupon_id = 1;
+    string credit_grant_id = 2;
+    string entitlement_id = 3;
+    string subscription_add_on_id = 4;
+  }
+}
+
+// A grant as a subscription has it: its window's dates there, its status, where it came from and
+// the rows it wrote.
+message SubscriptionGrant {
+  enum Status {
+    // Its window, or the subscription, has not started.
+    SCHEDULED = 0;
+    ACTIVE = 1;
+    // Its window is over, or it ended with its subscription.
+    ENDED = 2;
+    // The subscription never started.
+    WITHDRAWN = 3;
+  }
+  enum Source {
+    PLAN = 0;
+    OPERATOR = 1;
+    COUPON = 2;
+    RETENTION = 3;
+    QUOTE = 4;
+    API = 5;
+  }
+  Grant grant = 1;
+  Status status = 2;
+  string from = 3;
+  // Exclusive; unset: forever, or counted in invoices.
+  optional string until = 4;
+  Source source = 5;
+  string offer_id = 6;
+  // The coupon whose code gave the offer.
+  optional string coupon_id = 7;
+  string application_id = 8;
+  repeated GrantRef refs = 9;
+}
+
+// A plan's start offer, and every plan naming it.
+message PlanStartOffer {
+  Offer offer = 1;
+  repeated string plan_ids = 2;
+}
+
+// The catalog's offers by id; unset `limit`: all of them after `after`.
+message ListOffersRequest {
+  bool include_archived = 1;
+  optional string after = 2;
+  optional uint32 limit = 3;
+}
+message ListOffersResponse {
+  repeated Offer offers = 1;
+}
+
+// Any of the tenant's offers: a catalog offer, a plan's own or a coupon's.
+message GetOfferRequest {
+  string id = 1;
+}
+message GetOfferResponse {
+  Offer offer = 1;
+}
+
+// A catalog offer. Enterprise.
+message CreateOfferRequest {
+  string name = 1;
+  optional string description = 2;
+  optional meteroid.api.plans.v1.TrialTerms trial = 3;
+  repeated GrantNew grants = 4;
+  meteroid.api.plans.v1.TrialEligibility eligibility = 5;
+}
+message CreateOfferResponse {
+  Offer offer = 1;
+}
+
+// A catalog offer's terms all replaced, for applications to come: subscriptions it was applied
+// to keep what they were given. Enterprise.
+message UpdateOfferRequest {
+  string id = 1;
+  string name = 2;
+  optional string description = 3;
+  optional meteroid.api.plans.v1.TrialTerms trial = 4;
+  repeated GrantNew grants = 5;
+  meteroid.api.plans.v1.TrialEligibility eligibility = 6;
+}
+message UpdateOfferResponse {
+  Offer offer = 1;
+}
+
+// Archived, a catalog offer is given no more and is no plan's start offer. Enterprise.
+message ArchiveOfferRequest {
+  string id = 1;
+}
+message ArchiveOfferResponse {
+  // The plans it was the start offer of, now without one.
+  repeated string plan_ids = 1;
+}
+
+message SetPlanStartOfferRequest {
+  // The plan's own trial and grants; add-on grants are Enterprise.
+  message Inline {
+    optional meteroid.api.plans.v1.TrialTerms trial = 1;
+    repeated GrantNew grants = 2;
+    // Who can get it; unset keeps the plan's own offer's. Editing it is Enterprise.
+    optional meteroid.api.plans.v1.TrialEligibility eligibility = 3;
+  }
+  string plan_id = 1;
+  oneof change {
+    Inline inline = 2;
+    // A catalog offer. Enterprise.
+    string catalog_offer_id = 3;
+    bool none = 4;
+  }
+}
+message SetPlanStartOfferResponse {
+  optional PlanStartOffer start_offer = 1;
+}
+
+message GetPlanStartOfferRequest {
+  string plan_id = 1;
+}
+message GetPlanStartOfferResponse {
+  optional PlanStartOffer start_offer = 1;
+}
+
+// A catalog offer without a trial applied to a running subscription now. Enterprise.
+message ApplyOfferRequest {
+  string subscription_id = 1;
+  string offer_id = 2;
+}
+message ApplyOfferResponse {
+  // The grants the application gives.
+  repeated SubscriptionGrant grants = 1;
+}
+
+message ListGrantsRequest {
+  string subscription_id = 1;
+}
+message ListGrantsResponse {
+  repeated SubscriptionGrant grants = 1;
+}
+
+// Reads are Core; the catalog, mid-life application and a catalog offer as a plan's start offer
+// are Enterprise.
+service OffersService {
+  rpc ListOffers(ListOffersRequest) returns (ListOffersResponse) {}
+  rpc GetOffer(GetOfferRequest) returns (GetOfferResponse) {}
+  rpc CreateOffer(CreateOfferRequest) returns (CreateOfferResponse) {}
+  rpc UpdateOffer(UpdateOfferRequest) returns (UpdateOfferResponse) {}
+  rpc ArchiveOffer(ArchiveOfferRequest) returns (ArchiveOfferResponse) {}
+  rpc SetPlanStartOffer(SetPlanStartOfferRequest) returns (SetPlanStartOfferResponse) {}
+  rpc GetPlanStartOffer(GetPlanStartOfferRequest) returns (GetPlanStartOfferResponse) {}
+  rpc ApplyOffer(ApplyOfferRequest) returns (ApplyOfferResponse) {}
+  rpc ListGrants(ListGrantsRequest) returns (ListGrantsResponse) {}
+}

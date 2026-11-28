@@ -51,13 +51,55 @@ message PlanBillingConfiguration {
   message Forever {}
 }
 
-// What a plan's trial gives, as the plan editor writes it.
+// What a trial's end does. SWITCH names the plan version switched to.
+message TrialAtEnd {
+  enum Kind {
+    // The subscription goes on, billed from the trial's end.
+    CONVERT = 0;
+    // Nothing is billed and the trial's access goes on until an operator converts, extends or
+    // cancels it.
+    MANUAL = 1;
+    // The subscription ends with the trial.
+    CANCEL = 2;
+    SWITCH = 3;
+  }
+  Kind kind = 1;
+  optional string plan_version_id = 2;
+}
+
+// What a converting trial's end does when the subscription is charged automatically and has no
+// payment method then. SWITCH names the plan version switched to.
+message TrialWithoutCard {
+  enum Kind {
+    // The opening invoice is issued; the subscription turns active once it is paid.
+    AWAIT_PAYMENT = 0;
+    CANCEL = 1;
+    SWITCH = 2;
+  }
+  Kind kind = 1;
+  optional string plan_version_id = 2;
+}
+
+// Who a trial is given to once.
+enum TrialEligibility {
+  // Given without limit.
+  TRIAL_ELIGIBILITY_NONE = 0;
+  TRIAL_ELIGIBILITY_OFFER = 1;
+  TRIAL_ELIGIBILITY_PLAN = 2;
+  TRIAL_ELIGIBILITY_PRODUCT_FAMILY = 3;
+}
+
+// What a plan's trial gives, as the plan editor writes it. A trial bills nothing.
 message TrialTerms {
   uint32 duration_days = 1;
-  // Nothing is billed during it; else the plan's prices apply from day one.
-  bool free = 2;
+  reserved 2;
+  reserved "free";
   // The plan whose features it gives; none for the plan's own.
   optional string trial_plan_id = 3;
+  // Sign-up, checkout and the pricing page ask for a card; a subscription's activation decides.
+  bool card_required = 4;
+  TrialAtEnd at_end = 5;
+  TrialWithoutCard without_card = 6;
 }
 
 // A plan's trial: the trial offer it names, the same on every version. A subscription created
@@ -69,10 +111,9 @@ message PlanTrial {
   TrialTerms terms = 4;
   // The plans naming its offer, this one included.
   uint32 plans_sharing = 5;
-  // CONVERT, CANCEL or FALLBACK; set in Enterprise.
-  string end_action = 6;
-  // NONE, OFFER, PLAN or PRODUCT_FAMILY; set in Enterprise.
-  string eligibility = 7;
+  reserved 6, 7;
+  reserved "end_action";
+  TrialEligibility eligibility = 8;
 }
 
 message PlanVersion {

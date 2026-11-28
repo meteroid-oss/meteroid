@@ -1,4 +1,4 @@
-import { Button } from '@md/ui'
+import { Button, Tabs, TabsList, TabsTrigger } from '@md/ui'
 import { FileUpIcon } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { Link } from 'react-router'
@@ -16,6 +16,11 @@ import { ViewsBar } from '@/features/listviews/ViewsBar'
 import { useSavedViews } from '@/features/listviews/useSavedViews'
 import { SubscriptionsTable } from '@/features/subscriptions'
 import { SubscriptionsImportModal } from '@/features/subscriptions/modals/SubscriptionsImportModal'
+import {
+  TRIAL_VIEWS,
+  parseTrialView,
+  trialListFilter,
+} from '@/features/subscriptions/trial/trialList'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { ALL_OR_LIST_SERDE, useQueryState } from '@/hooks/useQueryState'
@@ -45,7 +50,7 @@ const sameValues = (a: string[], b: string[]) =>
   a.length === b.length && a.every(value => b.includes(value))
 const DEFAULT_SORTING: SortingState = []
 // URL params captured by saved views as quick filters.
-const QUICK_KEYS = ['status']
+const QUICK_KEYS = ['status', 'trial']
 
 export const Subscriptions = () => {
   const isExpress = useIsExpressOrganization()
@@ -60,6 +65,10 @@ export const Subscriptions = () => {
     DEFAULT_STATUSES,
     ALL_OR_LIST_SERDE
   )
+  const [trialParam, setTrialParam] = useQueryState('trial', 'all')
+  const trialView = parseTrialView(trialParam)
+  // A trial view lists every status: awaiting payment is a status the default selection hides.
+  const byStatus = trialView === 'all'
   const [filters, setFilters] = useEntityFilters()
   const requestFilters = useRequestFilters(CustomPropertyEntityType.SUBSCRIPTION, filters)
   const { hiddenIds: cpHiddenIds } = useCustomPropertyColumns(CustomPropertyEntityType.SUBSCRIPTION)
@@ -75,7 +84,7 @@ export const Subscriptions = () => {
   })
   const queryEnabled = savedViews.ready && requestFilters.ready
 
-  useResetPageOnChange(setPagination, [debouncedSearch, statusFilter, filters])
+  useResetPageOnChange(setPagination, [debouncedSearch, statusFilter, trialView, filters])
 
   const handleSortingChange = useCallback(
     (updaterOrValue: SortingState | ((old: SortingState) => SortingState)) => {
@@ -94,7 +103,8 @@ export const Subscriptions = () => {
         perPage: pagination.pageSize,
         page: pagination.pageIndex,
       },
-      status: statusFilter.map(mapSubscriptionStatusToGrpc),
+      status: byStatus ? statusFilter.map(mapSubscriptionStatusToGrpc) : [],
+      trial: trialListFilter(trialView),
       search: debouncedSearch.length > 0 ? debouncedSearch : undefined,
       orderBy: sortingStateToOrderBy(sorting),
       filters: requestFilters.protoFilters,
@@ -110,6 +120,7 @@ export const Subscriptions = () => {
   const isNarrowed =
     !!debouncedSearch ||
     !sameValues(statusFilter, DEFAULT_STATUSES) ||
+    !byStatus ||
     filters.length > 0 ||
     !!savedViews.activeView
   const defaultViewEmpty =
@@ -130,6 +141,17 @@ export const Subscriptions = () => {
   return (
     <ListPageLayout
       title="Subscriptions"
+      tabs={
+        <Tabs value={trialView} onValueChange={setTrialParam}>
+          <TabsList variant="ghost">
+            {TRIAL_VIEWS.map(view => (
+              <TabsTrigger key={view.value} value={view.value}>
+                {view.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      }
       actions={
         isExpress ? undefined : (
           <>
@@ -159,7 +181,9 @@ export const Subscriptions = () => {
             entityType={CustomPropertyEntityType.SUBSCRIPTION}
             filters={filters}
             onChange={setFilters}
-            local={[{ field: STATUS_FIELD, values: statusFilter, set: setStatusFilter }]}
+            local={
+              byStatus ? [{ field: STATUS_FIELD, values: statusFilter, set: setStatusFilter }] : []
+            }
             entityGroup="Properties"
           />
         </>
@@ -199,6 +223,7 @@ export const Subscriptions = () => {
           isLoading={isLoading}
           sorting={sorting}
           onSortingChange={handleSortingChange}
+          trialColumns={!byStatus}
           chart={
             hasSlot('listPage.metricStrip') ? (
               <Slot name="listPage.metricStrip" metricKey="active_subscriptions" />

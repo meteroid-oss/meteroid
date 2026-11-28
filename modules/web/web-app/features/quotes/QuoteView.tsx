@@ -17,6 +17,7 @@ import {
 import { QuoteTotalsRows } from '@/features/quotes/QuoteViewTotals'
 import { QuoteLine, QuoteLinesTable, addOnLine } from '@/features/quotes/detail/QuoteLinesTable'
 import { QuoteSections } from '@/features/quotes/detail/QuoteMarkdown'
+import { quoteTrialLabel } from '@/features/quotes/quoteTrial'
 import { env } from '@/lib/env'
 import { Customer } from '@/rpc/api/customers/v1/models_pb'
 import { InvoicingEntity, InvoicingEntityPublic } from '@/rpc/api/invoicingentities/v1/models_pb'
@@ -30,6 +31,7 @@ import {
   QuoteSectionPlacement,
   QuoteSignature,
   QuoteTotals,
+  QuoteTrialEndAction,
 } from '@/rpc/api/quotes/v1/models_pb'
 import { parseAndFormatDate } from '@/utils/date'
 
@@ -255,8 +257,15 @@ export const QuoteView: FC<QuoteViewProps> = ({
           {q.trialDuration !== undefined && q.trialDuration > 0 && (
             <DetailRow
               label="Trial Duration:"
-              value={`${q.trialDuration} days${q.trialFree === false ? ', billed as usual' : q.trialFree ? ', free' : ''}`}
+              value={quoteTrialLabel({
+                days: q.trialDuration,
+                free: q.trialFree !== false,
+                manual: q.trialEndAction === QuoteTrialEndAction.MANUAL,
+              })}
             />
+          )}
+          {!!q.trialDuration && q.trialPlanName && (
+            <DetailRow label="Features of:" value={q.trialPlanName} />
           )}
           {q.billingDayAnchor && (
             <DetailRow label="Billing Day:" value={`Day ${q.billingDayAnchor} of each month`} />

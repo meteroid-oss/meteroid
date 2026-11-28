@@ -21,6 +21,7 @@ export const entitlementCodes = {
   EMAIL_CUSTOMIZATION: 'email_customization',
   QUOTES_FULL: 'quotes_full',
   MINIMUM_COMMITMENTS: 'minimum_commitments',
+  SUBSCRIPTION_PHASES: 'subscription_phases',
 } as const
 
 /**

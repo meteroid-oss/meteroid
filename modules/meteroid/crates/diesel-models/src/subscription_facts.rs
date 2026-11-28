@@ -48,8 +48,14 @@ pub struct SubscriptionTrialRow {
     /// The plan whose features it gives, fixed at its start (ADR 0011 §3.9).
     pub trial_plan_id: Option<common_domain::ids::PlanId>,
     pub trial_offer_id: Option<common_domain::ids::TrialOfferId>,
-    /// CONVERT, CANCEL or FALLBACK, as given at its start.
+    /// CONVERT, CANCEL, FALLBACK or MANUAL, as given at its start.
     pub end_action: String,
+    /// CONVERTED, CANCELLED, SWITCHED, AWAITING_PAYMENT or AWAITING_DECISION, once it ended.
+    pub outcome: Option<String>,
+    pub ended_at: Option<NaiveDateTime>,
+    /// AWAIT_PAYMENT, CANCEL or SWITCH (to `without_card_plan_version_id`), as given at its start.
+    pub without_card: String,
+    pub without_card_plan_version_id: Option<common_domain::ids::PlanVersionId>,
 }
 
 /// Who settled a subscription's start.

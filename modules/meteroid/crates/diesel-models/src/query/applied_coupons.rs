@@ -315,6 +315,33 @@ impl AppliedCouponRow {
             .into_db_result()
     }
 
+    /// The first paid period a redemption counts its months from moved to `on`, while it has
+    /// discounted nothing yet; whether it moved.
+    pub async fn move_effective_from(
+        conn: &mut PgConn,
+        id: AppliedCouponId,
+        on: chrono::NaiveDate,
+    ) -> DbResult<bool> {
+        use crate::schema::applied_coupon::dsl as ac_dsl;
+
+        diesel::update(
+            ac_dsl::applied_coupon
+                .filter(ac_dsl::id.eq(id))
+                .filter(ac_dsl::last_applied_at.is_null())
+                .filter(
+                    ac_dsl::applied_count
+                        .is_null()
+                        .or(ac_dsl::applied_count.eq(0)),
+                ),
+        )
+        .set(ac_dsl::effective_from.eq(on))
+        .execute(conn)
+        .await
+        .map(|updated| updated > 0)
+        .attach("Error while moving an applied coupon's first paid period")
+        .into_db_result()
+    }
+
     /// Marks a redemption that will never fund its credit as inactive.
     pub async fn deactivate(conn: &mut PgConn, id: AppliedCouponId) -> DbResult<()> {
         use crate::schema::applied_coupon::dsl as ac_dsl;

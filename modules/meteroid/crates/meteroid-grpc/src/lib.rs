@@ -105,6 +105,12 @@ pub mod meteroid {
             }
         }
 
+        pub mod offers {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.offers.v1");
+            }
+        }
+
         pub mod customproperties {
             pub mod v1 {
                 tonic::include_proto!("meteroid.api.customproperties.v1");

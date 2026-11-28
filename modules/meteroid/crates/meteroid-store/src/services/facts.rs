@@ -125,6 +125,10 @@ pub(crate) async fn record_inserted_tx(
                 trial_plan_id: trial.trial_plan_id,
                 trial_offer_id: trial.offer,
                 end_action: trial.end_action.as_str().to_owned(),
+                outcome: None,
+                ended_at: None,
+                without_card: trial.without_card.as_str().to_owned(),
+                without_card_plan_version_id: trial.without_card.plan_version_id(),
             });
         }
         // An On Start subscription's billing starts on its start date, known at insert even when
@@ -366,6 +370,21 @@ pub(crate) async fn settle_start_tx(
     .await)
 }
 
+/// How the trial ended, at `at` (R-167), or with `None` running again: an extension of one that
+/// awaited a decision.
+pub(crate) async fn record_trial_outcome_tx(
+    conn: &mut PgConn,
+    subscription_id: SubscriptionId,
+    outcome: Option<(crate::domain::trials::TrialOutcome, NaiveDateTime)>,
+) -> StoreResult<()> {
+    db(SubscriptionTrialRow::record_outcome(
+        conn,
+        subscription_id,
+        outcome.map(|(outcome, at)| (outcome.as_str(), at)),
+    )
+    .await)
+}
+
 /// A running trial moved to end on `until`: its end, and a free trial's billing origin with it,
 /// on the one plan window it started with (a plan change since ended the trial already).
 pub(crate) async fn record_trial_end_tx(
@@ -392,11 +411,8 @@ pub(crate) async fn record_trial_end_tx(
                 .await,
         )?;
     }
-    if until <= trial.from_date {
-        db(SubscriptionTrialRow::remove(conn, subscription_id).await)?;
-    } else {
-        db(SubscriptionTrialRow::move_end(conn, subscription_id, until).await)?;
-    }
+    // Ended on its first day, it is kept as a trial of no day: its outcome is recorded on it.
+    db(SubscriptionTrialRow::move_end(conn, subscription_id, until.max(trial.from_date)).await)?;
     Ok(())
 }
 

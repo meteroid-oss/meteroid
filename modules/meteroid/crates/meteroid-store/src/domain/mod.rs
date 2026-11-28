@@ -112,6 +112,7 @@ pub mod invoicing_entities;
 mod macros;
 pub mod misc;
 pub mod oauth;
+pub mod offers;
 pub mod org_security_audit_log;
 pub mod organizations;
 pub mod outbox_event;

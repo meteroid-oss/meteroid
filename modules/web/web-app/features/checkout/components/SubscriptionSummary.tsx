@@ -1,6 +1,7 @@
 import { Button, Input } from '@md/ui'
 import { useMemo, useState } from 'react'
 
+import { afterTrialText, billingPeriodNoun, billsUsage } from '@/features/checkout/utils/afterTrial'
 import { creditCouponNote } from '@/features/checkout/utils/creditCoupon'
 import {
   formatSubscriptionFee,
@@ -9,7 +10,6 @@ import {
 import { formatCurrency, formatCurrencyNoRounding, rateToPercent } from '@/lib/utils/numbers'
 import { LineItemKind } from '@/rpc/api/invoices/v1/models_pb'
 import { FeeStructure_BillingType } from '@/rpc/api/prices/v1/models_pb'
-import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 import { SubscriptionComponent, SubscriptionFee } from '@/rpc/api/subscriptions/v1/models_pb'
 import { Checkout } from '@/rpc/portal/checkout/v1/models_pb'
 
@@ -22,20 +22,6 @@ import type {
 const formatDate = (dateString: string): string => {
   const date = new Date(dateString)
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
-// The unit of time a minimum commitment is owed over, e.g. "€50 / quarter".
-const billingPeriodNoun = (period: BillingPeriod | undefined): string => {
-  switch (period) {
-    case BillingPeriod.QUARTERLY:
-      return 'quarter'
-    case BillingPeriod.SEMIANNUAL:
-      return 'half-year'
-    case BillingPeriod.ANNUAL:
-      return 'year'
-    default:
-      return 'month'
-  }
 }
 
 // Label for the right column of orphan components (no charge today but billed later).
@@ -95,6 +81,7 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
     appliedCoupons,
     creditCoupons,
     nextInvoiceMinimum,
+    afterTrial,
   } = checkoutData
 
   // Get currency from subscription
@@ -163,9 +150,8 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
           minimumScopeNames.length > 2 ? ` +${minimumScopeNames.length - 2}` : ''
         })`
 
-  // Check if subscription is in trial
-  const isInTrial =
-    subscription?.subscription?.trialDuration && subscription.subscription.trialDuration > 0
+  const trialDays = subscription?.subscription?.trialDuration ?? 0
+  const thenText = afterTrialText(afterTrial, billsUsage(subscription?.priceComponents ?? []))
 
   return (
     <div className="text-sm">
@@ -215,12 +201,13 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
           </>
         ) : (
           <>
-            {isInTrial && (
-              <div className="mt-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                {subscription?.subscription?.trialDuration}-day{' '}
-                {subscription?.trialConfig?.isFree === false
-                  ? 'trial, billed from today'
-                  : 'free trial'}
+            <div className="text-sm text-muted-foreground mt-1">Due today</div>
+            {trialDays > 0 && (
+              <div className="mt-3 flex flex-col gap-0.5 rounded-md bg-muted/40 px-3 py-2 text-sm">
+                <span className="font-medium">
+                  {trialDays} {trialDays === 1 ? 'day' : 'days'} free
+                </span>
+                {thenText && <span className="text-muted-foreground">{thenText}</span>}
               </div>
             )}
           </>

@@ -352,6 +352,9 @@ pub struct SubscriptionNew {
 
     pub activation_condition: SubscriptionActivationCondition,
 
+    /// The offer asked for, resolved once at creation with the trial (`offers::resolve_tx`,
+    /// R-170): its grants, and the trial when `trial` asks the offer's.
+    pub offer: crate::domain::offers::OfferRequest,
     /// The trial asked for, resolved once at creation (`trials::resolve_trial_tx`, R-153).
     pub trial: crate::domain::trials::TrialRequest,
 
@@ -518,6 +521,17 @@ pub struct TrialConfig {
     pub trialing_plan_name: Option<String>,
     pub offer: Option<crate::domain::trials::TrialOffer>,
     pub end_action: crate::domain::trials::TrialEnd,
+}
+
+impl TrialConfig {
+    /// A free trial whose offer asks no card at its start: a checkout may start it without one.
+    pub fn starts_without_card(&self) -> bool {
+        self.is_free
+            && self
+                .offer
+                .as_ref()
+                .is_some_and(|offer| !offer.card_required)
+    }
 }
 
 #[derive(Debug, Clone)]

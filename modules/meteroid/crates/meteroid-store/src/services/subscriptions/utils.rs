@@ -1046,7 +1046,7 @@ async fn validate_coupons_at(
             .find(|x| x.coupon_id == coupon.id)
             .ok_or(Report::new(DatabaseError::ValidationError(format!(
                 "Applied coupon {} not found",
-                coupon.code
+                coupon.code.as_deref().unwrap_or_default()
             ))))?;
 
         subscriptions
@@ -1061,7 +1061,7 @@ async fn validate_coupons_at(
         if coupon.expires_at.is_some_and(|x| x <= now) {
             return Err(Report::new(DatabaseError::ValidationError(format!(
                 "coupon {} is expired",
-                coupon.code
+                coupon.code.as_deref().unwrap_or_default()
             )))
             .into());
         }
@@ -1069,7 +1069,7 @@ async fn validate_coupons_at(
         if coupon.archived_at.is_some() {
             return Err(Report::new(DatabaseError::ValidationError(format!(
                 "coupon {} is archived",
-                coupon.code
+                coupon.code.as_deref().unwrap_or_default()
             )))
             .into());
         }
@@ -1078,7 +1078,7 @@ async fn validate_coupons_at(
         if coupon.disabled {
             return Err(Report::new(DatabaseError::ValidationError(format!(
                 "coupon {} is disabled",
-                coupon.code
+                coupon.code.as_deref().unwrap_or_default()
             )))
             .into());
         }
@@ -1102,7 +1102,7 @@ async fn validate_coupons_at(
         {
             return Err(Report::new(DatabaseError::ValidationError(format!(
                 "coupon {} has reached its maximum redemptions",
-                coupon.code
+                coupon.code.as_deref().unwrap_or_default()
             )))
             .into());
         }
@@ -1162,7 +1162,8 @@ async fn validate_coupons_at(
             if let Some(applied) = reused_by_customer {
                 return Err(Report::new(DatabaseError::ValidationError(format!(
                     "coupon {} is not reusable and has already been used by customer {}",
-                    coupon.code, applied.customer_id
+                    coupon.code.as_deref().unwrap_or_default(),
+                    applied.customer_id
                 )))
                 .into());
             }

@@ -6,6 +6,7 @@ import "api/billablemetrics/v1/models.proto";
 import "api/customers/v1/models.proto";
 import "api/invoices/v1/models.proto";
 import "api/prices/v1/models.proto";
+import "api/shared/v1/shared.proto";
 import "api/subscriptions/v1/models.proto";
 import "portal/wallets/v1/models.proto";
 
@@ -75,6 +76,46 @@ message SubscriptionDetails {
   optional PlanPrice plan_price = 12;
   // The name of the plan option it bought ("Annual").
   optional string option_name = 13;
+  // Its trial while it runs, or awaits a payment or a decision.
+  optional PortalTrial trial = 14;
+}
+
+message PortalTrial {
+  // Its end, exclusive.
+  string ends_on = 1;
+  meteroid.api.subscriptions.v1.TrialConfig.Status status = 2;
+  // What a running converting trial bills each period from its end, before coupons, usage and
+  // tax.
+  optional PortalAfterTrial after_trial = 3;
+  bool has_payment_method = 4;
+  // Awaiting payment: the opening invoice that continues the subscription once paid.
+  optional PortalTrialInvoice invoice_to_pay = 5;
+  // The payment method it charges ("Visa •••• 4242").
+  optional string payment_method = 6;
+  // When it ended, awaiting a payment or a decision.
+  optional string ended_on = 7;
+}
+
+message PortalAfterTrial {
+  string currency = 1;
+  string starts_on = 2;
+  // One per cadence, the subscription's own first; empty when only usage is billed.
+  repeated PortalAfterTrialAmount recurring = 3;
+}
+
+// Minor units.
+message PortalAfterTrialAmount {
+  int64 amount = 1;
+  meteroid.api.shared.v1.BillingPeriod interval = 2;
+}
+
+// Minor units.
+message PortalTrialInvoice {
+  string invoice_id = 1;
+  string invoice_number = 2;
+  int64 amount_due = 3;
+  string currency = 4;
+  optional string due_date = 5;
 }
 
 // The recurring price of a plan, from its price components (never MRR). Usage is billed on top.

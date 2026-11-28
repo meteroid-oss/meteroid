@@ -166,6 +166,14 @@ pub mod quotes {
             trial_duration: quote.trial_duration_days.map(|d| d as u32),
             trial_free: quote.trial_free,
             trial_plan_id: quote.trial_plan_id.map(|id| id.as_proto()),
+            trial_end_action: match quote.trial_end_action {
+                meteroid_store::domain::quotes::QuoteTrialEnd::Convert => {
+                    meteroid_grpc::meteroid::api::quotes::v1::QuoteTrialEndAction::Convert
+                }
+                meteroid_store::domain::quotes::QuoteTrialEnd::Manual => {
+                    meteroid_grpc::meteroid::api::quotes::v1::QuoteTrialEndAction::Manual
+                }
+            } as i32,
             start_date: quote.billing_start_date.as_proto(),
             billing_start_date: quote.billing_start_date.as_proto(),
             end_date: quote.billing_end_date.as_proto(),
@@ -233,6 +241,7 @@ pub mod quotes {
             last_sent_at: quote.last_sent_at.as_proto(),
             attachments: quote.attachments.iter().map(attachment_to_proto).collect(),
             resource_id: quote.resource_id.map(|id| id.as_proto()),
+            trial_plan_name: None,
         };
         if !for_portal {
             return proto;
@@ -475,12 +484,12 @@ pub mod quotes {
         let customer_server: ServerCustomerWrapper =
             detailed_quote.customer.clone().try_into().unwrap();
 
+        let mut quote_proto =
+            quote_to_proto(quote, Some(detailed_quote.customer.name.clone()), false);
+        quote_proto.trial_plan_name = detailed_quote.trial_plan_name.clone();
+
         DetailedQuote {
-            quote: Some(quote_to_proto(
-                quote,
-                Some(detailed_quote.customer.name.clone()),
-                false,
-            )),
+            quote: Some(quote_proto),
             invoicing_entity: Some(
                 crate::invoicingentities::mapping::invoicing_entities::domain_to_proto(
                     detailed_quote.invoicing_entity.clone(),

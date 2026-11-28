@@ -62,6 +62,10 @@ pub struct CheckoutSessionRow {
     pub trial_free: Option<bool>,
     /// The trial offer it gives, over `trial_duration_days`.
     pub trial_offer_id: Option<TrialOfferId>,
+    /// The trial it was sent, as sent; none on a session created before, read from the above.
+    pub trial_request: Option<serde_json::Value>,
+    /// The offer asked, `{"type": "plan" | "none" | "offer", "id"?}`; `None`: the plan's.
+    pub offer_request: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Insertable)]
@@ -111,4 +115,8 @@ pub struct CheckoutSessionRowNew {
     pub trial_free: Option<bool>,
     /// The trial offer it gives, over `trial_duration_days`.
     pub trial_offer_id: Option<TrialOfferId>,
+    /// The trial it was sent, as sent; none on a session created before, read from the above.
+    pub trial_request: Option<serde_json::Value>,
+    /// The offer asked, `{"type": "plan" | "none" | "offer", "id"?}`; `None`: the plan's.
+    pub offer_request: Option<serde_json::Value>,
 }

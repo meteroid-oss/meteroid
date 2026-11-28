@@ -3,7 +3,9 @@
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
 use common_domain::ids::{BaseId, TenantId};
-use diesel::{ExpressionMethods, QueryDsl, QueryableByName, sql_query, sql_types};
+use diesel::{
+    ExpressionMethods, NullableExpressionMethods, QueryDsl, QueryableByName, sql_query, sql_types,
+};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 use std::collections::HashMap;
@@ -154,7 +156,8 @@ pub async fn coupon_codes(
     c::coupon
         .filter(c::tenant_id.eq(tenant))
         .filter(c::id.eq_any(ids))
-        .select((c::id, c::code))
+        .filter(c::code.is_not_null())
+        .select((c::id, c::code.assume_not_null()))
         .load(conn)
         .await
         .attach("coupon_codes")

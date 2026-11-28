@@ -33,6 +33,7 @@ pub struct SubscriptionBuilder {
     option: Option<PlanOptionRef>,
     trial_offer_id: Option<common_domain::ids::TrialOfferId>,
     trial: Option<meteroid_store::domain::trials::TrialRequest>,
+    offer: meteroid_store::domain::offers::OfferRequest,
 }
 
 impl Default for SubscriptionBuilder {
@@ -55,6 +56,7 @@ impl Default for SubscriptionBuilder {
             option: None,
             trial_offer_id: None,
             trial: None,
+            offer: Default::default(),
         }
     }
 }
@@ -119,6 +121,12 @@ impl SubscriptionBuilder {
     /// The trial asked, as a creation asks it (R-153).
     pub fn trial(mut self, request: meteroid_store::domain::trials::TrialRequest) -> Self {
         self.trial = Some(request);
+        self
+    }
+
+    /// The offer asked, as a creation asks it (R-170); unset: the plan's.
+    pub fn offer(mut self, request: meteroid_store::domain::offers::OfferRequest) -> Self {
+        self.offer = request;
         self
     }
 
@@ -245,6 +253,7 @@ impl SubscriptionBuilder {
                 end_date: self.end_date,
                 billing_start_date: None,
                 activation_condition: self.activation_condition,
+                offer: self.offer,
                 trial: match (self.trial, self.trial_offer_id) {
                     (Some(request), _) => request,
                     (None, Some(offer)) => {

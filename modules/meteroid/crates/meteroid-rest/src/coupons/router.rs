@@ -10,7 +10,6 @@ use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use meteroid_store::domain::coupons::{CouponNew, CouponPatch, CouponStatusPatch, CouponTerms};
 use meteroid_store::repositories::coupons::CouponInterface;
-use meteroid_store::repositories::coupons::CouponInterfaceAuto;
 
 use crate::coupons::mapping;
 use crate::coupons::model::*;
@@ -102,7 +101,7 @@ pub async fn get_coupon(
 ) -> Result<impl IntoResponse, RestApiError> {
     let coupon = app_state
         .store
-        .get_coupon_by_id(authorized_state.tenant_id, coupon_id)
+        .get_listed_coupon(authorized_state.tenant_id, coupon_id)
         .await
         .map_err(|e| {
             log::error!("Error fetching coupon: {e}");

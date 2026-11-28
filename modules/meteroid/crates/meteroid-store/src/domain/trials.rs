@@ -10,14 +10,33 @@ use crate::errors::{StoreError, StoreErrorReport};
 /// The longest trial, in days, from its billing start.
 pub const MAX_TRIAL_DAYS: u32 = 3650;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The days of notice a trial's end is given (`subscription.trial_ending_soon`, the
+/// `TrialEnding` email): at its start when it is shorter (R-158).
+pub const TRIAL_NOTICE_DAYS: i32 = 7;
+
+/// A trial is free (R-153): a discounted start is a coupon or an introductory phase.
+pub const TRIAL_IS_FREE: &str =
+    "a trial is free: a discounted start is a coupon or an introductory phase";
+
+/// A trial stated with its freeness, as a quote or a checkout session states it: never billed.
+pub fn refuse_billed(free: Option<bool>) -> Result<(), StoreErrorReport> {
+    match free {
+        Some(false) => Err(crate::errors::TrialRefusal::Billed.report(TRIAL_IS_FREE)),
+        _ => Ok(()),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrialEndAction {
-    /// The subscription goes on, billed from the trial's end.
+    /// The subscription goes on, billed from the trial's end (`TrialWithoutCard` without a card).
     Convert,
     /// It ends with the trial.
     Cancel,
     /// It switches to another plan at the trial's end.
     Fallback { plan_version_id: PlanVersionId },
+    /// Nothing is billed at the trial's end: the trial's access holds until an operator converts,
+    /// extends or cancels it.
+    Manual,
 }
 
 impl TrialEndAction {
@@ -26,6 +45,7 @@ impl TrialEndAction {
             TrialEndAction::Convert => TrialEnd::Convert,
             TrialEndAction::Cancel => TrialEnd::Cancel,
             TrialEndAction::Fallback { .. } => TrialEnd::Fallback,
+            TrialEndAction::Manual => TrialEnd::Manual,
         }
     }
 
@@ -42,6 +62,8 @@ pub enum TrialEnd {
     Cancel,
     /// A phase switching plan starts on its end.
     Fallback,
+    /// Its end waits for an operator's decision, billing nothing meanwhile.
+    Manual,
 }
 
 impl TrialEnd {
@@ -50,6 +72,7 @@ impl TrialEnd {
             TrialEnd::Convert => "CONVERT",
             TrialEnd::Cancel => "CANCEL",
             TrialEnd::Fallback => "FALLBACK",
+            TrialEnd::Manual => "MANUAL",
         }
     }
 
@@ -57,9 +80,191 @@ impl TrialEnd {
         match value {
             "CANCEL" => TrialEnd::Cancel,
             "FALLBACK" => TrialEnd::Fallback,
+            "MANUAL" => TrialEnd::Manual,
             _ => TrialEnd::Convert,
         }
     }
+}
+
+/// What a converting trial's end does when the subscription, charged automatically, resolves no
+/// payment method then (R-179).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TrialWithoutCard {
+    /// TrialExpired, its opening invoice issued: Active once paid.
+    #[default]
+    AwaitPayment,
+    /// It ends on the trial's end, nothing billed.
+    Cancel,
+    /// It switches to this plan version on the trial's end.
+    Switch { plan_version_id: PlanVersionId },
+}
+
+impl TrialWithoutCard {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TrialWithoutCard::AwaitPayment => "AWAIT_PAYMENT",
+            TrialWithoutCard::Cancel => "CANCEL",
+            TrialWithoutCard::Switch { .. } => "SWITCH",
+        }
+    }
+
+    pub fn plan_version_id(&self) -> Option<PlanVersionId> {
+        match self {
+            TrialWithoutCard::Switch { plan_version_id } => Some(*plan_version_id),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn parse(value: &str, plan_version_id: Option<PlanVersionId>) -> Option<Self> {
+        Some(match (value, plan_version_id) {
+            ("AWAIT_PAYMENT", _) => TrialWithoutCard::AwaitPayment,
+            ("CANCEL", _) => TrialWithoutCard::Cancel,
+            ("SWITCH", Some(plan_version_id)) => TrialWithoutCard::Switch { plan_version_id },
+            _ => return None,
+        })
+    }
+}
+
+/// How a trial ended, recorded by the billing controller at its end, by an end now, or when an
+/// awaiting outcome resolves (R-167).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum TrialOutcome {
+    Converted,
+    Cancelled,
+    Switched,
+    /// No payment method at its end: TrialExpired until its opening invoice is paid.
+    AwaitingPayment,
+    /// A manual end: the trial's access holds until an operator decides.
+    AwaitingDecision,
+}
+
+impl TrialOutcome {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TrialOutcome::Converted => "CONVERTED",
+            TrialOutcome::Cancelled => "CANCELLED",
+            TrialOutcome::Switched => "SWITCHED",
+            TrialOutcome::AwaitingPayment => "AWAITING_PAYMENT",
+            TrialOutcome::AwaitingDecision => "AWAITING_DECISION",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        Some(match value {
+            "CONVERTED" => TrialOutcome::Converted,
+            "CANCELLED" => TrialOutcome::Cancelled,
+            "SWITCHED" => TrialOutcome::Switched,
+            "AWAITING_PAYMENT" => TrialOutcome::AwaitingPayment,
+            "AWAITING_DECISION" => TrialOutcome::AwaitingDecision,
+            _ => return None,
+        })
+    }
+
+    /// Still to resolve: a payment or an operator's decision.
+    pub fn is_awaiting(&self) -> bool {
+        matches!(
+            self,
+            TrialOutcome::AwaitingPayment | TrialOutcome::AwaitingDecision
+        )
+    }
+}
+
+/// What a subscription bills from its trial's end: the recurring fees of its opening invoice
+/// from then, one amount per cadence, before coupons and tax, usage and one-time fees aside.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AfterTrial {
+    pub currency: String,
+    pub starts_on: NaiveDate,
+    /// The subscription's own cadence first, then the others shortest first.
+    pub recurring: Vec<RecurringAmount>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RecurringAmount {
+    pub amount: i64,
+    pub period: crate::domain::enums::BillingPeriodEnum,
+}
+
+/// A subscription's trial as its customer reads it, while it runs or awaits a payment or a
+/// decision.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomerTrial {
+    /// Its end, exclusive.
+    pub ends_on: NaiveDate,
+    pub status: TrialStatus,
+    /// What follows a running converting trial.
+    pub after_trial: Option<AfterTrial>,
+    pub has_payment_method: bool,
+    /// The customer's payment method it charges ("Visa •••• 4242").
+    pub payment_method: Option<String>,
+    /// When it ended, awaiting a payment or a decision.
+    pub ended_on: Option<NaiveDate>,
+    /// Awaiting payment: the opening invoice that converts it once paid.
+    pub invoice_to_pay: Option<TrialInvoiceToPay>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrialInvoiceToPay {
+    pub invoice_id: common_domain::ids::InvoiceId,
+    pub invoice_number: String,
+    pub amount_due: i64,
+    pub currency: String,
+    pub due_at: Option<NaiveDateTime>,
+}
+
+/// The trials a subscription list narrows to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrialListFilter {
+    /// Running and ending within this many days from today.
+    EndingWithinDays(u32),
+    AwaitingDecision,
+    AwaitingPayment,
+}
+
+impl TrialListFilter {
+    pub fn row_filter(
+        self,
+        today: NaiveDate,
+    ) -> diesel_models::query::subscriptions::TrialListFilter {
+        use diesel_models::query::subscriptions::TrialListFilter as Row;
+        match self {
+            TrialListFilter::EndingWithinDays(days) => Row::EndingBetween {
+                after: today,
+                until: today
+                    .checked_add_days(chrono::Days::new(u64::from(days)))
+                    .unwrap_or(NaiveDate::MAX),
+            },
+            TrialListFilter::AwaitingDecision => {
+                Row::Outcome(TrialOutcome::AwaitingDecision.as_str())
+            }
+            TrialListFilter::AwaitingPayment => {
+                Row::Outcome(TrialOutcome::AwaitingPayment.as_str())
+            }
+        }
+    }
+}
+
+/// A listed subscription's trial: when it ends, its status, and while it runs or awaits a
+/// payment whether the subscription resolves a payment method.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrialSummary {
+    pub ends_on: NaiveDate,
+    pub status: TrialStatus,
+    pub has_payment_method: Option<bool>,
+    /// The customer's payment method it charges ("Visa •••• 4242"), when it has one.
+    pub payment_method: Option<String>,
+}
+
+/// A subscription trial's status, read from its outcome.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrialStatus {
+    Active,
+    Converted,
+    Cancelled,
+    Switched,
+    AwaitingPayment,
+    AwaitingDecision,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,7 +286,7 @@ impl TrialEligibility {
         }
     }
 
-    fn parse(value: &str) -> Option<Self> {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
         Some(match value {
             "OFFER" => TrialEligibility::Offer,
             "PLAN" => TrialEligibility::Plan,
@@ -101,7 +306,11 @@ pub struct TrialOffer {
     pub free: bool,
     /// The plan whose features the trial gives over the subscription's own (a reverse trial).
     pub trial_plan_id: Option<PlanId>,
+    /// A default only, for checkout, sign-up and the pricing page: the subscription's activation
+    /// condition decides.
+    pub card_required: bool,
     pub end_action: TrialEndAction,
+    pub without_card: TrialWithoutCard,
     pub eligibility: TrialEligibility,
     pub archived_at: Option<NaiveDateTime>,
 }
@@ -120,14 +329,22 @@ impl TryFrom<TrialOfferRow> for TrialOffer {
             .ok_or_else(|| bad("unknown end action"))?;
         let eligibility = TrialEligibility::parse(&row.eligibility_scope)
             .ok_or_else(|| bad("unknown eligibility"))?;
+        let without_card =
+            TrialWithoutCard::parse(&row.without_card, row.without_card_plan_version_id)
+                .ok_or_else(|| bad("unknown end without a card"))?;
         Ok(TrialOffer {
             id: row.id,
             name: row.name,
             code: row.code,
-            duration_days: u32::try_from(row.duration_days).unwrap_or(1),
+            // 0: the offer gives no trial (any more): resolution never gives it (`offers`).
+            duration_days: row
+                .duration_days
+                .map_or(0, |days| u32::try_from(days).unwrap_or(1)),
             free: row.free,
             trial_plan_id: row.trial_plan_id,
+            card_required: row.card_required,
             end_action,
+            without_card,
             eligibility,
             archived_at: row.archived_at,
         })
@@ -142,6 +359,7 @@ pub(crate) fn end_action_of(
         ("CONVERT", _) => TrialEndAction::Convert,
         ("CANCEL", _) => TrialEndAction::Cancel,
         ("FALLBACK", Some(plan_version_id)) => TrialEndAction::Fallback { plan_version_id },
+        ("MANUAL", _) => TrialEndAction::Manual,
         _ => return None,
     })
 }
@@ -151,9 +369,12 @@ pub struct TrialOfferNew {
     pub name: String,
     pub code: Option<String>,
     pub duration_days: u32,
+    /// Always true: a billed trial is refused (`TRIAL_IS_FREE`).
     pub free: bool,
     pub trial_plan_id: Option<PlanId>,
+    pub card_required: bool,
     pub end_action: TrialEndAction,
+    pub without_card: TrialWithoutCard,
     pub eligibility: TrialEligibility,
 }
 
@@ -165,7 +386,9 @@ pub struct TrialOfferPatch {
     pub duration_days: Option<u32>,
     pub free: Option<bool>,
     pub trial_plan_id: Option<Option<PlanId>>,
+    pub card_required: Option<bool>,
     pub end_action: Option<TrialEndAction>,
+    pub without_card: Option<TrialWithoutCard>,
     pub eligibility: Option<TrialEligibility>,
 }
 
@@ -178,7 +401,9 @@ impl TrialOffer {
             duration_days: patch.duration_days.unwrap_or(self.duration_days),
             free: patch.free.unwrap_or(self.free),
             trial_plan_id: patch.trial_plan_id.unwrap_or(self.trial_plan_id),
-            end_action: patch.end_action.unwrap_or_else(|| self.end_action.clone()),
+            card_required: patch.card_required.unwrap_or(self.card_required),
+            end_action: patch.end_action.unwrap_or(self.end_action),
+            without_card: patch.without_card.unwrap_or(self.without_card),
             eligibility: patch.eligibility.unwrap_or(self.eligibility),
         }
     }
@@ -188,16 +413,57 @@ impl TrialOffer {
             duration_days: self.duration_days,
             free: self.free,
             trial_plan_id: self.trial_plan_id,
+            card_required: Some(self.card_required),
+            end_action: Some(self.end_action),
+            without_card: Some(self.without_card),
         }
     }
 }
 
-/// What a plan's trial gives, as the plan editor writes it; the rest of its offer is kept.
+/// What a plan's trial gives, as the plan editor writes it; the rest of its offer is kept, and so
+/// is each of the last three left `None` (else card required, convert, await payment).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TrialTerms {
     pub duration_days: u32,
+    /// Always true: a billed trial is refused (`TRIAL_IS_FREE`).
     pub free: bool,
     pub trial_plan_id: Option<PlanId>,
+    pub card_required: Option<bool>,
+    pub end_action: Option<TrialEndAction>,
+    pub without_card: Option<TrialWithoutCard>,
+}
+
+impl TrialTerms {
+    /// Free terms of `duration_days`, the rest kept.
+    pub fn days(duration_days: u32, trial_plan_id: Option<PlanId>) -> Self {
+        TrialTerms {
+            duration_days,
+            free: true,
+            trial_plan_id,
+            card_required: None,
+            end_action: None,
+            without_card: None,
+        }
+    }
+
+    /// Every term set: those left `None` taken from `current`, else the defaults.
+    pub fn over(self, current: Option<&TrialTerms>) -> TrialTerms {
+        TrialTerms {
+            card_required: self
+                .card_required
+                .or(current.and_then(|c| c.card_required))
+                .or(Some(true)),
+            end_action: self
+                .end_action
+                .or(current.and_then(|c| c.end_action))
+                .or(Some(TrialEndAction::Convert)),
+            without_card: self
+                .without_card
+                .or(current.and_then(|c| c.without_card))
+                .or(Some(TrialWithoutCard::AwaitPayment)),
+            ..self
+        }
+    }
 }
 
 /// A plan's trial written: its terms (`None` removes it), or a catalog offer named.
@@ -222,11 +488,14 @@ pub enum TrialLength {
     Until(NaiveDate),
 }
 
-/// The trial a creation asks for (R-153).
+/// The trial a creation asks for (R-153). The plan's trial asked by default gives none to a
+/// customer who already had it; asked explicitly (`Plan`) or named (`Offer`), it is refused (R-159).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum TrialRequest {
-    /// The plan's trial: what a creation asking nothing gets.
+    /// Nothing asked: the plan's trial, when the customer may still have it.
     #[default]
+    Default,
+    /// The plan's trial, asked explicitly.
     Plan,
     None,
     Offer(TrialOfferId),
@@ -235,19 +504,22 @@ pub enum TrialRequest {
         length: TrialLength,
         free: Option<bool>,
         trial_plan: Option<Option<PlanId>>,
+        /// Its end waits for an operator's decision ("decide at the end"), else it converts.
+        manual: bool,
     },
 }
 
 impl TrialRequest {
-    /// A request in days as the older APIs give it: none asks the plan's trial, 0 none.
+    /// A request in days as the older APIs give it: none asks nothing, 0 none.
     pub fn from_days(days: Option<u32>, free: Option<bool>) -> Self {
         match days {
-            None => TrialRequest::Plan,
+            None => TrialRequest::Default,
             Some(0) => TrialRequest::None,
             Some(days) => TrialRequest::Custom {
                 length: TrialLength::Days(days),
                 free,
                 trial_plan: None,
+                manual: false,
             },
         }
     }
@@ -261,6 +533,7 @@ pub struct ResolvedTrial {
     pub trial_plan_id: Option<PlanId>,
     pub offer: Option<TrialOfferId>,
     pub end_action: TrialEndAction,
+    pub without_card: TrialWithoutCard,
     /// What the customer is given once, when the offer limits it.
     pub eligibility: TrialEligibility,
 }
@@ -278,8 +551,11 @@ pub enum TrialMove {
     Until(NaiveDate),
     /// Later by this many days.
     Days(u32),
-    /// Today: billing starts now.
+    /// Today, its recorded end action with it: a converting or manual trial bills from today, a
+    /// cancelling one ends the subscription today, a falling back one switches today.
     Now,
+    /// The subscription ends today with its trial, nothing billed: a manual trial's cancel.
+    Cancel,
 }
 
 /// A subscription's trial, as its fact records it: from its billing start to `until` (exclusive).
@@ -291,11 +567,27 @@ pub struct SubscriptionTrial {
     pub trial_plan_id: Option<PlanId>,
     pub offer_id: Option<TrialOfferId>,
     pub end_action: TrialEnd,
+    /// Applies when `end_action` is Convert (R-179).
+    pub without_card: TrialWithoutCard,
+    /// Set once it ended (R-167).
+    pub outcome: Option<TrialOutcome>,
+    pub ended_at: Option<NaiveDateTime>,
 }
 
 impl SubscriptionTrial {
     pub fn days(&self) -> u32 {
         u32::try_from((self.until - self.from).num_days()).unwrap_or(0)
+    }
+
+    pub fn status(&self) -> TrialStatus {
+        match self.outcome {
+            None => TrialStatus::Active,
+            Some(TrialOutcome::Converted) => TrialStatus::Converted,
+            Some(TrialOutcome::Cancelled) => TrialStatus::Cancelled,
+            Some(TrialOutcome::Switched) => TrialStatus::Switched,
+            Some(TrialOutcome::AwaitingPayment) => TrialStatus::AwaitingPayment,
+            Some(TrialOutcome::AwaitingDecision) => TrialStatus::AwaitingDecision,
+        }
     }
 }
 
@@ -308,6 +600,13 @@ impl From<diesel_models::subscription_facts::SubscriptionTrialRow> for Subscript
             trial_plan_id: row.trial_plan_id,
             offer_id: row.trial_offer_id,
             end_action: TrialEnd::parse(&row.end_action),
+            without_card: TrialWithoutCard::parse(
+                &row.without_card,
+                row.without_card_plan_version_id,
+            )
+            .unwrap_or_default(),
+            outcome: row.outcome.as_deref().and_then(TrialOutcome::parse),
+            ended_at: row.ended_at,
         }
     }
 }

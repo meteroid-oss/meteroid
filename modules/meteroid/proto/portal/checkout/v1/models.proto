@@ -8,6 +8,7 @@ import "api/invoices/v1/models.proto";
 import "api/connectors/v1/models.proto";
 import "api/bankaccounts/v1/models.proto";
 import "portal/wallets/v1/models.proto";
+import "api/shared/v1/shared.proto";
 
 
 
@@ -59,6 +60,24 @@ message Checkout {
   bool require_billing_information = 33;
   // The merchant's workspace is not in production: the portal shows a test-mode banner.
   bool test_mode = 34;
+  // What the subscription bills each period once its trial ends; unset without a trial.
+  optional AfterTrial after_trial = 35;
+  // The trial's offer asks no card to start it.
+  bool trial_card_optional = 36;
+}
+
+// Recurring fees billed from a trial's end, before coupons, usage and tax.
+message AfterTrial {
+  string currency = 1;
+  string starts_on = 2;
+  // One per cadence, the subscription's own first; empty when only usage is billed.
+  repeated AfterTrialAmount recurring = 3;
+}
+
+// Minor units.
+message AfterTrialAmount {
+  int64 amount = 1;
+  meteroid.api.shared.v1.BillingPeriod interval = 2;
 }
 
 message TopUpCredits {

@@ -1,6 +1,5 @@
 import { skipToken } from '@connectrpc/connect-query'
 import {
-  Alert,
   Button,
   Card,
   CardContent,
@@ -28,10 +27,16 @@ import { useEffect } from 'react'
 import { useWizard } from 'react-use-wizard'
 import { z } from 'zod'
 
+import { ChoiceCardsFormField } from '@/components/form'
 import { PageSection } from '@/components/layouts/shared/PageSection'
 import { Slot, hasSlot } from '@/edition'
 import { scopeOptionsWithPending } from '@/features/billing/minimumCommitment'
 import { CustomPropertiesFields } from '@/features/customproperties/CustomPropertiesFields'
+import { useGrantNames } from '@/features/offers/GrantChips'
+import { grantsFromProto } from '@/features/offers/grants'
+import { offerSummary } from '@/features/offers/offers'
+import { useTrialPlans } from '@/features/plans/trial/TrialTermsFields'
+import { THIS_PLAN, toTrialForm, trialChips } from '@/features/plans/trial/trialTerms'
 import { useResourceTypes } from '@/features/resources/hooks'
 import { SubscribedFor } from '@/features/subscriptions/SubscribedFor'
 import { useZodForm } from '@/hooks/useZodForm'
@@ -47,13 +52,17 @@ import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquer
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
 import { getInvoicingEntityProviders } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
-import { PlanType } from '@/rpc/api/plans/v1/models_pb'
 import {
-  getPlanWithVersionByVersionId,
-  listPlans,
-} from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+  getOffer,
+  getPlanStartOffer,
+} from '@/rpc/api/offers/v1/offers-OffersService_connectquery'
+import { PlanType } from '@/rpc/api/plans/v1/models_pb'
+import { getPlanWithVersionByVersionId } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
 import { ActivationCondition } from '@/rpc/api/subscriptions/v1/models_pb'
+
+import type { ChoiceCardOption } from '@/components/form'
+import type { StartOfferMode, TrialMode } from '@/pages/tenants/subscription/create/trial'
 
 const activationConditionToString = (
   condition: ActivationCondition
@@ -140,9 +149,6 @@ export const StepSettings = () => {
     { enabled: !!state.planVersionId }
   )
 
-  // Fetch all plans for resolving trialing plan name
-  const plansQuery = useQuery(listPlans, {})
-
   const planTrial = planQuery.data?.plan?.trial?.terms
   const planType = planQuery.data?.plan?.plan?.planType
   const isFreePlan = planType === PlanType.FREE
@@ -160,10 +166,7 @@ export const StepSettings = () => {
   const netTermsDefault =
     effectivePrices && defaultNetTerms(effectivePrices.prices, effectivePrices.planNetTerms)
 
-  // Resolve trialing plan name
-  const trialingPlanName = planTrial?.trialPlanId
-    ? plansQuery.data?.plans.find(p => p.id === planTrial.trialPlanId)?.name
-    : undefined
+  const { planName, featurePlans } = useTrialPlans(planId)
 
   const invoicingEntityId = customerQuery.data?.customer?.invoicingEntityId
 
@@ -189,8 +192,9 @@ export const StepSettings = () => {
       trialMode: state.trialMode,
       trialDuration: state.trialDuration,
       trialUntil: state.trialUntil,
-      trialFree:
-        state.trialFree === undefined ? 'plan' : state.trialFree ? 'free' : 'billed',
+      trialFeaturesOf: state.trialFeaturesOf ?? THIS_PLAN,
+      startOfferMode: state.startOfferMode,
+      startOfferId: state.startOfferId,
       activationCondition:
         state.activationCondition !== undefined
           ? activationConditionToString(state.activationCondition)
@@ -208,7 +212,12 @@ export const StepSettings = () => {
   })
 
   // Watch activation condition, payment methods type, charge automatically, and fromDate for cross-validation
-  const [trialMode, trialUntil] = methods.watch(['trialMode', 'trialUntil'])
+  const [trialMode, trialUntil, startOfferMode, startOfferId] = methods.watch([
+    'trialMode',
+    'trialUntil',
+    'startOfferMode',
+    'startOfferId',
+  ])
   const [activationCondition, paymentMethodsType, chargeAutomatically, fromDate] = methods.watch([
     'activationCondition',
     'paymentMethodsType',
@@ -216,7 +225,89 @@ export const StepSettings = () => {
     'fromDate',
   ])
 
-  const { getValues, setValue } = methods
+  const { getValues, setValue, getFieldState } = methods
+
+  const startOfferQuery = useQuery(getPlanStartOffer, planId ? { planId } : skipToken)
+  const planStartOffer = startOfferQuery.data?.startOffer?.offer
+  const catalogOffer = useQuery(
+    getOffer,
+    startOfferMode === 'catalog' && startOfferId ? { id: startOfferId } : skipToken
+  ).data?.offer
+  const offerGrants = grantsFromProto(planStartOffer?.grants ?? [])
+  const grantNames = useGrantNames(offerGrants)
+  // The trial "The plan's" or "The offer's" gives: the chosen start offer's.
+  const offerTrial = startOfferMode === 'catalog' ? catalogOffer?.trial : planTrial
+
+  // A plan without a start offer has none to give, nor a catalog offer without a trial.
+  const startOfferLoaded = startOfferQuery.isSuccess
+  useEffect(() => {
+    if (startOfferLoaded && !planStartOffer && getValues('startOfferMode') === 'plan') {
+      setValue('startOfferMode', 'none')
+    }
+  }, [startOfferLoaded, planStartOffer, getValues, setValue])
+  useEffect(() => {
+    if (catalogOffer && !catalogOffer.trial && getValues('trialMode') === 'plan') {
+      setValue('trialMode', 'none')
+    }
+  }, [catalogOffer, getValues, setValue])
+
+  // A plan without a trial has none to give; a trial of its own starts from the plan's features.
+  const planLoaded = planQuery.isSuccess
+  const planTrialFeatures = planTrial?.trialPlanId
+  useEffect(() => {
+    if (!planLoaded) return
+    const offersPlanTrial = getValues('startOfferMode') !== 'catalog'
+    if (!planTrial && offersPlanTrial && getValues('trialMode') === 'plan') {
+      setValue('trialMode', 'none')
+    }
+    if (
+      planTrialFeatures &&
+      state.trialFeaturesOf === undefined &&
+      !getFieldState('trialFeaturesOf').isDirty
+    ) {
+      setValue('trialFeaturesOf', planTrialFeatures)
+    }
+  }, [
+    planLoaded,
+    planTrial,
+    planTrialFeatures,
+    state.trialFeaturesOf,
+    getValues,
+    setValue,
+    getFieldState,
+  ])
+
+  const startOfferOptions: ChoiceCardOption<StartOfferMode>[] = [
+    {
+      value: 'plan',
+      label: "The plan's",
+      hint: planStartOffer ? offerSummary(planStartOffer, grantNames) : 'None on this plan',
+      disabled: startOfferLoaded && !planStartOffer,
+    },
+    { value: 'none', label: 'None' },
+    ...(hasSlot('subscriptionCreate.offer')
+      ? [{ value: 'catalog' as const, label: 'Catalog offer', hint: 'In place of the plan’s' }]
+      : []),
+  ]
+
+  const awaitingOffer = startOfferMode === 'catalog' && !catalogOffer
+  const trialOptions: ChoiceCardOption<TrialMode>[] = [
+    {
+      value: 'plan',
+      label: startOfferMode === 'catalog' ? "The offer's" : "The plan's",
+      hint: offerTrial
+        ? trialChips(toTrialForm(offerTrial), { isFreePlan, planName })
+            .slice(0, 3)
+            .map(chip => chip.label)
+            .join(' · ')
+        : awaitingOffer
+          ? 'Pick an offer'
+          : 'None',
+      disabled: !offerTrial && !awaitingOffer,
+    },
+    { value: 'none', label: 'None' },
+    { value: 'custom', label: 'Custom', hint: 'Days or end date' },
+  ]
 
   // Auto-disable chargeAutomatically and reset activationCondition when no online provider
   useEffect(() => {
@@ -273,10 +364,9 @@ export const StepSettings = () => {
       trialMode: data.trialMode,
       trialDuration: data.trialMode === 'custom' && !data.trialUntil ? data.trialDuration : undefined,
       trialUntil: data.trialMode === 'custom' ? data.trialUntil : undefined,
-      trialFree:
-        data.trialMode !== 'custom' || data.trialFree === 'plan'
-          ? undefined
-          : data.trialFree === 'free',
+      trialFeaturesOf: data.trialMode === 'custom' ? data.trialFeaturesOf : undefined,
+      startOfferMode: data.startOfferMode,
+      startOfferId: data.startOfferMode === 'catalog' ? data.startOfferId : undefined,
       activationCondition: activationConditionFromString(data.activationCondition),
       paymentMethodsType: data.paymentMethodsType,
       netTerms: data.netTerms,
@@ -410,95 +500,81 @@ export const StepSettings = () => {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Trial Configuration</CardTitle>
+                <CardTitle className="text-base">Start offer</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {planTrial ? (
-                  <Alert variant="default" className="text-sm">
-                    <div className="space-y-1">
-                      <p>
-                        The plan&apos;s trial:{' '}
-                        <span className="font-medium">{planTrial.durationDays} days</span>
-                        {trialingPlanName && (
-                          <>
-                            {' '}
-                            with <span className="font-medium">&quot;{trialingPlanName}&quot;</span>{' '}
-                            features
-                          </>
-                        )}
+                <ChoiceCardsFormField
+                  control={methods.control}
+                  name="startOfferMode"
+                  columns={3}
+                  options={startOfferOptions}
+                />
+                {startOfferMode === 'catalog' && planId && (
+                  <div className="space-y-1">
+                    <Slot
+                      name="subscriptionCreate.offer"
+                      planId={planId}
+                      value={startOfferId}
+                      onChange={id =>
+                        setValue('startOfferId', id, { shouldDirty: true, shouldValidate: true })
+                      }
+                    />
+                    {methods.formState.errors.startOfferId && (
+                      <p className="text-xs text-destructive">
+                        {methods.formState.errors.startOfferId.message}
                       </p>
-                      <p className="text-muted-foreground text-xs">
-                        {isFreePlan
-                          ? 'Free plan - no payment required.'
-                          : planTrial.free
-                            ? 'Free trial - billing starts after the trial.'
-                            : 'Paid trial - billing starts immediately.'}
-                      </p>
-                    </div>
-                  </Alert>
-                ) : (
-                  <p className="text-sm text-muted-foreground">The plan has no trial.</p>
-                )}
-                {!state.trialOfferId && (
-                  <>
-                    <SelectFormField
-                      name="trialMode"
-                      label="Trial"
-                      control={methods.control}
-                    >
-                      <SelectItem value="plan">
-                        {planTrial ? "The plan's trial" : 'No trial (the plan has none)'}
-                      </SelectItem>
-                      <SelectItem value="none">No trial</SelectItem>
-                      <SelectItem value="custom">A trial of its own</SelectItem>
-                    </SelectFormField>
-                    {trialMode === 'custom' && (
-                      <div className="grid grid-cols-2 gap-3">
-                        <InputFormField
-                          name="trialDuration"
-                          label="Days"
-                          type="number"
-                          placeholder={String(planTrial?.durationDays ?? 14)}
-                          control={methods.control}
-                          disabled={!!trialUntil}
-                        />
-                        <GenericFormField
-                          control={methods.control}
-                          layout="vertical"
-                          label="Or ends on"
-                          name="trialUntil"
-                          render={({ field }) => (
-                            <DatePicker
-                              mode="single"
-                              captionLayout="dropdown"
-                              placeholder="Counted in days"
-                              date={field.value}
-                              onSelect={field.onChange}
-                            />
-                          )}
-                        />
-                        {!isFreePlan && (
-                          <SelectFormField
-                            name="trialFree"
-                            label="During the trial"
-                            control={methods.control}
-                          >
-                            <SelectItem value="plan">As the plan&apos;s trial</SelectItem>
-                            <SelectItem value="free">Nothing is billed</SelectItem>
-                            <SelectItem value="billed">Billed as usual</SelectItem>
-                          </SelectFormField>
-                        )}
-                      </div>
                     )}
-                  </>
+                  </div>
                 )}
-                {planId && hasSlot('subscriptionCreate.trialOffer') && (
-                  <Slot
-                    name="subscriptionCreate.trialOffer"
-                    planId={planId}
-                    value={state.trialOfferId}
-                    onChange={trialOfferId => setState({ ...state, trialOfferId })}
-                  />
+                <ChoiceCardsFormField
+                  control={methods.control}
+                  name="trialMode"
+                  label="Trial"
+                  columns={3}
+                  options={trialOptions}
+                />
+                {trialMode === 'custom' && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <InputFormField
+                      name="trialDuration"
+                      label="Length"
+                      type="number"
+                      rightText="days"
+                      placeholder={String(planTrial?.durationDays ?? 14)}
+                      control={methods.control}
+                      disabled={!!trialUntil}
+                    />
+                    <GenericFormField
+                      control={methods.control}
+                      layout="vertical"
+                      label="Or ends on"
+                      name="trialUntil"
+                      render={({ field }) => (
+                        <DatePicker
+                          mode="single"
+                          captionLayout="dropdown"
+                          className="w-full"
+                          placeholder="Pick a date"
+                          clearable
+                          date={field.value}
+                          onSelect={field.onChange}
+                        />
+                      )}
+                    />
+                    <SelectFormField
+                      name="trialFeaturesOf"
+                      label="Features of"
+                      control={methods.control}
+                      containerClassName="col-span-2"
+                    >
+                      <SelectItem value={THIS_PLAN}>This plan</SelectItem>
+                      {featurePlans.map(plan => (
+                        <SelectItem key={plan.value} value={plan.value}>
+                          {plan.label}
+                        </SelectItem>
+                      ))}
+                    </SelectFormField>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -819,10 +895,12 @@ const schema = z
     fromDate: z.date(),
     toDate: z.date().optional(),
     billingDay: z.enum(['FIRST', 'SUB_START_DAY']).default('SUB_START_DAY'),
+    startOfferMode: z.enum(['plan', 'none', 'catalog']).default('plan'),
+    startOfferId: z.string().optional(),
     trialMode: z.enum(['plan', 'none', 'custom']).default('plan'),
     trialDuration: z.number().int().min(1).max(3650).optional(),
     trialUntil: z.date().optional(),
-    trialFree: z.enum(['plan', 'free', 'billed']).default('plan'),
+    trialFeaturesOf: z.string().optional(),
     activationCondition: z.enum(['ON_START', 'ON_CHECKOUT', 'MANUAL']),
     paymentMethodsType: z.enum(['online', 'bankTransfer', 'external']).default('online'),
     netTerms: z.preprocess(
@@ -838,8 +916,12 @@ const schema = z
     customProperties: z.record(z.string(), z.unknown()).optional(),
   })
   .refine(data => data.trialMode !== 'custom' || !!data.trialDuration || !!data.trialUntil, {
-    message: 'A trial of its own lasts some days or ends on a date',
+    message: 'Enter days or an end date',
     path: ['trialDuration'],
+  })
+  .refine(data => data.startOfferMode !== 'catalog' || !!data.startOfferId, {
+    message: 'Pick an offer',
+    path: ['startOfferId'],
   })
   .refine(data => !data.toDate || data.toDate > data.fromDate, {
     message: 'Must be greater than the start date',

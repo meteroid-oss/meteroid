@@ -7,6 +7,7 @@ import { hasTerm, optionCell } from '@/features/plans/currencies/priceCells'
 import { feeTypeFromPrice } from '@/features/pricing'
 import { buildDefaults } from '@/features/pricing/formData'
 import { emptyQuoteV2State, quoteToV2State } from '@/features/quotes/editor/quoteV2'
+import { trialEndToForm } from '@/features/quotes/quoteTrial'
 import { byPosition, optionHandle } from '@/features/subscriptions/pricecomponents/planOption'
 import {
   ComponentOverride,
@@ -284,8 +285,8 @@ export function quoteToFormValues(detailed: DetailedQuote): Partial<QuoteFormVal
     start_date: parseDate(quote?.startDate),
     end_date: parseDate(quote?.endDate),
     trial_duration: quote?.trialDuration,
-    trial_free: quote?.trialFree,
     trial_plan_id: quote?.trialPlanId,
+    trial_end_action: trialEndToForm(quote?.trialEndAction),
     billing_day_anchor: quote?.billingDayAnchor,
     expires_at: parseDate(quote?.expiresAt),
     valid_until: parseDate(quote?.validUntil),

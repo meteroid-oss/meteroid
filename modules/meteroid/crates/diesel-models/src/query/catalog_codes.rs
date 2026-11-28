@@ -8,6 +8,7 @@ use common_domain::ids::{
     AddOnId, BillableMetricId, CouponId, CreditNoteId, CreditUnitId, CustomerId, FeatureId,
     InvoiceId, PlanId, ProductFamilyId, ProductId, SubscriptionId, TenantId,
 };
+use diesel::NullableExpressionMethods;
 use diesel::{ExpressionMethods, OptionalExtension, QueryDsl};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
@@ -196,7 +197,28 @@ keys_of!(
     String,
     "credit units"
 );
-keys_of!(coupon_codes, coupon, CouponId, code, String, "coupons");
+/// The codes of `ids`: a coupon without a code (a grant's own) has none to name it by.
+pub async fn coupon_codes(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    ids: &[CouponId],
+) -> DbResult<Vec<(CouponId, String)>> {
+    use crate::schema::coupon::dsl as t;
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let query = t::coupon
+        .filter(t::tenant_id.eq(tenant_id))
+        .filter(t::id.eq_any(ids))
+        .filter(t::code.is_not_null())
+        .select((t::id, t::code.assume_not_null()));
+    crate::debug_sql(&query);
+    query
+        .load::<(CouponId, String)>(conn)
+        .await
+        .attach("Error while reading the keys of coupons")
+        .into_db_result()
+}
 keys_of!(feature_codes, feature, FeatureId, code, String, "features");
 keys_of!(
     subscription_external_ids,

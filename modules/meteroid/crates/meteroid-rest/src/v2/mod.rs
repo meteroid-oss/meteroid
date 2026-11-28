@@ -38,6 +38,7 @@ pub mod invoices;
 pub mod managed_quantities;
 pub mod me;
 pub mod metrics;
+pub mod offers;
 pub mod pagination;
 pub mod plans;
 pub mod pricing_pages;
@@ -49,6 +50,7 @@ pub mod references;
 pub mod refs;
 pub mod resource_types;
 pub mod subscriptions;
+pub mod trials;
 pub mod usage;
 pub mod version;
 pub mod webhook_payloads;
@@ -166,6 +168,7 @@ pub fn api_v2_routes() -> OpenApiRouter<AppState> {
         idempotency::IdempotentReplay,
         coupons::CouponStatus,
         checkout_sessions::CheckoutStatus,
+        subscriptions::model::TrialListParam,
         webhooks::DeliveryStatus,
         usage::Granularity,
         crate::webhooks::out_model::WebhookOutEventTypeEnum

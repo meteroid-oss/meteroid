@@ -277,12 +277,14 @@ impl SubscriptionRow {
             .into_db_result()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn list_subscriptions(
         conn: &mut PgConn,
         tenant_id_param: &TenantId,
         customer_id_opt: Option<CustomerId>,
         plan_id_param_opt: Option<PlanId>,
         status_opt: Option<Vec<crate::enums::SubscriptionStatusEnum>>,
+        trial_opt: Option<TrialListFilter>,
         param_search: Option<String>,
         filters: Vec<ListFilter>,
         order_by: Option<&str>,
@@ -314,6 +316,10 @@ impl SubscriptionRow {
 
         if let Some(status_param) = status_opt {
             query = query.filter(status.eq_any(status_param));
+        }
+
+        if let Some(trial) = trial_opt {
+            query = query.filter(id.eq_any(trial.subscription_ids(*tenant_id_param)));
         }
 
         if let Some(param_search) = param_search
@@ -530,6 +536,7 @@ impl SubscriptionForDisplayRow {
         customer_id: Option<CustomerId>,
         plan_id: Option<PlanId>,
         status: Option<Vec<crate::enums::SubscriptionStatusEnum>>,
+        trial: Option<TrialListFilter>,
         updated_after: Option<chrono::DateTime<chrono::Utc>>,
         created_after: Option<chrono::NaiveDateTime>,
         created_before: Option<chrono::NaiveDateTime>,
@@ -555,6 +562,9 @@ impl SubscriptionForDisplayRow {
         }
         if let Some(status) = status {
             query = query.filter(s_dsl::status.eq_any(status));
+        }
+        if let Some(trial) = trial {
+            query = query.filter(s_dsl::id.eq_any(trial.subscription_ids(tenant_id)));
         }
         if let Some(updated_after) = updated_after {
             // Changed after it: its own row, else it or what is read beside it as committed
@@ -612,4 +622,41 @@ pub async fn subscription_activity(
         .await
         .attach("Error while reading when subscriptions last changed")
         .into_db_result()
+}
+
+/// The trials a subscription list narrows to, matched in an uncorrelated subselect of
+/// `subscription_trial` (a semi-join, never a per-row lookup).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrialListFilter {
+    /// Running, ending after `after` and on or before `until`.
+    EndingBetween {
+        after: chrono::NaiveDate,
+        until: chrono::NaiveDate,
+    },
+    /// Ended with this outcome (AWAITING_DECISION, AWAITING_PAYMENT).
+    Outcome(&'static str),
+}
+
+impl TrialListFilter {
+    fn subscription_ids(
+        self,
+        tenant_id: TenantId,
+    ) -> crate::schema::subscription_trial::BoxedQuery<
+        'static,
+        diesel::pg::Pg,
+        diesel::sql_types::Uuid,
+    > {
+        use crate::schema::subscription_trial::dsl as t;
+        let query = t::subscription_trial
+            .filter(t::tenant_id.eq(tenant_id))
+            .select(t::subscription_id)
+            .into_boxed();
+        match self {
+            TrialListFilter::EndingBetween { after, until } => query
+                .filter(t::outcome.is_null())
+                .filter(t::until_date.gt(after))
+                .filter(t::until_date.le(until)),
+            TrialListFilter::Outcome(outcome) => query.filter(t::outcome.eq(outcome)),
+        }
+    }
 }

@@ -17,7 +17,7 @@ use meteroid_app::features::ensure_credit_pricing_allowed;
 use meteroid_app::features::minimum_commitments_open;
 use meteroid_rest_common::error::RestErrorResponse;
 use meteroid_rest_common::model::{PaginationExt, validate_order_by};
-use meteroid_store::domain::trials::TrialTerms;
+use meteroid_store::domain::trials::{TRIAL_IS_FREE, TrialTerms};
 use meteroid_store::domain::{
     FullPlanNew, PlanFilters, PlanNew, PlanPatch, PlanVersionFilter, PlanVersionNewInternal,
 };
@@ -166,6 +166,7 @@ pub async fn get_plan_details(
         (status = 400, description = "Bad request", body = RestErrorResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 409, description = "Conflict", body = RestErrorResponse),
+        (status = 422, description = "A trial with `is_free: false`: a trial is free", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -198,11 +199,7 @@ pub async fn create_plan(
     });
 
     // The plan's trial, live on every version: set by the call, cleared when it names none.
-    let trial = Some(payload.trial.map(|t| TrialTerms {
-        duration_days: t.duration_days,
-        free: t.is_free,
-        trial_plan_id: t.trialing_plan_id,
-    }));
+    let trial = Some(payload.trial.map(trial_terms).transpose()?);
 
     let entitlements =
         plan_entitlement_specs(&app_state, authorized_state.tenant_id, payload.entitlements)
@@ -336,6 +333,7 @@ pub async fn create_plan(
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 403, description = "Minimum commitments are not enabled for this organization: introducing or changing one is refused", body = RestErrorResponse),
         (status = 404, description = "Plan not found", body = RestErrorResponse),
+        (status = 422, description = "A trial with `is_free: false`: a trial is free", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -387,11 +385,7 @@ pub async fn replace_plan(
     });
 
     // The plan's trial, live on every version: set by the call, cleared when it names none.
-    let trial = Some(payload.trial.map(|t| TrialTerms {
-        duration_days: t.duration_days,
-        free: t.is_free,
-        trial_plan_id: t.trialing_plan_id,
-    }));
+    let trial = Some(payload.trial.map(trial_terms).transpose()?);
 
     let add_ons = payload
         .add_ons
@@ -1068,6 +1062,17 @@ async fn attach_add_ons(
             })?;
     }
     Ok(())
+}
+
+/// v1's trial written: a trial is free (R-153), the rest of the plan's offer kept.
+fn trial_terms(trial: crate::plans::model::TrialConfig) -> Result<TrialTerms, RestApiError> {
+    if !trial.is_free {
+        return Err(RestApiError::Unprocessable(TRIAL_IS_FREE.to_owned()));
+    }
+    Ok(TrialTerms::days(
+        trial.duration_days,
+        trial.trialing_plan_id,
+    ))
 }
 
 /// Parse a major-unit amount string (e.g. "100.00") into a subunit i64 using the currency's

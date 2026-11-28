@@ -30,6 +30,8 @@ message Coupon {
   // Billing periods starting within this many months of the first paid period. Unset with
   // recurring_value set: the first invoices, as older coupons count; neither: forever.
   optional int32 duration_months = 19;
+  // The offer its code gives; read only.
+  optional string offer_id = 20;
 }
 
 message CouponDiscount {

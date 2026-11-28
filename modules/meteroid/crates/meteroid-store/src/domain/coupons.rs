@@ -43,6 +43,8 @@ pub struct Coupon {
     pub valid_from: Option<NaiveDateTime>,
     /// A fixed discount in currencies other than its own, by ISO 4217 code.
     pub fixed_amounts: BTreeMap<String, Decimal>,
+    /// The offer the code gives (ADR 0019); `None` until wrapped.
+    pub offer_id: Option<common_domain::ids::OfferId>,
 }
 
 /// Validation error for coupon usage
@@ -120,7 +122,32 @@ impl CouponDuration {
     }
 }
 
+/// The code of an offer grant's own coupon row (ADR 0019): derived from its id, so no code typed
+/// or created through the coupon APIs is ever one.
+pub fn grant_code(id: CouponId) -> String {
+    format!("_grant_{}", id.as_uuid().simple())
+}
+
+/// Whether `code` is the coupon `id`'s grant code: read as the grant, never as a coupon.
+pub fn is_grant_code(id: CouponId, code: &str) -> bool {
+    code == grant_code(id)
+}
+
 impl Coupon {
+    /// An offer grant's own coupon row: shown as its grant, by its offer's name.
+    pub fn is_grant_definition(&self) -> bool {
+        is_grant_code(self.id, &self.code)
+    }
+
+    /// How an invoice or a checkout names it: a grant's by its offer, a code by itself.
+    pub fn display_label(&self) -> &str {
+        if self.is_grant_definition() && !self.description.is_empty() {
+            &self.description
+        } else {
+            &self.code
+        }
+    }
+
     pub fn duration(&self) -> CouponDuration {
         CouponDuration::of(self.recurring_value, self.duration_months)
     }
@@ -395,7 +422,7 @@ impl TryInto<Coupon> for CouponRow {
 
         Ok(Coupon {
             id: self.id,
-            code: self.code,
+            code: self.code.unwrap_or_default(),
             description: self.description,
             tenant_id: self.tenant_id,
             discount,
@@ -415,6 +442,7 @@ impl TryInto<Coupon> for CouponRow {
             eligibility: Eligibility::from_row(self.eligibility),
             valid_from: self.valid_from,
             fixed_amounts: fixed_amounts_from_row(self.fixed_amounts)?,
+            offer_id: self.offer_id,
         })
     }
 }
@@ -672,7 +700,25 @@ mod tests {
             eligibility: None,
             valid_from: None,
             fixed_amounts: BTreeMap::new(),
+            offer_id: None,
         }
+    }
+
+    /// A grant's own coupon row carries the code of its id, read by its offer's name; a code
+    /// typed like one, of another id, is a coupon.
+    #[test]
+    fn a_grant_s_coupon_is_known_by_the_code_of_its_id() {
+        let mut grant = coupon(CouponDiscount::Percentage(Decimal::from(20)));
+        grant.code = grant_code(grant.id);
+        grant.description = "Studio start offer".to_owned();
+        assert!(grant.is_grant_definition());
+        assert_eq!(grant.display_label(), "Studio start offer");
+
+        let mut lookalike = coupon(CouponDiscount::Percentage(Decimal::from(20)));
+        lookalike.code = grant_code(CouponId::new());
+        assert!(!lookalike.is_grant_definition());
+        assert_eq!(lookalike.display_label(), lookalike.code);
+        assert!(!coupon(CouponDiscount::Percentage(Decimal::from(20))).is_grant_definition());
     }
 
     /// Scoped to add-ons, only their lines; to plans, the whole invoice; to both, the whole

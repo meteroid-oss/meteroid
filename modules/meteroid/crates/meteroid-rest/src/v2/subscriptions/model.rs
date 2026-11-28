@@ -131,90 +131,103 @@ pub struct CurrentPeriod {
     pub end: Option<NaiveDate>,
 }
 
-/// The subscription's trial, as recorded at its start; absent when it has none.
+/// The subscription's trial, the free period before it is billed, as recorded at its start;
+/// absent when it has none. Lists carry its `days`; the rest is read on a single subscription.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct TrialState {
     /// Its length in days, from its start.
     pub days: u32,
-    /// Its first day, the billing start; read on a single subscription.
+    /// Its first day.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub starts_on: Option<NaiveDate>,
-    /// Nothing is billed during it; read on a single subscription.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub free: Option<bool>,
-    /// When it ended or ends; read on a single subscription.
+    /// Exclusive: the day after its last.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ends_on: Option<NaiveDate>,
-    /// The plan whose features it gives, by code; read on a single subscription.
+    /// The day billing starts when the subscription converts: its end.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub plan: Option<String>,
-    /// The trial offer it came from; read on a single subscription.
+    pub billing_starts_on: Option<NaiveDate>,
+    /// The plan whose features it gives over the subscription's own; none: its own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub features_of: Option<PlanRef>,
+    /// The trial offer it came from.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offer: Option<TrialOfferSummary>,
-    /// What its end does; read on a single subscription.
+    /// Where it stands.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_action: Option<TrialEndAction>,
+    pub status: Option<crate::v2::trials::TrialStatus>,
+    /// How it ended; absent while it runs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<crate::v2::trials::TrialOutcome>,
+    /// The day it ended.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ended_on: Option<NaiveDate>,
+    /// What its end does.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub at_end: Option<crate::v2::trials::TrialAtEnd>,
+    /// What a converting end does if the subscription is charged automatically and has no
+    /// payment method then.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub without_card: Option<crate::v2::trials::TrialWithoutCard>,
+    /// Whether the subscription has a payment method it is charged or invoiced with.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_payment_method: Option<bool>,
+    /// What its end is estimated to charge first, while it runs and converts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_charge_estimate: Option<crate::v2::trials::FirstChargeEstimate>,
 }
 
-/// What a trial's end does: the subscription goes on, ends, or switches plan.
-#[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-#[schema(as = SubscriptionTrialEndAction)]
-pub enum TrialEndAction {
-    Convert,
-    Cancel,
-    Fallback,
-}
-
-/// A trial offer, as a subscription names it.
+/// A trial offer, as a subscription or a plan names it.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct TrialOfferSummary {
+    /// The offer's id.
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     #[schema(value_type = String)]
     pub id: common_domain::ids::TrialOfferId,
+    /// Its code, when it has one.
     pub code: Option<String>,
+    /// Its name.
     pub name: String,
 }
 
 /// A trial offer, by its id or its code: its days, and what follows it. Refused when the
 /// customer already had it.
-#[derive(Deserialize, ToSchema, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct OfferTrial {
+    /// The offer, by id or code.
     pub offer: String,
 }
 
-/// A trial of its own terms: `days` or an end date `until` (exclusive), one of them.
-#[derive(Deserialize, ToSchema, Debug, Clone, PartialEq)]
+/// A trial of its own terms: `days` or an end date `until` (exclusive), one of them. It bills
+/// nothing and converts at its end.
+#[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct CustomTrial {
     /// 1 to 3,650.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub days: Option<u32>,
     /// After the billing start, 3,650 days at most.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub until: Option<NaiveDate>,
-    /// Nothing billed during it; the plan's trial's freeness when left out, else free.
-    #[serde(default)]
-    pub free: Option<bool>,
     /// The plan whose features it gives, by code or id; the plan's trial's when left out.
-    #[serde(default)]
-    pub plan: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub features_of: Option<String>,
 }
 
 /// No trial.
-#[derive(Deserialize, ToSchema, Debug, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq, Default)]
 #[serde(deny_unknown_fields)]
 pub struct NoTrial {}
 
-/// The plan's trial, as when the trial is left out.
-#[derive(Deserialize, ToSchema, Debug, Clone, PartialEq, Default)]
+/// The plan's trial, asked: refused when the customer already had it. Left out, the plan's
+/// trial is given unless the customer already had it.
+#[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq, Default)]
 #[serde(deny_unknown_fields)]
 pub struct TrialOfThePlan {}
 
-/// The trial a new subscription starts with: the plan's (when left out), none, an offer, or one
-/// of its own terms.
-#[derive(Deserialize, ToSchema, Debug, Clone, PartialEq)]
+/// The trial a new subscription starts with: the plan's, none, an offer, or one of its own
+/// terms. A trial is free.
+#[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[schema(as = SubscriptionTrialInput)]
 pub enum TrialInput {
@@ -222,6 +235,37 @@ pub enum TrialInput {
     None(NoTrial),
     Offer(OfferTrial),
     Custom(CustomTrial),
+}
+
+/// A trial's new end, later than its current one: a day, or days added to its end. One of the two.
+#[derive(Deserialize, ToSchema, Debug, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ExtendTrial {
+    /// The new end, exclusive.
+    #[serde(default)]
+    pub until: Option<NaiveDate>,
+    /// Days added to the current end, at least one.
+    #[serde(default)]
+    pub days: Option<u32>,
+}
+
+/// What ending a trial today would do, nothing written.
+#[derive(Serialize, ToSchema, Debug, Clone)]
+pub struct TrialEndPreview {
+    /// The day it would end: today.
+    pub effective_date: NaiveDate,
+    /// How it would end: its end action applied today (a manual one converts).
+    pub outcome: crate::v2::trials::TrialOutcome,
+    /// What it would issue today: the opening invoice of a conversion, or what a switch of plan
+    /// issues.
+    pub documents: Vec<Document>,
+    /// True when a part of the preview could not be priced and is left out (`missing` names it).
+    pub incomplete: bool,
+    /// What is left out, when `incomplete`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub missing: Vec<PreviewPart>,
+    /// The subscription as it would read once its trial ended.
+    pub subscription_after: Subscription,
 }
 
 /// A count to come: a decrease waiting for the period's end, an increase waiting for its payment
@@ -440,6 +484,10 @@ pub struct Subscription {
     /// The coupons redeemed on it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coupons: Option<Vec<AppliedCoupon>>,
+    /// What the offers applied to it give: each grant with its window, where it came from and
+    /// what it wrote; absent when it has none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub grants: Vec<crate::v2::offers::SubscriptionGrant>,
     /// The changes waiting for their date, soonest first.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schedule: Option<Vec<ScheduledChange>>,
@@ -483,6 +531,15 @@ pub struct Subscription {
 
 crate::v2_list!(SubscriptionList, Subscription);
 
+/// The trials a list narrows to.
+#[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TrialListParam {
+    Ending,
+    AwaitingDecision,
+    AwaitingPayment,
+}
+
 #[derive(Deserialize, IntoParams, Debug, Clone, Default)]
 #[into_params(parameter_in = Query)]
 pub struct SubscriptionListQuery {
@@ -503,6 +560,11 @@ pub struct SubscriptionListQuery {
     /// Only those created before this moment (RFC 3339).
     #[param(format = DateTime)]
     pub created_before: Option<String>,
+    /// Only those whose trial is ending (running, ending within `trial_ends_within_days`),
+    /// awaiting a decision or awaiting payment.
+    pub trial: Option<TrialListParam>,
+    /// With `trial=ending`: within this many days from today, 1 to 3650; 7 by default.
+    pub trial_ends_within_days: Option<u32>,
     /// How many items, 1 to 100; 20 by default.
     pub limit: Option<u32>,
     /// The `next_cursor` of the previous page.
@@ -617,7 +679,11 @@ pub struct CreateSubscription {
     /// The day it stops renewing and completes; it renews until cancelled when left out.
     #[serde(default)]
     pub end_date: Option<NaiveDate>,
-    /// The plan's default offer, else its own trial, when left out.
+    /// What it is given beside its plan: the plan's start offer when left out, unless the
+    /// customer already had it.
+    #[serde(default)]
+    pub offer: Option<crate::v2::offers::OfferInput>,
+    /// The plan's trial when left out, unless the customer already had it.
     #[serde(default)]
     pub trial: Option<TrialInput>,
     /// The day of the month periods start on, 1 to 31; the start date's when left out.

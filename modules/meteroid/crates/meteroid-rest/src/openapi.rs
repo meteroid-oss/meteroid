@@ -9,13 +9,15 @@ use crate::webhooks::out_model::{
     WebhookOutAutoTopUpEventData, WebhookOutBudgetAlertEvent, WebhookOutBudgetAlertEventData,
     WebhookOutCheckoutPaymentKeptAsCreditEvent, WebhookOutCheckoutPaymentKeptAsCreditEventData,
     WebhookOutCreditGrantExpiredEvent, WebhookOutCreditGrantExpiredEventData,
+    WebhookOutCreditGrantUpdatedEvent, WebhookOutCreditGrantUpdatedEventData,
     WebhookOutEntitlementAlertEvent, WebhookOutEntitlementAlertEventData,
     WebhookOutEntitlementAlertLevel, WebhookOutEntitlementAlertResource,
     WebhookOutOverrideEndingEvent, WebhookOutOverrideEndingEventData, WebhookOutRenewalMode,
     WebhookOutRenewalSource, WebhookOutRenewalUpcomingEvent, WebhookOutRenewalUpcomingEventData,
     WebhookOutRetentionOfferKind, WebhookOutRetentionOutcome, WebhookOutRetentionSessionEvent,
     WebhookOutRetentionSessionEventData, WebhookOutTooManyGroupsEvent,
-    WebhookOutTooManyGroupsEventData, WebhookOutTrialEndingEvent, WebhookOutTrialEndingEventData,
+    WebhookOutTooManyGroupsEventData, WebhookOutTrialEndedEvent, WebhookOutTrialEndedEventData,
+    WebhookOutTrialEndingEvent, WebhookOutTrialEndingEventData, WebhookOutTrialOutcome,
     WebhookOutWalletBalanceLowEvent, WebhookOutWalletBalanceLowEventData,
     WebhookOutWalletCreditRecoveredEvent, WebhookOutWalletCreditRecoveredEventData,
     WebhookOutWalletCreditUnrecoveredEvent, WebhookOutWalletCreditUnrecoveredEventData,
@@ -25,7 +27,12 @@ use crate::webhooks::out_model::{
     WebhookOutWalletRecoveredEventData,
 };
 use crate::webhooks::out_model::{
-    CreditNoteStatus, WebhookOutAddOnEvent, WebhookOutAddOnEventData, WebhookOutCouponEvent,
+    CreditNoteStatus, WebhookOutGrantEndReason, WebhookOutGrantEndedEvent,
+    WebhookOutGrantEndedEventData, WebhookOutGrantKind, WebhookOutOfferAppliedEvent,
+    WebhookOutOfferAppliedEventData, WebhookOutOfferSource,
+};
+use crate::webhooks::out_model::{
+    WebhookOutAddOnEvent, WebhookOutAddOnEventData, WebhookOutCouponEvent,
     WebhookOutCouponEventData, WebhookOutCreditNoteEvent, WebhookOutCreditNoteEventData,
     WebhookOutCustomerEvent, WebhookOutCustomerEventData, WebhookOutEInvoicingFinding,
     WebhookOutEventGroupEnum, WebhookOutEventTypeEnum, WebhookOutInvoiceDocumentsEvent,
@@ -38,8 +45,8 @@ use crate::webhooks::out_model::{
 use crate::{AppState, api_routes};
 use common_domain::ids::{
     AddOnId, BaseId, BillableMetricId, BudgetId, CouponId, CreditGrantId, CreditNoteId, CustomerId,
-    EventId, FeatureId, InvoiceId, LedgerEntryId, PaymentTransactionId, PlanId, ProductFamilyId,
-    ProductId, QuoteId, ResourceId, SubscriptionId,
+    EventId, FeatureId, InvoiceId, LedgerEntryId, OfferGrantId, OfferId, PaymentTransactionId,
+    PlanId, ProductFamilyId, ProductId, QuoteId, ResourceId, SubscriptionId,
 };
 use meteroid_rest_common::datetime::ApiDateTime;
 use meteroid_rest_common::model::BillingPeriodEnum;
@@ -242,6 +249,7 @@ pub fn generate_spec(edition: EditionSpec, dir: &str) {
         WebhookOutWalletFundedEvent,
         WebhookOutWalletDebitedEvent,
         WebhookOutCreditGrantExpiredEvent,
+        WebhookOutCreditGrantUpdatedEvent,
         WebhookOutWalletBalanceLowEvent,
         WebhookOutWalletDepletedEvent,
         WebhookOutWalletRecoveredEvent,
@@ -259,6 +267,9 @@ pub fn generate_spec(edition: EditionSpec, dir: &str) {
         WebhookOutOverrideEndingEvent,
         WebhookOutTrialEndingEvent,
         crate::webhooks::out_model::WebhookOutWorkflowRunEvent,
+        WebhookOutTrialEndedEvent,
+        WebhookOutOfferAppliedEvent,
+        WebhookOutGrantEndedEvent,
       )
     ),
     tags(
@@ -791,6 +802,67 @@ impl Modify for WebhooksAddon {
                             trial_offer_id: Some(
                                 "0195f1c2-0000-7000-8000-000000000000".to_string(),
                             ),
+                            billing_starts_on: chrono::NaiveDate::from_ymd_opt(2027, 1, 15),
+                            has_payment_method: Some(true),
+                        },
+                        timestamp: Default::default(),
+                    })
+                    .expect("Failed to serialize webhook example")
+                }
+                WebhookOutEventGroupEnum::Subscription
+                    if event == WebhookOutEventTypeEnum::SubscriptionTrialEnded =>
+                {
+                    serde_json::to_value(WebhookOutTrialEndedEvent {
+                        id: EventId::default(),
+                        event_type: event,
+                        data: WebhookOutTrialEndedEventData {
+                            subscription_id: SubscriptionId::default(),
+                            customer_id: CustomerId::default(),
+                            trial_end: chrono::NaiveDate::from_ymd_opt(2027, 1, 15)
+                                .unwrap_or_default(),
+                            outcome: WebhookOutTrialOutcome::Converted,
+                            ended_at: Default::default(),
+                            trial_offer_id: Some(
+                                "0195f1c2-0000-7000-8000-000000000000".to_string(),
+                            ),
+                        },
+                        timestamp: Default::default(),
+                    })
+                    .expect("Failed to serialize webhook example")
+                }
+                WebhookOutEventGroupEnum::Subscription
+                    if event == WebhookOutEventTypeEnum::OfferApplied =>
+                {
+                    serde_json::to_value(WebhookOutOfferAppliedEvent {
+                        id: EventId::default(),
+                        event_type: event,
+                        data: WebhookOutOfferAppliedEventData {
+                            subscription_id: SubscriptionId::default(),
+                            customer_id: CustomerId::default(),
+                            offer_id: OfferId::default(),
+                            coupon_id: None,
+                            source: Some(WebhookOutOfferSource::Plan),
+                            grant_ids: vec![OfferGrantId::default()],
+                            applied_at: Default::default(),
+                        },
+                        timestamp: Default::default(),
+                    })
+                    .expect("Failed to serialize webhook example")
+                }
+                WebhookOutEventGroupEnum::Subscription
+                    if event == WebhookOutEventTypeEnum::GrantEnded =>
+                {
+                    serde_json::to_value(WebhookOutGrantEndedEvent {
+                        id: EventId::default(),
+                        event_type: event,
+                        data: WebhookOutGrantEndedEventData {
+                            subscription_id: SubscriptionId::default(),
+                            customer_id: CustomerId::default(),
+                            offer_id: OfferId::default(),
+                            grant_id: OfferGrantId::default(),
+                            kind: Some(WebhookOutGrantKind::Credit),
+                            reason: WebhookOutGrantEndReason::SubscriptionEnded,
+                            ended_at: Default::default(),
                         },
                         timestamp: Default::default(),
                     })
@@ -1408,6 +1480,25 @@ fn wallet_example(event: WebhookOutEventTypeEnum) -> serde_json::Value {
                     credit_unit: None,
                     credit_unit_precision: None,
                     expired_at: changed_at,
+                },
+                timestamp: Default::default(),
+            })
+        }
+        WebhookOutEventTypeEnum::CreditGrantUpdated => {
+            serde_json::to_value(WebhookOutCreditGrantUpdatedEvent {
+                id: EventId::default(),
+                event_type: event,
+                data: WebhookOutCreditGrantUpdatedEventData {
+                    customer_id: CustomerId::default(),
+                    applies_to: crate::credits::model::CreditAppliesTo::All,
+                    subscription_id: Some(common_domain::ids::SubscriptionId::default()),
+                    applicable_product_ids: Vec::new(),
+                    credit_grant_id: CreditGrantId::default(),
+                    currency: Some("EUR".to_string()),
+                    credit_unit: None,
+                    credit_unit_precision: None,
+                    effective_at: changed_at,
+                    expires_at: Some(changed_at),
                 },
                 timestamp: Default::default(),
             })

@@ -37,6 +37,9 @@ pub trait CouponInterface {
     ) -> StoreResult<PaginatedVec<Coupon>>;
     #[delegated]
     async fn get_coupon_by_id(&self, tenant_id: TenantId, id: CouponId) -> StoreResult<Coupon>;
+    /// `get_coupon_by_id` as the coupon APIs read it: an offer grant's own definition is no
+    /// coupon there (ADR 0019).
+    async fn get_listed_coupon(&self, tenant_id: TenantId, id: CouponId) -> StoreResult<Coupon>;
 
     async fn create_coupon(&self, actor: Actor, coupon: CouponNew) -> StoreResult<Coupon>;
     /// `create_coupon` with who may redeem it, from when, with what add-ons, and a fixed
@@ -99,6 +102,19 @@ pub trait CouponInterface {
         tenant_id: TenantId,
         code: &str,
     ) -> StoreResult<Option<Coupon>>;
+}
+
+/// An offer grant's own coupon row is edited through its offer, never as a coupon.
+async fn refuse_grant_definition(conn: &mut PgConn, id: CouponId) -> StoreResult<()> {
+    if CouponRow::is_grant_definition(conn, id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+    {
+        return Err(Report::new(StoreError::ValueNotFound(format!(
+            "coupon {id}"
+        ))));
+    }
+    Ok(())
 }
 
 /// Refuses, by name, the codes naming no live coupon or several (see [`CodeMatch::of`]).
@@ -340,7 +356,7 @@ async fn refuse_foreign_plans(
 
 /// Scopes the coupon to `add_on_ids`, each one of the tenant's: a live add-on, or one it is
 /// scoped to already.
-async fn replace_coupon_add_ons(
+pub(crate) async fn replace_coupon_add_ons(
     conn: &mut PgConn,
     tenant_id: TenantId,
     coupon_id: CouponId,
@@ -495,6 +511,13 @@ impl CouponInterface for Store {
         coupon_with_scope(conn, row).await
     }
 
+    async fn get_listed_coupon(&self, tenant_id: TenantId, id: CouponId) -> StoreResult<Coupon> {
+        let mut conn = self.get_conn().await?;
+        refuse_grant_definition(&mut conn, id).await?;
+        self.get_coupon_by_id_with_conn(&mut conn, tenant_id, id)
+            .await
+    }
+
     async fn create_coupon(&self, actor: Actor, coupon: CouponNew) -> StoreResult<Coupon> {
         self.create_coupon_with_terms(actor, coupon, CouponTerms::default())
             .await
@@ -514,6 +537,7 @@ impl CouponInterface for Store {
         // Deleting a coupon cascades to the applied coupons of live subscriptions.
         self.transaction_bumping_tenant(tenant_id, |conn| {
             async move {
+                refuse_grant_definition(conn, id).await?;
                 CouponRow::delete(conn, tenant_id, id).await?;
                 Ok(())
             }
@@ -525,6 +549,7 @@ impl CouponInterface for Store {
     async fn update_coupon(&self, actor: Actor, mut coupon: CouponPatch) -> StoreResult<Coupon> {
         let tenant_id = coupon.tenant_id;
         let coupon_id = coupon.id;
+        refuse_grant_definition(&mut self.get_conn().await?, coupon_id).await?;
         let plan_ids = coupon.plan_ids.clone();
         let add_on_ids = coupon.add_on_ids.take();
         let new_discount = coupon.discount.clone();
@@ -651,6 +676,7 @@ impl CouponInterface for Store {
         coupon: CouponStatusPatch,
     ) -> StoreResult<Coupon> {
         let mut conn = self.get_conn().await?;
+        refuse_grant_definition(&mut conn, coupon.id).await?;
 
         let tenant_id = coupon.tenant_id;
         let is_archiving = coupon.archived_at.as_ref().is_some_and(|v| v.is_some());
@@ -839,8 +865,15 @@ impl Store {
                         }));
                     }
                     refuse_foreign_plans(conn, tenant_id, &plan_ids).await?;
-                    let row = coupon_row
+                    coupon_row
                         .insert(conn)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                    // Its offer of one grant, itself (ADR 0019).
+                    diesel_models::trial_offers::TrialOfferRow::wrap_coupons(conn, &[coupon_id])
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                    let row = CouponRow::get_by_id(conn, tenant_id, coupon_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -891,7 +924,7 @@ mod tests {
         let now = common_clock::now().naive_utc();
         CouponRow {
             id: CouponId::new(),
-            code: code.to_owned(),
+            code: Some(code.to_owned()),
             description: String::new(),
             tenant_id: TenantId::new(),
             discount: serde_json::json!({}),
@@ -909,6 +942,7 @@ mod tests {
             valid_from: None,
             fixed_amounts: None,
             duration_months: None,
+            offer_id: None,
         }
     }
 

@@ -489,7 +489,7 @@ export const RowSheet = (props: RowSheetProps) => {
   )
 }
 
-const FeaturePicker = ({
+export const FeaturePicker = ({
   onPick,
   onCreate,
   exclude,
@@ -562,7 +562,7 @@ const LIMIT_MODES = [
   ['off', 'Off'],
 ] as const
 
-const ValueField = ({ feature }: { feature: Feature }) => {
+export const ValueField = ({ feature }: { feature: Feature }) => {
   const { control } = useFormContext<RowForm>()
   const mode = useWatch({ control, name: 'mode' })
   const id = useId()

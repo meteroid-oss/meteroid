@@ -420,6 +420,8 @@ impl Services {
             resource_id: None,
             trial_free: None,
             trial_offer_id: None,
+            trial_request: None,
+            offer_request: None,
         }
         .insert_or_get(&mut conn)
         .await?;

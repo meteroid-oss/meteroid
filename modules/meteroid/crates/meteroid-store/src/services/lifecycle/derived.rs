@@ -121,7 +121,8 @@ fn cadence_of(months: u32) -> Option<BillingPeriodEnum> {
 
 /// Whether the controller writes a document due: a free plan's billing nothing never (R-104),
 /// a slot whose usage is still to read being no zero, and the opening invoice of a start still
-/// to settle, the checkout's, only once a free trial expired and it can be collected unattended.
+/// to settle, the checkout's, only once a free trial expired and it can be collected unattended
+/// or awaits its payment (R-179).
 pub(crate) fn writes_document(
     due: &Due,
     reads_usage: bool,
@@ -303,6 +304,20 @@ impl Services {
         let now = boundary
             .map(midnight)
             .map_or(now, |boundary| now.min(boundary));
+        // The trial's end decided once reached, before the facts it writes are read (R-167).
+        let row =
+            if crate::services::trials::ending::decide_trial_end_tx(self, conn, actor, &row, now)
+                .await?
+                .is_some()
+            {
+                db(
+                    SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
+                        .await,
+                )?
+                .subscription
+            } else {
+                row
+            };
 
         // The grid each change of cadence runs on, read from the period as stored before it
         // moves, and before the facts are read: the plan windows hold the origins it records.
@@ -381,8 +396,14 @@ impl Services {
             .iter()
             .map(|need| need.document)
             .collect();
+        // A start settled without a card awaits its opening invoice's payment (R-179); one still
+        // awaiting its checkout pays there.
+        let awaits_payment = !facts.start.checkout
+            && facts
+                .free_trial()
+                .is_some_and(|trial| trial.after == billing_core::facts::AfterTrial::AwaitsPayment);
         let documents = self
-            .documents_to_write(conn, &row, &step, &reading, &derived)
+            .documents_to_write(conn, &row, &step, &reading, &derived, awaits_payment)
             .await?;
         let ends = step.transitions.iter().any(|transition| {
             matches!(
@@ -733,6 +754,7 @@ impl Services {
         step: &Step,
         reading: &[DocumentSlot],
         derived: &Stored,
+        awaits_payment: bool,
     ) -> StoreResult<Vec<Due>> {
         let due = &step.documents;
         if due.is_empty() {
@@ -789,7 +811,7 @@ impl Services {
                     document,
                     reading.contains(&document.slot),
                     *free_plan,
-                    collects_unattended,
+                    collects_unattended || awaits_payment,
                     derived.status,
                 )
             })
@@ -1116,6 +1138,13 @@ impl Services {
             row.id,
             ended,
             common_clock::now(),
+        )
+        .await?;
+        crate::services::offers::end_with_subscription_tx(
+            conn,
+            row.tenant_id,
+            row.id,
+            ended.naive_utc(),
         )
         .await?;
         Ok(())

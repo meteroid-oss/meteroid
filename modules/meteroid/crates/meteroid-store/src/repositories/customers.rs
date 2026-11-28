@@ -1060,6 +1060,7 @@ impl CustomersInterface for Store {
             None,
             Some(blocking_statuses),
             None,
+            None,
             vec![],
             Some("id.desc"),
             PaginationRequest {

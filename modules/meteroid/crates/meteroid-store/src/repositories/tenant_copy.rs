@@ -94,7 +94,11 @@ const CATALOG: &[CopiedTable] = &[
         ..table("plan_version", OF_TENANT)
     },
     CopiedTable {
-        mapped: &["trial_plan_id", "fallback_plan_version_id"],
+        mapped: &[
+            "trial_plan_id",
+            "fallback_plan_version_id",
+            "without_card_plan_version_id",
+        ],
         ..table("trial_offer", OF_TENANT)
     },
     CopiedTable {
@@ -138,6 +142,7 @@ const CATALOG: &[CopiedTable] = &[
         ..table("plan_version_add_on", OF_TENANT)
     },
     CopiedTable {
+        mapped: &["offer_id"],
         set: &[("redemption_count", "0"), ("last_redemption_at", "NULL")],
         ..table("coupon", OF_TENANT)
     },
@@ -170,6 +175,10 @@ const CATALOG: &[CopiedTable] = &[
             "s.tenant_id = $1 AND s.entity_type IN ('FEATURE', 'PLAN', 'PLAN_VERSION', 'ADD_ON') \
              AND s.resource_id IS NULL",
         )
+    },
+    CopiedTable {
+        mapped: &["offer_id", "coupon_id", "feature_id", "add_on_id"],
+        ..table("offer_grant", OF_TENANT)
     },
     CopiedTable {
         mapped: &["product_family_id", "signup_plan_id"],
@@ -282,6 +291,8 @@ pub const NOT_COPIED: &[&str] = &[
     "customer_credit_unrecovered",
     "customer_payment_method",
     "payment_method_expiry_notice",
+    "offer_application",
+    "offer_application_item",
     "invoice",
     "invoice_carry_forward",
     "invoice_payment_reminder",
@@ -304,6 +315,7 @@ pub const NOT_COPIED: &[&str] = &[
     "quote_signature_otp",
     "quote_view",
     "quote_phase",
+    "quote_offer",
     "quote_contract_value",
     "slot_transaction",
     "subscription",

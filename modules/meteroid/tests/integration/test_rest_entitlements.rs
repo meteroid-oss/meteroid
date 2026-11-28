@@ -1326,6 +1326,27 @@ async fn test_rest_entitlement_value_validation_and_update_carry_over() {
         "a rejected plan body must not have created a plan: {plans}"
     );
 
+    // A trial is free: a billed one is refused, a free one read back as written.
+    let mut trialed = plan_body(json!([]));
+    trialed["name"] = json!("Trialed plan");
+    trialed["trial"] = json!({"duration_days": 14, "is_free": false, "trialing_plan_id": null});
+    let refused = f.post("/api/v1/plans").json(&trialed).send().await.unwrap();
+    assert_eq!(refused.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+    let refusal: Value = refused.json().await.unwrap();
+    assert_eq!(
+        refusal["message"],
+        meteroid_store::domain::trials::TRIAL_IS_FREE,
+        "{refusal}"
+    );
+    trialed["trial"]["is_free"] = json!(true);
+    let free = json_or_panic(
+        f.post("/api/v1/plans").json(&trialed).send().await.unwrap(),
+        reqwest::StatusCode::CREATED,
+    )
+    .await;
+    assert_eq!(free["trial"]["is_free"], true, "{free}");
+    assert_eq!(free["trial"]["duration_days"], 14);
+
     let created = json_or_panic(
         f.post("/api/v1/plans")
             .json(&plan_body(json!([

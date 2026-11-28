@@ -733,6 +733,27 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "403": {
+            "description": "A catalog offer is asked and the plan does not include the offer catalog (`feature_not_available`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            }
+          },
           "422": {
             "description": "A field is refused: an unknown customer, plan or option, a currency the plan is not sold in, a resource not the customer's or sold to another subscription, a redirect URL that is not http(s)…",
             "content": {
@@ -14137,6 +14158,24 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "403": {
+            "description": "The trial switches to a paid plan, which is not in your plan",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              }
+            }
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -18009,6 +18048,26 @@
             }
           },
           {
+            "name": "trial",
+            "in": "query",
+            "description": "Only those whose trial is ending (running, ending within `trial_ends_within_days`),\nawaiting a decision or awaiting payment.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TrialListParam"
+            }
+          },
+          {
+            "name": "trial_ends_within_days",
+            "in": "query",
+            "description": "With `trial=ending`: within this many days from today, 1 to 3650; 7 by default.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "description": "How many items, 1 to 100; 20 by default.",
@@ -18338,6 +18397,27 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "403": {
+            "description": "A catalog offer is asked and the plan does not include the offer catalog (`feature_not_available`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            }
+          },
           "404": {
             "description": "The customer is not found",
             "content": {
@@ -18381,7 +18461,7 @@
             }
           },
           "422": {
-            "description": "A field is refused: an unknown option, a quantity no seat charge counts, a level the charge does not sell, a resource not the customer's or sold to another subscription over the term…; or no Idempotency-Key was sent",
+            "description": "A field is refused: an unknown option, a quantity no seat charge counts, a level the charge does not sell, a resource not the customer's or sold to another subscription over the term…; an offer that is not the catalog's (`offer_unavailable`) or the customer already had (`offer_already_given`); or no Idempotency-Key was sent",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -22943,6 +23023,858 @@
         "x-meteroid-edition": "oss"
       }
     },
+    "/api/v2/subscriptions/{id_or_external_id}/trial/end": {
+      "post": {
+        "tags": [
+          "Subscriptions"
+        ],
+        "summary": "End a subscription's trial now",
+        "description": "The trial ends today and its end action applies now: a converting trial starts billing today,\nits opening invoice issued; one cancelling at its end ends the subscription today; one\nswitching plan switches today; one awaiting a decision converts. An `Idempotency-Key` is\nrequired.",
+        "operationId": "end_trial",
+        "parameters": [
+          {
+            "name": "id_or_external_id",
+            "in": "path",
+            "description": "Subscription id or external id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The subscription, its trial ended today",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Subscription"
+                },
+                "example": {
+                  "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+                  "external_id": "northwind-growth",
+                  "customer": {
+                    "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+                    "alias": "northwind",
+                    "name": "Northwind Labs GmbH"
+                  },
+                  "plan": {
+                    "id": "plan_712rjYySSV0DRvyVf6ZS04",
+                    "code": "growth",
+                    "version": 1,
+                    "option": "monthly"
+                  },
+                  "status": "active",
+                  "currency": "EUR",
+                  "period": "monthly",
+                  "activation": "on_start",
+                  "billing_day_anchor": 28,
+                  "dates": {
+                    "start": "2026-11-25",
+                    "billing_start": "2026-11-28",
+                    "activated_at": "2026-11-25T00:00:00.000Z"
+                  },
+                  "current_period": {
+                    "start": "2026-11-28",
+                    "end": "2026-12-28"
+                  },
+                  "trial": {
+                    "days": 3,
+                    "starts_on": "2026-11-25",
+                    "ends_on": "2026-11-28",
+                    "billing_starts_on": "2026-11-28",
+                    "status": "converted",
+                    "outcome": "converted",
+                    "ended_on": "2026-11-28",
+                    "at_end": {
+                      "type": "convert"
+                    },
+                    "without_card": {
+                      "type": "await_payment"
+                    },
+                    "has_payment_method": true
+                  },
+                  "quantities": {
+                    "seats": {
+                      "held": "5",
+                      "pending": []
+                    }
+                  },
+                  "levels": {
+                    "tokens": "10000000"
+                  },
+                  "charges": [
+                    {
+                      "origin": "plan",
+                      "product": "platform",
+                      "name": "Platform",
+                      "preset": "flat_fee",
+                      "quantity": {
+                        "type": "fixed",
+                        "value": "1"
+                      },
+                      "timing": {
+                        "recurrence": "recurring",
+                        "billing": "advance"
+                      },
+                      "prices": [
+                        {
+                          "option": "*",
+                          "currency": "EUR",
+                          "cadence": "monthly",
+                          "model": {
+                            "type": "flat",
+                            "amount": "49"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "origin": "plan",
+                      "product": "seats",
+                      "name": "Seats",
+                      "preset": "seats",
+                      "quantity": {
+                        "type": "managed",
+                        "quantity": "seats",
+                        "min": 1
+                      },
+                      "timing": {
+                        "recurrence": "recurring",
+                        "billing": "advance"
+                      },
+                      "prices": [
+                        {
+                          "option": "*",
+                          "currency": "EUR",
+                          "cadence": "monthly",
+                          "model": {
+                            "type": "per_unit",
+                            "unit_price": "15"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "origin": "plan",
+                      "product": "tokens",
+                      "name": "Tokens",
+                      "preset": "usage_levels",
+                      "quantity": {
+                        "type": "metered",
+                        "metric": "tokens"
+                      },
+                      "timing": {
+                        "recurrence": "recurring",
+                        "billing": "advance"
+                      },
+                      "prices": [
+                        {
+                          "option": "*",
+                          "currency": "EUR",
+                          "cadence": "monthly",
+                          "model": {
+                            "type": "levels",
+                            "levels": [
+                              {
+                                "included": 10000000,
+                                "price": "99",
+                                "overage_unit_price": "0.00001"
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "add_ons": [],
+                  "coupons": [],
+                  "schedule": [],
+                  "mrr": {
+                    "amount": 22300,
+                    "currency": "EUR"
+                  },
+                  "tax_inclusive": false,
+                  "invoicing": {
+                    "net_terms": 14,
+                    "auto_finalize": true,
+                    "charge_automatically": false
+                  },
+                  "custom_properties": {},
+                  "created_at": "2026-11-25T23:51:25.750Z",
+                  "updated_at": "2026-11-28T09:14:02.530Z"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            }
+          },
+          "422": {
+            "description": "Not in trial",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss",
+        "x-idempotency": "required"
+      }
+    },
+    "/api/v2/subscriptions/{id_or_external_id}/trial/end/preview": {
+      "post": {
+        "tags": [
+          "Subscriptions"
+        ],
+        "summary": "Preview ending a subscription's trial now",
+        "description": "What `POST …/trial/end` would do today, nothing written: how the trial ends, the invoice it\nissues (the opening invoice of a conversion, priced as the checkout prices it), and the\nsubscription it leaves.",
+        "operationId": "preview_trial_end",
+        "parameters": [
+          {
+            "name": "id_or_external_id",
+            "in": "path",
+            "description": "Subscription id or external id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What ending the trial today would do",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrialEndPreview"
+                },
+                "example": {
+                  "effective_date": "2026-11-28",
+                  "outcome": "converted",
+                  "documents": [
+                    {
+                      "type": "invoice",
+                      "currency": "EUR",
+                      "subtotal": 22300,
+                      "discount": 0,
+                      "tax": 0,
+                      "total": 22300,
+                      "amount_due": 22300,
+                      "lines": [
+                        {
+                          "id": "pR8sXq2mVd0Lk",
+                          "name": "Platform",
+                          "product": {
+                            "id": "prd_6FN43isgTC2zWDd4nMSHRU",
+                            "code": "platform"
+                          },
+                          "kind": "charge",
+                          "billing": "recurring",
+                          "quantity": "1",
+                          "unit_price": "49",
+                          "amount": 4900,
+                          "taxable_amount": 4900,
+                          "tax_rate": "0",
+                          "tax": 0,
+                          "total": 4900,
+                          "start_date": "2026-11-28",
+                          "end_date": "2026-12-28",
+                          "prorated": false
+                        },
+                        {
+                          "id": "Hk3TzW9aQe1Nc",
+                          "name": "Seats",
+                          "product": {
+                            "id": "prd_2quh7Q0B26cO",
+                            "code": "seats"
+                          },
+                          "kind": "charge",
+                          "billing": "recurring",
+                          "quantity": "5",
+                          "unit_price": "15",
+                          "amount": 7500,
+                          "taxable_amount": 7500,
+                          "tax_rate": "0",
+                          "tax": 0,
+                          "total": 7500,
+                          "start_date": "2026-11-28",
+                          "end_date": "2026-12-28",
+                          "prorated": false
+                        },
+                        {
+                          "id": "bN7yUc4oRf2Mx",
+                          "name": "Tokens",
+                          "product": {
+                            "id": "prd_4NmFOB0DfPJ2IPM1npnj2L",
+                            "code": "tokens"
+                          },
+                          "kind": "charge",
+                          "billing": "usage",
+                          "quantity": "1",
+                          "unit_price": "99",
+                          "amount": 9900,
+                          "taxable_amount": 9900,
+                          "tax_rate": "0",
+                          "tax": 0,
+                          "total": 9900,
+                          "start_date": "2026-11-28",
+                          "end_date": "2026-12-28",
+                          "prorated": false
+                        }
+                      ]
+                    }
+                  ],
+                  "incomplete": false,
+                  "subscription_after": {
+                    "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+                    "external_id": "northwind-growth",
+                    "customer": {
+                      "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+                      "alias": "northwind",
+                      "name": "Northwind Labs GmbH"
+                    },
+                    "plan": {
+                      "id": "plan_712rjYySSV0DRvyVf6ZS04",
+                      "code": "growth",
+                      "version": 1,
+                      "option": "monthly"
+                    },
+                    "status": "active",
+                    "currency": "EUR",
+                    "period": "monthly",
+                    "activation": "on_start",
+                    "billing_day_anchor": 28,
+                    "dates": {
+                      "start": "2026-11-25",
+                      "billing_start": "2026-11-28",
+                      "activated_at": "2026-11-25T00:00:00.000Z"
+                    },
+                    "current_period": {
+                      "start": "2026-11-28",
+                      "end": "2026-12-28"
+                    },
+                    "trial": {
+                      "days": 3,
+                      "starts_on": "2026-11-25",
+                      "ends_on": "2026-11-28",
+                      "billing_starts_on": "2026-11-28",
+                      "status": "converted",
+                      "outcome": "converted",
+                      "ended_on": "2026-11-28",
+                      "at_end": {
+                        "type": "convert"
+                      },
+                      "without_card": {
+                        "type": "await_payment"
+                      },
+                      "has_payment_method": true
+                    },
+                    "quantities": {
+                      "seats": {
+                        "held": "5",
+                        "pending": []
+                      }
+                    },
+                    "levels": {
+                      "tokens": "10000000"
+                    },
+                    "charges": [
+                      {
+                        "origin": "plan",
+                        "product": "platform",
+                        "name": "Platform",
+                        "preset": "flat_fee",
+                        "quantity": {
+                          "type": "fixed",
+                          "value": "1"
+                        },
+                        "timing": {
+                          "recurrence": "recurring",
+                          "billing": "advance"
+                        },
+                        "prices": [
+                          {
+                            "option": "*",
+                            "currency": "EUR",
+                            "cadence": "monthly",
+                            "model": {
+                              "type": "flat",
+                              "amount": "49"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "origin": "plan",
+                        "product": "seats",
+                        "name": "Seats",
+                        "preset": "seats",
+                        "quantity": {
+                          "type": "managed",
+                          "quantity": "seats",
+                          "min": 1
+                        },
+                        "timing": {
+                          "recurrence": "recurring",
+                          "billing": "advance"
+                        },
+                        "prices": [
+                          {
+                            "option": "*",
+                            "currency": "EUR",
+                            "cadence": "monthly",
+                            "model": {
+                              "type": "per_unit",
+                              "unit_price": "15"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "origin": "plan",
+                        "product": "tokens",
+                        "name": "Tokens",
+                        "preset": "usage_levels",
+                        "quantity": {
+                          "type": "metered",
+                          "metric": "tokens"
+                        },
+                        "timing": {
+                          "recurrence": "recurring",
+                          "billing": "advance"
+                        },
+                        "prices": [
+                          {
+                            "option": "*",
+                            "currency": "EUR",
+                            "cadence": "monthly",
+                            "model": {
+                              "type": "levels",
+                              "levels": [
+                                {
+                                  "included": 10000000,
+                                  "price": "99",
+                                  "overage_unit_price": "0.00001"
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    ],
+                    "add_ons": [],
+                    "coupons": [],
+                    "schedule": [],
+                    "mrr": {
+                      "amount": 22300,
+                      "currency": "EUR"
+                    },
+                    "tax_inclusive": false,
+                    "invoicing": {
+                      "net_terms": 14,
+                      "auto_finalize": true,
+                      "charge_automatically": false
+                    },
+                    "custom_properties": {},
+                    "created_at": "2026-11-25T23:51:25.750Z",
+                    "updated_at": "2026-11-28T09:12:40.118Z"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              }
+            }
+          },
+          "422": {
+            "description": "Not in trial",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss"
+      }
+    },
+    "/api/v2/subscriptions/{id_or_external_id}/trial/extend": {
+      "post": {
+        "tags": [
+          "Subscriptions"
+        ],
+        "summary": "Extend a subscription's trial",
+        "description": "Its end moves later, to `until` or by `days`, and what follows it with it: a trial cancelling\nat its end cancels on the new one, a trial switching plan switches then, billing starts on the\nnew end. A trial awaiting a decision is extended from today. Refused while other changes are\nscheduled from its current end.",
+        "operationId": "extend_trial",
+        "parameters": [
+          {
+            "name": "id_or_external_id",
+            "in": "path",
+            "description": "Subscription id or external id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtendTrial"
+              },
+              "example": {
+                "days": 7
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The subscription, its trial extended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Subscription"
+                },
+                "example": {
+                  "id": "sub_5Y3HnuVi4qvGkPtqLHS0qi",
+                  "external_id": "northwind-growth",
+                  "customer": {
+                    "id": "cus_1GTSD5Q6GgoAp1oUntOgCT",
+                    "alias": "northwind",
+                    "name": "Northwind Labs GmbH"
+                  },
+                  "plan": {
+                    "id": "plan_712rjYySSV0DRvyVf6ZS04",
+                    "code": "growth",
+                    "version": 1,
+                    "option": "monthly"
+                  },
+                  "status": "trial_active",
+                  "currency": "EUR",
+                  "period": "monthly",
+                  "activation": "on_start",
+                  "billing_day_anchor": 25,
+                  "dates": {
+                    "start": "2026-11-25",
+                    "billing_start": "2026-12-16",
+                    "activated_at": "2026-11-25T00:00:00.000Z"
+                  },
+                  "current_period": {
+                    "start": "2026-11-25",
+                    "end": "2026-12-16"
+                  },
+                  "trial": {
+                    "days": 21,
+                    "starts_on": "2026-11-25",
+                    "ends_on": "2026-12-16",
+                    "billing_starts_on": "2026-12-16",
+                    "status": "active",
+                    "at_end": {
+                      "type": "convert"
+                    },
+                    "without_card": {
+                      "type": "await_payment"
+                    },
+                    "has_payment_method": true,
+                    "first_charge_estimate": {
+                      "amount": 22300,
+                      "currency": "EUR",
+                      "on": "2026-12-16"
+                    }
+                  },
+                  "quantities": {
+                    "seats": {
+                      "held": "5",
+                      "pending": []
+                    }
+                  },
+                  "levels": {
+                    "tokens": "10000000"
+                  },
+                  "charges": [
+                    {
+                      "origin": "plan",
+                      "product": "platform",
+                      "name": "Platform",
+                      "preset": "flat_fee",
+                      "quantity": {
+                        "type": "fixed",
+                        "value": "1"
+                      },
+                      "timing": {
+                        "recurrence": "recurring",
+                        "billing": "advance"
+                      },
+                      "prices": [
+                        {
+                          "option": "*",
+                          "currency": "EUR",
+                          "cadence": "monthly",
+                          "model": {
+                            "type": "flat",
+                            "amount": "49"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "origin": "plan",
+                      "product": "seats",
+                      "name": "Seats",
+                      "preset": "seats",
+                      "quantity": {
+                        "type": "managed",
+                        "quantity": "seats",
+                        "min": 1
+                      },
+                      "timing": {
+                        "recurrence": "recurring",
+                        "billing": "advance"
+                      },
+                      "prices": [
+                        {
+                          "option": "*",
+                          "currency": "EUR",
+                          "cadence": "monthly",
+                          "model": {
+                            "type": "per_unit",
+                            "unit_price": "15"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "origin": "plan",
+                      "product": "tokens",
+                      "name": "Tokens",
+                      "preset": "usage_levels",
+                      "quantity": {
+                        "type": "metered",
+                        "metric": "tokens"
+                      },
+                      "timing": {
+                        "recurrence": "recurring",
+                        "billing": "advance"
+                      },
+                      "prices": [
+                        {
+                          "option": "*",
+                          "currency": "EUR",
+                          "cadence": "monthly",
+                          "model": {
+                            "type": "levels",
+                            "levels": [
+                              {
+                                "included": 10000000,
+                                "price": "99",
+                                "overage_unit_price": "0.00001"
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "add_ons": [],
+                  "coupons": [],
+                  "schedule": [],
+                  "mrr": {
+                    "amount": 22300,
+                    "currency": "EUR"
+                  },
+                  "tax_inclusive": false,
+                  "invoicing": {
+                    "net_terms": 14,
+                    "auto_finalize": true,
+                    "charge_automatically": false
+                  },
+                  "custom_properties": {},
+                  "created_at": "2026-11-25T23:51:25.750Z",
+                  "updated_at": "2026-11-28T09:12:40.118Z"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            }
+          },
+          "422": {
+            "description": "Not in trial, an end before the current one, or changes scheduled from it",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss",
+        "x-idempotency": "optional"
+      }
+    },
     "/api/v2/subscriptions/{id_or_external_id}/upcoming-invoice": {
       "get": {
         "tags": [
@@ -25140,6 +26072,47 @@
         },
         "additionalProperties": false
       },
+      "AfterTrial": {
+        "type": "object",
+        "description": "What the subscription bills once its trial ends: its recurring fees per cadence, before\ncoupons, usage and tax.",
+        "required": [
+          "currency",
+          "starts_on",
+          "recurring"
+        ],
+        "properties": {
+          "currency": {
+            "type": "string",
+            "description": "ISO 4217."
+          },
+          "recurring": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecurringAmount"
+            },
+            "description": "One per cadence, the subscription's own first; empty when only usage is billed."
+          },
+          "starts_on": {
+            "type": "string",
+            "format": "date",
+            "description": "The trial's end, when billing starts."
+          }
+        },
+        "example": {
+          "currency": "EUR",
+          "starts_on": "2026-12-15",
+          "recurring": [
+            {
+              "amount": 49000,
+              "interval": "annual"
+            },
+            {
+              "amount": 4000,
+              "interval": "monthly"
+            }
+          ]
+        }
+      },
       "Aggregation": {
         "type": "string",
         "description": "How a period's events are aggregated into its usage: `count` counts them; `sum`, `mean`,\n`min` and `max` read the numeric `aggregation_key` property; `latest` takes the value of the\nlast event; `count_distinct` counts the distinct values of `aggregation_key`.",
@@ -25341,6 +26314,14 @@
             "description": "The coupon redeemed."
           }
         }
+      },
+      "AppliedCouponId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "description": "An id in its prefixed form, `sub_cou_` and base62; a request also reads its UUID form.",
+        "examples": [
+          "sub_cou_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
       },
       "AppliesTo": {
         "type": "string",
@@ -26745,35 +27726,6 @@
           }
         }
       },
-      "CheckoutCustomTrial": {
-        "type": "object",
-        "description": "A trial of its own days.",
-        "required": [
-          "days",
-          "type"
-        ],
-        "properties": {
-          "days": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "free": {
-            "type": [
-              "boolean",
-              "null"
-            ],
-            "description": "Nothing billed during it; the plan's trial's freeness when absent, else free."
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "custom"
-            ],
-            "description": "`custom`: names this variant of `CheckoutTrial`."
-          }
-        }
-      },
       "CheckoutInvoicing": {
         "type": "object",
         "description": "The invoicing terms of the subscription the checkout creates.",
@@ -26823,42 +27775,6 @@
           "plan_change",
           "add_on_purchase"
         ]
-      },
-      "CheckoutNoTrial": {
-        "type": "object",
-        "description": "No trial.",
-        "required": [
-          "type"
-        ],
-        "properties": {
-          "type": {
-            "type": "string",
-            "enum": [
-              "none"
-            ],
-            "description": "`none`: names this variant of `CheckoutTrial`."
-          }
-        }
-      },
-      "CheckoutOfferTrial": {
-        "type": "object",
-        "description": "A trial offer, by id.",
-        "required": [
-          "offer",
-          "type"
-        ],
-        "properties": {
-          "offer": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "offer"
-            ],
-            "description": "`offer`: names this variant of `CheckoutTrial`."
-          }
-        }
       },
       "CheckoutPaymentKeptAsCreditEvent": {
         "type": "object",
@@ -26952,22 +27868,6 @@
           }
         }
       },
-      "CheckoutPlanTrial": {
-        "type": "object",
-        "description": "The plan's trial.",
-        "required": [
-          "type"
-        ],
-        "properties": {
-          "type": {
-            "type": "string",
-            "enum": [
-              "plan"
-            ],
-            "description": "`plan`: names this variant of `CheckoutTrial`."
-          }
-        }
-      },
       "CheckoutSession": {
         "type": "object",
         "description": "A hosted checkout: the customer pays on `url`, which creates (or changes) the subscription.\nThe quantities, levels and charges asked are the page's and the subscription's, not read back\nhere; a list item carries no `url` (read it on the session).",
@@ -26979,7 +27879,7 @@
           "plan",
           "add_ons",
           "coupons",
-          "trial",
+          "offer",
           "invoicing",
           "created_at"
         ],
@@ -26990,6 +27890,17 @@
               "$ref": "#/components/schemas/CheckoutAddOn"
             },
             "description": "The add-ons bought with it."
+          },
+          "after_trial": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AfterTrial"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the subscription bills each period once its trial ends; read on a single session\nwith a trial."
           },
           "billing_day_anchor": {
             "type": [
@@ -27072,6 +27983,10 @@
             },
             "description": "With `metric_not_attributed`: the codes of the metrics it prices that are not attributed\nto its resource's type, so its subscription would bill none of their usage."
           },
+          "offer": {
+            "$ref": "#/components/schemas/SubscriptionOfferInput",
+            "description": "What the subscription it creates is given beside its plan, as asked: `plan` when left out."
+          },
           "plan": {
             "$ref": "#/components/schemas/PlanRef",
             "description": "The plan bought, with its version and option."
@@ -27118,8 +28033,15 @@
             "description": "Where the customer is sent once paid, `checkout_session_id` appended."
           },
           "trial": {
-            "$ref": "#/components/schemas/CheckoutTrial",
-            "description": "The trial the subscription it creates asks for."
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionTrialInput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The trial the subscription it creates asks for, as sent; absent when none was sent (the\nplan's, unless the customer already had it)."
           },
           "type": {
             "$ref": "#/components/schemas/CheckoutKind",
@@ -27187,32 +28109,6 @@
           "expired",
           "cancelled"
         ]
-      },
-      "CheckoutTrial": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/CheckoutPlanTrial"
-          },
-          {
-            "$ref": "#/components/schemas/CheckoutNoTrial"
-          },
-          {
-            "$ref": "#/components/schemas/CheckoutOfferTrial"
-          },
-          {
-            "$ref": "#/components/schemas/CheckoutCustomTrial"
-          }
-        ],
-        "description": "The trial a session asks for its subscription: the plan's, none, an offer, or its own days.",
-        "discriminator": {
-          "propertyName": "type",
-          "mapping": {
-            "custom": "#/components/schemas/CheckoutCustomTrial",
-            "none": "#/components/schemas/CheckoutNoTrial",
-            "offer": "#/components/schemas/CheckoutOfferTrial",
-            "plan": "#/components/schemas/CheckoutPlanTrial"
-          }
-        }
       },
       "ConnectedAccountId": {
         "type": "string",
@@ -27906,6 +28802,17 @@
               "type": "string"
             }
           },
+          "offer": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionOfferInput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the subscription it creates is given beside its plan: the plan's start offer when\nleft out, unless the customer already had it."
+          },
           "option": {
             "type": [
               "string",
@@ -27962,7 +28869,7 @@
                 "type": "null"
               }
             ],
-            "description": "The trial the subscription it creates starts with; the plan's when left out."
+            "description": "The trial the subscription it creates starts with; the plan's when left out, unless the\ncustomer already had it."
           },
           "version": {
             "type": [
@@ -29039,6 +29946,17 @@
               "type": "string"
             }
           },
+          "offer": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionOfferInput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What it is given beside its plan: the plan's start offer when left out, unless the\ncustomer already had it."
+          },
           "option": {
             "type": [
               "string",
@@ -29088,7 +30006,7 @@
                 "type": "null"
               }
             ],
-            "description": "The plan's default offer, else its own trial, when left out."
+            "description": "The plan's trial when left out, unless the customer already had it."
           },
           "version": {
             "type": [
@@ -29385,6 +30303,75 @@
         "examples": [
           "cgr_7n42DGM5Tflk9n8mt7Fhc7"
         ]
+      },
+      "CreditGrantUpdatedEvent": {
+        "type": "object",
+        "description": "An event's payload in API v2's shape, sent to an endpoint whose `api_version` is `2026-12-15` or later; `data` is a `CreditGrantUpdatedEventData`.",
+        "required": [
+          "id",
+          "type",
+          "created_at",
+          "api_version",
+          "data"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/EventId",
+            "description": "The event's id, also its `webhook-id` header: the same on every retry and to every endpoint."
+          },
+          "type": {
+            "$ref": "#/components/schemas/EventType"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the event was recorded."
+          },
+          "api_version": {
+            "type": "string",
+            "description": "The version the payload is rendered at: the endpoint's `api_version` when the event was processed.",
+            "example": "2026-12-15"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CreditGrantUpdatedEventData"
+          }
+        }
+      },
+      "CreditGrantUpdatedEventData": {
+        "type": "object",
+        "description": "A grant not in effect yet was dated again, as the trial its offer counts from moved; no credit\nmoved.",
+        "required": [
+          "customer",
+          "wallet",
+          "credit_grant",
+          "effective_at"
+        ],
+        "properties": {
+          "credit_grant": {
+            "$ref": "#/components/schemas/CustomerCreditGrant",
+            "description": "The grant, as `GET /customers/{id}/credit-grants/{grant_id}` reads it."
+          },
+          "customer": {
+            "$ref": "#/components/schemas/CustomerRef"
+          },
+          "effective_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When its credit becomes usable, as dated again."
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When its credit expires, as dated again; absent when it never does."
+          },
+          "wallet": {
+            "$ref": "#/components/schemas/Wallet",
+            "description": "The wallet, as `GET /customers/{id}/wallets/{wallet}` reads it."
+          }
+        }
       },
       "CreditMoney": {
         "type": "object",
@@ -30162,7 +31149,7 @@
       },
       "CustomTrial": {
         "type": "object",
-        "description": "A trial of its own terms: `days` or an end date `until` (exclusive), one of them.",
+        "description": "A trial of its own terms: `days` or an end date `until` (exclusive), one of them. It bills\nnothing and converts at its end.",
         "required": [
           "type"
         ],
@@ -30176,14 +31163,7 @@
             "description": "1 to 3,650.",
             "minimum": 0
           },
-          "free": {
-            "type": [
-              "boolean",
-              "null"
-            ],
-            "description": "Nothing billed during it; the plan's trial's freeness when left out, else free."
-          },
-          "plan": {
+          "features_of": {
             "type": [
               "string",
               "null"
@@ -31297,7 +32277,6 @@
         "type": "object",
         "description": "A coupon the document applied.",
         "required": [
-          "coupon",
           "name",
           "amount"
         ],
@@ -31308,8 +32287,15 @@
             "description": "What it took off, in minor units, before tax."
           },
           "coupon": {
-            "$ref": "#/components/schemas/CouponRef",
-            "description": "The coupon applied."
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CouponRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The coupon applied; none for a discount an offer gives without a code."
           },
           "name": {
             "type": "string",
@@ -32527,6 +33513,7 @@
           "wallet.recovered",
           "wallet.auto_top_up_cap_reached",
           "credit_grant.expired",
+          "credit_grant.updated",
           "entitlement.usage_threshold_reached",
           "entitlement.limit_reached",
           "budget.threshold_reached",
@@ -32539,7 +33526,10 @@
           "subscription.trial_ending_soon",
           "workflow_run.started",
           "workflow_run.succeeded",
-          "workflow_run.failed"
+          "workflow_run.failed",
+          "subscription.trial_ended",
+          "offer.applied",
+          "grant.ended"
         ]
       },
       "Expiry": {
@@ -32573,6 +33563,30 @@
           "months",
           "billing_period"
         ]
+      },
+      "ExtendTrial": {
+        "type": "object",
+        "description": "A trial's new end, later than its current one: a day, or days added to its end. One of the two.",
+        "properties": {
+          "days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Days added to the current end, at least one.",
+            "minimum": 0
+          },
+          "until": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "The new end, exclusive."
+          }
+        },
+        "additionalProperties": false
       },
       "ExtraKind": {
         "type": "string",
@@ -32845,6 +33859,31 @@
           "not_in"
         ]
       },
+      "FirstChargeEstimate": {
+        "type": "object",
+        "description": "What the trial's end is estimated to charge first: the opening invoice billed from its end,\nwith coupons and tax as they stand and before any usage. An estimate: usage, coupons and tax\nmay change it.",
+        "required": [
+          "amount",
+          "currency",
+          "on"
+        ],
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "format": "int64",
+            "description": "In minor units of `currency`."
+          },
+          "currency": {
+            "type": "string",
+            "description": "ISO 4217."
+          },
+          "on": {
+            "type": "string",
+            "format": "date",
+            "description": "The day it is charged: the trial's end."
+          }
+        }
+      },
       "FixedDiscount": {
         "type": "object",
         "description": "An amount off each invoice it discounts, in the subscription's currency.",
@@ -32998,6 +34037,96 @@
           }
         },
         "additionalProperties": false
+      },
+      "GrantEndReason": {
+        "type": "string",
+        "description": "Why a grant ended: `withdrawn` its subscription never started; `subscription_ended` its\nsubscription ended; `window_ended` its window is over.",
+        "enum": [
+          "withdrawn",
+          "subscription_ended",
+          "window_ended"
+        ]
+      },
+      "GrantEndedEvent": {
+        "type": "object",
+        "description": "An event's payload in API v2's shape, sent to an endpoint whose `api_version` is `2026-12-15` or later; `data` is a `GrantEndedEventData`.",
+        "required": [
+          "id",
+          "type",
+          "created_at",
+          "api_version",
+          "data"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/EventId",
+            "description": "The event's id, also its `webhook-id` header: the same on every retry and to every endpoint."
+          },
+          "type": {
+            "$ref": "#/components/schemas/EventType"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the event was recorded."
+          },
+          "api_version": {
+            "type": "string",
+            "description": "The version the payload is rendered at: the endpoint's `api_version` when the event was processed.",
+            "example": "2026-12-15"
+          },
+          "data": {
+            "$ref": "#/components/schemas/GrantEndedEventData"
+          }
+        }
+      },
+      "GrantEndedEventData": {
+        "type": "object",
+        "description": "A grant of an offer applied to a subscription ended: its window over, or before it.",
+        "required": [
+          "customer",
+          "subscription",
+          "offer",
+          "grant",
+          "reason",
+          "ended_on"
+        ],
+        "properties": {
+          "customer": {
+            "$ref": "#/components/schemas/CustomerRef"
+          },
+          "ended_on": {
+            "type": "string",
+            "format": "date",
+            "description": "The day it ended."
+          },
+          "grant": {
+            "$ref": "#/components/schemas/OfferGrantId",
+            "description": "The grant, as the subscription's `grants` name it."
+          },
+          "kind": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OfferGrantKind",
+                "description": "What it gave; absent for a kind this version does not know."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "offer": {
+            "$ref": "#/components/schemas/TrialOfferId",
+            "description": "The offer that gave it."
+          },
+          "reason": {
+            "$ref": "#/components/schemas/GrantEndReason"
+          },
+          "subscription": {
+            "$ref": "#/components/schemas/Subscription",
+            "description": "The subscription, as `GET /subscriptions/{id}` reads it."
+          }
+        }
       },
       "GrantKind": {
         "type": "string",
@@ -35393,6 +36522,28 @@
         },
         "additionalProperties": false
       },
+      "NamedOffer": {
+        "type": "object",
+        "description": "A catalog offer in place of the plan's (Enterprise): refused when the customer already had it.",
+        "required": [
+          "offer",
+          "type"
+        ],
+        "properties": {
+          "offer": {
+            "type": "string",
+            "description": "The offer's id, `ofr_…`."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "offer"
+            ],
+            "description": "`offer`: names this variant of `SubscriptionOfferInput`."
+          }
+        },
+        "additionalProperties": false
+      },
       "NeverReset": {
         "type": "object",
         "description": "A lifetime cap: the usage never starts again.",
@@ -35417,6 +36568,23 @@
           "draft",
           "finalized"
         ]
+      },
+      "NoOffer": {
+        "type": "object",
+        "description": "Nothing the plan's start offer gives: no grants, and a trial only when `trial` asks one.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "none"
+            ],
+            "description": "`none`: names this variant of `SubscriptionOfferInput`."
+          }
+        },
+        "additionalProperties": false
       },
       "NoTrial": {
         "type": "object",
@@ -35482,6 +36650,259 @@
         },
         "additionalProperties": false
       },
+      "OfferAppliedEvent": {
+        "type": "object",
+        "description": "An event's payload in API v2's shape, sent to an endpoint whose `api_version` is `2026-12-15` or later; `data` is a `OfferAppliedEventData`.",
+        "required": [
+          "id",
+          "type",
+          "created_at",
+          "api_version",
+          "data"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/EventId",
+            "description": "The event's id, also its `webhook-id` header: the same on every retry and to every endpoint."
+          },
+          "type": {
+            "$ref": "#/components/schemas/EventType"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the event was recorded."
+          },
+          "api_version": {
+            "type": "string",
+            "description": "The version the payload is rendered at: the endpoint's `api_version` when the event was processed.",
+            "example": "2026-12-15"
+          },
+          "data": {
+            "$ref": "#/components/schemas/OfferAppliedEventData"
+          }
+        }
+      },
+      "OfferAppliedEventData": {
+        "type": "object",
+        "description": "An offer was applied to a subscription: its plan's start offer or a catalog offer at its\ncreation, or one a coupon's code gives. Its grants read in the subscription's `grants`.",
+        "required": [
+          "customer",
+          "subscription",
+          "offer",
+          "grants",
+          "applied_at"
+        ],
+        "properties": {
+          "applied_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "coupon": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CouponRef",
+                "description": "The coupon whose code gave it."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "customer": {
+            "$ref": "#/components/schemas/CustomerRef"
+          },
+          "grants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OfferGrantId"
+            },
+            "description": "The grants it gives."
+          },
+          "offer": {
+            "$ref": "#/components/schemas/TrialOfferId",
+            "description": "The offer applied."
+          },
+          "source": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionGrantSourceType",
+                "description": "How it came to the subscription; absent for a source this version does not know."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "subscription": {
+            "$ref": "#/components/schemas/Subscription",
+            "description": "The subscription, as `GET /subscriptions/{id}` reads it."
+          }
+        }
+      },
+      "OfferGrantAddOn": {
+        "type": "object",
+        "description": "An add-on given free for the window (Enterprise).",
+        "required": [
+          "add_on",
+          "quantity",
+          "at_end"
+        ],
+        "properties": {
+          "add_on": {
+            "$ref": "#/components/schemas/AddOnRef"
+          },
+          "at_end": {
+            "$ref": "#/components/schemas/OfferGrantAddOnEnd"
+          },
+          "quantity": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "OfferGrantAddOnEnd": {
+        "type": "string",
+        "description": "What a granted add-on does at its window's end: `revert` it is removed; `convert` it stays,\nat its catalog price.",
+        "x-extensible-enum": [
+          "revert",
+          "convert"
+        ]
+      },
+      "OfferGrantCredit": {
+        "type": "object",
+        "description": "Promotional credit funded when the subscription starts, spendable for the window.",
+        "required": [
+          "amount",
+          "currency"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "format": "decimal",
+            "description": "Positive, in the major unit of `currency`.",
+            "example": "25"
+          },
+          "currency": {
+            "type": "string",
+            "description": "ISO 4217: the currency of the subscriptions given it."
+          },
+          "scope": {
+            "$ref": "#/components/schemas/CouponCreditScope",
+            "description": "`customer` when left out."
+          }
+        },
+        "additionalProperties": false
+      },
+      "OfferGrantDiscount": {
+        "type": "object",
+        "description": "A discount on each invoice in its window: a `percent`, or an `amount` in a `currency`.",
+        "properties": {
+          "add_ons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AddOnRef"
+            },
+            "description": "Only these add-ons' lines; the whole invoice when empty."
+          },
+          "amount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal",
+            "description": "In the major unit of `currency`.",
+            "example": "10"
+          },
+          "amounts": {
+            "type": "object",
+            "description": "With `amount`: the amount in other currencies, by ISO 4217 code; a subscription in a currency with no amount is not discounted.",
+            "additionalProperties": {
+              "type": "string",
+              "format": "decimal"
+            }
+          },
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "ISO 4217, with `amount`."
+          },
+          "percent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal",
+            "description": "Above 0, at most 100.",
+            "example": "20"
+          }
+        }
+      },
+      "OfferGrantEntitlement": {
+        "type": "object",
+        "description": "A feature given for the window, above what the plan gives.",
+        "required": [
+          "feature",
+          "value"
+        ],
+        "properties": {
+          "effect": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementEffect"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Absent: the feature's usual one for a subscription."
+          },
+          "feature": {
+            "$ref": "#/components/schemas/FeatureRef"
+          },
+          "value": {
+            "$ref": "#/components/schemas/EntitlementValue"
+          }
+        }
+      },
+      "OfferGrantId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "description": "An id in its prefixed form, `ofg_` and base62; a request also reads its UUID form.",
+        "examples": [
+          "ofg_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "OfferGrantKind": {
+        "type": "string",
+        "description": "What a grant gives: an invoice `discount`, promotional `credit`, a feature's `entitlement`\nor an `add_on` (Enterprise).",
+        "x-extensible-enum": [
+          "discount",
+          "credit",
+          "entitlement",
+          "add_on"
+        ]
+      },
+      "OfferOfThePlan": {
+        "type": "object",
+        "description": "The plan's start offer: its trial and grants, unless the customer already had it.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "plan"
+            ],
+            "description": "`plan`: names this variant of `SubscriptionOfferInput`."
+          }
+        },
+        "additionalProperties": false
+      },
       "OfferTrial": {
         "type": "object",
         "description": "A trial offer, by its id or its code: its days, and what follows it. Refused when the\ncustomer already had it.",
@@ -35491,7 +36912,8 @@
         ],
         "properties": {
           "offer": {
-            "type": "string"
+            "type": "string",
+            "description": "The offer, by id or code."
           },
           "type": {
             "type": "string",
@@ -36279,40 +37701,59 @@
       },
       "PlanTrial": {
         "type": "object",
-        "description": "A plan's trial: the trial offer it names, the same on every version. A subscription\ncreated on the plan asking no trial gets it.",
+        "description": "A plan's trial: the trial offer it names, the same on every version, a free period before\nbilling. A subscription created on the plan asking no trial gets it, unless the customer\nalready had it.",
         "required": [
           "days",
-          "free",
+          "card",
+          "at_end",
+          "without_card",
+          "eligibility",
           "offer"
         ],
         "properties": {
+          "at_end": {
+            "$ref": "#/components/schemas/TrialAtEnd",
+            "description": "What its end does."
+          },
+          "card": {
+            "$ref": "#/components/schemas/TrialCard",
+            "description": "Whether sign-up, checkout and the pricing page ask for a card to start it."
+          },
           "days": {
             "type": "integer",
             "format": "int32",
             "description": "Its length in days.",
             "minimum": 0
           },
-          "free": {
-            "type": "boolean",
-            "description": "Nothing is billed during it."
+          "eligibility": {
+            "$ref": "#/components/schemas/TrialEligibility",
+            "description": "Who is given it once."
+          },
+          "features_of": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PlanRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The plan whose features it gives over this one's; none: this plan's."
           },
           "offer": {
             "$ref": "#/components/schemas/TrialOfferSummary",
             "description": "The trial offer it is; several plans may share one."
           },
-          "plan": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "The plan whose features it gives, by code; none: this plan."
+          "without_card": {
+            "$ref": "#/components/schemas/TrialWithoutCard",
+            "description": "What a converting end does if the subscription is charged automatically and has no\npayment method then."
           }
         }
       },
       "PlanTrialInput": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/Trial"
+            "$ref": "#/components/schemas/PlanTrialTerms"
           },
           {
             "$ref": "#/components/schemas/PlanTrialOffer"
@@ -36323,7 +37764,7 @@
           "propertyName": "type",
           "mapping": {
             "offer": "#/components/schemas/PlanTrialOffer",
-            "terms": "#/components/schemas/Trial"
+            "terms": "#/components/schemas/PlanTrialTerms"
           }
         }
       },
@@ -36336,7 +37777,8 @@
         ],
         "properties": {
           "offer": {
-            "type": "string"
+            "type": "string",
+            "description": "The offer, by id or code."
           },
           "type": {
             "type": "string",
@@ -36344,6 +37786,70 @@
               "offer"
             ],
             "description": "`offer`: names this variant of `PlanTrialInput`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "PlanTrialTerms": {
+        "type": "object",
+        "description": "A plan's trial written as its terms: a free period before billing. What is left out is kept\nfrom the plan's current trial (else the card required, `convert`, `await_payment`).",
+        "required": [
+          "days",
+          "type"
+        ],
+        "properties": {
+          "at_end": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TrialAtEndInput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What its end does."
+          },
+          "card": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TrialCard"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether sign-up, checkout and the pricing page ask for a card to start it."
+          },
+          "days": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Its length in days, 1 to 3,650.",
+            "minimum": 0
+          },
+          "features_of": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The plan whose features it gives over this one's, by code or id (a reverse trial on a\nfree plan); none: this plan's."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "terms"
+            ],
+            "description": "`terms`: names this variant of `PlanTrialInput`."
+          },
+          "without_card": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TrialWithoutCardInput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What a converting end does if the subscription is charged automatically and has no\npayment method then."
           }
         },
         "additionalProperties": false
@@ -36694,6 +38200,17 @@
           "hide_price"
         ],
         "properties": {
+          "after_trial": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AfterTrial"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "With a trial started today: what is billed each period once it ends, the card's base\nprice; none when the price is not shown or has no base."
+          },
           "contact_url": {
             "type": [
               "string",
@@ -36911,6 +38428,10 @@
           "key_taken",
           "resource_limit_reached",
           "when_refused",
+          "offer_unavailable",
+          "offer_already_given",
+          "offer_already_applied",
+          "offer_trial_not_applicable",
           "idempotency_key_reused",
           "idempotency_request_in_progress",
           "idempotency_key_required",
@@ -37776,6 +39297,25 @@
           "recurring",
           "one_time"
         ]
+      },
+      "RecurringAmount": {
+        "type": "object",
+        "description": "The recurring fees billed on one cadence.",
+        "required": [
+          "amount",
+          "interval"
+        ],
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "format": "int64",
+            "description": "In minor units of the currency."
+          },
+          "interval": {
+            "$ref": "#/components/schemas/Cadence",
+            "description": "How often it is billed."
+          }
+        }
       },
       "ReportUsage": {
         "type": "object",
@@ -38655,6 +40195,13 @@
             ],
             "description": "The integrator's own id, unique per tenant; paths take it in place of the id."
           },
+          "grants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SubscriptionGrant"
+            },
+            "description": "What the offers applied to it give: each grant with its window, where it came from and\nwhat it wrote; absent when it has none."
+          },
           "id": {
             "$ref": "#/components/schemas/SubscriptionId",
             "description": "The subscription's id, `sub_…`."
@@ -38772,6 +40319,14 @@
             "description": "Read whole, what it is sold with as it stands: `plan_sold_for_mismatch` (the plan is sold\nfor another resource type than the subscription's resource, or for the customer),\n`metric_not_attributed` (its resource never bills some metrics it prices)."
           }
         }
+      },
+      "SubscriptionAddOnId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "description": "An id in its prefixed form, `sub_add_` and base62; a request also reads its UUID form.",
+        "examples": [
+          "sub_add_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
       },
       "SubscriptionCharge": {
         "allOf": [
@@ -39019,6 +40574,194 @@
           }
         }
       },
+      "SubscriptionGrant": {
+        "type": "object",
+        "description": "A grant of an offer applied to the subscription: what it gives, its window there, where it\ncame from and what it wrote.",
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "window",
+          "source",
+          "ref"
+        ],
+        "properties": {
+          "add_on": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OfferGrantAddOn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "credit": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OfferGrantCredit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "discount": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OfferGrantDiscount"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "entitlement": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OfferGrantEntitlement"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "$ref": "#/components/schemas/OfferGrantId",
+            "description": "The offer's grant."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/OfferGrantKind"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/SubscriptionGrantRef"
+          },
+          "source": {
+            "$ref": "#/components/schemas/SubscriptionGrantSource"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SubscriptionGrantStatus"
+          },
+          "window": {
+            "$ref": "#/components/schemas/SubscriptionGrantDates"
+          }
+        }
+      },
+      "SubscriptionGrantDates": {
+        "type": "object",
+        "description": "A grant's window on the subscription.",
+        "required": [
+          "from"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date",
+            "description": "Its first day."
+          },
+          "until": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "Exclusive; absent when it lasts as long as the subscription or counts invoices."
+          }
+        }
+      },
+      "SubscriptionGrantRef": {
+        "type": "object",
+        "description": "What the grant wrote on the subscription: the coupon redemption a discount or credit bills\nthrough, the credit grant funded, the entitlement row, the add-on given.",
+        "properties": {
+          "add_on": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionAddOnId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "applied_coupon": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AppliedCouponId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "credit_grant": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CreditGrantId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "entitlement": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "SubscriptionGrantSource": {
+        "type": "object",
+        "description": "Where a subscription's grant came from: the offer applied, and the coupon whose code gave it.",
+        "required": [
+          "type",
+          "offer"
+        ],
+        "properties": {
+          "coupon": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CouponId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "offer": {
+            "$ref": "#/components/schemas/TrialOfferId"
+          },
+          "type": {
+            "$ref": "#/components/schemas/SubscriptionGrantSourceType"
+          }
+        }
+      },
+      "SubscriptionGrantSourceType": {
+        "type": "string",
+        "description": "How an offer came to the subscription: `plan` its plan's start offer; `offer` a catalog offer\nnamed by the tenant or a quote; `coupon` a coupon's code; `retention` the cancel flow; `api`\na catalog offer named through the API.",
+        "x-extensible-enum": [
+          "plan",
+          "offer",
+          "coupon",
+          "retention",
+          "api"
+        ]
+      },
+      "SubscriptionGrantStatus": {
+        "type": "string",
+        "description": "Where a subscription's grant stands: `scheduled` its window, or the subscription, has not\nstarted; `active`; `ended` its window is over or it ended with the subscription;\n`withdrawn` the subscription never started.",
+        "x-extensible-enum": [
+          "scheduled",
+          "active",
+          "ended",
+          "withdrawn"
+        ]
+      },
       "SubscriptionId": {
         "type": "string",
         "format": "MeteroidId",
@@ -39055,6 +40798,28 @@
           }
         }
       },
+      "SubscriptionOfferInput": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/OfferOfThePlan"
+          },
+          {
+            "$ref": "#/components/schemas/NoOffer"
+          },
+          {
+            "$ref": "#/components/schemas/NamedOffer"
+          }
+        ],
+        "description": "What a new subscription is given beside its plan: the plan's start offer, none, or a catalog\noffer. Its trial is the offer's unless `trial` asks another.",
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "none": "#/components/schemas/NoOffer",
+            "offer": "#/components/schemas/NamedOffer",
+            "plan": "#/components/schemas/OfferOfThePlan"
+          }
+        }
+      },
       "SubscriptionRef": {
         "type": "object",
         "description": "A subscription named by another resource.",
@@ -39088,15 +40853,6 @@
           "completed"
         ]
       },
-      "SubscriptionTrialEndAction": {
-        "type": "string",
-        "description": "What a trial's end does: the subscription goes on, ends, or switches plan.",
-        "x-extensible-enum": [
-          "convert",
-          "cancel",
-          "fallback"
-        ]
-      },
       "SubscriptionTrialInput": {
         "oneOf": [
           {
@@ -39112,7 +40868,7 @@
             "$ref": "#/components/schemas/CustomTrial"
           }
         ],
-        "description": "The trial a new subscription starts with: the plan's (when left out), none, an offer, or one\nof its own terms.",
+        "description": "The trial a new subscription starts with: the plan's, none, an offer, or one of its own\nterms. A trial is free.",
         "discriminator": {
           "propertyName": "type",
           "mapping": {
@@ -39452,40 +41208,197 @@
           "awaiting_payment"
         ]
       },
-      "Trial": {
+      "TrialAtEnd": {
         "type": "object",
-        "description": "What a plan's trial gives.",
+        "description": "What a trial's end does.",
         "required": [
-          "days",
           "type"
         ],
         "properties": {
-          "days": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Its length in days, 0 to 3650.",
-            "minimum": 0
+          "plan": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PlanRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The plan switched to, at its version, for `switch`."
           },
-          "free": {
-            "type": "boolean",
-            "description": "Nothing is billed during the trial; `true` when left out."
-          },
+          "type": {
+            "$ref": "#/components/schemas/TrialAtEndType",
+            "description": "Convert, decide manually, cancel or switch plan."
+          }
+        }
+      },
+      "TrialAtEndInput": {
+        "type": "object",
+        "description": "What a trial's end does, as written: `switch` names its plan.",
+        "required": [
+          "type"
+        ],
+        "properties": {
           "plan": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The plan the trial gives access to, by code (id or code on input); none: this plan."
+            "description": "For `switch`: the plan, by code or id."
           },
           "type": {
-            "type": "string",
-            "enum": [
-              "terms"
+            "$ref": "#/components/schemas/TrialAtEndType",
+            "description": "Convert, decide manually, cancel or switch plan."
+          },
+          "version": {
+            "type": [
+              "integer",
+              "null"
             ],
-            "description": "`terms`: names this variant of `PlanTrialInput`."
+            "format": "int32",
+            "description": "For `switch`: a published version's number; the active one when left out."
           }
         },
         "additionalProperties": false
+      },
+      "TrialAtEndType": {
+        "type": "string",
+        "description": "What a trial's end does: `convert` the subscription goes on, billed from then; `manual`\nnothing is billed and the trial's access goes on until it is converted (`…/trial/end`),\nextended or cancelled; `cancel` the subscription ends with it; `switch` it moves to `plan`.",
+        "x-extensible-enum": [
+          "convert",
+          "manual",
+          "cancel",
+          "switch"
+        ]
+      },
+      "TrialCard": {
+        "type": "string",
+        "description": "Whether sign-up, checkout and the pricing page ask for a card to start the trial. A\nsubscription's activation decides for itself.",
+        "x-extensible-enum": [
+          "required",
+          "optional"
+        ]
+      },
+      "TrialEligibility": {
+        "type": "string",
+        "description": "Who is given the trial once: per `offer`, per `plan`, per `product_family`, or `none` (every\nsubscription).",
+        "x-extensible-enum": [
+          "offer",
+          "plan",
+          "product_family",
+          "none"
+        ]
+      },
+      "TrialEndPreview": {
+        "type": "object",
+        "description": "What ending a trial today would do, nothing written.",
+        "required": [
+          "effective_date",
+          "outcome",
+          "documents",
+          "incomplete",
+          "subscription_after"
+        ],
+        "properties": {
+          "documents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Document"
+            },
+            "description": "What it would issue today: the opening invoice of a conversion, or what a switch of plan\nissues."
+          },
+          "effective_date": {
+            "type": "string",
+            "format": "date",
+            "description": "The day it would end: today."
+          },
+          "incomplete": {
+            "type": "boolean",
+            "description": "True when a part of the preview could not be priced and is left out (`missing` names it)."
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PreviewPart"
+            },
+            "description": "What is left out, when `incomplete`."
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/TrialOutcome",
+            "description": "How it would end: its end action applied today (a manual one converts)."
+          },
+          "subscription_after": {
+            "$ref": "#/components/schemas/Subscription",
+            "description": "The subscription as it would read once its trial ended."
+          }
+        }
+      },
+      "TrialEndedEvent": {
+        "type": "object",
+        "description": "An event's payload in API v2's shape, sent to an endpoint whose `api_version` is `2026-12-15` or later; `data` is a `TrialEndedEventData`.",
+        "required": [
+          "id",
+          "type",
+          "created_at",
+          "api_version",
+          "data"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/EventId",
+            "description": "The event's id, also its `webhook-id` header: the same on every retry and to every endpoint."
+          },
+          "type": {
+            "$ref": "#/components/schemas/EventType"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the event was recorded."
+          },
+          "api_version": {
+            "type": "string",
+            "description": "The version the payload is rendered at: the endpoint's `api_version` when the event was processed.",
+            "example": "2026-12-15"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TrialEndedEventData"
+          }
+        }
+      },
+      "TrialEndedEventData": {
+        "type": "object",
+        "description": "A subscription's trial ended: how (`outcome`). Sent again when an outcome awaiting a payment\nor a decision resolves.",
+        "required": [
+          "customer",
+          "subscription",
+          "ends_on",
+          "ended_on",
+          "outcome"
+        ],
+        "properties": {
+          "customer": {
+            "$ref": "#/components/schemas/CustomerRef"
+          },
+          "ended_on": {
+            "type": "string",
+            "format": "date",
+            "description": "The day it ended."
+          },
+          "ends_on": {
+            "type": "string",
+            "format": "date",
+            "description": "The trial's end, exclusive."
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/TrialOutcome",
+            "description": "How it ended."
+          },
+          "subscription": {
+            "$ref": "#/components/schemas/Subscription",
+            "description": "The subscription, as `GET /subscriptions/{id}` reads it."
+          }
+        }
       },
       "TrialEndingEvent": {
         "type": "object",
@@ -39522,19 +41435,50 @@
       },
       "TrialEndingEventData": {
         "type": "object",
-        "description": "A subscription's trial ends in 3 days, once per trial end.",
+        "description": "A subscription's trial ends within 7 days, once per trial end (at its start when it is\nshorter).",
         "required": [
           "customer",
           "subscription",
           "trial_end",
+          "ends_on",
+          "has_payment_method",
           "free"
         ],
         "properties": {
+          "billing_starts_on": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "When billing starts, the trial converting at its end; absent when its end cancels the\nsubscription or waits for a decision."
+          },
           "customer": {
             "$ref": "#/components/schemas/CustomerRef"
           },
+          "ends_on": {
+            "type": "string",
+            "format": "date",
+            "description": "The trial's end, exclusive."
+          },
+          "first_charge_estimate": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FirstChargeEstimate",
+                "description": "What the trial's end is estimated to charge first, when it converts."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "free": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Always `true`: a trial is free. Kept for one release."
+          },
+          "has_payment_method": {
+            "type": "boolean",
+            "description": "Whether the subscription has a payment method it is charged or invoiced with."
           },
           "subscription": {
             "$ref": "#/components/schemas/Subscription",
@@ -39543,13 +41487,22 @@
           "trial_end": {
             "type": "string",
             "format": "date",
-            "description": "The trial's end, exclusive: billing starts on it."
+            "description": "The trial's end, exclusive; `ends_on`, kept for one release."
           }
         }
       },
+      "TrialListParam": {
+        "type": "string",
+        "description": "The trials a list narrows to.",
+        "enum": [
+          "ending",
+          "awaiting_decision",
+          "awaiting_payment"
+        ]
+      },
       "TrialOfThePlan": {
         "type": "object",
-        "description": "The plan's trial, as when the trial is left out.",
+        "description": "The plan's trial, asked: refused when the customer already had it. Left out, the plan's\ntrial is given unless the customer already had it.",
         "required": [
           "type"
         ],
@@ -39564,9 +41517,17 @@
         },
         "additionalProperties": false
       },
+      "TrialOfferId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "description": "An id in its prefixed form, `ofr_` and base62; a request also reads its UUID form.",
+        "examples": [
+          "ofr_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
       "TrialOfferSummary": {
         "type": "object",
-        "description": "A trial offer, as a subscription names it.",
+        "description": "A trial offer, as a subscription or a plan names it.",
         "required": [
           "id",
           "name"
@@ -39576,39 +41537,69 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Its code, when it has one."
           },
           "id": {
-            "type": "string"
+            "type": "string",
+            "description": "The offer's id."
           },
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "Its name."
           }
         }
       },
+      "TrialOutcome": {
+        "type": "string",
+        "description": "How a trial ended.",
+        "x-extensible-enum": [
+          "converted",
+          "cancelled",
+          "switched",
+          "awaiting_payment",
+          "awaiting_decision"
+        ]
+      },
       "TrialState": {
         "type": "object",
-        "description": "The subscription's trial, as recorded at its start; absent when it has none.",
+        "description": "The subscription's trial, the free period before it is billed, as recorded at its start;\nabsent when it has none. Lists carry its `days`; the rest is read on a single subscription.",
         "required": [
           "days"
         ],
         "properties": {
+          "at_end": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TrialAtEnd"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What its end does."
+          },
+          "billing_starts_on": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "The day billing starts when the subscription converts: its end."
+          },
           "days": {
             "type": "integer",
             "format": "int32",
             "description": "Its length in days, from its start.",
             "minimum": 0
           },
-          "end_action": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/SubscriptionTrialEndAction"
-              },
-              {
-                "type": "null"
-              }
+          "ended_on": {
+            "type": [
+              "string",
+              "null"
             ],
-            "description": "What its end does; read on a single subscription."
+            "format": "date",
+            "description": "The day it ended."
           },
           "ends_on": {
             "type": [
@@ -39616,14 +41607,36 @@
               "null"
             ],
             "format": "date",
-            "description": "When it ended or ends; read on a single subscription."
+            "description": "Exclusive: the day after its last."
           },
-          "free": {
+          "features_of": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PlanRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The plan whose features it gives over the subscription's own; none: its own."
+          },
+          "first_charge_estimate": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FirstChargeEstimate"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What its end is estimated to charge first, while it runs and converts."
+          },
+          "has_payment_method": {
             "type": [
               "boolean",
               "null"
             ],
-            "description": "Nothing is billed during it; read on a single subscription."
+            "description": "Whether the subscription has a payment method it is charged or invoiced with."
           },
           "offer": {
             "oneOf": [
@@ -39634,14 +41647,18 @@
                 "type": "null"
               }
             ],
-            "description": "The trial offer it came from; read on a single subscription."
+            "description": "The trial offer it came from."
           },
-          "plan": {
-            "type": [
-              "string",
-              "null"
+          "outcome": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TrialOutcome"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "description": "The plan whose features it gives, by code; read on a single subscription."
+            "description": "How it ended; absent while it runs."
           },
           "starts_on": {
             "type": [
@@ -39649,9 +41666,105 @@
               "null"
             ],
             "format": "date",
-            "description": "Its first day, the billing start; read on a single subscription."
+            "description": "Its first day."
+          },
+          "status": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TrialStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where it stands."
+          },
+          "without_card": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TrialWithoutCard"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What a converting end does if the subscription is charged automatically and has no\npayment method then."
           }
         }
+      },
+      "TrialStatus": {
+        "type": "string",
+        "description": "Where a subscription's trial stands: `active` running; `converted` billing started;\n`cancelled` the subscription ended with it; `switched` it moved plan; `awaiting_payment`\nconverted without a payment method, billing waiting for its opening invoice's payment;\n`awaiting_decision` ended with a manual end action, nothing billed until it is decided.",
+        "x-extensible-enum": [
+          "active",
+          "converted",
+          "cancelled",
+          "switched",
+          "awaiting_payment",
+          "awaiting_decision"
+        ]
+      },
+      "TrialWithoutCard": {
+        "type": "object",
+        "description": "What a converting trial's end does if the subscription is charged automatically and has no\npayment method then. A subscription paid by invoice converts and is invoiced on its terms.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "plan": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PlanRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The plan switched to, at its version, for `switch`."
+          },
+          "type": {
+            "$ref": "#/components/schemas/TrialWithoutCardType",
+            "description": "Await the payment, cancel or switch plan."
+          }
+        }
+      },
+      "TrialWithoutCardInput": {
+        "type": "object",
+        "description": "What a converting trial's end does if the subscription is charged automatically and has no\npayment method then, as written: `switch` names its plan.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "plan": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For `switch`: the plan, by code or id."
+          },
+          "type": {
+            "$ref": "#/components/schemas/TrialWithoutCardType",
+            "description": "Await the payment, cancel or switch plan."
+          },
+          "version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "For `switch`: a published version's number; the active one when left out."
+          }
+        },
+        "additionalProperties": false
+      },
+      "TrialWithoutCardType": {
+        "type": "string",
+        "description": "What a converting trial's end does if the subscription is charged automatically and has no\npayment method then: `await_payment` its opening invoice is issued and it turns active once\npaid; `cancel` it ends with the trial, nothing invoiced; `switch` it moves to `plan`.",
+        "x-extensible-enum": [
+          "await_payment",
+          "cancel",
+          "switch"
+        ]
       },
       "UnattributedMetricUsage": {
         "type": "object",
@@ -42816,6 +44929,31 @@
         }
       }
     },
+    "credit_grant.updated": {
+      "post": {
+        "summary": "credit_grant.updated webhook",
+        "description": "A credit grant not in effect yet was dated again, as the trial its offer counts from moved; no credit moved\n\n`data` is what the notification observed.",
+        "operationId": "webhook_credit_grant_updated",
+        "tags": [
+          "Webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreditGrantUpdatedEvent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Received: any 2xx answer acknowledges it"
+          }
+        }
+      }
+    },
     "credit_note.created": {
       "post": {
         "summary": "credit_note.created webhook",
@@ -42980,6 +45118,31 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/OverrideEndingEvent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Received: any 2xx answer acknowledges it"
+          }
+        }
+      }
+    },
+    "grant.ended": {
+      "post": {
+        "summary": "grant.ended webhook",
+        "description": "A grant of an offer ended before its window: its subscription never started, or ended\n\n`data` is what the notification observed.",
+        "operationId": "webhook_grant_ended",
+        "tags": [
+          "Webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GrantEndedEvent"
               }
             }
           }
@@ -43255,6 +45418,31 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/MetricEvent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Received: any 2xx answer acknowledges it"
+          }
+        }
+      }
+    },
+    "offer.applied": {
+      "post": {
+        "summary": "offer.applied webhook",
+        "description": "An offer was applied to a subscription, with the grants it gives: its plan's start offer or a catalog offer at its creation, or one a coupon's code gives\n\n`data` is what the notification observed.",
+        "operationId": "webhook_offer_applied",
+        "tags": [
+          "Webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OfferAppliedEvent"
               }
             }
           }
@@ -43691,10 +45879,35 @@
         }
       }
     },
+    "subscription.trial_ended": {
+      "post": {
+        "summary": "subscription.trial_ended webhook",
+        "description": "A subscription's trial ended: converted, cancelled, switched plan, awaiting a payment or awaiting a decision; sent again when an awaiting outcome resolves\n\n`data` is what the notification observed.",
+        "operationId": "webhook_subscription_trial_ended",
+        "tags": [
+          "Webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrialEndedEvent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Received: any 2xx answer acknowledges it"
+          }
+        }
+      }
+    },
     "subscription.trial_ending_soon": {
       "post": {
         "summary": "subscription.trial_ending_soon webhook",
-        "description": "A subscription's trial ends in 3 days: sent once per trial end\n\n`data` is what the notification observed.",
+        "description": "A subscription's trial ends within 7 days: sent once per trial end, at its start when it is shorter\n\n`data` is what the notification observed.",
         "operationId": "webhook_subscription_trial_ending_soon",
         "tags": [
           "Webhooks"

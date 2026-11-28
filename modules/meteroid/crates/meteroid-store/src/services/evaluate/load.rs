@@ -5,8 +5,8 @@ use std::collections::{BTreeMap, HashMap};
 
 use billing_core::charge::Fee;
 use billing_core::facts::{
-    CouponFact, Ending, EndingKind, Facts, FeeFact, MinimumFact, MinimumScope, PlanWindow,
-    SeatStep, Start, Trial,
+    AfterTrial, CouponFact, Ending, EndingKind, Facts, FeeFact, MinimumFact, MinimumScope,
+    PlanWindow, SeatStep, Start, Trial,
 };
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use common_domain::ids::{
@@ -322,6 +322,26 @@ pub(crate) async fn load_facts_on_rows(
     Ok(loaded)
 }
 
+/// What the trial's recorded end makes of its end: a manual end holds it until it converts, an
+/// end without a card awaiting payment leaves the start unsettled (R-179, R-167).
+pub(crate) fn after_trial(row: &SubscriptionTrialRow) -> AfterTrial {
+    use crate::domain::trials::{TrialEnd, TrialOutcome};
+    let outcome = row.outcome.as_deref().and_then(TrialOutcome::parse);
+    // Cancelled after its end, it was awaiting a payment: never settled.
+    let cancelled_after_its_end = outcome == Some(TrialOutcome::Cancelled)
+        && row
+            .ended_at
+            .is_some_and(|at| at > row.until_date.and_time(chrono::NaiveTime::MIN));
+    match (TrialEnd::parse(&row.end_action), outcome) {
+        (TrialEnd::Manual, outcome) if outcome != Some(TrialOutcome::Converted) => {
+            AfterTrial::AwaitsDecision
+        }
+        (_, Some(TrialOutcome::AwaitingPayment)) => AfterTrial::AwaitsPayment,
+        _ if cancelled_after_its_end => AfterTrial::AwaitsPayment,
+        _ => AfterTrial::Bills,
+    }
+}
+
 /// [`load_facts_with`], the fee rows `replaced` when given.
 async fn load_facts_of(
     conn: &mut PgConn,
@@ -347,6 +367,7 @@ async fn load_facts_of(
         from: row.from_date,
         until: row.until_date,
         free: row.free,
+        after: after_trial(&row),
     });
     let settled = db(SubscriptionStartSettledRow::find(conn, subscription_id).await)?;
     let checkout = settled.is_none()

@@ -11,7 +11,7 @@ use super::{catalog, db, eligibility, invalid};
 use crate::StoreResult;
 use crate::domain::trials::{
     MAX_TRIAL_DAYS, ResolvedTrial, TrialEligibility, TrialEndAction, TrialLength, TrialOffer,
-    TrialRequest,
+    TrialRequest, TrialWithoutCard,
 };
 
 /// The plan a creation is on, as its trial reads it.
@@ -39,8 +39,25 @@ impl PlanRef {
 
 /// The trial a creation on `plan` billing from `billing_start` gets for `request`. With a
 /// customer, an offer given once that the customer had gives none when asked by default, and is
-/// refused when named (R-159); checked again under the customer's lock as the creation is written.
+/// refused when asked explicitly or named (R-159); checked again under the customer's lock as the
+/// creation is written. A billed trial asked is refused, but for a signed quote's (R-155); an
+/// offer stored billed before trials v2 is given as stored.
 pub(crate) async fn resolve_trial_tx(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    plan: &PlanRef,
+    billing_start: NaiveDate,
+    customer: Option<CustomerId>,
+    request: &TrialRequest,
+    signed: bool,
+) -> StoreResult<Option<ResolvedTrial>> {
+    if !signed && let TrialRequest::Custom { free, .. } = request {
+        crate::domain::trials::refuse_billed(*free)?;
+    }
+    resolve_tx(conn, tenant_id, plan, billing_start, customer, request).await
+}
+
+async fn resolve_tx(
     conn: &mut PgConn,
     tenant_id: TenantId,
     plan: &PlanRef,
@@ -55,14 +72,17 @@ pub(crate) async fn resolve_trial_tx(
     };
     match request {
         TrialRequest::None => Ok(None),
-        TrialRequest::Plan => {
+        TrialRequest::Default | TrialRequest::Plan => {
             let Some(offer) = plan_trial else {
                 return Ok(None);
             };
             if let Some(customer) = customer
                 && eligibility::given_tx(conn, tenant_id, customer, &offer, plan).await?
             {
-                return Ok(None);
+                return match request {
+                    TrialRequest::Plan => Err(already_had(&offer)),
+                    _ => Ok(None),
+                };
             }
             Ok(Some(of_offer(&offer, plan.plan_id)))
         }
@@ -83,6 +103,7 @@ pub(crate) async fn resolve_trial_tx(
             length,
             free,
             trial_plan,
+            manual,
         } => {
             let days = match length {
                 TrialLength::Days(0) => return Ok(None),
@@ -114,7 +135,14 @@ pub(crate) async fn resolve_trial_tx(
                 free: free.unwrap_or_else(|| plan_trial.as_ref().is_none_or(|offer| offer.free)),
                 trial_plan_id,
                 offer: None,
-                end_action: TrialEndAction::Convert,
+                end_action: if *manual {
+                    TrialEndAction::Manual
+                } else {
+                    TrialEndAction::Convert
+                },
+                without_card: plan_trial
+                    .as_ref()
+                    .map_or(TrialWithoutCard::AwaitPayment, |offer| offer.without_card),
                 eligibility: TrialEligibility::None,
             }))
         }
@@ -127,16 +155,47 @@ fn of_offer(offer: &TrialOffer, plan_id: PlanId) -> ResolvedTrial {
         free: offer.free,
         trial_plan_id: offer.trial_plan_id.filter(|id| *id != plan_id),
         offer: Some(offer.id),
-        end_action: offer.end_action.clone(),
+        end_action: offer.end_action,
+        without_card: offer.without_card,
         eligibility: offer.eligibility,
     }
 }
 
 pub(super) fn already_had(offer: &TrialOffer) -> error_stack::Report<crate::errors::StoreError> {
-    invalid(format!(
-        "the customer has already had the trial of {}",
+    crate::errors::TrialRefusal::AlreadyHad.report(format!(
+        "the customer has already had this trial ({})",
         offer.name
     ))
+}
+
+/// Whether `customer`'s sign-up on `plan_version_id` hands off to checkout: the plan's trial it
+/// gets is free and asks a card at its start (`card_required`).
+pub(crate) async fn signup_needs_card_tx(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    plan_version_id: PlanVersionId,
+    customer: CustomerId,
+    start: NaiveDate,
+) -> StoreResult<bool> {
+    let plan = PlanRef::of_version_tx(conn, tenant_id, plan_version_id).await?;
+    let trial = resolve_tx(
+        conn,
+        tenant_id,
+        &plan,
+        start,
+        Some(customer),
+        &TrialRequest::Default,
+    )
+    .await?;
+    let Some(offer) = trial
+        .filter(|trial| trial.free)
+        .and_then(|trial| trial.offer)
+    else {
+        return Ok(false);
+    };
+    Ok(catalog::find_tx(conn, tenant_id, &AliasOr::Id(offer))
+        .await?
+        .card_required)
 }
 
 /// Whether a subscription created on `plan_id` asking no trial starts on a free one: its plan's

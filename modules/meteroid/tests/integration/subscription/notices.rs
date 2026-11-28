@@ -124,8 +124,8 @@ async fn an_override_end_is_noticed_once_each_way_and_again_when_moved(
     );
 }
 
-/// A two-week trial from January 1 is noticed once three days before it ends, January 15; moved
-/// to January 22, it is noticed again for that end.
+/// A two-week trial from January 1 is noticed once seven days before it ends, January 15; moved
+/// to January 22, it is noticed again for that end. A trial of five days is noticed at its start.
 /// Rules: R-158
 #[rstest]
 #[tokio::test]
@@ -143,9 +143,9 @@ async fn a_trial_end_is_noticed_once_and_again_when_moved(#[future] test_env: Te
         .await;
     let store = env.store();
 
-    assert_eq!(notify_trial_endings(store, at(1, 11, 12)).await.unwrap(), 0);
-    assert_eq!(notify_trial_endings(store, at(1, 12, 12)).await.unwrap(), 1);
-    assert_eq!(notify_trial_endings(store, at(1, 12, 13)).await.unwrap(), 0);
+    assert_eq!(notify_trial_endings(store, at(1, 7, 12)).await.unwrap(), 0);
+    assert_eq!(notify_trial_endings(store, at(1, 8, 12)).await.unwrap(), 1);
+    assert_eq!(notify_trial_endings(store, at(1, 8, 13)).await.unwrap(), 0);
 
     let mut conn = env.conn().await;
     diesel::update(t::subscription_trial.filter(t::subscription_id.eq(sub_id)))
@@ -153,6 +153,17 @@ async fn a_trial_end_is_noticed_once_and_again_when_moved(#[future] test_env: Te
         .execute(&mut conn)
         .await
         .expect("the trial moved to January 22");
-    assert_eq!(notify_trial_endings(store, at(1, 13, 12)).await.unwrap(), 0);
-    assert_eq!(notify_trial_endings(store, at(1, 19, 12)).await.unwrap(), 1);
+    assert_eq!(notify_trial_endings(store, at(1, 14, 12)).await.unwrap(), 0);
+    assert_eq!(notify_trial_endings(store, at(1, 15, 12)).await.unwrap(), 1);
+
+    env.set_now(at(1, 15, 12));
+    subscription()
+        .customer(CUST_SPOTIFY_ID)
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(day(1, 15))
+        .on_start()
+        .trial_days(5)
+        .create(env.services())
+        .await;
+    assert_eq!(notify_trial_endings(store, at(1, 15, 13)).await.unwrap(), 1);
 }

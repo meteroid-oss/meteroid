@@ -69,6 +69,7 @@ async fn test_minimum_shortfall_full_period() {
                     end_date: None,
                     billing_start_date: Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()),
                     activation_condition: SubscriptionActivationCondition::OnStart,
+                    offer: Default::default(),
                     trial: Default::default(),
                     billing_day_anchor: None,
                     payment_methods_config: None,
@@ -174,6 +175,7 @@ async fn test_minimum_not_applied_when_usage_meets_floor() {
                     end_date: None,
                     billing_start_date: Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()),
                     activation_condition: SubscriptionActivationCondition::OnStart,
+                    offer: Default::default(),
                     trial: Default::default(),
                     billing_day_anchor: None,
                     payment_methods_config: None,
@@ -264,6 +266,7 @@ async fn test_plan_edit_does_not_change_existing_subscription_minimum() {
                     end_date: None,
                     billing_start_date: Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()),
                     activation_condition: SubscriptionActivationCondition::OnStart,
+                    offer: Default::default(),
                     trial: Default::default(),
                     billing_day_anchor: None,
                     payment_methods_config: None,
@@ -667,6 +670,7 @@ async fn test_minimum_floor_measured_on_spend_net_of_coupons() {
                     end_date: None,
                     billing_start_date: Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()),
                     activation_condition: SubscriptionActivationCondition::OnStart,
+                    offer: Default::default(),
                     trial: Default::default(),
                     billing_day_anchor: None,
                     payment_methods_config: None,
@@ -979,6 +983,25 @@ async fn test_minimum_skipped_during_active_trial() {
     let env =
         test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(MockUsageClient::noop())).await;
     let invoice_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
+    // A billed trial is no longer asked: the plan's trial stored billed before trials v2.
+    let offer = uuid::Uuid::now_v7();
+    let mut conn = env.conn().await;
+    diesel::sql_query(format!(
+        "INSERT INTO trial_offer (id, tenant_id, name, duration_days, free, created_at, updated_at) \
+         VALUES ('{offer}', '{}', 'Billed trial', 7, false, now(), now())",
+        TENANT_ID.as_uuid()
+    ))
+    .execute(&mut conn)
+    .await
+    .expect("a billed offer");
+    diesel::sql_query(format!(
+        "UPDATE plan SET trial_offer_id = '{offer}' WHERE id = '{}'",
+        PLAN_LEETCODE_ID.as_uuid()
+    ))
+    .execute(&mut conn)
+    .await
+    .expect("the plan's trial");
+    drop(conn);
     let shortfall = |trial_days: u32| {
         let env = &env;
         async move {
@@ -988,8 +1011,9 @@ async fn test_minimum_skipped_during_active_trial() {
                 .on_start()
                 .trial(TrialRequest::Custom {
                     length: TrialLength::Days(trial_days),
-                    free: Some(false),
+                    free: None,
                     trial_plan: Some(None),
+                    manual: false,
                 })
                 .create(env.services())
                 .await;

@@ -512,6 +512,7 @@ async fn prepare(env: &TestEnv, iteration: usize) -> Race {
             billing_start_date: Some(today),
             billing_day_anchor: Some(today.day() as i16),
             net_terms: None,
+            offer: Default::default(),
             trial: Default::default(),
             end_date: None,
             auto_advance_invoices: true,

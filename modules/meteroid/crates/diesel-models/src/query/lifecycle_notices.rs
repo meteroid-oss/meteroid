@@ -96,14 +96,21 @@ pub struct EndingTrialRow {
     pub free: bool,
     #[diesel(sql_type = Nullable<SqlUuid>)]
     pub trial_offer_id: Option<Uuid>,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub end_action: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub without_card: String,
+    #[diesel(sql_type = Bool)]
+    pub charge_automatically: bool,
 }
 
 const CLAIM_ENDING_TRIALS: &str = "
 WITH due AS (
-    SELECT t.tenant_id, s.customer_id, t.subscription_id, t.until_date, t.free, t.trial_offer_id
+    SELECT t.tenant_id, s.customer_id, t.subscription_id, t.until_date, t.free, t.trial_offer_id,
+           t.end_action, t.without_card, s.charge_automatically
     FROM subscription_trial t
     JOIN subscription s ON s.id = t.subscription_id
-    WHERE s.status = 'TRIAL_ACTIVE'
+    WHERE s.status = 'TRIAL_ACTIVE' AND t.outcome IS NULL
       AND t.until_date > $2 AND t.until_date <= $2 + $3
 ), claimed AS (
     INSERT INTO subscription_trial_notice (subscription_id, trial_end, tenant_id, noticed_at)

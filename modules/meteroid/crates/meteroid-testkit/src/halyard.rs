@@ -532,6 +532,7 @@ impl Halyard {
                 end_date: None,
                 billing_start_date: None,
                 activation_condition: SubscriptionActivationCondition::OnStart,
+                offer: Default::default(),
                 trial: meteroid_store::domain::trials::TrialRequest::None,
                 billing_day_anchor: None,
                 payment_methods_config: None::<PaymentMethodsConfig>,

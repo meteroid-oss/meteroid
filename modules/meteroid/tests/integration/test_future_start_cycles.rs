@@ -480,22 +480,16 @@ async fn a_usage_only_minimum_starting_later_is_booked_at_its_start() {
 #[tokio::test]
 async fn a_manually_activated_paid_trial_bills_its_first_period() {
     let env = env().await;
-    sql(
-        &env,
-        &format!(
-            "UPDATE plan SET trial_offer_id = NULL WHERE id = '{}'",
-            PLAN_PAID_TRIAL_ID.as_uuid()
-        ),
-    )
-    .await;
+    // Billed as the plan's trial stored before trials v2: a billed trial is no longer asked.
     let id = subscription()
         .plan_version(PLAN_VERSION_PAID_TRIAL_ID)
         .start_date(day(2024, 1, 1))
         .manual()
         .trial(meteroid_store::domain::trials::TrialRequest::Custom {
             length: meteroid_store::domain::trials::TrialLength::Days(7),
-            free: Some(false),
-            trial_plan: None,
+            free: None,
+            trial_plan: Some(None),
+            manual: false,
         })
         .no_auto_charge()
         .create(env.services())
@@ -563,6 +557,7 @@ async fn replay_entry_points_refuse_a_tenant_that_is_not_a_sandbox() {
             end_date: None,
             billing_start_date: None,
             activation_condition: SubscriptionActivationCondition::OnStart,
+            offer: Default::default(),
             trial: Default::default(),
             billing_day_anchor: None,
             payment_methods_config: None,

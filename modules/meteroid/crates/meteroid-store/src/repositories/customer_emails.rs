@@ -1320,7 +1320,10 @@ impl CustomerEmailsInterface for Store {
                     | EmailContext::SubscriptionCancelled { customer_id, .. }
                     | EmailContext::PaymentMethodExpiring { customer_id, .. }
                     | EmailContext::PaymentMethodRequested { customer_id, .. }
-                    | EmailContext::RenewalReminder { customer_id, .. } => {
+                    | EmailContext::RenewalReminder { customer_id, .. }
+                    | EmailContext::TrialEnding { customer_id, .. }
+                    | EmailContext::TrialStarted { customer_id, .. }
+                    | EmailContext::TrialEnded { customer_id, .. } => {
                         let customer = CustomerRow::find_by_id(conn, customer_id, &tenant_id)
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?;
@@ -1490,7 +1493,10 @@ impl CustomerEmailsInterface for Store {
                     | EmailContext::SubscriptionCancelled { customer_id, .. }
                     | EmailContext::PaymentMethodExpiring { customer_id, .. }
                     | EmailContext::PaymentMethodRequested { customer_id, .. }
-                    | EmailContext::RenewalReminder { customer_id, .. } => {
+                    | EmailContext::RenewalReminder { customer_id, .. }
+                    | EmailContext::TrialEnding { customer_id, .. }
+                    | EmailContext::TrialStarted { customer_id, .. }
+                    | EmailContext::TrialEnded { customer_id, .. } => {
                         CustomerRow::find_by_id(conn, customer_id, &tenant_id)
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?

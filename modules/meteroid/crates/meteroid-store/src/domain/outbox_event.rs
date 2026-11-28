@@ -11,14 +11,15 @@ pub use crate::domain::renewals::RenewalUpcomingEvent;
 pub use crate::domain::retention_events::RetentionSessionEvent;
 use crate::domain::usage_alert_events::is_limit_pct;
 pub use crate::domain::usage_alert_events::{
-    BudgetAlertEvent, EntitlementAlertEvent, OverrideEndingEvent, TooManyGroupsEvent,
-    TrialEndingEvent,
+    BudgetAlertEvent, EntitlementAlertEvent, GrantEndedEvent, OfferAppliedEvent,
+    OverrideEndingEvent, TooManyGroupsEvent, TrialEndedEvent, TrialEndingEvent,
 };
 pub use crate::domain::wallet_events::{
-    CreditGrantExpiredEvent, TopUpCapPeriod, WalletAutoTopUpCapReachedEvent,
-    WalletAutoTopUpConsentChangedEvent, WalletAutoTopUpEvent, WalletAutoTopUpEventMeta,
-    WalletBalanceLowEvent, WalletCreditRecoveredEvent, WalletCreditUnrecoveredEvent,
-    WalletDebitedEvent, WalletDepletedEvent, WalletFundedEvent, WalletRecoveredEvent,
+    CreditGrantExpiredEvent, CreditGrantUpdatedEvent, TopUpCapPeriod,
+    WalletAutoTopUpCapReachedEvent, WalletAutoTopUpConsentChangedEvent, WalletAutoTopUpEvent,
+    WalletAutoTopUpEventMeta, WalletBalanceLowEvent, WalletCreditRecoveredEvent,
+    WalletCreditUnrecoveredEvent, WalletDebitedEvent, WalletDepletedEvent, WalletFundedEvent,
+    WalletRecoveredEvent,
 };
 pub use crate::domain::workflow_events::WorkflowRunEvent;
 use crate::domain::{
@@ -100,6 +101,7 @@ pub enum OutboxEvent {
     WalletFunded(Box<WalletFundedEvent>),
     WalletDebited(Box<WalletDebitedEvent>),
     CreditGrantExpired(Box<CreditGrantExpiredEvent>),
+    CreditGrantUpdated(Box<CreditGrantUpdatedEvent>),
     WalletBalanceLow(Box<WalletBalanceLowEvent>),
     WalletCreditUnrecovered(Box<WalletCreditUnrecoveredEvent>),
     WalletCreditRecovered(Box<WalletCreditRecoveredEvent>),
@@ -127,6 +129,9 @@ pub enum OutboxEvent {
     EntitlementOverrideEndingSoon(Box<OverrideEndingEvent>),
     EntitlementOverrideEnded(Box<OverrideEndingEvent>),
     SubscriptionTrialEndingSoon(Box<TrialEndingEvent>),
+    SubscriptionTrialEnded(Box<TrialEndedEvent>),
+    OfferApplied(Box<OfferAppliedEvent>),
+    GrantEnded(Box<GrantEndedEvent>),
 }
 
 #[derive(Display, Debug, Serialize, Deserialize, PartialEq, Clone, Copy, strum::EnumIter)]
@@ -174,6 +179,7 @@ pub enum EventType {
     WalletFunded,
     WalletDebited,
     CreditGrantExpired,
+    CreditGrantUpdated,
     WalletBalanceLow,
     WalletCreditUnrecovered,
     WalletCreditRecovered,
@@ -198,6 +204,9 @@ pub enum EventType {
     WorkflowRunStarted,
     WorkflowRunSucceeded,
     WorkflowRunFailed,
+    SubscriptionTrialEnded,
+    OfferApplied,
+    GrantEnded,
 }
 
 json_value_serde!(OutboxEvent);
@@ -248,6 +257,7 @@ impl OutboxEvent {
             OutboxEvent::WalletFunded(event) => event.id,
             OutboxEvent::WalletDebited(event) => event.id,
             OutboxEvent::CreditGrantExpired(event) => event.id,
+            OutboxEvent::CreditGrantUpdated(event) => event.id,
             OutboxEvent::WalletBalanceLow(event) => event.id,
             OutboxEvent::WalletCreditUnrecovered(event) => event.id,
             OutboxEvent::WalletCreditRecovered(event) => event.id,
@@ -272,6 +282,9 @@ impl OutboxEvent {
             OutboxEvent::EntitlementOverrideEndingSoon(event)
             | OutboxEvent::EntitlementOverrideEnded(event) => event.id,
             OutboxEvent::SubscriptionTrialEndingSoon(event) => event.id,
+            OutboxEvent::SubscriptionTrialEnded(event) => event.id,
+            OutboxEvent::OfferApplied(event) => event.id,
+            OutboxEvent::GrantEnded(event) => event.id,
         }
     }
 
@@ -320,6 +333,7 @@ impl OutboxEvent {
             OutboxEvent::WalletFunded(event) => event.tenant_id,
             OutboxEvent::WalletDebited(event) => event.tenant_id,
             OutboxEvent::CreditGrantExpired(event) => event.tenant_id,
+            OutboxEvent::CreditGrantUpdated(event) => event.tenant_id,
             OutboxEvent::WalletBalanceLow(event) => event.tenant_id,
             OutboxEvent::WalletCreditUnrecovered(event) => event.tenant_id,
             OutboxEvent::WalletCreditRecovered(event) => event.tenant_id,
@@ -344,6 +358,9 @@ impl OutboxEvent {
             OutboxEvent::EntitlementOverrideEndingSoon(event)
             | OutboxEvent::EntitlementOverrideEnded(event) => event.tenant_id,
             OutboxEvent::SubscriptionTrialEndingSoon(event) => event.tenant_id,
+            OutboxEvent::SubscriptionTrialEnded(event) => event.tenant_id,
+            OutboxEvent::OfferApplied(event) => event.tenant_id,
+            OutboxEvent::GrantEnded(event) => event.tenant_id,
         }
     }
 
@@ -371,6 +388,7 @@ impl OutboxEvent {
             OutboxEvent::WalletFunded(event) => Some(event.customer_id),
             OutboxEvent::WalletDebited(event) => Some(event.customer_id),
             OutboxEvent::CreditGrantExpired(event) => Some(event.customer_id),
+            OutboxEvent::CreditGrantUpdated(event) => Some(event.customer_id),
             OutboxEvent::WalletBalanceLow(event) => Some(event.customer_id),
             OutboxEvent::WalletCreditUnrecovered(event) => Some(event.customer_id),
             OutboxEvent::WalletCreditRecovered(event) => Some(event.customer_id),
@@ -421,7 +439,10 @@ impl OutboxEvent {
             | OutboxEvent::SubscriptionRenewalUpcoming(_)
             | OutboxEvent::EntitlementOverrideEndingSoon(_)
             | OutboxEvent::EntitlementOverrideEnded(_)
-            | OutboxEvent::SubscriptionTrialEndingSoon(_) => None,
+            | OutboxEvent::SubscriptionTrialEndingSoon(_)
+            | OutboxEvent::SubscriptionTrialEnded(_)
+            | OutboxEvent::OfferApplied(_)
+            | OutboxEvent::GrantEnded(_) => None,
         }
     }
 
@@ -441,6 +462,9 @@ impl OutboxEvent {
             | OutboxEvent::SubscriptionEnded(event) => Some(event.subscription_id),
             OutboxEvent::SubscriptionRenewalUpcoming(event) => Some(event.subscription_id),
             OutboxEvent::SubscriptionTrialEndingSoon(event) => Some(event.subscription_id),
+            OutboxEvent::SubscriptionTrialEnded(event) => Some(event.subscription_id),
+            OutboxEvent::OfferApplied(event) => Some(event.subscription_id),
+            OutboxEvent::GrantEnded(event) => Some(event.subscription_id),
             _ => None,
         }
     }
@@ -511,6 +535,7 @@ impl OutboxEvent {
             OutboxEvent::WalletFunded(event) => event.wallet_id.as_uuid(),
             OutboxEvent::WalletDebited(event) => event.wallet_id.as_uuid(),
             OutboxEvent::CreditGrantExpired(event) => event.credit_grant_id.as_uuid(),
+            OutboxEvent::CreditGrantUpdated(event) => event.credit_grant_id.as_uuid(),
             OutboxEvent::WalletBalanceLow(event) => event.wallet_id.as_uuid(),
             OutboxEvent::WalletCreditUnrecovered(event) => event.wallet_id.as_uuid(),
             OutboxEvent::WalletCreditRecovered(event) => event.wallet_id.as_uuid(),
@@ -537,6 +562,9 @@ impl OutboxEvent {
             OutboxEvent::EntitlementOverrideEndingSoon(event)
             | OutboxEvent::EntitlementOverrideEnded(event) => event.feature_id.as_uuid(),
             OutboxEvent::SubscriptionTrialEndingSoon(event) => event.subscription_id.as_uuid(),
+            OutboxEvent::SubscriptionTrialEnded(event) => event.subscription_id.as_uuid(),
+            OutboxEvent::OfferApplied(event) => event.subscription_id.as_uuid(),
+            OutboxEvent::GrantEnded(event) => event.subscription_id.as_uuid(),
         }
     }
 
@@ -585,6 +613,7 @@ impl OutboxEvent {
             OutboxEvent::WalletFunded(_) => "CreditWallet".to_string(),
             OutboxEvent::WalletDebited(_) => "CreditWallet".to_string(),
             OutboxEvent::CreditGrantExpired(_) => "CreditGrant".to_string(),
+            OutboxEvent::CreditGrantUpdated(_) => "CreditGrant".to_string(),
             OutboxEvent::WalletBalanceLow(_) => "CreditWallet".to_string(),
             OutboxEvent::WalletCreditUnrecovered(_) => "CreditWallet".to_string(),
             OutboxEvent::WalletCreditRecovered(_) => "CreditWallet".to_string(),
@@ -606,7 +635,10 @@ impl OutboxEvent {
             | OutboxEvent::WorkflowRunFailed(_) => "WorkflowRun".to_string(),
             OutboxEvent::CheckoutPaymentKeptAsCredit(_) => "CheckoutSession".to_string(),
             OutboxEvent::SubscriptionRenewalUpcoming(_)
-            | OutboxEvent::SubscriptionTrialEndingSoon(_) => "Subscription".to_string(),
+            | OutboxEvent::SubscriptionTrialEndingSoon(_)
+            | OutboxEvent::SubscriptionTrialEnded(_)
+            | OutboxEvent::OfferApplied(_)
+            | OutboxEvent::GrantEnded(_) => "Subscription".to_string(),
             OutboxEvent::EntitlementOverrideEndingSoon(_)
             | OutboxEvent::EntitlementOverrideEnded(_) => "Feature".to_string(),
         }
@@ -659,6 +691,7 @@ impl OutboxEvent {
             OutboxEvent::WalletFunded(_) => EventType::WalletFunded,
             OutboxEvent::WalletDebited(_) => EventType::WalletDebited,
             OutboxEvent::CreditGrantExpired(_) => EventType::CreditGrantExpired,
+            OutboxEvent::CreditGrantUpdated(_) => EventType::CreditGrantUpdated,
             OutboxEvent::WalletBalanceLow(_) => EventType::WalletBalanceLow,
             OutboxEvent::WalletCreditUnrecovered(_) => EventType::WalletCreditUnrecovered,
             OutboxEvent::WalletCreditRecovered(_) => EventType::WalletCreditRecovered,
@@ -688,6 +721,9 @@ impl OutboxEvent {
             }
             OutboxEvent::EntitlementOverrideEnded(_) => EventType::EntitlementOverrideEnded,
             OutboxEvent::SubscriptionTrialEndingSoon(_) => EventType::SubscriptionTrialEndingSoon,
+            OutboxEvent::SubscriptionTrialEnded(_) => EventType::SubscriptionTrialEnded,
+            OutboxEvent::OfferApplied(_) => EventType::OfferApplied,
+            OutboxEvent::GrantEnded(_) => EventType::GrantEnded,
         }
     }
 
@@ -861,6 +897,10 @@ impl OutboxEvent {
 
     pub fn credit_grant_expired(event: CreditGrantExpiredEvent) -> OutboxEvent {
         OutboxEvent::CreditGrantExpired(Box::new(event))
+    }
+
+    pub fn credit_grant_updated(event: CreditGrantUpdatedEvent) -> OutboxEvent {
+        OutboxEvent::CreditGrantUpdated(Box::new(event))
     }
 
     /// The limit reached, when the crossed level is the limit itself, else a threshold.
@@ -1631,6 +1671,7 @@ impl EventType {
             | EventType::WalletFunded
             | EventType::WalletDebited
             | EventType::CreditGrantExpired
+            | EventType::CreditGrantUpdated
             | EventType::WalletBalanceLow
             | EventType::WalletCreditUnrecovered
             | EventType::WalletCreditRecovered
@@ -1651,7 +1692,10 @@ impl EventType {
             | EventType::SubscriptionRenewalUpcoming
             | EventType::EntitlementOverrideEndingSoon
             | EventType::EntitlementOverrideEnded
-            | EventType::SubscriptionTrialEndingSoon => false,
+            | EventType::SubscriptionTrialEndingSoon
+            | EventType::SubscriptionTrialEnded
+            | EventType::OfferApplied
+            | EventType::GrantEnded => false,
             EventType::CheckoutPaymentKeptAsCredit => false,
         }
     }
@@ -1706,6 +1750,7 @@ impl EventType {
             EventType::WalletFunded => WalletFundedEvent::ROUTING_KEY,
             EventType::WalletDebited => WalletDebitedEvent::ROUTING_KEY,
             EventType::CreditGrantExpired => CreditGrantExpiredEvent::ROUTING_KEY,
+            EventType::CreditGrantUpdated => CreditGrantUpdatedEvent::ROUTING_KEY,
             EventType::WalletBalanceLow => WalletBalanceLowEvent::ROUTING_KEY,
             EventType::WalletCreditUnrecovered => WalletCreditUnrecoveredEvent::ROUTING_KEY,
             EventType::WalletCreditRecovered => WalletCreditRecoveredEvent::ROUTING_KEY,
@@ -1735,6 +1780,9 @@ impl EventType {
             }
             EventType::EntitlementOverrideEnded => OverrideEndingEvent::ENDED_ROUTING_KEY,
             EventType::SubscriptionTrialEndingSoon => TrialEndingEvent::ROUTING_KEY,
+            EventType::SubscriptionTrialEnded => TrialEndedEvent::ROUTING_KEY,
+            EventType::OfferApplied => OfferAppliedEvent::ROUTING_KEY,
+            EventType::GrantEnded => GrantEndedEvent::ROUTING_KEY,
         }
     }
 }
@@ -1919,6 +1967,11 @@ mod credit_inputs_tests {
         (EventType::WalletFunded, false, "ledger"),
         (EventType::WalletDebited, false, "ledger"),
         (EventType::CreditGrantExpired, false, "ledger"),
+        (
+            EventType::CreditGrantUpdated,
+            false,
+            "ledger: a pending grant dated again",
+        ),
         (EventType::WalletBalanceLow, false, "evaluator reaction"),
         (EventType::WalletCreditUnrecovered, false, "ledger"),
         (EventType::WalletCreditRecovered, false, "ledger"),
@@ -2009,6 +2062,21 @@ mod credit_inputs_tests {
             EventType::WorkflowRunFailed,
             false,
             "a notice: the run's actions carry their own events",
+        ),
+        (
+            EventType::SubscriptionTrialEnded,
+            false,
+            "trial notice: its outcome's facts are written with it",
+        ),
+        (
+            EventType::OfferApplied,
+            false,
+            "a notice: the engine rows its grants write bump the inputs themselves",
+        ),
+        (
+            EventType::GrantEnded,
+            false,
+            "a notice: the rows ended bump the inputs themselves",
         ),
     ];
 

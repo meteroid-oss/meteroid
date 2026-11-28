@@ -57,6 +57,12 @@ pub enum EmailKind {
     PaymentMethodRequested,
     /// A subscription renews or ends soon (R-161), sent when the tenant sets a reminder lead.
     RenewalReminder,
+    /// A trial ends soon: what follows it, sent with the trial-ending notice (R-158).
+    TrialEnding,
+    /// A trial started with a payment method on file: what is charged once it ends.
+    TrialStarted,
+    /// A trial ended without converting: cancelled, switched or awaiting payment.
+    TrialEnded,
 }
 
 impl EmailKind {
@@ -102,6 +108,9 @@ impl EmailKind {
                 | Self::PaymentMethodExpiring
                 | Self::PaymentMethodRequested
                 | Self::RenewalReminder
+                | Self::TrialEnding
+                | Self::TrialStarted
+                | Self::TrialEnded
         )
     }
 
@@ -415,6 +424,48 @@ pub enum EmailContext {
         renewal_months: Option<u32>,
         uplift_percent: Option<rust_decimal::Decimal>,
     },
+    /// The trial ending on `ends_on` (exclusive: billing starts on it). What follows it, and the
+    /// first charge, are read when the email is built.
+    TrialEnding {
+        customer_id: CustomerId,
+        subscription_id: SubscriptionId,
+        ends_on: chrono::NaiveDate,
+    },
+    /// A trial from `starts_on` to `ends_on` (exclusive); the payment method and the amount
+    /// after it are read when the email is built.
+    TrialStarted {
+        customer_id: CustomerId,
+        subscription_id: SubscriptionId,
+        starts_on: chrono::NaiveDate,
+        ends_on: chrono::NaiveDate,
+    },
+    TrialEnded {
+        customer_id: CustomerId,
+        subscription_id: SubscriptionId,
+        ended_on: chrono::NaiveDate,
+        outcome: TrialEndedOutcome,
+    },
+}
+
+/// How a trial that did not convert ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TrialEndedOutcome {
+    Cancelled,
+    /// Moved to another plan; the subscription's plan is the one it moved to.
+    Switched,
+    /// Its opening invoice waits for payment.
+    AwaitingPayment,
+}
+
+impl From<TrialEndedOutcome> for meteroid_mailer::render::TrialEndedOutcome {
+    fn from(outcome: TrialEndedOutcome) -> Self {
+        match outcome {
+            TrialEndedOutcome::Cancelled => Self::Cancelled,
+            TrialEndedOutcome::Switched => Self::Switched,
+            TrialEndedOutcome::AwaitingPayment => Self::AwaitingPayment,
+        }
+    }
 }
 
 /// How the customer paid the previous provider: says why a new payment method is needed.
@@ -464,7 +515,10 @@ impl EmailContext {
             | Self::SubscriptionCancelled { .. }
             | Self::PaymentMethodExpiring { .. }
             | Self::PaymentMethodRequested { .. }
-            | Self::RenewalReminder { .. } => None,
+            | Self::RenewalReminder { .. }
+            | Self::TrialEnding { .. }
+            | Self::TrialStarted { .. }
+            | Self::TrialEnded { .. } => None,
         }
     }
 
@@ -477,7 +531,10 @@ impl EmailContext {
             | Self::SubscriptionCancelled { customer_id, .. }
             | Self::PaymentMethodExpiring { customer_id, .. }
             | Self::PaymentMethodRequested { customer_id, .. }
-            | Self::RenewalReminder { customer_id, .. } => Some(*customer_id),
+            | Self::RenewalReminder { customer_id, .. }
+            | Self::TrialEnding { customer_id, .. }
+            | Self::TrialStarted { customer_id, .. }
+            | Self::TrialEnded { customer_id, .. } => Some(*customer_id),
             _ => None,
         }
     }

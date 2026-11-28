@@ -37,6 +37,8 @@ use meteroid_mailer::render::{
 use meteroid_mailer::service::SenderCtx;
 use uuid::Uuid;
 
+pub(crate) mod trials;
+
 pub type PayLink<'a> = &'a (dyn Fn(InvoiceId) -> StoreResult<String> + Send + Sync);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,6 +123,10 @@ pub enum SkipReason {
     PdfMissing,
     SendFailed,
     AudienceExcluded,
+    /// The subscription no longer calls for it (a trial the operator decides, or that no longer
+    /// converts into automatic charges).
+    NotApplicable,
+    NoPaymentMethod,
 }
 
 /// Where a send comes from: an operator's explicit resend is not filtered by "Send to" rules.
@@ -504,9 +510,10 @@ impl Services {
             | EmailContext::SubscriptionCancelled { customer_id, .. }
             | EmailContext::PaymentMethodExpiring { customer_id, .. }
             | EmailContext::PaymentMethodRequested { customer_id, .. }
-            | EmailContext::RenewalReminder { customer_id, .. } => {
-                Ok(customer_target(*customer_id))
-            }
+            | EmailContext::RenewalReminder { customer_id, .. }
+            | EmailContext::TrialEnding { customer_id, .. }
+            | EmailContext::TrialStarted { customer_id, .. }
+            | EmailContext::TrialEnded { customer_id, .. } => Ok(customer_target(*customer_id)),
             other => {
                 let invoice_id = other.invoice_id().ok_or_else(|| {
                     Report::new(StoreError::InvalidArgument(
@@ -1232,6 +1239,18 @@ impl Services {
                 renewal_months: *renewal_months,
                 uplift_percent: uplift_percent.map(|p| p.normalize().to_string()),
             },
+            (
+                EmailKind::TrialEnding | EmailKind::TrialStarted | EmailKind::TrialEnded,
+                EmailContext::TrialEnding { .. }
+                | EmailContext::TrialStarted { .. }
+                | EmailContext::TrialEnded { .. },
+            ) => match self
+                .trial_email_body(tenant_id, kind, context, build)
+                .await?
+            {
+                Ok(body) => body,
+                Err(reason) => return Ok(BuildOutcome::Skip(reason, target)),
+            },
             (kind, context) => {
                 return Err(Report::new(StoreError::InvalidArgument(format!(
                     "{kind} cannot be rendered from a {} context",
@@ -1282,6 +1301,12 @@ impl Services {
                     self.card_update_link(tenant_id, customer_id).await?
                 }),
             },
+            body @ (Body::TrialEnding { .. }
+            | Body::TrialStarted { .. }
+            | Body::TrialEnded { .. }) => {
+                self.with_trial_link(tenant_id, customer_id, context, body, build)
+                    .await?
+            }
             body => body,
         };
         let lang = override_or(
@@ -1526,6 +1551,47 @@ impl Services {
                 },
                 vec![],
             ),
+            EmailKind::TrialEnding => (
+                Subject::Fixed,
+                Body::TrialEnding {
+                    plan_name: "Starter".to_string(),
+                    ends_on: today + chrono::Days::new(7),
+                    follow_up: meteroid_mailer::render::TrialFollowUp::Charged {
+                        charge: Some(meteroid_mailer::render::TrialCharge {
+                            amount_minor: 4_900,
+                            currency: currency.clone(),
+                        }),
+                        method: Some("Visa •••• 4242".to_string()),
+                    },
+                    cta: Cta::new(self.preview_subscriptions_link()),
+                },
+                vec![],
+            ),
+            EmailKind::TrialStarted => (
+                Subject::Fixed,
+                Body::TrialStarted {
+                    plan_name: "Starter".to_string(),
+                    starts_on: today,
+                    ends_on: today + chrono::Days::new(14),
+                    after_trial: Some(meteroid_mailer::render::TrialCharge {
+                        amount_minor: 4_900,
+                        currency: currency.clone(),
+                    }),
+                    interval: meteroid_mailer::render::BillingInterval::Month,
+                    cta: Cta::new(self.preview_subscriptions_link()),
+                },
+                vec![],
+            ),
+            EmailKind::TrialEnded => (
+                Subject::Fixed,
+                Body::TrialEnded {
+                    plan_name: "Starter".to_string(),
+                    ended_on: today,
+                    outcome: meteroid_mailer::render::TrialEndedOutcome::AwaitingPayment,
+                    cta: Cta::new(self.preview_subscriptions_link()),
+                },
+                vec![],
+            ),
             EmailKind::SubscriptionCancelled => (
                 Subject::Fixed,
                 Body::SubscriptionCancelled {
@@ -1682,6 +1748,9 @@ fn context_name(context: &EmailContext) -> &'static str {
         EmailContext::PaymentMethodExpiring { .. } => "payment_method_expiring",
         EmailContext::PaymentMethodRequested { .. } => "payment_method_requested",
         EmailContext::RenewalReminder { .. } => "renewal_reminder",
+        EmailContext::TrialEnding { .. } => "trial_ending",
+        EmailContext::TrialStarted { .. } => "trial_started",
+        EmailContext::TrialEnded { .. } => "trial_ended",
     }
 }
 
@@ -1710,6 +1779,14 @@ impl Services {
             self.store.settings.public_url.trim_end_matches('/'),
             issued.token
         ))
+    }
+
+    /// The synthetic preview's portal link to the subscriptions.
+    fn preview_subscriptions_link(&self) -> String {
+        format!(
+            "{}/portal/customer?token=preview&page=subscriptions",
+            self.store.settings.public_url.trim_end_matches('/')
+        )
     }
 
     /// What a preview shows in place of a live link.

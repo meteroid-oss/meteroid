@@ -3,6 +3,8 @@ import {
   GenericFormField,
   InputFormField,
   Label,
+  RadioGroup,
+  RadioGroupItem,
   Select,
   SelectContent,
   SelectFormField,
@@ -21,8 +23,12 @@ import { InfoIcon } from 'lucide-react'
 import { useState } from 'react'
 import { useFormContext, useWatch } from 'react-hook-form'
 
+import { useTrialPlans } from '@/features/plans/trial/TrialTermsFields'
+import { THIS_PLAN } from '@/features/plans/trial/trialTerms'
 import { EditorSection } from '@/features/quotes/editor/EditorSection'
+import { DECIDE_AT_THE_END } from '@/features/quotes/quoteTrial'
 import { formatDefaultNetTerms } from '@/lib/mapping/priceToSubscriptionFee'
+import { TrialAtEnd_Kind } from '@/rpc/api/plans/v1/models_pb'
 
 import type { QuoteFormValues } from '@/features/quotes/editor/quoteFormSchema'
 import type { TrialTerms } from '@/rpc/api/plans/v1/models_pb'
@@ -49,10 +55,10 @@ export const PAYMENT_LABELS: Record<QuoteFormValues['payment_methods_type'], str
 
 interface TermsSectionProps {
   planVersionId?: string
+  planId?: string
   /** The plan's trial, copied into the quote when asked: a quote signs the trial it states. */
   trial?: TrialTerms
   trialingPlanName?: string
-  isFreePlan: boolean
   hasOnlinePaymentProvider: boolean
   isLoadingProviders: boolean
   /** Start and end dates belong to one deal: a template has none. */
@@ -78,20 +84,21 @@ const ChoiceRow = ({ label, children }: { label: string; children: ReactNode }) 
  */
 export const TermsSection = ({
   planVersionId,
+  planId,
   trial,
   trialingPlanName,
-  isFreePlan,
   hasOnlinePaymentProvider,
   isLoadingProviders,
   hideDates = false,
 }: TermsSectionProps) => {
   const { control, setValue } = useFormContext<QuoteFormValues>()
-  const [trialDays, trialFree] = useWatch({ control, name: ['trial_duration', 'trial_free'] })
+  const trialDays = useWatch({ control, name: 'trial_duration' })
   const [createOnAcceptance, startDate, endDate] = useWatch({
     control,
     name: ['create_subscription_on_acceptance', 'start_date', 'end_date'],
   })
   const noProvider = !isLoadingProviders && !hasOnlinePaymentProvider
+  const { featurePlans, planName } = useTrialPlans(planId)
 
   // "On a date" with no date picked yet is a choice the form values can't hold: kept here.
   const [startOnDate, setStartOnDate] = useState(() => Boolean(startDate))
@@ -112,9 +119,7 @@ export const TermsSection = ({
     : undefined
 
   const trialDescription = trial
-    ? `The plan's trial: ${trial.durationDays} days${trialingPlanName ? ` with "${trialingPlanName}" features` : ''}, ${
-        isFreePlan ? 'free plan' : trial.free ? 'free' : 'billed as usual'
-      }. The quote signs the trial it states, none when empty.`
+    ? `The plan's trial: ${trial.durationDays} days${trialingPlanName ? ` with "${trialingPlanName}" features` : ''}. The quote signs the trial it states, none when empty.`
     : 'The quote signs the trial it states, none when empty.'
 
   return (
@@ -228,23 +233,80 @@ export const TermsSection = ({
               className="self-start text-xs text-muted-foreground underline"
               onClick={() => {
                 setValue('trial_duration', trial.durationDays, { shouldDirty: true })
-                setValue('trial_free', trial.free, { shouldDirty: true })
                 setValue('trial_plan_id', trial.trialPlanId, { shouldDirty: true })
+                setValue(
+                  'trial_end_action',
+                  trial.atEnd?.kind === TrialAtEnd_Kind.MANUAL ? 'manual' : 'convert',
+                  { shouldDirty: true }
+                )
               }}
             >
               Use the plan&apos;s trial
             </button>
           )}
-          {!!trialDays && !isFreePlan && (
-            <button
-              type="button"
-              className="self-start text-xs text-muted-foreground underline"
-              onClick={() => setValue('trial_free', trialFree === false, { shouldDirty: true })}
-            >
-              {trialFree === false ? 'Billed as usual' : 'Nothing billed'} · change
-            </button>
-          )}
         </div>
+        {Boolean(trialDays) && (
+          <>
+            <GenericFormField
+              control={control}
+              layout="vertical"
+              label="Features of"
+              name="trial_plan_id"
+              render={({ field }) => {
+                const saved = field.value
+                const options =
+                  saved && !featurePlans.some(plan => plan.value === saved)
+                    ? [...featurePlans, { value: saved, label: planName(saved) ?? 'Saved plan' }]
+                    : featurePlans
+                return (
+                  <Select
+                    value={saved ?? THIS_PLAN}
+                    onValueChange={value => field.onChange(value === THIS_PLAN ? undefined : value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={THIS_PLAN}>This plan</SelectItem>
+                      {options.map(plan => (
+                        <SelectItem key={plan.value} value={plan.value}>
+                          {plan.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )
+              }}
+            />
+            <GenericFormField
+              control={control}
+              layout="vertical"
+              label="At the end"
+              name="trial_end_action"
+              containerClassName="@md:col-span-2"
+              render={({ field }) => (
+                <RadioGroup
+                  value={field.value ?? 'convert'}
+                  onValueChange={field.onChange}
+                  className="flex h-8 items-center gap-4"
+                >
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="convert" id="quote-trial-end-convert" />
+                    <Label htmlFor="quote-trial-end-convert" className="cursor-pointer font-normal">
+                      Convert
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="manual" id="quote-trial-end-manual" />
+                    <Label htmlFor="quote-trial-end-manual" className="cursor-pointer font-normal">
+                      {DECIDE_AT_THE_END}
+                    </Label>
+                  </div>
+                </RadioGroup>
+              )}
+            />
+          </>
+        )}
         <InputFormField
           name="billing_day_anchor"
           label="Billing day"

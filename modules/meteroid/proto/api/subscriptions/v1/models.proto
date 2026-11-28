@@ -78,11 +78,42 @@ message Subscription {
   optional string plan_option_id = 48;
   // The stored resource it is for, fixed once active; absent for the whole customer.
   optional string resource_id = 49;
+  // Its trial as a list reads it; set by ListSubscriptions only.
+  optional SubscriptionTrialSummary trial = 50;
+}
+
+message SubscriptionTrialSummary {
+  // Its end, exclusive.
+  string ends_on = 1;
+  TrialConfig.Status status = 2;
+  // While it runs or awaits a payment.
+  optional bool has_payment_method = 3;
+  // The customer's payment method it charges ("Visa •••• 4242").
+  optional string payment_method = 4;
+}
+
+// What a trial's end is estimated to charge first: the opening invoice from its end, before
+// usage; coupons and tax as they stand. In minor units.
+message FirstChargeEstimate {
+  int64 amount = 1;
+  string currency = 2;
+  string on = 3;
 }
 
 // The subscription's trial, as its fact records it from its start (R-153).
 message TrialConfig {
+  enum Status {
+    ACTIVE = 0;
+    CONVERTED = 1;
+    CANCELLED = 2;
+    SWITCHED = 3;
+    // Converting without a payment method: billing waits for the opening invoice's payment.
+    AWAITING_PAYMENT = 4;
+    // Ended with a manual end action: nothing billed until an operator decides.
+    AWAITING_DECISION = 5;
+  }
   uint32 duration_days = 1;
+  // As recorded; a new trial is always free.
   bool is_free = 2;
   optional string trialing_plan_id = 3;
   optional string trialing_plan_name = 4; // resolved name for display
@@ -91,11 +122,21 @@ message TrialConfig {
   optional string ends_on = 6;
   optional string trial_offer_id = 7;
   optional string trial_offer_name = 8;
-  // CONVERT, CANCEL or FALLBACK.
-  string end_action = 9;
+  reserved 9;
+  reserved "end_action";
+  // Any status but ACTIVE is its outcome.
+  Status status = 10;
+  // When it ended; set with its outcome.
+  optional string ended_on = 11;
+  meteroid.api.plans.v1.TrialAtEnd at_end = 12;
+  meteroid.api.plans.v1.TrialWithoutCard without_card = 13;
+  bool has_payment_method = 14;
+  // While it runs and converts.
+  optional FirstChargeEstimate first_charge_estimate = 15;
 }
 
-// The trial a subscription is created with; unset: its plan's (R-153).
+// The trial a subscription is created with; unset: its plan's, given none when the customer
+// already had it (R-153, R-159).
 message TrialRequest {
   message Custom {
     oneof length {
@@ -103,8 +144,8 @@ message TrialRequest {
       // Its end, exclusive.
       string until = 2;
     }
-    // Unset: the plan's trial's freeness, else free.
-    optional bool free = 3;
+    reserved 3;
+    reserved "free";
     // Unset: the plan's trial's, unless `own_features`.
     optional string trial_plan_id = 4;
     bool own_features = 5;
@@ -114,6 +155,19 @@ message TrialRequest {
     // A catalog offer (Enterprise); refused when the customer already had it.
     string offer_id = 2;
     Custom custom = 3;
+    // The plan's trial, asked: refused when the customer already had it.
+    bool plan = 4;
+  }
+}
+
+// The offer a subscription is created with (R-170).
+message OfferRequest {
+  oneof offer {
+    // The plan's start offer.
+    bool plan = 1;
+    bool none = 2;
+    // A catalog offer in place of the plan's (Enterprise).
+    string offer_id = 3;
   }
 }
 
@@ -293,6 +347,8 @@ message CreateSubscription {
   // A stored resource of the customer; absent for the whole customer.
   optional string resource_id = 31;
   optional TrialRequest trial = 33;
+  // Unset: the plan's start offer.
+  optional OfferRequest offer = 34;
 }
 
 enum ActivationCondition {

@@ -68,6 +68,7 @@ pub async fn list_subscriptions(
     let updated_after = at(&query.updated_after, "updated_after")?;
     let created_after = at(&query.created_after, "created_after")?;
     let created_before = at(&query.created_before, "created_before")?;
+    let trial = trial_filter(&query)?;
     let mut items = state
         .store
         .list_subscriptions_after(
@@ -81,6 +82,7 @@ pub async fn list_subscriptions(
                 updated_after,
                 created_after,
                 created_before,
+                trial,
             },
             cursor.map(|Cursor(after)| SubscriptionId::from(after)),
             limit + 1,
@@ -100,6 +102,32 @@ pub async fn list_subscriptions(
         data,
         next_cursor,
         has_more,
+    }))
+}
+
+/// The trial filter of `query`; the days ahead only with `trial=ending`.
+fn trial_filter(
+    query: &SubscriptionListQuery,
+) -> Result<Option<meteroid_store::domain::trials::TrialListFilter>, Problem> {
+    use super::model::TrialListParam;
+    use meteroid_store::domain::trials::{MAX_TRIAL_DAYS, TrialListFilter};
+    let days = query.trial_ends_within_days;
+    if days.is_some() && query.trial != Some(TrialListParam::Ending) {
+        return Err(Problem::query_refused(
+            "`trial_ends_within_days` goes with `trial=ending`",
+        ));
+    }
+    if days.is_some_and(|days| days == 0 || days > MAX_TRIAL_DAYS) {
+        return Err(Problem::query_refused(
+            "`trial_ends_within_days` is 1 to 3650",
+        ));
+    }
+    Ok(query.trial.map(|trial| match trial {
+        TrialListParam::Ending => TrialListFilter::EndingWithinDays(days.unwrap_or(
+            u32::try_from(meteroid_store::domain::trials::TRIAL_NOTICE_DAYS).unwrap_or(7),
+        )),
+        TrialListParam::AwaitingDecision => TrialListFilter::AwaitingDecision,
+        TrialListParam::AwaitingPayment => TrialListFilter::AwaitingPayment,
     }))
 }
 

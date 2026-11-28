@@ -257,6 +257,7 @@ pub trait QuotesInterface {
 #[async_trait::async_trait]
 impl QuotesInterface for Store {
     async fn insert_quote(&self, quote: QuoteNew) -> StoreResult<Quote> {
+        crate::domain::trials::refuse_billed(quote.trial_free)?;
         let mut conn = self.get_conn().await?;
 
         ensure_quotable_customers(
@@ -291,6 +292,9 @@ impl QuotesInterface for Store {
     }
 
     async fn insert_quote_batch(&self, quotes: Vec<QuoteNew>) -> StoreResult<Vec<Quote>> {
+        for quote in &quotes {
+            crate::domain::trials::refuse_billed(quote.trial_free)?;
+        }
         let mut conn = self.get_conn().await?;
 
         use itertools::Itertools;
@@ -695,6 +699,7 @@ impl QuotesInterface for Store {
         pending_addon_materializations: Vec<crate::services::PendingMaterialization>,
         actor: Actor,
     ) -> StoreResult<Quote> {
+        crate::domain::trials::refuse_billed(quote.trial_free)?;
         self.transaction(|conn| {
             async move {
                 ensure_quotable_customers(
@@ -790,6 +795,7 @@ impl QuotesInterface for Store {
         bump_revision: bool,
         expected_updated_at: Option<Option<chrono::NaiveDateTime>>,
     ) -> StoreResult<Quote> {
+        crate::domain::trials::refuse_billed(quote.trial_free)?;
         use crate::domain::quote_minimums::QuoteMinimumNew;
         use diesel_models::quote_adjustments::QuoteAdjustmentRow;
         use diesel_models::quotes::QuoteRowReplace;
@@ -1940,6 +1946,16 @@ pub(crate) async fn detailed_quote_tx(
         }
     };
 
+    let trial_plan_name = match quote_with_customer.quote.trial_plan_id {
+        Some(plan_id) => Some(
+            diesel_models::plans::PlanRow::get_overview_by_id(conn, plan_id, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .name,
+        ),
+        None => None,
+    };
+
     Ok(DetailedQuote {
         quote: quote_with_customer.quote,
         customer: quote_with_customer.customer,
@@ -1952,5 +1968,6 @@ pub(crate) async fn detailed_quote_tx(
         entitlements,
         minimum,
         phases: crate::services::plan_phases::quote_phases_tx(conn, tenant_id, quote_id).await?,
+        trial_plan_name,
     })
 }

@@ -291,6 +291,27 @@ impl SubscriptionTrialRow {
             .into_db_result()
     }
 
+    /// The trials of those of `subscription_ids` that have one, in the tenant.
+    pub async fn list_of(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        subscription_ids: &[SubscriptionId],
+    ) -> DbResult<Vec<SubscriptionTrialRow>> {
+        use crate::schema::subscription_trial::dsl as t;
+
+        if subscription_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        t::subscription_trial
+            .filter(t::tenant_id.eq(tenant_id))
+            .filter(t::subscription_id.eq_any(subscription_ids))
+            .select(SubscriptionTrialRow::as_select())
+            .get_results(conn)
+            .await
+            .attach("Error while reading the trials of subscriptions")
+            .into_db_result()
+    }
+
     /// The trial ends on `until` instead, moved by an operator while it runs; false when it had
     /// ended already.
     pub async fn move_end(
@@ -309,6 +330,26 @@ impl SubscriptionTrialRow {
         .attach("Error while moving a trial's end")
         .map(|moved| moved > 0)
         .into_db_result()
+    }
+
+    /// How the trial ended and when, or, with `None`, running again (an extension).
+    pub async fn record_outcome(
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+        outcome: Option<(&str, NaiveDateTime)>,
+    ) -> DbResult<()> {
+        use crate::schema::subscription_trial::dsl as t;
+
+        diesel::update(t::subscription_trial.filter(t::subscription_id.eq(subscription_id)))
+            .set((
+                t::outcome.eq(outcome.map(|(outcome, _)| outcome.to_string())),
+                t::ended_at.eq(outcome.map(|(_, at)| at)),
+            ))
+            .execute(conn)
+            .await
+            .attach("Error while recording a trial's outcome")
+            .map(|_| ())
+            .into_db_result()
     }
 
     /// The trial withdrawn: ended on the day it started, it never ran.

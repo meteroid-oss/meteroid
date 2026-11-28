@@ -47,10 +47,14 @@ message GetCheckoutResponse {
 
 // ConfirmCheckout - works with CheckoutSession token
 message ConfirmCheckoutRequest {
+  // Empty with `without_payment_method`.
   string payment_method_id = 1;
   uint64 displayed_amount = 2;
   string displayed_currency = 3;
   optional string coupon_code = 4;
+  // Starts the plan's trial without collecting a payment method: only when the checkout's
+  // `trial_card_optional`.
+  bool without_payment_method = 5;
 }
 
 // Status of checkout confirmation

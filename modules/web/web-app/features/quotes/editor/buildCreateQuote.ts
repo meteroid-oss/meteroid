@@ -10,6 +10,7 @@ import {
   wrapAsNewPriceEntries,
 } from '@/features/pricing'
 import { v2ToCreateQuote } from '@/features/quotes/editor/quoteV2'
+import { trialEndToProto } from '@/features/quotes/quoteTrial'
 import { mapDatev2 } from '@/lib/mapping'
 import {
   CreateQuoteCouponSchema,
@@ -150,8 +151,8 @@ export function buildCreateQuote({
     billingStartDate: data.billing_start_date ? mapDatev2(data.billing_start_date) : undefined,
     endDate: data.end_date ? mapDatev2(data.end_date) : undefined,
     trialDuration: data.trial_duration,
-    trialFree: data.trial_duration ? (data.trial_free ?? true) : undefined,
     trialPlanId: data.trial_duration ? data.trial_plan_id : undefined,
+    trialEndAction: trialEndToProto(data.trial_duration, data.trial_end_action),
     billingDayAnchor: data.billing_day_anchor,
     expiresAt: data.expires_at ? mapDatev2(data.expires_at) : undefined,
     validUntil: data.valid_until ? mapDatev2(data.valid_until) : undefined,
@@ -207,8 +208,8 @@ export const previewFormValues = (values: Partial<QuoteFormValues>): QuoteFormVa
   billing_start_date: values.billing_start_date,
   end_date: values.end_date,
   trial_duration: wholeNumber(values.trial_duration, 0),
-  trial_free: values.trial_free,
   trial_plan_id: values.trial_plan_id,
+  trial_end_action: values.trial_end_action,
   billing_day_anchor: wholeNumber(values.billing_day_anchor, 1, 31),
   expires_at: values.expires_at,
   valid_until: values.valid_until,

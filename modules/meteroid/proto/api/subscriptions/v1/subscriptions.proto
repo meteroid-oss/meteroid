@@ -94,6 +94,17 @@ message ListSubscriptionsRequest {
   optional string order_by = 6;
   // Dynamic filters over custom properties (field `cp:<key>`); AND-combined.
   repeated meteroid.common.v1.Filter filters = 7;
+  optional TrialListFilter trial = 8;
+}
+
+// Subscriptions by their trial.
+message TrialListFilter {
+  oneof kind {
+    // Running and ending within this many days.
+    uint32 ending_within_days = 1;
+    bool awaiting_decision = 2;
+    bool awaiting_payment = 3;
+  }
 }
 
 message ListSubscriptionsResponse {

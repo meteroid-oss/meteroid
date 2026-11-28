@@ -63,6 +63,7 @@ fn session(version: PlanVersionId, option: Option<&str>) -> CreateCheckoutSessio
         billing_start_date: Some(chrono::NaiveDate::from_ymd_opt(2025, 1, 1).unwrap()),
         billing_day_anchor: Some(1),
         net_terms: None,
+        offer: Default::default(),
         trial: Default::default(),
         end_date: None,
         auto_advance_invoices: true,

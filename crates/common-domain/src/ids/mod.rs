@@ -73,7 +73,11 @@ id_type!(PlanVersionAddOnId, "pva_");
 id_type!(PriceId, "pri_");
 id_type!(ScheduledEventId, "sev_");
 id_type!(SubscriptionPhaseId, "sph_");
-id_type!(TrialOfferId, "tro_");
+// An offer: a trial, grants or both, given at a subscription's creation or later (ADR 0019).
+id_type!(TrialOfferId, "ofr_");
+pub type OfferId = TrialOfferId;
+id_type!(OfferGrantId, "ofg_");
+id_type!(OfferApplicationId, "ofa_");
 id_type!(ConnectedAccountId, "cacc_");
 id_type!(OAuthAppId, "app_");
 id_type!(BatchJobId, "bjob_");

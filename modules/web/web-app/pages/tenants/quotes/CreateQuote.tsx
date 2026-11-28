@@ -82,7 +82,7 @@ import {
   getInvoicingEntity,
   getInvoicingEntityProviders,
 } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
-import { MinimumCommitment, PlanType } from '@/rpc/api/plans/v1/models_pb'
+import { MinimumCommitment } from '@/rpc/api/plans/v1/models_pb'
 import {
   getPlanWithVersionByVersionId,
   listPlans,
@@ -300,7 +300,6 @@ export const CreateQuote = ({
 
   const planCurrency = planQuery.data?.plan?.version?.currency
   const planTrial = planQuery.data?.plan?.trial?.terms
-  const isFreePlan = planQuery.data?.plan?.plan?.planType === PlanType.FREE
   const planDefaultMinimum = planQuery.data?.plan?.version?.minimumCommitment
 
   const trialingPlanName = planTrial?.trialPlanId
@@ -963,9 +962,9 @@ export const CreateQuote = ({
 
                         <TermsSection
                           planVersionId={planVersionId}
+                          planId={planQuery.data?.plan?.plan?.id}
                           trial={planTrial}
                           trialingPlanName={trialingPlanName}
-                          isFreePlan={isFreePlan}
                           hasOnlinePaymentProvider={hasOnlinePaymentProvider}
                           isLoadingProviders={isLoadingProviders}
                           hideDates={isTemplate}

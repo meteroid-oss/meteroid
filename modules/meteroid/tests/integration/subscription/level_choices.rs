@@ -208,6 +208,7 @@ fn self_serve_checkout(
         billing_start_date: None,
         billing_day_anchor: None,
         net_terms: None,
+        offer: Default::default(),
         trial: Default::default(),
         end_date: None,
         auto_advance_invoices: true,

@@ -863,6 +863,98 @@ pub(crate) async fn insert_entitlement_specs(
         .collect()
 }
 
+/// Inserts one row on an existing owner in the caller's transaction, its resolution inputs bumped;
+/// `None` when an open row overlaps it, or its feature is archived: nothing is given twice.
+pub(crate) async fn insert_entitlement_spec_if_free_tx(
+    conn: &mut PgConn,
+    spec: EntitlementSpec,
+    entity: EntitlementEntityId,
+    tenant_id: TenantId,
+) -> StoreResult<Option<Entitlement>> {
+    let owner = CheckedOwner::check(conn, tenant_id, entity).await?;
+    let (entity_type, entity_id) = (EntitlementEntityTypeEnum::from(&entity), entity.as_uuid());
+    let inputs = InputsOwner::of_entitlement(conn, tenant_id, &entity_type, entity_id).await?;
+    let Some(row) = build_entitlement_rows(conn, vec![spec], owner, tenant_id, None, true)
+        .await?
+        .pop()
+    else {
+        return Ok(None);
+    };
+    if row.overlaps(conn, &[]).await? {
+        return Ok(None);
+    }
+    let inserted = EntitlementRowNew::insert_batch(std::slice::from_ref(&row), conn).await?;
+    inputs.bump(conn).await?;
+    inserted
+        .into_iter()
+        .next()
+        .map(TryInto::try_into)
+        .transpose()
+}
+
+/// The lineage's open row dated again in the caller's transaction, by a successor; none when it
+/// is no longer open, or when another row would overlap it (nothing is given twice). An empty
+/// window revokes it.
+pub(crate) async fn redate_entitlement_tx(
+    conn: &mut PgConn,
+    actor: &Actor,
+    tenant_id: TenantId,
+    lineage: EntitlementId,
+    valid_from: Option<chrono::DateTime<chrono::Utc>>,
+    valid_until: Option<chrono::DateTime<chrono::Utc>>,
+) -> StoreResult<Option<Entitlement>> {
+    if !EntitlementRow::has_open(conn, tenant_id, lineage).await? {
+        return Ok(None);
+    }
+    let open: Entitlement = lock_open(conn, tenant_id, lineage).await?.try_into()?;
+    if (open.valid_from, open.valid_until) == (valid_from, valid_until) {
+        return Ok(Some(open));
+    }
+    let inputs = InputsOwner::of_entitlement(
+        conn,
+        tenant_id,
+        &EntitlementEntityTypeEnum::from(&open.entity),
+        open.entity.as_uuid(),
+    )
+    .await?;
+    if let (Some(from), Some(until)) = (valid_from, valid_until)
+        && until <= from
+    {
+        EntitlementRow::revoke_open(conn, tenant_id, lineage, actor.as_uuid()).await?;
+        inputs.bump(conn).await?;
+        return Ok(None);
+    }
+    let feature = feature_of(conn, open.feature_id, tenant_id).await?;
+    let owner = CheckedOwner::check(conn, tenant_id, open.entity).await?;
+    let successor = new_row(
+        conn,
+        tenant_id,
+        &feature,
+        owner,
+        open.resource_id,
+        EntitlementSpec {
+            feature_id: open.feature_id,
+            value: open.value,
+            effect: Some(open.effect),
+            level: open.level,
+            condition: open.condition,
+            valid_from,
+            valid_until,
+            reason: open.reason,
+            policy_override: open.policy_override,
+        },
+        Some(actor),
+        Some(lineage),
+    )
+    .await?;
+    if successor.overlaps(conn, &[]).await? {
+        return Ok(None);
+    }
+    let inserted = successor.insert_successor(conn, actor.as_uuid()).await?;
+    inputs.bump(conn).await?;
+    Ok(Some(inserted.try_into()?))
+}
+
 #[async_trait::async_trait]
 impl EntitlementsInterface for Store {
     async fn create_feature(&self, actor: Actor, feature: FeatureNew) -> StoreResult<Feature> {

@@ -126,6 +126,28 @@ export const EMAIL_KIND_META: EmailKindMeta[] = [
     sentByModule: true,
   },
   {
+    kind: EmailKind.TRIAL_STARTED,
+    label: 'Trial started',
+    description:
+      'Sent when a trial starts with a payment method on file, with the amount charged once it ends.',
+    editableCopy: false,
+    attachesDocument: false,
+  },
+  {
+    kind: EmailKind.TRIAL_ENDING,
+    label: 'Trial ending',
+    description: 'Sent 7 days before a trial ends, with what follows it.',
+    editableCopy: false,
+    attachesDocument: false,
+  },
+  {
+    kind: EmailKind.TRIAL_ENDED,
+    label: 'Trial ended',
+    description: 'Sent when a trial ends without converting: cancelled, switched or awaiting payment.',
+    editableCopy: false,
+    attachesDocument: false,
+  },
+  {
     kind: EmailKind.WALLET_BALANCE_LOW,
     label: 'Low balance',
     description: "Sent when a customer's prepaid balance falls below its alert threshold.",
@@ -197,6 +219,12 @@ const GROUPS: KindGroup[] = [
       EmailKind.PAYMENT_METHOD_EXPIRING,
       EmailKind.RENEWAL_REMINDER,
     ].map(k => byKind(k)!),
+  },
+  {
+    title: 'Trials',
+    kinds: [EmailKind.TRIAL_STARTED, EmailKind.TRIAL_ENDING, EmailKind.TRIAL_ENDED].map(
+      k => byKind(k)!
+    ),
   },
   {
     title: 'Prepaid balance',

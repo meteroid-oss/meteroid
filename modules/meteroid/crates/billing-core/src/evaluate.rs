@@ -376,7 +376,9 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
         // A cancellation before the start settled bills nothing (R-013); one still to come
         // leaves the checkout's invoice to bill.
         let cancelled_unsettled = facts.ending.is_some_and(|ending| ending.at <= now);
-        let billing_start = (settled || !cancelled_unsettled).then(|| facts.billing_start());
+        // A trial awaiting a decision past its end bills nothing until one moves its end (R-167).
+        let billing_start = ((settled || !cancelled_unsettled) && !facts.awaits_decision(now))
+            .then(|| facts.billing_start());
         let ending = facts.effective_ending();
         let end = ending.map(|ending| ending.on());
         let longest = facts
@@ -1887,9 +1889,7 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
         let today = self.today;
         let plan = facts.plan_on(today);
         let settled = self.settled;
-        let trial = facts
-            .trial
-            .filter(|trial| trial.from <= today && today < trial.until);
+        let trial = facts.trial.filter(|trial| trial.holds_on(today));
         let status = if let Some(ending) = self.ending.filter(|_| self.ended_by_now()) {
             match ending.kind {
                 EndingKind::Cancel => Status::Cancelled,
@@ -1920,7 +1920,7 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                 self.billing_start.map(|start| (start, None))
             }
             Status::Trialing if self.billing_start.is_none_or(|start| today < start) => {
-                trial.map(|trial| (trial.from, Some(trial.until)))
+                trial.map(|trial| (trial.from, (today < trial.until).then_some(trial.until)))
             }
             _ => self
                 .current_of(today)

@@ -8953,6 +8953,16 @@
               }
             }
           },
+          "422": {
+            "description": "A trial with `is_free: false`: a trial is free",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
           "429": {
             "description": "Too many requests",
             "content": {
@@ -9277,6 +9287,16 @@
           },
           "404": {
             "description": "Plan not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A trial with `is_free: false`: a trial is free",
             "content": {
               "application/json": {
                 "schema": {
@@ -17428,6 +17448,106 @@
           "PROMOTIONAL"
         ]
       },
+      "CreditGrantUpdatedEvent": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CreditGrantUpdatedEventData"
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "type",
+              "timestamp"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/EventId"
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "type": {
+                "$ref": "#/components/schemas/EventType"
+              }
+            }
+          }
+        ]
+      },
+      "CreditGrantUpdatedEventData": {
+        "type": "object",
+        "description": "A credit grant not in effect yet was dated again (the trial its offer counts from moved): its\ndates now. No credit moved.",
+        "required": [
+          "customer_id",
+          "applies_to",
+          "applicable_product_ids",
+          "credit_grant_id",
+          "effective_at"
+        ],
+        "properties": {
+          "applicable_product_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The products whose charges the grant pays; empty when it pays every product."
+          },
+          "applies_to": {
+            "$ref": "#/components/schemas/CreditAppliesTo",
+            "description": "What the grant pays: ALL any charge, USAGE only usage charges."
+          },
+          "credit_grant_id": {
+            "$ref": "#/components/schemas/CreditGrantId"
+          },
+          "credit_unit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The credit unit (its code) the grant is in; absent for a currency."
+          },
+          "credit_unit_precision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Decimal places of `credit_unit`.",
+            "minimum": 0
+          },
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Absent when the grant is in a credit unit."
+          },
+          "customer_id": {
+            "$ref": "#/components/schemas/CustomerId"
+          },
+          "effective_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the grant's credit becomes usable."
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When its credit expires; null when it never does."
+          },
+          "subscription_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The subscription the grant belongs to: it pays only that subscription's charges. Null when\nit pays any of the customer's subscriptions."
+          }
+        }
+      },
       "CreditNote": {
         "type": "object",
         "required": [
@@ -20506,8 +20626,12 @@
           "wallet.credit_unrecovered",
           "wallet.credit_recovered",
           "credit_grant.expired",
+          "credit_grant.updated",
           "checkout.payment_kept_as_credit",
-          "subscription.trial_ending_soon"
+          "subscription.trial_ending_soon",
+          "subscription.trial_ended",
+          "offer.applied",
+          "grant.ended"
         ]
       },
       "ExistingPriceRef": {
@@ -21121,6 +21245,86 @@
             "$ref": "#/components/schemas/CheckoutSession"
           }
         }
+      },
+      "GrantEndedEventData": {
+        "type": "object",
+        "description": "A grant of an offer applied to a subscription ended: its window over, or before it.",
+        "required": [
+          "subscription_id",
+          "customer_id",
+          "offer_id",
+          "grant_id",
+          "reason",
+          "ended_at"
+        ],
+        "properties": {
+          "customer_id": {
+            "$ref": "#/components/schemas/CustomerId"
+          },
+          "ended_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "grant_id": {
+            "$ref": "#/components/schemas/OfferGrantId"
+          },
+          "kind": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OfferGrantType",
+                "description": "What it gave; absent for a kind this version does not know."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "offer_id": {
+            "$ref": "#/components/schemas/TrialOfferId"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/GrantEndedReason"
+          },
+          "subscription_id": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          }
+        }
+      },
+      "GrantEndedReason": {
+        "type": "string",
+        "description": "Why a grant ended.",
+        "enum": [
+          "WITHDRAWN",
+          "SUBSCRIPTION_ENDED",
+          "WINDOW_ENDED"
+        ]
+      },
+      "GrantEndedWebhookEvent": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/GrantEndedEventData"
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "type",
+              "timestamp"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/EventId"
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "type": {
+                "$ref": "#/components/schemas/EventType"
+              }
+            }
+          }
+        ]
       },
       "GroupedUsage": {
         "type": "object",
@@ -23174,6 +23378,118 @@
             "format": "decimal"
           }
         }
+      },
+      "OfferApplicationSource": {
+        "type": "string",
+        "description": "How an offer came to a subscription.",
+        "enum": [
+          "PLAN",
+          "OPERATOR",
+          "COUPON",
+          "RETENTION",
+          "QUOTE",
+          "API"
+        ]
+      },
+      "OfferAppliedEventData": {
+        "type": "object",
+        "description": "An offer was applied to a subscription: at its creation, from a coupon, or later.",
+        "required": [
+          "subscription_id",
+          "customer_id",
+          "offer_id",
+          "grant_ids",
+          "applied_at"
+        ],
+        "properties": {
+          "applied_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "coupon_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CouponId",
+                "description": "The coupon whose code gave it."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "customer_id": {
+            "$ref": "#/components/schemas/CustomerId"
+          },
+          "grant_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OfferGrantId"
+            },
+            "description": "The grants it gives."
+          },
+          "offer_id": {
+            "$ref": "#/components/schemas/TrialOfferId"
+          },
+          "source": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OfferApplicationSource",
+                "description": "Absent for a source this version does not know."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "subscription_id": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          }
+        }
+      },
+      "OfferAppliedWebhookEvent": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/OfferAppliedEventData"
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "type",
+              "timestamp"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/EventId"
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "type": {
+                "$ref": "#/components/schemas/EventType"
+              }
+            }
+          }
+        ]
+      },
+      "OfferGrantId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "description": "An id in its prefixed form, `ofg_` and base62; a request also reads its UUID form.",
+        "examples": [
+          "ofg_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "OfferGrantType": {
+        "type": "string",
+        "description": "What a grant gives.",
+        "enum": [
+          "DISCOUNT",
+          "CREDIT",
+          "ENTITLEMENT",
+          "ADD_ON"
+        ]
       },
       "OneTimeFee": {
         "type": "object",
@@ -28177,7 +28493,8 @@
             "minimum": 0
           },
           "is_free": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Nothing is billed during it: `true` for every trial written now, `false` refused (`422`).\nA trial recorded billed before reads `false`."
           },
           "trialing_plan_id": {
             "oneOf": [
@@ -28191,6 +28508,82 @@
           }
         }
       },
+      "TrialEndOutcome": {
+        "type": "string",
+        "description": "How a trial ended.",
+        "enum": [
+          "CONVERTED",
+          "CANCELLED",
+          "SWITCHED",
+          "AWAITING_PAYMENT",
+          "AWAITING_DECISION"
+        ]
+      },
+      "TrialEndedEventData": {
+        "type": "object",
+        "description": "A subscription's trial ended, and how; sent again when an outcome awaiting a payment or a\ndecision resolves.",
+        "required": [
+          "subscription_id",
+          "customer_id",
+          "trial_end",
+          "outcome",
+          "ended_at"
+        ],
+        "properties": {
+          "customer_id": {
+            "$ref": "#/components/schemas/CustomerId"
+          },
+          "ended_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/TrialEndOutcome"
+          },
+          "subscription_id": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "trial_end": {
+            "type": "string",
+            "format": "date",
+            "description": "The trial's end, exclusive."
+          },
+          "trial_offer_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The trial offer it was redeemed from."
+          }
+        }
+      },
+      "TrialEndedWebhookEvent": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/TrialEndedEventData"
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "type",
+              "timestamp"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/EventId"
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "type": {
+                "$ref": "#/components/schemas/EventType"
+              }
+            }
+          }
+        ]
+      },
       "TrialEndingEventData": {
         "type": "object",
         "description": "A subscription's trial ends soon.",
@@ -28201,12 +28594,27 @@
           "free"
         ],
         "properties": {
+          "billing_starts_on": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "When billing starts, the trial converting at its end; absent when its end cancels the\nsubscription or waits for a decision."
+          },
           "customer_id": {
             "$ref": "#/components/schemas/CustomerId"
           },
           "free": {
             "type": "boolean",
-            "description": "Whether the trial billed nothing."
+            "description": "Whether the trial billed nothing: always for a trial started now."
+          },
+          "has_payment_method": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the subscription has a payment method it is charged or invoiced with."
           },
           "subscription_id": {
             "$ref": "#/components/schemas/SubscriptionId"
@@ -28214,7 +28622,7 @@
           "trial_end": {
             "type": "string",
             "format": "date",
-            "description": "The trial's end: billing starts on it."
+            "description": "The trial's end, exclusive."
           },
           "trial_offer_id": {
             "type": [
@@ -28250,6 +28658,14 @@
               }
             }
           }
+        ]
+      },
+      "TrialOfferId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "description": "An id in its prefixed form, `ofr_` and base62; a request also reads its UUID form.",
+        "examples": [
+          "ofr_7n42DGM5Tflk9n8mt7Fhc7"
         ]
       },
       "UnattributedMetricUsage": {
@@ -30549,6 +30965,46 @@
         }
       }
     },
+    "credit_grant.updated": {
+      "post": {
+        "summary": "credit_grant.updated webhook",
+        "description": "A credit grant not in effect yet was dated again, as the trial its offer counts from moved; no credit moved",
+        "operationId": "webhook_credit_grant_updated",
+        "tags": [
+          "webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreditGrantUpdatedEvent"
+              },
+              "example": {
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "type": "credit_grant.updated",
+                "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
+                "applies_to": "ALL",
+                "subscription_id": "sub_7n42DGM5Tflk9n8mt7Fhc7",
+                "applicable_product_ids": [],
+                "credit_grant_id": "cgr_7n42DGM5Tflk9n8mt7Fhc7",
+                "currency": "EUR",
+                "credit_unit": null,
+                "credit_unit_precision": null,
+                "effective_at": "1970-01-01T00:00:00.000Z",
+                "expires_at": "1970-01-01T00:00:00.000Z",
+                "timestamp": "1970-01-01T00:00:00.000Z"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        }
+      }
+    },
     "credit_note.created": {
       "post": {
         "summary": "credit_note.created webhook",
@@ -30762,6 +31218,43 @@
                 "custom_properties": {
                   "account_tier": "enterprise"
                 },
+                "timestamp": "1970-01-01T00:00:00.000Z"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        }
+      }
+    },
+    "grant.ended": {
+      "post": {
+        "summary": "grant.ended webhook",
+        "description": "A grant of an offer ended before its window: its subscription never started, or ended",
+        "operationId": "webhook_grant_ended",
+        "tags": [
+          "webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GrantEndedWebhookEvent"
+              },
+              "example": {
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "type": "grant.ended",
+                "subscription_id": "sub_7n42DGM5Tflk9n8mt7Fhc7",
+                "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
+                "offer_id": "ofr_7n42DGM5Tflk9n8mt7Fhc7",
+                "grant_id": "ofg_7n42DGM5Tflk9n8mt7Fhc7",
+                "kind": "CREDIT",
+                "reason": "SUBSCRIPTION_ENDED",
+                "ended_at": "1970-01-01T00:00:00.000Z",
                 "timestamp": "1970-01-01T00:00:00.000Z"
               }
             }
@@ -31192,6 +31685,44 @@
                 "aggregation_type": "COUNT",
                 "created_at": "1970-01-01T00:00:00.000Z",
                 "product_family_id": "pf_7n42DGM5Tflk9n8mt7Fhc7",
+                "timestamp": "1970-01-01T00:00:00.000Z"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        }
+      }
+    },
+    "offer.applied": {
+      "post": {
+        "summary": "offer.applied webhook",
+        "description": "An offer was applied to a subscription, with the grants it gives: its plan's start offer or a catalog offer at its creation, or one a coupon's code gives",
+        "operationId": "webhook_offer_applied",
+        "tags": [
+          "webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OfferAppliedWebhookEvent"
+              },
+              "example": {
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "type": "offer.applied",
+                "subscription_id": "sub_7n42DGM5Tflk9n8mt7Fhc7",
+                "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
+                "offer_id": "ofr_7n42DGM5Tflk9n8mt7Fhc7",
+                "source": "PLAN",
+                "grant_ids": [
+                  "ofg_7n42DGM5Tflk9n8mt7Fhc7"
+                ],
+                "applied_at": "1970-01-01T00:00:00.000Z",
                 "timestamp": "1970-01-01T00:00:00.000Z"
               }
             }
@@ -31902,10 +32433,46 @@
         }
       }
     },
+    "subscription.trial_ended": {
+      "post": {
+        "summary": "subscription.trial_ended webhook",
+        "description": "A subscription's trial ended: converted, cancelled, switched plan, awaiting a payment or awaiting a decision; sent again when an awaiting outcome resolves",
+        "operationId": "webhook_subscription_trial_ended",
+        "tags": [
+          "webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrialEndedWebhookEvent"
+              },
+              "example": {
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "type": "subscription.trial_ended",
+                "subscription_id": "sub_7n42DGM5Tflk9n8mt7Fhc7",
+                "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
+                "trial_end": "2027-01-15",
+                "outcome": "CONVERTED",
+                "ended_at": "1970-01-01T00:00:00.000Z",
+                "trial_offer_id": "0195f1c2-0000-7000-8000-000000000000",
+                "timestamp": "1970-01-01T00:00:00.000Z"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        }
+      }
+    },
     "subscription.trial_ending_soon": {
       "post": {
         "summary": "subscription.trial_ending_soon webhook",
-        "description": "A subscription's trial ends in 3 days: sent once per trial end",
+        "description": "A subscription's trial ends within 7 days: sent once per trial end, at its start when it is shorter",
         "operationId": "webhook_subscription_trial_ending_soon",
         "tags": [
           "webhooks"
@@ -31925,6 +32492,8 @@
                 "trial_end": "2027-01-15",
                 "free": true,
                 "trial_offer_id": "0195f1c2-0000-7000-8000-000000000000",
+                "billing_starts_on": "2027-01-15",
+                "has_payment_method": true,
                 "timestamp": "1970-01-01T00:00:00.000Z"
               }
             }

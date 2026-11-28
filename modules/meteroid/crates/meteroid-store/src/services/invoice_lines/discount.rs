@@ -124,7 +124,11 @@ pub fn coupon_rows(
             CouponLineItem {
                 coupon_id: applicable_coupon.coupon.id,
                 applied_coupon_id: applicable_coupon.applied_coupon.id,
-                name: format!("Coupon ({})", applicable_coupon.coupon.code), // TODO allow defining a name in coupon
+                name: if applicable_coupon.coupon.is_grant_definition() {
+                    applicable_coupon.coupon.display_label().to_string()
+                } else {
+                    format!("Coupon ({})", applicable_coupon.coupon.code)
+                },
                 code: applicable_coupon.coupon.code.clone(),
                 value: applied.value,
                 quoted_value: None,
@@ -464,6 +468,7 @@ mod tests {
                 eligibility: None,
                 valid_from: None,
                 fixed_amounts: Default::default(),
+                offer_id: None,
             },
             applied_coupon: AppliedCoupon {
                 id: AppliedCouponId::new(),

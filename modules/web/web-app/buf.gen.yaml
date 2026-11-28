@@ -67,6 +67,8 @@ types:
     - meteroid.api.subscriptionphases.v1.SubscriptionPhasesService
     - meteroid.api.targets.v1.TargetsService
     - meteroid.api.trials.v1.TrialsService
+    - meteroid.api.trials.v1.SubscriptionTrialsService
+    - meteroid.api.offers.v1.OffersService
     - meteroid.api.tenants.v1.TenantsService
     - meteroid.api.users.v1.UsersService
     - meteroid.api.budgets.v1.BudgetsService

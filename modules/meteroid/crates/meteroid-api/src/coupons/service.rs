@@ -16,7 +16,6 @@ use meteroid_grpc::meteroid::api::coupons::v1::{
 use meteroid_grpc_mapping::utils::PaginationExt;
 use meteroid_store::domain;
 use meteroid_store::repositories::coupons::CouponInterface;
-use meteroid_store::repositories::coupons::CouponInterfaceAuto;
 use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]
@@ -31,7 +30,7 @@ impl CouponsService for CouponsServiceComponents {
 
         let coupon = self
             .store
-            .get_coupon_by_id(tenant_id, CouponId::from_proto(req.coupon_local_id)?)
+            .get_listed_coupon(tenant_id, CouponId::from_proto(req.coupon_local_id)?)
             .await
             .map(|x| CouponWrapper::from(x).0)
             .map_err(Into::<CouponApiError>::into)?;

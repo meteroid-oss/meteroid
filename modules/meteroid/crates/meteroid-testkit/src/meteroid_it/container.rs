@@ -1139,6 +1139,7 @@ async fn seed_subscriptions(services: &Services) {
         end_date: None,
         billing_start_date: Some(today),
         activation_condition: SubscriptionActivationCondition::OnStart,
+        offer: Default::default(),
         trial: Default::default(),
         billing_day_anchor: None,
         payment_methods_config: None,

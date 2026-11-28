@@ -177,6 +177,31 @@ impl SubscriptionTimelineItemRow {
             .into_db_result()
     }
 
+    /// The item's end moved to `until`, written by the change `end_change_id_param`.
+    pub async fn move_end(
+        conn: &mut PgConn,
+        id_param: uuid::Uuid,
+        until: chrono::NaiveDate,
+        end_change_id_param: common_domain::ids::ScheduledEventId,
+    ) -> DbResult<()> {
+        use crate::schema::subscription_timeline_item::dsl::{
+            end_change_id, id, subscription_timeline_item, until_date,
+        };
+
+        let query = diesel::update(subscription_timeline_item)
+            .filter(id.eq(id_param))
+            .set((until_date.eq(until), end_change_id.eq(end_change_id_param)));
+
+        crate::debug_sql(&query);
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while moving a timeline item's end")
+            .map(|_| ())
+            .into_db_result()
+    }
+
     /// The item's boundaries written again (a rewrite of the timeline, R-162).
     pub async fn rewritten(
         conn: &mut PgConn,

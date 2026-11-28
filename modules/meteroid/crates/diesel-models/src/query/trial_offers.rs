@@ -26,10 +26,11 @@ impl TrialOfferRow {
         conn: &mut PgConn,
         tenant_id_param: &TenantId,
     ) -> DbResult<Vec<TrialOfferRow>> {
-        use crate::schema::trial_offer::dsl::{created_at, tenant_id, trial_offer};
+        use crate::schema::trial_offer::dsl::{created_at, duration_days, tenant_id, trial_offer};
 
         trial_offer
             .filter(tenant_id.eq(tenant_id_param))
+            .filter(duration_days.is_not_null())
             .order(created_at.asc())
             .select(TrialOfferRow::as_select())
             .get_results(conn)
@@ -46,10 +47,13 @@ impl TrialOfferRow {
         include_archived: bool,
         limit: i64,
     ) -> DbResult<Vec<TrialOfferRow>> {
-        use crate::schema::trial_offer::dsl::{archived_at, id, tenant_id, trial_offer};
+        use crate::schema::trial_offer::dsl::{
+            archived_at, duration_days, id, tenant_id, trial_offer,
+        };
 
         let mut query = trial_offer
             .filter(tenant_id.eq(tenant_id_param))
+            .filter(duration_days.is_not_null())
             .select(TrialOfferRow::as_select())
             .order(id.asc())
             .limit(limit)
@@ -119,6 +123,9 @@ impl TrialOfferRow {
                 o::end_action.eq(&self.end_action),
                 o::fallback_plan_version_id.eq(self.fallback_plan_version_id),
                 o::eligibility_scope.eq(&self.eligibility_scope),
+                o::card_required.eq(self.card_required),
+                o::without_card.eq(&self.without_card),
+                o::without_card_plan_version_id.eq(self.without_card_plan_version_id),
                 o::updated_at.eq(self.updated_at),
             ))
             .returning(TrialOfferRow::as_returning())
@@ -147,7 +154,8 @@ impl TrialOfferRow {
             .into_db_result()
     }
 
-    /// The trial of each of `plans` that names one: the offer it names, never archived.
+    /// The trial of each of `plans` that names one: the offer it names, never archived, when it
+    /// gives a trial.
     pub async fn of_plans(
         conn: &mut PgConn,
         tenant_id_param: &TenantId,
@@ -165,6 +173,7 @@ impl TrialOfferRow {
             .filter(p::tenant_id.eq(tenant_id_param))
             .filter(p::id.eq_any(plans))
             .filter(o::archived_at.is_null())
+            .filter(o::duration_days.is_not_null())
             .select((p::id, TrialOfferRow::as_select()))
             .get_results(conn)
             .await

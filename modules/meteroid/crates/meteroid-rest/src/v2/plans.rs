@@ -14,7 +14,7 @@ use crate::v2::pagination::{Cursor, PageQuery, keyset, page};
 use crate::v2::problem::{Problem, ProblemCode};
 use crate::v2::product_families::{WHOLE, family_codes, family_ref};
 use crate::v2::references::{CatalogNames, resolve_refs};
-use crate::v2::refs::{ProductFamilyRef, ResourceTypeRef};
+use crate::v2::refs::{PlanRef, ProductFamilyRef, ResourceTypeRef};
 use axum::Extension;
 use axum::Json;
 use axum::extract::State;
@@ -159,35 +159,49 @@ pub struct OptionInput {
     pub hidden: bool,
 }
 
-/// What a plan's trial gives.
-#[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq, Eq)]
+/// A plan's trial written as its terms: a free period before billing. What is left out is kept
+/// from the plan's current trial (else the card required, `convert`, `await_payment`).
+#[derive(Deserialize, ToSchema, Debug, Clone, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[schema(as = PlanTrialTerms)]
 pub struct Trial {
-    /// Its length in days, 0 to 3650.
+    /// Its length in days, 1 to 3,650.
     pub days: u32,
-    /// Nothing is billed during the trial; `true` when left out.
-    #[serde(default = "yes")]
-    pub free: bool,
-    /// The plan the trial gives access to, by code (id or code on input); none: this plan.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub plan: Option<String>,
+    /// The plan whose features it gives over this one's, by code or id (a reverse trial on a
+    /// free plan); none: this plan's.
+    #[serde(default)]
+    pub features_of: Option<String>,
+    /// Whether sign-up, checkout and the pricing page ask for a card to start it.
+    #[serde(default)]
+    pub card: Option<crate::v2::trials::TrialCard>,
+    /// What its end does.
+    #[serde(default)]
+    pub at_end: Option<crate::v2::trials::TrialAtEndInput>,
+    /// What a converting end does if the subscription is charged automatically and has no
+    /// payment method then.
+    #[serde(default)]
+    pub without_card: Option<crate::v2::trials::TrialWithoutCardInput>,
 }
 
-fn yes() -> bool {
-    true
-}
-
-/// A plan's trial: the trial offer it names, the same on every version. A subscription
-/// created on the plan asking no trial gets it.
+/// A plan's trial: the trial offer it names, the same on every version, a free period before
+/// billing. A subscription created on the plan asking no trial gets it, unless the customer
+/// already had it.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct PlanTrial {
     /// Its length in days.
     pub days: u32,
-    /// Nothing is billed during it.
-    pub free: bool,
-    /// The plan whose features it gives, by code; none: this plan.
+    /// The plan whose features it gives over this one's; none: this plan's.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub plan: Option<String>,
+    pub features_of: Option<PlanRef>,
+    /// Whether sign-up, checkout and the pricing page ask for a card to start it.
+    pub card: crate::v2::trials::TrialCard,
+    /// What its end does.
+    pub at_end: crate::v2::trials::TrialAtEnd,
+    /// What a converting end does if the subscription is charged automatically and has no
+    /// payment method then.
+    pub without_card: crate::v2::trials::TrialWithoutCard,
+    /// Who is given it once.
+    pub eligibility: crate::v2::trials::TrialEligibility,
     /// The trial offer it is; several plans may share one.
     pub offer: crate::v2::subscriptions::model::TrialOfferSummary,
 }
@@ -205,6 +219,7 @@ pub enum PlanTrialInput {
 #[derive(Deserialize, ToSchema, Debug, Clone, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct PlanTrialOffer {
+    /// The offer, by id or code.
     pub offer: String,
 }
 
@@ -725,34 +740,32 @@ fn listing_of(page: PlanPricingPage, rank: Option<i32>) -> Listing {
     }
 }
 
-/// A plan's trial as v2 reads it, its trial plan by code.
+/// A plan's trial as v2 reads it, the plans it names by code.
 async fn plan_trial(
     state: &impl Reader,
     tenant_id: TenantId,
     trial: Option<&meteroid_store::domain::trials::PlanTrial>,
 ) -> Result<Option<PlanTrial>, Problem> {
+    use crate::v2::trials;
     let Some(trial) = trial else {
         return Ok(None);
     };
-    let plan = match trial.offer.trial_plan_id {
+    let offer = &trial.offer;
+    let features_of = match offer.trial_plan_id {
         None => None,
-        Some(id) => Some(
-            state
-                .store()
-                .plan_codes(tenant_id, &[id])
-                .await?
-                .remove(&id)
-                .unwrap_or_else(|| id.to_string()),
-        ),
+        Some(id) => Some(trials::plan_ref(state, tenant_id, id).await?),
     };
     Ok(Some(PlanTrial {
-        days: trial.offer.duration_days,
-        free: trial.offer.free,
-        plan,
+        days: offer.duration_days,
+        features_of,
+        card: trials::card_out(offer.card_required),
+        at_end: trials::at_end_out(state, tenant_id, &offer.end_action).await?,
+        without_card: trials::without_card_out(state, tenant_id, &offer.without_card).await?,
+        eligibility: trials::eligibility_out(offer.eligibility),
         offer: crate::v2::subscriptions::model::TrialOfferSummary {
-            id: trial.offer.id,
-            code: trial.offer.code.clone(),
-            name: trial.offer.name.clone(),
+            id: offer.id,
+            code: offer.code.clone(),
+            name: offer.name.clone(),
         },
     }))
 }
@@ -1541,6 +1554,7 @@ pub async fn create_plan(
     request_body(content = UpdatePlan, content_type = "application/merge-patch+json", example = json!(crate::v2::examples::request("update_plan"))),
     responses(
         (status = 200, description = "Updated, with its active version (else its draft)", body = Plan, example = json!(crate::v2::examples::response("update_plan"))),
+        (status = 403, description = "The trial switches to a paid plan, which is not in your plan", body = Problem, content_type = "application/problem+json"),
         (status = 404, description = "Not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The plan's state refuses the change", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A field is refused", body = Problem, content_type = "application/problem+json"),
@@ -1624,6 +1638,7 @@ pub async fn update_plan(
         None => None,
         Some(None) => Some(meteroid_store::domain::trials::PlanTrialChange::Terms(None)),
         Some(Some(PlanTrialInput::Terms(trial))) => {
+            use crate::v2::trials;
             bounds::trial_days(trial.days, "/trial/days")?;
             if trial.days == 0 {
                 return Err(Problem::field(
@@ -1632,28 +1647,47 @@ pub async fn update_plan(
                     "A trial lasts a day at least: send null for none",
                 ));
             }
-            let trial_plan_id = match trial.plan.as_deref() {
+            let trial_plan_id = match trial.features_of.as_deref() {
                 None => None,
-                Some(plan) => Some(ids::plan_id(&state, auth.tenant_id, plan).await.map_err(
-                    |problem| {
-                        if problem.status == 404 {
-                            Problem::field(
-                                "/trial/plan",
-                                "not_found",
-                                format!("plan {plan} not found"),
-                            )
-                        } else {
-                            problem
-                        }
-                    },
-                )?),
+                Some(plan) => {
+                    Some(trials::plan_in(&state, auth.tenant_id, plan, "/trial/features_of").await?)
+                }
             };
+            let end_action = match &trial.at_end {
+                Some(at_end) => {
+                    Some(trials::at_end_in(&state, auth.tenant_id, at_end, "/trial/at_end").await?)
+                }
+                None => None,
+            };
+            let without_card = match &trial.without_card {
+                Some(input) => Some(
+                    trials::without_card_in(&state, auth.tenant_id, input, "/trial/without_card")
+                        .await?,
+                ),
+                None => None,
+            };
+            let terms = meteroid_store::domain::trials::TrialTerms {
+                card_required: trial.card.map(|card| card == trials::TrialCard::Required),
+                end_action,
+                without_card,
+                ..meteroid_store::domain::trials::TrialTerms::days(trial.days, trial_plan_id)
+            };
+            let switches_to_paid = state
+                .store
+                .trial_switches_to_paid(auth.tenant_id, plan_id, &terms)
+                .await
+                .map_err(|error| Problem::at("/trial", error))?;
+            meteroid_app::features::ensure_change_allowed(
+                state.feature_resolver.as_ref(),
+                auth.organization_id,
+                meteroid_app::features::gates::SUBSCRIPTION_PHASES,
+                switches_to_paid,
+                meteroid_app::features::TRIAL_PAID_SWITCH_NOT_IN_PLAN,
+            )
+            .await
+            .map_err(Problem::gated)?;
             Some(meteroid_store::domain::trials::PlanTrialChange::Terms(
-                Some(meteroid_store::domain::trials::TrialTerms {
-                    duration_days: trial.days,
-                    free: trial.free,
-                    trial_plan_id,
-                }),
+                Some(terms),
             ))
         }
         Some(Some(PlanTrialInput::Offer(named))) => {

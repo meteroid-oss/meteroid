@@ -279,6 +279,8 @@ impl Services {
                         )
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
+                        crate::services::offers::apply::withdraw_tx(conn, tenant_id, subscription_id)
+                            .await?;
 
                         let activity = {
                             let mut a = Activity::new(

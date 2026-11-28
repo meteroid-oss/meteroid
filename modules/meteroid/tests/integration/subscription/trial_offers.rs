@@ -23,7 +23,9 @@ async fn offer(
                 duration_days: 14,
                 free: true,
                 trial_plan_id: None,
+                card_required: true,
                 end_action,
+                without_card: meteroid_store::domain::trials::TrialWithoutCard::AwaitPayment,
                 eligibility,
             },
         )
@@ -329,6 +331,7 @@ pub(super) async fn draft_quote(
                 trial_duration_days,
                 trial_free: None,
                 trial_plan_id: None,
+                trial_end_action: Default::default(),
                 resource_id: None,
                 billing_start_date: Some(day(1, 1)),
                 billing_end_date: None,
@@ -626,7 +629,9 @@ async fn a_reverse_trial_gives_the_offers_plan_and_only_it(#[future] test_env: T
                 duration_days: 14,
                 free: true,
                 trial_plan_id: Some(PLAN_PRO_ID),
+                card_required: true,
                 end_action: TrialEndAction::Convert,
+                without_card: meteroid_store::domain::trials::TrialWithoutCard::AwaitPayment,
                 eligibility: TrialEligibility::None,
             },
         )
@@ -853,6 +858,9 @@ async fn a_trial_is_extended_or_ended_and_an_edited_offer_holds_for_what_comes(
             trial_plan_id: None,
             offer_id: Some(trial),
             end_action: TrialEnd::Convert,
+            without_card: meteroid_store::domain::trials::TrialWithoutCard::AwaitPayment,
+            outcome: None,
+            ended_at: None,
         }
     );
     env.services()
@@ -895,15 +903,15 @@ async fn a_trial_is_extended_or_ended_and_an_edited_offer_holds_for_what_comes(
     }
 }
 
-/// A trial cancelling at its end, extended, cancels on its new end (its end date, no term); it is
-/// not ended early.
-/// Rules: R-153
+/// A trial cancelling at its end, extended, cancels on its new end (its end date, no term); ended
+/// now, it ends today, nothing billed, its outcome cancelled.
+/// Rules: R-153, R-167
 #[rstest]
 #[tokio::test]
-async fn a_cancelling_trial_extended_cancels_later_and_is_not_ended_early(
+async fn a_cancelling_trial_extended_cancels_later_and_ended_now_ends_today(
     #[future] test_env: TestEnv,
 ) {
-    use meteroid_store::domain::trials::TrialMove;
+    use meteroid_store::domain::trials::{TrialMove, TrialOutcome};
     let env = test_env.await;
     env.set_now(at(1, 1, 12));
     let ends = offer(&env, TrialEndAction::Cancel, TrialEligibility::None).await;
@@ -915,11 +923,6 @@ async fn a_cancelling_trial_extended_cancels_later_and_is_not_ended_early(
         .create(env.services())
         .await;
     env.set_now(at(1, 5, 12));
-    let early = env
-        .services()
-        .move_trial(Actor::System, TENANT_ID, sub_id, TrialMove::Now)
-        .await;
-    assert!(format!("{:?}", early.expect_err("not ended early")).contains("cancelling"));
     env.services()
         .move_trial(Actor::System, TENANT_ID, sub_id, TrialMove::Days(7))
         .await
@@ -928,4 +931,322 @@ async fn a_cancelling_trial_extended_cancels_later_and_is_not_ended_early(
         env.get_subscription(sub_id).await.end_date,
         Some(day(1, 22))
     );
+    env.set_now(at(1, 8, 12));
+    let ended = env
+        .services()
+        .move_trial(Actor::System, TENANT_ID, sub_id, TrialMove::Now)
+        .await
+        .expect("ended today");
+    assert_eq!(
+        (ended.until, ended.outcome),
+        (day(1, 8), Some(TrialOutcome::Cancelled))
+    );
+    assert_eq!(env.get_subscription(sub_id).await.end_date, Some(day(1, 8)));
+    env.run_until(day(1, 10)).await;
+    assert_eq!(
+        env.get_subscription(sub_id).await.status,
+        diesel_models::enums::SubscriptionStatusEnum::Completed
+    );
+    assert!(billed(&env, sub_id).await.is_empty());
+}
+
+/// A trial falling back to the annual plan, ended now on January 5, switches today: 290.00 a
+/// year from January 5, its outcome switched.
+/// Rules: R-153, R-150, R-167
+#[rstest]
+#[tokio::test]
+async fn a_falling_back_trial_ended_now_switches_today(#[future] test_env: TestEnv) {
+    use meteroid_store::domain::trials::{TrialMove, TrialOutcome};
+    let env = test_env.await;
+    env.set_now(at(1, 1, 12));
+    let (annual, _) = seed_annual_platform(&env).await;
+    let falls_back = offer(
+        &env,
+        TrialEndAction::Fallback {
+            plan_version_id: annual,
+        },
+        TrialEligibility::None,
+    )
+    .await;
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(day(1, 1))
+        .on_start()
+        .trial_offer(falls_back)
+        .create(env.services())
+        .await;
+    env.set_now(at(1, 5, 12));
+    let ended = env
+        .services()
+        .move_trial(Actor::System, TENANT_ID, sub_id, TrialMove::Now)
+        .await
+        .expect("switched today");
+    assert_eq!(ended.outcome, Some(TrialOutcome::Switched));
+    env.run_until(day(1, 7)).await;
+    assert_eq!(
+        billed(&env, sub_id).await,
+        vec!["Recurring 2024-01-05: Platform Fee 2024-01-05..2025-01-05 29000"]
+    );
+    assert_eq!(env.get_subscription(sub_id).await.plan_version_id, annual);
+}
+
+/// The lines billing something.
+async fn billed(env: &TestEnv, sub_id: common_domain::ids::SubscriptionId) -> Vec<String> {
+    documents(env, sub_id)
+        .await
+        .into_iter()
+        .filter(|line| !line.ends_with(" 0"))
+        .collect()
+}
+
+async fn trial_of(
+    env: &TestEnv,
+    sub_id: common_domain::ids::SubscriptionId,
+) -> meteroid_store::domain::trials::SubscriptionTrial {
+    env.services()
+        .subscription_trial(TENANT_ID, sub_id)
+        .await
+        .expect("read")
+        .expect("a trial")
+        .0
+}
+
+/// A converting offer of two weeks taking `without_card` when no payment method resolves.
+async fn without_card_offer(
+    env: &TestEnv,
+    end_action: TrialEndAction,
+    without_card: meteroid_store::domain::trials::TrialWithoutCard,
+) -> common_domain::ids::TrialOfferId {
+    env.services()
+        .create_trial_offer(
+            TENANT_ID,
+            TrialOfferNew {
+                name: "Two weeks, no card".to_string(),
+                code: None,
+                duration_days: 14,
+                free: true,
+                trial_plan_id: None,
+                card_required: false,
+                end_action,
+                without_card,
+                eligibility: TrialEligibility::None,
+            },
+        )
+        .await
+        .expect("an offer")
+        .id
+}
+
+/// Starter from January 1 on `offer`, charged automatically through the mock card provider, the
+/// customer holding no payment method.
+async fn without_a_card(
+    env: &TestEnv,
+    offer: common_domain::ids::TrialOfferId,
+) -> common_domain::ids::SubscriptionId {
+    subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(day(1, 1))
+        .on_start()
+        .auto_charge()
+        .trial_offer(offer)
+        .create(env.services())
+        .await
+}
+
+/// Without a card at the trial's end, awaiting payment: TrialExpired on January 15 with its
+/// opening invoice issued and nothing renewed; paid on January 20, Active and converted, and
+/// February is billed.
+/// Rules: R-179, R-167
+#[rstest]
+#[tokio::test]
+async fn a_trial_ending_without_a_card_awaits_its_payment(#[future] test_env: TestEnv) {
+    use diesel_models::enums::SubscriptionStatusEnum;
+    use meteroid_store::domain::enums::InvoiceStatusEnum;
+    use meteroid_store::domain::trials::{TrialOutcome, TrialWithoutCard};
+    let env = test_env.await;
+    env.seed_mock_payment_provider(false).await;
+    env.set_now(at(1, 1, 12));
+    let awaits = without_card_offer(
+        &env,
+        TrialEndAction::Convert,
+        TrialWithoutCard::AwaitPayment,
+    )
+    .await;
+    let sub_id = without_a_card(&env, awaits).await;
+    env.run_until(day(1, 18)).await;
+    assert_eq!(
+        env.get_subscription(sub_id).await.status,
+        SubscriptionStatusEnum::TrialExpired
+    );
+    assert_eq!(
+        trial_of(&env, sub_id).await.outcome,
+        Some(TrialOutcome::AwaitingPayment)
+    );
+    assert_eq!(
+        billed(&env, sub_id).await,
+        vec![
+            "Recurring 2024-01-15: Platform Fee 2024-01-15..2024-02-15 2900",
+            "Recurring 2024-01-15: Seats 2024-01-15..2024-02-15 1000",
+        ]
+    );
+
+    env.set_now(at(1, 20, 12));
+    let opening = env
+        .get_invoices(sub_id)
+        .await
+        .into_iter()
+        .find(|invoice| invoice.status == InvoiceStatusEnum::Finalized && invoice.total > 0)
+        .expect("the opening invoice issued");
+    env.services()
+        .mark_invoice_as_paid(
+            Actor::System,
+            TENANT_ID,
+            opening.id,
+            rust_decimal::Decimal::new(opening.total, 2),
+            at(1, 20, 12).fixed_offset(),
+            None,
+        )
+        .await
+        .expect("paid");
+    env.run_outbox_and_orchestration().await;
+    assert_eq!(
+        env.get_subscription(sub_id).await.status,
+        SubscriptionStatusEnum::Active
+    );
+    assert_eq!(
+        trial_of(&env, sub_id).await.outcome,
+        Some(TrialOutcome::Converted)
+    );
+    env.run_until(day(2, 16)).await;
+    assert!(
+        billed(&env, sub_id).await.contains(
+            &"Recurring 2024-02-15: Platform Fee 2024-02-15..2024-03-15 2900".to_string()
+        )
+    );
+}
+
+/// Without a card at the trial's end, cancel: the subscription completes on January 15, nothing
+/// billed; switch: it moves to the annual plan on January 15. A customer with a card converts.
+/// Rules: R-179, R-167
+#[rstest]
+#[tokio::test]
+async fn a_trial_ending_without_a_card_cancels_or_switches(#[future] test_env: TestEnv) {
+    use diesel_models::enums::SubscriptionStatusEnum;
+    use meteroid_store::domain::trials::{TrialOutcome, TrialWithoutCard};
+    let env = test_env.await;
+    env.seed_mock_payment_provider(false).await;
+    env.set_now(at(1, 1, 12));
+    let (annual, _) = seed_annual_platform(&env).await;
+    let cancels = without_card_offer(&env, TrialEndAction::Convert, TrialWithoutCard::Cancel).await;
+    let switches = without_card_offer(
+        &env,
+        TrialEndAction::Convert,
+        TrialWithoutCard::Switch {
+            plan_version_id: annual,
+        },
+    )
+    .await;
+    let cancelled = without_a_card(&env, cancels).await;
+    let switched = without_a_card(&env, switches).await;
+    env.run_until(day(1, 17)).await;
+
+    assert_eq!(
+        env.get_subscription(cancelled).await.status,
+        SubscriptionStatusEnum::Completed
+    );
+    assert!(billed(&env, cancelled).await.is_empty());
+    let trial = trial_of(&env, cancelled).await;
+    assert_eq!(
+        (trial.outcome, trial.ended_at),
+        (
+            Some(TrialOutcome::Cancelled),
+            Some(day(1, 15).and_hms_opt(0, 0, 0).unwrap())
+        )
+    );
+
+    assert_eq!(env.get_subscription(switched).await.plan_version_id, annual);
+    assert_eq!(
+        billed(&env, switched).await,
+        vec!["Recurring 2024-01-15: Platform Fee 2024-01-15..2025-01-15 29000"]
+    );
+    assert_eq!(
+        trial_of(&env, switched).await.outcome,
+        Some(TrialOutcome::Switched)
+    );
+}
+
+/// A manual end bills nothing from January 15 and keeps the trial: converted now on January 20 it
+/// bills from then; extended by ten days it runs again to January 25; cancelled with it, it ends
+/// on January 20, nothing billed.
+/// Rules: R-167
+#[rstest]
+#[tokio::test]
+async fn a_manual_trial_awaits_a_decision(#[future] test_env: TestEnv) {
+    use diesel_models::enums::SubscriptionStatusEnum;
+    use meteroid_store::domain::trials::{TrialMove, TrialOutcome};
+    let env = test_env.await;
+    env.set_now(at(1, 1, 12));
+    let manual = offer(&env, TrialEndAction::Manual, TrialEligibility::None).await;
+    let starter = || {
+        subscription()
+            .plan_version(PLAN_VERSION_STARTER_ID)
+            .start_date(day(1, 1))
+            .on_start()
+            .trial_offer(manual)
+    };
+    let converted = starter().create(env.services()).await;
+    let extended = starter().create(env.services()).await;
+    let cancelled = starter().create(env.services()).await;
+    env.run_until(day(1, 19)).await;
+    for sub in [converted, extended, cancelled] {
+        let row = env.get_subscription(sub).await;
+        assert_eq!(
+            (row.status, row.current_period_end),
+            (SubscriptionStatusEnum::TrialActive, None)
+        );
+        assert_eq!(
+            trial_of(&env, sub).await.outcome,
+            Some(TrialOutcome::AwaitingDecision)
+        );
+        assert!(billed(&env, sub).await.is_empty());
+    }
+
+    env.set_now(at(1, 20, 12));
+    let now = env
+        .services()
+        .move_trial(Actor::System, TENANT_ID, converted, TrialMove::Now)
+        .await
+        .expect("converted today");
+    assert_eq!(now.outcome, Some(TrialOutcome::Converted));
+    let later = env
+        .services()
+        .move_trial(Actor::System, TENANT_ID, extended, TrialMove::Days(10))
+        .await
+        .expect("ten days more");
+    assert_eq!((later.until, later.outcome), (day(1, 25), None));
+    let ended = env
+        .services()
+        .move_trial(Actor::System, TENANT_ID, cancelled, TrialMove::Cancel)
+        .await
+        .expect("cancelled with it");
+    assert_eq!(ended.outcome, Some(TrialOutcome::Cancelled));
+
+    env.run_until(day(1, 26)).await;
+    assert_eq!(
+        billed(&env, converted).await,
+        vec![
+            "Recurring 2024-01-20: Platform Fee 2024-01-20..2024-02-20 2900",
+            "Recurring 2024-01-20: Seats 2024-01-20..2024-02-20 1000",
+        ]
+    );
+    assert_eq!(
+        trial_of(&env, extended).await.outcome,
+        Some(TrialOutcome::AwaitingDecision)
+    );
+    assert!(billed(&env, extended).await.is_empty());
+    assert_eq!(
+        env.get_subscription(cancelled).await.status,
+        SubscriptionStatusEnum::Completed
+    );
+    assert!(billed(&env, cancelled).await.is_empty());
 }

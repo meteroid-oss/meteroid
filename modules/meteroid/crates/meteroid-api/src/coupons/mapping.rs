@@ -72,6 +72,7 @@ pub mod coupons {
                 eligibility: value.eligibility.map(crate::eligibility::to_proto),
                 valid_from: value.valid_from.as_proto(),
                 duration_months: value.duration_months,
+                offer_id: value.offer_id.map(|id| id.as_proto()),
             })
         }
     }

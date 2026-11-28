@@ -6,6 +6,7 @@ import { Outlet, useLocation, useNavigate, useParams } from 'react-router'
 import { Gate } from '@/components/Gate'
 import { AddIcon } from '@/components/icons/AppIcons'
 import { ListPageLayout, ListToolbarSearch, RefreshButton } from '@/components/layouts'
+import { OffersTabs } from '@/features/offers/OffersTabs'
 import { CouponDetails } from '@/features/productCatalog/coupons/CouponDetails'
 import { CouponsTable } from '@/features/productCatalog/coupons/CouponsTable'
 import { useDebounceValue } from '@/hooks/useDebounce'
@@ -15,6 +16,7 @@ import { useQuery } from '@/lib/connectrpc'
 import { sortingStateToOrderBy } from '@/lib/utils/sorting'
 import { listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
 import { ListCouponRequest_CouponFilter } from '@/rpc/api/coupons/v1/coupons_pb'
+import { listOffers } from '@/rpc/api/offers/v1/offers-OffersService_connectquery'
 
 export const CouponsPage: FunctionComponent = () => {
   const navigate = useNavigate()
@@ -56,11 +58,13 @@ export const CouponsPage: FunctionComponent = () => {
     filter: filter,
     orderBy: sortingStateToOrderBy(sorting),
   })
+  const catalogOffers = useQuery(listOffers, { includeArchived: true }).data?.offers
 
   return (
     <>
       <ListPageLayout
-        title="Coupons"
+        title="Offers"
+        tabs={<OffersTabs active="coupons" />}
         panel={
           couponLocalId && (
             <CouponDetails
@@ -70,7 +74,7 @@ export const CouponsPage: FunctionComponent = () => {
             />
           )
         }
-        tabs={
+        footer={
           <Tabs value={statusFilter} onValueChange={setStatusFilter}>
             <TabsList variant="ghost">
               <TabsTrigger value="all">All</TabsTrigger>
@@ -105,6 +109,7 @@ export const CouponsPage: FunctionComponent = () => {
           sorting={sorting}
           onSortingChange={handleSortingChange}
           selectedLocalId={couponLocalId}
+          offerName={id => catalogOffers?.find(offer => offer.id === id)?.name}
         />
       </ListPageLayout>
       <Outlet />

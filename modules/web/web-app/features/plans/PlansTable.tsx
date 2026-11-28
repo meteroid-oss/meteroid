@@ -129,7 +129,7 @@ export const PlansTable: FunctionComponent<PlansTableProps> = ({
             {!!row.original.trial?.terms && (
               <div className="text-xs text-muted-foreground">
                 {row.original.trial.terms.durationDays}-day{' '}
-                {row.original.trial.terms.free ? 'free trial' : 'trial'}
+                {row.original.planType === PlanType.FREE ? 'reverse trial' : 'trial'}
               </div>
             )}
           </div>

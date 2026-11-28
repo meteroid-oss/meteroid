@@ -14,7 +14,7 @@ import type { EventSummary } from '@/rpc/api/events/v1/events_pb'
 import type { InvoiceAnnex } from '@/rpc/api/invoices/v1/models_pb'
 import type { MinimumCommitment, PlanTrial, PlanVersion } from '@/rpc/api/plans/v1/models_pb'
 import type { DetailedQuote, QuoteAttachment } from '@/rpc/api/quotes/v1/models_pb'
-import type { Subscription, TrialConfig } from '@/rpc/api/subscriptions/v1/models_pb'
+import type { Subscription } from '@/rpc/api/subscriptions/v1/models_pb'
 import type { PendingInvoiceCredit } from '@/rpc/api/subscriptions/v1/subscriptions_pb'
 import type { Wallet, WalletStatus, WalletSummary } from '@/rpc/api/wallets/v1/models_pb'
 import type { Wallet as PortalWallet } from '@/rpc/portal/wallets/v1/models_pb'
@@ -66,25 +66,31 @@ export interface QuotePhasesFieldContext {
   currency?: string
 }
 
-/** A catalog offer a subscription being created is given; none takes what the core card asks. */
-export interface TrialOfferFieldContext {
+/** The catalog offer a subscription being created is given in place of its plan's start offer. */
+export interface StartOfferFieldContext {
   planId: string
   value?: string
-  onChange: (trialOfferId?: string) => void
+  onChange: (offerId?: string) => void
 }
 
-/** The plan's trial in its editor: the catalog's part of it, after the core fields. */
+/** A catalog offer opened from the Offers page; unset `offerId`: a new one. */
+export interface OfferEditorContext {
+  offerId?: string
+  onClose: () => void
+}
+
+/** A tab of the Offers page, after Offers and Coupons: a page of its own under the tenant. */
+export interface OffersTab {
+  label: string
+  path: string
+}
+
+/** The plan's start offer in its editor: the catalog's part of it, after the core fields. */
 export interface PlanTrialContext {
   planId: string
   trial?: PlanTrial
   readOnly: boolean
   onDone: () => void
-}
-
-/** A running trial's actions on the subscription page. */
-export interface SubscriptionTrialActionsContext {
-  subscriptionId: string
-  trial: TrialConfig
 }
 
 export interface InvoicingEntityCreateContext {
@@ -543,12 +549,12 @@ export interface ComponentSlots {
   'planEdit.creditRule': PlanCreditRuleContext
   /** The plan version's minimum, in its Contract terms; without one, a stored minimum shows read-only. */
   'planDetail.minimumCommitment': PlanMinimumCommitmentContext
-  /** In the subscription creation's Trial card, after the plan's trial. */
-  'subscriptionCreate.trialOffer': TrialOfferFieldContext
-  /** In the plan's Trial card, after its own fields. */
+  /** In the subscription creation's Start offer card, once "Catalog offer" is chosen; without one, no such choice. */
+  'subscriptionCreate.offer': StartOfferFieldContext
+  /** The Offers page's editor of a catalog offer; the first one is used. Without one, offers are read only. */
+  'offers.editor': OfferEditorContext
+  /** In the plan's Start offer form, after its grants and before its actions; without one, eligibility shows read-only. */
   'planDetail.trial': PlanTrialContext
-  /** On the subscription's Trial card: extend it, end it now. */
-  'subscriptionDetail.trialActions': SubscriptionTrialActionsContext
   /** The Contract terms of the subscription creation; without one, the subscription takes the plan's minimum. */
   'subscriptionCreate.minimumCommitment': MinimumCommitmentFieldContext
   /** The Contract terms of the quote form; without one, an edited quote keeps its minimum and a new one takes the plan's. */
@@ -620,6 +626,8 @@ export type Slots = {
   'quoteDetail.lineComments': QuoteLineComments
   /** Tabs of the quotes page, after Quotes; without one, the page has no tabs. */
   'quoteList.tabs': QuoteListTab
+  /** Tabs of the Offers page, after Offers and Coupons. */
+  'offers.tabs': OffersTab
   /** Entries of the subscription's action menu, after Edit Billing Settings. */
   'subscriptionDetail.actions': DetailAction<SubscriptionDetailContext>
   'eventList.selectionActions': EventSelectionAction

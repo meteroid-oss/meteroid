@@ -21,12 +21,13 @@ use meteroid_rest::webhooks::out_model::{
     WebhookOutAutoTopUpCapReachedEvent, WebhookOutAutoTopUpConsentChangedEvent,
     WebhookOutAutoTopUpEvent, WebhookOutBudgetAlertEvent,
     WebhookOutCheckoutPaymentKeptAsCreditEvent, WebhookOutCreditGrantExpiredEvent,
-    WebhookOutEntitlementAlertEvent, WebhookOutOverrideEndingEvent, WebhookOutRenewalUpcomingEvent,
-    WebhookOutRetentionSessionEvent, WebhookOutTooManyGroupsEvent, WebhookOutTrialEndingEvent,
-    WebhookOutWalletBalanceLowEvent, WebhookOutWalletCreditRecoveredEvent,
-    WebhookOutWalletCreditUnrecoveredEvent, WebhookOutWalletDebitedEvent,
-    WebhookOutWalletDepletedEvent, WebhookOutWalletFundedEvent, WebhookOutWalletRecoveredEvent,
-    WebhookOutWorkflowRunEvent,
+    WebhookOutCreditGrantUpdatedEvent, WebhookOutEntitlementAlertEvent, WebhookOutGrantEndedEvent,
+    WebhookOutOfferAppliedEvent, WebhookOutOverrideEndingEvent, WebhookOutRenewalUpcomingEvent,
+    WebhookOutRetentionSessionEvent, WebhookOutTooManyGroupsEvent, WebhookOutTrialEndedEvent,
+    WebhookOutTrialEndingEvent, WebhookOutWalletBalanceLowEvent,
+    WebhookOutWalletCreditRecoveredEvent, WebhookOutWalletCreditUnrecoveredEvent,
+    WebhookOutWalletDebitedEvent, WebhookOutWalletDepletedEvent, WebhookOutWalletFundedEvent,
+    WebhookOutWalletRecoveredEvent, WebhookOutWorkflowRunEvent,
 };
 use meteroid_rest_common::api_versions::receives_v2_payloads;
 use meteroid_rest_common::datetime::ApiDateTime;
@@ -344,6 +345,9 @@ pub(crate) fn to_webhook_message(
         OutboxEvent::CreditGrantExpired(e) => {
             typed!(CreditGrantExpired, WebhookOutCreditGrantExpiredEvent, e)
         }
+        OutboxEvent::CreditGrantUpdated(e) => {
+            typed!(CreditGrantUpdated, WebhookOutCreditGrantUpdatedEvent, e)
+        }
         OutboxEvent::EntitlementUsageThresholdReached(e) => typed!(
             EntitlementUsageThresholdReached,
             WebhookOutEntitlementAlertEvent,
@@ -391,6 +395,11 @@ pub(crate) fn to_webhook_message(
         OutboxEvent::WorkflowRunFailed(e) => {
             typed!(WorkflowRunFailed, WebhookOutWorkflowRunEvent, e)
         }
+        OutboxEvent::SubscriptionTrialEnded(e) => {
+            typed!(SubscriptionTrialEnded, WebhookOutTrialEndedEvent, e)
+        }
+        OutboxEvent::OfferApplied(e) => typed!(OfferApplied, WebhookOutOfferAppliedEvent, e),
+        OutboxEvent::GrantEnded(e) => typed!(GrantEnded, WebhookOutGrantEndedEvent, e),
         OutboxEvent::WalletBalanceLow(e) => {
             typed!(WalletBalanceLow, WebhookOutWalletBalanceLowEvent, e)
         }

@@ -14,8 +14,8 @@ use super::{db, invalid};
 use crate::StoreResult;
 use crate::domain::entity_activity::{Activity, ActivityType, AuditInput, EntityType};
 use crate::domain::trials::{
-    MAX_TRIAL_DAYS, PlanTrial, TrialEligibility, TrialEndAction, TrialOffer, TrialOfferNew,
-    TrialOfferPatch, TrialTerms,
+    MAX_TRIAL_DAYS, PlanTrial, TRIAL_IS_FREE, TrialEligibility, TrialEndAction, TrialOffer,
+    TrialOfferNew, TrialOfferPatch, TrialTerms, TrialWithoutCard,
 };
 use crate::errors::StoreError;
 use crate::services::Services;
@@ -180,8 +180,9 @@ async fn update_offer_tx(
 }
 
 /// The plan's trial set to `terms`, in the caller's transaction: its offer edited in place when no
-/// other plan names it, else a new offer of its own, the offer's other settings kept. `None`
-/// removes it; an offer then named by no plan and without a code is archived.
+/// other plan names it, else a new offer of its own, the offer's other settings kept (a new one
+/// given once per product family). `None` removes it; an offer then named by no plan and without
+/// a code is archived.
 pub(crate) async fn set_plan_trial_tx(
     internal: &crate::store::StoreInternal,
     conn: &mut PgConn,
@@ -190,7 +191,18 @@ pub(crate) async fn set_plan_trial_tx(
     plan_id: PlanId,
     terms: Option<TrialTerms>,
 ) -> StoreResult<()> {
+    if terms.is_some_and(|terms| !terms.free) {
+        return Err(crate::errors::TrialRefusal::Billed.report(TRIAL_IS_FREE));
+    }
     let plan = db(PlanRow::find_by_id(conn, plan_id, tenant_id).await)?;
+    if let Some(id) = plan.trial_offer_id
+        && crate::services::offers::catalog::gives_more_than_a_trial_tx(conn, tenant_id, id).await?
+    {
+        return crate::services::offers::catalog::set_plan_trial_keeping_grants_tx(
+            internal, conn, actor, tenant_id, plan_id, terms,
+        )
+        .await;
+    }
     let current = match plan.trial_offer_id {
         Some(id) => Some(find_tx(conn, tenant_id, &AliasOr::Id(id)).await?),
         None => None,
@@ -210,11 +222,13 @@ pub(crate) async fn set_plan_trial_tx(
                 db(TrialOfferRow::archive(conn, &tenant_id, offer.id).await)?;
             }
         }
-        (Some(terms), Some(offer)) if offer.terms() == normalized(terms, plan_id) => {
+        (Some(terms), Some(offer))
+            if offer.terms() == normalized(terms, plan_id, Some(&offer.terms())) =>
+        {
             return Ok(());
         }
         (Some(terms), Some(offer)) if !shared && offer.archived_at.is_none() => {
-            let terms = normalized(terms, plan_id);
+            let terms = normalized(terms, plan_id, Some(&offer.terms()));
             update_offer_tx(
                 conn,
                 tenant_id,
@@ -223,16 +237,19 @@ pub(crate) async fn set_plan_trial_tx(
                     duration_days: Some(terms.duration_days),
                     free: Some(terms.free),
                     trial_plan_id: Some(terms.trial_plan_id),
+                    card_required: terms.card_required,
+                    end_action: terms.end_action,
+                    without_card: terms.without_card,
                     ..TrialOfferPatch::default()
                 },
             )
             .await?;
         }
         (Some(terms), current) => {
-            let terms = normalized(terms, plan_id);
-            let (end_action, eligibility) = current
-                .map(|offer| (offer.end_action, offer.eligibility))
-                .unwrap_or((TrialEndAction::Convert, TrialEligibility::None));
+            let terms = normalized(terms, plan_id, current.as_ref().map(|o| o.terms()).as_ref());
+            let eligibility = current
+                .as_ref()
+                .map_or(TrialEligibility::ProductFamily, |offer| offer.eligibility);
             let row = offer_row(
                 conn,
                 tenant_id,
@@ -243,28 +260,41 @@ pub(crate) async fn set_plan_trial_tx(
                     duration_days: terms.duration_days,
                     free: terms.free,
                     trial_plan_id: terms.trial_plan_id,
-                    end_action,
+                    card_required: terms.card_required.unwrap_or(true),
+                    end_action: terms.end_action.unwrap_or(TrialEndAction::Convert),
+                    without_card: terms.without_card.unwrap_or_default(),
                     eligibility,
                 },
                 None,
             )
             .await?;
-            let offer = db(row.insert(conn).await)?;
+            let offer = db(TrialOfferRow {
+                standalone: false,
+                ..row
+            }
+            .insert(conn)
+            .await)?;
             db(TrialOfferRow::set_for_plan(conn, &tenant_id, plan_id, Some(offer.id)).await)?;
         }
     }
     audit_tx(internal, conn, actor, tenant_id, plan_id).await
 }
 
-/// A trial giving the plan's own features gives none of another.
-fn normalized(terms: TrialTerms, plan_id: PlanId) -> TrialTerms {
+/// Every term set over the current ones; a trial giving the plan's own features gives none of
+/// another.
+pub(crate) fn normalized(
+    terms: TrialTerms,
+    plan_id: PlanId,
+    current: Option<&TrialTerms>,
+) -> TrialTerms {
+    let terms = terms.over(current);
     TrialTerms {
         trial_plan_id: terms.trial_plan_id.filter(|id| *id != plan_id),
         ..terms
     }
 }
 
-async fn audit_tx(
+pub(crate) async fn audit_tx(
     internal: &crate::store::StoreInternal,
     conn: &mut PgConn,
     actor: &Actor,
@@ -291,6 +321,9 @@ async fn offer_row(
     offer: TrialOfferNew,
     own_code: Option<&str>,
 ) -> StoreResult<TrialOfferRow> {
+    if !offer.free {
+        return Err(crate::errors::TrialRefusal::Billed.report(TRIAL_IS_FREE));
+    }
     if offer.name.trim().is_empty() || !(1..=MAX_TRIAL_DAYS).contains(&offer.duration_days) {
         return Err(invalid(format!(
             "a trial offer is named and lasts 1 to {MAX_TRIAL_DAYS} days"
@@ -300,20 +333,17 @@ async fn offer_row(
         db(PlanRow::find_by_id(conn, plan, tenant_id).await)
             .map_err(|_| invalid(format!("no plan {plan} for the trial to give")))?;
     }
-    let fallback = match &offer.end_action {
+    let fallback = match offer.end_action {
         TrialEndAction::Fallback { plan_version_id } => {
-            if !offer.free {
-                return Err(invalid(
-                    "a trial falling back to another plan is free: the switch is on the billing start",
-                ));
-            }
-            let version = db(PlanRow::get_with_version(conn, *plan_version_id, tenant_id).await)?
-                .version
-                .ok_or_else(|| invalid("no such plan version to fall back to"))?;
-            if version.is_draft_version {
-                return Err(invalid("a trial falls back to a published plan version"));
-            }
-            Some(*plan_version_id)
+            published_tx(conn, tenant_id, plan_version_id).await?;
+            Some(plan_version_id)
+        }
+        _ => None,
+    };
+    let without_card_plan = match offer.without_card {
+        TrialWithoutCard::Switch { plan_version_id } => {
+            published_tx(conn, tenant_id, plan_version_id).await?;
+            Some(plan_version_id)
         }
         _ => None,
     };
@@ -323,7 +353,7 @@ async fn offer_row(
         .map(str::trim)
         .filter(|code| !code.is_empty());
     if let Some(code) = code.filter(|code| Some(*code) != own_code) {
-        crate::domain::catalog_codes::validate_code(code, "tro_").map_err(Report::new)?;
+        crate::domain::catalog_codes::validate_code(code, "ofr_").map_err(Report::new)?;
         if db(TrialOfferRow::find_by_code(conn, &tenant_id, code).await)?.is_some() {
             return Err(Report::new(StoreError::DuplicateValue {
                 entity: "trial offer",
@@ -337,7 +367,7 @@ async fn offer_row(
         tenant_id,
         name: offer.name.trim().to_string(),
         code: code.map(str::to_string),
-        duration_days: i32::try_from(offer.duration_days).unwrap_or(1),
+        duration_days: Some(i32::try_from(offer.duration_days).unwrap_or(1)),
         free: offer.free,
         trial_plan_id: offer.trial_plan_id,
         end_action: offer.end_action.as_str().to_string(),
@@ -346,5 +376,27 @@ async fn offer_row(
         archived_at: None,
         created_at: now,
         updated_at: now,
+        card_required: offer.card_required,
+        without_card: offer.without_card.as_str().to_string(),
+        without_card_plan_version_id: without_card_plan,
+        standalone: true,
+        description: None,
     })
+}
+
+/// A trial's end switches to a published plan version.
+pub(crate) async fn published_tx(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    plan_version_id: common_domain::ids::PlanVersionId,
+) -> StoreResult<()> {
+    let version = db(PlanRow::get_with_version(conn, plan_version_id, tenant_id).await)?
+        .version
+        .ok_or_else(|| invalid("no such plan version for the trial's end to switch to"))?;
+    if version.is_draft_version {
+        return Err(invalid(
+            "a trial's end switches to a published plan version",
+        ));
+    }
+    Ok(())
 }

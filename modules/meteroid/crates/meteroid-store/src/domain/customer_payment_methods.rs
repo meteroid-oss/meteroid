@@ -32,6 +32,34 @@ pub struct CustomerPaymentMethod {
     pub fingerprint: Option<String>,
 }
 
+impl CustomerPaymentMethod {
+    /// As the customer knows it: "Visa •••• 4242", "SEPA Direct Debit •••• 1234".
+    pub fn label(&self) -> String {
+        use crate::domain::enums::PaymentMethodTypeEnum as Type;
+        let kind = match self.payment_method_type {
+            Type::Card => {
+                return crate::services::payment_reminders::card_expiry::card_label(
+                    self.card_brand.as_deref(),
+                    self.card_last4.as_deref(),
+                );
+            }
+            Type::Transfer => "Bank transfer",
+            Type::DirectDebitSepa => "SEPA Direct Debit",
+            Type::DirectDebitAch => "ACH Direct Debit",
+            Type::DirectDebitBacs => "Bacs Direct Debit",
+            Type::Other => "Payment method",
+        };
+        match self
+            .account_number_hint
+            .as_deref()
+            .filter(|hint| !hint.is_empty())
+        {
+            Some(hint) => format!("{kind} •••• {hint}"),
+            None => kind.to_owned(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, o2o)]
 #[owned_into(CustomerPaymentMethodRowNew)]
 pub struct CustomerPaymentMethodNew {

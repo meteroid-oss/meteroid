@@ -16,7 +16,8 @@ use crate::products::model::ProductFeeTypeEnum;
 use crate::subscriptions::model::SubscriptionStatusEnum;
 use chrono::NaiveDate;
 use common_domain::ids::{
-    AddOnId, BaseId, CheckoutSessionId, CouponId, PlanVersionId, PriceId, UserId,
+    AddOnId, BaseId, CheckoutSessionId, CouponId, OfferGrantId, OfferId, PlanVersionId, PriceId,
+    UserId,
 };
 use common_domain::ids::{
     BillableMetricId, BudgetId, CreditGrantId, CreditNoteId, CustomerId, EventId, FeatureId,
@@ -28,10 +29,11 @@ use meteroid_rest_common::datetime::ApiDateTime;
 use meteroid_rest_common::model::BillingPeriodEnum;
 use meteroid_store::domain::outbox_event::{
     AddOnEvent, BillableMetricEvent, BudgetAlertEvent, CheckoutPaymentKeptAsCreditEvent,
-    CouponEvent, CreditGrantExpiredEvent, CreditNoteEvent, CustomerEvent, EntitlementAlertEvent,
-    InvoiceEvent, InvoicePdfGeneratedEvent, OverrideEndingEvent, PaymentTransactionEvent,
-    PlanEvent, ProductEvent, QuoteAcceptedEvent, QuoteConvertedEvent, SubscriptionEvent,
-    TooManyGroupsEvent, TrialEndingEvent, WalletAutoTopUpCapReachedEvent,
+    CouponEvent, CreditGrantExpiredEvent, CreditGrantUpdatedEvent, CreditNoteEvent, CustomerEvent,
+    EntitlementAlertEvent, GrantEndedEvent, InvoiceEvent, InvoicePdfGeneratedEvent,
+    OfferAppliedEvent, OverrideEndingEvent, PaymentTransactionEvent, PlanEvent, ProductEvent,
+    QuoteAcceptedEvent, QuoteConvertedEvent, SubscriptionEvent, TooManyGroupsEvent,
+    TrialEndedEvent, TrialEndingEvent, WalletAutoTopUpCapReachedEvent,
     WalletAutoTopUpConsentChangedEvent, WalletAutoTopUpEvent, WalletBalanceLowEvent,
     WalletCreditRecoveredEvent, WalletCreditUnrecoveredEvent, WalletDebitedEvent,
     WalletDepletedEvent, WalletFundedEvent, WalletRecoveredEvent,
@@ -40,7 +42,7 @@ use meteroid_store::domain::renewals::{RenewalMode, RenewalSource, RenewalUpcomi
 use meteroid_store::domain::retention_events::{
     RetentionOfferKind, RetentionOutcome, RetentionSessionEvent,
 };
-use meteroid_store::domain::usage_alert_events::{AlertLevel, AlertResource};
+use meteroid_store::domain::usage_alert_events::{AlertLevel, AlertResource, GrantEndReason};
 use meteroid_store::domain::wallet_events::GrantLapseReason;
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
@@ -792,6 +794,57 @@ impl From<CreditGrantExpiredEvent> for WebhookOutCreditGrantExpiredEventData {
             credit_unit,
             credit_unit_precision: event.credit_unit_precision,
             expired_at: event.expired_at.into(),
+        }
+    }
+}
+
+/// A credit grant not in effect yet was dated again (the trial its offer counts from moved): its
+/// dates now. No credit moved.
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = CreditGrantUpdatedEventData)]
+pub struct WebhookOutCreditGrantUpdatedEventData {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub customer_id: CustomerId,
+    /// What the grant pays: ALL any charge, USAGE only usage charges.
+    pub applies_to: crate::credits::model::CreditAppliesTo,
+    /// The subscription the grant belongs to: it pays only that subscription's charges. Null when
+    /// it pays any of the customer's subscriptions.
+    #[serde(serialize_with = "string_serde_opt::serialize")]
+    #[schema(value_type = Option<String>)]
+    pub subscription_id: Option<SubscriptionId>,
+    /// The products whose charges the grant pays; empty when it pays every product.
+    #[serde(serialize_with = "string_serde_vec::serialize")]
+    #[schema(value_type = Vec<String>)]
+    pub applicable_product_ids: Vec<ProductId>,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub credit_grant_id: CreditGrantId,
+    /// Absent when the grant is in a credit unit.
+    pub currency: Option<String>,
+    /// The credit unit (its code) the grant is in; absent for a currency.
+    pub credit_unit: Option<String>,
+    /// Decimal places of `credit_unit`.
+    pub credit_unit_precision: Option<u8>,
+    /// When the grant's credit becomes usable.
+    pub effective_at: ApiDateTime,
+    /// When its credit expires; null when it never does.
+    pub expires_at: Option<ApiDateTime>,
+}
+
+impl From<CreditGrantUpdatedEvent> for WebhookOutCreditGrantUpdatedEventData {
+    fn from(event: CreditGrantUpdatedEvent) -> Self {
+        let (currency, credit_unit) =
+            split_denomination(event.currency, event.credit_unit_precision);
+        Self {
+            customer_id: event.customer_id,
+            applies_to: event.application.into(),
+            subscription_id: event.subscription_id,
+            applicable_product_ids: event.product_ids,
+            credit_grant_id: event.credit_grant_id,
+            currency,
+            credit_unit,
+            credit_unit_precision: event.credit_unit_precision,
+            effective_at: event.effective_at.into(),
+            expires_at: event.expires_at.map(Into::into),
         }
     }
 }
@@ -1637,12 +1690,17 @@ pub struct WebhookOutTrialEndingEventData {
     pub subscription_id: SubscriptionId,
     #[serde(serialize_with = "string_serde::serialize")]
     pub customer_id: CustomerId,
-    /// The trial's end: billing starts on it.
+    /// The trial's end, exclusive.
     pub trial_end: chrono::NaiveDate,
-    /// Whether the trial billed nothing.
+    /// Whether the trial billed nothing: always for a trial started now.
     pub free: bool,
     /// The trial offer it was redeemed from.
     pub trial_offer_id: Option<String>,
+    /// When billing starts, the trial converting at its end; absent when its end cancels the
+    /// subscription or waits for a decision.
+    pub billing_starts_on: Option<chrono::NaiveDate>,
+    /// Whether the subscription has a payment method it is charged or invoiced with.
+    pub has_payment_method: Option<bool>,
 }
 
 impl From<TrialEndingEvent> for WebhookOutTrialEndingEventData {
@@ -1653,6 +1711,220 @@ impl From<TrialEndingEvent> for WebhookOutTrialEndingEventData {
             trial_end: event.trial_end,
             free: event.free,
             trial_offer_id: event.trial_offer_id.map(|id| id.to_string()),
+            billing_starts_on: event.billing_starts_on,
+            has_payment_method: event.has_payment_method,
+        }
+    }
+}
+
+/// How a trial ended.
+#[derive(Clone, Copy, Debug, Serialize, utoipa::ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[schema(as = TrialEndOutcome)]
+pub enum WebhookOutTrialOutcome {
+    Converted,
+    Cancelled,
+    Switched,
+    /// Converted without a payment method: billing waits for the opening invoice's payment.
+    AwaitingPayment,
+    /// A manual end: nothing is billed until it is decided.
+    AwaitingDecision,
+}
+
+impl From<meteroid_store::domain::trials::TrialOutcome> for WebhookOutTrialOutcome {
+    fn from(outcome: meteroid_store::domain::trials::TrialOutcome) -> Self {
+        use meteroid_store::domain::trials::TrialOutcome as Domain;
+        match outcome {
+            Domain::Converted => Self::Converted,
+            Domain::Cancelled => Self::Cancelled,
+            Domain::Switched => Self::Switched,
+            Domain::AwaitingPayment => Self::AwaitingPayment,
+            Domain::AwaitingDecision => Self::AwaitingDecision,
+        }
+    }
+}
+
+/// A subscription's trial ended, and how; sent again when an outcome awaiting a payment or a
+/// decision resolves.
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = TrialEndedEventData)]
+pub struct WebhookOutTrialEndedEventData {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub subscription_id: SubscriptionId,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub customer_id: CustomerId,
+    /// The trial's end, exclusive.
+    pub trial_end: chrono::NaiveDate,
+    pub outcome: WebhookOutTrialOutcome,
+    pub ended_at: ApiDateTime,
+    /// The trial offer it was redeemed from.
+    pub trial_offer_id: Option<String>,
+}
+
+impl From<TrialEndedEvent> for WebhookOutTrialEndedEventData {
+    fn from(event: TrialEndedEvent) -> Self {
+        Self {
+            subscription_id: event.subscription_id,
+            customer_id: event.customer_id,
+            trial_end: event.trial_end,
+            outcome: event.outcome.into(),
+            ended_at: event.ended_at.into(),
+            trial_offer_id: event.trial_offer_id.map(|id| id.to_string()),
+        }
+    }
+}
+
+/// How an offer came to a subscription.
+#[derive(Clone, Copy, Debug, Serialize, utoipa::ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[schema(as = OfferApplicationSource)]
+pub enum WebhookOutOfferSource {
+    /// The plan's start offer.
+    Plan,
+    /// Named by a user of the tenant.
+    Operator,
+    /// A coupon's code.
+    Coupon,
+    /// The portal cancel flow.
+    Retention,
+    /// A quote.
+    Quote,
+    /// Named through the API.
+    Api,
+}
+
+impl WebhookOutOfferSource {
+    fn named(raw: &str) -> Option<Self> {
+        use meteroid_store::domain::offers::OfferSource as Domain;
+        [
+            (Domain::Plan, Self::Plan),
+            (Domain::Operator, Self::Operator),
+            (Domain::Coupon, Self::Coupon),
+            (Domain::Retention, Self::Retention),
+            (Domain::Quote, Self::Quote),
+            (Domain::Api, Self::Api),
+        ]
+        .into_iter()
+        .find(|(source, _)| source.as_str() == raw)
+        .map(|(_, source)| source)
+    }
+}
+
+/// An offer was applied to a subscription: at its creation, from a coupon, or later.
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = OfferAppliedEventData)]
+pub struct WebhookOutOfferAppliedEventData {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub subscription_id: SubscriptionId,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub customer_id: CustomerId,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub offer_id: OfferId,
+    /// The coupon whose code gave it.
+    #[serde(serialize_with = "string_serde_opt::serialize")]
+    pub coupon_id: Option<CouponId>,
+    /// Absent for a source this version does not know.
+    pub source: Option<WebhookOutOfferSource>,
+    /// The grants it gives.
+    #[serde(serialize_with = "string_serde_vec::serialize")]
+    pub grant_ids: Vec<OfferGrantId>,
+    pub applied_at: ApiDateTime,
+}
+
+impl From<OfferAppliedEvent> for WebhookOutOfferAppliedEventData {
+    fn from(event: OfferAppliedEvent) -> Self {
+        Self {
+            subscription_id: event.subscription_id,
+            customer_id: event.customer_id,
+            offer_id: event.offer_id,
+            coupon_id: event.coupon_id,
+            source: WebhookOutOfferSource::named(&event.source),
+            grant_ids: event.grant_ids,
+            applied_at: event.applied_at.into(),
+        }
+    }
+}
+
+/// What a grant gives.
+#[derive(Clone, Copy, Debug, Serialize, utoipa::ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[schema(as = OfferGrantType)]
+pub enum WebhookOutGrantKind {
+    Discount,
+    Credit,
+    Entitlement,
+    AddOn,
+}
+
+impl WebhookOutGrantKind {
+    fn named(raw: &str) -> Option<Self> {
+        use meteroid_store::domain::offers::GrantKind as Domain;
+        [
+            (Domain::Discount, Self::Discount),
+            (Domain::Credit, Self::Credit),
+            (Domain::Entitlement, Self::Entitlement),
+            (Domain::AddOn, Self::AddOn),
+        ]
+        .into_iter()
+        .find(|(kind, _)| kind.as_str() == raw)
+        .map(|(_, kind)| kind)
+    }
+}
+
+/// Why a grant ended.
+#[derive(Clone, Copy, Debug, Serialize, utoipa::ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[schema(as = GrantEndedReason)]
+pub enum WebhookOutGrantEndReason {
+    /// Its subscription never started.
+    Withdrawn,
+    /// Its subscription ended.
+    SubscriptionEnded,
+    /// Its window ended.
+    WindowEnded,
+}
+
+impl From<GrantEndReason> for WebhookOutGrantEndReason {
+    fn from(reason: GrantEndReason) -> Self {
+        match reason {
+            GrantEndReason::Withdrawn => Self::Withdrawn,
+            GrantEndReason::SubscriptionEnded => Self::SubscriptionEnded,
+            GrantEndReason::WindowEnded => Self::WindowEnded,
+        }
+    }
+}
+
+/// A grant of an offer applied to a subscription ended: its window over, or before it.
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = GrantEndedEventData)]
+pub struct WebhookOutGrantEndedEventData {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub subscription_id: SubscriptionId,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub customer_id: CustomerId,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub offer_id: OfferId,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub grant_id: OfferGrantId,
+    /// What it gave; absent for a kind this version does not know.
+    pub kind: Option<WebhookOutGrantKind>,
+    pub reason: WebhookOutGrantEndReason,
+    pub ended_at: ApiDateTime,
+}
+
+impl From<GrantEndedEvent> for WebhookOutGrantEndedEventData {
+    fn from(event: GrantEndedEvent) -> Self {
+        Self {
+            subscription_id: event.subscription_id,
+            customer_id: event.customer_id,
+            offer_id: event.offer_id,
+            grant_id: event.grant_id,
+            kind: WebhookOutGrantKind::named(&event.kind),
+            reason: event.reason.into(),
+            ended_at: event.ended_at.into(),
         }
     }
 }
@@ -1679,6 +1951,8 @@ wallet_webhook_event!(
     WebhookOutWalletDebitedEvent(WebhookOutWalletDebitedEventData) as WalletDebitedEvent,
     WebhookOutCreditGrantExpiredEvent(WebhookOutCreditGrantExpiredEventData)
         as CreditGrantExpiredEvent,
+    WebhookOutCreditGrantUpdatedEvent(WebhookOutCreditGrantUpdatedEventData)
+        as CreditGrantUpdatedEvent,
     WebhookOutWalletBalanceLowEvent(WebhookOutWalletBalanceLowEventData) as WalletBalanceLowEvent,
     WebhookOutWalletDepletedEvent(WebhookOutWalletDepletedEventData) as WalletDepletedEvent,
     WebhookOutWalletRecoveredEvent(WebhookOutWalletRecoveredEventData) as WalletRecoveredEvent,
@@ -1704,6 +1978,9 @@ wallet_webhook_event!(
     WebhookOutWorkflowRunEvent(WebhookOutWorkflowRunEventData) as WorkflowRunWebhookEvent,
     WebhookOutOverrideEndingEvent(WebhookOutOverrideEndingEventData) as OverrideEndingWebhookEvent,
     WebhookOutTrialEndingEvent(WebhookOutTrialEndingEventData) as TrialEndingWebhookEvent,
+    WebhookOutTrialEndedEvent(WebhookOutTrialEndedEventData) as TrialEndedWebhookEvent,
+    WebhookOutOfferAppliedEvent(WebhookOutOfferAppliedEventData) as OfferAppliedWebhookEvent,
+    WebhookOutGrantEndedEvent(WebhookOutGrantEndedEventData) as GrantEndedWebhookEvent,
 );
 
 /// Event-specific webhook schemas for type-safe webhook payloads
@@ -2089,6 +2366,9 @@ pub enum WebhookOutEventTypeEnum {
     #[strum(serialize = "credit_grant.expired")]
     #[serde(rename = "credit_grant.expired")]
     CreditGrantExpired,
+    #[strum(serialize = "credit_grant.updated")]
+    #[serde(rename = "credit_grant.updated")]
+    CreditGrantUpdated,
     #[strum(serialize = "entitlement.usage_threshold_reached")]
     #[serde(rename = "entitlement.usage_threshold_reached")]
     EntitlementUsageThresholdReached,
@@ -2131,6 +2411,15 @@ pub enum WebhookOutEventTypeEnum {
     #[strum(serialize = "workflow_run.failed")]
     #[serde(rename = "workflow_run.failed")]
     WorkflowRunFailed,
+    #[strum(serialize = "subscription.trial_ended")]
+    #[serde(rename = "subscription.trial_ended")]
+    SubscriptionTrialEnded,
+    #[strum(serialize = "offer.applied")]
+    #[serde(rename = "offer.applied")]
+    OfferApplied,
+    #[strum(serialize = "grant.ended")]
+    #[serde(rename = "grant.ended")]
+    GrantEnded,
 }
 
 #[derive(Debug, Display, EnumIter, EnumString, Copy, Clone)]
@@ -2255,9 +2544,10 @@ impl WebhookOutEventTypeEnum {
             }
             WebhookOutEventTypeEnum::SubscriptionEnded
             | WebhookOutEventTypeEnum::SubscriptionRenewalUpcoming
-            | WebhookOutEventTypeEnum::SubscriptionTrialEndingSoon => {
-                WebhookOutEventGroupEnum::Subscription
-            }
+            | WebhookOutEventTypeEnum::SubscriptionTrialEndingSoon
+            | WebhookOutEventTypeEnum::SubscriptionTrialEnded
+            | WebhookOutEventTypeEnum::OfferApplied
+            | WebhookOutEventTypeEnum::GrantEnded => WebhookOutEventGroupEnum::Subscription,
             WebhookOutEventTypeEnum::InvoiceCreated => WebhookOutEventGroupEnum::Invoice,
             WebhookOutEventTypeEnum::InvoiceFinalized => WebhookOutEventGroupEnum::Invoice,
             WebhookOutEventTypeEnum::InvoicePaid => WebhookOutEventGroupEnum::Invoice,
@@ -2311,7 +2601,8 @@ impl WebhookOutEventTypeEnum {
             | WebhookOutEventTypeEnum::WalletDepleted
             | WebhookOutEventTypeEnum::WalletRecovered
             | WebhookOutEventTypeEnum::AutoTopUpCapReached => WebhookOutEventGroupEnum::Wallet,
-            WebhookOutEventTypeEnum::CreditGrantExpired => WebhookOutEventGroupEnum::CreditGrant,
+            WebhookOutEventTypeEnum::CreditGrantExpired
+            | WebhookOutEventTypeEnum::CreditGrantUpdated => WebhookOutEventGroupEnum::CreditGrant,
             WebhookOutEventTypeEnum::EntitlementUsageThresholdReached
             | WebhookOutEventTypeEnum::EntitlementLimitReached
             | WebhookOutEventTypeEnum::EntitlementTooManyGroups
@@ -2352,6 +2643,10 @@ impl WebhookOutEventTypeEnum {
             WebhookOutEventTypeEnum::EntitlementOverrideEndingSoon
             | WebhookOutEventTypeEnum::EntitlementOverrideEnded => "OverrideEndingWebhookEvent",
             WebhookOutEventTypeEnum::SubscriptionTrialEndingSoon => "TrialEndingWebhookEvent",
+            WebhookOutEventTypeEnum::SubscriptionTrialEnded => "TrialEndedWebhookEvent",
+            WebhookOutEventTypeEnum::OfferApplied => "OfferAppliedWebhookEvent",
+            WebhookOutEventTypeEnum::GrantEnded => "GrantEndedWebhookEvent",
+            WebhookOutEventTypeEnum::CreditGrantUpdated => "CreditGrantUpdatedEvent",
             other => other.group().schema_name(),
         }
     }
@@ -2502,6 +2797,10 @@ impl WebhookOutEventTypeEnum {
             WebhookOutEventTypeEnum::CreditGrantExpired => {
                 "A credit grant expired with value left; that value left the wallet".to_string()
             }
+            WebhookOutEventTypeEnum::CreditGrantUpdated => {
+                "A credit grant not in effect yet was dated again, as the trial its offer counts from moved; no credit moved"
+                    .to_string()
+            }
             WebhookOutEventTypeEnum::EntitlementUsageThresholdReached => {
                 "Usage of a feature entitlement reached one of its notification thresholds"
                     .to_string()
@@ -2548,7 +2847,20 @@ impl WebhookOutEventTypeEnum {
                     .to_string()
             }
             WebhookOutEventTypeEnum::SubscriptionTrialEndingSoon => {
-                "A subscription's trial ends in 3 days: sent once per trial end".to_string()
+                "A subscription's trial ends within 7 days: sent once per trial end, at its start when it is shorter"
+                    .to_string()
+            }
+            WebhookOutEventTypeEnum::SubscriptionTrialEnded => {
+                "A subscription's trial ended: converted, cancelled, switched plan, awaiting a payment or awaiting a decision; sent again when an awaiting outcome resolves"
+                    .to_string()
+            }
+            WebhookOutEventTypeEnum::OfferApplied => {
+                "An offer was applied to a subscription, with the grants it gives: its plan's start offer or a catalog offer at its creation, or one a coupon's code gives"
+                    .to_string()
+            }
+            WebhookOutEventTypeEnum::GrantEnded => {
+                "A grant of an offer ended before its window: its subscription never started, or ended"
+                    .to_string()
             }
         }
     }

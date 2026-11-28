@@ -1684,6 +1684,7 @@ async fn test_selfserve_checkout_with_existing_mandate_activates_in_flight(
             billing_start_date: Some(NaiveDate::from_ymd_opt(2024, 3, 1).unwrap()),
             billing_day_anchor: Some(1),
             net_terms: None,
+            offer: Default::default(),
             trial: Default::default(),
             end_date: None,
             auto_advance_invoices: true,
@@ -1810,6 +1811,7 @@ async fn test_deferred_checkout_materialization_prices_at_charge_date(#[future] 
             billing_start_date: None, // priced "today" at confirm time
             billing_day_anchor: None,
             net_terms: None,
+            offer: Default::default(),
             trial: Default::default(),
             end_date: None,
             auto_advance_invoices: true,

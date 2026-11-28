@@ -84,6 +84,8 @@ pub struct QuoteRow {
     /// With `trial_duration_days`: whether the trial is free; `None` on a quote saved before.
     pub trial_free: Option<bool>,
     pub trial_plan_id: Option<PlanId>,
+    /// With `trial_duration_days`: CONVERT, or MANUAL (an operator decides at its end).
+    pub trial_end_action: String,
 }
 
 #[derive(Insertable, Debug)]
@@ -140,6 +142,8 @@ pub struct QuoteRowNew {
     /// With `trial_duration_days`: whether the trial is free; `None` on a quote saved before.
     pub trial_free: Option<bool>,
     pub trial_plan_id: Option<PlanId>,
+    /// With `trial_duration_days`: CONVERT, or MANUAL (an operator decides at its end).
+    pub trial_end_action: String,
 }
 
 #[derive(Debug, AsChangeset, Default)]
@@ -238,6 +242,8 @@ pub struct QuoteRowReplace {
     /// With `trial_duration_days`: whether the trial is free; `None` on a quote saved before.
     pub trial_free: Option<bool>,
     pub trial_plan_id: Option<PlanId>,
+    /// With `trial_duration_days`: CONVERT, or MANUAL (an operator decides at its end).
+    pub trial_end_action: String,
 }
 
 impl From<QuoteRowNew> for QuoteRowReplace {
@@ -285,6 +291,7 @@ impl From<QuoteRowNew> for QuoteRowReplace {
             resource_id: row.resource_id,
             trial_free: row.trial_free,
             trial_plan_id: row.trial_plan_id,
+            trial_end_action: row.trial_end_action,
         }
     }
 }

@@ -10,6 +10,7 @@ use proptest::prelude::*;
 use uuid::Uuid;
 
 use crate::charge::Fee;
+use crate::facts::AfterTrial;
 use crate::facts::{
     Billing, CouponFact, Ending, EndingKind, Facts, FeeFact, MinimumFact, MinimumScope, PlanWindow,
     SeatStep, Start, Trial,
@@ -920,6 +921,7 @@ pub fn build(story: &Story) -> Built {
                 from: start,
                 until: start + Days::new(u64::from(days)),
                 free,
+                after: AfterTrial::Bills,
             }),
             plan_windows: vec![PlanWindow {
                 plan_version: id(100),

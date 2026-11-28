@@ -149,6 +149,9 @@ impl CheckoutSessionsInterface for Store {
         &self,
         params: CreateCheckoutSession,
     ) -> StoreResult<CheckoutSession> {
+        if let crate::domain::trials::TrialRequest::Custom { free, .. } = &params.trial {
+            crate::domain::trials::refuse_billed(*free)?;
+        }
         let mut conn = self.get_conn().await?;
 
         // Refused now rather than ignored when the customer pays.

@@ -1,3 +1,4 @@
+import { Badge } from '@md/ui'
 import { ColumnDef, OnChangeFn, PaginationState, Row, SortingState } from '@tanstack/react-table'
 import { format } from 'date-fns'
 import { ReactNode, useMemo } from 'react'
@@ -9,6 +10,9 @@ import {
 } from '@/features/customproperties/useCustomPropertyColumns'
 import { useResourceChips } from '@/features/resources/hooks'
 import { SubscriptionStatusBadge } from '@/features/subscriptions/SubscriptionStatusBadge'
+import { TrialStatusBadge } from '@/features/subscriptions/trial/TrialStatusBadge'
+import { onFileLabel, trialPaymentMethod } from '@/features/subscriptions/trial/trialList'
+import { formatShortDay } from '@/features/subscriptions/utils/dates'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useCurrency } from '@/hooks/useCurrency'
 import { usePrefetch } from '@/hooks/usePrefetch'
@@ -33,7 +37,49 @@ interface SubscriptionsTableProps {
   chart?: ReactNode
   /** Column visibility controlled by an active saved view. */
   columnState?: ColumnState
+  /** The trial's end, payment method and status, from each row's trial summary. */
+  trialColumns?: boolean
 }
+
+const trialPaymentMethodCell = (subscription: Subscription) => {
+  switch (trialPaymentMethod(subscription)) {
+    case 'invoice':
+      return 'Invoice'
+    case 'on_file':
+      return onFileLabel(subscription)
+    case 'none':
+      return (
+        <Badge variant="warning" size="sm">
+          None
+        </Badge>
+      )
+    default:
+      return '—'
+  }
+}
+
+const TRIAL_COLUMNS: ColumnDef<Subscription>[] = [
+  {
+    id: 'trial_ends_on',
+    header: 'Trial ends',
+    enableSorting: false,
+    cell: ({ row }: { row: Row<Subscription> }) =>
+      row.original.trial ? formatShortDay(row.original.trial.endsOn) : '—',
+  },
+  {
+    id: 'trial_payment_method',
+    header: 'Payment method',
+    enableSorting: false,
+    cell: ({ row }: { row: Row<Subscription> }) => trialPaymentMethodCell(row.original),
+  },
+  {
+    id: 'trial_status',
+    header: 'Trial',
+    enableSorting: false,
+    cell: ({ row }: { row: Row<Subscription> }) =>
+      row.original.trial ? <TrialStatusBadge status={row.original.trial.status} /> : '—',
+  },
+]
 
 export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
   data,
@@ -48,6 +94,7 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
   onSortingChange,
   chart,
   columnState,
+  trialColumns = false,
 }) => {
   const { formatAmount } = useCurrency()
   const basePath = useBasePath()
@@ -80,7 +127,7 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
             </span>
           ),
         },
-
+        ...(trialColumns ? TRIAL_COLUMNS : []),
         {
           header: 'Version',
           accessorKey: 'version',
@@ -127,7 +174,7 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
         .filter(col => !hideCustomer || col.header !== 'Customer')
         .filter(col => !hidePlan || col.header !== 'Plan'),
 
-    [hideCustomer, hidePlan, formatAmount, chips]
+    [hideCustomer, hidePlan, formatAmount, chips, trialColumns]
   )
 
   // Custom-property columns are opt-in via the view menu, which only exists when the table

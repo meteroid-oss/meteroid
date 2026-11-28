@@ -53,6 +53,56 @@ impl EntitlementRefusal {
     }
 }
 
+/// A trial refused for what it asks, attached to its `InvalidArgument` so the APIs point at the
+/// field it refuses (R-153, R-159).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrialRefusal {
+    /// A billed trial: a trial is free.
+    Billed,
+    /// A trial given once that the customer already had.
+    AlreadyHad,
+}
+
+impl TrialRefusal {
+    pub fn report(self, message: impl Into<String>) -> error_stack::Report<StoreError> {
+        error_stack::Report::new(StoreError::InvalidArgument(message.into())).attach_opaque(self)
+    }
+
+    pub fn of(error: &error_stack::Report<StoreError>) -> Option<Self> {
+        error
+            .frames()
+            .find_map(|f| f.downcast_ref::<Self>())
+            .copied()
+    }
+}
+
+/// Why an offer was not applied (ADR 0019), attached to its `InvalidArgument`: the APIs answer
+/// with its typed problem.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OfferRefusal {
+    /// Not a live catalog offer.
+    Unavailable,
+    /// Given once to a customer who already had it (R-173).
+    AlreadyGiven,
+    /// Already applied to the subscription (R-173).
+    AlreadyApplied,
+    /// An offer with a trial applied after the subscription's start.
+    TrialNotApplicable,
+}
+
+impl OfferRefusal {
+    pub fn report(self, message: impl Into<String>) -> error_stack::Report<StoreError> {
+        error_stack::Report::new(StoreError::InvalidArgument(message.into())).attach_opaque(self)
+    }
+
+    pub fn of(error: &error_stack::Report<StoreError>) -> Option<Self> {
+        error
+            .frames()
+            .find_map(|f| f.downcast_ref::<Self>())
+            .copied()
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
     #[error("Initialization Error: {0}")]

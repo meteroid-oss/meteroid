@@ -152,6 +152,25 @@ impl SubscriptionServiceComponents {
         .await
     }
 
+    /// A catalog offer named at creation is Enterprise; the plan's, or none, is Core.
+    async fn ensure_offers_allowed(
+        &self,
+        organization_id: OrganizationId,
+        creates: &[meteroid_store::domain::CreateSubscription],
+    ) -> Result<(), Status> {
+        crate::offers::ensure_offers_allowed(
+            self.feature_resolver.as_ref(),
+            organization_id,
+            creates.iter().any(|c| {
+                matches!(
+                    c.subscription.offer,
+                    meteroid_store::domain::offers::OfferRequest::Offer(_)
+                )
+            }),
+        )
+        .await
+    }
+
     async fn ensure_amendment_allowed(
         &self,
         organization_id: OrganizationId,
@@ -190,6 +209,8 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let subscription = mapping::subscriptions::create_proto_to_domain(subscription)?;
         self.ensure_minimum_overrides_allowed(organization_id, std::slice::from_ref(&subscription))
             .await?;
+        self.ensure_offers_allowed(organization_id, std::slice::from_ref(&subscription))
+            .await?;
 
         let created = self
             .services
@@ -221,6 +242,8 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .map(mapping::subscriptions::create_proto_to_domain)
             .collect::<Result<Vec<_>, _>>()?;
         self.ensure_minimum_overrides_allowed(organization_id, &subscriptions)
+            .await?;
+        self.ensure_offers_allowed(organization_id, &subscriptions)
             .await?;
 
         let inserted = self
@@ -257,6 +280,8 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let create = mapping::subscriptions::create_proto_to_domain(subscription)?;
         // The preview answers what the create would, refusal included.
         self.ensure_minimum_overrides_allowed(organization_id, std::slice::from_ref(&create))
+            .await?;
+        self.ensure_offers_allowed(organization_id, std::slice::from_ref(&create))
             .await?;
 
         let (content, details) = self
@@ -327,7 +352,15 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
 
+        let trial = crate::subscriptions::trial::trial_config(
+            &self.store,
+            &self.services,
+            tenant_id,
+            &subscription,
+        )
+        .await?;
         let mut subscription = mapping::subscriptions::details_domain_to_proto(subscription)?;
+        subscription.trial_config = trial;
         subscription.warnings = warnings.codes;
         subscription.metrics_not_attributed = warnings
             .metrics_not_attributed
@@ -346,6 +379,8 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let tenant_id = request.tenant()?;
         let inner = request.into_inner();
 
+        use meteroid_grpc::meteroid::api::subscriptions::v1::trial_list_filter::Kind;
+        use meteroid_store::domain::trials::TrialListFilter;
         let customer_id = CustomerId::from_proto_opt(inner.customer_id.as_ref())?;
         let plan_id = PlanId::from_proto_opt(inner.plan_id)?;
 
@@ -361,13 +396,20 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .flat_map(mapping::subscriptions::map_proto_status_to_domain)
             .collect();
 
+        let trial = match inner.trial.and_then(|trial| trial.kind) {
+            None => None,
+            Some(Kind::EndingWithinDays(days)) => Some(TrialListFilter::EndingWithinDays(days)),
+            Some(Kind::AwaitingDecision(_)) => Some(TrialListFilter::AwaitingDecision),
+            Some(Kind::AwaitingPayment(_)) => Some(TrialListFilter::AwaitingPayment),
+        };
         let res = self
             .store
-            .list_subscriptions(
+            .list_subscriptions_by_trial(
                 tenant_id,
                 customer_id,
                 plan_id,
                 (status_requested || !status_filter.is_empty()).then_some(status_filter),
+                trial,
                 inner.search,
                 meteroid_grpc_mapping::filters::map_filters(inner.filters)?,
                 inner.order_by,
@@ -376,10 +418,22 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
 
+        let ids: Vec<SubscriptionId> = res.items.iter().map(|s| s.id).collect();
+        let mut trials = self
+            .store
+            .list_trial_summaries(tenant_id, &ids)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
         let subscriptions: Vec<meteroid_grpc::meteroid::api::subscriptions::v1::Subscription> = res
             .items
             .into_iter()
-            .map(mapping::subscriptions::domain_to_proto)
+            .map(|subscription| {
+                let trial = trials.remove(&subscription.id);
+                mapping::subscriptions::domain_to_proto(subscription).map(|mut proto| {
+                    proto.trial = trial.map(mapping::subscriptions::trial_summary_to_proto);
+                    proto
+                })
+            })
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Response::new(ListSubscriptionsResponse {

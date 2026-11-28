@@ -112,12 +112,15 @@ pub fn method_auth(sm: &GrpcServiceMethod) -> Option<RouteAuth> {
         }
 
         // ---- billing operations, split per sub-area ----
-        "SubscriptionsService" | "SubscriptionPhasesService" | "RetentionService" => {
-            rw(method, SubscriptionsRead, SubscriptionsManage)
-        }
-        // Offers are catalog; moving a running trial is subscription work.
-        "TrialsService" => match method {
-            "MoveTrial" => RouteAuth::Requires(SubscriptionsManage),
+        "SubscriptionsService"
+        | "SubscriptionPhasesService"
+        | "SubscriptionTrialsService"
+        | "RetentionService" => rw(method, SubscriptionsRead, SubscriptionsManage),
+        // Offers are catalog; a running trial is moved by `SubscriptionTrialsService`.
+        "TrialsService" => rw(method, CatalogRead, CatalogManage),
+        // Offers are catalog; applying one to a subscription and reading its grants are not.
+        "OffersService" => match method {
+            "ApplyOffer" | "ListGrants" => rw(method, SubscriptionsRead, SubscriptionsManage),
             _ => rw(method, CatalogRead, CatalogManage),
         },
         // The notice policy is a setting; a subscription's renewal is subscription data.
@@ -579,6 +582,31 @@ mod tests {
         // A subscriptions-only role cannot touch invoices, and vice versa.
         let subs_only = RolePermissions::from_codes(["billing:subscriptions:manage"]);
         assert!(enforce(&create_sub, &subs_only).is_ok());
+        let end_trial = gm(
+            "meteroid.api.trials.v1.SubscriptionTrialsService",
+            "EndTrial",
+        );
+        assert_eq!(
+            method_auth(&end_trial),
+            Some(RouteAuth::Requires(SubscriptionsManage))
+        );
+        assert!(enforce(&end_trial, &subs_only).is_ok());
+        let offers = |m| gm("meteroid.api.offers.v1.OffersService", m);
+        for (method, permission) in [
+            ("ApplyOffer", SubscriptionsManage),
+            ("ListGrants", SubscriptionsRead),
+            ("CreateOffer", CatalogManage),
+            ("SetPlanStartOffer", CatalogManage),
+            ("GetPlanStartOffer", CatalogRead),
+        ] {
+            assert_eq!(
+                method_auth(&offers(method)),
+                Some(RouteAuth::Requires(permission)),
+                "{method}"
+            );
+        }
+        assert!(enforce(&offers("ApplyOffer"), &subs_only).is_ok());
+        assert!(enforce(&offers("CreateOffer"), &subs_only).is_err());
         for (service, method, read) in [
             (
                 "meteroid.api.invoices.v1.InvoicesService",

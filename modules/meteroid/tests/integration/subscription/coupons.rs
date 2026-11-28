@@ -774,6 +774,7 @@ async fn test_plan_restricted_coupon_rejected(#[future] test_env: TestEnv) {
                     billing_start_date: None,
                     activation_condition:
                         meteroid_store::domain::SubscriptionActivationCondition::OnStart,
+                    offer: Default::default(),
                     trial: meteroid_store::domain::trials::TrialRequest::None,
                     billing_day_anchor: None,
                     payment_methods_config: None,
@@ -992,6 +993,7 @@ async fn test_expired_coupon_rejected(#[future] test_env: TestEnv) {
                     billing_start_date: None,
                     activation_condition:
                         meteroid_store::domain::SubscriptionActivationCondition::OnStart,
+                    offer: Default::default(),
                     trial: meteroid_store::domain::trials::TrialRequest::None,
                     billing_day_anchor: None,
                     payment_methods_config: None,
@@ -1060,6 +1062,7 @@ async fn test_disabled_coupon_rejected(#[future] test_env: TestEnv) {
                     billing_start_date: None,
                     activation_condition:
                         meteroid_store::domain::SubscriptionActivationCondition::OnStart,
+                    offer: Default::default(),
                     trial: meteroid_store::domain::trials::TrialRequest::None,
                     billing_day_anchor: None,
                     payment_methods_config: None,
@@ -1123,6 +1126,7 @@ async fn test_archived_coupon_rejected(#[future] test_env: TestEnv) {
                     billing_start_date: None,
                     activation_condition:
                         meteroid_store::domain::SubscriptionActivationCondition::OnStart,
+                    offer: Default::default(),
                     trial: meteroid_store::domain::trials::TrialRequest::None,
                     billing_day_anchor: None,
                     payment_methods_config: None,
@@ -1199,6 +1203,7 @@ async fn test_non_reusable_coupon_same_customer_rejected(#[future] test_env: Tes
                     billing_start_date: None,
                     activation_condition:
                         meteroid_store::domain::SubscriptionActivationCondition::OnStart,
+                    offer: Default::default(),
                     trial: meteroid_store::domain::trials::TrialRequest::None,
                     billing_day_anchor: None,
                     payment_methods_config: None,
@@ -1375,6 +1380,7 @@ async fn test_redemption_limit_reached(#[future] test_env: TestEnv) {
                     billing_start_date: None,
                     activation_condition:
                         meteroid_store::domain::SubscriptionActivationCondition::OnStart,
+                    offer: Default::default(),
                     trial: meteroid_store::domain::trials::TrialRequest::None,
                     billing_day_anchor: None,
                     payment_methods_config: None,
@@ -1445,6 +1451,7 @@ async fn test_currency_mismatch_rejected(#[future] test_env: TestEnv) {
                     billing_start_date: None,
                     activation_condition:
                         meteroid_store::domain::SubscriptionActivationCondition::OnStart,
+                    offer: Default::default(),
                     trial: meteroid_store::domain::trials::TrialRequest::None,
                     billing_day_anchor: None,
                     payment_methods_config: None,
@@ -1649,6 +1656,7 @@ async fn test_multiple_coupons_one_fails_plan_restriction(#[future] test_env: Te
                     billing_start_date: None,
                     activation_condition:
                         meteroid_store::domain::SubscriptionActivationCondition::OnStart,
+                    offer: Default::default(),
                     trial: meteroid_store::domain::trials::TrialRequest::None,
                     billing_day_anchor: None,
                     payment_methods_config: None,

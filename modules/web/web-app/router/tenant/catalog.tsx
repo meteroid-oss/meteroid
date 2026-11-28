@@ -1,7 +1,8 @@
-import { Navigate, RouteObject } from 'react-router'
+import { Navigate, RouteObject, useLocation, useParams } from 'react-router'
 
 import { StandardOnly } from '@/components/StandardOnly'
 import { NotFound } from '@/features/NotFound'
+import { OffersPage } from '@/features/offers/OffersPage'
 import { PlanCreateInitModal } from '@/features/plans/PlanCreateInitModal'
 import { DetailsFormModal } from '@/features/plans/create/details/DetailsFormModal'
 import { useBasePath } from '@/hooks/useBasePath'
@@ -25,6 +26,13 @@ import { ProductMetrics } from '@/pages/tenants/catalog/productMetrics'
 const CatalogRedirect = ({ to }: { to: string }) => {
   const basePath = useBasePath()
   return <Navigate to={`${basePath}/${to}`} replace />
+}
+
+const CouponsRedirect = () => {
+  const basePath = useBasePath()
+  const { '*': rest } = useParams()
+  const { search } = useLocation()
+  return <Navigate to={`${basePath}/offers/coupons${rest ? `/${rest}` : ''}${search}`} replace />
 }
 
 export const productCatalogRoutes: RouteObject = {
@@ -174,7 +182,29 @@ export const productCatalogRoutes: RouteObject = {
               ],
             },
             {
-              path: 'coupons',
+              path: 'offers',
+              element: <OffersPage />,
+              handle: { title: 'Offers' },
+              children: [
+                {
+                  index: true,
+                  element: null,
+                },
+                {
+                  // `new` and an offer open in the editor the page shows.
+                  path: ':offerId',
+                  element: null,
+                  handle: { title: 'Offer' },
+                },
+              ],
+            },
+            {
+              // Coupons moved under Offers: older links keep working.
+              path: 'coupons/*',
+              element: <CouponsRedirect />,
+            },
+            {
+              path: 'offers/coupons',
               element: <Coupons />,
               handle: { title: 'Coupons' },
               children: [

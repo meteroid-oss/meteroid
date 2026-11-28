@@ -26,7 +26,7 @@ use meteroid_store::domain::eligibility::{
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::CatalogCodesInterface;
 use meteroid_store::repositories::add_ons::AddOnInterfaceAuto;
-use meteroid_store::repositories::coupons::{CouponInterface, CouponInterfaceAuto};
+use meteroid_store::repositories::coupons::CouponInterface;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -484,7 +484,7 @@ pub async fn coupon(
 ) -> Result<DomainCoupon, Problem> {
     let raw = raw.trim();
     if let Some(id) = parse_id(raw) {
-        match state.store.get_coupon_by_id(tenant_id, id).await {
+        match state.store.get_listed_coupon(tenant_id, id).await {
             Ok(coupon) => return Ok(coupon),
             // A code may read as an id: it is tried as a code next.
             Err(error) if matches!(error.current_context(), StoreError::ValueNotFound(_)) => {}

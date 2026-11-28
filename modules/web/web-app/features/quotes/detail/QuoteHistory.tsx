@@ -19,6 +19,7 @@ import { formatDiscount } from '@/features/quotes/detail/QuoteLinesTable'
 import { QuoteMarkdown } from '@/features/quotes/detail/QuoteMarkdown'
 import { shortHash } from '@/features/quotes/detail/quoteFormat'
 import { parseRevisionDocument } from '@/features/quotes/detail/revisionDocument'
+import { quoteTrialLabel } from '@/features/quotes/quoteTrial'
 import { useQuery } from '@/lib/connectrpc'
 import { QuoteRevision } from '@/rpc/api/quotes/v1/models_pb'
 import { listQuoteRevisions } from '@/rpc/api/quotes/v1/quotes-QuotesService_connectquery'
@@ -68,11 +69,11 @@ const RevisionDocument = ({ revision }: { revision: QuoteRevision }) => {
         <Field label="Expires" value={summary.expiresAt && formatDateOnly(summary.expiresAt)} />
         <Field
           label="Trial"
-          value={
-            summary.trialDays
-              ? `${summary.trialDays} days${summary.trialFree === false ? ', billed' : summary.trialFree ? ', free' : ''}`
-              : undefined
-          }
+          value={quoteTrialLabel({
+            days: summary.trialDays,
+            free: summary.trialFree,
+            manual: summary.trialManual,
+          })}
         />
         <Field
           label="Payment terms"

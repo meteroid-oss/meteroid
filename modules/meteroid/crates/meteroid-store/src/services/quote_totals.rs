@@ -165,6 +165,7 @@ impl ServicesEdge {
                 })
             }),
             phases,
+            trial_plan_name: None,
         };
         let totals = self.totals(tenant_id, &quote, true).await?;
         Ok((totals, quote))

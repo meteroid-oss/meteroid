@@ -122,6 +122,9 @@ pub enum RestApiError {
     Forbidden,
     #[error("Invalid input: {0}")]
     InvalidInput(String),
+    /// Well-formed input the API refuses (`422`).
+    #[error("{0}")]
+    Unprocessable(String),
     #[error("Resource not found")]
     NotFound,
     #[error("Conflict")]
@@ -159,6 +162,9 @@ impl IntoResponse for RestApiError {
             RestApiError::Unauthorized => (StatusCode::UNAUTHORIZED, ErrorCode::Unauthorized),
             RestApiError::Forbidden => (StatusCode::FORBIDDEN, ErrorCode::Forbidden),
             RestApiError::InvalidInput(_) => (StatusCode::BAD_REQUEST, ErrorCode::BadRequest),
+            RestApiError::Unprocessable(_) => {
+                (StatusCode::UNPROCESSABLE_ENTITY, ErrorCode::BadRequest)
+            }
             RestApiError::StoreError => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ErrorCode::InternalServerError,
@@ -232,6 +238,12 @@ impl From<Report<StoreError>> for RestApiError {
             err.current_context(),
         ) {
             return RestApiError::Refused(refusal, message.clone());
+        }
+        if let (Some(_), StoreError::InvalidArgument(message)) = (
+            meteroid_store::errors::TrialRefusal::of(&err),
+            err.current_context(),
+        ) {
+            return RestApiError::Unprocessable(message.clone());
         }
         match err.current_context() {
             StoreError::ValueNotFound(_) => RestApiError::NotFound,

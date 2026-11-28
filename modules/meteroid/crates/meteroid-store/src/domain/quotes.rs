@@ -23,6 +23,36 @@ use diesel_models::quotes::{
 };
 use o2o::o2o;
 
+/// What a quote's trial does at its end: it converts, or an operator decides ("decide at the
+/// end", R-167).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum QuoteTrialEnd {
+    #[default]
+    Convert,
+    Manual,
+}
+
+impl QuoteTrialEnd {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            QuoteTrialEnd::Convert => "CONVERT",
+            QuoteTrialEnd::Manual => "MANUAL",
+        }
+    }
+
+    pub fn parse(value: &str) -> Self {
+        match value {
+            "MANUAL" => QuoteTrialEnd::Manual,
+            _ => QuoteTrialEnd::Convert,
+        }
+    }
+
+    pub fn is_convert(&self) -> bool {
+        *self == QuoteTrialEnd::Convert
+    }
+}
+
 #[derive(o2o, Debug, Clone)]
 #[try_from_owned(QuoteRow, StoreErrorReport)]
 pub struct Quote {
@@ -43,6 +73,9 @@ pub struct Quote {
     pub trial_free: Option<bool>,
     /// With `trial_duration_days`: the plan whose features the trial gives.
     pub trial_plan_id: Option<common_domain::ids::PlanId>,
+    /// With `trial_duration_days`: what the trial does at its end.
+    #[from(QuoteTrialEnd::parse(&~))]
+    pub trial_end_action: QuoteTrialEnd,
     pub billing_start_date: Option<NaiveDate>,
     pub billing_end_date: Option<NaiveDate>,
     pub billing_day_anchor: Option<i32>,
@@ -206,6 +239,9 @@ pub struct QuoteNew {
     pub trial_free: Option<bool>,
     /// With `trial_duration_days`: the plan whose features the trial gives.
     pub trial_plan_id: Option<common_domain::ids::PlanId>,
+    /// With `trial_duration_days`: what the trial does at its end.
+    #[into(~.as_str().to_owned())]
+    pub trial_end_action: QuoteTrialEnd,
     pub billing_start_date: Option<NaiveDate>,
     pub billing_end_date: Option<NaiveDate>,
     pub billing_day_anchor: Option<i32>,
@@ -286,6 +322,7 @@ impl Quote {
                 length: crate::domain::trials::TrialLength::Days(days),
                 free: self.trial_free,
                 trial_plan: self.trial_free.map(|_| self.trial_plan_id),
+                manual: self.trial_end_action == QuoteTrialEnd::Manual,
             },
         }
     }
@@ -305,6 +342,7 @@ impl Quote {
             trial_duration_days: new.trial_duration_days,
             trial_free: new.trial_free,
             trial_plan_id: new.trial_plan_id,
+            trial_end_action: new.trial_end_action,
             billing_start_date: new.billing_start_date,
             billing_end_date: new.billing_end_date,
             billing_day_anchor: new.billing_day_anchor,
@@ -434,6 +472,8 @@ pub struct DetailedQuote {
     pub minimum: Option<crate::domain::QuoteMinimum>,
     /// The ramp the subscription it converts to starts with (R-155).
     pub phases: Vec<crate::domain::trial_offers::PlanPhaseTemplate>,
+    /// The name of the plan whose features its trial gives.
+    pub trial_plan_name: Option<String>,
 }
 
 impl DetailedQuote {

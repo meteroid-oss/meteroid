@@ -97,6 +97,7 @@ pub mod invoice_annex_templates;
 pub mod invoicing_entities;
 pub mod invoicing_entity_email_settings;
 pub mod oauth_verifiers;
+pub mod offers;
 pub mod outbox_event;
 pub mod payment_reminders;
 pub mod payment_reversal_movements;

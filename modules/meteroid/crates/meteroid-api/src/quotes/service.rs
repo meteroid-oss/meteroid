@@ -1276,13 +1276,23 @@ impl QuoteServiceComponents {
             quote_number: quote.quote_number.unwrap_or(default_quote_number),
             // Subscription-like fields
             trial_duration_days: quote.trial_duration.map(|d| d as i32),
-            trial_free: quote
-                .trial_free
-                .filter(|_| quote.trial_duration.unwrap_or(0) > 0),
+            // A trial is free (R-153).
+            trial_free: (quote.trial_duration.unwrap_or(0) > 0).then_some(true),
             trial_plan_id: common_domain::ids::PlanId::from_proto_opt(
                 quote.trial_plan_id.as_ref(),
             )?
             .filter(|_| quote.trial_duration.unwrap_or(0) > 0),
+            trial_end_action:
+                match meteroid_grpc::meteroid::api::quotes::v1::QuoteTrialEndAction::try_from(
+                    quote.trial_end_action,
+                ) {
+                    Ok(meteroid_grpc::meteroid::api::quotes::v1::QuoteTrialEndAction::Manual)
+                        if quote.trial_duration.unwrap_or(0) > 0 =>
+                    {
+                        meteroid_store::domain::quotes::QuoteTrialEnd::Manual
+                    }
+                    _ => meteroid_store::domain::quotes::QuoteTrialEnd::Convert,
+                },
             billing_start_date,
             billing_end_date: quote
                 .end_date

@@ -49,11 +49,12 @@ pub struct CheckoutSession {
     pub billing_start_date: Option<NaiveDate>,
     pub billing_day_anchor: Option<i16>,
     pub net_terms: Option<i32>,
-    /// The trial it asks: none the plan's, 0 none, else its days (`trial_free` freeness).
+    /// The trial it asks, as it was sent (R-153).
+    pub trial: crate::domain::trials::TrialRequest,
+    /// The offer it asks, as it was sent (R-170).
+    pub offer: crate::domain::offers::OfferRequest,
+    /// The trial in days as v1 reads it: none the plan's, 0 none.
     pub trial_duration_days: Option<i32>,
-    pub trial_free: Option<bool>,
-    /// A trial offer it gives, over `trial_duration_days`.
-    pub trial_offer_id: Option<common_domain::ids::TrialOfferId>,
     pub end_date: Option<NaiveDate>,
 
     // Billing options
@@ -151,14 +152,12 @@ impl CheckoutSession {
 
     /// The trial the subscription it creates asks for (R-153).
     pub fn trial_request(&self) -> crate::domain::trials::TrialRequest {
-        match self.trial_offer_id {
-            Some(offer) => crate::domain::trials::TrialRequest::Offer(offer),
-            None => crate::domain::trials::TrialRequest::from_days(
-                self.trial_duration_days
-                    .map(|days| u32::try_from(days).unwrap_or(0)),
-                self.trial_free,
-            ),
-        }
+        self.trial.clone()
+    }
+
+    /// The offer the subscription it creates asks for (R-170).
+    pub fn offer_request(&self) -> crate::domain::offers::OfferRequest {
+        self.offer
     }
 
     pub fn to_subscription_new(
@@ -177,6 +176,7 @@ impl CheckoutSession {
             // Use OnCheckout activation for proper period setup, but skip_checkout_session
             // prevents creating another checkout session (we're already completing one)
             activation_condition: SubscriptionActivationCondition::OnCheckout,
+            offer: self.offer_request(),
             trial: self.trial_request(),
             billing_day_anchor: self.billing_day_anchor.map(|a| a as u16),
             payment_methods_config: self.payment_methods_config.clone(),
@@ -258,6 +258,13 @@ impl From<CheckoutSessionRow> for CheckoutSession {
                     .ok()
             });
 
+        let trial = stored_trial(
+            session_id,
+            row.trial_request,
+            row.trial_duration_days,
+            row.trial_free,
+            row.trial_offer_id,
+        );
         Self {
             id: row.id,
             tenant_id: row.tenant_id,
@@ -267,9 +274,9 @@ impl From<CheckoutSessionRow> for CheckoutSession {
             billing_start_date: row.billing_start_date,
             billing_day_anchor: row.billing_day_anchor,
             net_terms: row.net_terms,
+            trial,
+            offer: crate::domain::offers::OfferRequest::from_stored(session_id, row.offer_request),
             trial_duration_days: row.trial_duration_days,
-            trial_free: row.trial_free,
-            trial_offer_id: row.trial_offer_id,
             end_date: row.end_date,
             auto_advance_invoices: row.auto_advance_invoices,
             charge_automatically: row.charge_automatically,
@@ -312,6 +319,8 @@ pub struct CreateCheckoutSession {
     pub net_terms: Option<i32>,
     /// Days or an end date counted from the billing start, else today.
     pub trial: crate::domain::trials::TrialRequest,
+    /// The offer the subscription it creates is given (R-170).
+    pub offer: crate::domain::offers::OfferRequest,
     pub end_date: Option<NaiveDate>,
 
     // Billing options
@@ -383,6 +392,10 @@ impl CreateCheckoutSession {
             self.billing_start_date
                 .unwrap_or_else(|| common_clock::now().date_naive()),
         );
+        let trial_request = StoredTrial::of(&self.trial)
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|e| crate::errors::StoreError::SerdeError("trial_request".to_string(), e))?;
         Ok(CheckoutSessionRowNew {
             id: CheckoutSessionId::new(),
             tenant_id: self.tenant_id,
@@ -414,6 +427,8 @@ impl CreateCheckoutSession {
             resource_id: self.resource_id,
             trial_free,
             trial_offer_id,
+            trial_request,
+            offer_request: self.offer.stored(),
         })
     }
 }
@@ -429,7 +444,7 @@ fn trial_columns(
 ) {
     use crate::domain::trials::{TrialLength, TrialRequest};
     match trial {
-        TrialRequest::Plan => (None, None, None),
+        TrialRequest::Default | TrialRequest::Plan => (None, None, None),
         TrialRequest::None => (Some(0), None, None),
         TrialRequest::Offer(offer) => (None, None, Some(*offer)),
         TrialRequest::Custom { length, free, .. } => {
@@ -439,6 +454,133 @@ fn trial_columns(
             };
             (Some(i32::try_from(days).unwrap_or(i32::MAX)), *free, None)
         }
+    }
+}
+
+/// A trial request as a session stores it, read back as it was sent; `Default` is stored as none.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum StoredTrial {
+    Plan,
+    None,
+    Offer {
+        offer: common_domain::ids::TrialOfferId,
+    },
+    Custom {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        days: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        until: Option<NaiveDate>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        free: Option<bool>,
+        #[serde(default)]
+        features_of: StoredFeaturesOf,
+        #[serde(default)]
+        manual: bool,
+    },
+}
+
+/// Whose features a custom trial gives.
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum StoredFeaturesOf {
+    /// Its plan's trial's.
+    #[default]
+    PlanTrial,
+    /// The subscription's own plan's.
+    Own,
+    Plan {
+        plan: common_domain::ids::PlanId,
+    },
+}
+
+impl StoredTrial {
+    fn of(trial: &crate::domain::trials::TrialRequest) -> Option<Self> {
+        use crate::domain::trials::{TrialLength, TrialRequest};
+        Some(match trial {
+            TrialRequest::Default => return None,
+            TrialRequest::Plan => StoredTrial::Plan,
+            TrialRequest::None => StoredTrial::None,
+            TrialRequest::Offer(offer) => StoredTrial::Offer { offer: *offer },
+            TrialRequest::Custom {
+                length,
+                free,
+                trial_plan,
+                manual,
+            } => {
+                let (days, until) = match length {
+                    TrialLength::Days(days) => (Some(*days), None),
+                    TrialLength::Until(until) => (None, Some(*until)),
+                };
+                StoredTrial::Custom {
+                    days,
+                    until,
+                    free: *free,
+                    features_of: match trial_plan {
+                        None => StoredFeaturesOf::PlanTrial,
+                        Some(None) => StoredFeaturesOf::Own,
+                        Some(Some(plan)) => StoredFeaturesOf::Plan { plan: *plan },
+                    },
+                    manual: *manual,
+                }
+            }
+        })
+    }
+
+    fn request(self) -> Option<crate::domain::trials::TrialRequest> {
+        use crate::domain::trials::{TrialLength, TrialRequest};
+        Some(match self {
+            StoredTrial::Plan => TrialRequest::Plan,
+            StoredTrial::None => TrialRequest::None,
+            StoredTrial::Offer { offer } => TrialRequest::Offer(offer),
+            StoredTrial::Custom {
+                days,
+                until,
+                free,
+                features_of,
+                manual,
+            } => TrialRequest::Custom {
+                length: match (days, until) {
+                    (Some(days), None) => TrialLength::Days(days),
+                    (None, Some(until)) => TrialLength::Until(until),
+                    _ => return None,
+                },
+                free,
+                trial_plan: match features_of {
+                    StoredFeaturesOf::PlanTrial => None,
+                    StoredFeaturesOf::Own => Some(None),
+                    StoredFeaturesOf::Plan { plan } => Some(Some(plan)),
+                },
+                manual,
+            },
+        })
+    }
+}
+
+/// The trial a session asks: as stored, else (a session created before) from its days, freeness
+/// and offer.
+fn stored_trial(
+    session_id: CheckoutSessionId,
+    stored: Option<serde_json::Value>,
+    days: Option<i32>,
+    free: Option<bool>,
+    offer: Option<common_domain::ids::TrialOfferId>,
+) -> crate::domain::trials::TrialRequest {
+    use crate::domain::trials::TrialRequest;
+    if let Some(value) = stored {
+        match serde_json::from_value::<StoredTrial>(value)
+            .ok()
+            .and_then(StoredTrial::request)
+        {
+            Some(request) => return request,
+            None => log::error!(
+                "Checkout session {session_id} stores a trial request it cannot read; read from its days"
+            ),
+        }
+    }
+    match offer {
+        Some(offer) => TrialRequest::Offer(offer),
+        None => TrialRequest::from_days(days.map(|days| u32::try_from(days).unwrap_or(0)), free),
     }
 }
 

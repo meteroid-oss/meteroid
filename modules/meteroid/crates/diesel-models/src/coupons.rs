@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use common_domain::ids::{CouponId, TenantId};
+use common_domain::ids::{CouponId, OfferId, TenantId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
@@ -7,7 +7,8 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CouponRow {
     pub id: CouponId,
-    pub code: String,
+    /// `None` only from release 2 of offers (ADR 0019): a grant's definition or an offer's code.
+    pub code: Option<String>,
     pub description: String,
     pub tenant_id: TenantId,
     pub discount: serde_json::Value,
@@ -28,6 +29,8 @@ pub struct CouponRow {
     /// Periods starting within this many months of the first paid period; `recurring_value`
     /// counts invoices instead (older ones).
     pub duration_months: Option<i32>,
+    /// The offer the code gives; `None` for a grant's own definition, or one not wrapped yet.
+    pub offer_id: Option<OfferId>,
 }
 
 #[derive(Debug, Default, Insertable)]

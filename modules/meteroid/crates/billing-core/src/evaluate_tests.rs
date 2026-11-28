@@ -8,7 +8,9 @@ use rust_decimal::prelude::ToPrimitive;
 use uuid::Uuid;
 
 use super::*;
-use crate::facts::{CouponFact, FactKind, MinimumFact, PlanWindow, SeatStep, Start, Trial};
+use crate::facts::{
+    AfterTrial, CouponFact, FactKind, MinimumFact, PlanWindow, SeatStep, Start, Trial,
+};
 use crate::issued::{IssuedKind, IssuedLine};
 use crate::reconcile::{Adjustment, TakeBack, reconcile};
 use crate::timeline::Grid;
@@ -320,6 +322,7 @@ fn a_free_trial_bills_nothing_then_bills_from_its_end() {
         from: d(2024, 1, 1),
         until: d(2024, 1, 15),
         free: true,
+        after: AfterTrial::Bills,
     });
     facts.fees.push(fixed(10, 1, d(2024, 1, 1), 1, 3_100));
 
@@ -359,6 +362,7 @@ fn a_free_trial_ended_before_its_checkout_settled_expires() {
         from: d(2024, 1, 1),
         until: d(2024, 1, 15),
         free: true,
+        after: AfterTrial::Bills,
     });
     facts.fees.push(fixed(10, 1, d(2024, 1, 1), 1, 3_100));
     assert_eq!(
@@ -382,6 +386,66 @@ fn a_free_trial_ended_before_its_checkout_settled_expires() {
     assert_eq!(of(&paid, 1).len(), 4);
 }
 
+/// A start settled without a card awaits its opening invoice's payment once its free trial ends:
+/// TrialExpired, the first period alone billed, Active once the trial converts.
+/// Rules: R-179
+#[test]
+fn a_free_trial_awaiting_payment_expires_though_its_start_settled() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts.trial = Some(Trial {
+        from: d(2024, 1, 1),
+        until: d(2024, 1, 15),
+        free: true,
+        after: AfterTrial::AwaitsPayment,
+    });
+    facts.fees.push(fixed(10, 1, d(2024, 1, 1), 1, 3_100));
+    assert_eq!(
+        run(&facts, at(2024, 1, 10, 0)).state.status,
+        Status::Trialing
+    );
+    let months_later = run(&facts, at(2024, 4, 10, 0));
+    assert_eq!(months_later.state.status, Status::TrialExpired);
+    assert!(!months_later.state.pending_checkout);
+    let charges = of(&months_later, 1);
+    assert_eq!(periods(&charges), vec![(d(2024, 1, 15), d(2024, 2, 1))]);
+
+    facts.trial = facts.trial.map(|trial| Trial {
+        after: AfterTrial::Bills,
+        ..trial
+    });
+    let paid = run(&facts, at(2024, 4, 10, 1));
+    assert_eq!(paid.state.status, Status::Active);
+    assert_eq!(of(&paid, 1).len(), 4);
+}
+
+/// A trial awaiting a decision holds past its end: Trialing, an open-ended period, nothing billed
+/// and no wake; an ending then bills nothing either.
+/// Rules: R-167
+#[test]
+fn a_trial_awaiting_a_decision_holds_and_bills_nothing() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts.trial = Some(Trial {
+        from: d(2024, 1, 1),
+        until: d(2024, 1, 15),
+        free: true,
+        after: AfterTrial::AwaitsDecision,
+    });
+    facts.fees.push(fixed(10, 1, d(2024, 1, 1), 1, 3_100));
+    let waiting = run(&facts, at(2024, 3, 10, 0));
+    assert_eq!(waiting.state.status, Status::Trialing);
+    assert_eq!(waiting.state.current_period, Some((d(2024, 1, 1), None)));
+    assert!(waiting.charges.is_empty());
+    assert_eq!(waiting.next_wake, None);
+
+    facts.ending = Some(Ending {
+        at: at(2024, 3, 10, 0),
+        kind: EndingKind::Cancel,
+    });
+    let cancelled = run(&facts, at(2024, 3, 10, 1));
+    assert_eq!(cancelled.state.status, Status::Cancelled);
+    assert!(cancelled.charges.is_empty());
+}
+
 /// A paid trial bills like any period; only the status tells it apart.
 #[test]
 fn a_paid_trial_bills_from_the_start() {
@@ -390,6 +454,7 @@ fn a_paid_trial_bills_from_the_start() {
         from: d(2024, 1, 1),
         until: d(2024, 1, 15),
         free: false,
+        after: AfterTrial::Bills,
     });
     facts.fees.push(fixed(10, 1, d(2024, 1, 1), 1, 3_100));
     let evaluation = run(&facts, at(2024, 1, 10, 0));
@@ -2380,6 +2445,7 @@ fn a_one_time_fee_added_in_a_free_trial_bills_when_an_ending_closes_the_trial() 
         from: d(2025, 1, 1),
         until: d(2025, 1, 15),
         free: true,
+        after: AfterTrial::Bills,
     });
     facts.fees.push(fixed(10, 1, d(2025, 1, 1), 1, 2_900));
     let mut setup = fixed(20, 2, d(2025, 1, 1), 1, 9_900);
@@ -3070,6 +3136,7 @@ prop_compose! {
             from: start_date,
             until: start_date + Days::new(days),
             free,
+            after: AfterTrial::Bills,
         });
         let billing_start = facts.billing_start();
         let old = if facts.bills_from_trial_end() {
@@ -3338,6 +3405,7 @@ fn a_packs_grant_takes_its_charges_share() {
         from: d(2024, 1, 1),
         until: d(2024, 1, 15),
         free: true,
+        after: AfterTrial::Bills,
     });
     let mut row = fixed(10, 1, d(2024, 1, 1), 1, 3_100);
     row.fee.grant = Some(6_200);

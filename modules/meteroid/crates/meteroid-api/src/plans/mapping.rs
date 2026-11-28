@@ -392,24 +392,139 @@ pub mod plans {
         }
     }
 
+    pub fn at_end_to_proto(
+        action: domain::trials::TrialEndAction,
+    ) -> meteroid_grpc::meteroid::api::plans::v1::TrialAtEnd {
+        use domain::trials::TrialEndAction;
+        use meteroid_grpc::meteroid::api::plans::v1::trial_at_end::Kind;
+        let (kind, plan_version_id) = match action {
+            TrialEndAction::Convert => (Kind::Convert, None),
+            TrialEndAction::Manual => (Kind::Manual, None),
+            TrialEndAction::Cancel => (Kind::Cancel, None),
+            TrialEndAction::Fallback { plan_version_id } => {
+                (Kind::Switch, Some(plan_version_id.as_proto()))
+            }
+        };
+        meteroid_grpc::meteroid::api::plans::v1::TrialAtEnd {
+            kind: kind as i32,
+            plan_version_id,
+        }
+    }
+
+    pub fn at_end_from_proto(
+        at_end: Option<meteroid_grpc::meteroid::api::plans::v1::TrialAtEnd>,
+    ) -> Result<domain::trials::TrialEndAction, tonic::Status> {
+        use domain::trials::TrialEndAction;
+        use meteroid_grpc::meteroid::api::plans::v1::trial_at_end::Kind;
+        let Some(at_end) = at_end else {
+            return Ok(TrialEndAction::Convert);
+        };
+        Ok(
+            match Kind::try_from(at_end.kind)
+                .map_err(|_| tonic::Status::invalid_argument("unknown end action"))?
+            {
+                Kind::Convert => TrialEndAction::Convert,
+                Kind::Manual => TrialEndAction::Manual,
+                Kind::Cancel => TrialEndAction::Cancel,
+                Kind::Switch => TrialEndAction::Fallback {
+                    plan_version_id: switched_to(at_end.plan_version_id)?,
+                },
+            },
+        )
+    }
+
+    pub fn without_card_to_proto(
+        without_card: domain::trials::TrialWithoutCard,
+    ) -> meteroid_grpc::meteroid::api::plans::v1::TrialWithoutCard {
+        use domain::trials::TrialWithoutCard;
+        use meteroid_grpc::meteroid::api::plans::v1::trial_without_card::Kind;
+        let (kind, plan_version_id) = match without_card {
+            TrialWithoutCard::AwaitPayment => (Kind::AwaitPayment, None),
+            TrialWithoutCard::Cancel => (Kind::Cancel, None),
+            TrialWithoutCard::Switch { plan_version_id } => {
+                (Kind::Switch, Some(plan_version_id.as_proto()))
+            }
+        };
+        meteroid_grpc::meteroid::api::plans::v1::TrialWithoutCard {
+            kind: kind as i32,
+            plan_version_id,
+        }
+    }
+
+    pub fn without_card_from_proto(
+        without_card: Option<meteroid_grpc::meteroid::api::plans::v1::TrialWithoutCard>,
+    ) -> Result<domain::trials::TrialWithoutCard, tonic::Status> {
+        use domain::trials::TrialWithoutCard;
+        use meteroid_grpc::meteroid::api::plans::v1::trial_without_card::Kind;
+        let Some(without_card) = without_card else {
+            return Ok(TrialWithoutCard::AwaitPayment);
+        };
+        Ok(
+            match Kind::try_from(without_card.kind)
+                .map_err(|_| tonic::Status::invalid_argument("unknown end without a card"))?
+            {
+                Kind::AwaitPayment => TrialWithoutCard::AwaitPayment,
+                Kind::Cancel => TrialWithoutCard::Cancel,
+                Kind::Switch => TrialWithoutCard::Switch {
+                    plan_version_id: switched_to(without_card.plan_version_id)?,
+                },
+            },
+        )
+    }
+
+    fn switched_to(
+        plan_version_id: Option<String>,
+    ) -> Result<common_domain::ids::PlanVersionId, tonic::Status> {
+        common_domain::ids::PlanVersionId::from_proto(
+            plan_version_id.as_deref().ok_or_else(|| {
+                tonic::Status::invalid_argument("a switch names its plan version")
+            })?,
+        )
+    }
+
     pub fn trial_terms_to_proto(
         terms: domain::trials::TrialTerms,
     ) -> meteroid_grpc::meteroid::api::plans::v1::TrialTerms {
         meteroid_grpc::meteroid::api::plans::v1::TrialTerms {
             duration_days: terms.duration_days,
-            free: terms.free,
             trial_plan_id: terms.trial_plan_id.map(|id| id.as_proto()),
+            card_required: terms.card_required.unwrap_or(true),
+            at_end: Some(at_end_to_proto(
+                terms
+                    .end_action
+                    .unwrap_or(domain::trials::TrialEndAction::Convert),
+            )),
+            without_card: Some(without_card_to_proto(
+                terms.without_card.unwrap_or_default(),
+            )),
         }
     }
 
+    /// The plan editor writes every term; a trial is free (R-153).
     pub fn trial_terms_from_proto(
         terms: meteroid_grpc::meteroid::api::plans::v1::TrialTerms,
     ) -> Result<domain::trials::TrialTerms, tonic::Status> {
         Ok(domain::trials::TrialTerms {
             duration_days: terms.duration_days,
-            free: terms.free,
+            free: true,
             trial_plan_id: common_domain::ids::PlanId::from_proto_opt(terms.trial_plan_id)?,
+            card_required: Some(terms.card_required),
+            end_action: Some(at_end_from_proto(terms.at_end)?),
+            without_card: Some(without_card_from_proto(terms.without_card)?),
         })
+    }
+
+    pub fn trial_eligibility_to_proto(
+        eligibility: domain::trials::TrialEligibility,
+    ) -> meteroid_grpc::meteroid::api::plans::v1::TrialEligibility {
+        use domain::trials::TrialEligibility;
+        use meteroid_grpc::meteroid::api::plans::v1::TrialEligibility as Proto;
+        match eligibility {
+            TrialEligibility::None => Proto::None,
+            TrialEligibility::Offer => Proto::Offer,
+            TrialEligibility::Plan => Proto::Plan,
+            TrialEligibility::ProductFamily => Proto::ProductFamily,
+        }
     }
 
     pub fn plan_trial_to_proto(
@@ -421,8 +536,7 @@ pub mod plans {
             code: trial.offer.code.clone(),
             terms: Some(trial_terms_to_proto(trial.offer.terms())),
             plans_sharing: u32::try_from(trial.plans.len()).unwrap_or(u32::MAX),
-            end_action: trial.offer.end_action.as_str().to_string(),
-            eligibility: trial.offer.eligibility.as_str().to_string(),
+            eligibility: trial_eligibility_to_proto(trial.offer.eligibility) as i32,
         }
     }
 

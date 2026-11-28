@@ -644,6 +644,19 @@ const CHECKS: &[(&str, &str)] = &[
                               WHERE f.subscription_id = s.id)",
     ),
     (
+        "I38 a subscription past its trial has the trial's outcome",
+        "SELECT format('subscription %s (%s): trial to %s, outcome %s', s.id, s.status,
+                       t.until_date, coalesce(t.outcome, 'none')) AS message
+         FROM subscription s
+         JOIN subscription_trial t ON t.subscription_id = s.id
+         WHERE s.tenant_id = $1
+           AND EXISTS (SELECT 1 FROM subscription_event e
+                       WHERE e.subscription_id = s.id AND e.event_type = 'CREATED')
+           AND ((t.outcome IS NULL AND t.until_date > t.created_at::date
+                 AND s.status IN ('ACTIVE', 'TRIAL_EXPIRED', 'CANCELLED', 'COMPLETED'))
+                )",
+    ),
+    (
         "I32 a seat transaction counts the managed quantity of its unit, in its tenant",
         "SELECT format('slot transaction %s: unit %s, quantity %s of tenant %s',
                        st.id, st.unit, q.code, q.tenant_id) AS message

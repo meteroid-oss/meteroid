@@ -33,6 +33,8 @@ import {
 import { Slot, hasSlot, slotItems } from '@/edition'
 import { ContainedTableSection } from '@/features/customers/cards/ContainedTableSection'
 import { eligibilitySummary, isOpen } from '@/features/eligibility/eligibility'
+import { useGrantNames } from '@/features/offers/GrantChips'
+import { grantChip, grantsFromProto } from '@/features/offers/grants'
 import { ListPlanVersionTab } from '@/features/plans/ListPlanVersion'
 import { AddRow, MoreForPlan } from '@/features/plans/MoreForPlan'
 import { PlanActions } from '@/features/plans/PlanActions'
@@ -52,7 +54,9 @@ import { PlanMinimumCommitmentDisplay } from '@/features/plans/minimum/PlanMinim
 import { PriceComponentSection } from '@/features/plans/pricecomponents/PriceComponentSection'
 import { editedComponentsAtom, priceCellRequestAtom } from '@/features/plans/pricecomponents/utils'
 import { PlanPricingPageForm } from '@/features/plans/pricingpage/PlanPricingPageForm'
-import { PlanTrial } from '@/features/plans/trial/PlanTrial'
+import { PlanStartOffer } from '@/features/plans/trial/PlanTrial'
+import { useTrialPlans } from '@/features/plans/trial/TrialTermsFields'
+import { toTrialForm, trialChips } from '@/features/plans/trial/trialTerms'
 import { usePlanCoupons } from '@/features/plans/usePlanCoupons'
 import { CreditRateOptionalContext } from '@/features/pricing/CreditUnitPriceFields'
 import {
@@ -71,6 +75,7 @@ import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
 import { formatCurrency } from '@/lib/utils/numbers'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
+import { getPlanStartOffer } from '@/rpc/api/offers/v1/offers-OffersService_connectquery'
 import { CreditExhaustedRule_Kind, PlanStatus, PlanType } from '@/rpc/api/plans/v1/models_pb'
 import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { getPlanPricingPage } from '@/rpc/api/pricingpage/v1/pricingpage-PricingPageService_connectquery'
@@ -439,7 +444,7 @@ const PlanCoupons = ({
             <li key={coupon.id} className="flex items-center justify-between gap-4 px-3 py-2.5">
               <span className="min-w-0">
                 <Link
-                  to={`${basePath}/coupons/${coupon.localId}`}
+                  to={`${basePath}/offers/coupons/${coupon.localId}`}
                   className="block truncate text-sm font-medium hover:underline"
                 >
                   {coupon.description || coupon.code}
@@ -462,7 +467,7 @@ const PlanCoupons = ({
           <Plus size={12} /> New coupon for this plan
         </AddRow>
         <Link
-          to={`${basePath}/coupons`}
+          to={`${basePath}/offers/coupons`}
           className="ml-auto text-xs text-muted-foreground hover:text-foreground hover:underline"
         >
           {total > coupons.length
@@ -498,6 +503,11 @@ const usePlanExtras = (): PlanExtra[] => {
     listPurchaseLinks,
     sellsLinks && plan ? { planId: plan.id, includeArchived: false } : skipToken
   ).data?.links
+  const { planName: trialPlanName } = useTrialPlans(plan?.id)
+  const startOffer = useQuery(getPlanStartOffer, plan ? { planId: plan.id } : skipToken).data
+    ?.startOffer
+  const startGrants = grantsFromProto(startOffer?.offer?.grants ?? [])
+  const grantNames = useGrantNames(startGrants)
   // The modules' sections; the module list is fixed per build, so their hooks keep their order.
   const moduleExtras = slotItems('planDetail.extras').map(item =>
     item.useExtra({ planVersionId: version?.id })
@@ -505,37 +515,53 @@ const usePlanExtras = (): PlanExtra[] => {
   if (!plan || !version) return []
 
   const free = plan.planType === PlanType.FREE
-  const trialTerms = trial?.terms
+  const trialTerms = startOffer ? startOffer.offer?.trial : trial?.terms
   const highlights = page?.highlights.length ?? 0
-  const newCouponPath = `${basePath}/coupons/add-coupon?planId=${plan.id}&returnTo=${encodeURIComponent(
+  const newCouponPath = `${basePath}/offers/coupons/add-coupon?planId=${plan.id}&returnTo=${encodeURIComponent(
     location.pathname
   )}`
   const extras: PlanExtra[] = [
     {
       id: 'trial',
-      title: 'Free trial',
+      title: 'Start offer',
       subtitle: free
-        ? 'Days with a paid plan’s features before continuing on this free plan.'
-        : 'Days new subscribers get before billing starts. Live on every version.',
+        ? 'A reverse trial and grants every new subscription gets. Live on every version.'
+        : 'A trial and grants every new subscription gets. Live on every version.',
       icon: TimerIcon,
-      configured: !!trialTerms,
-      summary: trialTerms
-        ? [
-            `${trialTerms.durationDays} ${trialTerms.durationDays === 1 ? 'day' : 'days'}`,
-            !free && !trialTerms.free && 'billed from day one',
-            (trial?.plansSharing ?? 0) > 1 && `offer ${trial?.name}`,
-          ]
-            .filter(Boolean)
-            .join(' · ')
-        : undefined,
-      pitch: 'Let new subscribers try it first',
-      opens: 'popover',
+      configured: !!startOffer || !!trialTerms,
+      summary:
+        startOffer || trialTerms
+          ? [
+              ...(trialTerms
+                ? trialChips(toTrialForm(trialTerms), {
+                    isFreePlan: free,
+                    planName: trialPlanName,
+                    ownName: plan.name,
+                  }).map(chip => chip.label)
+                : []),
+              ...startGrants.map(grant => grantChip(grant, grantNames).label),
+              startOffer?.offer?.standalone && `offer ${startOffer.offer.name}`,
+              !startOffer?.offer?.standalone &&
+                (startOffer?.planIds.length ?? 0) > 1 &&
+                `offer ${startOffer?.offer?.name}`,
+            ]
+              .filter(Boolean)
+              .join(' · ')
+          : undefined,
+      pitch: free
+        ? 'A reverse trial, credit or features to start'
+        : 'A trial, credit or a discount to start',
+      opens: 'sheet',
       readOnly: !canManage,
       content: close => (
-        <PlanTrial
+        <PlanStartOffer
+          key={startOffer?.offer?.id ?? 'none'}
           trial={trial}
+          startOffer={startOffer}
           currentPlanId={plan.id}
+          planName={plan.name}
           planType={plan.planType}
+          currency={version.currency}
           readOnly={!canManage}
           onDone={close}
         />

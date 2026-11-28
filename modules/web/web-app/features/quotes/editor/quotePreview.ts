@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 
 import { formDataToPrice } from '@/features/pricing'
 import { lineKeys, v2ToCreateQuote } from '@/features/quotes/editor/quoteV2'
+import { trialEndToProto } from '@/features/quotes/quoteTrial'
 import { useQuery } from '@/lib/connectrpc'
 import { mapDatev2 } from '@/lib/mapping'
 import {
@@ -247,8 +248,9 @@ export function buildPreviewQuote({
     billingStartDate: data.billing_start_date ? mapDatev2(data.billing_start_date) : undefined,
     endDate: data.end_date ? mapDatev2(data.end_date) : undefined,
     trialDuration: typeof data.trial_duration === 'number' ? data.trial_duration : undefined,
-    trialFree: data.trial_duration ? (data.trial_free ?? true) : undefined,
+    trialFree: data.trial_duration ? true : undefined,
     trialPlanId: data.trial_duration ? data.trial_plan_id : undefined,
+    trialEndAction: trialEndToProto(data.trial_duration, data.trial_end_action),
     billingDayAnchor:
       typeof data.billing_day_anchor === 'number' ? data.billing_day_anchor : undefined,
     expiresAt: data.expires_at ? mapDatev2(data.expires_at) : undefined,

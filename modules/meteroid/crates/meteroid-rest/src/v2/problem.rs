@@ -6,7 +6,7 @@ use error_stack::Report;
 use http::{HeaderValue, StatusCode};
 use meteroid_app::errors::RestApiError;
 use meteroid_store::errors::{
-    EntitlementRefusal, IdempotencyKeyReused, NotInPlan, RateLimited, StoreError,
+    EntitlementRefusal, IdempotencyKeyReused, NotInPlan, OfferRefusal, RateLimited, StoreError,
 };
 use meteroid_store::repositories::resources::{ResourceAtFault, ResourceRefusal};
 use serde::{Deserialize, Serialize};
@@ -45,6 +45,14 @@ pub enum ProblemCode {
     /// The change cannot take effect when asked (`when`): an immediate downgrade, a date where
     /// only now or the period's end are possible…
     WhenRefused,
+    /// The offer asked is not one of the catalog's live offers.
+    OfferUnavailable,
+    /// The offer is given once and the customer already had it.
+    OfferAlreadyGiven,
+    /// The offer is already applied to the subscription.
+    OfferAlreadyApplied,
+    /// An offer with a trial is given at a subscription's creation only.
+    OfferTrialNotApplicable,
     /// The `Idempotency-Key` was used with another request.
     IdempotencyKeyReused,
     /// The first request with this `Idempotency-Key` is still running.
@@ -86,6 +94,10 @@ impl ProblemCode {
             ProblemCode::KeyTaken => "key_taken",
             ProblemCode::ResourceLimitReached => "resource_limit_reached",
             ProblemCode::WhenRefused => "when_refused",
+            ProblemCode::OfferUnavailable => "offer_unavailable",
+            ProblemCode::OfferAlreadyGiven => "offer_already_given",
+            ProblemCode::OfferAlreadyApplied => "offer_already_applied",
+            ProblemCode::OfferTrialNotApplicable => "offer_trial_not_applicable",
             ProblemCode::IdempotencyKeyReused => "idempotency_key_reused",
             ProblemCode::IdempotencyRequestInProgress => "idempotency_request_in_progress",
             ProblemCode::IdempotencyKeyRequired => "idempotency_key_required",
@@ -119,6 +131,10 @@ impl ProblemCode {
             ProblemCode::KeyTaken => "The key is taken",
             ProblemCode::ResourceLimitReached => "The customer holds the most resources allowed",
             ProblemCode::WhenRefused => "The change cannot take effect when asked",
+            ProblemCode::OfferUnavailable => "The offer is not available",
+            ProblemCode::OfferAlreadyGiven => "The customer already had the offer",
+            ProblemCode::OfferAlreadyApplied => "The offer is already applied",
+            ProblemCode::OfferTrialNotApplicable => "An offer with a trial is not applied later",
             ProblemCode::IdempotencyKeyReused => {
                 "The Idempotency-Key was used with another request"
             }
@@ -437,6 +453,25 @@ impl Problem {
         }
     }
 
+    /// An offer refused, `422` with its own code: at `/offer` when the offer asked is at fault.
+    pub fn offer_refused(refusal: OfferRefusal, message: String) -> Self {
+        let (code, at_offer) = match refusal {
+            OfferRefusal::Unavailable => (ProblemCode::OfferUnavailable, true),
+            OfferRefusal::AlreadyGiven => (ProblemCode::OfferAlreadyGiven, true),
+            OfferRefusal::AlreadyApplied => (ProblemCode::OfferAlreadyApplied, false),
+            OfferRefusal::TrialNotApplicable => (ProblemCode::OfferTrialNotApplicable, false),
+        };
+        let mut problem = Self::new(StatusCode::UNPROCESSABLE_ENTITY, code, message.clone());
+        if at_offer {
+            problem.errors.push(FieldError {
+                path: "/offer".to_owned(),
+                code: FieldErrorCode::Invalid.as_str().to_owned(),
+                message,
+            });
+        }
+        problem
+    }
+
     /// A unique violation on create read as the code being taken.
     pub fn code_taken(self, code: &str) -> Self {
         if self.code == ProblemCode::AlreadyExists {
@@ -543,6 +578,9 @@ impl From<Report<StoreError>> for Problem {
             }
             Some(ResourceRefusal::TypeArchived | ResourceRefusal::HierarchyUnsupported) | None => {}
         }
+        if let Some(refusal) = OfferRefusal::of(&error) {
+            return Problem::offer_refused(refusal, message);
+        }
         match context {
             StoreError::ValueNotFound(_) => Problem::not_found(store_message(context)),
             // A row a query was sure to find: the resource asked for does not exist.
@@ -592,11 +630,13 @@ impl From<Report<StoreError>> for Problem {
 impl From<RestApiError> for Problem {
     fn from(error: RestApiError) -> Self {
         match error {
-            RestApiError::InvalidInput(message) => Problem::new(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                ProblemCode::ValidationFailed,
-                message,
-            ),
+            RestApiError::InvalidInput(message) | RestApiError::Unprocessable(message) => {
+                Problem::new(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    ProblemCode::ValidationFailed,
+                    message,
+                )
+            }
             RestApiError::NotFound => Problem::not_found(""),
             RestApiError::Conflict => Problem::conflict(ProblemCode::Conflict, ""),
             RestApiError::FailedPrecondition(message) => {
@@ -800,5 +840,22 @@ mod tests {
         assert_eq!(reused.status, 422);
         let conflict: Problem = Report::new(StoreError::Conflict("taken".to_owned())).into();
         assert_eq!(conflict.code, ProblemCode::Conflict);
+    }
+
+    #[test]
+    fn an_offer_refusal_reads_as_its_own_code() {
+        let given: Problem = OfferRefusal::AlreadyGiven.report("had it").into();
+        assert_eq!(given.code, ProblemCode::OfferAlreadyGiven);
+        assert_eq!(given.status, 422);
+        assert_eq!(given.errors[0].path, "/offer");
+        let json = serde_json::to_value(&given).unwrap();
+        assert_eq!(json["code"], "offer_already_given");
+        let unavailable: Problem = OfferRefusal::Unavailable.report("no offer").into();
+        assert_eq!(unavailable.code, ProblemCode::OfferUnavailable);
+        let applied: Problem = OfferRefusal::AlreadyApplied.report("applied").into();
+        assert_eq!(applied.code, ProblemCode::OfferAlreadyApplied);
+        assert!(applied.errors.is_empty());
+        let trial: Problem = OfferRefusal::TrialNotApplicable.report("trial").into();
+        assert_eq!(trial.code, ProblemCode::OfferTrialNotApplicable);
     }
 }

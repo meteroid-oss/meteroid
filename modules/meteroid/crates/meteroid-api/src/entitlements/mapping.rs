@@ -162,7 +162,7 @@ pub fn policy_from_proto(p: proto::FeaturePolicy) -> Result<FeaturePolicy, Statu
     })
 }
 
-fn effect_to_proto(e: Effect) -> i32 {
+pub(crate) fn effect_to_proto(e: Effect) -> i32 {
     use proto::EntitlementEffect as E;
     (match e {
         Effect::Set => E::Set,
@@ -173,7 +173,7 @@ fn effect_to_proto(e: Effect) -> i32 {
 }
 
 /// `None`: the source's default effect.
-fn effect_from_proto(v: i32) -> Result<Option<Effect>, Status> {
+pub(crate) fn effect_from_proto(v: i32) -> Result<Option<Effect>, Status> {
     use proto::EntitlementEffect as E;
     match E::try_from(v).map_err(|_| invalid("effect"))? {
         E::Unspecified => Ok(None),

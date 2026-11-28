@@ -64,6 +64,7 @@ pub fn domain_to_rest_details(
     let applied_coupons = s
         .applied_coupons
         .into_iter()
+        .filter(|applied| !applied.coupon.is_grant_definition())
         .map(domain_applied_coupon_to_rest)
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -236,6 +237,7 @@ pub fn rest_to_domain_create_request(
             customer_id: resolved_customer_id,
             // v1's days: the plan's trial when absent, none at 0, else its days with the plan's
             // trial's freeness and features.
+            offer: Default::default(),
             trial: meteroid_store::domain::trials::TrialRequest::from_days(sub.trial_days, None),
             start_date: sub.start_date,
             end_date: sub.end_date,

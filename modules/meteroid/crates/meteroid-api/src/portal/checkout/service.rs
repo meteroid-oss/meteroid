@@ -13,12 +13,12 @@ use meteroid_app::conversions::ProtoConv;
 use meteroid_app::services::storage;
 use meteroid_grpc::meteroid::portal::checkout::v1::portal_checkout_service_server::PortalCheckoutService;
 use meteroid_grpc::meteroid::portal::checkout::v1::{
-    AddOnPurchaseCheckoutContext, AppliedCoupon, Checkout, CheckoutType, ConfirmCheckoutRequest,
-    ConfirmCheckoutResponse, ConfirmCheckoutStatus, ConfirmSlotUpgradeCheckoutRequest,
-    ConfirmSlotUpgradeCheckoutResponse, GetCheckoutRequest, GetCheckoutResponse,
-    GetSlotUpgradeCheckoutRequest, GetSlotUpgradeCheckoutResponse, InitiateHostedCheckoutRequest,
-    InitiateHostedCheckoutResponse, PlanChangeCheckoutContext, PromotionalCreditCoupon,
-    SlotUpgradeCheckout, TaxBreakdownItem, TopUpCredits,
+    AddOnPurchaseCheckoutContext, AfterTrial, AfterTrialAmount, AppliedCoupon, Checkout,
+    CheckoutType, ConfirmCheckoutRequest, ConfirmCheckoutResponse, ConfirmCheckoutStatus,
+    ConfirmSlotUpgradeCheckoutRequest, ConfirmSlotUpgradeCheckoutResponse, GetCheckoutRequest,
+    GetCheckoutResponse, GetSlotUpgradeCheckoutRequest, GetSlotUpgradeCheckoutResponse,
+    InitiateHostedCheckoutRequest, InitiateHostedCheckoutResponse, PlanChangeCheckoutContext,
+    PromotionalCreditCoupon, SlotUpgradeCheckout, TaxBreakdownItem, TopUpCredits,
 };
 use meteroid_store::constants::Currencies;
 use meteroid_store::domain::SubscriptionDetails;
@@ -27,7 +27,7 @@ use meteroid_store::domain::checkout_sessions::{
     CheckoutCompletionResult, CheckoutSession as DomainCheckoutSession,
     CheckoutType as DomainCheckoutType,
 };
-use meteroid_store::domain::coupons::CouponDiscount;
+use meteroid_store::domain::coupons::{CouponDiscount, is_grant_code};
 use meteroid_store::domain::subscription_coupons::AppliedCouponDetailed;
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::OrganizationsInterface;
@@ -269,7 +269,13 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             }
         };
 
-        let payment_method_id = CustomerPaymentMethodId::from_proto(inner.payment_method_id)?;
+        let payment_method_id = if inner.without_payment_method {
+            None
+        } else {
+            Some(CustomerPaymentMethodId::from_proto(
+                inner.payment_method_id,
+            )?)
+        };
 
         let has_code = inner
             .coupon_code
@@ -299,17 +305,30 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             }
             _ => None,
         };
-        let result = self
-            .services
-            .complete_checkout(
-                tenant,
-                session_id,
-                payment_method_id,
-                inner.displayed_amount,
-                inner.displayed_currency,
-                inner.coupon_code,
-            )
-            .await;
+        let result = match payment_method_id {
+            Some(payment_method_id) => {
+                self.services
+                    .complete_checkout(
+                        tenant,
+                        session_id,
+                        payment_method_id,
+                        inner.displayed_amount,
+                        inner.displayed_currency,
+                        inner.coupon_code,
+                    )
+                    .await
+            }
+            None => {
+                self.services
+                    .complete_checkout_without_payment_method(
+                        tenant,
+                        session_id,
+                        inner.displayed_currency,
+                        inner.coupon_code,
+                    )
+                    .await
+            }
+        };
         self.settle_coupon_code(code_try, result.is_ok()).await;
         let result = result.map_err(Into::<PortalCheckoutApiError>::into)?;
 
@@ -1203,6 +1222,12 @@ impl PortalCheckoutServiceComponents {
         self.name_credit_units(tenant, &mut subscription_proto)
             .await?;
 
+        let after_trial = self.after_trial(&subscription_details).await;
+        let trial_card_optional = subscription_details
+            .trial_config
+            .as_ref()
+            .is_some_and(meteroid_store::domain::subscriptions::TrialConfig::starts_without_card);
+
         let customer_proto = ServerCustomerWrapper::try_from(subscription_details.customer)
             .map(|v| v.0)
             .map_err(Into::<PortalCheckoutApiError>::into)?;
@@ -1248,7 +1273,12 @@ impl PortalCheckoutServiceComponents {
                 // What the coupon took off the prices the customer sees; on a tax-inclusive
                 // checkout `value` is only the net share of it.
                 amount: coupon.consumed_value().to_non_negative_u64(),
-                coupon_code: coupon.code,
+                // An offer's discount reads by its offer's name, never its internal code.
+                coupon_code: if is_grant_code(coupon.coupon_id, &coupon.code) {
+                    coupon.name.clone()
+                } else {
+                    coupon.code
+                },
                 coupon_name: coupon.name,
             })
             .collect();
@@ -1272,7 +1302,7 @@ impl PortalCheckoutServiceComponents {
                         ..
                     } => applied.coupon.discount.credit_minor().map(|amount| {
                         PromotionalCreditCoupon {
-                            coupon_code: applied.coupon.code.clone(),
+                            coupon_code: applied.coupon.display_label().to_string(),
                             coupon_name: applied.coupon.description.clone(),
                             amount: amount.to_non_negative_u64(),
                             currency: currency.clone(),
@@ -1301,6 +1331,8 @@ impl PortalCheckoutServiceComponents {
         Ok(Checkout {
             top_up_currency: None,
             top_up_credits: None,
+            after_trial,
+            trial_card_optional,
             subscription: Some(subscription_proto),
             customer: Some(customer_proto),
             invoice_lines,
@@ -1331,6 +1363,33 @@ impl PortalCheckoutServiceComponents {
             require_billing_information,
             test_mode,
         })
+    }
+
+    /// The recurring fees billed from the trial's end, priced as the opening invoice from then;
+    /// none without a trial or when it cannot be priced.
+    async fn after_trial(&self, details: &SubscriptionDetails) -> Option<AfterTrial> {
+        match self.services.after_trial(details).await {
+            Ok(after) => after.map(|after| AfterTrial {
+                currency: after.currency,
+                starts_on: after.starts_on.as_proto(),
+                recurring: after
+                    .recurring
+                    .into_iter()
+                    .map(|entry| AfterTrialAmount {
+                        amount: entry.amount,
+                        interval: crate::domain_mapping::billing_period::to_proto(entry.period)
+                            as i32,
+                    })
+                    .collect(),
+            }),
+            Err(error) => {
+                log::warn!(
+                    "Checkout of subscription {} is not priced after its trial: {error:?}",
+                    details.subscription.id
+                );
+                None
+            }
+        }
     }
 
     /// Validates a coupon code, with the checks the payment runs, and creates a preview

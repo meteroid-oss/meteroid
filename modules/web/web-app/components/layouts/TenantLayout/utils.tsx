@@ -177,8 +177,8 @@ export const sidebarItems = {
           url: 'metrics',
         },
         {
-          title: 'Coupons',
-          url: 'coupons',
+          title: 'Offers',
+          url: 'offers',
         },
         {
           title: 'Addons',

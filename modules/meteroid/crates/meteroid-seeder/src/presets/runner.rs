@@ -862,6 +862,7 @@ async fn seed_sandbox_data(
             let subscription = store_domain::SubscriptionNew {
                 customer_id: *customer_id,
                 activation_condition: SubscriptionActivationCondition::OnStart,
+                offer: Default::default(),
                 trial: meteroid_store::domain::trials::TrialRequest::from_days(
                     sub.trial_days,
                     None,
@@ -2171,6 +2172,7 @@ async fn seed_quotes(
             trial_duration_days: None,
             trial_free: None,
             trial_plan_id: None,
+            trial_end_action: Default::default(),
             billing_start_date: None,
             billing_end_date: None,
             billing_day_anchor: None,

@@ -13,7 +13,7 @@ use crate::domain::plan_minimums::MinimumScope;
 use crate::domain::price_components::{RatingModel, UsagePricingModel};
 use crate::domain::quotes::{
     DetailedQuote, QuoteAttachment, QuoteCountersigner, QuoteDisplayOptions, QuoteSection,
-    RecipientDetails,
+    QuoteTrialEnd, RecipientDetails,
 };
 use crate::domain::subscription_phases::PhaseMinimum;
 use crate::domain::trial_offers::PlanPhaseTemplate;
@@ -35,6 +35,10 @@ pub struct QuoteDocument {
     pub trial_free: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trial_plan_id: Option<common_domain::ids::PlanId>,
+    // What the trial does at its end; skipped when it converts so a document recorded before keeps
+    // its hash.
+    #[serde(default, skip_serializing_if = "QuoteTrialEnd::is_convert")]
+    pub trial_end_action: QuoteTrialEnd,
     pub billing_day_anchor: Option<i32>,
     pub expires_at: Option<NaiveDateTime>,
     pub net_terms: i32,
@@ -216,6 +220,11 @@ impl QuoteDocument {
             trial_plan_id: q
                 .trial_plan_id
                 .filter(|_| q.trial_duration_days.unwrap_or(0) > 0),
+            trial_end_action: if q.trial_duration_days.unwrap_or(0) > 0 {
+                q.trial_end_action
+            } else {
+                QuoteTrialEnd::Convert
+            },
             billing_day_anchor: q.billing_day_anchor,
             expires_at: q.expires_at,
             net_terms: q.net_terms,
@@ -412,6 +421,7 @@ mod tests {
             trial_duration_days: None,
             trial_free: None,
             trial_plan_id: None,
+            trial_end_action: QuoteTrialEnd::Convert,
             billing_day_anchor: None,
             expires_at: None,
             net_terms: 30,
@@ -509,6 +519,25 @@ mod tests {
         let read: QuoteDocument = serde_json::from_value(old).unwrap();
         assert_eq!(read.coupon_ids.len(), 1);
         assert!(read.coupons.is_empty());
+    }
+
+    #[test]
+    fn a_trial_deciding_at_the_end_is_part_of_the_hash() {
+        let converting = document(vec![]);
+        let old = serde_json::to_value(&converting).unwrap();
+        assert!(
+            old.get("trial_end_action").is_none(),
+            "no key when it converts"
+        );
+        let mut manual = document(vec![]);
+        manual.trial_duration_days = Some(14);
+        manual.trial_end_action = QuoteTrialEnd::Manual;
+        let mut converts = manual.clone();
+        converts.trial_end_action = QuoteTrialEnd::Convert;
+        assert_ne!(manual.hash(), converts.hash());
+        let read: QuoteDocument =
+            serde_json::from_value(serde_json::to_value(&manual).unwrap()).unwrap();
+        assert_eq!(read.trial_end_action, QuoteTrialEnd::Manual);
     }
 
     #[test]

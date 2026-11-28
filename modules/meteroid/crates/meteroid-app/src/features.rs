@@ -167,6 +167,9 @@ pub mod gates {
     /// The portal cancel flow, and renewal notices of periods, end dates and cancellations
     /// (term renewals are noticed without it).
     pub const RETENTION: FeatureCode = FeatureCode::new("retention");
+    /// Subscription phases and the trial offer catalog (the phases module); core checks it on a
+    /// plan's trial switching to a paid plan.
+    pub const SUBSCRIPTION_PHASES: FeatureCode = FeatureCode::new("subscription_phases");
 }
 
 pub const ALERT_DEFINITIONS_CODE: &str = "alert_definitions";
@@ -659,6 +662,8 @@ pub async fn ensure_usage_breakdown_allowed(
 }
 
 pub const QUOTES_FULL_NOT_IN_PLAN: &str = "Advanced quoting is not enabled for this organization.";
+pub const TRIAL_PAID_SWITCH_NOT_IN_PLAN: &str =
+    "Switching to a paid plan at a trial's end is not enabled for this organization.";
 
 pub async fn ensure_credit_pricing_allowed(
     resolver: &dyn Entitlements,

@@ -81,6 +81,7 @@ pub(super) fn build_subscription_from_quote(
         billing_start_date: Some(start_date),
         activation_condition: quote.activation_condition.clone(),
         // The trial it states, signed with it; none when it states none (R-155).
+        offer: crate::domain::offers::OfferRequest::None,
         trial: quote.trial_request(),
         billing_day_anchor: quote.billing_day_anchor.map(|d| d as u16),
         // Pass through the quote's payment methods config to the subscription

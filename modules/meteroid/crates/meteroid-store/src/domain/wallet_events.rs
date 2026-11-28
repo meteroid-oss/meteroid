@@ -423,6 +423,70 @@ impl CreditGrantExpiredEvent {
     }
 }
 
+/// A grant not in effect yet was dated again (the trial its offer counts from moved): its dates
+/// now. Nothing moved in the wallet.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreditGrantUpdatedEvent {
+    pub id: EventId,
+    pub tenant_id: TenantId,
+    pub customer_id: CustomerId,
+    pub wallet_id: WalletId,
+    pub credit_grant_id: CreditGrantId,
+    pub currency: String,
+    pub effective_at: DateTime<Utc>,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub updated_at: DateTime<Utc>,
+    pub application: CreditApplication,
+    /// The subscription the grant belongs to; absent pays any of the customer's.
+    #[serde(default)]
+    pub subscription_id: Option<SubscriptionId>,
+    /// The products the grant pays for; empty pays every product.
+    #[serde(default)]
+    pub product_ids: Vec<ProductId>,
+    /// Set when `currency` is a credit unit code: the decimal places of its amounts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credit_unit_precision: Option<u8>,
+}
+
+impl CreditGrantUpdatedEvent {
+    pub const ROUTING_KEY: &'static str = "credit_grant.updated";
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        wallet_id: WalletId,
+        scope: &GrantScope,
+        credit_grant_id: CreditGrantId,
+        currency: String,
+        effective_at: DateTime<Utc>,
+        expires_at: Option<DateTime<Utc>>,
+        updated_at: DateTime<Utc>,
+    ) -> Self {
+        Self {
+            id: derived_id(
+                Self::ROUTING_KEY,
+                &[
+                    credit_grant_id.as_uuid(),
+                    number_part(updated_at.timestamp_micros()),
+                ],
+            ),
+            tenant_id,
+            customer_id,
+            wallet_id,
+            credit_grant_id,
+            currency,
+            effective_at,
+            expires_at,
+            updated_at,
+            application: scope.application,
+            subscription_id: scope.subscription_id,
+            product_ids: scope.product_ids.clone(),
+            credit_unit_precision: None,
+        }
+    }
+}
+
 /// A wallet's available balance fell below its low-balance threshold. Fired once per crossing:
 /// the notice re-arms when the balance recovers to the threshold.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -900,6 +964,7 @@ in_credit_unit!(
     WalletFundedEvent,
     WalletDebitedEvent,
     CreditGrantExpiredEvent,
+    CreditGrantUpdatedEvent,
     WalletBalanceLowEvent,
     WalletDepletedEvent,
     WalletRecoveredEvent

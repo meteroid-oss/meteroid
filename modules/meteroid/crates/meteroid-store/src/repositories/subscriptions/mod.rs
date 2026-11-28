@@ -106,6 +106,28 @@ pub trait SubscriptionInterface {
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<Subscription>>;
 
+    /// `list_subscriptions` narrowed to those whose trial `trial` matches.
+    #[allow(clippy::too_many_arguments)]
+    async fn list_subscriptions_by_trial(
+        &self,
+        tenant_id: TenantId,
+        customer_id: Option<CustomerId>,
+        plan_id: Option<PlanId>,
+        status: Option<Vec<crate::domain::enums::SubscriptionStatusEnum>>,
+        trial: Option<crate::domain::trials::TrialListFilter>,
+        search: Option<String>,
+        filters: Vec<crate::domain::filters::Filter>,
+        order_by: Option<String>,
+        pagination: PaginationRequest,
+    ) -> StoreResult<PaginatedVec<Subscription>>;
+
+    /// The trial of each of `subscription_ids` that has one, as a list reads it.
+    async fn list_trial_summaries(
+        &self,
+        tenant_id: TenantId,
+        subscription_ids: &[SubscriptionId],
+    ) -> StoreResult<HashMap<SubscriptionId, crate::domain::trials::TrialSummary>>;
+
     /// Map of subscription_id -> next scheduled cancellation date, for the given subscriptions.
     /// Only subscriptions with a pending cancellation are present in the map.
     async fn list_pending_cancellations(
@@ -256,9 +278,37 @@ impl SubscriptionInterface for Store {
         order_by: Option<String>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<Subscription>> {
+        self.list_subscriptions_by_trial(
+            tenant_id,
+            customer_id,
+            plan_id,
+            status,
+            None,
+            search,
+            filters,
+            order_by,
+            pagination,
+        )
+        .await
+    }
+
+    async fn list_subscriptions_by_trial(
+        &self,
+        tenant_id: TenantId,
+        customer_id: Option<CustomerId>,
+        plan_id: Option<PlanId>,
+        status: Option<Vec<crate::domain::enums::SubscriptionStatusEnum>>,
+        trial: Option<crate::domain::trials::TrialListFilter>,
+        search: Option<String>,
+        filters: Vec<crate::domain::filters::Filter>,
+        order_by: Option<String>,
+        pagination: PaginationRequest,
+    ) -> StoreResult<PaginatedVec<Subscription>> {
         let mut conn = self.get_conn().await?;
 
         let status_filter = status.map(|s| s.into_iter().map(|x| x.into()).collect());
+        let today = common_clock::now().date_naive();
+        let trial_filter = trial.map(|trial| trial.row_filter(today));
 
         let cp_filters = if filters.is_empty() {
             vec![]
@@ -285,6 +335,7 @@ impl SubscriptionInterface for Store {
             customer_id,
             plan_id,
             status_filter,
+            trial_filter,
             search,
             cp_filters,
             order_by.as_deref(),
@@ -304,6 +355,59 @@ impl SubscriptionInterface for Store {
         };
 
         Ok(res)
+    }
+
+    async fn list_trial_summaries(
+        &self,
+        tenant_id: TenantId,
+        subscription_ids: &[SubscriptionId],
+    ) -> StoreResult<HashMap<SubscriptionId, crate::domain::trials::TrialSummary>> {
+        use crate::domain::customer_payment_methods::ResolvedPaymentMethod;
+        use crate::domain::trials::{SubscriptionTrial, TrialStatus, TrialSummary};
+        use crate::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
+        let rows = {
+            let mut conn = self.get_conn().await?;
+            diesel_models::subscription_facts::SubscriptionTrialRow::list_of(
+                &mut conn,
+                tenant_id,
+                subscription_ids,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+        };
+        let mut summaries = HashMap::with_capacity(rows.len());
+        for row in rows {
+            let id = row.subscription_id;
+            let trial = SubscriptionTrial::from(row);
+            let status = trial.status();
+            // Only a trial still to bill reads its payment method: bounded by the page.
+            let resolved = match status {
+                TrialStatus::Active | TrialStatus::AwaitingPayment => Some(
+                    self.resolve_payment_method_for_subscription(tenant_id, id)
+                        .await?,
+                ),
+                _ => None,
+            };
+            let payment_method = match &resolved {
+                Some(ResolvedPaymentMethod::CustomerPaymentMethod(method)) => Some(
+                    self.get_payment_method_by_id(&tenant_id, method)
+                        .await?
+                        .label(),
+                ),
+                _ => None,
+            };
+            summaries.insert(
+                id,
+                TrialSummary {
+                    ends_on: trial.until,
+                    status,
+                    has_payment_method: resolved
+                        .map(|resolved| !matches!(resolved, ResolvedPaymentMethod::NotConfigured)),
+                    payment_method,
+                },
+            );
+        }
+        Ok(summaries)
     }
 
     async fn list_pending_cancellations(

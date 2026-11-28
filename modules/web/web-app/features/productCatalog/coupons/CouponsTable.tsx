@@ -23,6 +23,8 @@ interface CouponsTableProps {
   onSortingChange?: OnChangeFn<SortingState>
   /** The coupon open beside the list: its row is marked, the list narrower. */
   selectedLocalId?: string
+  /** A catalog offer's name; a coupon giving its own offer has none. */
+  offerName?: (offerId: string) => string | undefined
 }
 
 const STATUS_STYLE: Record<CouponStatus, string> = {
@@ -45,6 +47,7 @@ export const CouponsTable: FunctionComponent<CouponsTableProps> = ({
   sorting,
   onSortingChange,
   selectedLocalId,
+  offerName,
 }) => {
   const isCompact = selectedLocalId !== undefined
 
@@ -69,6 +72,14 @@ export const CouponsTable: FunctionComponent<CouponsTableProps> = ({
         header: 'Discount',
         enableSorting: false,
         cell: ({ row }) => <span>{couponDiscountLine(row.original)}</span>,
+      },
+      {
+        header: 'Offer',
+        enableSorting: false,
+        cell: ({ row }) => {
+          const name = row.original.offerId ? offerName?.(row.original.offerId) : undefined
+          return name ? <span>{name}</span> : <span className="text-muted-foreground">—</span>
+        },
       },
       {
         // Sorts on the expiry the line ends with.
@@ -128,7 +139,7 @@ export const CouponsTable: FunctionComponent<CouponsTableProps> = ({
             },
           ]) as ColumnDef<Coupon>[]),
     ],
-    [isCompact]
+    [isCompact, offerName]
   )
 
   return (

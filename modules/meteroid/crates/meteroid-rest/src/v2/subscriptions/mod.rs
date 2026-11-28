@@ -3,7 +3,8 @@
 //! and changed — its plan, a seat count, a level, its charges and add-ons, its cancellation —
 //! each change with a `/preview` writing nothing, each on the store service the gRPC API uses.
 //! Its summary (`…/summary`) reads as lists read it; its entitlements as a customer's; its next
-//! invoice (`…/upcoming-invoice`) as the dashboard forecasts it.
+//! invoice (`…/upcoming-invoice`) as the dashboard forecasts it. Its trial is extended or ended
+//! now (`…/trial`).
 use crate::AppState;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -16,6 +17,7 @@ mod patch;
 mod read;
 pub(crate) mod render;
 pub(crate) mod resolve;
+mod trial;
 mod upcoming;
 mod when;
 
@@ -31,4 +33,5 @@ pub fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(entitlements::list_subscription_entitlements))
         .routes(routes!(entitlements::get_subscription_entitlement))
         .merge(changes::routes())
+        .merge(trial::routes())
 }

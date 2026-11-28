@@ -19,8 +19,12 @@ use crate::v2::refs::{
     AddOnRef, CouponRef, CustomerRef, PlanRef, ReferenceIds, Refs, ResourceRef, SubscriptionRef,
 };
 use crate::v2::subscriptions::create::{PurchaseAsked, Terms, check_terms, resolve_purchase};
-use crate::v2::subscriptions::model::{AddOnPurchase, CreateCharges, InvoicingInput};
+use crate::v2::subscriptions::model::{
+    AddOnPurchase, CreateCharges, CustomTrial, InvoicingInput, NoTrial, OfferTrial, TrialInput,
+    TrialOfThePlan,
+};
 use crate::v2::subscriptions::resolve::not_found_at;
+use crate::v2::trials::AfterTrial;
 use axum::Extension;
 use axum::Json;
 use axum::extract::State;
@@ -141,62 +145,6 @@ pub struct CheckoutInvoicing {
     pub charge_automatically: bool,
 }
 
-/// The trial a session asks for its subscription: the plan's, none, an offer, or its own days.
-#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
-#[serde(tag = "type", rename_all = "snake_case")]
-#[schema(as = CheckoutTrial)]
-pub enum CheckoutTrial {
-    Plan(CheckoutPlanTrial),
-    None(CheckoutNoTrial),
-    Offer(CheckoutOfferTrial),
-    Custom(CheckoutCustomTrial),
-}
-
-/// The plan's trial.
-#[derive(Serialize, ToSchema, Debug, Clone, PartialEq, Default)]
-pub struct CheckoutPlanTrial {}
-
-/// No trial.
-#[derive(Serialize, ToSchema, Debug, Clone, PartialEq, Default)]
-pub struct CheckoutNoTrial {}
-
-/// A trial offer, by id.
-#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
-pub struct CheckoutOfferTrial {
-    #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
-    #[schema(value_type = String)]
-    pub offer: common_domain::ids::TrialOfferId,
-}
-
-/// A trial of its own days.
-#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
-pub struct CheckoutCustomTrial {
-    pub days: u32,
-    /// Nothing billed during it; the plan's trial's freeness when absent, else free.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub free: Option<bool>,
-}
-
-impl CheckoutTrial {
-    fn of(session: &meteroid_store::domain::checkout_sessions::CheckoutSession) -> Self {
-        use meteroid_store::domain::trials::{TrialLength, TrialRequest};
-        match session.trial_request() {
-            TrialRequest::Plan => CheckoutTrial::Plan(CheckoutPlanTrial {}),
-            TrialRequest::None => CheckoutTrial::None(CheckoutNoTrial {}),
-            TrialRequest::Offer(offer) => CheckoutTrial::Offer(CheckoutOfferTrial { offer }),
-            TrialRequest::Custom { length, free, .. } => {
-                CheckoutTrial::Custom(CheckoutCustomTrial {
-                    days: match length {
-                        TrialLength::Days(days) => days,
-                        TrialLength::Until(_) => 0,
-                    },
-                    free,
-                })
-            }
-        }
-    }
-}
-
 /// A hosted checkout: the customer pays on `url`, which creates (or changes) the subscription.
 /// The quantities, levels and charges asked are the page's and the subscription's, not read back
 /// here; a list item carries no `url` (read it on the session).
@@ -236,8 +184,16 @@ pub struct CheckoutSession {
     /// The day the subscription stops renewing; it renews until cancelled when absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_date: Option<NaiveDate>,
-    /// The trial the subscription it creates asks for.
-    pub trial: CheckoutTrial,
+    /// What the subscription it creates is given beside its plan, as asked: `plan` when left out.
+    pub offer: crate::v2::offers::OfferInput,
+    /// The trial the subscription it creates asks for, as sent; absent when none was sent (the
+    /// plan's, unless the customer already had it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trial: Option<TrialInput>,
+    /// What the subscription bills each period once its trial ends; read on a single session
+    /// with a trial.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after_trial: Option<AfterTrial>,
     /// The day of the month periods start on; the start date's when absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub billing_day_anchor: Option<i16>,
@@ -315,9 +271,14 @@ pub struct CreateCheckoutSessionBody {
     /// The day the subscription stops renewing; it renews until cancelled when left out.
     #[serde(default)]
     pub end_date: Option<NaiveDate>,
-    /// The trial the subscription it creates starts with; the plan's when left out.
+    /// What the subscription it creates is given beside its plan: the plan's start offer when
+    /// left out, unless the customer already had it.
     #[serde(default)]
-    pub trial: Option<crate::v2::subscriptions::model::TrialInput>,
+    pub offer: Option<crate::v2::offers::OfferInput>,
+    /// The trial the subscription it creates starts with; the plan's when left out, unless the
+    /// customer already had it.
+    #[serde(default)]
+    pub trial: Option<TrialInput>,
     /// The day of the month periods start on, 1 to 31; the start date's when left out.
     #[serde(default)]
     pub billing_day_anchor: Option<u16>,
@@ -475,6 +436,48 @@ impl<'a, R: Reader> Names<'a, R> {
         Ok(self.refs.plan(plan_id, Some(number), option))
     }
 
+    /// The trial the session was sent, read back: an offer and a plan by code.
+    async fn trial(&mut self, session: &DomainSession) -> Result<Option<TrialInput>, Problem> {
+        use meteroid_store::domain::trials::{TrialLength, TrialRequest};
+        Ok(Some(match session.trial_request() {
+            TrialRequest::Default => return Ok(None),
+            TrialRequest::Plan => TrialInput::Plan(TrialOfThePlan {}),
+            TrialRequest::None => TrialInput::None(NoTrial {}),
+            TrialRequest::Offer(id) => {
+                let offer = self
+                    .state
+                    .services()
+                    .find_trial_offer(self.tenant_id, common_domain::ids::AliasOr::Id(id))
+                    .await
+                    .ok()
+                    .and_then(|offer| offer.code)
+                    .unwrap_or_else(|| id.to_string());
+                TrialInput::Offer(OfferTrial { offer })
+            }
+            TrialRequest::Custom {
+                length, trial_plan, ..
+            } => {
+                let (days, until) = match length {
+                    TrialLength::Days(days) => (Some(days), None),
+                    TrialLength::Until(until) => (None, Some(until)),
+                };
+                let features_of = match trial_plan.flatten() {
+                    Some(plan_id) => Some(
+                        crate::v2::trials::plan_ref(self.state, self.tenant_id, plan_id)
+                            .await?
+                            .code,
+                    ),
+                    None => None,
+                };
+                TrialInput::Custom(CustomTrial {
+                    days,
+                    until,
+                    features_of,
+                })
+            }
+        }))
+    }
+
     /// The session as v2 reads it; none for a checkout that buys no plan (a top-up).
     async fn session(
         &mut self,
@@ -506,7 +509,8 @@ impl<'a, R: Reader> Names<'a, R> {
         {
             coupons.push(coupon.clone());
         }
-        let trial = CheckoutTrial::of(&session);
+        let trial = self.trial(&session).await?;
+        let offer = crate::v2::offers::offer_input(session.offer_request());
         Ok(Some(CheckoutSession {
             id: session.id,
             kind,
@@ -524,7 +528,9 @@ impl<'a, R: Reader> Names<'a, R> {
             coupons,
             start_date: session.billing_start_date,
             end_date: session.end_date,
+            offer,
             trial,
+            after_trial: None,
             billing_day_anchor: session.billing_day_anchor,
             invoicing: CheckoutInvoicing {
                 net_terms: session.net_terms,
@@ -585,11 +591,18 @@ async fn render_with(
     url: Option<String>,
 ) -> Result<CheckoutSession, Problem> {
     let id = session.id;
-    Names::load(state, tenant_id, std::slice::from_ref(&session))
+    let after_trial = if session.checkout_type == CheckoutType::SelfServe {
+        crate::v2::trials::after_trial_of_session(state, tenant_id, &session).await
+    } else {
+        None
+    };
+    let mut read = Names::load(state, tenant_id, std::slice::from_ref(&session))
         .await?
         .session(session, url)
         .await?
-        .ok_or_else(|| Problem::not_found(format!("checkout session {id}")))
+        .ok_or_else(|| Problem::not_found(format!("checkout session {id}")))?;
+    read.after_trial = after_trial;
+    Ok(read)
 }
 
 /// The session as `GET /checkout-sessions/{id}` reads it, without its page (`url`): what a
@@ -628,6 +641,7 @@ fn redirect(field: &'static str, url: Option<&str>) -> Result<(), Problem> {
     request_body = CreateCheckoutSessionBody,
     responses(
         (status = 201, description = "Created, with its hosted page", body = CheckoutSession),
+        (status = 403, description = "A catalog offer is asked and the plan does not include the offer catalog (`feature_not_available`)", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A field is refused: an unknown customer, plan or option, a currency the plan is not sold in, a resource not the customer's or sold to another subscription, a redirect URL that is not http(s)…", body = Problem, content_type = "application/problem+json"),
     ),
     security(("bearer_auth" = []))
@@ -640,10 +654,14 @@ pub async fn create_checkout_session(
     let tenant_id = auth.tenant_id;
     redirect("success_url", body.success_url.as_deref())?;
     redirect("cancel_url", body.cancel_url.as_deref())?;
+    let offer =
+        crate::v2::offers::offer_request(&state, &auth, body.offer.as_ref(), "/offer").await?;
     let trial = crate::v2::subscriptions::create::trial_request(
         &state,
         tenant_id,
         body.trial.as_ref(),
+        body.start_date
+            .unwrap_or_else(|| common_clock::now().date_naive()),
         "/trial",
     )
     .await?;
@@ -720,7 +738,8 @@ pub async fn create_checkout_session(
                 .net_terms
                 .map(|days| to_i32(days, "/invoicing/net_terms"))
                 .transpose()?,
-            trial,
+            offer,
+            trial: trial.clone(),
             end_date: body.end_date,
             auto_advance_invoices: invoicing.auto_finalize.unwrap_or(true),
             charge_automatically: invoicing.charge_automatically.unwrap_or(true),
@@ -746,7 +765,10 @@ pub async fn create_checkout_session(
             resource_id,
         })
         .await
-        .map_err(|error| Problem::resource_or(Some("/plan"), error))?;
+        .map_err(|error| {
+            crate::v2::trials::trial_refusal(&error, &trial, "/trial")
+                .unwrap_or_else(|| Problem::resource_or(Some("/plan"), error))
+        })?;
     // Written: a retry replays this answer, never a second session, whatever is read back.
     let id = created.id;
     let read = render(&state, tenant_id, created).await;

@@ -48,7 +48,7 @@ async fn signup_plan(env: &TestEnv) -> PlanId {
     plan
 }
 
-fn signing_up(alias: &str, country: &str) -> CustomerNew {
+pub(super) fn signing_up(alias: &str, country: &str) -> CustomerNew {
     CustomerNew {
         name: alias.to_string(),
         alias: Some(alias.to_string()),

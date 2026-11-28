@@ -156,9 +156,10 @@ fn taken(external_id: &str) -> Problem {
     request_body(content = CreateSubscription, example = json!(crate::v2::examples::request("create_subscription"))),
     responses(
         (status = 201, description = "Created", body = Subscription, example = json!(crate::v2::examples::response("create_subscription"))),
+        (status = 403, description = "A catalog offer is asked and the plan does not include the offer catalog (`feature_not_available`)", body = Problem, content_type = "application/problem+json"),
         (status = 404, description = "The customer is not found", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The external id is taken (`code_taken`)", body = Problem, content_type = "application/problem+json"),
-        (status = 422, description = "A field is refused: an unknown option, a quantity no seat charge counts, a level the charge does not sell, a resource not the customer's or sold to another subscription over the term…; or no Idempotency-Key was sent", body = Problem, content_type = "application/problem+json"),
+        (status = 422, description = "A field is refused: an unknown option, a quantity no seat charge counts, a level the charge does not sell, a resource not the customer's or sold to another subscription over the term…; an offer that is not the catalog's (`offer_unavailable`) or the customer already had (`offer_already_given`); or no Idempotency-Key was sent", body = Problem, content_type = "application/problem+json"),
     ),
     security(("bearer_auth" = []))
 )]
@@ -174,7 +175,12 @@ pub async fn create_subscription(
         billing_day_anchor: body.billing_day_anchor,
         net_terms: body.invoicing.net_terms,
     })?;
-    let trial = trial_request(&state, tenant_id, body.trial.as_ref(), "/trial").await?;
+    let start_date = body
+        .start_date
+        .unwrap_or_else(|| common_clock::now().date_naive());
+    let offer =
+        crate::v2::offers::offer_request(&state, &auth, body.offer.as_ref(), "/offer").await?;
+    let trial = trial_request(&state, tenant_id, body.trial.as_ref(), start_date, "/trial").await?;
     let external_id = external_id(&state, &auth, body.external_id.as_deref()).await?;
     let customer = ids::customer(&state, tenant_id, &body.customer)
         .await
@@ -221,13 +227,12 @@ pub async fn create_subscription(
             net_terms: invoicing.net_terms,
             invoice_memo: invoicing.memo,
             invoice_threshold: None,
-            start_date: body
-                .start_date
-                .unwrap_or_else(|| common_clock::now().date_naive()),
+            start_date,
             end_date: body.end_date,
             billing_start_date: None,
             activation_condition: body.activation.into(),
-            trial,
+            offer,
+            trial: trial.clone(),
             billing_day_anchor: body.billing_day_anchor,
             payment_methods_config: None,
             auto_advance_invoices: invoicing.auto_finalize.unwrap_or(true),
@@ -271,6 +276,9 @@ pub async fn create_subscription(
     {
         Ok(created) => created,
         Err(error) => {
+            if let Some(problem) = crate::v2::trials::trial_refusal(&error, &trial, "/trial") {
+                return Err(problem);
+            }
             return Err(insert_refused(&state, &auth, external_id.as_deref(), error).await);
         }
     };
@@ -304,16 +312,19 @@ pub async fn create_subscription(
     ))
 }
 
-/// The trial asked at `pointer`, as the store resolves it (R-153): the plan's when left out.
+/// The trial asked at `pointer` for a subscription billed from `billing_start`, as the store
+/// resolves it (R-153): the plan's when left out, unless the customer already had it.
 pub(crate) async fn trial_request(
     state: &AppState,
     tenant_id: common_domain::ids::TenantId,
     input: Option<&TrialInput>,
+    billing_start: chrono::NaiveDate,
     pointer: &str,
 ) -> Result<meteroid_store::domain::trials::TrialRequest, Problem> {
     use meteroid_store::domain::trials::{TrialLength, TrialRequest};
     Ok(match input {
-        None | Some(TrialInput::Plan(_)) => TrialRequest::Plan,
+        None => TrialRequest::Default,
+        Some(TrialInput::Plan(_)) => TrialRequest::Plan,
         Some(TrialInput::None(_)) => TrialRequest::None,
         Some(TrialInput::Offer(trial)) => {
             let raw = trial.offer.trim();
@@ -332,6 +343,13 @@ pub(crate) async fn trial_request(
                         format!("trial offer {raw}"),
                     )
                 })?;
+            if offer.archived_at.is_some() {
+                return Err(Problem::field(
+                    format!("{pointer}/offer"),
+                    "archived",
+                    format!("The trial offer {raw} is archived"),
+                ));
+            }
             TrialRequest::Offer(offer.id)
         }
         Some(TrialInput::Custom(trial)) => {
@@ -340,7 +358,14 @@ pub(crate) async fn trial_request(
                     bounds::trial_days(days, &format!("{pointer}/days"))?;
                     TrialLength::Days(days)
                 }
-                (None, Some(until)) => TrialLength::Until(until),
+                (None, Some(until)) => {
+                    crate::v2::trials::check_until(
+                        until,
+                        billing_start,
+                        &format!("{pointer}/until"),
+                    )?;
+                    TrialLength::Until(until)
+                }
                 _ => {
                     return Err(Problem::field(
                         pointer.to_owned(),
@@ -349,26 +374,23 @@ pub(crate) async fn trial_request(
                     ));
                 }
             };
-            let trial_plan = match trial.plan.as_deref() {
+            let trial_plan = match trial.features_of.as_deref() {
                 None => None,
-                Some(plan) => Some(Some(ids::plan_id(state, tenant_id, plan).await.map_err(
-                    |problem| {
-                        if problem.status == 404 {
-                            Problem::field(
-                                format!("{pointer}/plan"),
-                                "not_found",
-                                format!("plan {plan} not found"),
-                            )
-                        } else {
-                            problem
-                        }
-                    },
-                )?)),
+                Some(plan) => Some(Some(
+                    crate::v2::trials::plan_in(
+                        state,
+                        tenant_id,
+                        plan,
+                        &format!("{pointer}/features_of"),
+                    )
+                    .await?,
+                )),
             };
             TrialRequest::Custom {
                 length,
-                free: trial.free,
+                free: None,
                 trial_plan,
+                manual: false,
             }
         }
     })

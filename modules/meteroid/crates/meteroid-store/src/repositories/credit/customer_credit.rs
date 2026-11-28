@@ -8,8 +8,8 @@ use crate::domain::credit::{
 };
 use crate::domain::credit_units::DenominationCode;
 use crate::domain::outbox_event::{
-    CreditGrantExpiredEvent, OutboxEvent, WalletCreditRecoveredEvent, WalletCreditUnrecoveredEvent,
-    WalletDebitedEvent, WalletFundedEvent,
+    CreditGrantExpiredEvent, CreditGrantUpdatedEvent, OutboxEvent, WalletCreditRecoveredEvent,
+    WalletCreditUnrecoveredEvent, WalletDebitedEvent, WalletFundedEvent,
 };
 use crate::domain::wallet_events::{
     CreditLossNotice, CreditUnrecoveredCause, CreditUnrecoveredTrigger, GrantLapseReason,
@@ -666,6 +666,56 @@ pub(crate) async fn balance_changed_tx(
     ids.sort_by_key(|id| id.as_uuid());
     ids.dedup();
     controls.balance_changed(conn, tenant_id, &ids, now).await
+}
+
+/// The customer's grant `id`, not in effect yet and untouched, dated again, `credit_grant.updated`
+/// published with its dates now; `None` when it no longer is (then nothing changes).
+pub(crate) async fn redate_pending_tx(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    customer_id: CustomerId,
+    id: CreditGrantId,
+    effective_at: DateTime<Utc>,
+    expires_at: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+) -> StoreResult<Option<CustomerCreditGrantRow>> {
+    let lock = lock_customer_tx(conn, tenant_id, customer_id).await?;
+    let Some(grant) =
+        CustomerCreditGrantRow::redate_pending(conn, tenant_id, id, effective_at, expires_at, now)
+            .await?
+    else {
+        return Ok(None);
+    };
+    if grant.customer_id != customer_id {
+        return Err(precondition("the credit grant is another customer's"));
+    }
+    // Its dates change what it can pay and when: a movement for readers.
+    CustomerCreditAccountRow::bump_ledger_version(conn, &lock).await?;
+    let account = CustomerCreditAccountRow::find_by_id(conn, tenant_id, grant.account_id)
+        .await?
+        .ok_or_else(|| precondition("customer credit wallet is missing"))?;
+    let precision = super::denomination::account_unit_precision(conn, &account).await?;
+    let products = grant_products_tx(conn, tenant_id, &[grant.id]).await?;
+    let scope = grant_scope(
+        &grant,
+        products.get(&grant.id).map_or(&[][..], Vec::as_slice),
+    )?;
+    let event = OutboxEvent::credit_grant_updated(
+        CreditGrantUpdatedEvent::new(
+            tenant_id,
+            grant.customer_id,
+            account.id,
+            &scope,
+            grant.id,
+            account.currency.clone(),
+            grant.effective_at,
+            grant.expires_at,
+            now,
+        )
+        .in_credit_unit(precision),
+    );
+    publish_outbox_events_tx(conn, vec![event]).await?;
+    Ok(Some(grant))
 }
 
 /// A pending demand as the projection stores it (`credit_balance_projection.pending_by_product`).

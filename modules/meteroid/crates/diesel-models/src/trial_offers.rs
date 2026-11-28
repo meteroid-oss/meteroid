@@ -14,7 +14,8 @@ pub struct TrialOfferRow {
     pub tenant_id: TenantId,
     pub name: String,
     pub code: Option<String>,
-    pub duration_days: i32,
+    /// `None`: the offer gives no trial, only its grants.
+    pub duration_days: Option<i32>,
     pub free: bool,
     pub trial_plan_id: Option<PlanId>,
     pub end_action: String,
@@ -23,6 +24,12 @@ pub struct TrialOfferRow {
     pub archived_at: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    pub card_required: bool,
+    pub without_card: String,
+    pub without_card_plan_version_id: Option<PlanVersionId>,
+    /// Listed in the catalog; an offer made for a plan or wrapping a coupon is not.
+    pub standalone: bool,
+    pub description: Option<String>,
 }
 
 /// A trial given at a subscription's creation, with the plan and family it started on (R-159).

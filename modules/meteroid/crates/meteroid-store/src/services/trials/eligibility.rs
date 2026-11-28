@@ -10,7 +10,6 @@ use diesel_models::trial_offers::{TrialOfferRow, TrialRedemptionRow};
 use super::resolve::{PlanRef, already_had};
 use super::{db, invalid};
 use crate::StoreResult;
-use crate::domain::subscription_phases::{PhasePlan, PhaseTerms, SubscriptionPhaseInput};
 use crate::domain::trials::{ResolvedTrial, TrialEligibility, TrialEndAction, TrialOffer};
 use crate::services::Services;
 
@@ -45,7 +44,7 @@ pub(super) async fn given_tx(
 
 /// The trials of subscriptions just inserted recorded, under their customers' locks, and what
 /// ends them written: the subscription's end date for one cancelling, a phase switching plan for
-/// one falling back. One given once that the customer already had refuses the creation.
+/// one falling back; a manual end is decided at the end. One given once that the customer already had refuses the creation.
 pub(in crate::services) async fn record_trials_tx(
     services: &Services,
     conn: &mut PgConn,
@@ -85,7 +84,7 @@ pub(in crate::services) async fn record_trials_tx(
                 .unwrap_or(subscription.start_date),
         );
         match &trial.end_action {
-            TrialEndAction::Convert => {}
+            TrialEndAction::Convert | TrialEndAction::Manual => {}
             TrialEndAction::Cancel => {
                 let end = subscription.end_date.map_or(until, |end| end.min(until));
                 crate::services::facts::record_end_date_tx(
@@ -98,33 +97,14 @@ pub(in crate::services) async fn record_trials_tx(
                 .await?;
             }
             TrialEndAction::Fallback { plan_version_id } => {
-                let seq = crate::services::subscriptions::phases::list_phases_tx(
-                    conn,
-                    tenant_id,
-                    subscription.id,
-                )
-                .await?
-                .len();
-                crate::services::subscriptions::phases::write_phase_tx(
+                super::ending::write_switch_phase_tx(
                     services,
                     conn,
                     actor,
                     tenant_id,
                     subscription.id,
-                    u32::try_from(seq).unwrap_or(u32::MAX),
-                    &SubscriptionPhaseInput {
-                        start_date: until,
-                        label: Some("After the trial".to_string()),
-                        terms: PhaseTerms {
-                            plan: Some(PhasePlan {
-                                plan_version_id: *plan_version_id,
-                                option: None,
-                                component_params: vec![],
-                                name: None,
-                            }),
-                            ..PhaseTerms::default()
-                        },
-                    },
+                    until,
+                    *plan_version_id,
                 )
                 .await?;
             }

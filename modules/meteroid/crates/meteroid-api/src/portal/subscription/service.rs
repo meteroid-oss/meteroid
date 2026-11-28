@@ -596,7 +596,15 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             &credit_units,
         )?;
 
+        let trial = self
+            .services
+            .customer_trial(tenant_id, &details)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?
+            .map(portal_trial_to_proto);
+
         let subscription = SubscriptionDetails {
+            trial,
             id: details.subscription.id.as_proto(),
             plan_name: details.subscription.plan_name.clone(),
             plan_id: details.subscription.plan_id.as_proto(),
@@ -2840,6 +2848,7 @@ impl PortalSubscriptionServiceComponents {
             billing_start_date: None,
             billing_day_anchor: None,
             net_terms: None,
+            offer: Default::default(),
             trial: Default::default(),
             end_date: None,
             auto_advance_invoices: true,
@@ -3111,6 +3120,40 @@ fn admits(
     };
     let facts = meteroid_store::domain::eligibility::CustomerFacts::of(&details.customer);
     meteroid_store::domain::eligibility::check(rule, &facts).map_err(|e| e.message())
+}
+
+fn portal_trial_to_proto(
+    trial: meteroid_store::domain::trials::CustomerTrial,
+) -> meteroid_grpc::meteroid::portal::subscription::v1::PortalTrial {
+    use meteroid_grpc::meteroid::portal::subscription::v1::{
+        PortalAfterTrial, PortalAfterTrialAmount, PortalTrial, PortalTrialInvoice,
+    };
+    PortalTrial {
+        ends_on: trial.ends_on.as_proto(),
+        status: crate::subscriptions::trial::status_to_proto(trial.status) as i32,
+        after_trial: trial.after_trial.map(|after| PortalAfterTrial {
+            currency: after.currency,
+            starts_on: after.starts_on.as_proto(),
+            recurring: after
+                .recurring
+                .into_iter()
+                .map(|entry| PortalAfterTrialAmount {
+                    amount: entry.amount,
+                    interval: crate::domain_mapping::billing_period::to_proto(entry.period) as i32,
+                })
+                .collect(),
+        }),
+        has_payment_method: trial.has_payment_method,
+        payment_method: trial.payment_method,
+        ended_on: trial.ended_on.map(|on| on.as_proto()),
+        invoice_to_pay: trial.invoice_to_pay.map(|invoice| PortalTrialInvoice {
+            invoice_id: invoice.invoice_id.as_proto(),
+            invoice_number: invoice.invoice_number,
+            amount_due: invoice.amount_due,
+            currency: invoice.currency,
+            due_date: invoice.due_at.map(|at| at.date().as_proto()),
+        }),
+    }
 }
 
 #[cfg(test)]

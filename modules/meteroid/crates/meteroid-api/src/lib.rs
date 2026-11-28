@@ -23,6 +23,7 @@ pub mod internal;
 pub mod invoices;
 pub mod invoicingentities;
 pub mod listviews;
+pub mod offers;
 pub mod organizations;
 pub mod plans;
 pub mod portal;

@@ -2500,7 +2500,9 @@ async fn test_rest_v2_subscription_entitlement_overrides() {
 /// Rules: R-153
 #[tokio::test]
 async fn test_rest_v2_subscription_trial_is_an_offer_or_days() {
-    use meteroid_store::domain::trials::{TrialEligibility, TrialEndAction, TrialOfferNew};
+    use meteroid_store::domain::trials::{
+        TrialEligibility, TrialEndAction, TrialOfferNew, TrialWithoutCard,
+    };
     let f = fixture().await;
     seed(&f).await;
     f.setup
@@ -2513,7 +2515,9 @@ async fn test_rest_v2_subscription_trial_is_an_offer_or_days() {
                 duration_days: 14,
                 free: true,
                 trial_plan_id: None,
+                card_required: true,
                 end_action: TrialEndAction::Convert,
+                without_card: TrialWithoutCard::AwaitPayment,
                 eligibility: TrialEligibility::None,
             },
         )
@@ -2550,17 +2554,38 @@ async fn test_rest_v2_subscription_trial_is_an_offer_or_days() {
     assert_eq!(read.body["trial"]["days"], 14, "{:#}", read.body);
     assert_eq!(read.body["trial"]["offer"]["code"], "two-weeks");
 
+    assert_eq!(read.body["trial"]["status"], "active");
+    assert_eq!(read.body["trial"]["at_end"], json!({"type": "convert"}));
+    assert_eq!(
+        read.body["trial"]["without_card"],
+        json!({"type": "await_payment"})
+    );
+
+    // A trial is free: there is no freeness to send.
+    let billed = create(
+        "trial-billed",
+        "trial-billed",
+        json!({"type": "custom", "days": 7, "free": false}),
+    )
+    .await;
+    assert_eq!(billed.status, StatusCode::BAD_REQUEST, "{:#}", billed.body);
+    assert_eq!(billed.body["errors"][0]["path"], "/trial/free");
+
     let by_days = create(
         "trial-days",
         "trial-days",
-        json!({"type": "custom", "days": 7, "free": false}),
+        json!({"type": "custom", "days": 7}),
     )
     .await;
     assert_eq!(by_days.status, StatusCode::CREATED, "{:#}", by_days.body);
     let read = f.get("/api/v2/subscriptions/trial-days").await;
-    assert_eq!(read.body["trial"]["days"], 7, "{:#}", read.body);
-    assert_eq!(read.body["trial"]["free"], false);
-    assert!(read.body["trial"].get("offer").is_none());
+    let trial = &read.body["trial"];
+    assert_eq!(trial["days"], 7, "{:#}", read.body);
+    assert!(trial.get("free").is_none(), "no freeness: {trial:#}");
+    assert!(trial.get("offer").is_none());
+    assert_eq!(trial["ends_on"], trial["billing_starts_on"]);
+    assert_eq!(trial["has_payment_method"], false);
+    assert!(trial.get("outcome").is_none());
 
     let none = create("trial-none", "trial-none", json!({"type": "none"})).await;
     assert_eq!(none.status, StatusCode::CREATED, "{:#}", none.body);
@@ -2586,4 +2611,282 @@ async fn test_rest_v2_subscription_trial_is_an_offer_or_days() {
     )
     .await;
     assert_eq!(both.status, StatusCode::BAD_REQUEST, "{:#}", both.body);
+}
+
+/// A running trial extended, previewed and ended through the core actions; a trial the customer
+/// already had refused when asked by name, given none when asked by default; an end before the
+/// start refused at its field.
+/// Rules: R-153, R-159
+#[tokio::test]
+async fn test_rest_v2_subscription_trial_actions_and_refusals() {
+    use meteroid_store::domain::trials::{
+        TrialEligibility, TrialEndAction, TrialOfferNew, TrialWithoutCard,
+    };
+    let f = fixture().await;
+    seed(&f).await;
+    f.setup
+        .services
+        .create_trial_offer(
+            crate::data::ids::TENANT_ID,
+            TrialOfferNew {
+                name: "Once".to_owned(),
+                code: Some("once".to_owned()),
+                duration_days: 10,
+                free: true,
+                trial_plan_id: None,
+                card_required: false,
+                end_action: TrialEndAction::Convert,
+                without_card: TrialWithoutCard::AwaitPayment,
+                eligibility: TrialEligibility::Offer,
+            },
+        )
+        .await
+        .expect("an offer");
+    let create = |key: &'static str, trial: Option<Value>| {
+        let f = &f;
+        // A trial given once per family: the plan's own trial is asked by another customer.
+        let customer = if key.starts_with("plan-") {
+            "ext:uber"
+        } else {
+            "ext:spotify"
+        };
+        async move {
+            let mut body = json!({
+                "customer": customer,
+                "plan": "studio",
+                "option": "monthly",
+                "external_id": key,
+                "quantities": {"users": "1"},
+                "invoicing": {"charge_automatically": false}
+            });
+            if let Some(trial) = trial {
+                body["trial"] = trial;
+            }
+            f.post_once("/api/v2/subscriptions", key, body).await
+        }
+    };
+
+    let first = create("once-1", Some(json!({"type": "offer", "offer": "once"}))).await;
+    assert_eq!(first.status, StatusCode::CREATED, "{:#}", first.body);
+    let again = create("once-2", Some(json!({"type": "offer", "offer": "once"}))).await;
+    assert_eq!(
+        again.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{:#}",
+        again.body
+    );
+    assert_eq!(again.body["errors"][0]["path"], "/trial/offer");
+
+    let backwards = create(
+        "until-past",
+        Some(json!({"type": "custom", "until": "2020-01-01"})),
+    )
+    .await;
+    assert_eq!(
+        backwards.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{:#}",
+        backwards.body
+    );
+    assert_eq!(backwards.body["errors"][0]["path"], "/trial/until");
+
+    // The plan's trial: asked explicitly by a customer who had it, refused; by default, none.
+    let set = f
+        .patch(
+            "/api/v2/plans/studio",
+            json!({"trial": {"type": "terms", "days": 5, "card": "optional", "at_end": {"type": "manual"}}}),
+        )
+        .await;
+    assert_eq!(set.status, StatusCode::OK, "{:#}", set.body);
+    assert_eq!(set.body["trial"]["days"], 5, "{:#}", set.body);
+    assert_eq!(set.body["trial"]["card"], "optional");
+    assert_eq!(set.body["trial"]["at_end"], json!({"type": "manual"}));
+    assert_eq!(set.body["trial"]["eligibility"], "product_family");
+    assert!(set.body["trial"].get("free").is_none());
+    let planned = create("plan-1", Some(json!({"type": "plan"}))).await;
+    assert_eq!(planned.status, StatusCode::CREATED, "{:#}", planned.body);
+    assert_eq!(planned.body["trial"]["days"], 5, "{:#}", planned.body);
+    assert_eq!(planned.body["trial"]["at_end"], json!({"type": "manual"}));
+    assert!(
+        planned.body["trial"].get("first_charge_estimate").is_none(),
+        "a manual end charges nothing: {:#}",
+        planned.body
+    );
+    let asked = create("plan-2", Some(json!({"type": "plan"}))).await;
+    assert_eq!(
+        asked.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{:#}",
+        asked.body
+    );
+    assert_eq!(asked.body["errors"][0]["path"], "/trial");
+    let by_default = create("plan-3", None).await;
+    assert_eq!(
+        by_default.status,
+        StatusCode::CREATED,
+        "{:#}",
+        by_default.body
+    );
+    assert!(
+        by_default.body.get("trial").is_none_or(Value::is_null),
+        "{:#}",
+        by_default.body
+    );
+    let billed = f
+        .patch(
+            "/api/v2/plans/studio",
+            json!({"trial": {"type": "terms", "days": 5, "free": false}}),
+        )
+        .await;
+    assert_eq!(billed.status, StatusCode::BAD_REQUEST, "{:#}", billed.body);
+
+    // Extended by days, then to a day; refused without one of the two.
+    let extended = f
+        .post(
+            "/api/v2/subscriptions/once-1/trial/extend",
+            json!({"days": 4}),
+        )
+        .await;
+    assert_eq!(extended.status, StatusCode::OK, "{:#}", extended.body);
+    let trial = &extended.body["trial"];
+    assert_eq!(trial["days"], 14, "{:#}", extended.body);
+    assert_eq!(trial["status"], "active");
+    let ends_on = trial["ends_on"].as_str().unwrap().to_owned();
+    let later = chrono::NaiveDate::parse_from_str(&ends_on, "%Y-%m-%d").unwrap()
+        + chrono::Duration::days(2);
+    let moved = f
+        .post(
+            "/api/v2/subscriptions/once-1/trial/extend",
+            json!({"until": later.to_string()}),
+        )
+        .await;
+    assert_eq!(moved.status, StatusCode::OK, "{:#}", moved.body);
+    assert_eq!(moved.body["trial"]["ends_on"], later.to_string());
+    assert_eq!(moved.body["trial"]["days"], 16);
+    let neither = f
+        .post("/api/v2/subscriptions/once-1/trial/extend", json!({}))
+        .await;
+    assert_eq!(neither.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(neither.body["errors"][0]["path"], "/until");
+
+    // Previewed: converting today issues the opening invoice; nothing is written.
+    let preview = f
+        .post("/api/v2/subscriptions/once-1/trial/end/preview", json!({}))
+        .await;
+    assert_eq!(preview.status, StatusCode::OK, "{:#}", preview.body);
+    assert_eq!(preview.body["outcome"], "converted");
+    assert_eq!(preview.body["documents"][0]["type"], "invoice");
+    assert!(preview.body["documents"][0]["total"].as_i64().unwrap() > 0);
+    assert_eq!(preview.body["subscription_after"]["status"], "active");
+    let still = f.get("/api/v2/subscriptions/once-1").await;
+    assert_eq!(still.body["trial"]["status"], "active", "{:#}", still.body);
+    assert_eq!(still.body["trial"]["ends_on"], later.to_string());
+    assert!(
+        still.body["trial"]["first_charge_estimate"]["amount"]
+            .as_i64()
+            .is_some_and(|amount| amount > 0),
+        "{:#}",
+        still.body
+    );
+
+    // Ended today: an Idempotency-Key is required, billing starts now.
+    let keyless = f
+        .post("/api/v2/subscriptions/once-1/trial/end", json!({}))
+        .await;
+    assert_eq!(
+        keyless.status,
+        StatusCode::BAD_REQUEST,
+        "{:#}",
+        keyless.body
+    );
+    let ended = f
+        .post_once(
+            "/api/v2/subscriptions/once-1/trial/end",
+            "end-once-1",
+            json!({}),
+        )
+        .await;
+    assert_eq!(ended.status, StatusCode::OK, "{:#}", ended.body);
+    let trial = &ended.body["trial"];
+    assert_eq!(trial["status"], "converted", "{:#}", ended.body);
+    assert_eq!(trial["outcome"], "converted");
+    assert!(trial["ended_on"].is_string());
+    assert_eq!(trial["ends_on"], trial["ended_on"]);
+    assert_ne!(ended.body["status"], "trial_active");
+    let over = f
+        .post("/api/v2/subscriptions/once-1/trial/end/preview", json!({}))
+        .await;
+    assert_eq!(
+        over.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{:#}",
+        over.body
+    );
+    let none = f
+        .post(
+            "/api/v2/subscriptions/plan-3/trial/extend",
+            json!({"days": 1}),
+        )
+        .await;
+    assert_eq!(
+        none.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{:#}",
+        none.body
+    );
+}
+
+/// Listed by their trial: one ending in 5 days is ending within 7 days, not within 3, and not
+/// awaiting payment; the days ahead go with `trial=ending` only.
+/// Rules: R-167
+#[tokio::test]
+async fn test_rest_v2_subscriptions_listed_by_their_trial() {
+    let f = fixture().await;
+    seed(&f).await;
+    let created = f
+        .post_once(
+            "/api/v2/subscriptions",
+            "listed-trial",
+            json!({
+                "customer": "ext:spotify",
+                "plan": "studio",
+                "option": "monthly",
+                "quantities": {"users": "1"},
+                "trial": {"type": "custom", "days": 5},
+                "invoicing": {"charge_automatically": false}
+            }),
+        )
+        .await;
+    assert_eq!(created.status, StatusCode::CREATED, "{:#}", created.body);
+    let id = created.body["id"].as_str().unwrap().to_owned();
+    let listed = |query: &'static str| {
+        let f = &f;
+        async move {
+            let page = f.get(&format!("/api/v2/subscriptions?{query}")).await;
+            assert_eq!(page.status, StatusCode::OK, "{query}: {:#}", page.body);
+            ids_of(&page.body["data"])
+        }
+    };
+    assert!(listed("trial=ending").await.contains(&id));
+    assert!(
+        listed("trial=ending&trial_ends_within_days=7")
+            .await
+            .contains(&id)
+    );
+    assert!(
+        !listed("trial=ending&trial_ends_within_days=3")
+            .await
+            .contains(&id)
+    );
+    assert!(!listed("trial=awaiting_payment").await.contains(&id));
+    assert!(!listed("trial=awaiting_decision").await.contains(&id));
+    let alone = f
+        .get("/api/v2/subscriptions?trial_ends_within_days=7")
+        .await;
+    assert_eq!(
+        alone.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{:#}",
+        alone.body
+    );
 }

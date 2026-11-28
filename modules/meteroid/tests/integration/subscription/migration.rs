@@ -257,6 +257,7 @@ async fn test_migration_rejects_future_start_date(#[future] test_env: TestEnv) {
                     billing_start_date: None,
                     activation_condition:
                         meteroid_store::domain::SubscriptionActivationCondition::OnStart,
+                    offer: Default::default(),
                     trial: Default::default(),
                     billing_day_anchor: None,
                     payment_methods_config: None,
@@ -310,6 +311,7 @@ async fn test_migration_rejects_manual_activation(#[future] test_env: TestEnv) {
                     billing_start_date: None,
                     activation_condition:
                         meteroid_store::domain::SubscriptionActivationCondition::Manual,
+                    offer: Default::default(),
                     trial: Default::default(),
                     billing_day_anchor: None,
                     payment_methods_config: None,
@@ -363,6 +365,7 @@ async fn test_migration_rejects_on_checkout_activation(#[future] test_env: TestE
                     billing_start_date: None,
                     activation_condition:
                         meteroid_store::domain::SubscriptionActivationCondition::OnCheckout,
+                    offer: Default::default(),
                     trial: Default::default(),
                     billing_day_anchor: None,
                     payment_methods_config: None,

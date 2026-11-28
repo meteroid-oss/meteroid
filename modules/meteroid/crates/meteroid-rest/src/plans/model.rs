@@ -179,6 +179,8 @@ pub struct ProductsScope {
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 pub struct TrialConfig {
     pub duration_days: u32,
+    /// Nothing is billed during it: `true` for every trial written now, `false` refused (`422`).
+    /// A trial recorded billed before reads `false`.
     pub is_free: bool,
     #[serde(with = "string_serde_opt")]
     pub trialing_plan_id: Option<PlanId>,

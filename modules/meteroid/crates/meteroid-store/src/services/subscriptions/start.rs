@@ -72,6 +72,11 @@ pub(crate) async fn mark_subscription_started_at_tx(
     transition: StartTransition,
     at: DateTime<Utc>,
 ) -> StoreResult<()> {
+    let starts_trial = match &transition {
+        StartTransition::Activate { status, .. } => *status == SubscriptionStatusEnum::TrialActive,
+        StartTransition::TrialExpiredToActive { .. } => false,
+        StartTransition::Cycle(patch) => patch.status == Some(SubscriptionStatusEnum::TrialActive),
+    };
     let settled_by = match &transition {
         StartTransition::Activate { by, .. } => Some(*by),
         StartTransition::TrialExpiredToActive { .. } => Some(StartSettledBy::Payment),
@@ -138,8 +143,27 @@ pub(crate) async fn mark_subscription_started_at_tx(
             by,
         )
         .await?;
+        crate::services::trials::ending::convert_awaiting_payment_tx(
+            conn,
+            tenant_id,
+            subscription_id,
+            at.naive_utc(),
+        )
+        .await?;
     }
-    mint_started_subscription_coupon_credit_tx(conn, controls, tenant_id, subscription_id, at).await
+    mint_started_subscription_coupon_credit_tx(conn, controls, tenant_id, subscription_id, at)
+        .await?;
+    crate::services::offers::materialize_started_tx(conn, controls, tenant_id, subscription_id, at)
+        .await?;
+    if starts_trial {
+        crate::services::customer_emails::trials::enqueue_trial_started_email_tx(
+            conn,
+            tenant_id,
+            subscription_id,
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 impl crate::services::ServicesEdge {

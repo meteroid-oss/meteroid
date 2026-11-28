@@ -25,6 +25,12 @@ enum EmailKind {
   PAYMENT_METHOD_EXPIRING = 15;
   // A subscription renews or ends soon, sent when the tenant's renewal settings set a lead.
   RENEWAL_REMINDER = 16;
+  // A trial ends soon: what follows it, sent with the trial-ending notice.
+  TRIAL_ENDING = 17;
+  // A trial started with a payment method on file: what is charged once it ends.
+  TRIAL_STARTED = 18;
+  // A trial ended without converting: cancelled, switched or awaiting payment.
+  TRIAL_ENDED = 19;
 }
 
 enum EmailAudienceMode {

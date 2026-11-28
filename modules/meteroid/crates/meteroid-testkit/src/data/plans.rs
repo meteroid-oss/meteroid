@@ -552,7 +552,7 @@ impl PlanSeed {
                 tenant_id: ids::TENANT_ID,
                 name: format!("{} trial", self.name),
                 code: None,
-                duration_days: days,
+                duration_days: Some(days),
                 free,
                 trial_plan_id: Some(trial_plan_id).filter(|id| *id != self.plan_id),
                 end_action: "CONVERT".to_string(),
@@ -561,6 +561,11 @@ impl PlanSeed {
                 archived_at: None,
                 created_at: now,
                 updated_at: now,
+                card_required: true,
+                without_card: "AWAIT_PAYMENT".to_string(),
+                without_card_plan_version_id: None,
+                standalone: false,
+                description: None,
             }
             .insert(tx)
             .await?;

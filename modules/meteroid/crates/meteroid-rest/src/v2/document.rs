@@ -53,6 +53,7 @@ pub const KEY_REQUIRED: &[&str] = &[
     "change_level",
     "amend_subscription",
     "cancel_subscription",
+    "end_trial",
     "create_invoice",
     "record_invoice_payment",
     "reverse_invoice_payment",

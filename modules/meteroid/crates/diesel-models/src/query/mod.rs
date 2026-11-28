@@ -53,6 +53,7 @@ pub mod invoicing_entity_email_settings;
 pub mod lifecycle_notices;
 pub mod managed_quantities;
 pub mod oauth_verifiers;
+pub mod offers;
 pub mod org_security_audit_log;
 pub mod organization_invites;
 pub mod organization_members;

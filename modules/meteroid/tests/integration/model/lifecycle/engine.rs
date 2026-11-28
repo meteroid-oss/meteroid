@@ -877,6 +877,9 @@ impl Engine {
                                         .unwrap_or(0),
                                     free: true,
                                     trial_plan_id: None,
+                                    card_required: None,
+                                    end_action: None,
+                                    without_card: None,
                                 })
                             }),
                             entitlements: vec![],

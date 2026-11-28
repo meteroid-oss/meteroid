@@ -125,7 +125,7 @@ export function valueFromForm(
   return { value: { case: 'configValue', value: { value } } }
 }
 
-function valueToForm(v: EntitlementValue | undefined): Pick<RowForm, 'mode' | 'amount'> {
+export function valueToForm(v: EntitlementValue | undefined): Pick<RowForm, 'mode' | 'amount'> {
   const inner = v?.value
   switch (inner?.case) {
     case 'booleanValue':

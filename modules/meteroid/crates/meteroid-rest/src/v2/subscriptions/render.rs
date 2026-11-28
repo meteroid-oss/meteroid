@@ -5,8 +5,7 @@ use super::model::{
     AddOnRef, AmendmentSummary, AppliedCoupon, Cancellation, ChargeOrigin, CouponRef,
     CurrentPeriod, CustomerRef, Dates, Document, DocumentType, Invoicing, Money, PendingQuantity,
     PlanRef, QuantityState, ResourceRef, ScheduledChange, ScheduledChangeType, SubscribedAddOn,
-    Subscription, SubscriptionCharge, SubscriptionStatus, TrialEndAction, TrialOfferSummary,
-    TrialState,
+    Subscription, SubscriptionCharge, SubscriptionStatus, TrialOfferSummary, TrialState,
 };
 use crate::AppState;
 use crate::v2::Reader;
@@ -419,17 +418,24 @@ pub fn base(
             .map(|days| TrialState {
                 days,
                 starts_on: None,
-                free: None,
                 ends_on: None,
-                plan: None,
+                billing_starts_on: None,
+                features_of: None,
                 offer: None,
-                end_action: None,
+                status: None,
+                outcome: None,
+                ended_on: None,
+                at_end: None,
+                without_card: None,
+                has_payment_method: None,
+                first_charge_estimate: None,
             }),
         quantities: None,
         levels: None,
         charges: None,
         add_ons: None,
         coupons: None,
+        grants: Vec::new(),
         schedule: None,
         cancellation: None,
         minimum: None,
@@ -544,6 +550,8 @@ pub async fn summaries(
             options.insert(version, aliases);
         }
     }
+    let ids: Vec<SubscriptionId> = listed.iter().map(|l| l.subscription.id).collect();
+    let mut grants = crate::v2::offers::subscriptions_grants(state, tenant_id, &ids).await?;
     Ok(listed
         .into_iter()
         .map(|item| {
@@ -562,13 +570,15 @@ pub async fn summaries(
                 }),
             };
             let resource = resource_of(sub, &resources);
-            base(
+            let mut out = base(
                 sub,
                 item.external_id.clone(),
                 item.updated_at,
                 plan,
                 resource,
-            )
+            );
+            out.grants = grants.remove(&sub.id).unwrap_or_default();
+            out
         })
         .collect())
 }
@@ -697,30 +707,7 @@ async fn read_whole(
     let resource = resource_of(sub, &resources);
     let mut out = base(sub, listed.external_id, listed.updated_at, plan, resource);
     out.entitlement_overrides = Some(entitlement_overrides(state, tenant_id, sub.id).await?);
-    if let Some(trial) = &details.trial_config {
-        let plan = match trial.trialing_plan_id {
-            Some(plan_id) => Some(plan_code(state, tenant_id, plan_id).await?),
-            None => None,
-        };
-        let offer = trial.offer.as_ref().map(|offer| TrialOfferSummary {
-            id: offer.id,
-            code: offer.code.clone(),
-            name: offer.name.clone(),
-        });
-        out.trial = Some(TrialState {
-            days: trial.duration_days,
-            starts_on: Some(trial.starts_on),
-            free: Some(trial.is_free),
-            ends_on: trial.ends_on,
-            plan,
-            offer,
-            end_action: Some(match trial.end_action {
-                meteroid_store::domain::trials::TrialEnd::Convert => TrialEndAction::Convert,
-                meteroid_store::domain::trials::TrialEnd::Cancel => TrialEndAction::Cancel,
-                meteroid_store::domain::trials::TrialEnd::Fallback => TrialEndAction::Fallback,
-            }),
-        });
-    }
+    out.trial = trial_state(state, tenant_id, details).await?;
 
     let mut add_on_ids: Vec<AddOnId> = details.add_ons.iter().map(|a| a.add_on_id).collect();
     add_on_ids.sort_by_key(|id| id.as_uuid());
@@ -764,6 +751,7 @@ async fn read_whole(
         details
             .applied_coupons
             .iter()
+            .filter(|applied| !applied.coupon.is_grant_definition())
             .map(|applied| AppliedCoupon {
                 coupon: CouponRef {
                     id: applied.coupon.id,
@@ -774,10 +762,63 @@ async fn read_whole(
             })
             .collect(),
     );
+    out.grants = crate::v2::offers::subscriptions_grants(state, tenant_id, &[sub.id])
+        .await?
+        .remove(&sub.id)
+        .unwrap_or_default();
     out.schedule = Some(schedule(state, tenant_id, &details.pending_events).await?);
     out.cancellation = cancellation(&details.pending_events);
     out.minimum = minimum(state, tenant_id, details).await?;
     Ok(out)
+}
+
+/// The subscription's trial read whole: its fact, what its end does and, while it runs and
+/// converts, what it is estimated to charge first.
+pub async fn trial_state(
+    state: &impl Reader,
+    tenant_id: TenantId,
+    details: &SubscriptionDetails,
+) -> Result<Option<TrialState>, Problem> {
+    use crate::v2::trials;
+    let Some(recorded) = trials::recorded_trial(state, tenant_id, details).await? else {
+        return Ok(None);
+    };
+    let trial = &recorded.trial;
+    let features_of = match trial.trial_plan_id {
+        Some(plan_id) => Some(trials::plan_ref(state, tenant_id, plan_id).await?),
+        None => None,
+    };
+    let offer = recorded.offer.as_ref().map(|offer| TrialOfferSummary {
+        id: offer.id,
+        code: offer.code.clone(),
+        name: offer.name.clone(),
+    });
+    let status = recorded.status();
+    let end_action = recorded.end_action(details);
+    let first_charge_estimate = if status == trials::TrialStatus::Active
+        && end_action == meteroid_store::domain::trials::TrialEndAction::Convert
+    {
+        trials::first_charge_estimate(state, details, recorded.billing_starts_on()).await
+    } else {
+        None
+    };
+    Ok(Some(TrialState {
+        days: trial.days(),
+        starts_on: Some(trial.from),
+        ends_on: Some(trial.until),
+        billing_starts_on: Some(recorded.billing_starts_on()),
+        features_of,
+        offer,
+        status: Some(status),
+        outcome: recorded.outcome(),
+        ended_on: trial.ended_at.map(|at| at.date()),
+        at_end: Some(trials::at_end_out(state, tenant_id, &end_action).await?),
+        without_card: Some(
+            trials::without_card_out(state, tenant_id, &recorded.without_card()).await?,
+        ),
+        has_payment_method: Some(trials::has_payment_method(state, tenant_id, details).await?),
+        first_charge_estimate,
+    }))
 }
 
 /// What a change sets beyond the charges and add-ons it leaves.

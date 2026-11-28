@@ -378,14 +378,31 @@ impl PlansService for PlanServiceComponents {
     ) -> Result<Response<SetPlanTrialResponse>, Status> {
         let tenant_id = request.tenant()?;
         let actor = request.actor_typed()?;
+        let organization_id = request.organization()?;
         let req = request.into_inner();
+        let plan_id = PlanId::from_proto(&req.plan_id)?;
         let terms = req
             .trial
             .map(crate::plans::mapping::plans::trial_terms_from_proto)
             .transpose()?;
+        if let Some(terms) = terms.as_ref() {
+            let switches_to_paid = self
+                .store
+                .trial_switches_to_paid(tenant_id, plan_id, terms)
+                .await
+                .map_err(Into::<PlanApiError>::into)?;
+            meteroid_app::features::ensure_change_allowed(
+                self.feature_resolver.as_ref(),
+                organization_id,
+                meteroid_app::features::gates::SUBSCRIPTION_PHASES,
+                switches_to_paid,
+                meteroid_app::features::TRIAL_PAID_SWITCH_NOT_IN_PLAN,
+            )
+            .await?;
+        }
         let trial = self
             .store
-            .set_plan_trial(actor, tenant_id, PlanId::from_proto(&req.plan_id)?, terms)
+            .set_plan_trial(actor, tenant_id, plan_id, terms)
             .await
             .map_err(Into::<PlanApiError>::into)?;
         Ok(Response::new(SetPlanTrialResponse {

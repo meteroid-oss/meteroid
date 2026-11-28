@@ -160,7 +160,19 @@ pub mod subscriptions {
             tax_inclusive: s.tax_inclusive,
             plan_option_id: s.plan_option_id.map(|id| id.as_proto()),
             resource_id: s.resource_id.map(|id| id.as_proto()),
+            trial: None,
         })
+    }
+
+    pub(crate) fn trial_summary_to_proto(
+        trial: meteroid_store::domain::trials::TrialSummary,
+    ) -> proto2::SubscriptionTrialSummary {
+        proto2::SubscriptionTrialSummary {
+            ends_on: trial.ends_on.as_proto(),
+            status: crate::subscriptions::trial::status_to_proto(trial.status) as i32,
+            has_payment_method: trial.has_payment_method,
+            payment_method: trial.payment_method,
+        }
     }
 
     pub(crate) fn unattributed_usage_to_proto(
@@ -202,6 +214,7 @@ pub mod subscriptions {
             invoice_threshold: rust_decimal::Decimal::from_proto_opt(param.invoice_threshold)?,
             start_date: NaiveDate::from_proto(param.start_date)?,
             end_date: NaiveDate::from_proto_opt(param.end_date)?,
+            offer: offer_request_from_proto(param.offer)?,
             trial: trial_request_from_proto(param.trial)?,
             payment_methods_config: proto_payment_methods_config_to_domain(
                 param.payment_methods_config,
@@ -260,14 +273,30 @@ pub mod subscriptions {
         Ok(res)
     }
 
-    /// The trial a creation asks for; unset: its plan's (R-153).
+    /// The offer a creation asks for; unset: its plan's start offer (R-170).
+    pub(crate) fn offer_request_from_proto(
+        offer: Option<proto2::OfferRequest>,
+    ) -> Result<meteroid_store::domain::offers::OfferRequest, Status> {
+        use meteroid_store::domain::offers::OfferRequest;
+        use proto2::offer_request::Offer;
+        Ok(match offer.and_then(|offer| offer.offer) {
+            None | Some(Offer::Plan(_)) => OfferRequest::Plan,
+            Some(Offer::None(_)) => OfferRequest::None,
+            Some(Offer::OfferId(id)) => {
+                OfferRequest::Offer(common_domain::ids::OfferId::from_proto(id)?)
+            }
+        })
+    }
+
+    /// The trial a creation asks for; unset: its plan's, none when the customer had it (R-153).
     pub(crate) fn trial_request_from_proto(
         trial: Option<proto2::TrialRequest>,
     ) -> Result<domain::trials::TrialRequest, Status> {
         use domain::trials::{TrialLength, TrialRequest};
         use proto2::trial_request::{Trial, custom::Length};
         Ok(match trial.and_then(|trial| trial.trial) {
-            None => TrialRequest::Plan,
+            None => TrialRequest::Default,
+            Some(Trial::Plan(_)) => TrialRequest::Plan,
             Some(Trial::None(_)) => TrialRequest::None,
             Some(Trial::OfferId(id)) => {
                 TrialRequest::Offer(common_domain::ids::TrialOfferId::from_proto(id)?)
@@ -278,12 +307,13 @@ pub mod subscriptions {
                     Some(Length::Until(until)) => TrialLength::Until(NaiveDate::from_proto(until)?),
                     None => return Err(Status::invalid_argument("a custom trial has a length")),
                 },
-                free: custom.free,
+                free: None,
                 trial_plan: match custom.trial_plan_id {
                     Some(id) => Some(Some(common_domain::ids::PlanId::from_proto(id)?)),
                     None if custom.own_features => Some(None),
                     None => None,
                 },
+                manual: false,
             },
         })
     }
@@ -319,6 +349,43 @@ pub mod subscriptions {
                 .map(|m| m.code)
                 .collect(),
         })
+    }
+
+    /// The trial as the subscription's details hold it; `subscriptions::trial::trial_config`
+    /// reads its status, outcome, what its end does and its estimate.
+    pub(crate) fn trial_config_to_proto(tc: domain::TrialConfig) -> proto2::TrialConfig {
+        use meteroid_store::domain::trials::{TrialEnd, TrialEndAction};
+        proto2::TrialConfig {
+            duration_days: tc.duration_days,
+            is_free: tc.is_free,
+            trialing_plan_id: tc.trialing_plan_id.map(|id| id.as_proto()),
+            trialing_plan_name: tc.trialing_plan_name,
+            starts_on: tc.starts_on.as_proto(),
+            ends_on: tc.ends_on.as_proto(),
+            trial_offer_id: tc.offer.as_ref().map(|offer| offer.id.as_proto()),
+            trial_offer_name: tc.offer.as_ref().map(|offer| offer.name.clone()),
+            status: proto2::trial_config::Status::Active as i32,
+            ended_on: None,
+            at_end: Some(crate::plans::mapping::plans::at_end_to_proto(
+                match (
+                    tc.end_action,
+                    tc.offer.as_ref().map(|offer| offer.end_action),
+                ) {
+                    (TrialEnd::Fallback, Some(action @ TrialEndAction::Fallback { .. })) => action,
+                    (TrialEnd::Cancel, _) => TrialEndAction::Cancel,
+                    (TrialEnd::Manual, _) => TrialEndAction::Manual,
+                    _ => TrialEndAction::Convert,
+                },
+            )),
+            without_card: Some(crate::plans::mapping::plans::without_card_to_proto(
+                tc.offer
+                    .as_ref()
+                    .map(|offer| offer.without_card)
+                    .unwrap_or_default(),
+            )),
+            has_payment_method: false,
+            first_charge_estimate: None,
+        }
     }
 
     pub(crate) fn details_domain_to_proto(
@@ -372,6 +439,7 @@ pub mod subscriptions {
                 tax_inclusive: sub.tax_inclusive,
                 plan_option_id: sub.plan_option_id.map(|id| id.as_proto()),
                 resource_id: sub.resource_id.map(|id| id.as_proto()),
+                trial: None,
             }),
             price_components: details
                 .price_components
@@ -400,19 +468,10 @@ pub mod subscriptions {
             applied_coupons: details
                 .applied_coupons
                 .into_iter()
+                .filter(|applied| !applied.coupon.is_grant_definition())
                 .map(super::coupons::applied_coupon_detailed_to_grpc)
                 .collect(),
-            trial_config: details.trial_config.map(|tc| proto2::TrialConfig {
-                duration_days: tc.duration_days,
-                is_free: tc.is_free,
-                trialing_plan_id: tc.trialing_plan_id.map(|id| id.as_proto()),
-                trialing_plan_name: tc.trialing_plan_name,
-                starts_on: tc.starts_on.as_proto(),
-                ends_on: tc.ends_on.as_proto(),
-                trial_offer_id: tc.offer.as_ref().map(|offer| offer.id.as_proto()),
-                trial_offer_name: tc.offer.map(|offer| offer.name),
-                end_action: tc.end_action.as_str().to_string(),
-            }),
+            trial_config: details.trial_config.map(trial_config_to_proto),
             pending_events: details
                 .pending_events
                 .into_iter()

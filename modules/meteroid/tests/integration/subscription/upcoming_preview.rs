@@ -39,6 +39,7 @@ fn usage_request(start: NaiveDate, trial_duration: Option<u32>) -> CreateSubscri
             end_date: None,
             billing_start_date: None,
             activation_condition: SubscriptionActivationCondition::OnStart,
+            offer: Default::default(),
             trial: meteroid_store::domain::trials::TrialRequest::from_days(trial_duration, None),
             billing_day_anchor: None,
             payment_methods_config: None,

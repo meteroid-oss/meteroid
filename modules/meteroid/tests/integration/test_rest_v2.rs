@@ -1301,7 +1301,7 @@ async fn test_rest_v2_references_stay_in_their_tenant() {
     let refused = f
         .patch(
             "/api/v2/plans/trialed",
-            json!({"trial": {"type": "terms", "days": 7, "plan": plan_id}}),
+            json!({"trial": {"type": "terms", "days": 7, "features_of": plan_id}}),
         )
         .await;
     assert!(

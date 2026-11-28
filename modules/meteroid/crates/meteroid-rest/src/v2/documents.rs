@@ -412,8 +412,9 @@ pub fn taxes(breakdown: &[TaxBreakdownItem]) -> Vec<DocumentTax> {
 /// A coupon the document applied.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct DocumentCoupon {
-    /// The coupon applied.
-    pub coupon: CouponRef,
+    /// The coupon applied; none for a discount an offer gives without a code.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coupon: Option<CouponRef>,
     /// Its name, as printed.
     pub name: String,
     /// What it took off, in minor units, before tax.
@@ -424,10 +425,14 @@ pub fn coupons(coupons: &[CouponLineItem]) -> Vec<DocumentCoupon> {
     coupons
         .iter()
         .map(|coupon| DocumentCoupon {
-            coupon: CouponRef {
+            coupon: (!meteroid_store::domain::coupons::is_grant_code(
+                coupon.coupon_id,
+                &coupon.code,
+            ))
+            .then(|| CouponRef {
                 id: coupon.coupon_id,
                 code: coupon.code.clone(),
-            },
+            }),
             name: coupon.name.clone(),
             amount: coupon.value,
         })

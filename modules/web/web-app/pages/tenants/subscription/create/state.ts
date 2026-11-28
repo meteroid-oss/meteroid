@@ -8,6 +8,7 @@ import { ActivationCondition } from '@/rpc/api/subscriptions/v1/models_pb'
 
 import type { GrantDraft } from '@/features/entitlements/rows/grantDraft'
 import type { ComponentFeeType } from '@/features/pricing'
+import type { StartOfferMode, TrialMode } from '@/pages/tenants/subscription/create/trial'
 import type { PriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
 import type { Price } from '@/rpc/api/prices/v1/models_pb'
 
@@ -106,14 +107,15 @@ export interface CreateSubscriptionState {
   endDate?: Date
   billingDayAnchor?: number
   billingDay: 'FIRST' | 'SUB_START_DAY'
-  /** The plan's trial, none, or one of its own (days or an end date). */
-  trialMode: 'plan' | 'none' | 'custom'
+  /** The plan's start offer, none, or a catalog offer in its place (Enterprise). */
+  startOfferMode: StartOfferMode
+  startOfferId?: string
+  /** The start offer's trial, none, or one of its own (days or an end date). */
+  trialMode: TrialMode
   trialDuration?: number
   trialUntil?: Date
-  /** Unset: the plan's trial's freeness, else free. */
-  trialFree?: boolean
-  /** A catalog offer (Enterprise), over `trialMode`. */
-  trialOfferId?: string
+  /** A trial of its own: THIS_PLAN or the plan whose features it gives. */
+  trialFeaturesOf?: string
 
   // Advanced settings
   activationCondition: ActivationCondition
@@ -162,11 +164,12 @@ export const createSubscriptionAtom = atomWithReset<CreateSubscriptionState>({
   endDate: undefined,
   billingDayAnchor: undefined,
   billingDay: 'SUB_START_DAY',
+  startOfferMode: 'plan',
+  startOfferId: undefined,
   trialMode: 'plan',
   trialDuration: undefined,
   trialUntil: undefined,
-  trialFree: undefined,
-  trialOfferId: undefined,
+  trialFeaturesOf: undefined,
 
   activationCondition: ActivationCondition.ON_START,
   paymentMethodsType: 'online',

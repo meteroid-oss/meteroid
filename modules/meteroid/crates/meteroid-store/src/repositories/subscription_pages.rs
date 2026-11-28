@@ -24,6 +24,8 @@ pub struct SubscriptionPageFilter {
     pub created_after: Option<DateTime<Utc>>,
     /// Only those created before it.
     pub created_before: Option<DateTime<Utc>>,
+    /// Only those whose trial matches.
+    pub trial: Option<crate::domain::trials::TrialListFilter>,
 }
 
 /// A subscription with the handles API v2 reads beside it.
@@ -101,6 +103,9 @@ impl SubscriptionPagesInterface for Store {
             filter
                 .status
                 .map(|status| status.into_iter().map(Into::into).collect()),
+            filter
+                .trial
+                .map(|trial| trial.row_filter(common_clock::now().date_naive())),
             filter.updated_after,
             filter.created_after.map(|at| at.naive_utc()),
             filter.created_before.map(|at| at.naive_utc()),

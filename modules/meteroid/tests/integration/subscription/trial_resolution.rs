@@ -5,6 +5,7 @@
 use common_domain::actor::Actor;
 use meteroid_store::domain::trials::{
     TrialEligibility, TrialEndAction, TrialLength, TrialOfferNew, TrialRequest, TrialTerms,
+    TrialWithoutCard,
 };
 use meteroid_store::repositories::PlansInterface;
 use rstest::rstest;
@@ -32,6 +33,9 @@ async fn starter_trial(env: &TestEnv, days: u32, free: bool) {
                 duration_days: days,
                 free,
                 trial_plan_id: None,
+                card_required: None,
+                end_action: None,
+                without_card: None,
             }),
         )
         .await
@@ -53,6 +57,7 @@ async fn a_trial_of_its_own_ends_on_its_date(#[future] test_env: TestEnv) {
             length: TrialLength::Until(day(1, 20)),
             free: Some(true),
             trial_plan: None,
+            manual: false,
         })
         .create(env.services())
         .await;
@@ -63,34 +68,77 @@ async fn a_trial_of_its_own_ends_on_its_date(#[future] test_env: TestEnv) {
     );
 }
 
-/// Days of its own on a plan whose trial is billed take its freeness: billed from January 1.
-/// Rules: R-153
+/// A trial is free: a billed one is refused as the plan's terms, as an offer and asked at a
+/// creation, with the same message; a plan's terms written give a trial once per product family.
+/// Rules: R-153, R-159
 #[rstest]
 #[tokio::test]
-async fn days_of_its_own_take_the_plans_trial_freeness(#[future] test_env: TestEnv) {
+async fn a_billed_trial_is_refused_everywhere_it_is_asked(#[future] test_env: TestEnv) {
     let env = test_env.await;
     env.set_now(at(1, 1, 12));
-    starter_trial(&env, 14, false).await;
-    let sub = subscription()
-        .plan_version(PLAN_VERSION_STARTER_ID)
-        .start_date(day(1, 1))
-        .on_start()
-        .trial_days(7)
-        .create(env.services())
+    let free = "a trial is free: a discounted start is a coupon or an introductory phase";
+    let terms = env
+        .store()
+        .set_plan_trial(
+            Actor::System,
+            TENANT_ID,
+            PLAN_STARTER_ID,
+            Some(TrialTerms {
+                free: false,
+                ..TrialTerms::days(14, None)
+            }),
+        )
         .await;
-    env.run_until(day(1, 2)).await;
-    assert_eq!(
-        first_platform_line(&env, sub).await,
-        "Recurring 2024-01-01: Platform Fee 2024-01-01..2024-02-01 2900"
-    );
-    let trial = env
+    assert!(format!("{:?}", terms.expect_err("billed terms")).contains(free));
+    let offer = env
         .services()
-        .subscription_trial(TENANT_ID, sub)
+        .create_trial_offer(
+            TENANT_ID,
+            TrialOfferNew {
+                name: "Billed".to_string(),
+                code: None,
+                duration_days: 14,
+                free: false,
+                trial_plan_id: None,
+                card_required: true,
+                end_action: TrialEndAction::Convert,
+                without_card: TrialWithoutCard::AwaitPayment,
+                eligibility: TrialEligibility::None,
+            },
+        )
+        .await;
+    assert!(format!("{:?}", offer.expect_err("a billed offer")).contains(free));
+    let asked = env
+        .services()
+        .insert_subscription(
+            Actor::System,
+            subscription()
+                .plan_version(PLAN_VERSION_STARTER_ID)
+                .start_date(day(1, 1))
+                .on_start()
+                .trial(TrialRequest::Custom {
+                    length: TrialLength::Days(7),
+                    free: Some(false),
+                    trial_plan: None,
+                    manual: false,
+                })
+                .request(),
+            TENANT_ID,
+        )
+        .await;
+    assert!(format!("{:?}", asked.expect_err("a billed trial asked")).contains(free));
+
+    starter_trial(&env, 14, true).await;
+    let written = env
+        .store()
+        .plan_trial(TENANT_ID, PLAN_STARTER_ID)
         .await
         .expect("read")
-        .expect("a trial")
-        .0;
-    assert_eq!((trial.until, trial.free), (day(1, 8), false));
+        .expect("a trial");
+    assert_eq!(
+        (written.offer.free, written.offer.eligibility),
+        (true, TrialEligibility::ProductFamily)
+    );
 }
 
 /// A plan's trial edited after a subscription started never reaches it; one started afterwards
@@ -143,7 +191,9 @@ async fn editing_a_shared_trial_gives_the_plan_its_own(#[future] test_env: TestE
                 duration_days: 14,
                 free: true,
                 trial_plan_id: None,
+                card_required: true,
                 end_action: TrialEndAction::Convert,
+                without_card: TrialWithoutCard::AwaitPayment,
                 eligibility: TrialEligibility::None,
             },
         )
@@ -175,8 +225,9 @@ async fn editing_a_shared_trial_gives_the_plan_its_own(#[future] test_env: TestE
     assert_eq!(pro.plans, vec![PLAN_PRO_ID]);
 }
 
-/// A plan's trial given once per plan: the customer's first subscription gets it, the second none
-/// (billed from January 1), and naming the offer is refused.
+/// A plan's trial given once per plan: the customer's first subscription gets it, the second,
+/// asking nothing, none (billed from January 1); the plan's trial asked explicitly or the offer
+/// named is refused.
 /// Rules: R-159
 #[rstest]
 #[tokio::test]
@@ -193,7 +244,9 @@ async fn a_trial_given_once_per_plan_counts_what_the_customer_had(#[future] test
                 duration_days: 14,
                 free: true,
                 trial_plan_id: None,
+                card_required: true,
                 end_action: TrialEndAction::Convert,
+                without_card: TrialWithoutCard::AwaitPayment,
                 eligibility: TrialEligibility::Plan,
             },
         )
@@ -212,6 +265,15 @@ async fn a_trial_given_once_per_plan_counts_what_the_customer_had(#[future] test
     };
     let first = starter().create(env.services()).await;
     let second = starter().create(env.services()).await;
+    let asked = env
+        .services()
+        .insert_subscription(
+            Actor::System,
+            starter().trial(TrialRequest::Plan).request(),
+            TENANT_ID,
+        )
+        .await;
+    assert!(format!("{:?}", asked.expect_err("asked explicitly")).contains("already had"));
     let named = env
         .services()
         .insert_subscription(

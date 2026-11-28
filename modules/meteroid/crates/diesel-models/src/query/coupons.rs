@@ -40,17 +40,19 @@ impl<'a> CodeMatch<'a> {
         let trimmed = code.trim();
         if let Some(row) = rows
             .iter()
-            .find(|row| row.code == code)
-            .or_else(|| rows.iter().find(|row| row.code == trimmed))
+            .find(|row| row.code.as_deref() == Some(code))
+            .or_else(|| rows.iter().find(|row| row.code.as_deref() == Some(trimmed)))
         {
             return Self::Found(row);
         }
-        Self::only(rows.iter().filter(|row| row.code.trim() == trimmed))
+        fn stored<'r>(row: &&'r CouponRow) -> Option<&'r str> {
+            row.code.as_deref().map(str::trim)
+        }
+        Self::only(rows.iter().filter(|row| stored(row) == Some(trimmed)))
             .or_else(|| {
-                Self::only(
-                    rows.iter()
-                        .filter(|row| row.code.trim().eq_ignore_ascii_case(trimmed)),
-                )
+                Self::only(rows.iter().filter(|row| {
+                    stored(row).is_some_and(|code| code.eq_ignore_ascii_case(trimmed))
+                }))
             })
             .unwrap_or(Self::Unknown)
     }
@@ -171,6 +173,14 @@ impl CouponRow {
 
         let mut query = c_dsl::coupon
             .filter(c_dsl::tenant_id.eq(tenant_id))
+            .filter(
+                // A row a grant owns as its definition names no offer: it is no code to list.
+                c_dsl::offer_id.is_not_null().or(c_dsl::id.ne_all(
+                    crate::schema::offer_grant::dsl::offer_grant
+                        .filter(crate::schema::offer_grant::dsl::coupon_id.is_not_null())
+                        .select(crate::schema::offer_grant::dsl::coupon_id.assume_not_null()),
+                )),
+            )
             .into_boxed();
 
         // Scoped to the plan, or to nothing at all and so to every plan.
@@ -272,6 +282,14 @@ impl CouponRow {
 
         let mut query = c_dsl::coupon
             .filter(c_dsl::tenant_id.eq(tenant_id))
+            .filter(
+                // A row a grant owns as its definition names no offer: it is no code to list.
+                c_dsl::offer_id.is_not_null().or(c_dsl::id.ne_all(
+                    crate::schema::offer_grant::dsl::offer_grant
+                        .filter(crate::schema::offer_grant::dsl::coupon_id.is_not_null())
+                        .select(crate::schema::offer_grant::dsl::coupon_id.assume_not_null()),
+                )),
+            )
             .into_boxed();
         if let Some(after) = after {
             query = query.filter(c_dsl::id.gt(after));
@@ -569,11 +587,12 @@ impl CouponRow {
         let query = c_dsl::coupon
             .filter(c_dsl::tenant_id.eq(tenant_id))
             .filter(c_dsl::archived_at.is_null())
+            .filter(c_dsl::code.is_not_null())
             .filter(
-                btrim(c_dsl::code, CODE_PADDING)
+                btrim(c_dsl::code.assume_not_null(), CODE_PADDING)
                     .eq_any(trimmed)
                     .or(translate(
-                        btrim(c_dsl::code, CODE_PADDING),
+                        btrim(c_dsl::code.assume_not_null(), CODE_PADDING),
                         "abcdefghijklmnopqrstuvwxyz",
                         "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
                     )
@@ -610,7 +629,11 @@ impl CouponRow {
         let mut query = c_dsl::coupon
             .filter(c_dsl::tenant_id.eq(tenant_id))
             .filter(c_dsl::archived_at.is_null())
-            .filter(upper(btrim(c_dsl::code, CODE_PADDING)).eq(code.trim().to_uppercase()))
+            .filter(c_dsl::code.is_not_null())
+            .filter(
+                upper(btrim(c_dsl::code.assume_not_null(), CODE_PADDING))
+                    .eq(code.trim().to_uppercase()),
+            )
             .into_boxed();
         if credit_only {
             query = query.filter(c_dsl::discount.has_key(CREDIT_DISCOUNT_KEY));

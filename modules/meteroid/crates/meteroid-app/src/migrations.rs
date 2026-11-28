@@ -92,11 +92,19 @@ const COLUMNS_THE_CONVERSION_READS: &str = "
     ALTER TABLE plan ADD COLUMN IF NOT EXISTS trial_offer_id UUID;
     ALTER TABLE subscription_trial ADD COLUMN IF NOT EXISTS trial_plan_id UUID,
         ADD COLUMN IF NOT EXISTS trial_offer_id UUID,
-        ADD COLUMN IF NOT EXISTS end_action TEXT NOT NULL DEFAULT 'CONVERT';
+        ADD COLUMN IF NOT EXISTS end_action TEXT NOT NULL DEFAULT 'CONVERT',
+        ADD COLUMN IF NOT EXISTS outcome TEXT,
+        ADD COLUMN IF NOT EXISTS ended_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS without_card TEXT NOT NULL DEFAULT 'AWAIT_PAYMENT',
+        ADD COLUMN IF NOT EXISTS without_card_plan_version_id UUID;
+    ALTER TABLE coupon ADD COLUMN IF NOT EXISTS offer_id UUID;
     ALTER TABLE quote ADD COLUMN IF NOT EXISTS trial_free BOOLEAN,
-        ADD COLUMN IF NOT EXISTS trial_plan_id UUID;
+        ADD COLUMN IF NOT EXISTS trial_plan_id UUID,
+        ADD COLUMN IF NOT EXISTS trial_end_action TEXT NOT NULL DEFAULT 'CONVERT';
     ALTER TABLE checkout_session ADD COLUMN IF NOT EXISTS trial_free BOOLEAN,
-        ADD COLUMN IF NOT EXISTS trial_offer_id UUID;
+        ADD COLUMN IF NOT EXISTS trial_offer_id UUID,
+        ADD COLUMN IF NOT EXISTS trial_request JSONB,
+        ADD COLUMN IF NOT EXISTS offer_request JSONB;
     ALTER TABLE quote ADD COLUMN IF NOT EXISTS resource_id UUID;
     ALTER TABLE checkout_session ADD COLUMN IF NOT EXISTS resource_id UUID;
     ALTER TABLE plan ADD COLUMN IF NOT EXISTS sold_for_resource_type_id UUID;

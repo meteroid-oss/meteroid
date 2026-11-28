@@ -448,8 +448,8 @@ async fn test_onstart_vs_oncheckout_trial_end_comparison(#[future] test_env: Tes
 // ONSTART FREE TRIAL WITH AUTO-CHARGE
 // =============================================================================
 
-/// Test OnStart with free trial and auto-charge enabled.
-/// Trial should start immediately, and when it ends, subscription becomes Active (trust-based).
+/// OnStart free trial charged automatically through a routed provider, with no payment method:
+/// its end awaits payment (the offer's default without_card, R-179), its opening invoice issued.
 #[rstest]
 #[tokio::test]
 async fn test_onstart_free_trial_with_auto_charge_enabled(#[future] test_env: TestEnv) {
@@ -478,14 +478,10 @@ async fn test_onstart_free_trial_with_auto_charge_enabled(#[future] test_env: Te
     // Process cycle to end trial
     env.process_cycles().await;
 
-    // OnStart with auto-charge but no payment method should still become Active (trust-based)
-    // because OnStart is fundamentally trust-based - auto_charge affects invoices, not subscription status
     let sub = env.get_subscription(sub_id).await;
     sub.assert()
-        .with_context(
-            "OnStart should become Active after trial (trust-based, regardless of auto-charge)",
-        )
-        .is_active();
+        .with_context("no payment method to charge at the trial's end: awaits payment")
+        .is_trial_expired();
 
     // Should have an invoice after trial ends
     let invoices = env.get_invoices(sub_id).await;
@@ -1036,10 +1032,10 @@ async fn a_free_trial_set_on_the_subscription_cancelled_records_no_credit(
     env.get_invoices(sub_id).await.assert().has_count(0);
 }
 
-/// A 45-day free trial from Oct 1 on 100.00 a month, its plan version's trial made paid on Oct 3:
-/// the running trial stays free, as its fact recorded it at the start. Cancelled on Oct 5 it billed
-/// nothing and records nothing to credit; the version's next subscription starts a paid trial.
-/// Rules: R-100
+/// A 45-day free trial from Oct 1 on 100.00 a month, its plan's trial shortened to 30 days on
+/// Oct 3: the running trial keeps its terms, as its fact recorded them at the start. Cancelled on
+/// Oct 5 it billed nothing and records nothing to credit.
+/// Rules: R-100, R-153
 #[rstest]
 #[tokio::test]
 async fn a_trial_keeps_the_freeness_it_started_with(#[future] test_env: TestEnv) {
@@ -1075,15 +1071,18 @@ async fn a_trial_keeps_the_freeness_it_started_with(#[future] test_env: TestEnv)
         .expect("plan")
         .plan
         .id;
-    let trial = |free| {
+    let trial = |duration_days| {
         Some(meteroid_store::domain::trials::TrialTerms {
-            duration_days: 45,
-            free,
+            duration_days,
+            free: true,
             trial_plan_id: None,
+            card_required: None,
+            end_action: None,
+            without_card: None,
         })
     };
     env.store()
-        .set_plan_trial(Actor::System, TENANT_ID, plan_id, trial(true))
+        .set_plan_trial(Actor::System, TENANT_ID, plan_id, trial(45))
         .await
         .expect("a free trial");
     let sub_id = subscription()
@@ -1095,18 +1094,19 @@ async fn a_trial_keeps_the_freeness_it_started_with(#[future] test_env: TestEnv)
         .create(env.services())
         .await;
     env.store()
-        .set_plan_trial(Actor::System, TENANT_ID, plan_id, trial(false))
+        .set_plan_trial(Actor::System, TENANT_ID, plan_id, trial(30))
         .await
-        .expect("the plan's trial made paid");
+        .expect("the plan's trial shortened");
 
     let details = env
         .store()
         .get_subscription_details(TENANT_ID, sub_id)
         .await
         .expect("subscription details");
+    let running = details.trial_config.expect("a trial");
     assert!(
-        details.trial_config.expect("a trial").is_free,
-        "R-100: the running trial is still free"
+        running.is_free && running.duration_days == 45,
+        "R-100: the running trial keeps its terms"
     );
     env.get_invoices(sub_id).await.assert().has_count(0);
 
@@ -1155,10 +1155,10 @@ async fn a_trial_keeps_the_freeness_it_started_with(#[future] test_env: TestEnv)
     assert!(notes.is_empty(), "nothing credited: {notes:?}");
 
     let next = subscription()
+        .customer(CUST_SPOTIFY_ID)
         .plan_version(version)
         .start_date(start_date)
         .on_start()
-        .trial_days(45)
         .no_auto_charge()
         .create(env.services())
         .await;
@@ -1167,8 +1167,9 @@ async fn a_trial_keeps_the_freeness_it_started_with(#[future] test_env: TestEnv)
         .get_subscription_details(TENANT_ID, next)
         .await
         .expect("subscription details");
-    assert!(
-        !details.trial_config.expect("a trial").is_free,
+    assert_eq!(
+        details.trial_config.expect("a trial").duration_days,
+        30,
         "R-100: a subscription starting after the edit takes its terms"
     );
 }

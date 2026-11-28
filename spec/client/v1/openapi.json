@@ -678,6 +678,47 @@
   },
   "components": {
     "schemas": {
+      "AfterTrial": {
+        "type": "object",
+        "description": "What the subscription bills once its trial ends: its recurring fees per cadence, before\ncoupons, usage and tax.",
+        "required": [
+          "currency",
+          "starts_on",
+          "recurring"
+        ],
+        "properties": {
+          "currency": {
+            "type": "string",
+            "description": "ISO 4217."
+          },
+          "recurring": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecurringAmount"
+            },
+            "description": "One per cadence, the subscription's own first; empty when only usage is billed."
+          },
+          "starts_on": {
+            "type": "string",
+            "format": "date",
+            "description": "The trial's end, when billing starts."
+          }
+        },
+        "example": {
+          "currency": "EUR",
+          "starts_on": "2026-12-15",
+          "recurring": [
+            {
+              "amount": 49000,
+              "interval": "annual"
+            },
+            {
+              "amount": 4000,
+              "interval": "monthly"
+            }
+          ]
+        }
+      },
       "AppCountExplain": {
         "type": "object",
         "description": "A limit counted by your app: the count, the last `set` and the adds since.",
@@ -2131,6 +2172,31 @@
           "when_refused"
         ]
       },
+      "FirstChargeEstimate": {
+        "type": "object",
+        "description": "What the trial's end is estimated to charge first: the opening invoice billed from its end,\nwith coupons and tax as they stand and before any usage. An estimate: usage, coupons and tax\nmay change it.",
+        "required": [
+          "amount",
+          "currency",
+          "on"
+        ],
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "format": "int64",
+            "description": "In minor units of `currency`."
+          },
+          "currency": {
+            "type": "string",
+            "description": "ISO 4217."
+          },
+          "on": {
+            "type": "string",
+            "format": "date",
+            "description": "The day it is charged: the trial's end."
+          }
+        }
+      },
       "FixedWindowReset": {
         "type": "object",
         "description": "Every `interval` `unit`s, counted from the subscription's start.",
@@ -2511,6 +2577,17 @@
           "hide_price"
         ],
         "properties": {
+          "after_trial": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AfterTrial",
+                "description": "With a trial started today: what is billed each period once it ends, the card's base\nprice; none when the price is not shown or has no base."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "contact_url": {
             "type": [
               "string",
@@ -2728,6 +2805,10 @@
           "key_taken",
           "resource_limit_reached",
           "when_refused",
+          "offer_unavailable",
+          "offer_already_given",
+          "offer_already_applied",
+          "offer_trial_not_applicable",
           "idempotency_key_reused",
           "idempotency_request_in_progress",
           "idempotency_key_required",
@@ -2794,6 +2875,25 @@
           "id": {
             "$ref": "#/components/schemas/ProductId",
             "description": "Its id."
+          }
+        }
+      },
+      "RecurringAmount": {
+        "type": "object",
+        "description": "The recurring fees billed on one cadence.",
+        "required": [
+          "amount",
+          "interval"
+        ],
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "format": "int64",
+            "description": "In minor units of the currency."
+          },
+          "interval": {
+            "$ref": "#/components/schemas/Cadence",
+            "description": "How often it is billed."
           }
         }
       },
@@ -2986,15 +3086,6 @@
           "completed"
         ]
       },
-      "SubscriptionTrialEndAction": {
-        "type": "string",
-        "description": "What a trial's end does: the subscription goes on, ends, or switches plan.",
-        "enum": [
-          "convert",
-          "cancel",
-          "fallback"
-        ]
-      },
       "TextValue": {
         "type": "object",
         "description": "A text, or one of a select's options.",
@@ -3015,9 +3106,43 @@
         },
         "additionalProperties": false
       },
+      "TrialAtEnd": {
+        "type": "object",
+        "description": "What a trial's end does.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "plan": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PlanRef",
+                "description": "The plan switched to, at its version, for `switch`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": {
+            "$ref": "#/components/schemas/TrialAtEndType",
+            "description": "Convert, decide manually, cancel or switch plan."
+          }
+        }
+      },
+      "TrialAtEndType": {
+        "type": "string",
+        "description": "What a trial's end does: `convert` the subscription goes on, billed from then; `manual`\nnothing is billed and the trial's access goes on until it is converted (`…/trial/end`),\nextended or cancelled; `cancel` the subscription ends with it; `switch` it moves to `plan`.",
+        "enum": [
+          "convert",
+          "manual",
+          "cancel",
+          "switch"
+        ]
+      },
       "TrialOfferSummary": {
         "type": "object",
-        "description": "A trial offer, as a subscription names it.",
+        "description": "A trial offer, as a subscription or a plan names it.",
         "required": [
           "id",
           "name"
@@ -3027,39 +3152,69 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Its code, when it has one."
           },
           "id": {
-            "type": "string"
+            "type": "string",
+            "description": "The offer's id."
           },
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "Its name."
           }
         }
       },
+      "TrialOutcome": {
+        "type": "string",
+        "description": "How a trial ended.",
+        "enum": [
+          "converted",
+          "cancelled",
+          "switched",
+          "awaiting_payment",
+          "awaiting_decision"
+        ]
+      },
       "TrialState": {
         "type": "object",
-        "description": "The subscription's trial, as recorded at its start; absent when it has none.",
+        "description": "The subscription's trial, the free period before it is billed, as recorded at its start;\nabsent when it has none. Lists carry its `days`; the rest is read on a single subscription.",
         "required": [
           "days"
         ],
         "properties": {
+          "at_end": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TrialAtEnd",
+                "description": "What its end does."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "billing_starts_on": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "The day billing starts when the subscription converts: its end."
+          },
           "days": {
             "type": "integer",
             "format": "int32",
             "description": "Its length in days, from its start.",
             "minimum": 0
           },
-          "end_action": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/SubscriptionTrialEndAction",
-                "description": "What its end does; read on a single subscription."
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "ended_on": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "The day it ended."
           },
           "ends_on": {
             "type": [
@@ -3067,32 +3222,58 @@
               "null"
             ],
             "format": "date",
-            "description": "When it ended or ends; read on a single subscription."
+            "description": "Exclusive: the day after its last."
           },
-          "free": {
-            "type": [
-              "boolean",
-              "null"
-            ],
-            "description": "Nothing is billed during it; read on a single subscription."
-          },
-          "offer": {
+          "features_of": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/TrialOfferSummary",
-                "description": "The trial offer it came from; read on a single subscription."
+                "$ref": "#/components/schemas/PlanRef",
+                "description": "The plan whose features it gives over the subscription's own; none: its own."
               },
               {
                 "type": "null"
               }
             ]
           },
-          "plan": {
+          "first_charge_estimate": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FirstChargeEstimate",
+                "description": "What its end is estimated to charge first, while it runs and converts."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "has_payment_method": {
             "type": [
-              "string",
+              "boolean",
               "null"
             ],
-            "description": "The plan whose features it gives, by code; read on a single subscription."
+            "description": "Whether the subscription has a payment method it is charged or invoiced with."
+          },
+          "offer": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TrialOfferSummary",
+                "description": "The trial offer it came from."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outcome": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TrialOutcome",
+                "description": "How it ended; absent while it runs."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "starts_on": {
             "type": [
@@ -3100,9 +3281,76 @@
               "null"
             ],
             "format": "date",
-            "description": "Its first day, the billing start; read on a single subscription."
+            "description": "Its first day."
+          },
+          "status": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TrialStatus",
+                "description": "Where it stands."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "without_card": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TrialWithoutCard",
+                "description": "What a converting end does if the subscription is charged automatically and has no\npayment method then."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
+      },
+      "TrialStatus": {
+        "type": "string",
+        "description": "Where a subscription's trial stands: `active` running; `converted` billing started;\n`cancelled` the subscription ended with it; `switched` it moved plan; `awaiting_payment`\nconverted without a payment method, billing waiting for its opening invoice's payment;\n`awaiting_decision` ended with a manual end action, nothing billed until it is decided.",
+        "enum": [
+          "active",
+          "converted",
+          "cancelled",
+          "switched",
+          "awaiting_payment",
+          "awaiting_decision"
+        ]
+      },
+      "TrialWithoutCard": {
+        "type": "object",
+        "description": "What a converting trial's end does if the subscription is charged automatically and has no\npayment method then. A subscription paid by invoice converts and is invoiced on its terms.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "plan": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PlanRef",
+                "description": "The plan switched to, at its version, for `switch`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": {
+            "$ref": "#/components/schemas/TrialWithoutCardType",
+            "description": "Await the payment, cancel or switch plan."
+          }
+        }
+      },
+      "TrialWithoutCardType": {
+        "type": "string",
+        "description": "What a converting trial's end does if the subscription is charged automatically and has no\npayment method then: `await_payment` its opening invoice is issued and it turns active once\npaid; `cancel` it ends with the trial, nothing invoiced; `switch` it moves to `plan`.",
+        "enum": [
+          "await_payment",
+          "cancel",
+          "switch"
+        ]
       },
       "Unit": {
         "type": "string",

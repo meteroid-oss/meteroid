@@ -447,6 +447,7 @@ async fn subscribe_with(
                     end_date: None,
                     billing_start_date: Some(start),
                     activation_condition: SubscriptionActivationCondition::OnStart,
+                    offer: Default::default(),
                     trial: Default::default(),
                     billing_day_anchor: None,
                     payment_methods_config: None,
@@ -733,15 +734,58 @@ pub fn later(now: DateTime<Utc>, seconds: i64) -> DateTime<Utc> {
     now + chrono::Duration::seconds(seconds)
 }
 
-/// Waits past midnight UTC when fewer than `margin_secs` remain before it, so a test reading
-/// daily windows never straddles two days.
+/// Waits until no midnight UTC lies within `margin_secs` of now, before or after, so a test
+/// reading daily windows never straddles two days, events it dates back included.
 pub async fn clear_of_midnight(margin_secs: i64) {
-    let now = common_clock::now();
-    let midnight = (now.date_naive() + Days::new(1))
-        .and_time(NaiveTime::MIN)
-        .and_utc();
-    let remaining = midnight - now;
-    if remaining < chrono::Duration::seconds(margin_secs) {
-        tokio::time::sleep((remaining + chrono::Duration::seconds(2)).to_std().unwrap()).await;
+    if let Some(wait) = midnight_wait(common_clock::now(), margin_secs) {
+        tokio::time::sleep(wait.to_std().unwrap()).await;
+    }
+}
+
+fn midnight_wait(now: DateTime<Utc>, margin_secs: i64) -> Option<chrono::Duration> {
+    let margin = chrono::Duration::seconds(margin_secs);
+    let midnight = now.date_naive().and_time(NaiveTime::MIN).and_utc();
+    let next = midnight + chrono::Duration::days(1);
+    let clear_from = if next - now < margin {
+        next + margin
+    } else if now - midnight < margin {
+        midnight + margin
+    } else {
+        return None;
+    };
+    Some(clear_from - now + chrono::Duration::seconds(1))
+}
+
+#[cfg(test)]
+mod midnight_tests {
+    use super::midnight_wait;
+    use chrono::{DateTime, Duration, Utc};
+
+    fn at(time: &str) -> DateTime<Utc> {
+        format!("2026-11-27T{time}Z").parse().unwrap()
+    }
+
+    #[test]
+    fn a_start_before_midnight_waits_until_its_lookback_is_clear_of_it() {
+        // 23:58, 10 minutes of margin: an event dated 2 minutes back must not be yesterday's.
+        assert_eq!(
+            midnight_wait(at("23:58:00"), 600),
+            Some(Duration::minutes(12) + Duration::seconds(1))
+        );
+    }
+
+    #[test]
+    fn a_start_just_after_midnight_waits_for_the_margin() {
+        assert_eq!(
+            midnight_wait(at("00:00:02"), 600),
+            Some(Duration::seconds(598) + Duration::seconds(1))
+        );
+    }
+
+    #[test]
+    fn a_start_clear_of_midnight_does_not_wait() {
+        assert_eq!(midnight_wait(at("12:00:00"), 600), None);
+        assert_eq!(midnight_wait(at("00:10:00"), 600), None);
+        assert_eq!(midnight_wait(at("23:50:00"), 600), None);
     }
 }

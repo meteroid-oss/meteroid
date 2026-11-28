@@ -49,6 +49,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
         "licensing",
         "listviews",
         "invoicingentities",
+        "offers",
         "organizations",
         "paymentreminders",
         "plans",

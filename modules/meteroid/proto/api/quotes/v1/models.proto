@@ -154,11 +154,21 @@ message Quote {
   repeated QuoteAttachment attachments = 56;
   // The stored resource its subscription will be for; kept by the conversion.
   optional string resource_id = 57;
-  // With `trial_duration`: whether the trial is free, signed with it; unset on a quote saved
-  // before, read as the plan's trial.
+  // With `trial_duration`: whether the trial is free, signed with it (always for a new quote);
+  // unset on a quote saved before, read as the plan's trial.
   optional bool trial_free = 58;
   // With `trial_duration`: the plan whose features the trial gives.
   optional string trial_plan_id = 59;
+  // With `trial_duration`: what the trial does at its end.
+  QuoteTrialEndAction trial_end_action = 60;
+  // Read only: the name of `trial_plan_id`'s plan, on a quote read in full.
+  optional string trial_plan_name = 61;
+}
+
+enum QuoteTrialEndAction {
+  QUOTE_TRIAL_END_ACTION_CONVERT = 0;
+  // Nothing is billed at its end until an operator converts, extends or cancels it.
+  QUOTE_TRIAL_END_ACTION_MANUAL = 1;
 }
 
 // An uploaded PDF signed with the quote (Enterprise, quote-documents module).
@@ -466,10 +476,12 @@ message CreateQuote {
   optional string option = 43;
   // A stored resource of the customer; absent for the whole customer.
   optional string resource_id = 44;
-  // With `trial_duration`: the trial is free; else billed from day one.
-  optional bool trial_free = 45;
+  reserved 45;
+  reserved "trial_free";
   // With `trial_duration`: the plan whose features the trial gives.
   optional string trial_plan_id = 46;
+  // With `trial_duration`: what the trial does at its end.
+  QuoteTrialEndAction trial_end_action = 47;
 }
 
 // Unsaved editor state. `payload` is the web editor's JSON, opaque to the server.

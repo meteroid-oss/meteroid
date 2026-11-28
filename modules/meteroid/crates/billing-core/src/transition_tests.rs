@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use super::*;
 use crate::charge::{ChargeKind, Denomination, Fee};
-use crate::facts::{Billing, Ending, EndingKind, FeeFact, PlanWindow, Start, Trial};
+use crate::facts::{AfterTrial, Billing, Ending, EndingKind, FeeFact, PlanWindow, Start, Trial};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct TestFee {
@@ -269,6 +269,7 @@ fn a_free_trial_ends_active_when_its_start_is_settled() {
         from: d(2024, 1, 1),
         until: d(2024, 1, 15),
         free: true,
+        after: AfterTrial::Bills,
     });
     facts.fees.push(fixed(10, 1, d(2024, 1, 1), 3_100));
     let mut controller = Controller::inserted(&facts, at(2023, 12, 15, 0));
@@ -310,6 +311,7 @@ fn a_free_trial_ended_before_its_checkout_settled_expires() {
         from: d(2024, 1, 1),
         until: d(2024, 1, 15),
         free: true,
+        after: AfterTrial::Bills,
     });
     facts.fees.push(fixed(10, 1, d(2024, 1, 1), 3_100));
     let mut controller = Controller::inserted(&facts, at(2023, 12, 15, 0));
@@ -365,6 +367,7 @@ fn a_paid_trial_bills_from_its_start_and_ends_by_its_status() {
         from: d(2024, 1, 1),
         until: d(2024, 1, 15),
         free: false,
+        after: AfterTrial::Bills,
     });
     facts.fees.push(fixed(10, 1, d(2024, 1, 1), 3_100));
     let mut controller = Controller::inserted(&facts, at(2023, 12, 15, 0));
@@ -608,6 +611,7 @@ fn the_step_is_idempotent_and_the_same_run_daily_or_late() {
         from: d(2024, 1, 1),
         until: d(2024, 1, 15),
         free: true,
+        after: AfterTrial::Bills,
     });
     facts
         .plan_windows

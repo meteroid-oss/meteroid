@@ -200,6 +200,7 @@ fn quote_new(tenant_id: TenantId, customer_id: CustomerId) -> QuoteNew {
         trial_duration_days: None,
         trial_free: None,
         trial_plan_id: None,
+        trial_end_action: Default::default(),
         billing_start_date: None,
         billing_end_date: None,
         billing_day_anchor: None,

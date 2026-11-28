@@ -256,6 +256,23 @@ async fn withdraw_item_tx(
     Ok(())
 }
 
+/// The live item `item_id` withdrawn with its changes still to come, started or not: what a
+/// subscription that never started was given (an offer's add-on, R-174).
+pub(crate) async fn withdraw_item_by_id_tx(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+    item_id: uuid::Uuid,
+    reason: &str,
+) -> StoreResult<()> {
+    let items =
+        db(SubscriptionTimelineItemRow::list_live(conn, &tenant_id, subscription_id).await)?;
+    if let Some(item) = items.iter().find(|item| item.id == item_id) {
+        withdraw_item_tx(conn, tenant_id, item, reason).await?;
+    }
+    Ok(())
+}
+
 /// The items whose end is still to come after `after` withdrawn, as the subscription's
 /// termination does.
 pub(crate) async fn withdraw_future_items_tx(

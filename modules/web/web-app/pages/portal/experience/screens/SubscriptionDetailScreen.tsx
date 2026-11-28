@@ -5,8 +5,9 @@ import { toast } from 'sonner'
 import { unitIsCurrency } from '@/features/plans/charges/kinds'
 import { levelSize, levelWords } from '@/features/subscriptions/capacityLevels'
 import { useQuery } from '@/lib/connectrpc'
+import { AddPaymentMethodDialog } from '@/pages/portal/customer/AddPaymentMethodDialog'
 import { FeeType } from '@/rpc/api/prices/v1/models_pb'
-import { SubscriptionFeeBillingPeriod } from '@/rpc/api/subscriptions/v1/models_pb'
+import { SubscriptionFeeBillingPeriod, TrialConfig_Status } from '@/rpc/api/subscriptions/v1/models_pb'
 import {
   previewAddOnQuantity,
   previewLevelChange,
@@ -25,7 +26,7 @@ import {
   periodSuffix,
   subStatusBadge,
 } from '../format'
-import { useSubscription } from '../hooks'
+import { useInvalidatePortal, usePortalToken, useSubscription } from '../hooks'
 import {
   Card,
   CenterState,
@@ -40,6 +41,13 @@ import {
   Spinner,
   Stepper,
 } from '../primitives'
+import {
+  afterTrialAmount,
+  payInvoiceLabel,
+  paymentMethodLabel,
+  trialBadge,
+  trialEndedOn,
+} from '../trial'
 import { boundaryDay } from '../walletFormat'
 
 import { CancelSubscription } from './CancelSubscription'
@@ -51,6 +59,7 @@ import type {
   AvailableAddOn,
   CapacityLevel,
   ComponentFee,
+  PortalTrial,
   SubscriptionDetails,
 } from '@/rpc/portal/subscription/v1/subscription_pb'
 
@@ -132,7 +141,7 @@ export const SubscriptionDetailScreen = ({
             <span style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.02em' }}>
               {sub.planName}
             </span>
-            <Pill badge={subStatusBadge(sub.status)} dot />
+            <Pill badge={sub.trial ? trialBadge(sub.trial) : subStatusBadge(sub.status)} dot />
           </div>
           <span style={{ fontSize: 13, color: 'var(--mtp-text-2)' }}>
             {headline}
@@ -159,6 +168,8 @@ export const SubscriptionDetailScreen = ({
           )}
         </div>
       </div>
+
+      {sub.trial && <TrialCard sub={sub} trial={sub.trial} />}
 
       {/* Pending change banner */}
       {pending && (
@@ -263,6 +274,83 @@ const Row = ({ label, value, last }: { label: string; value: React.ReactNode; la
   </div>
 )
 
+const TrialCard = ({ sub, trial }: { sub: SubscriptionDetails; trial: PortalTrial }) => {
+  const { overview } = usePortalNav()
+  const token = usePortalToken()
+  const invalidatePortal = useInvalidatePortal()
+  const [addOpen, setAddOpen] = useState(false)
+
+  const running = trial.status === TrialConfig_Status.ACTIVE
+  const awaitingPayment = trial.status === TrialConfig_Status.AWAITING_PAYMENT
+  if (!running && !awaitingPayment) return null
+
+  const after = running
+    ? afterTrialAmount(trial.afterTrial, sub.planPrice?.usageBased ?? false)
+    : undefined
+  const showPaymentMethod = running && sub.onlinePaymentEnabled
+  const canAddMethod = Boolean(overview.cardConnectionId || overview.directDebitConnectionId)
+  const invoice = awaitingPayment ? trial.invoiceToPay : undefined
+
+  const rows: { label: string; value: React.ReactNode }[] = []
+  if (after) rows.push({ label: 'After the trial', value: after })
+  if (showPaymentMethod) {
+    rows.push({
+      label: 'Payment method',
+      value: trial.hasPaymentMethod ? (
+        paymentMethodLabel(trial)
+      ) : (
+        <Pill badge={{ label: 'None', tone: 'warn' }} />
+      ),
+    })
+  }
+  if (awaitingPayment) rows.push({ label: 'Trial ended', value: date(trialEndedOn(trial)) })
+  if (invoice) {
+    rows.push({
+      label: `Invoice ${invoice.invoiceNumber}`,
+      value: `${money(invoice.amountDue, invoice.currency)} due`,
+    })
+  }
+
+  const addMethod = showPaymentMethod && !trial.hasPaymentMethod && canAddMethod
+  if (rows.length === 0 && !addMethod) return null
+
+  return (
+    <Card pad="6px 18px 14px">
+      {rows.map((row, i) => (
+        <Row
+          key={row.label}
+          label={row.label}
+          value={row.value}
+          last={i === rows.length - 1 && !addMethod && !invoice}
+        />
+      ))}
+      {(addMethod || invoice) && (
+        <div style={{ display: 'flex', gap: 9, marginTop: 12 }}>
+          {addMethod && <PButton onClick={() => setAddOpen(true)}>Add payment method</PButton>}
+          {invoice && (
+            <PButton
+              onClick={() =>
+                window.open(`/portal/invoice-payment/${invoice.invoiceId}?token=${token}`, '_blank')
+              }
+            >
+              {payInvoiceLabel(invoice)}
+            </PButton>
+          )}
+        </div>
+      )}
+      {addMethod && (
+        <AddPaymentMethodDialog
+          open={addOpen}
+          onOpenChange={setAddOpen}
+          cardConnectionId={overview.cardConnectionId}
+          directDebitConnectionId={overview.directDebitConnectionId}
+          onSuccess={() => void invalidatePortal()}
+        />
+      )}
+    </Card>
+  )
+}
+
 const OverviewTab = ({
   sub,
   currency,
@@ -283,7 +371,10 @@ const OverviewTab = ({
         <div style={{ marginTop: 10 }}>
           <Row label="Plan" value={sub.planName} />
           <Row label="Price" value={feeLabel(sub.headlineFee, currency)} />
-          <Row label="Status" value={subStatusBadge(sub.status).label} />
+          <Row
+            label="Status"
+            value={(sub.trial ? trialBadge(sub.trial) : subStatusBadge(sub.status)).label}
+          />
           <Row
             label="Renews"
             value={sub.currentPeriodEnd ? date(sub.currentPeriodEnd) : '—'}

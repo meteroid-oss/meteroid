@@ -81,6 +81,26 @@ async fn test_rest_v2_checkout_sessions() {
             .starts_with("cou_")
     );
     assert_eq!(session["trial"], json!({"type": "custom", "days": 14}));
+    // What it bills from the trial's end, per cadence: the annual platform fee each year, the
+    // seats and the add-on each month.
+    let after_trial = &session["after_trial"];
+    assert_eq!(after_trial["currency"], "EUR", "{session:#}");
+    assert_eq!(
+        after_trial["starts_on"],
+        (chrono::Utc::now().date_naive() + chrono::Duration::days(14)).to_string()
+    );
+    let recurring = after_trial["recurring"].as_array().expect("per cadence");
+    assert_eq!(recurring.len(), 2, "{after_trial}");
+    let every = |interval: &str| {
+        recurring
+            .iter()
+            .find(|entry| entry["interval"] == interval)
+            .unwrap_or_else(|| panic!("{interval}: {after_trial}"))["amount"]
+            .as_i64()
+            .unwrap()
+    };
+    assert_eq!(every("annual"), 199_000, "{after_trial}");
+    assert!(every("monthly") >= 4 * 1_000, "{after_trial}");
     assert_eq!(session["invoicing"]["net_terms"], 30);
     assert_eq!(session["invoicing"]["memo"], "Thanks");
     assert_eq!(session["invoicing"]["auto_finalize"], true);
@@ -364,4 +384,41 @@ async fn test_rest_v2_checkout_session_for_a_resource() {
         )
         .await;
     refused_at(&ruled_out_for_a_site, "/plan");
+}
+
+/// The trial a session is sent reads back as sent: the plan's, none, an end date and whose
+/// features, by days.
+/// Rules: R-153
+#[tokio::test]
+async fn test_rest_v2_checkout_session_reads_back_its_trial() {
+    let f = fixture().await;
+    seed(&f).await;
+    let until = (chrono::Utc::now().date_naive() + chrono::Duration::days(20)).to_string();
+    let sent = [
+        json!({"type": "plan"}),
+        json!({"type": "none"}),
+        json!({"type": "custom", "until": until, "features_of": "scale"}),
+        json!({"type": "custom", "days": 9}),
+    ];
+    for (n, trial) in sent.into_iter().enumerate() {
+        let created = f
+            .post_once(
+                "/api/v2/checkout-sessions",
+                &format!("checkout-trial-{n}"),
+                json!({
+                    "customer": "ext:spotify",
+                    "plan": "studio",
+                    "option": "monthly",
+                    "quantities": {"users": "1"},
+                    "trial": trial.clone()
+                }),
+            )
+            .await;
+        assert_eq!(created.status, StatusCode::CREATED, "{:#}", created.body);
+        assert_eq!(created.body["trial"], trial, "{:#}", created.body);
+        let id = created.body["id"].as_str().unwrap();
+        let read = f.get(&format!("/api/v2/checkout-sessions/{id}")).await;
+        assert_eq!(read.status, StatusCode::OK, "{:#}", read.body);
+        assert_eq!(read.body["trial"], trial, "{:#}", read.body);
+    }
 }

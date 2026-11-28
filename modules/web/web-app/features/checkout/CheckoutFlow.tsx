@@ -1,5 +1,6 @@
 import { Code, ConnectError } from '@connectrpc/connect'
 import { useMutation } from '@connectrpc/connect-query'
+import { Button } from '@md/ui'
 import { AlertCircle, ArrowLeft } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
@@ -114,6 +115,8 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
 
   const currency = checkoutData.topUpCurrency ?? subscription?.subscription?.currency
   const isTopUp = checkoutType === CheckoutType.TOP_UP
+
+  const [startWithoutCardError, setStartWithoutCardError] = useState<string>()
 
   const confirmCheckoutMutation = useMutation(confirmCheckout, {
     onError: error => {
@@ -260,6 +263,30 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
       }
 
       throw error // Let the PaymentPanel handle this error
+    }
+  }
+
+  // The plan's trial asks no card: the subscription starts on it without a payment method.
+  const handleStartWithoutCard = async () => {
+    setStartWithoutCardError(undefined)
+    if (billingBlocksPayment) {
+      setIsAddressEditing(true)
+      return
+    }
+    if (!currency) return
+    try {
+      await confirmCheckoutMutation.mutateAsync({
+        displayedAmount: amountDue,
+        displayedCurrency: currency,
+        paymentMethodId: '',
+        withoutPaymentMethod: true,
+        couponCode: couponCode.trim() || undefined,
+      })
+      navigateToSuccess()
+    } catch (error) {
+      setStartWithoutCardError(
+        error instanceof ConnectError ? error.rawMessage : 'The trial could not be started'
+      )
     }
   }
 
@@ -523,6 +550,23 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
                       themeConfig={themeConfig}
                       showPoweredBy={initialCheckoutData.showPoweredBy}
                     />
+                  )}
+
+                  {checkoutData.trialCardOptional && checkoutType === CheckoutType.SELF_SERVE && (
+                    <div className="mt-3 flex flex-col items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="link"
+                        size="sm"
+                        onClick={handleStartWithoutCard}
+                        disabled={confirmCheckoutMutation.isPending}
+                      >
+                        Start without a card
+                      </Button>
+                      {startWithoutCardError && (
+                        <span className="text-xs text-destructive">{startWithoutCardError}</span>
+                      )}
+                    </div>
                   )}
                 </>
               )}

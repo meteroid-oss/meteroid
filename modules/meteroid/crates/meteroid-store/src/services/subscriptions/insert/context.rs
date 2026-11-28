@@ -141,6 +141,8 @@ pub struct SubscriptionCreationContext {
     pub currencies: Vec<SubscriptionCurrency>,
     /// The trial each subscription gets, resolved once (R-153), by batch position.
     pub trials: Vec<Option<crate::domain::trials::ResolvedTrial>>,
+    /// The offer each subscription gets with its trial (R-170), by batch position.
+    pub offers: Vec<Option<crate::domain::offers::ResolvedOffer>>,
 }
 
 impl SubscriptionCreationContext {
@@ -246,8 +248,12 @@ impl Services {
             .resolve_tax_inclusive_rates(conn, tenant_id, &quoted)
             .await?;
         let mut trials = Vec::with_capacity(batch.len());
+        let mut offers = Vec::with_capacity(batch.len());
         for create in batch {
-            trials.push(resolve_trial(conn, tenant_id, &plans, &create.subscription).await?);
+            let (trial, offer) =
+                resolve_trial(conn, tenant_id, &plans, &create.subscription, false).await?;
+            trials.push(trial);
+            offers.push(offer);
         }
 
         Ok(SubscriptionCreationContext {
@@ -264,6 +270,7 @@ impl Services {
             tax_inclusive_rates,
             currencies,
             trials,
+            offers,
         })
     }
 
@@ -732,7 +739,8 @@ impl Services {
             .resolve_tax_inclusive_rates(conn, tenant_id, std::slice::from_ref(&quoted))
             .await?;
 
-        let trial = resolve_trial(conn, tenant_id, &plans, &params.subscription).await?;
+        let (trial, offer) =
+            resolve_trial(conn, tenant_id, &plans, &params.subscription, true).await?;
 
         Ok(SubscriptionCreationContext {
             customers,
@@ -751,6 +759,7 @@ impl Services {
             tax_inclusive_rates,
             currencies: vec![currency],
             trials: vec![trial],
+            offers: vec![offer],
         })
     }
 
@@ -1316,18 +1325,23 @@ fn currencies_of(
         .collect()
 }
 
-/// The trial a subscription about to be created gets, resolved once for every entry point (R-153).
+/// The trial and the offer a subscription about to be created gets, resolved once for every entry
+/// point (R-153, R-170); `signed`: a quote's conversion, its trial as signed.
 async fn resolve_trial(
     conn: &mut PgConn,
     tenant_id: TenantId,
     plans: &[PlanForSubscription],
     subscription: &crate::domain::SubscriptionNew,
-) -> StoreResult<Option<crate::domain::trials::ResolvedTrial>> {
+    signed: bool,
+) -> StoreResult<(
+    Option<crate::domain::trials::ResolvedTrial>,
+    Option<crate::domain::offers::ResolvedOffer>,
+)> {
     let plan = plans
         .iter()
         .find(|p| p.version_id == subscription.plan_version_id)
         .ok_or_else(|| Report::new(StoreError::ValueNotFound("Plan id not found".to_string())))?;
-    crate::services::trials::resolve_trial_tx(
+    crate::services::offers::resolve_tx(
         conn,
         tenant_id,
         &crate::services::trials::PlanRef {
@@ -1339,7 +1353,9 @@ async fn resolve_trial(
             .billing_start_date
             .unwrap_or(subscription.start_date),
         Some(subscription.customer_id),
+        subscription.offer,
         &subscription.trial,
+        signed,
     )
     .await
 }

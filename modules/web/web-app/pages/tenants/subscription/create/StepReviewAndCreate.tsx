@@ -19,6 +19,7 @@ import { serializeCustomProperties } from '@/features/customproperties/CustomPro
 import { productGroups } from '@/features/entitlements/productGroups'
 import { grantValueText } from '@/features/entitlements/rows/grantDisplay'
 import { draftsToSpecs } from '@/features/entitlements/rows/grantDraft'
+import { useTrialPlans } from '@/features/plans/trial/TrialTermsFields'
 import {
   buildExistingProductRef,
   buildFeeStructure,
@@ -40,12 +41,20 @@ import {
   CreateSubscriptionState,
   PaymentMethodsConfigType,
 } from '@/pages/tenants/subscription/create/state'
+import {
+  offerRequest,
+  startOfferLabel,
+  trialLabel,
+  trialRefusal,
+  trialRequest,
+} from '@/pages/tenants/subscription/create/trial'
 import { useSubscriptionSale } from '@/pages/tenants/subscription/create/useSubscriptionSale'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 import { listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
 import { ListCouponRequest_CouponFilter } from '@/rpc/api/coupons/v1/coupons_pb'
 import { Coupon } from '@/rpc/api/coupons/v1/models_pb'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
+import { getOffer } from '@/rpc/api/offers/v1/offers-OffersService_connectquery'
 import { getPlanWithVersionByVersionId } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import {
   ActivationCondition,
@@ -108,6 +117,7 @@ const buildCreateSubscriptionMessage = (
     netTerms: state.netTerms,
     activationCondition: state.activationCondition,
     trial: trialRequest(state),
+    offer: offerRequest(state),
     invoiceMemo: state.invoiceMemo,
     invoiceThreshold: state.invoiceThreshold,
     purchaseOrder: state.purchaseOrder,
@@ -234,6 +244,13 @@ export const StepReviewAndCreate = () => {
   })
 
   const netTermsDefault = useDefaultNetTerms(state)
+  const { planName } = useTrialPlans(planQuery.data?.plan?.plan?.id)
+  const catalogOfferName = useQuery(
+    getOffer,
+    state.startOfferMode === 'catalog' && state.startOfferId
+      ? { id: state.startOfferId }
+      : skipToken
+  ).data?.offer?.name
 
   const allComponents = sale.components ?? []
   const includedComponents = allComponents.filter(c => !state.components.removed.includes(c.id))
@@ -272,6 +289,9 @@ export const StepReviewAndCreate = () => {
     previewCreateSubscription,
     previewInput ? { subscription: previewInput } : skipToken
   )
+
+  const refusal =
+    trialRefusal(createSubscriptionMutation.error) ?? trialRefusal(previewQuery.error)
 
   if (!currency) {
     return <div>Loading plan...</div>
@@ -394,12 +414,15 @@ export const StepReviewAndCreate = () => {
                       <div className="font-medium">{state.endDate.toLocaleDateString()}</div>
                     </div>
                   )}
-                  {trialLabel(state) && (
-                    <div>
-                      <div className="text-xs text-muted-foreground">Trial Period</div>
-                      <div className="font-medium">{trialLabel(state)}</div>
-                    </div>
-                  )}
+                  <div>
+                    <div className="text-xs text-muted-foreground">Start offer</div>
+                    <div className="font-medium">{startOfferLabel(state, catalogOfferName)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Trial</div>
+                    <div className="font-medium">{trialLabel(state, planName)}</div>
+                    {refusal && <div className="text-xs text-destructive">{refusal}</div>}
+                  </div>
                   <div>
                     <div className="text-xs text-muted-foreground">Billing Cycle</div>
                     <div className="font-medium">
@@ -647,40 +670,4 @@ export const StepReviewAndCreate = () => {
       </div>
     </div>
   )
-}
-
-/** The trial the creation asks for; unset: the plan's (R-153). */
-const trialRequest = (state: CreateSubscriptionState) => {
-  if (state.trialOfferId) {
-    return { trial: { case: 'offerId' as const, value: state.trialOfferId } }
-  }
-  if (state.trialMode === 'none') {
-    return { trial: { case: 'none' as const, value: true } }
-  }
-  if (state.trialMode === 'custom') {
-    return {
-      trial: {
-        case: 'custom' as const,
-        value: {
-          length: state.trialUntil
-            ? { case: 'until' as const, value: mapDatev2(state.trialUntil) }
-            : { case: 'days' as const, value: state.trialDuration ?? 0 },
-          free: state.trialFree,
-        },
-      },
-    }
-  }
-  return undefined
-}
-
-const trialLabel = (state: CreateSubscriptionState) => {
-  if (state.trialOfferId) return 'Trial offer'
-  if (state.trialMode === 'none') return 'None'
-  if (state.trialMode === 'custom') {
-    const free = state.trialFree === false ? ', billed' : state.trialFree ? ', free' : ''
-    return state.trialUntil
-      ? `Until ${state.trialUntil.toLocaleDateString()}${free}`
-      : `${state.trialDuration ?? 0} days${free}`
-  }
-  return "The plan's"
 }

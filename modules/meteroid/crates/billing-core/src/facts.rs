@@ -59,6 +59,26 @@ pub struct Trial {
     pub from: NaiveDate,
     pub until: NaiveDate,
     pub free: bool,
+    pub after: AfterTrial,
+}
+
+/// What follows a free trial's end, as the store recorded it when the trial ended (R-179, R-167).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AfterTrial {
+    /// Billing starts on its end.
+    #[default]
+    Bills,
+    /// The start is unsettled from its end until its opening invoice is paid: TrialExpired.
+    AwaitsPayment,
+    /// Billing never starts on its own: the trial holds until a decision moves its end.
+    AwaitsDecision,
+}
+
+impl Trial {
+    /// Whether the trial still holds on `day`: running, or past its end awaiting a decision.
+    pub fn holds_on(&self, day: NaiveDate) -> bool {
+        self.from <= day && (day < self.until || self.after == AfterTrial::AwaitsDecision)
+    }
 }
 
 /// A plan version in force over `[from, to)`, its renewals every `cadence` months on a grid
@@ -406,7 +426,17 @@ impl<F> Facts<F> {
 
     /// Whether the start was settled by `now`.
     pub fn settled_by(&self, now: DateTime<Utc>) -> bool {
-        self.start.settled.is_some_and(|at| at <= now)
+        let awaits_payment = self.free_trial().is_some_and(|trial| {
+            trial.after == AfterTrial::AwaitsPayment && now >= midnight(trial.until)
+        });
+        !awaits_payment && self.start.settled.is_some_and(|at| at <= now)
+    }
+
+    /// A free trial past its end awaiting a decision: nothing bills.
+    pub fn awaits_decision(&self, now: DateTime<Utc>) -> bool {
+        self.free_trial().is_some_and(|trial| {
+            trial.after == AfterTrial::AwaitsDecision && now >= midnight(trial.until)
+        })
     }
 
     /// Whether the billing start is a free trial's end, whose first period runs a full cadence on

@@ -16,6 +16,8 @@ export const EMAIL_SKIP_REASONS: Record<string, string> = {
   delivery_unknown: 'Delivery status unknown',
   pdf_missing: 'The PDF was not ready in time',
   send_failed: 'Sending failed',
+  no_payment_method: 'No payment method on file',
+  not_applicable: 'No longer applies to this subscription',
 }
 
 export const skipReason = (value: unknown): string | undefined =>

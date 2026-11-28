@@ -219,6 +219,31 @@ pub enum Body {
         renewal_months: Option<u32>,
         uplift_percent: Option<String>,
     },
+    /// A trial ending on `ends_on` (billing starts on it), with what follows it.
+    TrialEnding {
+        plan_name: String,
+        ends_on: NaiveDate,
+        follow_up: TrialFollowUp,
+        cta: Cta,
+    },
+    /// A trial started with a payment method on file; `after_trial` is charged each `interval`
+    /// from `ends_on`.
+    TrialStarted {
+        plan_name: String,
+        starts_on: NaiveDate,
+        ends_on: NaiveDate,
+        after_trial: Option<TrialCharge>,
+        interval: BillingInterval,
+        cta: Cta,
+    },
+    /// A trial that did not convert ended on `ended_on`; `plan_name` is the plan the subscription
+    /// is on now (the one it moved to when switched).
+    TrialEnded {
+        plan_name: String,
+        ended_on: NaiveDate,
+        outcome: TrialEndedOutcome,
+        cta: Cta,
+    },
     /// `html_fragment` comes from `copy::to_html` only; it is inserted unescaped.
     Custom {
         html_fragment: String,
@@ -234,6 +259,57 @@ pub enum Body {
 pub struct WalletActions {
     pub can_top_up: bool,
     pub can_manage_auto_top_up: bool,
+}
+
+/// An estimated amount, in minor units of `currency`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TrialCharge {
+    pub amount_minor: i64,
+    pub currency: String,
+}
+
+/// What follows a trial's end, as the trial-ending email states it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TrialFollowUp {
+    /// Charged automatically to the payment method on file (`method`, e.g. "Visa •••• 4242").
+    Charged {
+        charge: Option<TrialCharge>,
+        method: Option<String>,
+    },
+    /// Invoiced, payable within the customer's payment terms.
+    Invoiced { charge: Option<TrialCharge> },
+    /// Charged automatically, but no payment method is on file.
+    NoPaymentMethod(TrialWithoutCard),
+    /// The subscription ends with the trial.
+    Ends,
+    /// The subscription moves to `plan_name` when the trial ends.
+    Switches { plan_name: String },
+}
+
+/// What a trial's end does without a payment method.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TrialWithoutCard {
+    /// The first invoice is issued and the subscription waits until it is paid.
+    AwaitPayment,
+    Cancel,
+    Switch {
+        plan_name: String,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrialEndedOutcome {
+    Cancelled,
+    Switched,
+    AwaitingPayment,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BillingInterval {
+    Month,
+    Quarter,
+    HalfYear,
+    Year,
 }
 
 /// A credit unit as the customer reads it; its code is internal.
@@ -985,6 +1061,242 @@ pub fn render(
                 render_layout(lang, subject, None, header, footer, &l10n, content)?,
             )
         }
+        Body::TrialEnding {
+            plan_name,
+            ends_on,
+            follow_up,
+            cta,
+        } => {
+            let date = long_date(lang, &ends_on);
+            let fixed = l10n.trial_ending_subject(company, &date).to_string();
+            let ends = matches!(follow_up, TrialFollowUp::Ends);
+            let mut rows = vec![
+                row(l10n.trial_plan(), plan_name.clone()),
+                row(l10n.trial_ends_on(), date.clone()),
+            ];
+            let charge_hero = |label: String, caption: String, charge: &TrialCharge| SummaryHero {
+                caption: Some(caption),
+                ..hero(label, charge.amount_minor, &charge.currency)
+            };
+            let (intro, hero) = match follow_up {
+                TrialFollowUp::NoPaymentMethod(without_card) => {
+                    let consequence = match without_card {
+                        TrialWithoutCard::AwaitPayment => {
+                            l10n.trial_ending_no_method_await().to_string()
+                        }
+                        TrialWithoutCard::Cancel => {
+                            l10n.trial_ending_no_method_cancel(&date).to_string()
+                        }
+                        TrialWithoutCard::Switch { plan_name: next } => {
+                            l10n.trial_ending_no_method_switch(&next, &date).to_string()
+                        }
+                    };
+                    let intro = format!(
+                        "{} {consequence}",
+                        l10n.trial_ending_no_method_intro(&plan_name, &date)
+                    );
+                    let content = PaymentMethodRequestContent {
+                        heading: l10n.trial_ending_no_method_heading().to_string(),
+                        intro: intro.clone(),
+                        ask: l10n
+                            .trial_ending_no_method_ask(&date, &plan_name)
+                            .to_string(),
+                        cta: button(cta, l10n.add_payment_method(), &color),
+                        hedge: l10n.payment_method_link_hedge(company).to_string(),
+                        stop: None,
+                    };
+                    let html = render_layout(
+                        lang,
+                        fixed.clone(),
+                        Some(intro),
+                        header,
+                        footer,
+                        &l10n,
+                        content,
+                    )?;
+                    return Ok(Rendered {
+                        subject: match subject {
+                            Subject::Custom(s) => s,
+                            Subject::Fixed => fixed,
+                        },
+                        body_html: html,
+                    });
+                }
+                TrialFollowUp::Charged { charge, method } => {
+                    if let Some(method) = method {
+                        rows.push(row(l10n.payment_method_label(), method));
+                    }
+                    match charge {
+                        Some(charge) => {
+                            let amount = format_currency(charge.amount_minor, &charge.currency);
+                            (
+                                l10n.trial_ending_charged_intro(&plan_name, &date, &amount)
+                                    .to_string(),
+                                Some(charge_hero(
+                                    l10n.trial_first_payment().to_string(),
+                                    l10n.trial_charged_on(&date).to_string(),
+                                    &charge,
+                                )),
+                            )
+                        }
+                        None => (
+                            l10n.trial_ending_charged_intro_no_amount(&plan_name, &date)
+                                .to_string(),
+                            None,
+                        ),
+                    }
+                }
+                TrialFollowUp::Invoiced { charge } => match charge {
+                    Some(charge) => {
+                        let amount = format_currency(charge.amount_minor, &charge.currency);
+                        (
+                            l10n.trial_ending_invoiced_intro(&plan_name, &date, &amount)
+                                .to_string(),
+                            Some(charge_hero(
+                                l10n.trial_first_invoice().to_string(),
+                                l10n.trial_invoiced_on(&date).to_string(),
+                                &charge,
+                            )),
+                        )
+                    }
+                    None => (
+                        l10n.trial_ending_invoiced_intro_no_amount(&plan_name, &date)
+                            .to_string(),
+                        None,
+                    ),
+                },
+                TrialFollowUp::Ends => (
+                    l10n.trial_ending_ends_intro(&plan_name, &date).to_string(),
+                    None,
+                ),
+                TrialFollowUp::Switches { plan_name: next } => {
+                    rows.push(row(l10n.trial_next_plan(), next.clone()));
+                    (
+                        l10n.trial_ending_switches_intro(&plan_name, &date, &next)
+                            .to_string(),
+                        None,
+                    )
+                }
+            };
+            let content = PaymentFailedContent {
+                heading: l10n.trial_ending_heading().to_string(),
+                label: None,
+                intro: if ends {
+                    intro.clone()
+                } else {
+                    format!("{intro} {}", l10n.trial_manage_before(&date))
+                },
+                summary: SummaryBoxTemplate { hero, rows },
+                cta: if ends {
+                    button(cta, l10n.view_plans(), &color)
+                } else {
+                    button(cta, l10n.manage_subscription(), &color)
+                },
+            };
+            (
+                fixed.clone(),
+                render_layout(lang, fixed, Some(intro), header, footer, &l10n, content)?,
+            )
+        }
+        Body::TrialStarted {
+            plan_name,
+            starts_on,
+            ends_on,
+            after_trial,
+            interval,
+            cta,
+        } => {
+            let date = long_date(lang, &ends_on);
+            let every = match interval {
+                BillingInterval::Month => l10n.trial_per_month(),
+                BillingInterval::Quarter => l10n.trial_per_quarter(),
+                BillingInterval::HalfYear => l10n.trial_per_half_year(),
+                BillingInterval::Year => l10n.trial_per_year(),
+            }
+            .to_string();
+            let (intro, hero) = match after_trial {
+                Some(charge) => {
+                    let amount = format_currency(charge.amount_minor, &charge.currency);
+                    (
+                        l10n.trial_started_intro(&plan_name, &date, &amount, &every)
+                            .to_string(),
+                        Some(SummaryHero {
+                            caption: Some(l10n.trial_charged_from(&every, &date).to_string()),
+                            ..hero(
+                                l10n.trial_after_trial(),
+                                charge.amount_minor,
+                                &charge.currency,
+                            )
+                        }),
+                    )
+                }
+                None => (
+                    l10n.trial_started_intro_no_amount(&plan_name, &date)
+                        .to_string(),
+                    None,
+                ),
+            };
+            let content = PaymentFailedContent {
+                heading: l10n.trial_started_heading().to_string(),
+                label: None,
+                intro: format!("{intro} {}", l10n.trial_manage_before(&date)),
+                summary: SummaryBoxTemplate {
+                    hero,
+                    rows: vec![
+                        row(l10n.trial_plan(), plan_name.clone()),
+                        row(l10n.trial_starts_on(), long_date(lang, &starts_on)),
+                        row(l10n.trial_ends_on(), date.clone()),
+                    ],
+                },
+                cta: button(cta, l10n.manage_subscription(), &color),
+            };
+            let subject = l10n.trial_started_subject(company).to_string();
+            (
+                subject.clone(),
+                render_layout(lang, subject, Some(intro), header, footer, &l10n, content)?,
+            )
+        }
+        Body::TrialEnded {
+            plan_name,
+            ended_on,
+            outcome,
+            cta,
+        } => {
+            let date = long_date(lang, &ended_on);
+            let (intro, button_label) = match outcome {
+                TrialEndedOutcome::Cancelled => (
+                    l10n.trial_ended_cancelled_intro(&plan_name, &date),
+                    l10n.view_plans(),
+                ),
+                TrialEndedOutcome::Switched => (
+                    l10n.trial_ended_switched_intro(&date, &plan_name),
+                    l10n.view_plans(),
+                ),
+                TrialEndedOutcome::AwaitingPayment => (
+                    l10n.trial_ended_awaiting_payment_intro(&plan_name, &date),
+                    l10n.add_payment_method(),
+                ),
+            };
+            let intro = intro.to_string();
+            let content = PaymentFailedContent {
+                heading: l10n.trial_ended_heading().to_string(),
+                label: None,
+                intro: intro.clone(),
+                summary: SummaryBoxTemplate {
+                    hero: None,
+                    rows: vec![
+                        row(l10n.trial_plan(), plan_name.clone()),
+                        row(l10n.trial_ended_on(), date.clone()),
+                    ],
+                },
+                cta: button(cta, button_label, &color),
+            };
+            let subject = l10n.trial_ended_subject(company).to_string();
+            (
+                subject.clone(),
+                render_layout(lang, subject, Some(intro), header, footer, &l10n, content)?,
+            )
+        }
         Body::Custom {
             html_fragment,
             summary,
@@ -1341,7 +1653,72 @@ mod tests {
                     uplift_percent: None,
                 },
             ),
+            (
+                "trial_ending_charged",
+                trial_ending(TrialFollowUp::Charged {
+                    charge: Some(trial_charge()),
+                    method: Some("Visa •••• 4242".into()),
+                }),
+            ),
+            (
+                "trial_ending_invoiced",
+                trial_ending(TrialFollowUp::Invoiced {
+                    charge: Some(trial_charge()),
+                }),
+            ),
+            (
+                "trial_ending_no_method",
+                trial_ending(TrialFollowUp::NoPaymentMethod(TrialWithoutCard::Switch {
+                    plan_name: "Free".into(),
+                })),
+            ),
+            ("trial_ending_ends", trial_ending(TrialFollowUp::Ends)),
+            (
+                "trial_started",
+                Body::TrialStarted {
+                    plan_name: "Scale".into(),
+                    starts_on: NaiveDate::from_ymd_opt(2026, 11, 27).unwrap(),
+                    ends_on: NaiveDate::from_ymd_opt(2026, 12, 11).unwrap(),
+                    after_trial: Some(trial_charge()),
+                    interval: BillingInterval::Month,
+                    cta: Cta::new("https://portal.example/customer?page=subscriptions"),
+                },
+            ),
+            (
+                "trial_ended",
+                Body::TrialEnded {
+                    plan_name: "Scale".into(),
+                    ended_on: NaiveDate::from_ymd_opt(2026, 12, 11).unwrap(),
+                    outcome: TrialEndedOutcome::AwaitingPayment,
+                    cta: Cta::new("https://portal.example/customer?page=subscriptions"),
+                },
+            ),
+            (
+                "trial_ended_cancelled",
+                Body::TrialEnded {
+                    plan_name: "Scale".into(),
+                    ended_on: NaiveDate::from_ymd_opt(2026, 12, 11).unwrap(),
+                    outcome: TrialEndedOutcome::Cancelled,
+                    cta: Cta::new("https://portal.example/customer"),
+                },
+            ),
         ]
+    }
+
+    fn trial_charge() -> TrialCharge {
+        TrialCharge {
+            amount_minor: 4_900,
+            currency: "EUR".into(),
+        }
+    }
+
+    fn trial_ending(follow_up: TrialFollowUp) -> Body {
+        Body::TrialEnding {
+            plan_name: "Scale".into(),
+            ends_on: NaiveDate::from_ymd_opt(2026, 12, 11).unwrap(),
+            follow_up,
+            cta: Cta::new("https://portal.example/customer?page=subscriptions"),
+        }
     }
 
     fn subscription_cancelled() -> Body {
@@ -1412,9 +1789,19 @@ mod tests {
                     && kind != "subscription_cancelled"
                     && !kind.starts_with("renewal_reminder")
                 {
-                    if kind != "payment_method_requested" && kind != "payment_method_expiring" {
-                        assert!(html.contains("class=\"hero-amount\""), "{ctx}: hero");
-                    }
+                    let no_hero = [
+                        "payment_method_requested",
+                        "payment_method_expiring",
+                        "trial_ending_no_method",
+                        "trial_ending_ends",
+                        "trial_ended",
+                        "trial_ended_cancelled",
+                    ];
+                    assert_eq!(
+                        html.contains("class=\"hero-amount\""),
+                        !no_hero.contains(&kind),
+                        "{ctx}: hero"
+                    );
                     assert!(html.contains("mso-hide:all"), "{ctx}: preheader");
                 }
                 assert!(
@@ -1476,6 +1863,23 @@ mod tests {
                     ),
                     "renewal_reminder" => (l10n.renewal_reminder_renewing_heading(), None),
                     "renewal_reminder_ending" => (l10n.renewal_reminder_ending_heading(), None),
+                    "trial_ending_charged" | "trial_ending_invoiced" => (
+                        l10n.trial_ending_heading(),
+                        Some(l10n.manage_subscription()),
+                    ),
+                    "trial_ending_no_method" => (
+                        l10n.trial_ending_no_method_heading(),
+                        Some(l10n.add_payment_method()),
+                    ),
+                    "trial_ending_ends" => (l10n.trial_ending_heading(), Some(l10n.view_plans())),
+                    "trial_started" => (
+                        l10n.trial_started_heading(),
+                        Some(l10n.manage_subscription()),
+                    ),
+                    "trial_ended" => (l10n.trial_ended_heading(), Some(l10n.add_payment_method())),
+                    "trial_ended_cancelled" => {
+                        (l10n.trial_ended_heading(), Some(l10n.view_plans()))
+                    }
                     _ => unreachable!(),
                 };
                 assert!(
@@ -1492,6 +1896,78 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_trial_ending_states_what_follows_it() {
+        let html = |follow_up| {
+            render(&layout("en-US"), Subject::Fixed, trial_ending(follow_up))
+                .unwrap()
+                .body_html
+        };
+        let charged = html(TrialFollowUp::Charged {
+            charge: Some(trial_charge()),
+            method: Some("Visa •••• 4242".into()),
+        });
+        assert!(
+            charged.contains("will then be charged €49,00."),
+            "{charged}"
+        );
+        assert!(charged.contains(">Visa •••• 4242</td>"), "{charged}");
+        assert!(charged.contains("cancel your subscription"), "{charged}");
+
+        let invoiced = html(TrialFollowUp::Invoiced {
+            charge: Some(trial_charge()),
+        });
+        assert!(invoiced.contains("usual payment terms"), "{invoiced}");
+        assert!(!invoiced.contains("Payment method"), "{invoiced}");
+
+        let no_method = html(TrialFollowUp::NoPaymentMethod(TrialWithoutCard::Cancel));
+        assert!(
+            no_method.contains("your subscription ends on December 11, 2026."),
+            "{no_method}"
+        );
+        assert!(
+            no_method.contains(">Add a payment method</a>"),
+            "{no_method}"
+        );
+
+        let awaits = html(TrialFollowUp::NoPaymentMethod(
+            TrialWithoutCard::AwaitPayment,
+        ));
+        assert!(
+            awaits.contains("until its first invoice is paid"),
+            "{awaits}"
+        );
+
+        let switches = html(TrialFollowUp::Switches {
+            plan_name: "Free".into(),
+        });
+        assert!(switches.contains("moves to the Free plan"), "{switches}");
+        assert!(switches.contains(">Next plan</td>"), "{switches}");
+    }
+
+    #[test]
+    fn a_trial_start_states_the_amount_and_its_frequency() {
+        let body = bodies()
+            .into_iter()
+            .find(|(kind, _)| *kind == "trial_started")
+            .map(|(_, body)| body)
+            .unwrap();
+        let en = render(&layout("en-US"), Subject::Fixed, body.clone()).unwrap();
+        assert_eq!(en.subject, "Your Acme trial has started");
+        assert!(
+            en.body_html
+                .contains("charged €49,00 per month until you cancel."),
+            "{}",
+            en.body_html
+        );
+        assert!(
+            en.body_html
+                .contains(">per month from December 11, 2026</td>")
+        );
+        let fr = render(&layout("fr-FR"), Subject::Fixed, body).unwrap();
+        assert!(fr.body_html.contains("par mois"), "{}", fr.body_html);
     }
 
     #[test]

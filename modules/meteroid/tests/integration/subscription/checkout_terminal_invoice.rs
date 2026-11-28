@@ -49,6 +49,7 @@ async fn create_activation_session(
             billing_start_date: sub.billing_start_date,
             billing_day_anchor: Some(sub.billing_day_anchor),
             net_terms: Some(sub.net_terms),
+            offer: Default::default(),
             trial: meteroid_store::domain::trials::TrialRequest::from_days(
                 env.trial_days(subscription_id)
                     .await

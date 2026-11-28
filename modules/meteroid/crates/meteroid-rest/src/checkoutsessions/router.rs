@@ -118,6 +118,7 @@ pub async fn create_checkout_session(
         billing_start_date: request.billing_start_date,
         billing_day_anchor: request.billing_day_anchor.map(|a| a as i16),
         net_terms: request.net_terms,
+        offer: Default::default(),
         trial: meteroid_store::domain::trials::TrialRequest::from_days(
             request
                 .trial_duration_days
