@@ -27,6 +27,8 @@ pub struct AppliedCouponRow {
     pub duration_months: Option<i32>,
     /// The first service period it discounts when added to a running subscription; NULL: all.
     pub discounts_from: Option<chrono::NaiveDate>,
+    /// Trigger-maintained analytics ingestion marker; never written by app code.
+    pub store_committed_at: chrono::NaiveDateTime,
 }
 
 #[derive(Debug, Queryable, Identifiable, Selectable)]

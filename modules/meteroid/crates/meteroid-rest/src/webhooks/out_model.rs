@@ -22,8 +22,8 @@ use common_domain::ids::{
 use common_domain::ids::{
     BillableMetricId, BudgetId, CreditGrantId, CreditNoteId, CustomerId, EventId, FeatureId,
     InvoiceId, LedgerEntryId, PaymentTransactionId, PlanId, ProductFamilyId, ProductId, QuoteId,
-    ResourceId, RetentionSessionId, SubscriptionId, WorkflowId, WorkflowRunId, string_serde,
-    string_serde_opt, string_serde_vec,
+    ResourceId, RetentionSessionId, SqlQueryId, SqlQueryRunId, SqlQueryScheduleId, SubscriptionId,
+    WorkflowId, WorkflowRunId, string_serde, string_serde_opt, string_serde_vec,
 };
 use meteroid_rest_common::datetime::ApiDateTime;
 use meteroid_rest_common::model::BillingPeriodEnum;
@@ -42,6 +42,7 @@ use meteroid_store::domain::renewals::{RenewalMode, RenewalSource, RenewalUpcomi
 use meteroid_store::domain::retention_events::{
     RetentionOfferKind, RetentionOutcome, RetentionSessionEvent,
 };
+use meteroid_store::domain::sql_query_events::SqlScheduledRunEvent;
 use meteroid_store::domain::usage_alert_events::{AlertLevel, AlertResource, GrantEndReason};
 use meteroid_store::domain::wallet_events::GrantLapseReason;
 use o2o::o2o;
@@ -1400,6 +1401,49 @@ impl From<TooManyGroupsEvent> for WebhookOutTooManyGroupsEventData {
     }
 }
 
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = SqlScheduledRunEventData)]
+pub struct WebhookOutSqlScheduledRunEventData {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub schedule_id: SqlQueryScheduleId,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub saved_query_id: SqlQueryId,
+    pub query_name: String,
+    /// None when the run was refused before it started (a plan limit, an invalid query).
+    #[serde(serialize_with = "string_serde_opt::serialize")]
+    pub run_id: Option<SqlQueryRunId>,
+    pub succeeded: bool,
+    /// Why the run produced no file.
+    pub error: Option<String>,
+    pub row_count: Option<u64>,
+    /// More rows matched than the file holds (1,000,000).
+    pub truncated: bool,
+    /// The period `[start, end)` the run reports on, when the query takes `start` and `end`.
+    pub period_start: Option<NaiveDate>,
+    pub period_end: Option<NaiveDate>,
+    /// Fetch the CSV with `GET /api/v1/sql/query_runs/{run_id}` and an API key granted SQL.
+    pub ran_at: ApiDateTime,
+}
+
+impl From<SqlScheduledRunEvent> for WebhookOutSqlScheduledRunEventData {
+    fn from(event: SqlScheduledRunEvent) -> Self {
+        Self {
+            schedule_id: event.schedule_id,
+            saved_query_id: event.saved_query_id,
+            query_name: event.query_name,
+            run_id: event.run_id,
+            succeeded: event.succeeded,
+            error: event.error,
+            row_count: event.row_count,
+            truncated: event.truncated,
+            period_start: event.period_start,
+            period_end: event.period_end,
+            ran_at: event.ran_at.into(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[schema(as = RetentionOutcome)]
@@ -1973,6 +2017,8 @@ wallet_webhook_event!(
         as CheckoutPaymentKeptAsCreditEvent,
     WebhookOutRetentionSessionEvent(WebhookOutRetentionSessionEventData)
         as RetentionSessionWebhookEvent,
+    WebhookOutSqlScheduledRunEvent(WebhookOutSqlScheduledRunEventData)
+        as SqlScheduledRunWebhookEvent,
     WebhookOutRenewalUpcomingEvent(WebhookOutRenewalUpcomingEventData)
         as RenewalUpcomingWebhookEvent,
     WebhookOutWorkflowRunEvent(WebhookOutWorkflowRunEventData) as WorkflowRunWebhookEvent,
@@ -2390,6 +2436,9 @@ pub enum WebhookOutEventTypeEnum {
     #[strum(serialize = "retention.session_completed")]
     #[serde(rename = "retention.session_completed")]
     RetentionSessionCompleted,
+    #[strum(serialize = "sql.scheduled_run.completed")]
+    #[serde(rename = "sql.scheduled_run.completed")]
+    SqlScheduledRunCompleted,
     #[strum(serialize = "subscription.renewal_upcoming")]
     #[serde(rename = "subscription.renewal_upcoming")]
     SubscriptionRenewalUpcoming,
@@ -2467,6 +2516,9 @@ pub enum WebhookOutEventGroupEnum {
     /// A customer finishing the portal cancel flow: saved by an offer, or cancelled.
     #[strum(serialize = "retention")]
     Retention,
+    /// A scheduled SQL query's run: its CSV, or why it failed.
+    #[strum(serialize = "sql")]
+    Sql,
     /// A workflow run starting, succeeding or failing.
     #[strum(serialize = "workflow_run")]
     WorkflowRun,
@@ -2502,6 +2554,7 @@ impl WebhookOutEventGroupEnum {
             WebhookOutEventGroupEnum::Budget => "BudgetAlertWebhookEvent",
             WebhookOutEventGroupEnum::Checkout => "CheckoutPaymentKeptAsCreditEvent",
             WebhookOutEventGroupEnum::Retention => "RetentionSessionWebhookEvent",
+            WebhookOutEventGroupEnum::Sql => "SqlScheduledRunWebhookEvent",
             WebhookOutEventGroupEnum::WorkflowRun => "WorkflowRunWebhookEvent",
         }
     }
@@ -2527,6 +2580,7 @@ impl WebhookOutEventTypeEnum {
                 | WebhookOutEventTypeEnum::BudgetThresholdReached
                 | WebhookOutEventTypeEnum::BudgetExceeded
                 | WebhookOutEventTypeEnum::RetentionSessionCompleted
+                | WebhookOutEventTypeEnum::SqlScheduledRunCompleted
                 | WebhookOutEventTypeEnum::WorkflowRunStarted
                 | WebhookOutEventTypeEnum::WorkflowRunSucceeded
                 | WebhookOutEventTypeEnum::WorkflowRunFailed
@@ -2615,6 +2669,7 @@ impl WebhookOutEventTypeEnum {
             WebhookOutEventTypeEnum::RetentionSessionCompleted => {
                 WebhookOutEventGroupEnum::Retention
             }
+            WebhookOutEventTypeEnum::SqlScheduledRunCompleted => WebhookOutEventGroupEnum::Sql,
             WebhookOutEventTypeEnum::WorkflowRunStarted
             | WebhookOutEventTypeEnum::WorkflowRunSucceeded
             | WebhookOutEventTypeEnum::WorkflowRunFailed => WebhookOutEventGroupEnum::WorkflowRun,
@@ -2832,6 +2887,10 @@ impl WebhookOutEventTypeEnum {
             }
             WebhookOutEventTypeEnum::RetentionSessionCompleted => {
                 "A customer finished the portal cancel flow: kept by an offer, asking to be contacted, or cancelled"
+                    .to_string()
+            }
+            WebhookOutEventTypeEnum::SqlScheduledRunCompleted => {
+                "A scheduled SQL query ran: a signed link to its CSV, or why it did not run"
                     .to_string()
             }
             WebhookOutEventTypeEnum::SubscriptionRenewalUpcoming => {

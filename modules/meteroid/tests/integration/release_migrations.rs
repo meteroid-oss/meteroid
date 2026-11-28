@@ -75,6 +75,7 @@ async fn release_migrations_revert_exactly_and_reapply_identically() -> TestResu
         "enum StoredObjectKindEnum 10 QUOTE_CERTIFICATE_PDF",
         "enum StoredObjectKindEnum 11 QUOTE_PDF",
         "enum StoredObjectKindEnum 12 QUOTE_ATTACHMENT",
+        "enum StoredObjectKindEnum 13 SQL_RESULT",
     ];
     // Appended after the type's own labels, whatever their count.
     let final_invoice = |l: &str| {

@@ -26,7 +26,8 @@ pub struct CreateSubscriptionCoupons {
     fixed_amount: {None},
     fixed_currency: {None},
     add_on_ids: {None},
-    duration_months: {None}
+    duration_months: {None},
+    store_committed_at: {common_clock::now().naive_utc()}
 )]
 pub struct AppliedCoupon {
     pub id: AppliedCouponId,

@@ -23,8 +23,8 @@ use meteroid_rest::webhooks::out_model::{
     WebhookOutCheckoutPaymentKeptAsCreditEvent, WebhookOutCreditGrantExpiredEvent,
     WebhookOutCreditGrantUpdatedEvent, WebhookOutEntitlementAlertEvent, WebhookOutGrantEndedEvent,
     WebhookOutOfferAppliedEvent, WebhookOutOverrideEndingEvent, WebhookOutRenewalUpcomingEvent,
-    WebhookOutRetentionSessionEvent, WebhookOutTooManyGroupsEvent, WebhookOutTrialEndedEvent,
-    WebhookOutTrialEndingEvent, WebhookOutWalletBalanceLowEvent,
+    WebhookOutRetentionSessionEvent, WebhookOutSqlScheduledRunEvent, WebhookOutTooManyGroupsEvent,
+    WebhookOutTrialEndedEvent, WebhookOutTrialEndingEvent, WebhookOutWalletBalanceLowEvent,
     WebhookOutWalletCreditRecoveredEvent, WebhookOutWalletCreditUnrecoveredEvent,
     WebhookOutWalletDebitedEvent, WebhookOutWalletDepletedEvent, WebhookOutWalletFundedEvent,
     WebhookOutWalletRecoveredEvent, WebhookOutWorkflowRunEvent,
@@ -368,6 +368,9 @@ pub(crate) fn to_webhook_message(
             WebhookOutRetentionSessionEvent,
             e
         ),
+        OutboxEvent::SqlScheduledRunCompleted(e) => {
+            typed!(SqlScheduledRunCompleted, WebhookOutSqlScheduledRunEvent, e)
+        }
         OutboxEvent::SubscriptionRenewalUpcoming(e) => {
             typed!(
                 SubscriptionRenewalUpcoming,

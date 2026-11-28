@@ -217,6 +217,7 @@ serde_with = "3.11.0"
 serde_qs = "1.0.0"
 serde_html_form = "0.4.0"
 sha2 = "0.11.0"
+sqlparser = { version = "0.63.0", default-features = false, features = ["std", "visitor"] }
 signature = "2.2.0"
 syn = "2.0.52"
 strum = { version = "0.28", default-features = false }

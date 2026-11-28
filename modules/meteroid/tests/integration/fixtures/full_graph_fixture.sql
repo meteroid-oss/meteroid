@@ -127,6 +127,10 @@ INSERT INTO analytics_dashboard_share(id,tenant_id,saved_view_id,token,snapshot)
 INSERT INTO segment(id,tenant_id,name,definition) VALUES ('10000000-0000-0000-0000-00000000001f','10000000-0000-0000-0000-000000000002','S','{}');
 INSERT INTO alert_segment_member(alert_definition_id,tenant_id,customer_id) VALUES ('10000000-0000-0000-0000-00000000001b','10000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-000000000007');
 INSERT INTO notification_channel(id,tenant_id,name,channel_type,config) VALUES (gen_random_uuid(),'10000000-0000-0000-0000-000000000002','N','SLACK','{}');
+INSERT INTO sql_saved_query(id,tenant_id,name,sql,created_by) VALUES ('10000000-0000-0000-0000-00000000005a','10000000-0000-0000-0000-000000000002','Q','SELECT 1','10000000-0000-0000-0000-000000000003');
+INSERT INTO sql_query_schedule(id,tenant_id,saved_query_id,frequency,hour_utc,next_run_at,recipients) VALUES ('10000000-0000-0000-0000-00000000005b','10000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-00000000005a','DAILY',8,now(),'{a@b.test}');
+INSERT INTO sql_query_run(id,tenant_id,saved_query_id,user_id,sql,succeeded) VALUES (gen_random_uuid(),'10000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-00000000005a','10000000-0000-0000-0000-000000000003','SELECT 1',true);
+INSERT INTO analytics_tombstone(table_name,id,tenant_id) VALUES ('coupon',gen_random_uuid(),'10000000-0000-0000-0000-000000000002');
 
 -- activity / email / batch / dlq / stored objects / sandbox pool
 INSERT INTO entity_activity(id,tenant_id,entity_type,entity_id,activity_type,actor_type,actor_uuid) VALUES ('10000000-0000-0000-0000-00000000001e','10000000-0000-0000-0000-000000000002','customer','10000000-0000-0000-0000-000000000007','x','USER','10000000-0000-0000-0000-000000000003');

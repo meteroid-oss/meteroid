@@ -10,7 +10,7 @@ use meteroid_mailer::config::MailerConfig;
 use meteroid_mailer::errors::MailerServiceError;
 use meteroid_mailer::model::{
     AlertTriggered, Email, EmailAttachment, EmailAttachmentType, EmailValidationLink, OrgInvite,
-    RenderedEmail, ResetPasswordLink,
+    RenderedEmail, ResetPasswordLink, SqlQueryResultReady,
 };
 use meteroid_mailer::service::{MailerService, mailer_service};
 
@@ -109,6 +109,33 @@ impl MailerService for CapturingMailer {
         data: AlertTriggered,
     ) -> Result<RenderedEmail, Report<MailerServiceError>> {
         let rendered = self.inner.send_alert_triggered(data).await?;
+        if rendered.delivered {
+            self.sent().push(Email {
+                from: rendered.from.clone(),
+                to: rendered.recipients.clone(),
+                reply_to: rendered.reply_to.clone(),
+                bcc: vec![],
+                subject: rendered.subject.clone(),
+                body_html: rendered.body_html.clone(),
+                attachments: rendered
+                    .attachment_filenames
+                    .iter()
+                    .map(|filename| EmailAttachment {
+                        filename: filename.clone(),
+                        content: Vec::new(),
+                        type_: EmailAttachmentType::Pdf,
+                    })
+                    .collect(),
+            });
+        }
+        Ok(rendered)
+    }
+
+    async fn send_sql_query_result(
+        &self,
+        data: SqlQueryResultReady,
+    ) -> Result<RenderedEmail, Report<MailerServiceError>> {
+        let rendered = self.inner.send_sql_query_result(data).await?;
         if rendered.delivered {
             self.sent().push(Email {
                 from: rendered.from.clone(),

@@ -38,7 +38,8 @@ use crate::webhooks::out_model::{
 use chrono::NaiveDate;
 use common_domain::ids::{
     BudgetId, CreditGrantId, CustomerId, InvoiceId, LedgerEntryId, OfferGrantId, OfferId,
-    PaymentTransactionId, QuoteId, RetentionSessionId, SubscriptionId, TenantId,
+    PaymentTransactionId, QuoteId, RetentionSessionId, SqlQueryId, SqlQueryRunId,
+    SqlQueryScheduleId, SubscriptionId, TenantId,
 };
 use http::StatusCode;
 use meteroid_app::rest::denomination::{Denomination, Denominations};
@@ -546,6 +547,19 @@ pub async fn data(reader: &impl Reader, event: &OutboxEvent) -> Result<Value, Pr
                 completed_at: e.completed_at.into(),
             })
         }
+        OutboxEvent::SqlScheduledRunCompleted(e) => to_value(&SqlScheduledRunCompletedEventData {
+            schedule: e.schedule_id,
+            saved_query: e.saved_query_id,
+            query_name: e.query_name.clone(),
+            run: e.run_id,
+            succeeded: e.succeeded,
+            error: e.error.clone(),
+            row_count: e.row_count,
+            truncated: e.truncated,
+            period_start: e.period_start,
+            period_end: e.period_end,
+            ran_at: e.ran_at.into(),
+        }),
         OutboxEvent::SubscriptionRenewalUpcoming(e) => {
             let refs = refs(reader, tenant_id, |ids| ids.customers.push(e.customer_id)).await?;
             to_value(&RenewalUpcomingEventData {
@@ -1387,6 +1401,37 @@ pub struct RetentionSessionCompletedEventData {
     pub completed_at: ApiDateTime,
 }
 
+/// A scheduled SQL query ran: a signed link to its CSV, or why it did not run.
+#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+pub struct SqlScheduledRunCompletedEventData {
+    #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
+    pub schedule: SqlQueryScheduleId,
+    #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
+    pub saved_query: SqlQueryId,
+    pub query_name: String,
+    /// None when the run was refused before it started (a plan limit, an invalid query).
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "common_domain::ids::string_serde_opt::serialize"
+    )]
+    pub run: Option<SqlQueryRunId>,
+    pub succeeded: bool,
+    /// Why the run produced no file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub row_count: Option<u64>,
+    /// More rows matched than the file holds (1,000,000).
+    pub truncated: bool,
+    /// The period `[start, end)` the run reports on, when the query takes `start` and `end`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub period_start: Option<NaiveDate>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub period_end: Option<NaiveDate>,
+    /// Fetch the CSV with `GET /api/v1/sql/query_runs/{run}` and an API key granted SQL.
+    pub ran_at: ApiDateTime,
+}
+
 /// What the date of a renewal notice is.
 #[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -1746,6 +1791,7 @@ pub fn data_schema(event: WebhookOutEventTypeEnum) -> &'static str {
         E::CheckoutPaymentKeptAsCredit => "CheckoutPaymentKeptAsCreditEventData",
         E::BudgetThresholdReached | E::BudgetExceeded => "BudgetAlertEventData",
         E::RetentionSessionCompleted => "RetentionSessionCompletedEventData",
+        E::SqlScheduledRunCompleted => "SqlScheduledRunCompletedEventData",
         E::SubscriptionRenewalUpcoming => "RenewalUpcomingEventData",
         E::EntitlementOverrideEndingSoon | E::EntitlementOverrideEnded => "OverrideEndingEventData",
         E::SubscriptionTrialEndingSoon => "TrialEndingEventData",
@@ -1824,6 +1870,7 @@ pub fn envelope_schema(event: WebhookOutEventTypeEnum) -> String {
     BudgetAlertEventData,
     CheckoutPaymentKeptAsCreditEventData,
     RetentionSessionCompletedEventData,
+    SqlScheduledRunCompletedEventData,
     RenewalUpcomingEventData,
     WorkflowRunEventData,
     OverrideEndingEventData,

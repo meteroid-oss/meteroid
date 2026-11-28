@@ -75,6 +75,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
         "security",
         "segments",
         "signals",
+        "sqlqueries",
         "sso",
         "stats",
         "subscriptions",

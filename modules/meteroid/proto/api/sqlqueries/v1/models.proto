@@ -1,0 +1,149 @@
+syntax = "proto3";
+
+package meteroid.api.sqlqueries.v1;
+
+message SqlViewColumn {
+  string name = 1;
+  // ClickHouse type, e.g. `Nullable(DateTime('UTC'))`.
+  string type = 2;
+  string description = 3;
+}
+
+message SqlViewParameter {
+  string name = 1;
+  string type = 2;
+  string description = 3;
+}
+
+// One queryable view of the public schema (`meteroid_public`).
+message SqlView {
+  string name = 1;
+  string description = 2;
+  // What one row represents.
+  string grain = 3;
+  // Set for views called like a function, e.g. usage_events(since = …, until = …).
+  repeated SqlViewParameter parameters = 4;
+  string example = 5;
+  repeated SqlViewColumn columns = 6;
+}
+
+// A ready-made query.
+message SqlTemplate {
+  string key = 1;
+  string category = 2;
+  string title = 3;
+  string description = 4;
+  string sql = 5;
+}
+
+message SqlSavedQuery {
+  string id = 1;
+  string name = 2;
+  optional string description = 3;
+  string sql = 4;
+  // JSON chart settings of the workbench, owned by the client.
+  string visualization = 5;
+  optional string created_by = 6;
+  string created_at = 7;
+  string updated_at = 8;
+  optional SqlQuerySchedule schedule = 9;
+  // Default values of the query's `{name:Type}` parameters.
+  map<string, string> parameters = 10;
+}
+
+// When a saved query runs by itself (UTC), its CSV emailed to the recipients.
+message SqlQuerySchedule {
+  enum Frequency {
+    DAILY = 0;
+    WEEKLY = 1;
+    MONTHLY = 2;
+  }
+  Frequency frequency = 1;
+  uint32 hour_utc = 2;
+  // ISO weekday (1 = Monday) when weekly, day of the month (1 to 28) when monthly.
+  optional uint32 day = 3;
+  repeated string recipients = 4;
+  bool enabled = 5;
+  string next_run_at = 6;
+}
+
+message SqlResultColumn {
+  string name = 1;
+  string type = 2;
+}
+
+message SqlQueryError {
+  enum Kind {
+    // Refused by the pre-check or by ClickHouse (syntax, unknown column, types).
+    INVALID = 0;
+    DENIED = 1;
+    // Timeout, memory, result size or the platform's hourly ceiling.
+    LIMITED = 2;
+    // The plan's limits (queries or execution time per hour, queries at once).
+    QUOTA = 3;
+    // The platform is saturated; retry shortly. Not counted against the plan.
+    BUSY = 4;
+  }
+  Kind kind = 1;
+  string message = 2;
+}
+
+message SqlQueryRun {
+  string id = 1;
+  optional string saved_query_id = 2;
+  string sql = 3;
+  bool succeeded = 4;
+  optional string error = 5;
+  optional uint32 row_count = 6;
+  optional uint64 elapsed_ms = 7;
+  optional uint64 rows_read = 8;
+  optional uint64 bytes_read = 9;
+  enum Source {
+    APP = 0;
+    API = 1;
+  }
+  Source source = 10;
+  optional string user_id = 11;
+  string created_at = 12;
+  // Started and not finished yet.
+  bool running = 13;
+  // More rows matched than the run returned.
+  bool truncated = 14;
+  // The CSV of an export, under the REST API's URL: `/files/v1/sql-result/…?token=…`.
+  optional string result_path = 15;
+}
+
+// The last hour of SQL against the workspace's limits. Production workspaces have their
+// own meter; the organization's other workspaces share one, with lower limits.
+message SqlUsage {
+  bool production = 1;
+  // Runs first when the platform is busy.
+  bool priority = 2;
+  repeated SqlUsageMeter meters = 3;
+  uint32 query_timeout_seconds = 4;
+  uint32 query_memory_mb = 5;
+  uint32 query_read_gb = 6;
+}
+
+message SqlUsageMeter {
+  enum Kind {
+    QUERIES_PER_HOUR = 0;
+    EXECUTION_SECONDS_PER_HOUR = 1;
+    READ_GB_PER_HOUR = 2;
+    CONCURRENT_QUERIES = 3;
+  }
+  Kind kind = 1;
+  double used = 2;
+  double limit = 3;
+}
+
+// A `{name:Type}` placeholder of a query, bound to a value at run time.
+message SqlQueryParameter {
+  string name = 1;
+  // ClickHouse type: Date, DateTime, String, Int64, …
+  string type = 2;
+}
+
+message SqlQueryParameterValues {
+  map<string, string> values = 1;
+}

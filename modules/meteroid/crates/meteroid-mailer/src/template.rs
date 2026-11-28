@@ -1,4 +1,6 @@
-use crate::model::{AlertTriggered, EmailValidationLink, OrgInvite, ResetPasswordLink};
+use crate::model::{
+    AlertTriggered, EmailValidationLink, OrgInvite, ResetPasswordLink, SqlQueryResultReady,
+};
 use crate::render::{BrandCtx, EntityFooterCtx, FooterCtx};
 use sailfish::TemplateSimple;
 use secrecy::ExposeSecret;
@@ -527,6 +529,48 @@ impl From<AlertTriggered> for AlertTriggeredTemplate {
             alerts_url: data.alerts_url,
         };
         AlertTriggeredTemplate {
+            tpl: LayoutTemplate::meteroid(title, content),
+        }
+    }
+}
+
+#[derive(TemplateSimple)]
+#[template(path = "sql_query_result.stpl")]
+pub struct SqlQueryResultContent {
+    pub query_name: String,
+    pub rows: String,
+    pub ran_at: String,
+    pub available_until: String,
+    pub download_url: String,
+    pub query_url: String,
+    pub error: Option<String>,
+}
+
+pub struct SqlQueryResultTemplate {
+    pub tpl: LayoutTemplate<SqlQueryResultContent, FooterTemplate>,
+}
+
+impl From<SqlQueryResultReady> for SqlQueryResultTemplate {
+    fn from(data: SqlQueryResultReady) -> Self {
+        let rows = if data.truncated {
+            format!("the first {}", data.row_count)
+        } else {
+            data.row_count.to_string()
+        };
+        let content = SqlQueryResultContent {
+            query_name: data.query_name.clone(),
+            rows,
+            ran_at: data.ran_at.format("%Y-%m-%d %H:%M UTC").to_string(),
+            available_until: format_date(data.available_until),
+            download_url: data.download_url,
+            query_url: data.query_url,
+            error: data.error.clone(),
+        };
+        let title = match data.error {
+            Some(_) => format!("{} did not run", data.query_name),
+            None => data.query_name,
+        };
+        SqlQueryResultTemplate {
             tpl: LayoutTemplate::meteroid(title, content),
         }
     }

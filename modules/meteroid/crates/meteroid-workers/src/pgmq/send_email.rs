@@ -735,6 +735,44 @@ impl EmailSender {
                     .change_context(StoreError::MailServiceError)?;
                 Ok(())
             }
+            SendEmailRequest::SqlQueryResultReady {
+                tenant_id,
+                saved_query_id,
+                query_name,
+                row_count,
+                truncated,
+                ran_at,
+                download_url,
+                available_until,
+                recipient: to,
+                error,
+            } => {
+                // To the workspace's own team, as alerts: the delivery mode does not apply.
+                let tenant = self.store.find_tenant_by_id(tenant_id).await?;
+                let query_url = format!(
+                    "{}/{}/{}/analytics/sql?query={}",
+                    self.public_url.trim_end_matches('/'),
+                    tenant.organization.slug,
+                    tenant.tenant.slug,
+                    saved_query_id.as_proto(),
+                );
+                let _ = self
+                    .mailer
+                    .send_sql_query_result(meteroid_mailer::model::SqlQueryResultReady {
+                        query_name,
+                        row_count,
+                        truncated,
+                        ran_at,
+                        download_url,
+                        available_until,
+                        query_url,
+                        recipients: vec![recipient(to)],
+                        error,
+                    })
+                    .await
+                    .change_context(StoreError::MailServiceError)?;
+                Ok(())
+            }
         }
     }
 

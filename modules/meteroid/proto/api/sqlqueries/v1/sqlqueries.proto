@@ -1,0 +1,223 @@
+syntax = "proto3";
+
+package meteroid.api.sqlqueries.v1;
+
+import "api/sqlqueries/v1/models.proto";
+
+message GetSqlSchemaRequest {}
+
+message GetSqlSchemaResponse {
+  string schema_version = 1;
+  repeated SqlView views = 2;
+  repeated SqlTemplate templates = 3;
+  uint32 default_max_rows = 4;
+  uint32 max_rows = 5;
+  // SuggestSqlQuery is served.
+  bool assistant_enabled = 6;
+}
+
+// Writes a query from a request in plain words, with the editor's query and its last error as
+// context. Only the schema and these texts reach the model, never data.
+message SuggestSqlQueryRequest {
+  string prompt = 1;
+  optional string current_sql = 2;
+  optional string error = 3;
+}
+
+message SuggestSqlQueryResponse {
+  // Passed the pre-check.
+  string sql = 1;
+  string explanation = 2;
+}
+
+// Runs the pre-check only (no ClickHouse), for inline editor feedback.
+message CheckSqlQueryRequest {
+  string sql = 1;
+}
+
+message CheckSqlQueryResponse {
+  optional string error = 1;
+  // Views the query reads.
+  repeated string tables = 2;
+  repeated SqlQueryParameter parameters = 3;
+}
+
+message RunSqlQueryRequest {
+  string sql = 1;
+  optional uint32 max_rows = 2;
+  // Links the run to the saved query it came from, for the history.
+  optional string saved_query_id = 3;
+  // Values of the query's `{name:Type}` parameters.
+  map<string, string> parameters = 4;
+}
+
+message RunSqlQueryResponse {
+  optional string run_id = 1;
+  // Set when the query did not run; the other fields are then empty.
+  optional SqlQueryError error = 2;
+  repeated SqlResultColumn columns = 3;
+  // JSON array of rows (arrays of values). 64-bit integers and decimals are strings.
+  string rows_json = 4;
+  uint32 row_count = 5;
+  bool truncated = 6;
+  uint64 elapsed_ms = 7;
+  uint64 rows_read = 8;
+  uint64 bytes_read = 9;
+  // The billing data is complete up to about then (RFC 3339); unset when unknown.
+  optional string data_loaded_at = 10;
+}
+
+// Starts exporting the whole result (up to 1,000,000 rows) to a CSV file; poll GetSqlQueryRun
+// for its link. Counts against the same limits as RunSqlQuery.
+message ExportSqlQueryRequest {
+  string sql = 1;
+  optional uint32 max_rows = 2;
+  optional string saved_query_id = 3;
+  map<string, string> parameters = 4;
+}
+
+message ExportSqlQueryResponse {
+  // Unset when the export did not start (`error` says why).
+  optional SqlQueryRun run = 1;
+  optional SqlQueryError error = 2;
+}
+
+message GetSqlQueryRunRequest {
+  string id = 1;
+}
+
+message GetSqlQueryRunResponse {
+  SqlQueryRun run = 1;
+}
+
+// Creates or replaces the schedule of a saved query.
+message SetSqlQueryScheduleRequest {
+  string saved_query_id = 1;
+  SqlQuerySchedule.Frequency frequency = 2;
+  uint32 hour_utc = 3;
+  optional uint32 day = 4;
+  repeated string recipients = 5;
+  bool enabled = 6;
+}
+
+message SetSqlQueryScheduleResponse {
+  SqlQuerySchedule schedule = 1;
+}
+
+message DeleteSqlQueryScheduleRequest {
+  string saved_query_id = 1;
+}
+
+message DeleteSqlQueryScheduleResponse {}
+
+// Stops the caller's queries still running in this tenant.
+message CancelSqlQueriesRequest {}
+
+message CancelSqlQueriesResponse {
+  uint32 cancelled = 1;
+}
+
+message ListSqlSavedQueriesRequest {}
+
+message ListSqlSavedQueriesResponse {
+  repeated SqlSavedQuery queries = 1;
+}
+
+message GetSqlSavedQueryRequest {
+  string id = 1;
+}
+
+message GetSqlSavedQueryResponse {
+  SqlSavedQuery query = 1;
+}
+
+message CreateSqlSavedQueryRequest {
+  string name = 1;
+  optional string description = 2;
+  string sql = 3;
+  optional string visualization = 4;
+  map<string, string> parameters = 5;
+}
+
+message CreateSqlSavedQueryResponse {
+  SqlSavedQuery query = 1;
+}
+
+message UpdateSqlSavedQueryRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string description = 3;
+  optional string sql = 4;
+  optional string visualization = 5;
+  optional SqlQueryParameterValues parameters = 6;
+}
+
+message UpdateSqlSavedQueryResponse {
+  SqlSavedQuery query = 1;
+}
+
+message DeleteSqlSavedQueryRequest {
+  string id = 1;
+}
+
+message DeleteSqlSavedQueryResponse {}
+
+// A secret API key of the tenant, and whether it may run SQL over the REST API.
+message SqlApiKey {
+  string api_token_id = 1;
+  string name = 2;
+  string hint = 3;
+  bool granted = 4;
+}
+
+message GetSqlUsageRequest {}
+
+message GetSqlUsageResponse {
+  SqlUsage usage = 1;
+}
+
+message ListSqlApiKeysRequest {}
+
+message ListSqlApiKeysResponse {
+  repeated SqlApiKey keys = 1;
+}
+
+// Needs `settings:manage` as well.
+message SetSqlApiKeyRequest {
+  string api_token_id = 1;
+  bool granted = 2;
+}
+
+message SetSqlApiKeyResponse {}
+
+message ListSqlQueryRunsRequest {
+  // 0 => 50, capped at 200.
+  uint32 limit = 1;
+}
+
+message ListSqlQueryRunsResponse {
+  repeated SqlQueryRun runs = 1;
+}
+
+// Intelligence > SQL: read-only SQL over the tenant's billing data (the
+// meteroid_public views), saved queries and the run history.
+service SqlQueriesService {
+  rpc GetSqlSchema(GetSqlSchemaRequest) returns (GetSqlSchemaResponse) {}
+  rpc CheckSqlQuery(CheckSqlQueryRequest) returns (CheckSqlQueryResponse) {}
+  rpc SuggestSqlQuery(SuggestSqlQueryRequest) returns (SuggestSqlQueryResponse) {}
+  rpc RunSqlQuery(RunSqlQueryRequest) returns (RunSqlQueryResponse) {}
+  rpc CancelSqlQueries(CancelSqlQueriesRequest) returns (CancelSqlQueriesResponse) {}
+  rpc ExportSqlQuery(ExportSqlQueryRequest) returns (ExportSqlQueryResponse) {}
+  rpc GetSqlQueryRun(GetSqlQueryRunRequest) returns (GetSqlQueryRunResponse) {}
+  rpc SetSqlQuerySchedule(SetSqlQueryScheduleRequest) returns (SetSqlQueryScheduleResponse) {}
+  rpc DeleteSqlQuerySchedule(DeleteSqlQueryScheduleRequest) returns (DeleteSqlQueryScheduleResponse) {}
+  rpc ListSqlSavedQueries(ListSqlSavedQueriesRequest) returns (ListSqlSavedQueriesResponse) {}
+  rpc GetSqlSavedQuery(GetSqlSavedQueryRequest) returns (GetSqlSavedQueryResponse) {}
+  rpc CreateSqlSavedQuery(CreateSqlSavedQueryRequest) returns (CreateSqlSavedQueryResponse) {}
+  rpc UpdateSqlSavedQuery(UpdateSqlSavedQueryRequest) returns (UpdateSqlSavedQueryResponse) {}
+  rpc DeleteSqlSavedQuery(DeleteSqlSavedQueryRequest) returns (DeleteSqlSavedQueryResponse) {}
+  rpc ListSqlQueryRuns(ListSqlQueryRunsRequest) returns (ListSqlQueryRunsResponse) {}
+  rpc GetSqlUsage(GetSqlUsageRequest) returns (GetSqlUsageResponse) {}
+  rpc ListSqlApiKeys(ListSqlApiKeysRequest) returns (ListSqlApiKeysResponse) {}
+  rpc SetSqlApiKey(SetSqlApiKeyRequest) returns (SetSqlApiKeyResponse) {}
+}

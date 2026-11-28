@@ -141,6 +141,7 @@ pub mod roles;
 pub mod sandbox_seeds;
 pub mod scheduled_events;
 pub mod slot_transactions;
+pub mod sql_query_events;
 pub mod sso;
 pub mod stats;
 pub mod stored_object;

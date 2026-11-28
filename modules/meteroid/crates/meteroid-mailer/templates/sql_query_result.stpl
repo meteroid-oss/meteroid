@@ -1,0 +1,31 @@
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr>
+    <td>
+      <h1 class="h1" style="margin:0;font-size:24px;line-height:32px;font-weight:600;letter-spacing:-0.3px;color:#111318;"><%= query_name %></h1>
+      <% if let Some(error) = &error { %>
+      <p style="margin:12px 0 0;font-size:15px;line-height:24px;color:#414651;">Your scheduled query could not run on <%= ran_at %>, so there is no file this time.</p>
+      <p style="margin:12px 0 0;font-size:14px;line-height:22px;color:#6b7079;"><%= error %></p>
+      <% } else { %>
+      <p style="margin:12px 0 0;font-size:15px;line-height:24px;color:#414651;">Your scheduled query ran on <%= ran_at %> and returned <%= rows %> rows.</p>
+      <% } %>
+    </td>
+  </tr>
+  <% if error.is_none() { %>
+  <tr>
+    <td style="padding-top:28px;">
+      <table role="presentation" class="btn" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td class="button" align="center" bgcolor="#111318" style="border-radius:8px;background-color:#111318;mso-padding-alt:12px 24px;">
+            <a href="<%= download_url %>" target="_blank" style="display:inline-block;padding:12px 24px;border-radius:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:20px;font-weight:600;color:#ffffff;text-decoration:none;">Download the CSV</a>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  <% } %>
+  <tr>
+    <td style="padding-top:20px;">
+      <p style="margin:0;font-size:13px;line-height:20px;color:#6b7079;"><% if error.is_none() { %>The link works until <%= available_until %>. <% } %><a href="<%= query_url %>" target="_blank" style="color:#414651;text-decoration:underline;">Open the query</a> to fix it, or to change the schedule or its recipients.</p>
+    </td>
+  </tr>
+</table>

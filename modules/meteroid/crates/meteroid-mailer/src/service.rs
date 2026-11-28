@@ -2,12 +2,12 @@ use crate::config::{MailerConfig, MailerSenders};
 use crate::errors::MailerServiceError;
 use crate::model::{
     AlertTriggered, Email, EmailAttachment, EmailRecipient, EmailValidationLink, OrgInvite,
-    RenderedEmail, ResetPasswordLink,
+    RenderedEmail, ResetPasswordLink, SqlQueryResultReady,
 };
 use crate::render::Rendered;
 use crate::template::{
     AlertTriggeredTemplate, EmailValidationLinkTemplate, OrgInviteTemplate,
-    ResetPasswordLinkTemplate,
+    ResetPasswordLinkTemplate, SqlQueryResultTemplate,
 };
 use async_trait::async_trait;
 use error_stack::Report;
@@ -99,6 +99,11 @@ pub trait MailerService: Send + Sync {
     async fn send_alert_triggered(
         &self,
         data: AlertTriggered,
+    ) -> Result<RenderedEmail, Report<MailerServiceError>>;
+
+    async fn send_sql_query_result(
+        &self,
+        data: SqlQueryResultReady,
     ) -> Result<RenderedEmail, Report<MailerServiceError>>;
 }
 
@@ -199,10 +204,36 @@ where
     ) -> Result<RenderedEmail, Report<MailerServiceError>> {
         let tpl = AlertTriggeredTemplate::from(data.clone()).tpl;
         let subject = tpl.title.clone();
+        let body_html = tpl.render_once().map_err(|e| Report::new(e.into()))?;
+        self.send_rendered(subject, body_html, data.recipients)
+            .await
+    }
+
+    async fn send_sql_query_result(
+        &self,
+        data: SqlQueryResultReady,
+    ) -> Result<RenderedEmail, Report<MailerServiceError>> {
+        let tpl = SqlQueryResultTemplate::from(data.clone()).tpl;
+        let subject = tpl.title.clone();
+        let body_html = tpl.render_once().map_err(|e| Report::new(e.into()))?;
+        self.send_rendered(subject, body_html, data.recipients)
+            .await
+    }
+}
+
+impl<T: AsyncTransport + Send + Sync> LettreMailerService<T>
+where
+    T::Error: Into<MailerServiceError>,
+{
+    /// Sends a rendered team email from the platform sender.
+    async fn send_rendered(
+        &self,
+        subject: String,
+        body_html: String,
+        recipients: Vec<EmailRecipient>,
+    ) -> Result<RenderedEmail, Report<MailerServiceError>> {
         let from = self.senders.from.clone();
         let reply_to = self.senders.reply_to.clone();
-        let body_html = tpl.render_once().map_err(|e| Report::new(e.into()))?;
-        let recipients = data.recipients.clone();
 
         let email = Email {
             from: from.clone(),

@@ -59,6 +59,7 @@ types:
     - meteroid.api.resources.v1.ResourcesService
     - meteroid.api.savedviews.v1.SavedViewsService
     - meteroid.api.listviews.v1.ListViewsService
+    - meteroid.api.sqlqueries.v1.SqlQueriesService
     - meteroid.api.segments.v1.SegmentsService
     - meteroid.api.signals.v1.SignalsService
     - meteroid.api.notifications.v1.NotificationChannelsService

@@ -397,6 +397,13 @@ pub enum ActivityType {
     #[strum(serialize = "api_token.revoked")]
     #[serde(rename = "api_token.revoked")]
     ApiTokenRevoked,
+    /// The key may now run SQL over the REST API (EE intelligence module).
+    #[strum(serialize = "api_token.sql_access_granted")]
+    #[serde(rename = "api_token.sql_access_granted")]
+    ApiTokenSqlAccessGranted,
+    #[strum(serialize = "api_token.sql_access_revoked")]
+    #[serde(rename = "api_token.sql_access_revoked")]
+    ApiTokenSqlAccessRevoked,
 
     #[strum(serialize = "connector.connected")]
     #[serde(rename = "connector.connected")]
@@ -855,6 +862,7 @@ impl From<&OutboxEvent> for Option<Activity> {
             | OutboxEvent::OfferApplied(_)
             | OutboxEvent::GrantEnded(_)
             | OutboxEvent::RetentionSessionCompleted(_)
+            | OutboxEvent::SqlScheduledRunCompleted(_)
             | OutboxEvent::WorkflowRunStarted(_)
             | OutboxEvent::WorkflowRunSucceeded(_)
             | OutboxEvent::WorkflowRunFailed(_) => return None,

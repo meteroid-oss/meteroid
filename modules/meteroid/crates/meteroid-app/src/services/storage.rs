@@ -37,6 +37,8 @@ pub enum ObjectKind {
     QuoteCertificatePdf,
     QuotePdf,
     QuoteAttachment,
+    /// The CSV of an exported or scheduled SQL query run.
+    SqlResult,
 }
 
 impl ObjectKind {
@@ -57,6 +59,7 @@ impl ObjectKind {
             ObjectKind::QuoteCertificatePdf => "quote_certificate_pdf".to_string(),
             ObjectKind::QuotePdf => "quote_pdf".to_string(),
             ObjectKind::QuoteAttachment => "quote_attachment".to_string(),
+            ObjectKind::SqlResult => "sql_result".to_string(),
         }
     }
 
@@ -75,6 +78,7 @@ impl ObjectKind {
             ObjectKind::QuoteCertificatePdf => StoredObjectKindEnum::QuoteCertificatePdf,
             ObjectKind::QuotePdf => StoredObjectKindEnum::QuotePdf,
             ObjectKind::QuoteAttachment => StoredObjectKindEnum::QuoteAttachment,
+            ObjectKind::SqlResult => StoredObjectKindEnum::SqlResult,
         }
     }
 

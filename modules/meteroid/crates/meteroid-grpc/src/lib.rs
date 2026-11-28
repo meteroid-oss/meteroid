@@ -411,6 +411,12 @@ pub mod meteroid {
             }
         }
 
+        pub mod sqlqueries {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.sqlqueries.v1");
+            }
+        }
+
         pub mod notifications {
             pub mod v1 {
                 tonic::include_proto!("meteroid.api.notifications.v1");

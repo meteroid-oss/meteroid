@@ -9,6 +9,7 @@ use crate::domain::invoices::TaxBreakdownItem;
 use crate::domain::pgmq::{PgmqMessage, PgmqMessageNew};
 pub use crate::domain::renewals::RenewalUpcomingEvent;
 pub use crate::domain::retention_events::RetentionSessionEvent;
+pub use crate::domain::sql_query_events::SqlScheduledRunEvent;
 use crate::domain::usage_alert_events::is_limit_pct;
 pub use crate::domain::usage_alert_events::{
     BudgetAlertEvent, EntitlementAlertEvent, GrantEndedEvent, OfferAppliedEvent,
@@ -117,6 +118,7 @@ pub enum OutboxEvent {
     BudgetExceeded(Box<BudgetAlertEvent>),
     EntitlementTooManyGroups(Box<TooManyGroupsEvent>),
     RetentionSessionCompleted(Box<RetentionSessionEvent>),
+    SqlScheduledRunCompleted(Box<SqlScheduledRunEvent>),
     WorkflowRunStarted(Box<WorkflowRunEvent>),
     WorkflowRunSucceeded(Box<WorkflowRunEvent>),
     WorkflowRunFailed(Box<WorkflowRunEvent>),
@@ -195,6 +197,7 @@ pub enum EventType {
     BudgetExceeded,
     EntitlementTooManyGroups,
     RetentionSessionCompleted,
+    SqlScheduledRunCompleted,
     CheckoutPaymentKeptAsCredit,
     #[serde(alias = "RetentionRenewalUpcoming")]
     SubscriptionRenewalUpcoming,
@@ -274,6 +277,7 @@ impl OutboxEvent {
             }
             OutboxEvent::EntitlementTooManyGroups(event) => event.id,
             OutboxEvent::RetentionSessionCompleted(event) => event.id,
+            OutboxEvent::SqlScheduledRunCompleted(event) => event.id,
             OutboxEvent::WorkflowRunStarted(event)
             | OutboxEvent::WorkflowRunSucceeded(event)
             | OutboxEvent::WorkflowRunFailed(event) => event.id,
@@ -350,6 +354,7 @@ impl OutboxEvent {
             }
             OutboxEvent::EntitlementTooManyGroups(event) => event.tenant_id,
             OutboxEvent::RetentionSessionCompleted(event) => event.tenant_id,
+            OutboxEvent::SqlScheduledRunCompleted(event) => event.tenant_id,
             OutboxEvent::WorkflowRunStarted(event)
             | OutboxEvent::WorkflowRunSucceeded(event)
             | OutboxEvent::WorkflowRunFailed(event) => event.tenant_id,
@@ -429,7 +434,8 @@ impl OutboxEvent {
             | OutboxEvent::BudgetExceeded(_)
             | OutboxEvent::EntitlementTooManyGroups(_)
             // The subscription change an offer makes carries its own event.
-            | OutboxEvent::RetentionSessionCompleted(_) => None,
+            | OutboxEvent::RetentionSessionCompleted(_)
+            | OutboxEvent::SqlScheduledRunCompleted(_) => None,
             // What a run's actions change carries its own events.
             OutboxEvent::WorkflowRunStarted(_)
             | OutboxEvent::WorkflowRunSucceeded(_)
@@ -554,6 +560,7 @@ impl OutboxEvent {
                 .feature_id
                 .map_or_else(|| event.customer_id.as_uuid(), |id| id.as_uuid()),
             OutboxEvent::RetentionSessionCompleted(event) => event.session_id.as_uuid(),
+            OutboxEvent::SqlScheduledRunCompleted(event) => event.saved_query_id.as_uuid(),
             OutboxEvent::WorkflowRunStarted(event)
             | OutboxEvent::WorkflowRunSucceeded(event)
             | OutboxEvent::WorkflowRunFailed(event) => event.run_id.as_uuid(),
@@ -630,6 +637,7 @@ impl OutboxEvent {
             }
             OutboxEvent::EntitlementTooManyGroups(_) => "Feature".to_string(),
             OutboxEvent::RetentionSessionCompleted(_) => "RetentionSession".to_string(),
+            OutboxEvent::SqlScheduledRunCompleted(_) => "SqlSavedQuery".to_string(),
             OutboxEvent::WorkflowRunStarted(_)
             | OutboxEvent::WorkflowRunSucceeded(_)
             | OutboxEvent::WorkflowRunFailed(_) => "WorkflowRun".to_string(),
@@ -711,6 +719,7 @@ impl OutboxEvent {
             OutboxEvent::BudgetExceeded(_) => EventType::BudgetExceeded,
             OutboxEvent::EntitlementTooManyGroups(_) => EventType::EntitlementTooManyGroups,
             OutboxEvent::RetentionSessionCompleted(_) => EventType::RetentionSessionCompleted,
+            OutboxEvent::SqlScheduledRunCompleted(_) => EventType::SqlScheduledRunCompleted,
             OutboxEvent::WorkflowRunStarted(_) => EventType::WorkflowRunStarted,
             OutboxEvent::WorkflowRunSucceeded(_) => EventType::WorkflowRunSucceeded,
             OutboxEvent::WorkflowRunFailed(_) => EventType::WorkflowRunFailed,
@@ -931,6 +940,10 @@ impl OutboxEvent {
 
     pub fn retention_session_completed(event: RetentionSessionEvent) -> OutboxEvent {
         OutboxEvent::RetentionSessionCompleted(Box::new(event))
+    }
+
+    pub fn sql_scheduled_run_completed(event: SqlScheduledRunEvent) -> OutboxEvent {
+        OutboxEvent::SqlScheduledRunCompleted(Box::new(event))
     }
 
     pub fn renewal_upcoming(event: RenewalUpcomingEvent) -> OutboxEvent {
@@ -1686,6 +1699,7 @@ impl EventType {
             | EventType::BudgetExceeded
             | EventType::EntitlementTooManyGroups
             | EventType::RetentionSessionCompleted
+            | EventType::SqlScheduledRunCompleted
             | EventType::WorkflowRunStarted
             | EventType::WorkflowRunSucceeded
             | EventType::WorkflowRunFailed
@@ -1770,6 +1784,7 @@ impl EventType {
             EventType::BudgetExceeded => BudgetAlertEvent::EXCEEDED_ROUTING_KEY,
             EventType::EntitlementTooManyGroups => TooManyGroupsEvent::ENTITLEMENT_ROUTING_KEY,
             EventType::RetentionSessionCompleted => RetentionSessionEvent::ROUTING_KEY,
+            EventType::SqlScheduledRunCompleted => SqlScheduledRunEvent::ROUTING_KEY,
             EventType::WorkflowRunStarted => WorkflowRunEvent::STARTED_ROUTING_KEY,
             EventType::WorkflowRunSucceeded => WorkflowRunEvent::SUCCEEDED_ROUTING_KEY,
             EventType::WorkflowRunFailed => WorkflowRunEvent::FAILED_ROUTING_KEY,
@@ -2022,6 +2037,11 @@ mod credit_inputs_tests {
             EventType::RetentionSessionCompleted,
             false,
             "the offer's own subscription event carries any change",
+        ),
+        (
+            EventType::SqlScheduledRunCompleted,
+            false,
+            "a read of the billing data changes nothing",
         ),
         (
             EventType::CheckoutPaymentKeptAsCredit,

@@ -5,7 +5,7 @@ use crate::json_value_serde;
 use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{
     AlertId, CreditNoteId, CustomerId, CustomerPaymentMethodId, EntityActivityId, InvoiceId,
-    InvoicingEntityId, QuoteId, StoredDocumentId, SubscriptionId, TenantId,
+    InvoicingEntityId, QuoteId, SqlQueryId, StoredDocumentId, SubscriptionId, TenantId,
 };
 use common_domain::pgmq::{Headers, Message, MessageId, ReadCt};
 use diesel_models::pgmq::{PgmqMessageRow, PgmqMessageRowNew};
@@ -504,6 +504,21 @@ pub enum SendEmailRequest {
         /// Destination mailbox configured on the alert's email channel.
         recipient: String,
     },
+    /// A scheduled SQL query ran: its CSV, or why it failed, for one of the schedule's recipients.
+    SqlQueryResultReady {
+        tenant_id: TenantId,
+        saved_query_id: SqlQueryId,
+        query_name: String,
+        row_count: u64,
+        truncated: bool,
+        ran_at: chrono::NaiveDateTime,
+        download_url: String,
+        available_until: NaiveDate,
+        recipient: String,
+        /// Why the run produced no file; the email then says so instead of linking one.
+        #[serde(default)]
+        error: Option<String>,
+    },
 }
 impl SendEmailRequest {
     pub fn tenant_id(&self) -> TenantId {
@@ -516,7 +531,8 @@ impl SendEmailRequest {
             | SendEmailRequest::QuoteMessage { tenant_id, .. }
             | SendEmailRequest::QuoteAccepted { tenant_id, .. }
             | SendEmailRequest::QuoteOutcome { tenant_id, .. }
-            | SendEmailRequest::AlertTriggered { tenant_id, .. } => *tenant_id,
+            | SendEmailRequest::AlertTriggered { tenant_id, .. }
+            | SendEmailRequest::SqlQueryResultReady { tenant_id, .. } => *tenant_id,
         }
     }
 }

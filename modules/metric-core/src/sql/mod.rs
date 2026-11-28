@@ -89,6 +89,35 @@ impl EventsTable {
     }
 }
 
+impl EventsTable {
+    /// The live events of a view shared by tenants, as a `FROM` item aliased `alias`: the tenant
+    /// is `tenant` (trusted SQL, e.g. a setting), `timestamp` in [`since`, `until`), voids and
+    /// tombstones out, and the last ingested copy of each event kept, whatever the tenant's dedup.
+    pub fn shared_view_source(
+        &self,
+        database: &str,
+        alias: &str,
+        tenant: &str,
+        since: &str,
+        until: &str,
+    ) -> String {
+        format!(
+            "(SELECT * FROM {database}.{table} AS e \
+             WHERE e.tenant_id = {tenant} AND e.timestamp >= {since} AND e.timestamp < {until} \
+               AND e.is_tombstone = 0 \
+               AND (e.customer_id, e.id, e.ingested_at) NOT IN (\
+                 SELECT v.customer_id, v.id, v.ingested_at FROM {database}.{EVENT_VOIDS_TABLE} AS v \
+                 WHERE v.tenant_id = {tenant} AND v.timestamp >= {since} AND v.timestamp <= {until}) \
+             {dedup}) AS {alias}",
+            table = self.0,
+            dedup = EventDedup::LastIngested
+                .limit_by_suffix()
+                .replace("ingested_at", "e.ingested_at")
+                .replace("BY id, customer_id", "BY e.id, e.customer_id"),
+        )
+    }
+}
+
 impl From<&str> for EventsTable {
     fn from(name: &str) -> Self {
         EventsTable::new(name)

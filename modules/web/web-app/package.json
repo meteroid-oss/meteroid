@@ -5,6 +5,7 @@
     "@bufbuild/protobuf": "^2.17.0",
     "@codemirror/autocomplete": "^6.20.4",
     "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/lang-sql": "^6.10.0",
     "@codemirror/lint": "^6.9.8",
     "@codemirror/search": "^6.7.2",
     "@codemirror/theme-one-dark": "^6.1.3",

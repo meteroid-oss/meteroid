@@ -191,6 +191,9 @@ pub fn method_auth(sm: &GrpcServiceMethod) -> Option<RouteAuth> {
         | "SavedViewsService"
         | "ActivationService" => RouteAuth::Requires(AnalyticsRead),
 
+        // SQL reads every billing table, beyond the per-area read permissions.
+        "SqlQueriesService" => RouteAuth::Requires(SqlQuery),
+
         // Raw usage/metering events explorer. Read-only: event ingestion and CSV
         // import run through the metering pipeline and BatchJobsService (settings),
         // not here. Separate from settings so a role can inspect usage without

@@ -25,5 +25,9 @@ mockall::mock! {
             &self,
             data: AlertTriggered,
         ) -> Result<RenderedEmail, Report<MailerServiceError>>;
+        async fn send_sql_query_result(
+            &self,
+            data: meteroid_mailer::model::SqlQueryResultReady,
+        ) -> Result<RenderedEmail, Report<MailerServiceError>>;
     }
 }

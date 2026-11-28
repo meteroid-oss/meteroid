@@ -15,7 +15,8 @@ use crate::webhooks::out_model::{
     WebhookOutOverrideEndingEvent, WebhookOutOverrideEndingEventData, WebhookOutRenewalMode,
     WebhookOutRenewalSource, WebhookOutRenewalUpcomingEvent, WebhookOutRenewalUpcomingEventData,
     WebhookOutRetentionOfferKind, WebhookOutRetentionOutcome, WebhookOutRetentionSessionEvent,
-    WebhookOutRetentionSessionEventData, WebhookOutTooManyGroupsEvent,
+    WebhookOutRetentionSessionEventData, WebhookOutSqlScheduledRunEvent,
+    WebhookOutSqlScheduledRunEventData, WebhookOutTooManyGroupsEvent,
     WebhookOutTooManyGroupsEventData, WebhookOutTrialEndedEvent, WebhookOutTrialEndedEventData,
     WebhookOutTrialEndingEvent, WebhookOutTrialEndingEventData, WebhookOutTrialOutcome,
     WebhookOutWalletBalanceLowEvent, WebhookOutWalletBalanceLowEventData,
@@ -263,6 +264,7 @@ pub fn generate_spec(edition: EditionSpec, dir: &str) {
         WebhookOutTooManyGroupsEvent,
         WebhookOutCheckoutPaymentKeptAsCreditEvent,
         WebhookOutRetentionSessionEvent,
+        WebhookOutSqlScheduledRunEvent,
         WebhookOutRenewalUpcomingEvent,
         WebhookOutOverrideEndingEvent,
         WebhookOutTrialEndingEvent,
@@ -1205,6 +1207,27 @@ impl Modify for WebhooksAddon {
                             offer_title: Some("Stay for 30% off your next 3 months".to_string()),
                             effective_date: Some(Default::default()),
                             completed_at: Default::default(),
+                        },
+                        timestamp: Default::default(),
+                    })
+                    .expect("Failed to serialize webhook example")
+                }
+                WebhookOutEventGroupEnum::Sql => {
+                    serde_json::to_value(WebhookOutSqlScheduledRunEvent {
+                        id: EventId::default(),
+                        event_type: event,
+                        data: WebhookOutSqlScheduledRunEventData {
+                            schedule_id: Default::default(),
+                            saved_query_id: Default::default(),
+                            query_name: "Monthly revenue".to_string(),
+                            run_id: Some(Default::default()),
+                            succeeded: true,
+                            error: None,
+                            row_count: Some(1240),
+                            truncated: false,
+                            period_start: Some(Default::default()),
+                            period_end: Some(Default::default()),
+                            ran_at: Default::default(),
                         },
                         timestamp: Default::default(),
                     })

@@ -52,6 +52,10 @@ export const PERMISSION_LABELS: Record<string, { label: string; description?: st
   'catalog:read': { label: 'View catalog', description: 'Plans, prices, products, add-ons, coupons, metrics' },
   'catalog:manage': { label: 'Manage catalog' },
   'analytics:read': { label: 'View analytics', description: 'Stats, segments, activity feed, saved views' },
+  'analytics:sql': {
+    label: 'Run SQL',
+    description: 'Query all billing data (customers, invoices, payments, usage) and manage saved queries',
+  },
   'events:read': { label: 'View usage events', description: 'Explore and inspect raw metering events' },
   'alerts:read': { label: 'View alerts' },
   'alerts:manage': { label: 'Manage alerts' },

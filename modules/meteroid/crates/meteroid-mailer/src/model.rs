@@ -155,6 +155,23 @@ pub struct EmailValidationLink {
 /// A triggered analytics alert, delivered as a concise notification email that
 /// mirrors the Slack/Discord summary and deep-links back to the in-app alerts
 /// feed for the full details.
+/// The result of a scheduled SQL query, linked for download.
+#[derive(Clone)]
+pub struct SqlQueryResultReady {
+    pub query_name: String,
+    pub row_count: u64,
+    /// More rows matched than the file holds.
+    pub truncated: bool,
+    pub ran_at: chrono::NaiveDateTime,
+    pub download_url: String,
+    /// The last day the link works.
+    pub available_until: NaiveDate,
+    pub query_url: String,
+    pub recipients: Vec<EmailRecipient>,
+    /// Why the run failed: no file then.
+    pub error: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct AlertTriggered {
     /// Human alert name, e.g. "MRR drop".

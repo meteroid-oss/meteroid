@@ -1020,6 +1020,7 @@ pub enum StoredObjectKindEnum {
     QuoteCertificatePdf,
     QuotePdf,
     QuoteAttachment,
+    SqlResult,
 }
 
 /// Canonical organization activation milestones: the single source

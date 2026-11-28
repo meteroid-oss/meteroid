@@ -31,6 +31,8 @@ pub struct CouponRow {
     pub duration_months: Option<i32>,
     /// The offer the code gives; `None` for a grant's own definition, or one not wrapped yet.
     pub offer_id: Option<OfferId>,
+    /// Trigger-maintained analytics ingestion marker; never written by app code.
+    pub store_committed_at: chrono::NaiveDateTime,
 }
 
 #[derive(Debug, Default, Insertable)]

@@ -943,6 +943,7 @@ mod tests {
             fixed_amounts: None,
             duration_months: None,
             offer_id: None,
+            store_committed_at: now,
         }
     }
 

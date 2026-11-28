@@ -33718,6 +33718,7 @@
           "budget.exceeded",
           "checkout.payment_kept_as_credit",
           "retention.session_completed",
+          "sql.scheduled_run.completed",
           "subscription.renewal_upcoming",
           "entitlement.override_ending_soon",
           "entitlement.override_ended",

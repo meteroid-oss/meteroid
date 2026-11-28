@@ -706,6 +706,7 @@ pub enum StoredObjectKindEnum {
     QuoteCertificatePdf,
     QuotePdf,
     QuoteAttachment,
+    SqlResult,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

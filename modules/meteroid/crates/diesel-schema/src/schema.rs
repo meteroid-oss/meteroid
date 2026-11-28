@@ -558,6 +558,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    analytics_tombstone (table_name, id) {
+        table_name -> Text,
+        id -> Uuid,
+        tenant_id -> Uuid,
+        deleted_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     analytics_dashboard_share (id) {
         id -> Uuid,
         tenant_id -> Uuid,
@@ -649,6 +658,7 @@ diesel::table! {
         add_on_ids -> Nullable<Array<Nullable<Uuid>>>,
         duration_months -> Nullable<Int4>,
         discounts_from -> Nullable<Date>,
+        store_committed_at -> Timestamptz,
     }
 }
 
@@ -1061,6 +1071,7 @@ diesel::table! {
         fixed_amounts -> Nullable<Jsonb>,
         duration_months -> Nullable<Int4>,
         offer_id -> Nullable<Uuid>,
+        store_committed_at -> Timestamptz,
     }
 }
 
@@ -3397,6 +3408,7 @@ diesel::table! {
         trial_free -> Nullable<Bool>,
         trial_plan_id -> Nullable<Uuid>,
         trial_end_action -> Text,
+        store_committed_at -> Timestamptz,
     }
 }
 
@@ -4036,6 +4048,69 @@ diesel::table! {
         invoice_id -> Nullable<Uuid>,
         managed_quantity_id -> Uuid,
         removal_waits_for_renewal -> Bool,
+    }
+}
+
+diesel::table! {
+    sql_api_key (api_token_id) {
+        api_token_id -> Uuid,
+        tenant_id -> Uuid,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    sql_query_run (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        saved_query_id -> Nullable<Uuid>,
+        user_id -> Nullable<Uuid>,
+        api_token_id -> Nullable<Uuid>,
+        sql -> Text,
+        succeeded -> Bool,
+        error -> Nullable<Text>,
+        row_count -> Nullable<Int4>,
+        elapsed_ms -> Nullable<Int8>,
+        rows_read -> Nullable<Int8>,
+        bytes_read -> Nullable<Int8>,
+        finished_at -> Nullable<Timestamp>,
+        charged -> Bool,
+        truncated -> Bool,
+        result_stored -> Bool,
+        created_at -> Timestamp,
+        schedule_id -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    sql_query_schedule (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        saved_query_id -> Uuid,
+        frequency -> Text,
+        hour_utc -> Int2,
+        day -> Nullable<Int2>,
+        recipients -> Array<Text>,
+        enabled -> Bool,
+        next_run_at -> Timestamp,
+        created_by -> Nullable<Uuid>,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    sql_saved_query (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        name -> Text,
+        description -> Nullable<Text>,
+        sql -> Text,
+        visualization -> Jsonb,
+        parameters -> Jsonb,
+        created_by -> Nullable<Uuid>,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
     }
 }
 
@@ -4844,6 +4919,7 @@ diesel::joinable!(alert_segment_member -> customer (customer_id));
 diesel::joinable!(alert_segment_member -> tenant (tenant_id));
 diesel::joinable!(analytics_dashboard_share -> analytics_saved_view (saved_view_id));
 diesel::joinable!(analytics_dashboard_share -> tenant (tenant_id));
+diesel::joinable!(analytics_tombstone -> tenant (tenant_id));
 diesel::joinable!(analytics_projection_quarantine -> tenant (tenant_id));
 diesel::joinable!(analytics_saved_view -> tenant (tenant_id));
 diesel::joinable!(api_idempotency_key -> tenant (tenant_id));
@@ -5249,6 +5325,18 @@ diesel::joinable!(sent_email -> tenant (tenant_id));
 diesel::joinable!(slot_transaction -> invoice (invoice_id));
 diesel::joinable!(slot_transaction -> managed_quantity (managed_quantity_id));
 diesel::joinable!(slot_transaction -> subscription (subscription_id));
+diesel::joinable!(sql_api_key -> api_token (api_token_id));
+diesel::joinable!(sql_api_key -> tenant (tenant_id));
+diesel::joinable!(sql_query_run -> api_token (api_token_id));
+diesel::joinable!(sql_query_run -> sql_query_schedule (schedule_id));
+diesel::joinable!(sql_query_run -> sql_saved_query (saved_query_id));
+diesel::joinable!(sql_query_run -> tenant (tenant_id));
+diesel::joinable!(sql_query_run -> user (user_id));
+diesel::joinable!(sql_query_schedule -> sql_saved_query (saved_query_id));
+diesel::joinable!(sql_query_schedule -> tenant (tenant_id));
+diesel::joinable!(sql_query_schedule -> user (created_by));
+diesel::joinable!(sql_saved_query -> tenant (tenant_id));
+diesel::joinable!(sql_saved_query -> user (created_by));
 diesel::joinable!(stored_object -> tenant (tenant_id));
 diesel::joinable!(subscription -> customer (customer_id));
 diesel::joinable!(subscription -> plan_version (plan_version_id));

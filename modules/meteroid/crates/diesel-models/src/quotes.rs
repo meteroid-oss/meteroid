@@ -86,6 +86,8 @@ pub struct QuoteRow {
     pub trial_plan_id: Option<PlanId>,
     /// With `trial_duration_days`: CONVERT, or MANUAL (an operator decides at its end).
     pub trial_end_action: String,
+    /// Trigger-maintained analytics ingestion marker; never written by app code.
+    pub store_committed_at: NaiveDateTime,
 }
 
 #[derive(Insertable, Debug)]

@@ -31,6 +31,10 @@ pub enum Permission {
     CatalogManage,
     // Stats, segments, activity feed, saved views.
     AnalyticsRead,
+    // Intelligence > SQL: read-only SQL over every billing table (customers,
+    // invoices, payments, usage events), so it spans the per-area read
+    // permissions and is granted on its own. Includes managing saved queries.
+    SqlQuery,
     // Raw usage/metering events explorer (EventsService). Read-only in-app:
     // ingestion and CSV import go through the metering pipeline and batch jobs,
     // not this capability. Kept separate from settings so a role can inspect
@@ -59,7 +63,7 @@ pub enum Permission {
 }
 
 impl Permission {
-    pub const ALL: [Permission; 23] = [
+    pub const ALL: [Permission; 24] = [
         Permission::CustomersRead,
         Permission::CustomersManage,
         Permission::SubscriptionsRead,
@@ -71,6 +75,7 @@ impl Permission {
         Permission::CatalogRead,
         Permission::CatalogManage,
         Permission::AnalyticsRead,
+        Permission::SqlQuery,
         Permission::EventsRead,
         Permission::AlertsRead,
         Permission::AlertsManage,
@@ -108,6 +113,7 @@ impl Permission {
             Permission::CatalogRead => "catalog:read",
             Permission::CatalogManage => "catalog:manage",
             Permission::AnalyticsRead => "analytics:read",
+            Permission::SqlQuery => "analytics:sql",
             Permission::EventsRead => "events:read",
             Permission::AlertsRead => "alerts:read",
             Permission::AlertsManage => "alerts:manage",
@@ -169,7 +175,7 @@ impl Permission {
 }
 
 // ALL must list every variant; bump this when adding a permission.
-const _: () = assert!(Permission::ALL.len() == 23);
+const _: () = assert!(Permission::ALL.len() == 24);
 
 /// A resolved set of capabilities for an actor in an organization.
 ///
