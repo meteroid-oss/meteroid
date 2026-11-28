@@ -320,6 +320,22 @@ pub struct RateCardModel {
     pub multiplier: Option<Decimal>,
 }
 
+/// A share of the amount the metric sums (payment volume), in major units of the price currency.
+/// A free tier is a credit the plan grants.
+#[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PercentageModel {
+    /// 2.9 for 2.9%, from 0 to 100.
+    #[schema(value_type = String, format = "decimal")]
+    pub percent: Decimal,
+}
+
+/// The amount the metric sums, in major units of the price currency (12.34, not 1234), billed
+/// as is: each event carries its own price.
+#[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct DynamicModel {}
+
 /// A level of a price sold in levels: a fee each period including some usage, with an overage
 /// rate beyond it.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
@@ -349,8 +365,9 @@ pub struct LevelsModel {
 /// price; `graduated`, each unit at the tier it falls in; `volume`, every unit at the tier the
 /// total reaches; `package`, by packages, a started one billed whole; `flat`, one amount;
 /// `dimension_rates`, usage at rates by its dimensions; `rate_card`, usage at a rate card's
-/// dated rates; `levels`, levels a buyer picks. `flat` prices a quantity of 1 only;
-/// `dimension_rates`, `rate_card` and `levels` metered usage only.
+/// dated rates; `levels`, levels a buyer picks; `percentage`, a share of the amount the metric
+/// sums; `dynamic`, that amount as is. `flat` prices a quantity of 1 only; `dimension_rates`,
+/// `rate_card`, `levels`, `percentage` and `dynamic` metered usage only.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PriceModel {
@@ -362,6 +379,8 @@ pub enum PriceModel {
     DimensionRates(DimensionRatesModel),
     RateCard(RateCardModel),
     Levels(LevelsModel),
+    Percentage(PercentageModel),
+    Dynamic(DynamicModel),
 }
 
 impl PriceModel {
@@ -375,6 +394,8 @@ impl PriceModel {
             PriceModel::DimensionRates(_) => "dimension_rates",
             PriceModel::RateCard(_) => "rate_card",
             PriceModel::Levels(_) => "levels",
+            PriceModel::Percentage(_) => "percentage",
+            PriceModel::Dynamic(_) => "dynamic",
         }
     }
 }
@@ -762,6 +783,17 @@ pub fn check_price(price: &ChargePrice, metered: bool, path: &str) -> Result<(),
                 amounts.push((at("overage_unit_price"), level.overage_unit_price));
             }
         }
+        PriceModel::Percentage(m) => {
+            if m.percent > Decimal::ONE_HUNDRED {
+                return Err(Problem::field(
+                    format!("{model}/percent"),
+                    "invalid",
+                    "a percentage is at most 100",
+                ));
+            }
+            amounts.push((format!("{model}/percent"), m.percent));
+        }
+        PriceModel::Dynamic(_) => {}
     }
     if let Some(unit) = &price.credit_unit {
         amounts.push((format!("{path}/credit_unit/rate"), unit.rate));
@@ -1012,6 +1044,8 @@ fn usage_model(
             })?,
             multiplier: m.multiplier,
         }),
+        PriceModel::Percentage(m) => Ok(UsagePricingModel::Percentage { percent: m.percent }),
+        PriceModel::Dynamic(_) => Ok(UsagePricingModel::Dynamic),
         PriceModel::Flat(_) | PriceModel::Levels(_) => Err(Problem::not_expressible(
             format!("{path}/model"),
             format!(
@@ -1556,6 +1590,10 @@ fn api_usage_model(
             rate_card: names.rate_card(*rate_card_id),
             multiplier: multiplier.map(|m| m.normalize()),
         }),
+        UsagePricingModel::Percentage { percent } => PriceModel::Percentage(PercentageModel {
+            percent: percent.normalize(),
+        }),
+        UsagePricingModel::Dynamic => PriceModel::Dynamic(DynamicModel {}),
     })
 }
 
@@ -2087,6 +2125,88 @@ mod tests {
         };
         assert_eq!(model.levels[0].included, 1000);
         assert_eq!(model.levels.len(), 2);
+    }
+
+    fn metered(model: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "product": "api",
+            "quantity": {"type": "metered", "metric": "calls"},
+            "prices": [{"currency": "EUR", "model": model}]
+        })
+    }
+
+    #[test]
+    fn a_percentage_and_a_price_from_events_read_back_as_written() {
+        let percentage = round_trip(metered(
+            serde_json::json!({"type": "percentage", "percent": "2.90"}),
+        ));
+        assert_eq!(
+            percentage.prices[0].model,
+            PriceModel::Percentage(PercentageModel {
+                percent: Decimal::new(29, 1)
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(&percentage.prices[0].model).unwrap(),
+            serde_json::json!({"type": "percentage", "percent": "2.9"})
+        );
+
+        let dynamic = round_trip(metered(serde_json::json!({"type": "dynamic"})));
+        assert_eq!(
+            dynamic.prices[0].model,
+            PriceModel::Dynamic(DynamicModel {})
+        );
+        assert_eq!(
+            serde_json::to_value(&dynamic.prices[0].model).unwrap(),
+            serde_json::json!({"type": "dynamic"})
+        );
+    }
+
+    #[test]
+    fn a_percentage_is_refused_outside_0_to_100_and_off_metered_usage() {
+        let refs = refs();
+        let percent = |percent: &str| {
+            to_domain(
+                &charge(metered(
+                    serde_json::json!({"type": "percentage", "percent": percent}),
+                )),
+                &refs,
+                "/charges/0",
+            )
+        };
+        for refused in ["100.5", "-1"] {
+            let problem = percent(refused).unwrap_err();
+            assert_eq!(
+                problem.errors[0].path, "/charges/0/prices/0/model/percent",
+                "{refused}"
+            );
+            assert_eq!(problem.errors[0].code, "invalid", "{refused}");
+        }
+        assert!(percent("100").is_ok());
+        assert!(percent("0").is_ok());
+
+        let on_seats = charge(serde_json::json!({
+            "product": "seats",
+            "quantity": {"type": "managed", "quantity": "seats"},
+            "prices": [{"currency": "EUR", "model": {"type": "percentage", "percent": "2"}}]
+        }));
+        let problem = to_domain(&on_seats, &refs, "/charges/1").unwrap_err();
+        assert_eq!(
+            problem.code,
+            crate::v2::problem::ProblemCode::NotExpressible
+        );
+        assert_eq!(problem.errors[0].path, "/charges/1/prices/0/model");
+    }
+
+    /// A free tier is a credit the plan grants: a percentage takes no free amount.
+    #[test]
+    fn a_percentage_and_a_price_from_events_take_no_other_field() {
+        let read = |model: serde_json::Value| serde_json::from_value::<PriceModel>(model);
+        assert!(
+            read(serde_json::json!({"type": "percentage", "percent": "2", "free_amount": "100"}))
+                .is_err()
+        );
+        assert!(read(serde_json::json!({"type": "dynamic", "multiplier": "1.1"})).is_err());
     }
 
     #[test]

@@ -255,6 +255,8 @@ pub mod products {
             UsageModel::Package => prices_proto::fee_structure::UsageModel::Package,
             UsageModel::DimensionRates => prices_proto::fee_structure::UsageModel::DimensionRates,
             UsageModel::RateCard => prices_proto::fee_structure::UsageModel::RateCard,
+            UsageModel::Percentage => prices_proto::fee_structure::UsageModel::Percentage,
+            UsageModel::Dynamic => prices_proto::fee_structure::UsageModel::Dynamic,
         }
     }
 
@@ -270,6 +272,8 @@ pub mod products {
                 | prices_proto::fee_structure::UsageModel::DimensionRates,
             ) => Ok(UsageModel::DimensionRates),
             Ok(prices_proto::fee_structure::UsageModel::RateCard) => Ok(UsageModel::RateCard),
+            Ok(prices_proto::fee_structure::UsageModel::Percentage) => Ok(UsageModel::Percentage),
+            Ok(prices_proto::fee_structure::UsageModel::Dynamic) => Ok(UsageModel::Dynamic),
             Err(_) => Err(Status::invalid_argument(format!(
                 "Invalid usage model value: {value}"
             ))),

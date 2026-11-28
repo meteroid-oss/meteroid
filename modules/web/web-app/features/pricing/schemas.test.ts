@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
-import { CreditPricingSchema, refineCreditPricing } from '@/features/pricing/schemas'
+import {
+  CreditPricingSchema,
+  PercentagePricingSchema,
+  refineCreditPricing,
+} from '@/features/pricing/schemas'
 
 import type { CreditPackContext } from '@/features/pricing/schemas'
 
@@ -81,5 +85,13 @@ describe('credit pack refinements', () => {
     expect(
       messages(schema('EUR'), pack({ ...stale, unitPrice: '0', expiryUnit: 'BILLING_PERIOD' }))
     ).toEqual(['rolloverMaxAmount: Enter a whole number'])
+  })
+})
+
+describe('a percentage', () => {
+  it('takes 0 to 100, nothing else', () => {
+    const ok = (percent: string) => PercentagePricingSchema.safeParse({ percent }).success
+    expect(['0', '2.9', '100'].map(ok)).toEqual([true, true, true])
+    expect(['100.5', '-1', 'abc', ''].map(ok)).toEqual([false, false, false, false])
   })
 })

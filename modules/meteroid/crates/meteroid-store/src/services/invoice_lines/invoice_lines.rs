@@ -1162,6 +1162,8 @@ impl MeteredFee {
             Self::Usage(UsagePricingModel::RateCard { multiplier, .. }) => {
                 multiplier.is_some_and(|m| m.is_zero())
             }
+            Self::Usage(UsagePricingModel::Percentage { percent, .. }) => zero(percent),
+            Self::Usage(UsagePricingModel::Dynamic) => false,
             Self::CapacityOverage { overage_rate, .. } => overage_rate.is_zero(),
         }
     }

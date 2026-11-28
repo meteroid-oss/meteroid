@@ -169,29 +169,29 @@ fn event_cost(
     if rounds_converted_units(&window.metric) {
         return None;
     }
+    let pinned_or = |rate: Decimal| {
+        let dimensions = metric_dimensions(&window.metric)
+            .into_iter()
+            .filter_map(|key| {
+                let value = event
+                    .properties
+                    .get(&key)
+                    .filter(|v| !v.is_empty())?
+                    .clone();
+                Some((key, value))
+            })
+            .collect::<HashMap<_, _>>();
+        pinned
+            .unit_price(
+                window.metric.id,
+                window.sub_component_id,
+                window.sub_add_on_id,
+                &dimensions,
+            )
+            .unwrap_or(rate)
+    };
     let amount = match model {
-        UsagePricingModel::PerUnit { rate } => {
-            let dimensions = metric_dimensions(&window.metric)
-                .into_iter()
-                .filter_map(|key| {
-                    let value = event
-                        .properties
-                        .get(&key)
-                        .filter(|v| !v.is_empty())?
-                        .clone();
-                    Some((key, value))
-                })
-                .collect::<HashMap<_, _>>();
-            let rate = pinned
-                .unit_price(
-                    window.metric.id,
-                    window.sub_component_id,
-                    window.sub_add_on_id,
-                    &dimensions,
-                )
-                .unwrap_or(*rate);
-            rate * quantity
-        }
+        UsagePricingModel::PerUnit { rate } => pinned_or(*rate) * quantity,
         UsagePricingModel::DimensionRates(rates) => {
             let own;
             let card = match &window.card {
@@ -202,6 +202,10 @@ fn event_cost(
                 }
             };
             rated_weight(card, &event.properties, quantity).unwrap_or(Decimal::ZERO)
+        }
+        UsagePricingModel::Dynamic => pinned_or(Decimal::ONE) * quantity,
+        UsagePricingModel::Percentage { percent } => {
+            pinned_or(percent / Decimal::ONE_HUNDRED) * quantity
         }
         _ => return None,
     };
@@ -1128,7 +1132,10 @@ impl ServicesEdge {
         let linear = matches!(
             &window.fee,
             MeteredFee::Usage(
-                UsagePricingModel::PerUnit { .. } | UsagePricingModel::DimensionRates(_)
+                UsagePricingModel::PerUnit { .. }
+                    | UsagePricingModel::DimensionRates(_)
+                    | UsagePricingModel::Dynamic
+                    | UsagePricingModel::Percentage { .. }
             )
         ) && !rounds_converted_units(metric);
         // Priced like the invoice: per-unit money usage netting negative credits, other models
@@ -1136,7 +1143,7 @@ impl ServicesEdge {
         let signed = window.overage.is_none()
             && matches!(
                 &window.fee,
-                MeteredFee::Usage(UsagePricingModel::PerUnit { .. })
+                MeteredFee::Usage(model) if billing_core::pricing::UsageModel::from(model).is_signed()
             );
         let price = |dimensions: &HashMap<String, String>, units: Decimal, until| {
             if units.is_zero() || (units.is_sign_negative() && !signed) {
@@ -2064,6 +2071,24 @@ mod tests {
         assert_eq!(
             days.iter().map(|day| day.amount_minor).sum::<i64>(),
             period_price(&window, dec!(180))
+        );
+    }
+
+    /// 2% of each day's amount, a refund day crediting its share back.
+    #[test]
+    fn a_percentage_day_costs_its_share_of_its_amount() {
+        let window = june_window(UsagePricingModel::Percentage { percent: dec!(2) });
+        let days = days_of(&window, &[dec!(100), dec!(-150), dec!(60)]);
+        assert_eq!(amounts(&days), vec![200, -300, 120]);
+        assert_eq!(period_price(&window, dec!(10)), 20);
+    }
+
+    #[test]
+    fn a_price_from_events_costs_each_day_its_amount() {
+        let window = june_window(UsagePricingModel::Dynamic);
+        assert_eq!(
+            amounts(&days_of(&window, &[dec!(12.34), dec!(-2.34)])),
+            vec![1_234, -234]
         );
     }
 

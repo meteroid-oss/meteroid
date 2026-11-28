@@ -6,6 +6,7 @@ import {
   CreditUnitPricingSchema,
   DimensionRatesPricingSchema,
   PackagePricingSchema,
+  PercentagePricingSchema,
   PerUnitPricingSchema,
   RateCardPricingSchema,
   TieredPricingSchema,
@@ -34,6 +35,7 @@ const ChargeFormBase = z.object({
   rows: z.array(z.any()).optional(),
   packagePrice: z.string().optional(),
   blockSize: z.coerce.number().optional(),
+  percent: z.string().optional(),
   rateSource: z.enum(['plan', 'card']).optional(),
   rateCardId: z.string().optional(),
   markup: z.string().optional(),
@@ -116,6 +118,9 @@ export function chargeFormSchema(shape: ChargeShape, options: ChargeSchemaOption
         break
       case 'package':
         check(PackagePricingSchema, data, ctx)
+        break
+      case 'percentage':
+        check(PercentagePricingSchema, { percent: data.percent ?? '' }, ctx)
         break
       case 'by_dimension':
         if (data.rateSource === 'card') check(RateCardPricingSchema, data, ctx)

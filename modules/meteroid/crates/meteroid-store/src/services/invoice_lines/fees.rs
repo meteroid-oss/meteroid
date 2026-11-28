@@ -74,6 +74,10 @@ impl From<&UsagePricingModel> for pricing::UsageModel {
                     on: chrono::NaiveDate::MIN,
                 })
             }
+            UsagePricingModel::Percentage { percent } => pricing::UsageModel::Percentage {
+                rate: *percent / Decimal::ONE_HUNDRED,
+            },
+            UsagePricingModel::Dynamic => pricing::UsageModel::PerUnit { rate: Decimal::ONE },
         }
     }
 }
@@ -182,6 +186,39 @@ mod tests {
         );
         let rates = UsagePricingModel::DimensionRates(rates(&[(&["*", "*"], dec!(1))]));
         assert_eq!(compute_usage_price(&rates, dec!(100), "USD").unwrap(), None);
+    }
+
+    #[test]
+    fn a_percentage_is_its_share_of_the_amount() {
+        let percentage = UsagePricingModel::Percentage { percent: dec!(2.9) };
+        assert_eq!(
+            compute_usage_price(&percentage, dec!(1000), "USD").unwrap(),
+            Some(dec!(29.00))
+        );
+        assert_eq!(
+            compute_usage_price(&UsagePricingModel::Dynamic, dec!(12.345), "USD").unwrap(),
+            Some(dec!(12.35))
+        );
+    }
+
+    /// The stored JSON of both models, as prices already saved read it back.
+    #[test]
+    fn percentage_and_dynamic_are_stored_as_they_read_back() {
+        let percentage = UsagePricingModel::Percentage { percent: dec!(1.5) };
+        assert_eq!(
+            serde_json::to_value(&percentage).unwrap(),
+            serde_json::json!({"Percentage": {"percent": "1.5"}})
+        );
+        assert_eq!(
+            serde_json::to_value(UsagePricingModel::Dynamic).unwrap(),
+            serde_json::json!("Dynamic")
+        );
+        let read: UsagePricingModel =
+            serde_json::from_value(serde_json::json!({"Percentage": {"percent": "2.9"}})).unwrap();
+        assert!(matches!(
+            read,
+            UsagePricingModel::Percentage { percent } if percent == dec!(2.9)
+        ));
     }
 
     fn rates(

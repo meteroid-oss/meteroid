@@ -133,6 +133,32 @@ describe('compileCharge', () => {
     })
   })
 
+  it('a percentage of the amount compiles to a usage fee and reads back', () => {
+    const compiled = compileCharge(
+      { ...preset('usage'), model: 'percentage' },
+      { metricId: 'm1', percent: '2.9', unitPrice: 'stale' }
+    )
+    expect(compiled.pricingType).toBe('percentage')
+    expect(compiled.formData).toMatchObject({ usageModel: 'percentage', percent: '2.9' })
+    expect(compiled.formData).not.toHaveProperty('unitPrice')
+    const pricing = formDataToProtoPricing(compiled.pricingType, compiled.formData)
+    expect(pricing.case === 'usagePricing' && pricing.value.model.value).toMatchObject({
+      percent: '2.9',
+    })
+    expect(protoPricingToFormData(pricing)).toMatchObject({
+      pricingType: 'percentage',
+      data: { percent: '2.9' },
+    })
+    expect(decompileCharge(compiled.feeType, compiled.formData).shape.model).toBe('percentage')
+  })
+
+  it('a price from events compiles to a dynamic usage fee', () => {
+    const compiled = compileCharge({ ...preset('usage'), model: 'dynamic' }, { metricId: 'm1' })
+    const pricing = formDataToProtoPricing(compiled.pricingType, compiled.formData)
+    expect(pricing.case === 'usagePricing' && pricing.value.model.case).toBe('dynamic')
+    expect(decompileCharge(compiled.feeType, compiled.formData).shape.model).toBe('dynamic')
+  })
+
   it('rates in this plan compile to rates by dimension, an empty cell matching any value', () => {
     const compiled = compileCharge(
       { ...preset('usage'), model: 'by_dimension' },

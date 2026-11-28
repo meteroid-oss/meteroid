@@ -65,6 +65,8 @@ pub enum UsageModelEnum {
     Matrix,
     RateCard,
     DimensionRates,
+    Percentage,
+    Dynamic,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -95,6 +97,8 @@ impl From<UsageModelEnum> for meteroid_store::domain::prices::UsageModel {
             UsageModelEnum::Package => Self::Package,
             UsageModelEnum::Matrix | UsageModelEnum::DimensionRates => Self::DimensionRates,
             UsageModelEnum::RateCard => Self::RateCard,
+            UsageModelEnum::Percentage => Self::Percentage,
+            UsageModelEnum::Dynamic => Self::Dynamic,
         }
     }
 }
@@ -109,6 +113,8 @@ impl From<meteroid_store::domain::prices::UsageModel> for UsageModelEnum {
             // Every product priced by dimension was a matrix to v1 clients.
             meteroid_store::domain::prices::UsageModel::DimensionRates => Self::Matrix,
             meteroid_store::domain::prices::UsageModel::RateCard => Self::RateCard,
+            meteroid_store::domain::prices::UsageModel::Percentage => Self::Percentage,
+            meteroid_store::domain::prices::UsageModel::Dynamic => Self::Dynamic,
         }
     }
 }

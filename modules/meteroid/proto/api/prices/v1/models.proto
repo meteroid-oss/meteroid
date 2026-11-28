@@ -73,7 +73,19 @@ message UsagePricing {
     MatrixPricing matrix = 5;
     RateCardPricing rate_card = 6;
     DimensionRatesPricing dimension_rates = 7;
+    PercentagePricing percentage = 8;
+    DynamicPricing dynamic = 9;
   }
+
+  // A share of the amount the metric sums (payment volume, in major units of the price
+  // currency), e.g. "2.9" for 2.9%. A free tier is a credit the plan grants.
+  message PercentagePricing {
+    string percent = 1;
+  }
+
+  // The amount the metric sums, in major units of the price currency (12.34, not 1234), billed
+  // as is: each event carries its own price.
+  message DynamicPricing {}
 
   // Usage rated by its dimensions at rates the price holds: keys match and resolve as a rate
   // card's entries do (most specific wins), but the rates are not dated; other rates are a new
@@ -241,6 +253,8 @@ message FeeStructure {
     MATRIX = 4;
     RATE_CARD = 5;
     DIMENSION_RATES = 6;
+    PERCENTAGE = 7;
+    DYNAMIC = 8;
   }
 
   message ExtraRecurringStructure {

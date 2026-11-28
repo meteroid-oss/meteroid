@@ -79,6 +79,8 @@ const UsageEditableStructural = ({
     ['package', 'Package'],
     ['dimension_rates', 'By dimension'],
     ['rate_card', 'By dimension, from a rate card'],
+    ['percentage', 'Percentage of the amount'],
+    ['dynamic', 'Price from events'],
   ]
 
   return (

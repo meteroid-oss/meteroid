@@ -10,7 +10,7 @@ const capacityStructureSchema = z.object({
 
 const usageStructureSchema = z.object({
   metricId: z.string().min(1, 'Metric ID is required'),
-  model: z.enum(['PER_UNIT', 'TIERED', 'VOLUME', 'PACKAGE', 'DIMENSION_RATES', 'RATE_CARD']),
+  model: z.enum(['PER_UNIT', 'TIERED', 'VOLUME', 'PACKAGE', 'DIMENSION_RATES', 'RATE_CARD', 'PERCENTAGE', 'DYNAMIC']),
 })
 
 const extraRecurringStructureSchema = z.object({

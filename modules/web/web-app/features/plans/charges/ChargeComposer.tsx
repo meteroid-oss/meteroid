@@ -430,6 +430,10 @@ export const ChargePriceFields = ({
       if (shape.model === 'by_dimension') {
         return <ByDimensionFields control={control} currency={currency} metricId={metricId} />
       }
+      // An amount of money: never priced in credits.
+      if (shape.model === 'percentage' || shape.model === 'dynamic') {
+        return <PricingFields pricingType={shape.model} control={control} currency={currency} />
+      }
       return (
         <>
           <CreditUnitPriceFields control={control} currency={currency} />

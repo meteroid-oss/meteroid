@@ -875,3 +875,66 @@ async fn s08b_a_negative_invoice_is_settled_with_nothing_to_collect() {
 // ---------------------------------------------------------------------------------------------
 // 9. Negative tiered, volume and package prices
 // ---------------------------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------------------------
+// Percentage and price from events, on the second charge's own summed metric
+// ---------------------------------------------------------------------------------------------
+
+/// The routing plan with its second charge priced by `model` over `amount` of its metric, and
+/// 100 units of commission (+5000): the subtotals of the second charge's lines.
+async fn bill_amount(model: UsagePricingModel, amount: Decimal) -> (Vec<i64>, Invoice) {
+    let (env, usage) = usage_env().await;
+    let routing = routing_plan(&env, "Amount priced", model).await;
+    let sub = start(&env, routing.version, CUST_UBER_ID, vec![]).await;
+    set_usage(&usage, METRIC_BANDWIDTH, day(9, 1), day(10, 1), dec!(100));
+    set_usage(
+        &usage,
+        routing.reversal_metric,
+        day(9, 1),
+        day(10, 1),
+        amount,
+    );
+    close_september(&env).await;
+    let invoice = september_invoice(&env, sub).await;
+    show("amount priced", &invoice);
+    (amounts_of(&invoice, routing.reversal), invoice)
+}
+
+fn percentage(percent: Decimal) -> UsagePricingModel {
+    UsagePricingModel::Percentage { percent }
+}
+
+/// 2.9% of 1234.56 is 35.80224, billed 3580; the line shows the amount, cents kept, at the
+/// percentage's rate.
+#[tokio::test]
+async fn a_percentage_bills_its_share_of_the_amount() {
+    let (amounts, invoice) = bill_amount(percentage(dec!(2.9)), dec!(1234.56)).await;
+    assert_eq!(amounts, vec![3_580]);
+    let line = invoice
+        .line_items
+        .iter()
+        .find(|line| line.amount_subtotal == 3_580)
+        .expect("the percentage line");
+    assert_eq!(line.quantity, Some(dec!(1234.56)));
+    assert_eq!(line.unit_price, Some(dec!(0.029)));
+    assert_eq!(totals(&invoice), (8_580, 0, 0, 8_580, 8_580));
+}
+
+/// A net refund credits its percentage: 2% of −50 is −1.00, netting the commission's 50.00 to
+/// 49.00.
+#[tokio::test]
+async fn a_percentage_credits_a_net_refund() {
+    let (amounts, invoice) = bill_amount(percentage(dec!(2)), dec!(-50)).await;
+    assert_eq!(amounts, vec![-100]);
+    assert_eq!(totals(&invoice), (4_900, 0, 0, 4_900, 4_900));
+}
+
+/// A price from events bills the summed amount as is, a net refund crediting it.
+#[tokio::test]
+async fn a_price_from_events_bills_the_amount_its_events_carry() {
+    let (billed, _) = bill_amount(UsagePricingModel::Dynamic, dec!(1234.56)).await;
+    assert_eq!(billed, vec![123_456]);
+    let (refunded, invoice) = bill_amount(UsagePricingModel::Dynamic, dec!(-12.34)).await;
+    assert_eq!(refunded, vec![-1_234]);
+    assert_eq!(totals(&invoice), (3_766, 0, 0, 3_766, 3_766));
+}

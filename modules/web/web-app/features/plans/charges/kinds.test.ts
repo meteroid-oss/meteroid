@@ -383,4 +383,15 @@ describe('customerPays', () => {
   it('a fixed amount ignores the quantity', () => {
     expect(customerPays(fixed, { rate: '149' }, 999)?.toNumber()).toBe(149)
   })
+
+  it('a percentage is its share of the amount, a refund crediting it back', () => {
+    const percentage: ChargeShape = { ...usageTiers, model: 'percentage' }
+    expect(customerPays(percentage, { percent: '2.9' }, 1234.56)?.toString()).toBe('35.80224')
+    expect(customerPays(percentage, { percent: '2' }, -50)?.toNumber()).toBe(-1)
+  })
+
+  it('a price from events is the amount itself', () => {
+    const dynamic: ChargeShape = { ...usageTiers, model: 'dynamic' }
+    expect(customerPays(dynamic, {}, 1234.56)?.toString()).toBe('1234.56')
+  })
 })

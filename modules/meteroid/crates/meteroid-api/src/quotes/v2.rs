@@ -8,7 +8,7 @@ use meteroid_app::features::{Entitlements, QUOTES_FULL_NOT_IN_PLAN, gates};
 use meteroid_grpc::meteroid::api::quotes::v1::{QuoteLineDetail, quote_line_detail::Target};
 use meteroid_store::constants::Currencies;
 use meteroid_store::domain::enums::QuoteSignatureLevelEnum;
-use meteroid_store::domain::quote_document::discount_fee;
+use meteroid_store::domain::quote_document::{discount_fee, takes_discount};
 use meteroid_store::domain::quotes::{
     DetailedQuote, QuoteAddOnNew, QuoteAttachment, QuoteNew, QuotePriceComponentNew,
 };
@@ -30,6 +30,15 @@ pub(crate) fn parse_discount(value: &str) -> Result<Decimal, Status> {
         ));
     }
     Ok(discount)
+}
+
+fn refuse_undiscountable(fee: &meteroid_store::domain::SubscriptionFee) -> Result<(), Status> {
+    if takes_discount(fee) {
+        return Ok(());
+    }
+    Err(Status::invalid_argument(
+        "A price from events has no price of its own to discount: discount the quote with a coupon",
+    ))
 }
 
 /// Applies the request's line details to the resolved lines. A discounted line bills its own
@@ -72,6 +81,7 @@ pub(crate) fn apply_line_details(
                 component.description = description;
                 component.sort_order = detail.sort_order;
                 if let Some(discount) = discount {
+                    refuse_undiscountable(&component.fee)?;
                     let list = component.fee.clone();
                     component.fee = discount_fee(&list, discount, precision);
                     component.list_fee = Some(list);
@@ -94,6 +104,7 @@ pub(crate) fn apply_line_details(
                 add_on.description = description;
                 add_on.sort_order = detail.sort_order;
                 if let Some(discount) = discount {
+                    refuse_undiscountable(&add_on.fee)?;
                     let list = add_on.fee.clone();
                     add_on.fee = discount_fee(&list, discount, precision);
                     add_on.list_fee = Some(list);
@@ -311,6 +322,59 @@ mod tests {
         assert!(adds_attachments(&[file(3), file(1)], &stored), "reordered");
         assert!(adds_attachments(&[file(1), file(4)], &stored), "added");
         assert!(adds_attachments(&[file(1)], &[]));
+    }
+
+    /// A price from events has no price of its own to take down: its line discount is refused,
+    /// never stored as a discount the subscription would not bill.
+    #[test]
+    fn a_line_discount_on_a_price_from_events_is_refused() {
+        use meteroid_store::domain::SubscriptionFee;
+        use meteroid_store::domain::enums::SubscriptionFeeBillingPeriod;
+        use meteroid_store::domain::price_components::UsagePricingModel;
+        let line = |model| QuotePriceComponentNew {
+            name: "Processing".to_owned(),
+            quote_id: common_domain::ids::QuoteId::default(),
+            price_component_id: None,
+            product_id: None,
+            period: SubscriptionFeeBillingPeriod::Monthly,
+            fee: SubscriptionFee::Usage {
+                metric_id: common_domain::ids::BillableMetricId::default(),
+                model,
+                credit_unit: None,
+            },
+            is_override: false,
+            price_id: None,
+            example_usage_quantity: None,
+            description: None,
+            sort_order: 0,
+            discount_percent: None,
+            list_fee: None,
+        };
+        let discount = [QuoteLineDetail {
+            target: Some(Target::ExtraComponentName("Processing".to_owned())),
+            description: None,
+            sort_order: 0,
+            discount_percent: Some("10".to_owned()),
+        }];
+        let apply = |components: &mut [QuotePriceComponentNew]| {
+            apply_line_details(&discount, components, &mut [], &mut Vec::new(), "EUR")
+        };
+
+        let mut dynamic = [line(UsagePricingModel::Dynamic)];
+        let refused = apply(&mut dynamic).unwrap_err();
+        assert_eq!(refused.code(), tonic::Code::InvalidArgument);
+        assert_eq!(dynamic[0].discount_percent, None);
+
+        let mut percentage = [line(UsagePricingModel::Percentage {
+            percent: Decimal::new(29, 1),
+        })];
+        apply(&mut percentage).unwrap();
+        assert!(matches!(
+            &percentage[0].fee,
+            SubscriptionFee::Usage { model: UsagePricingModel::Percentage { percent }, .. }
+                if *percent == Decimal::new(261, 2)
+        ));
+        assert_eq!(percentage[0].discount_percent, Some(Decimal::from(10)));
     }
 
     #[test]

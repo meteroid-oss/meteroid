@@ -981,6 +981,19 @@ mod tests {
         assert!(!StorePricer.shares_allowance(&level(dec!(899), 250_000), &at_125k));
     }
 
+    /// Usage priced as a share of an amount, or as the amount itself, is linear: each part of a
+    /// period is priced on its own, as usage by the unit is.
+    /// Rules: R-097
+    #[test]
+    fn a_percentage_and_a_price_from_events_price_each_part_on_their_own() {
+        let metric = BillableMetricId::new();
+        let per_part = |model| StorePricer.per_part(&usage_fee(metric, model));
+        assert!(per_part(UsagePricingModel::Percentage {
+            percent: dec!(2.9)
+        }));
+        assert!(per_part(UsagePricingModel::Dynamic));
+    }
+
     #[test]
     fn capacity_without_overage_reads_nothing() {
         let metric = BillableMetricId::new();

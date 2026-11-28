@@ -931,6 +931,12 @@ pub mod price_components {
             api_prices::usage_pricing::Model::RateCard(v) => {
                 api_components::usage_fee::Model::RateCard(v)
             }
+            api_prices::usage_pricing::Model::Percentage(v) => {
+                api_components::usage_fee::Model::Percentage(v)
+            }
+            api_prices::usage_pricing::Model::Dynamic(v) => {
+                api_components::usage_fee::Model::Dynamic(v)
+            }
         }
     }
 

@@ -133,7 +133,10 @@ impl UsageCollector {
                     .filter(|size| *size > 0)
                     .unwrap_or(1),
             ),
-            UsagePricingModel::RateCard { .. } => (Vec::new(), 1),
+            // No rate per unit to show: a share of an amount, or the price each event carries.
+            UsagePricingModel::RateCard { .. }
+            | UsagePricingModel::Percentage { .. }
+            | UsagePricingModel::Dynamic => (Vec::new(), 1),
         };
         self.rates.extend(rates);
         self.metrics.insert(metric_id);

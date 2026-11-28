@@ -2084,6 +2084,31 @@ fn a_capacity_level_changed_mid_period_counts_each_part_against_its_level() {
     );
 }
 
+/// A capacity of 1000 units at 0.10 over, replaced on Jan 16 by usage priced by the unit at
+/// 0.10, 900 units used on each side: the capacity's part holds 15/31 of its allowance, 483.87
+/// units, so 416.13 over bill 4161, and the new row bills its 900 units 9000. Held whole, the
+/// capacity's part would include all 1000 units for half a month and bill nothing.
+/// Rules: R-135, R-002
+#[test]
+fn a_capacity_replaced_by_usage_by_the_unit_prorates_its_allowance() {
+    let (mut facts, entries) = split_usage(TestFee {
+        metric: Some(id(METRIC)),
+        unit: 10,
+        included: 1_000,
+        per_period: true,
+        ..TestFee::default()
+    });
+    facts.fees[1].fee.included = 0;
+    facts.fees[1].fee.per_period = false;
+    assert_eq!(
+        usage_charges(&facts, &entries),
+        vec![
+            ((d(2024, 1, 1), d(2024, 1, 16)), 4_161),
+            ((d(2024, 1, 16), d(2024, 2, 1)), 9_000),
+        ]
+    );
+}
+
 /// Graduated tiers of 0.10 up to 1000 units and 0.05 past them, the row replaced on Jan 16 with
 /// 900 units used on each side: the tiers run over January, 1000 × 10 + 800 × 5 = 14000.
 /// Rules: R-097

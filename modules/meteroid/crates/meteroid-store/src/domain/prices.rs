@@ -57,6 +57,8 @@ pub enum UsageModel {
     #[serde(alias = "Matrix")]
     DimensionRates,
     RateCard,
+    Percentage,
+    Dynamic,
 }
 
 impl From<&UsagePricingModel> for UsageModel {
@@ -68,6 +70,8 @@ impl From<&UsagePricingModel> for UsageModel {
             UsagePricingModel::Package { .. } => UsageModel::Package,
             UsagePricingModel::DimensionRates(_) => UsageModel::DimensionRates,
             UsagePricingModel::RateCard { .. } => UsageModel::RateCard,
+            UsagePricingModel::Percentage { .. } => UsageModel::Percentage,
+            UsagePricingModel::Dynamic => UsageModel::Dynamic,
         }
     }
 }
@@ -315,6 +319,8 @@ fn validate_not_negative(pricing: &Pricing) -> Result<(), StoreError> {
             }
             // Checked by `DimensionRates::validate` and the multiplier's own rule.
             UsagePricingModel::DimensionRates(_) | UsagePricingModel::RateCard { .. } => false,
+            UsagePricingModel::Percentage { percent } => *percent < Decimal::ZERO,
+            UsagePricingModel::Dynamic => false,
         },
         Pricing::ExtraRecurring {
             unit_price, model, ..
@@ -399,6 +405,9 @@ fn validate_usage_model(model: &UsagePricingModel) -> Result<(), StoreError> {
             ..
         } if *multiplier <= Decimal::ZERO => invalid("a rate card's multiplier is positive"),
         UsagePricingModel::DimensionRates(rates) => rates.validate(),
+        UsagePricingModel::Percentage { percent } if *percent > Decimal::ONE_HUNDRED => {
+            invalid("a percentage is at most 100")
+        }
         UsagePricingModel::Tiered { tiers, .. } | UsagePricingModel::Volume { tiers, .. } => {
             let mut starts: Vec<u64> = tiers.iter().map(|tier| tier.first_unit).collect();
             starts.sort_unstable();
@@ -481,6 +490,14 @@ pub fn validate_price_credit_unit(
     if !matches!(pricing, Pricing::Usage(_) | Pricing::Capacity { .. }) {
         return Err(StoreError::InvalidArgument(
             "only usage and capacity overage can be priced in a credit unit".to_owned(),
+        ));
+    }
+    if matches!(
+        pricing,
+        Pricing::Usage(UsagePricingModel::Percentage { .. } | UsagePricingModel::Dynamic)
+    ) {
+        return Err(StoreError::InvalidArgument(
+            "a percentage or a price from events bills an amount of money, not credits".to_owned(),
         ));
     }
     if unit.rate < Decimal::ZERO {
@@ -1088,6 +1105,10 @@ mod tests {
                 block_size: 10,
                 rate: dec!(-1),
             }),
+            Pricing::Usage(UsagePricingModel::Percentage { percent: dec!(-1) }),
+            Pricing::Usage(UsagePricingModel::Percentage {
+                percent: dec!(100.5),
+            }),
         ];
         for pricing in refused {
             assert!(validate_pricing(&pricing, "EUR").is_err(), "{pricing:?}");
@@ -1113,6 +1134,14 @@ mod tests {
             )
             .is_err()
         );
+        assert!(
+            validate_price_credit_unit(&Pricing::Usage(UsagePricingModel::Dynamic), Some(&unit))
+                .is_err()
+        );
+        let percentage = |percent| Pricing::Usage(UsagePricingModel::Percentage { percent });
+        assert!(validate_price_credit_unit(&percentage(dec!(2.9)), Some(&unit)).is_err());
+        assert!(validate_pricing(&percentage(dec!(100)), "EUR").is_ok());
+        assert!(validate_pricing(&percentage(dec!(0)), "EUR").is_ok());
     }
 
     // -----------------------------------------------------------------------

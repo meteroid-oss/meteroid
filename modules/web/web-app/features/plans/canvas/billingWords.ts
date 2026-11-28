@@ -148,6 +148,10 @@ const modelWords = (
         ? `${m(low)} ${each}, by dimension`
         : `${m(low)} to ${m(high)} ${each}, by dimension`
     }
+    case 'percentage':
+      return `${model.value.percent}% of the amount`
+    case 'dynamic':
+      return 'the amount its events carry'
     case 'rateCard':
       return `by dimension, at its rate card's rates${model.value.multiplier ? ` (${cardRatesLabelOfMultiplier(model.value.multiplier)})` : ''}`
     default:

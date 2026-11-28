@@ -101,6 +101,18 @@ export const PackagePricingSchema = z.object({
 })
 export type PackagePricingData = z.infer<typeof PackagePricingSchema>
 
+const percentString = z
+  .string()
+  .refine(v => isValidNumber(v) && Number(v) >= 0 && Number(v) <= 100, {
+    message: 'A percentage from 0 to 100',
+  })
+
+// Usage - a share of the amount the metric sums (payment volume).
+export const PercentagePricingSchema = z.object({
+  percent: percentString,
+})
+export type PercentagePricingData = z.infer<typeof PercentagePricingSchema>
+
 // Usage - rated by a rate card. `markup` is in percent ("-20": 20% off),
 // stored as the price's multiplier (0.8) by the proto mapping.
 export const RateCardPricingSchema = z.object({
@@ -341,6 +353,8 @@ export type PricingType =
   | 'package'
   | 'dimensionRates'
   | 'rateCard'
+  | 'percentage'
+  | 'dynamic'
   | 'extraRecurring'
   | 'oneTime'
   | 'credit'
@@ -370,6 +384,10 @@ export function pricingDefaults(pricingType: PricingType): Record<string, unknow
       return { dimensions: [], keyRates: [], unitSize: '1', onUnmatched: 'hold' }
     case 'rateCard':
       return { rateCardId: '', markup: '' }
+    case 'percentage':
+      return { percent: '' }
+    case 'dynamic':
+      return {}
     case 'extraRecurring':
       return { unitPrice: '0.00', quantity: 1, quantityModel: 'per_unit' }
     case 'oneTime':

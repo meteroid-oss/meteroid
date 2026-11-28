@@ -13,6 +13,8 @@ import {
   UsagePricing_DimensionRatesPricingSchema,
   UsagePricing_DimensionRatesPricing_DimensionRateSchema,
   UsagePricing_RateCardPricingSchema,
+  UsagePricing_PercentagePricingSchema,
+  UsagePricing_DynamicPricingSchema,
   UsagePricing_PackagePricingSchema,
   UsagePricing_TieredAndVolumePricingSchema,
   UsagePricing_TieredAndVolumePricing_TierRowSchema,
@@ -33,6 +35,7 @@ import {
   type OneTimePricingData,
   type PackagePricingData,
   type PerUnitPricingData,
+  type PercentagePricingData,
   type PricingType,
   type QuantityModel,
   type RatePricingData,
@@ -193,6 +196,27 @@ export function formDataToProtoPricing(
         }),
       };
     }
+    case 'percentage': {
+      const d = data as PercentagePricingData
+      return {
+        case: 'usagePricing',
+        value: create(UsagePricingSchema, {
+          model: {
+            case: 'percentage',
+            value: create(UsagePricing_PercentagePricingSchema, {
+              percent: d.percent.trim(),
+            }),
+          },
+        }),
+      };
+    }
+    case 'dynamic':
+      return {
+        case: 'usagePricing',
+        value: create(UsagePricingSchema, {
+          model: { case: 'dynamic', value: create(UsagePricing_DynamicPricingSchema, {}) },
+        }),
+      };
     case 'extraRecurring': {
       const d = data as ExtraRecurringPricingData
       const model = quantityModelToProto(data)
@@ -338,6 +362,13 @@ export function protoPricingToFormData(pricing: Price['pricing']): {
               markup: multiplierToMarkup(model.value.multiplier),
             },
           }
+        case 'percentage':
+          return {
+            pricingType: 'percentage',
+            data: { percent: model.value.percent },
+          }
+        case 'dynamic':
+          return { pricingType: 'dynamic', data: {} }
         case 'dimensionRates':
           return { pricingType: 'dimensionRates', data: dimensionRatesToForm(model.value) }
         // A matrix is read by the server as rates by dimension; kept for data cached before.

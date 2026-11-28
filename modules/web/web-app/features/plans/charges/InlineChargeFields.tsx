@@ -347,6 +347,8 @@ const MODEL_OPTIONS: Record<ChargeShape['source'], [RatingModel, string][]> = {
     ['volume', 'Volume'],
     ['package', 'Package'],
     ['by_dimension', 'By dimension'],
+    ['percentage', 'Percentage'],
+    ['dynamic', 'Price from events'],
   ],
 }
 
@@ -366,6 +368,10 @@ const pricedHelp = (symbol: string) => (
     </span>
     <span className="block">
       A tier&apos;s flat fee is added once usage enters it; its cap is the most the tier costs.
+    </span>
+    <span className="block">
+      <strong>Percentage</strong>: a share of the amount the metric sums, such as 2.9% of
+      payment volume. <strong>Price from events</strong>: that amount billed as is.
     </span>
   </span>
 )

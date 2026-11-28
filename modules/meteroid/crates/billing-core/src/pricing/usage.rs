@@ -49,13 +49,12 @@ pub fn pooled_usage_lines(
 
                 // Per-unit usage nets negative (e.g. a share of revenue net of credit notes): the
                 // line credits the invoice. Every other model bills only positive usage.
-                let signed = matches!(model, UsageModel::PerUnit { .. });
-                if usage_units.is_zero() || (usage_units.is_sign_negative() && !signed) {
+                if usage_units.is_zero() || (usage_units.is_sign_negative() && !model.is_signed()) {
                     continue;
                 }
 
                 let mut line = match model {
-                    UsageModel::PerUnit { rate } => {
+                    UsageModel::PerUnit { rate } | UsageModel::Percentage { rate } => {
                         let effective_rate =
                             unit_price_override(&grouped_usage.dimensions).unwrap_or(*rate);
                         let total = to_minor(
@@ -189,7 +188,9 @@ pub fn quantity_line(
     precision: u8,
 ) -> Result<PricedLine, PricingError> {
     match model {
-        UsageModel::PerUnit { rate } => simple_prorated(rate, &units, None, precision),
+        UsageModel::PerUnit { rate } | UsageModel::Percentage { rate } => {
+            simple_prorated(rate, &units, None, precision)
+        }
         UsageModel::Tiered { tiers, .. } => fees::tiered(units, tiers, precision),
         UsageModel::Volume { tiers, .. } => fees::volume(units, tiers, precision),
         UsageModel::Package { block_size, rate } => {
@@ -658,5 +659,63 @@ mod tests {
 
         let jpy = pooled_usage_lines(&model, &usage, 0, |_| None, Some(dec!(1200000))).unwrap();
         assert_eq!(jpy.iter().map(|l| l.total).sum::<i64>(), 24_000);
+    }
+
+    fn amount(value: Decimal) -> [GroupedUsage; 1] {
+        [GroupedUsage {
+            value,
+            dimensions: HashMap::new(),
+        }]
+    }
+
+    fn percentage(rate: Decimal) -> UsageModel {
+        UsageModel::Percentage { rate }
+    }
+
+    /// 2.9% of 1234.56 is 35.80224, billed 3580; the amount keeps its cents on the line, where a
+    /// per-unit rate of 0.029 would show it rounded to 1234.6.
+    #[test]
+    fn a_percentage_bills_its_share_of_the_amount() {
+        let lines = usage_lines(&percentage(dec!(0.029)), &amount(dec!(1234.56)), 2, |_| {
+            None
+        })
+        .unwrap();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].quantity, Some(dec!(1234.56)));
+        assert_eq!(lines[0].unit_price, Some(dec!(0.029)));
+        assert_eq!(lines[0].total, 3580);
+    }
+
+    #[test]
+    fn a_net_refund_credits_its_percentage() {
+        let lines = usage_lines(&percentage(dec!(0.02)), &amount(dec!(-50)), 2, |_| None).unwrap();
+        assert_eq!(lines[0].total, -100);
+    }
+
+    /// 2.9% of ¥12,345 is ¥358.005, billed ¥358; 1.5% of 10.555 KWD is 0.158325, billed 158 fils.
+    #[test]
+    fn a_percentage_rounds_to_the_currency_minor_unit() {
+        let yen = usage_lines(&percentage(dec!(0.029)), &amount(dec!(12345)), 0, |_| None).unwrap();
+        assert_eq!(yen[0].total, 358);
+        let dinar =
+            usage_lines(&percentage(dec!(0.015)), &amount(dec!(10.555)), 3, |_| None).unwrap();
+        assert_eq!(dinar[0].total, 158);
+    }
+
+    #[test]
+    fn a_price_from_events_bills_its_amount_net_of_refunds() {
+        let dynamic = UsageModel::PerUnit { rate: Decimal::ONE };
+        let lines = usage_lines(&dynamic, &amount(dec!(-12.34)), 2, |_| None).unwrap();
+        assert_eq!(lines[0].total, -1234);
+    }
+
+    #[test]
+    fn a_percentage_prices_a_quantity_as_its_line_does() {
+        let model = percentage(dec!(0.015));
+        assert_eq!(
+            fees::usage_price(&model, dec!(200), 2).unwrap(),
+            Some(dec!(3.00))
+        );
+        assert_eq!(quantity_line(&model, dec!(200), 2).unwrap().total, 300);
     }
 }

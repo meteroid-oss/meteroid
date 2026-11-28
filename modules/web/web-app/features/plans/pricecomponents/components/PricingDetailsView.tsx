@@ -499,6 +499,18 @@ const UsagePricingDetail = ({
     }
     case 'dimensionRates':
       return <DimensionRatesTable data={model.value} denomination={denomination} per={per} />
+    case 'percentage':
+      return (
+        <p className="text-sm text-muted-foreground">
+          {model.value.percent}% of the amount the metric sums
+        </p>
+      )
+    case 'dynamic':
+      return (
+        <p className="text-sm text-muted-foreground">
+          The amount the metric sums, as each event prices it
+        </p>
+      )
     case 'rateCard':
       return (
         <p className="text-sm text-muted-foreground">

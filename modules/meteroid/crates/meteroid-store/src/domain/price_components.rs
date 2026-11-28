@@ -483,6 +483,14 @@ pub enum UsagePricingModel {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         multiplier: Option<rust_decimal::Decimal>,
     },
+    /// `percent` of the amount the metric sums (2.9 of payment volume). A free tier is a
+    /// credit the plan grants.
+    Percentage {
+        percent: rust_decimal::Decimal,
+    },
+    /// The amount the metric sums, in major units of the price currency (12.34, not 1234), billed
+    /// as is: each event carries its own price.
+    Dynamic,
 }
 
 impl UsagePricingModel {
@@ -505,6 +513,8 @@ impl UsagePricingModel {
             UsagePricingModel::RateCard { multiplier, .. } => {
                 multiplier.is_none_or(|multiplier| !multiplier.is_zero())
             }
+            UsagePricingModel::Percentage { percent } => positive(percent),
+            UsagePricingModel::Dynamic => true,
         }
     }
 
@@ -1082,6 +1092,11 @@ impl RatingModel {
             UsagePricingModel::DimensionRates(_) | UsagePricingModel::RateCard { .. } => {
                 return Err(StoreError::InvalidArgument(
                     "a count has no dimensions to price by".to_owned(),
+                ));
+            }
+            UsagePricingModel::Percentage { .. } | UsagePricingModel::Dynamic => {
+                return Err(StoreError::InvalidArgument(
+                    "a count is not an amount to take a share of".to_owned(),
                 ));
             }
         })

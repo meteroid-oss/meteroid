@@ -240,6 +240,12 @@ export function invoicePreview(
           const { parts, total } = tierLines(q, usage, u)
           return result([main(usage(q), total), ...parts])
         }
+        case 'percentage':
+          return result([
+            main(`${values.percent || 0}% of ${m(q)}`, q.mul(dec(values.percent)).div(100)),
+          ])
+        case 'dynamic':
+          return result([main(`${m(q)} priced by its events`, q)])
         case 'package': {
           const size = dec(values.blockSize)
           if (size.isZero()) return undefined

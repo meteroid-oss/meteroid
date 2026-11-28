@@ -14,6 +14,8 @@ const USAGE_MODELS: Record<FeeStructure_UsageModel, string> = {
   [FeeStructure_UsageModel.MATRIX]: 'by dimension',
   [FeeStructure_UsageModel.DIMENSION_RATES]: 'by dimension',
   [FeeStructure_UsageModel.RATE_CARD]: 'by rate card',
+  [FeeStructure_UsageModel.PERCENTAGE]: 'percentage of amount',
+  [FeeStructure_UsageModel.DYNAMIC]: 'price from events',
 }
 
 /** What a product charges for, in plain words: "Seats · counts seat", "Usage · Tokens · tiered". */

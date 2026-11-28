@@ -32763,6 +32763,23 @@
           "next_invoice"
         ]
       },
+      "DynamicModel": {
+        "type": "object",
+        "description": "The amount the metric sums, in major units of the price currency (12.34, not 1234), billed\nas is: each event carries its own price.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "dynamic"
+            ],
+            "description": "`dynamic`: names this variant of `PriceModel`."
+          }
+        },
+        "additionalProperties": false
+      },
       "EInvoicingStatus": {
         "type": "string",
         "description": "Whether the structured e-invoice was produced with the PDF: `generated`, or `failed` when\nthe document did not satisfy the standard (the PDF was issued all the same).",
@@ -37543,6 +37560,29 @@
         },
         "additionalProperties": false
       },
+      "PercentageModel": {
+        "type": "object",
+        "description": "A share of the amount the metric sums (payment volume), in major units of the price currency.\nA free tier is a credit the plan grants.",
+        "required": [
+          "percent",
+          "type"
+        ],
+        "properties": {
+          "percent": {
+            "type": "string",
+            "format": "decimal",
+            "description": "2.9 for 2.9%, from 0 to 100."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "percentage"
+            ],
+            "description": "`percentage`: names this variant of `PriceModel`."
+          }
+        },
+        "additionalProperties": false
+      },
       "Plan": {
         "type": "object",
         "description": "A plan: a price sheet sold in versions. Its live fields (name, description, listing) change\nin place; what it bills is in its versions, written through a draft and published.",
@@ -38350,18 +38390,26 @@
           },
           {
             "$ref": "#/components/schemas/LevelsModel"
+          },
+          {
+            "$ref": "#/components/schemas/PercentageModel"
+          },
+          {
+            "$ref": "#/components/schemas/DynamicModel"
           }
         ],
-        "description": "How a price turns the quantity into an amount, by `type`: `per_unit`, every unit at one\nprice; `graduated`, each unit at the tier it falls in; `volume`, every unit at the tier the\ntotal reaches; `package`, by packages, a started one billed whole; `flat`, one amount;\n`dimension_rates`, usage at rates by its dimensions; `rate_card`, usage at a rate card's\ndated rates; `levels`, levels a buyer picks. `flat` prices a quantity of 1 only;\n`dimension_rates`, `rate_card` and `levels` metered usage only.",
+        "description": "How a price turns the quantity into an amount, by `type`: `per_unit`, every unit at one\nprice; `graduated`, each unit at the tier it falls in; `volume`, every unit at the tier the\ntotal reaches; `package`, by packages, a started one billed whole; `flat`, one amount;\n`dimension_rates`, usage at rates by its dimensions; `rate_card`, usage at a rate card's\ndated rates; `levels`, levels a buyer picks; `percentage`, a share of the amount the metric\nsums; `dynamic`, that amount as is. `flat` prices a quantity of 1 only; `dimension_rates`,\n`rate_card`, `levels`, `percentage` and `dynamic` metered usage only.",
         "discriminator": {
           "propertyName": "type",
           "mapping": {
             "dimension_rates": "#/components/schemas/DimensionRatesModel",
+            "dynamic": "#/components/schemas/DynamicModel",
             "flat": "#/components/schemas/FlatModel",
             "graduated": "#/components/schemas/GraduatedModel",
             "levels": "#/components/schemas/LevelsModel",
             "package": "#/components/schemas/PackageModel",
             "per_unit": "#/components/schemas/PerUnitModel",
+            "percentage": "#/components/schemas/PercentageModel",
             "rate_card": "#/components/schemas/RateCardModel",
             "volume": "#/components/schemas/VolumeModel"
           }

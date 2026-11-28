@@ -86,6 +86,8 @@ export function extractStructuralInfo(
         [FeeStructure_UsageModel.MATRIX]: 'dimension_rates',
         [FeeStructure_UsageModel.DIMENSION_RATES]: 'dimension_rates',
         [FeeStructure_UsageModel.RATE_CARD]: 'rate_card',
+        [FeeStructure_UsageModel.PERCENTAGE]: 'percentage',
+        [FeeStructure_UsageModel.DYNAMIC]: 'dynamic',
       }
       return {
         metricId: structure.value.metricId,
@@ -122,6 +124,8 @@ const usageModelProtoToForm: Record<string, string> = {
   dimensionRates: 'dimension_rates',
   matrix: 'dimension_rates',
   rateCard: 'rate_card',
+  percentage: 'percentage',
+  dynamic: 'dynamic',
 }
 
 export function buildDefaults(

@@ -135,6 +135,8 @@ const usageModelProtoToForm: Record<string, string> = {
   // Read by the server as rates by dimension; kept for data cached before.
   matrix: 'dimension_rates',
   rateCard: 'rate_card',
+  percentage: 'percentage',
+  dynamic: 'dynamic',
 }
 
 const periodToCadence = (

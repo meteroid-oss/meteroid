@@ -157,6 +157,10 @@ export const priceText = (
           }
         case 'dimensionRates':
           return { main: 'By dimension', suffix: `${model.value.rates.length} rates` }
+        case 'percentage':
+          return { main: `${model.value.percent}%`, suffix: 'of the amount' }
+        case 'dynamic':
+          return { main: 'Price from events' }
         case 'rateCard':
           return {
             main: 'By dimension, rate card',

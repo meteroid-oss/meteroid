@@ -24040,6 +24040,27 @@
           }
         }
       },
+      "PercentagePricing": {
+        "type": "object",
+        "description": "A share of the amount the metric sums (payment volume), in major units of the price currency.",
+        "required": [
+          "percent",
+          "type"
+        ],
+        "properties": {
+          "percent": {
+            "type": "string",
+            "format": "decimal",
+            "description": "\"2.9\" for 2.9%."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "PERCENTAGE"
+            ]
+          }
+        }
+      },
       "Plan": {
         "type": "object",
         "required": [
@@ -24416,6 +24437,24 @@
           },
           {
             "$ref": "#/components/schemas/DimensionRatesPlanPricing"
+          },
+          {
+            "$ref": "#/components/schemas/PercentagePricing"
+          },
+          {
+            "type": "object",
+            "description": "The amount the metric sums, in major units of the price currency (12.34, not 1234), billed\nas is: each event carries its own price.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "DYNAMIC"
+                ]
+              }
+            }
           }
         ],
         "discriminator": {
@@ -24424,6 +24463,7 @@
             "DIMENSION_RATES": "#/components/schemas/DimensionRatesPlanPricing",
             "MATRIX": "#/components/schemas/MatrixPlanPricing",
             "PACKAGE": "#/components/schemas/PackagePlanPricing",
+            "PERCENTAGE": "#/components/schemas/PercentagePricing",
             "PER_UNIT": "#/components/schemas/PerUnitPlanPricing",
             "RATE_CARD": "#/components/schemas/RateCardPlanPricing",
             "TIERED": "#/components/schemas/TieredPlanPricing",
@@ -29389,7 +29429,9 @@
           "PACKAGE",
           "MATRIX",
           "RATE_CARD",
-          "DIMENSION_RATES"
+          "DIMENSION_RATES",
+          "PERCENTAGE",
+          "DYNAMIC"
         ]
       },
       "UsagePlanFee": {
@@ -29470,6 +29512,24 @@
           },
           {
             "$ref": "#/components/schemas/DimensionRatesPlanPricing"
+          },
+          {
+            "$ref": "#/components/schemas/PercentagePricing"
+          },
+          {
+            "type": "object",
+            "description": "The amount the metric sums, in major units of the price currency (12.34, not 1234), billed\nas is: each event carries its own price.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "DYNAMIC"
+                ]
+              }
+            }
           }
         ],
         "discriminator": {
@@ -29478,6 +29538,7 @@
             "DIMENSION_RATES": "#/components/schemas/DimensionRatesPlanPricing",
             "MATRIX": "#/components/schemas/MatrixPricing",
             "PACKAGE": "#/components/schemas/PackagePricing",
+            "PERCENTAGE": "#/components/schemas/PercentagePricing",
             "PER_UNIT": "#/components/schemas/PerUnitPricing",
             "RATE_CARD": "#/components/schemas/RateCardPricing",
             "TIERED": "#/components/schemas/TieredPricing",

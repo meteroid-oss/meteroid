@@ -122,6 +122,10 @@ export function PricingFields({
       return <PackagePricingFields control={control} currency={currency} />
     case 'rateCard':
       return <RateCardPricingFields control={control} metricId={metricId} />
+    case 'percentage':
+      return <PercentagePricingFields control={control} />
+    case 'dynamic':
+      return <DynamicPricingNote />
     case 'dimensionRates':
       return <DimensionRatesFields control={control} currency={currency} metricId={metricId} />
     case 'credit':
@@ -715,6 +719,34 @@ function PackagePricingFields({
     </div>
   )
 }
+
+const SUMMED_AMOUNT =
+  'The metric must sum an amount in major units of the price currency, such as each payment\'s amount: 12.34, not 1234 cents.'
+
+/** A share of the amount the metric sums. A free tier is a credit the plan grants. */
+export function PercentagePricingFields({ control }: { control: Control<FieldValues> }) {
+  return (
+    <div className="space-y-2">
+      <InputFormField
+        name="percent"
+        label="Percentage of the amount"
+        labelTooltip={SUMMED_AMOUNT}
+        placeholder="2.9"
+        className="max-w-xs"
+        control={control}
+      />
+      <p className="text-xs text-muted-foreground">
+        For a free tier, include credit in the plan: it covers the first fees each period.
+      </p>
+    </div>
+  )
+}
+
+export const DynamicPricingNote = () => (
+  <p className="text-sm text-muted-foreground">
+    Each event carries its own price: the amount the metric sums is billed as is. {SUMMED_AMOUNT}
+  </p>
+)
 
 // --- Rates by dimension, held by the price ---
 

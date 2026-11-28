@@ -530,6 +530,10 @@ export function customerPays(
       const count = s.source === 'fixed' ? dec(values.quantity ?? 1) : q
       return count.div(block).ceil().mul(dec(values.packagePrice))
     }
+    case 'percentage':
+      return q.mul(dec(values.percent)).div(100)
+    case 'dynamic':
+      return q
     case 'included': {
       // Several levels: the customer picks one, so no single amount is what they pay.
       const levels = (values.thresholds as LevelRow[] | undefined) ?? []

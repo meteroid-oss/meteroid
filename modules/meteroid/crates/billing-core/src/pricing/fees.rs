@@ -259,6 +259,7 @@ fn share(value: Decimal, part: Decimal, whole: Decimal) -> Result<Decimal, Prici
 pub fn usage_amount(model: &UsageModel, usage_units: Decimal) -> Option<Decimal> {
     Some(match model {
         UsageModel::PerUnit { rate } => rate * usage_units,
+        UsageModel::Percentage { rate } => rate * usage_units,
         UsageModel::Package { block_size, rate } => {
             if *block_size == 0 {
                 return Some(Decimal::ZERO);
@@ -289,7 +290,7 @@ pub fn usage_price(
     let minor = to_minor(amount, precision)?;
     // Per-unit usage keeps its sign, as its line does (a reversal priced negative); the other
     // models bill nothing below zero.
-    let minor = if matches!(model, UsageModel::PerUnit { .. }) {
+    let minor = if model.is_signed() {
         minor
     } else {
         minor.max(0)

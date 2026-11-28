@@ -1681,6 +1681,19 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                 })
                 .collect();
             pieces = merged;
+        } else if pieces.len() > 1 {
+            // A row priced once per period replaced by one priced part by part is a part of its
+            // own: its allowance is its share of the days (R-135).
+            for piece in pieces.iter_mut() {
+                if !self.pricer.per_part(&piece.row.fee) {
+                    piece.allowance = DaySpan {
+                        period: billed.nominal,
+                        from: piece.from,
+                        until: piece.until,
+                    }
+                    .fraction();
+                }
+            }
         }
         for piece in pieces {
             self.queue(piece, usage_pieces, out);

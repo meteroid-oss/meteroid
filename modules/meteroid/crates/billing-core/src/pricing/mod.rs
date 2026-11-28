@@ -57,6 +57,10 @@ pub enum UsageModel {
     },
     /// Rates by dimension: a shared card's, or a price's own (entries in force from always).
     RateCard(CardRates),
+    /// `rate` (a fraction: 0.029 for 2.9%) of the amount the metric sums.
+    Percentage {
+        rate: Decimal,
+    },
 }
 
 /// A rate card's entries in the price's currency as a usage price reads them, each rate per
@@ -74,6 +78,18 @@ pub struct CardRates {
 }
 
 impl UsageModel {
+    /// Whether usage netting negative (a share of revenue net of refunds) credits the invoice;
+    /// every other model bills only positive usage.
+    pub fn is_signed(&self) -> bool {
+        match self {
+            UsageModel::PerUnit { .. } | UsageModel::Percentage { .. } => true,
+            UsageModel::Tiered { .. }
+            | UsageModel::Volume { .. }
+            | UsageModel::Package { .. }
+            | UsageModel::RateCard(_) => false,
+        }
+    }
+
     /// Decimal places to round this model's billable quantity to, at currency `precision`.
     ///
     /// Linear models (per-unit, graduated tiers) use the price-derived `quantity_scale` of
@@ -83,6 +99,10 @@ impl UsageModel {
     pub fn billable_quantity_scale(&self, precision: u8) -> u32 {
         match self {
             UsageModel::PerUnit { rate } => quantity_scale(*rate, precision),
+            // The quantity is an amount of money, shown and billed to the minor unit at least.
+            UsageModel::Percentage { rate } => {
+                quantity_scale(*rate, precision).max(u32::from(precision))
+            }
             UsageModel::Tiered { tiers, .. } => tiers
                 .iter()
                 .map(|t| t.rate)

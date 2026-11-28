@@ -555,6 +555,14 @@ pub struct RateCardPlanPricing {
     pub multiplier: Option<Decimal>,
 }
 
+/// A share of the amount the metric sums (payment volume), in major units of the price currency.
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub struct PercentagePricing {
+    /// "2.9" for 2.9%.
+    #[schema(value_type = String, format = "decimal")]
+    pub percent: Decimal,
+}
+
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 #[schema(as = PlanUsagePricingModel)]
@@ -566,6 +574,10 @@ pub enum UsagePricingModel {
     Matrix(MatrixPlanPricing),
     RateCard(RateCardPlanPricing),
     DimensionRates(DimensionRatesPlanPricing),
+    Percentage(PercentagePricing),
+    /// The amount the metric sums, in major units of the price currency (12.34, not 1234), billed
+    /// as is: each event carries its own price.
+    Dynamic,
 }
 
 #[derive(o2o, Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]

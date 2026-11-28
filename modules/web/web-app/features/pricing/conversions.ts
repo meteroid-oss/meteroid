@@ -140,6 +140,10 @@ export function toPricingTypeFromFeeType(
         return 'dimensionRates'
       case 'rate_card':
         return 'rateCard'
+      case 'percentage':
+        return 'percentage'
+      case 'dynamic':
+        return 'dynamic'
       default:
         return 'perUnit'
     }
@@ -210,6 +214,8 @@ export function buildPriceInputs(
     pricingType === 'package' ||
     pricingType === 'dimensionRates' ||
     pricingType === 'rateCard' ||
+    pricingType === 'percentage' ||
+    pricingType === 'dynamic' ||
     pricingType === 'extraRecurring' ||
     pricingType === 'credit'
   ) {
@@ -278,6 +284,8 @@ export function buildFeeStructure(
         dimension_rates: FeeStructure_UsageModel.DIMENSION_RATES,
         matrix: FeeStructure_UsageModel.DIMENSION_RATES,
         rate_card: FeeStructure_UsageModel.RATE_CARD,
+        percentage: FeeStructure_UsageModel.PERCENTAGE,
+        dynamic: FeeStructure_UsageModel.DYNAMIC,
       }
       return create(FeeStructureSchema, {
         structure: {

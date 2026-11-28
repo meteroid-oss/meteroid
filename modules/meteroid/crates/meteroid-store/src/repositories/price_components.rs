@@ -73,7 +73,8 @@ pub(crate) fn adds_up(aggregation: BillingMetricAggregateEnum) -> bool {
 }
 
 /// Refuses rates by dimension among `pricings` of a fee of `structure` whose metric does not add
-/// up (see [`adds_up`]), as a rate card refuses it.
+/// up (see [`adds_up`]), as a rate card refuses it; and a percentage or a price from events whose
+/// metric does not sum an amount.
 pub(crate) async fn ensure_dimension_rates_add_up<'a>(
     conn: &mut PgConn,
     tenant_id: TenantId,
@@ -83,23 +84,39 @@ pub(crate) async fn ensure_dimension_rates_add_up<'a>(
     let FeeStructure::Usage { metric_id, .. } = structure else {
         return Ok(());
     };
-    if !pricings.into_iter().any(rates_by_dimension) {
+    let pricings: Vec<&Pricing> = pricings.into_iter().collect();
+    let by_dimension = pricings.iter().any(|pricing| rates_by_dimension(pricing));
+    let of_amount = pricings.iter().any(|pricing| priced_on_amount(pricing));
+    if !by_dimension && !of_amount {
         return Ok(());
     }
     let metric = BillableMetricRow::find_by_id(conn, *metric_id, tenant_id).await?;
-    if adds_up(metric.aggregation_type) {
-        return Ok(());
+    if by_dimension && !adds_up(metric.aggregation_type.clone()) {
+        return Err(Report::new(StoreError::InvalidArgument(format!(
+            "rates by dimension price a metric that adds up, a sum or a count: '{}' does not",
+            metric.name
+        ))));
     }
-    Err(Report::new(StoreError::InvalidArgument(format!(
-        "rates by dimension price a metric that adds up, a sum or a count: '{}' does not",
-        metric.name
-    ))))
+    if of_amount && !matches!(metric.aggregation_type, BillingMetricAggregateEnum::Sum) {
+        return Err(Report::new(StoreError::InvalidArgument(format!(
+            "a percentage or a price from events bills an amount the metric sums: '{}' is not a sum",
+            metric.name
+        ))));
+    }
+    Ok(())
 }
 
 fn rates_by_dimension(pricing: &Pricing) -> bool {
     matches!(
         pricing,
         Pricing::Usage(UsagePricingModel::DimensionRates(_))
+    )
+}
+
+fn priced_on_amount(pricing: &Pricing) -> bool {
+    matches!(
+        pricing,
+        Pricing::Usage(UsagePricingModel::Percentage { .. } | UsagePricingModel::Dynamic)
     )
 }
 

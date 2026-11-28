@@ -16,6 +16,8 @@ message UsageFee {
     meteroid.api.prices.v1.UsagePricing.MatrixPricing matrix = 6;
     meteroid.api.prices.v1.UsagePricing.RateCardPricing rate_card = 8;
     meteroid.api.prices.v1.UsagePricing.DimensionRatesPricing dimension_rates = 9;
+    meteroid.api.prices.v1.UsagePricing.PercentagePricing percentage = 10;
+    meteroid.api.prices.v1.UsagePricing.DynamicPricing dynamic = 11;
   }
   meteroid.api.shared.v1.BillingPeriod term = 7;
 }

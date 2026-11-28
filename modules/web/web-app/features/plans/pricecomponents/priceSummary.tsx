@@ -36,7 +36,11 @@ export function deriveSummary(prices: Price[]): PriceSummary {
                 ? 'Package'
                 : model.case === 'dimensionRates' || model.case === 'rateCard'
                   ? 'By dimension'
-                  : 'Usage'
+                  : model.case === 'percentage'
+                    ? 'Percentage'
+                    : model.case === 'dynamic'
+                      ? 'Price from events'
+                      : 'Usage'
       return { pricingModel: modelName, cadence: cadenceStr }
     }
     case 'extraRecurringPricing': {

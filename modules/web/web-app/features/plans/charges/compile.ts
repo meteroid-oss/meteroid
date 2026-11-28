@@ -15,6 +15,8 @@ export type RatingModel =
   | 'volume'
   | 'package'
   | 'by_dimension'
+  | 'percentage'
+  | 'dynamic'
   | 'included'
   | 'credit_pack'
 export type Recurrence = 'recurring' | 'one_time'
@@ -69,6 +71,8 @@ export const MODEL_LABELS: Record<RatingModel, string> = {
   volume: 'Volume',
   package: 'Package',
   by_dimension: 'By dimension',
+  percentage: 'Percentage',
+  dynamic: 'Price from events',
   included: 'Included + overage',
   credit_pack: 'Credit pack',
 }
@@ -80,7 +84,16 @@ export function modelsFor(source: QuantitySource): RatingModel[] {
     case 'seats':
       return ['per_unit', 'tiered', 'volume', 'package']
     case 'metered':
-      return ['per_unit', 'tiered', 'volume', 'package', 'by_dimension', 'included']
+      return [
+        'per_unit',
+        'tiered',
+        'volume',
+        'package',
+        'by_dimension',
+        'percentage',
+        'dynamic',
+        'included',
+      ]
   }
 }
 
@@ -199,6 +212,8 @@ function modelFields(model: RatingModel, values: ChargeValues): ChargeValues {
       return { rows: values.rows ?? [] }
     case 'package':
       return pick(values, ['packagePrice', 'blockSize'])
+    case 'percentage':
+      return pick(values, ['percent'])
     case 'by_dimension':
       return values.rateSource === 'card'
         ? pick(values, ['rateCardId', 'markup'])
@@ -399,6 +414,10 @@ export function chargeDefaults(shape: ChargeShape): ChargeValues {
         ...pricingDefaults('dimensionRates'),
         ...pricingDefaults('rateCard'),
       }
+    case 'percentage':
+      return { ...common, ...pricingDefaults('percentage') }
+    case 'dynamic':
+      return common
     case 'included':
       return { ...common, thresholds: [{ included: 0, rate: '0.00', overageRate: '0.00000000' }] }
     case 'credit_pack':

@@ -121,3 +121,14 @@ describe('sampleRange', () => {
     expect(sampleRange(usage, {}, { conversionFactor: 1_000_000 }).initial).toBe(10)
   })
 })
+
+describe('invoicePreview of an amount', () => {
+  it('prices a percentage on the amount, and a price from events as the amount', () => {
+    const percentage = invoicePreview({ ...usage, model: 'percentage' }, { percent: '2.9' }, sample, ctx)
+    expect(percentage?.total.toString()).toBe('72.5')
+    expect(percentage?.lines[0].detail).toBe('2.9% of $2,500.00')
+    const dynamic = invoicePreview({ ...usage, model: 'dynamic' }, {}, sample, ctx)
+    expect(dynamic?.total.toString()).toBe('2500')
+    expect(dynamic?.lines[0].detail).toBe('$2,500.00 priced by its events')
+  })
+})

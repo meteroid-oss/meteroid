@@ -260,6 +260,14 @@ pub mod prices {
                 rate_card_id: rate_card_id.as_proto(),
                 multiplier: multiplier.map(|m| m.as_proto()),
             }),
+            UsagePricingModel::Percentage { percent } => {
+                proto::usage_pricing::Model::Percentage(proto::usage_pricing::PercentagePricing {
+                    percent: percent.as_proto(),
+                })
+            }
+            UsagePricingModel::Dynamic => {
+                proto::usage_pricing::Model::Dynamic(proto::usage_pricing::DynamicPricing {})
+            }
         };
         proto::UsagePricing {
             model: Some(model_oneof),
@@ -446,6 +454,12 @@ pub mod prices {
             Some(proto::usage_pricing::Model::DimensionRates(rates)) => Ok(
                 UsagePricingModel::DimensionRates(dimension_rates_from_proto(rates)?),
             ),
+            Some(proto::usage_pricing::Model::Percentage(percentage)) => {
+                Ok(UsagePricingModel::Percentage {
+                    percent: Decimal::from_proto_ref(&percentage.percent)?,
+                })
+            }
+            Some(proto::usage_pricing::Model::Dynamic(_)) => Ok(UsagePricingModel::Dynamic),
             // Deprecated: a matrix is read as its rates by dimension.
             Some(proto::usage_pricing::Model::Matrix(matrix)) => {
                 let cells = matrix
@@ -644,6 +658,29 @@ mod tests {
     use meteroid_grpc::meteroid::api::prices::v1 as proto;
     use meteroid_store::domain::price_components::UsagePricingModel;
     use rust_decimal_macros::dec;
+
+    #[test]
+    fn a_percentage_and_a_price_from_events_read_back_as_sent() {
+        let percentage = proto::UsagePricing {
+            model: Some(proto::usage_pricing::Model::Percentage(
+                proto::usage_pricing::PercentagePricing {
+                    percent: "2.9".to_owned(),
+                },
+            )),
+        };
+        let read = usage_model_from_proto(&percentage).unwrap();
+        assert!(matches!(read, UsagePricingModel::Percentage { percent } if percent == dec!(2.9)));
+        assert_eq!(usage_model_to_proto(&read), percentage);
+
+        let dynamic = proto::UsagePricing {
+            model: Some(proto::usage_pricing::Model::Dynamic(
+                proto::usage_pricing::DynamicPricing {},
+            )),
+        };
+        let read = usage_model_from_proto(&dynamic).unwrap();
+        assert!(matches!(read, UsagePricingModel::Dynamic));
+        assert_eq!(usage_model_to_proto(&read), dynamic);
+    }
 
     /// A matrix sent by an older client is read as rates by dimension, returned as such.
     #[test]

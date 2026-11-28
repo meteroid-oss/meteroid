@@ -337,6 +337,17 @@ pub fn max_discount_percent(quote: &DetailedQuote, coupons: &[Coupon]) -> Option
         .max()
 }
 
+/// Whether a line discount can take down `fee`'s prices: a price from events has none of its own.
+pub fn takes_discount(fee: &SubscriptionFee) -> bool {
+    !matches!(
+        fee,
+        SubscriptionFee::Usage {
+            model: UsagePricingModel::Dynamic,
+            ..
+        }
+    )
+}
+
 /// The fee with every price taken down by `percent`, rounded half away from zero. Flat amounts
 /// (packages, tier flat fees and caps) round to the currency's precision; unit rates, tier rates
 /// included, keep two more decimals than they had.
@@ -398,6 +409,9 @@ pub fn discount_fee(fee: &SubscriptionFee, percent: Decimal, precision: u32) -> 
             UsagePricingModel::RateCard { multiplier, .. } => {
                 *multiplier = Some(unit(&multiplier.unwrap_or(Decimal::ONE)));
             }
+            UsagePricingModel::Percentage { percent } => *percent = unit(percent),
+            // Refused by `takes_discount`.
+            UsagePricingModel::Dynamic => {}
         },
     }
     fee
@@ -644,6 +658,42 @@ mod tests {
             } => assert_eq!(rate, dec!(0.00135)),
             _ => panic!("still a per-unit usage fee"),
         }
+    }
+
+    fn usage(model: UsagePricingModel) -> SubscriptionFee {
+        SubscriptionFee::Usage {
+            metric_id: common_domain::ids::BillableMetricId::default(),
+            model,
+            credit_unit: None,
+        }
+    }
+
+    /// 10% off 2.9% is 2.61%.
+    #[test]
+    fn a_percentage_discount_lowers_the_percent() {
+        let fee = discount_fee(
+            &usage(UsagePricingModel::Percentage { percent: dec!(2.9) }),
+            dec!(10),
+            2,
+        );
+        match fee {
+            SubscriptionFee::Usage {
+                model: UsagePricingModel::Percentage { percent },
+                ..
+            } => assert_eq!(percent, dec!(2.61)),
+            _ => panic!("still a percentage"),
+        }
+    }
+
+    #[test]
+    fn only_a_price_from_events_takes_no_discount() {
+        assert!(!takes_discount(&usage(UsagePricingModel::Dynamic)));
+        assert!(takes_discount(&usage(UsagePricingModel::Percentage {
+            percent: dec!(2.9)
+        })));
+        assert!(takes_discount(&usage(UsagePricingModel::PerUnit {
+            rate: dec!(1)
+        })));
     }
 
     #[test]

@@ -964,6 +964,12 @@ pub enum UsagePricingModel {
     RateCard(RateCardPricing),
     #[serde(rename = "DIMENSION_RATES")]
     DimensionRates(DimensionRatesPlanPricing),
+    #[serde(rename = "PERCENTAGE")]
+    Percentage(crate::plans::model::PercentagePricing),
+    /// The amount the metric sums, in major units of the price currency (12.34, not 1234), billed
+    /// as is: each event carries its own price.
+    #[serde(rename = "DYNAMIC")]
+    Dynamic,
 }
 
 impl From<meteroid_store::domain::price_components::UsagePricingModel> for UsagePricingModel {
@@ -998,6 +1004,10 @@ impl From<meteroid_store::domain::price_components::UsagePricingModel> for Usage
                 rate_card_id,
                 multiplier,
             }),
+            DomainModel::Percentage { percent } => {
+                UsagePricingModel::Percentage(crate::plans::model::PercentagePricing { percent })
+            }
+            DomainModel::Dynamic => UsagePricingModel::Dynamic,
         }
     }
 }
@@ -1027,6 +1037,8 @@ impl From<UsagePricingModel> for meteroid_store::domain::price_components::Usage
                 rate_card_id: p.rate_card_id,
                 multiplier: p.multiplier,
             },
+            UsagePricingModel::Percentage(p) => DomainModel::Percentage { percent: p.percent },
+            UsagePricingModel::Dynamic => DomainModel::Dynamic,
         }
     }
 }

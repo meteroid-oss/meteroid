@@ -141,6 +141,10 @@ export function summarizeCharge(
         }
         case 'package':
           return `${usage(values.packagePrice)} per ${count(values.blockSize)} units${of}, ${arrears}`
+        case 'percentage':
+          return `${values.percent || 0}% of the amount${of}, ${arrears}`
+        case 'dynamic':
+          return `The amount${of}, priced by its events, ${arrears}`
         case 'by_dimension': {
           if (values.rateSource === 'card') {
             const rates = cardRatesLabel(String(values.markup ?? ''))

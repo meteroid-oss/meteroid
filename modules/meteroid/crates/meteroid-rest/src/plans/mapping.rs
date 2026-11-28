@@ -3,8 +3,8 @@ use crate::entitlements::mapping::entitlement_to_rest;
 use crate::plans::model::{
     AvailableParameters, BillingPeriodEnum, CapacityPlanFee, CapacityThreshold, CreditExpiryUnit,
     CreditPackExpiry, CreditPackRollover, CreditPlanFee, ExtraRecurringPlanFee, Fee,
-    MatrixPlanPricing, OneTimePlanFee, PackagePlanPricing, PerUnitPlanPricing, Plan,
-    PlanFeeCreditUnit, PlanOption, PlanVersionSummary, PriceComponent, PriceComponentInput,
+    MatrixPlanPricing, OneTimePlanFee, PackagePlanPricing, PerUnitPlanPricing, PercentagePricing,
+    Plan, PlanFeeCreditUnit, PlanOption, PlanVersionSummary, PriceComponent, PriceComponentInput,
     ProductFamily, RateCardPlanPricing, RatePlanFee, SlotPlanFee, TermRate, TierRow,
     TieredPlanPricing, TrialConfig, UsagePlanFee, UsagePricingModel, VolumePlanPricing,
 };
@@ -505,6 +505,10 @@ fn usage_pricing_to_rest(
             rate_card_id: *rate_card_id,
             multiplier: *multiplier,
         }),
+        domain::price_components::UsagePricingModel::Percentage { percent } => {
+            UsagePricingModel::Percentage(PercentagePricing { percent: *percent })
+        }
+        domain::price_components::UsagePricingModel::Dynamic => UsagePricingModel::Dynamic,
     }
 }
 
@@ -859,6 +863,8 @@ fn rest_usage_pricing_to_domain(
             rate_card_id: p.rate_card_id,
             multiplier: p.multiplier,
         },
+        UsagePricingModel::Percentage(p) => D::Percentage { percent: p.percent },
+        UsagePricingModel::Dynamic => D::Dynamic,
     }
 }
 
